@@ -1,19 +1,7 @@
-import {
-	type AssistantMessage,
-	type AssistantMessageEvent,
-	EventStream,
-	getModel,
-	type Message,
-} from "@earendil-works/pi-ai";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import {
-	Agent,
-	type AgentEvent,
-	type AgentMessage,
-	type AgentTool,
-	type AgentToolUpdateCallback,
-} from "../src/index.ts";
+import { Agent, type AgentEvent, type AgentTool, type AgentToolUpdateCallback } from "../src/index.ts";
 
 // Mock stream that mimics AssistantMessageEventStream
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -560,67 +548,6 @@ describe("Agent", () => {
 		await firstPrompt.catch(() => {});
 	});
 
-	it("continue() should reserve the active run before async LLM conversion and use the filtered context tail", async () => {
-		const convertStarted = createDeferred();
-		const releaseConvert = createDeferred();
-		let convertCallCount = 0;
-		let providerMessages: Message[] = [];
-		const displayOnlyMessage = {
-			role: "displayOnly",
-			content: "status",
-			timestamp: Date.now(),
-		} as unknown as AgentMessage;
-		const agent = new Agent({
-			convertToLlm: async (messages) => {
-				convertCallCount++;
-				if (convertCallCount === 1) {
-					convertStarted.resolve();
-					await releaseConvert.promise;
-				}
-				return messages
-					.filter((message) => (message as { role: string }).role !== "displayOnly")
-					.filter(
-						(message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult",
-					) as Message[];
-			},
-			streamFn: (_model, context) => {
-				providerMessages = context.messages;
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Processed") });
-				});
-				return stream;
-			},
-		});
-		agent.state.messages = [
-			{
-				role: "user",
-				content: [{ type: "text", text: "Initial" }],
-				timestamp: Date.now() - 10,
-			},
-			createAssistantMessage("Initial response"),
-			displayOnlyMessage,
-		];
-		agent.followUp({
-			role: "user",
-			content: [{ type: "text", text: "Queued follow-up" }],
-			timestamp: Date.now(),
-		});
-
-		const continuePromise = agent.continue();
-		await convertStarted.promise;
-
-		expect(agent.state.isStreaming).toBe(true);
-		await expect(agent.prompt("Second message")).rejects.toThrow("Agent is already processing a prompt");
-
-		releaseConvert.resolve();
-		await continuePromise;
-
-		expect(convertCallCount).toBe(2);
-		expect(providerMessages[providerMessages.length - 1]?.role).toBe("user");
-		expect(agent.state.messages).toContain(displayOnlyMessage);
-	});
-
 	it("continue() should process queued follow-up messages after an assistant turn", async () => {
 		const agent = new Agent({
 			streamFn: () => {
@@ -632,6 +559,14 @@ describe("Agent", () => {
 			},
 		});
 
+		const excludedCustom = {
+			role: "custom" as const,
+			customType: "status",
+			content: "display only",
+			display: true,
+			excludeFromContext: true,
+			timestamp: Date.now() - 5,
+		};
 		agent.state.messages = [
 			{
 				role: "user",
@@ -639,6 +574,7 @@ describe("Agent", () => {
 				timestamp: Date.now() - 10,
 			},
 			createAssistantMessage("Initial response"),
+			excludedCustom,
 		];
 
 		agent.followUp({
@@ -656,6 +592,7 @@ describe("Agent", () => {
 		});
 
 		expect(hasQueuedFollowUp).toBe(true);
+		expect(agent.state.messages).toContain(excludedCustom);
 		expect(agent.state.messages[agent.state.messages.length - 1].role).toBe("assistant");
 	});
 

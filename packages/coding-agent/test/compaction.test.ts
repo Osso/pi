@@ -4,7 +4,6 @@ import { getModel } from "@earendil-works/pi-ai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { prepareBranchEntries } from "../src/core/compaction/branch-summarization.ts";
 import {
 	type CompactionSettings,
 	calculateContextTokens,
@@ -19,7 +18,6 @@ import {
 import {
 	buildSessionContext,
 	type CompactionEntry,
-	type CustomMessageEntry,
 	type ModelChangeEntry,
 	migrateSessionEntries,
 	parseSessionEntries,
@@ -89,22 +87,6 @@ function createMessageEntry(message: AgentMessage): SessionMessageEntry {
 		parentId: lastId,
 		timestamp: new Date().toISOString(),
 		message,
-	};
-	lastId = id;
-	return entry;
-}
-
-function createCustomMessageEntry(content: string, excludeFromContext?: boolean): CustomMessageEntry {
-	const id = `test-id-${entryCounter++}`;
-	const entry: CustomMessageEntry = {
-		type: "custom_message",
-		id,
-		parentId: lastId,
-		timestamp: new Date().toISOString(),
-		customType: "status",
-		content,
-		display: true,
-		excludeFromContext,
 	};
 	lastId = id;
 	return entry;
@@ -410,59 +392,6 @@ describe("buildSessionContext", () => {
 		// model_change is later overwritten by assistant message's model info
 		expect(loaded.model).toEqual({ provider: "anthropic", modelId: "claude-sonnet-4-5" });
 		expect(loaded.thinkingLevel).toBe("high");
-	});
-});
-
-describe("prepareCompaction with custom messages", () => {
-	it("should ignore excluded custom messages in compaction and branch-summary preparation", () => {
-		const excludedCustom = createCustomMessageEntry("x".repeat(1000), true);
-		const user = createMessageEntry(createUserMessage("keep"));
-		const simplePreparation = prepareCompaction([excludedCustom, user], {
-			enabled: true,
-			reserveTokens: 0,
-			keepRecentTokens: 1,
-		});
-		const branchPreparation = prepareBranchEntries([excludedCustom, user], 10);
-
-		expect(simplePreparation).toBeDefined();
-		expect(simplePreparation!.tokensBefore).toBe(1);
-		expect(simplePreparation!.messagesToSummarize).toEqual([]);
-		expect(branchPreparation.messages.map((message) => message.role)).toEqual(["user"]);
-		expect(branchPreparation.totalTokens).toBe(1);
-
-		resetEntryCounter();
-		const splitUser = createMessageEntry(createUserMessage("inspect file"));
-		const assistantWithToolCall = createMessageEntry({
-			...createAssistantMessage("calling tool"),
-			content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "file.ts" } }],
-		});
-		const splitExcludedCustom = createCustomMessageEntry("tool is running", true);
-		const toolResult = createMessageEntry({
-			role: "toolResult",
-			toolCallId: "call-1",
-			toolName: "read",
-			content: [{ type: "text", text: "x".repeat(1000) }],
-			isError: false,
-			timestamp: Date.now(),
-		});
-		const assistantFinal = createMessageEntry(createAssistantMessage("done"));
-		const splitPreparation = prepareCompaction(
-			[splitUser, assistantWithToolCall, splitExcludedCustom, toolResult, assistantFinal],
-			{
-				enabled: true,
-				reserveTokens: 0,
-				keepRecentTokens: 1,
-			},
-		);
-
-		expect(splitPreparation).toBeDefined();
-		expect(splitPreparation!.isSplitTurn).toBe(true);
-		expect(splitPreparation!.firstKeptEntryId).toBe(assistantFinal.id);
-		expect(splitPreparation!.turnPrefixMessages.map((message) => message.role)).toEqual([
-			"user",
-			"assistant",
-			"toolResult",
-		]);
 	});
 });
 

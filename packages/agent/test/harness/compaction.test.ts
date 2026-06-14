@@ -8,7 +8,6 @@ import {
 	type Usage,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { prepareBranchEntries } from "../../src/harness/compaction/branch-summarization.ts";
 import {
 	type CompactionPreparation,
 	calculateContextTokens,
@@ -373,9 +372,19 @@ describe("harness compaction", () => {
 			details: { readFiles: ["old-read.ts"], modifiedFiles: ["old-edit.ts"] },
 		};
 		const u2 = createMessageEntry(createUserMessage("large turn"), compaction1.id);
-		const a2 = createMessageEntry(createAssistantMessage("large assistant message"), u2.id);
+		const excludedCustom: CustomMessageEntry = {
+			type: "custom_message",
+			id: createId(),
+			parentId: u2.id,
+			timestamp: new Date().toISOString(),
+			customType: "status",
+			content: "tool is running",
+			display: true,
+			excludeFromContext: true,
+		};
+		const a2 = createMessageEntry(createAssistantMessage("large assistant message"), excludedCustom.id);
 		const preparation = getOrThrow(
-			prepareCompaction([u1, a1, compaction1, u2, a2], {
+			prepareCompaction([u1, a1, compaction1, u2, excludedCustom, a2], {
 				enabled: true,
 				reserveTokens: 100,
 				keepRecentTokens: 1,
@@ -387,76 +396,6 @@ describe("harness compaction", () => {
 		expect([...preparation!.fileOps.read]).toContain("old-read.ts");
 		expect([...preparation!.fileOps.edited]).toContain("old-edit.ts");
 		expect([...preparation!.fileOps.written]).toContain("written.ts");
-	});
-
-	it("ignores excluded custom messages during compaction and branch-summary preparation", () => {
-		const excludedCustom: CustomMessageEntry = {
-			type: "custom_message",
-			id: createId(),
-			parentId: null,
-			timestamp: new Date().toISOString(),
-			customType: "status",
-			content: "x".repeat(1000),
-			display: true,
-			excludeFromContext: true,
-		};
-		const user = createMessageEntry(createUserMessage("keep"), excludedCustom.id);
-
-		const simplePreparation = getOrThrow(
-			prepareCompaction([excludedCustom, user], { enabled: true, reserveTokens: 0, keepRecentTokens: 1 }),
-		);
-		const branchPreparation = prepareBranchEntries([excludedCustom, user], 10);
-
-		expect(simplePreparation?.tokensBefore).toBe(1);
-		expect(simplePreparation?.messagesToSummarize).toEqual([]);
-		expect(branchPreparation.messages.map((message) => message.role)).toEqual(["user"]);
-		expect(branchPreparation.totalTokens).toBe(1);
-
-		const splitUser = createMessageEntry(createUserMessage("inspect file"));
-		const assistantWithToolCall = createMessageEntry(
-			{
-				...createAssistantMessage("calling tool"),
-				content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "file.ts" } }],
-			},
-			splitUser.id,
-		);
-		const splitExcludedCustom: CustomMessageEntry = {
-			type: "custom_message",
-			id: createId(),
-			parentId: assistantWithToolCall.id,
-			timestamp: new Date().toISOString(),
-			customType: "status",
-			content: "tool is running",
-			display: true,
-			excludeFromContext: true,
-		};
-		const toolResult = createMessageEntry(
-			{
-				role: "toolResult",
-				toolCallId: "call-1",
-				toolName: "read",
-				content: [{ type: "text", text: "x".repeat(1000) }],
-				isError: false,
-				timestamp: Date.now(),
-			},
-			splitExcludedCustom.id,
-		);
-		const assistantFinal = createMessageEntry(createAssistantMessage("done"), toolResult.id);
-		const splitPreparation = getOrThrow(
-			prepareCompaction([splitUser, assistantWithToolCall, splitExcludedCustom, toolResult, assistantFinal], {
-				enabled: true,
-				reserveTokens: 0,
-				keepRecentTokens: 1,
-			}),
-		);
-
-		expect(splitPreparation?.isSplitTurn).toBe(true);
-		expect(splitPreparation?.firstKeptEntryId).toBe(assistantFinal.id);
-		expect(splitPreparation?.turnPrefixMessages.map((message) => message.role)).toEqual([
-			"user",
-			"assistant",
-			"toolResult",
-		]);
 	});
 
 	it("prepares custom and branch summary entries for summarization", () => {

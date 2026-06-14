@@ -72,6 +72,13 @@ describe("AgentSession retry and event characterization", () => {
 			harness.session.messages.some((message) => message.role === "custom" && message.customType === "status"),
 		).toBe(true);
 		expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("assistant");
+		expect(
+			harness.sessionManager.getBranch().map((entry) => {
+				if (entry.type === "message") return entry.message.role;
+				if (entry.type === "custom_message") return `custom:${entry.customType}`;
+				return entry.type;
+			}),
+		).toEqual(["user", "assistant", "custom:status", "assistant"]);
 	});
 
 	it("retries multiple transient failures and succeeds on the final attempt", async () => {
