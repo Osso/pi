@@ -169,4 +169,33 @@ describe("createPermissionPromptHandler", () => {
 
 		expect(callTool).toHaveBeenCalledTimes(1);
 	});
+
+	it("does not use non-session allow rules to skip follow-up prompts in the same session", async () => {
+		const writer = vi.fn();
+		const ruleStore = new PermissionRuleStore({
+			agentDir: "/agent",
+			cwd: "/repo",
+			writer,
+		});
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue(
+			JSON.stringify({
+				behavior: "allow",
+				updatedPermissions: [
+					{
+						type: "addRules",
+						destination: "userSettings",
+						behavior: "allow",
+						rules: ["git status"],
+					},
+				],
+			}),
+		);
+		const handler = createHandler(callTool, { ruleStore });
+
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+
+		expect(callTool).toHaveBeenCalledTimes(2);
+		expect(writer).toHaveBeenCalledTimes(2);
+	});
 });
