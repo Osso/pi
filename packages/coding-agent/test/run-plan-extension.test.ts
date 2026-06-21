@@ -12,6 +12,7 @@ function createRunPlanHarness(cwd: string) {
 	const appendEntry = vi.fn();
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
+	const setEditorText = vi.fn();
 
 	const pi = {
 		appendEntry,
@@ -25,7 +26,7 @@ function createRunPlanHarness(cwd: string) {
 
 	runPlanExtension(pi);
 
-	const ctx = { cwd, ui: { notify } } as unknown as ExtensionCommandContext;
+	const ctx = { cwd, ui: { notify, setEditorText } } as unknown as ExtensionCommandContext;
 
 	return {
 		complete: async (prefix: string) => command?.getArgumentCompletions?.(prefix),
@@ -33,6 +34,7 @@ function createRunPlanHarness(cwd: string) {
 		appendEntry,
 		notify,
 		sendUserMessage,
+		setEditorText,
 	};
 }
 
@@ -74,6 +76,15 @@ describe("run-plan extension", () => {
 		expect(process.env.PI_PLAN_FILE).toBe("PLAN.md");
 		expect(harness.appendEntry).toHaveBeenCalledWith("run-plan:active", { file: "PLAN.md" });
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Implement run plan");
+	});
+
+	it("clears the editor after dispatching the next item", async () => {
+		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Implement run plan\n");
+		const harness = createRunPlanHarness(cwd);
+
+		await harness.runCommand("");
+
+		expect(harness.setEditorText).toHaveBeenCalledWith("");
 	});
 
 	it("uses an inline plan filename argument", async () => {

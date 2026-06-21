@@ -37,6 +37,7 @@ async function runPlan(args: string, ctx: ExtensionCommandContext, pi: Extension
 	process.env.PI_PLAN_FILE = basename(plan.file);
 	pi.appendEntry("run-plan:active", { file: basename(plan.file) });
 	pi.sendUserMessage(nextItem);
+	ctx.ui.setEditorText("");
 }
 
 function completeMarkdownFiles(cwd: string, argumentPrefix: string): Array<{ label: string; value: string }> {

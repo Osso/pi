@@ -17,7 +17,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 
 ### Prompt submission
 - [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)`.
-- [ ] The composer / input buffer is cleared after dispatch (no residual text shown).
+- [x] The composer / input buffer is cleared after dispatch (no residual text shown).
 
 ### Active-plan signaling
 - [x] `process.env.PI_PLAN_FILE` is set to the plan filename (basename) before submission so hook scripts can read which plan is active.
@@ -37,7 +37,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/run-plan-extension.test.ts` — command registration, markdown completions, unchecked item extraction, checked-item skipping, missing/complete plan notices, prompt submission, and active-plan signaling.
+- `packages/coding-agent/test/run-plan-extension.test.ts` — command registration, markdown completions, unchecked item extraction, checked-item skipping, missing/complete plan notices, prompt submission, composer clearing, and active-plan signaling.
 
 ## Known gaps (current cycle)
 
