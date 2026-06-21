@@ -15,18 +15,18 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 ### Extension registration and session management
 
-- [ ] Register as a Pi extension via `pi.registerTool("hostrun_eval", ...)` with
+- [x] Register as a Pi extension via `pi.registerTool("hostrun_eval", ...)` with
   a minimal public schema: required field `code` (string), optional
   `session_id` (string).
 - [ ] Evaluate `code` in a persistent QuickJS session; keep `globalThis.ctx`
   live across evaluations in the same session.
-- [ ] Keep separate `ctx` state per `session_id`; default a missing `session_id`
+- [x] Keep separate `ctx` state per `session_id`; default a missing `session_id`
   to a per-Pi-session default Hostrun session.
-- [ ] Preserve `ctx` after normal JavaScript exceptions (a failing evaluation
+- [x] Preserve `ctx` after normal JavaScript exceptions (a failing evaluation
   must not destroy session state).
 - [ ] Capture `console.log`, `console.info`, `console.warn`, `console.error`,
   and `console.debug` output and include it in the tool result.
-- [ ] Return the executed code in the result for transcript visibility.
+- [x] Return the executed code in the result for transcript visibility.
 
 ### Approval-gated host library
 
@@ -68,34 +68,34 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/hostrun/` — extension root. (planned)
+- `packages/coding-agent/extensions/hostrun/` — extension root.
 - `packages/coding-agent/extensions/hostrun/src/index.ts` — Pi extension entry
-  point; calls `pi.registerTool("hostrun_eval", ...)` and wires the QuickJS
-  session store. (planned)
-- `packages/coding-agent/extensions/hostrun/src/session.ts` — QuickJS session
-  lifecycle, `ctx` persistence, console capture, `cli.*`/`fs.*`/`http.*`/`rg.*`/
-  `fd.*` approval-request generation. (planned)
+  point; calls `pi.registerTool("hostrun_eval", ...)` and wires the session
+  store.
+- `packages/coding-agent/extensions/hostrun/src/session.ts` — JavaScript session
+  lifecycle, `ctx` persistence, and console capture. QuickJS and host-effect
+  helpers are still pending.
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — shared
-  `hostrun_eval` argument parsing and session dispatch (used by both the Pi
-  extension and the MCP server). (planned)
+  `hostrun_eval` argument parsing and session dispatch.
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
   stdio MCP server for non-Pi hosts. (planned)
 - `packages/coding-agent/extensions/hostrun/package.json` — extension package
-  metadata. (planned)
+  metadata.
 
 ## Tests asserting this spec
 
-(none yet — unimplemented)
+- `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
+  per-session `ctx` persistence, and exception-survival coverage.
 
 ## Known gaps (current cycle)
 
-- [ ] Scaffold `packages/coding-agent/extensions/hostrun/` package.
+- [x] Scaffold `packages/coding-agent/extensions/hostrun/` package.
 - [ ] Implement QuickJS session with persistent `ctx` and console capture.
 - [ ] Implement approval-gated `cli.*`, `fs.*`, and `http.*` helpers.
 - [ ] Implement `rg.*` and `fd.*` lazy wrappers.
-- [ ] Register extension via `pi.registerTool` in `index.ts`.
+- [x] Register extension via `pi.registerTool` in `index.ts`.
 - [ ] Implement standalone `mcp-server.ts` with pending-approval default.
-- [ ] Add tests for `ctx` persistence across evaluations and after exceptions.
+- [x] Add tests for `ctx` persistence across evaluations and after exceptions.
 - [ ] Add tests confirming no host effect runs without an approval gate.
 - [ ] Add tests for `rg.matches` structured parsing and `fd.files` output.
 - [ ] Document stdio MCP install in `packages/coding-agent/extensions/hostrun/README.md`.
