@@ -62,6 +62,34 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 - `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 - `docs/specs/approval-system.md` — the policy layer this tool plugs into.
 
+## Wire compatibility findings
+
+Verified against `/syncthing/Sync/Projects/claude/claude-bash-hook/src/bin/approval_prompt.rs`
+on 2026-06-21.
+
+- Input schema is compatible with the planned Pi bridge: the MCP tool accepts
+  `{ tool_name, input, tool_use_id?, permission_suggestions?, blocked_path?, cwd? }`.
+- Output is a JSON string containing Claude permission-prompt decisions, not a
+  structured MCP object. Pi must parse the tool result text as JSON before dispatch.
+- `SAFE` maps to `{"behavior":"allow","updatedInput":<original input>}` and may include
+  `updatedPermissions` with a session `addRules` allow rule.
+- `UNSURE` and `UNSAFE` use MCP elicitation when supported; transport errors, unsupported
+  elicitation, invalid elicitation content, `Decline`, and `Cancel` all fall back to allow-once.
+- **Compatibility gap:** elicitation choice `deny` currently returns allow-once in
+  `handle_unsure()` (`UserChoice::Deny => allow_once()`), so the existing
+  `claude-bash-hook-approval` server does **not** provide a 1:1 `deny` mapping for Pi yet.
+  This must be fixed in the hook server or explicitly accepted as unsafe before Pi can rely on it
+  for denial decisions.
+
+Evidence:
+
+- `approval_prompt.rs:41-61` — `ApprovalInput` schema.
+- `approval_prompt.rs:81-93` — serialized decision enum with `behavior`, `updatedInput`,
+  `updatedPermissions`, and deny `message`.
+- `approval_prompt.rs:754-838` — elicitation handling and current deny-to-allow-once behavior.
+- `approval_prompt.rs:841-862` — SAFE allow decision with session-scoped remembered rule.
+- `cargo test --bin claude-bash-hook-approval` — 62 tests passed.
+
 ## Implementation inventory
 
 - `packages/coding-agent/src/cli/args.ts` — add `permissionPromptTool?: string`
@@ -85,7 +113,7 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 
 ## Known gaps (current cycle)
 
-- [ ] **Verify `claude-bash-hook-approval` wire compatibility first** — this whole
+- [x] **Verify `claude-bash-hook-approval` wire compatibility first** — this whole
   bridge exists to reuse the existing `mcp__claude-bash-hook-approval__approval_prompt`
   server (driver for the feature). Before building anything else, contract-test the
   real wire shapes against each other: Claude Code's permission-prompt-tool returns
@@ -94,6 +122,8 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
   hint). Confirm the server's response maps 1:1 onto the three decision shapes — and
   that elicitation round-trips through Pi's MCP client — rather than assuming it does
   because it was written as a Claude permission-prompt-tool.
+- [ ] Fix or account for the hook-server compatibility gap where elicitation `deny`
+  currently returns allow-once instead of `{"behavior":"deny","message":"..."}`.
 - [ ] Define MCP tool call input schema (tool name, tool input, session context).
 - [ ] Implement response parser and decision dispatcher.
 - [ ] Implement session-rule cache and persistent-rule writers.
