@@ -41,6 +41,25 @@ describe("orchestrateToolApproval", () => {
 		expect(reviewer).not.toHaveBeenCalled();
 	});
 
+	it("allows non-approval-required actions without invoking any reviewer", async () => {
+		const hookReviewer = vi.fn().mockResolvedValue({ block: true, reason: "hook blocked" });
+		const reviewer = vi.fn().mockResolvedValue({ block: true, reason: "reviewer blocked" });
+		const llmReviewer = vi.fn().mockResolvedValue({ block: true, reason: "llm blocked" });
+
+		await expect(
+			orchestrateToolApproval({
+				approvalRequired: false,
+				hookReviewer,
+				llmReviewer,
+				policy: "on-request",
+				reviewer,
+			}),
+		).resolves.toBeUndefined();
+		expect(hookReviewer).not.toHaveBeenCalled();
+		expect(reviewer).not.toHaveBeenCalled();
+		expect(llmReviewer).not.toHaveBeenCalled();
+	});
+
 	it("skips the LLM reviewer when a hook reviewer allows", async () => {
 		const hookReviewer = vi.fn().mockResolvedValue(undefined);
 		const llmReviewer = vi.fn().mockResolvedValue({ block: true, reason: "llm blocked" });
