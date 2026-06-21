@@ -12,6 +12,7 @@ function createToolCallEvent(input: Record<string, unknown> = { command: "git st
 		type: "tool_call",
 		toolName: "bash",
 		toolCallId: "toolu_01",
+		bypassPermissions: false,
 		input,
 	};
 }

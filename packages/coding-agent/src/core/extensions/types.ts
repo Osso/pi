@@ -806,6 +806,8 @@ export type InputEventResult =
 interface ToolCallEventBase {
 	type: "tool_call";
 	toolCallId: string;
+	/** Compatibility flag for Claude Code-style hook hosts. */
+	bypassPermissions: boolean;
 }
 
 export interface BashToolCallEvent extends ToolCallEventBase {

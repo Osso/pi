@@ -87,6 +87,7 @@ import type { ModelRegistry } from "./model-registry.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
+import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
@@ -438,6 +439,7 @@ export class AgentSession {
 				type: "tool_call",
 				toolName: toolCall.name,
 				toolCallId: toolCall.id,
+				bypassPermissions: approvalPresetToBypassPermissions(this.settingsManager.getApprovalPreset()),
 				input: args as Record<string, unknown>,
 			} as const;
 			return orchestrateToolApproval({

@@ -59,15 +59,15 @@ Implementation details belong in
 
 ### Hook compatibility
 
-- [ ] Preserve the native `tool_call` hook as the baseline rule/preclassification
+- [x] Preserve the native `tool_call` hook as the baseline rule/preclassification
   engine: a handler may return `{block: true, reason}` to deny, mutate
   `event.input` in place to rewrite args, or return nothing to allow.
 - [x] Treat a `tool_call` handler that returns no block as an allow decision;
   do not re-prompt the human or run the LLM-approved reviewer after an implicit
   hook allow.
-- [ ] Never map Pi `never` policy to Claude Code `bypassPermissions` in hook
+- [x] Never map Pi `never` policy to Claude Code `bypassPermissions` in hook
   compatibility payloads.
-- [ ] Allow Pi `auto-approve` policy to map to `bypassPermissions` in hook
+- [x] Allow Pi `auto-approve` policy to map to `bypassPermissions` in hook
   compatibility payloads when Pi operates as a hook host.
 
 ## How it works

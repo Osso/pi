@@ -43,6 +43,10 @@ export function approvalPresetForPolicy(policy: ApprovalPolicy): ApprovalPresetN
 	return "ask-me";
 }
 
+export function approvalPresetToBypassPermissions(presetName: ApprovalPresetName): boolean {
+	return presetName === "auto-approve";
+}
+
 export const SANDBOX_PROFILES = [
 	{ name: "read-only", label: "Read Only" },
 	{ name: "workspace-write", label: "Default/Workspace Write" },
