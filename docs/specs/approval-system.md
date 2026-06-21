@@ -23,8 +23,8 @@ Implementation details belong in
   actions are treated as approved without human or LLM review.
 - [x] Keep `never` and `auto-approve` distinct in config and settings
   serialization — they must never collapse into the same value.
-- [ ] Keep `never` and `auto-approve` distinct in CLI parsing and UI surfaces.
-- [ ] Map a future `--dangerously-bypass-approvals` flag to `auto-approve`, not
+- [x] Keep `never` and `auto-approve` distinct in CLI parsing and UI surfaces.
+- [x] Map a future `--dangerously-bypass-approvals` flag to `auto-approve`, not
   to `never`.
 
 ### Approval reviewers

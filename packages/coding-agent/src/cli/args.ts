@@ -6,6 +6,8 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";
+import { isApprovalPolicy } from "../core/permissions/policy.ts";
+import { type ApprovalPresetName, approvalPresetForPolicy, isApprovalPresetName } from "../core/permissions/presets.ts";
 
 export type Mode = "text" | "json" | "rpc";
 
@@ -32,6 +34,7 @@ export interface Args {
 	tools?: string[];
 	excludeTools?: string[];
 	permissionPromptTool?: string;
+	approvalPreset?: ApprovalPresetName;
 	noTools?: boolean;
 	noBuiltinTools?: boolean;
 	extensions?: string[];
@@ -141,6 +144,30 @@ export function parseArgs(args: string[]): Args {
 			} else {
 				result.diagnostics.push({ type: "error", message: "--permission-prompt-tool requires a value" });
 			}
+		} else if (arg === "--approval-preset") {
+			if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
+				const preset = args[++i];
+				if (isApprovalPresetName(preset)) {
+					result.approvalPreset = preset;
+				} else {
+					result.diagnostics.push({ type: "error", message: `Invalid --approval-preset value: ${preset}` });
+				}
+			} else {
+				result.diagnostics.push({ type: "error", message: "--approval-preset requires a value" });
+			}
+		} else if (arg === "--approval-policy") {
+			if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
+				const policy = args[++i];
+				if (isApprovalPolicy(policy)) {
+					result.approvalPreset = approvalPresetForPolicy(policy);
+				} else {
+					result.diagnostics.push({ type: "error", message: `Invalid --approval-policy value: ${policy}` });
+				}
+			} else {
+				result.diagnostics.push({ type: "error", message: "--approval-policy requires a value" });
+			}
+		} else if (arg === "--dangerously-bypass-approvals") {
+			result.approvalPreset = "auto-approve";
 		} else if (arg === "--thinking" && i + 1 < args.length) {
 			const level = args[++i];
 			if (isValidThinkingLevel(level)) {
