@@ -145,6 +145,17 @@ function budgetStopReason(goal: Goal, ctx: ExtensionContext): string | null {
 	return null;
 }
 
+function goalStateLines(goal: Goal): string[] {
+	const lines = [`Continuation turns used: ${goal.continuationTurns ?? 0}/${MAX_CONTINUATION_TURNS}`];
+	if (goal.tokenBudget !== undefined) {
+		lines.push(`Token budget: ${goal.tokenBudget} tokens`);
+	}
+	if (goal.wallClockBudgetMs !== undefined) {
+		lines.push(`Wall-clock budget: ${wallClockBudgetMinutes(goal)}m`);
+	}
+	return lines;
+}
+
 function currentBranch(cwd: string): string {
 	try {
 		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -163,6 +174,7 @@ function goalSystemBlock(goal: Goal): string {
 		"<goal>",
 		`Long-running objective: ${goal.objective}`,
 		`(set on ${goal.branch} at ${goal.createdAt})`,
+		...goalStateLines(goal),
 		"",
 		"Keep working toward this objective across turns until it is achieved.",
 		"When it is achieved, state clearly that the goal is complete. If you cannot",

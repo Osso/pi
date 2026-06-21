@@ -162,6 +162,19 @@ describe("goal extension", () => {
 		expect(result?.systemPrompt).toContain("base prompt");
 	});
 
+	it("injects continuation and budget state into the system prompt", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("--token-budget 100 --wall-clock-minutes 5 budgeted context");
+		harness.sendUserMessage.mockClear();
+		await harness.runAgentEnd();
+
+		const result = await harness.runBeforeAgentStart();
+		expect(result?.systemPrompt).toContain("Continuation turns used: 1/8");
+		expect(result?.systemPrompt).toContain("Token budget: 100 tokens");
+		expect(result?.systemPrompt).toContain("Wall-clock budget: 5m");
+	});
+
 	it("shows and clears the active objective", async () => {
 		const harness = createGoalHarness(cwd);
 
