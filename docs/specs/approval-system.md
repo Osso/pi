@@ -119,6 +119,8 @@ Implementation details belong in
   session-level coverage proving `never` and `auto-approve` skip hook reviewers.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
+- `packages/coding-agent/test/approval-auto-reviewer.test.ts` — red tests for
+  the LLM-approved reviewer prompt contract and result parser.
 
 ## Known gaps (current cycle)
 
@@ -136,6 +138,7 @@ Implementation details belong in
   selectors.
 - [x] Add tests for scoped sandbox profile serialization without changing
   approval policy.
+- [x] Add failing tests for LLM-approved auto-reviewer prompt/result parsing.
 
 ## Out of scope
 
