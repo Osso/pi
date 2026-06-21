@@ -1,0 +1,113 @@
+# `--permission-prompt-tool` (MCP-delegated approval)
+
+Lets Pi delegate "approve this tool call?" decisions to an external MCP tool,
+matching Claude Code's `--permission-prompt-tool` wire protocol so a single MCP
+server (e.g. `claude-bash-hook-approval`) works with both harnesses. Source will
+live in `packages/coding-agent/src/core/permissions/mcp-permission-prompt.ts`,
+wired into Pi's existing `tool_call` hook path in
+`packages/coding-agent/src/core/agent-session.ts`. Implementation details belong
+in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
+
+## What it must do
+
+### CLI / config surface
+
+- [ ] Accept `--permission-prompt-tool <mcp__server__tool>` on the `pi` CLI.
+- [ ] Accept `permissionPromptTool` in `.pi/settings.json` (project) and
+  `~/.pi/agent/settings.json` (global).
+- [ ] Thread the configured tool name through session creation options so it is
+  part of the per-session snapshot.
+
+### Approval loop
+
+- [ ] When a `tool_call` event fires AND a permission-prompt tool is configured,
+  call the external MCP tool first and honor its decision before falling through to
+  the native `ui.confirm` prompt.
+- [ ] No tool configured → fall through to the existing native `tool_call`/
+  `ui.confirm` interactive path.
+- [ ] Invalid tool name (not in `mcp__server__tool` shape) → fall through to
+  native interactive path.
+- [ ] MCP tool errors, timeouts, or connection failures → fall through to native
+  interactive path.
+- [ ] Malformed tool response (missing `behavior`, non-JSON, unexpected shape) →
+  fall through to native interactive path.
+
+### Decision shapes
+
+- [ ] `{"behavior":"allow"}` → tool call runs without further prompting.
+- [ ] `{"behavior":"allow","updatedInput":{...}}` → tool call runs with its
+  input replaced by `updatedInput`; mutate `event.input` in place (matching the
+  existing `ToolCallEvent` mutation contract).
+- [ ] `{"behavior":"deny","message":"..."}` → tool call is blocked; return
+  `{block: true, reason: message}` from the `tool_call` handler.
+- [ ] `updatedPermissions:[{type:"addRules",destination,behavior,rules:[...]}]`
+  is honored when present alongside the decision.
+
+### Rule persistence
+
+- [ ] `destination:"session"` + `behavior:"allow"` rule caches approval in memory
+  and suppresses future prompts for the matching `{toolName, ruleContent}` within
+  the same Pi session.
+- [ ] `destination:"userSettings"` writes the rule to `~/.pi/agent/settings.json`
+  and suppresses future prompts across sessions.
+- [ ] `destination:"projectSettings"` writes the rule to `.pi/settings.json`.
+- [ ] `destination:"localSettings"` writes to `.pi/settings.local.json`.
+- [ ] JSON writes preserve existing file formatting using surgical key insertion,
+  not full re-serialization.
+- [ ] Non-session rules do not suppress in-memory follow-up prompts unless they
+  also match the persisted-rules check on next evaluation.
+
+## How it works
+
+- `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
+- `docs/specs/approval-system.md` — the policy layer this tool plugs into.
+
+## Implementation inventory
+
+- `packages/coding-agent/src/cli/args.ts` — add `permissionPromptTool?: string`
+  to the `Args` interface and parse `--permission-prompt-tool` flag. (planned)
+- `packages/coding-agent/src/main.ts` — thread the parsed flag into session
+  creation options. (planned)
+- `packages/coding-agent/src/core/permissions/` — new directory. (planned)
+- `packages/coding-agent/src/core/permissions/mcp-permission-prompt.ts` — main
+  module: builds the MCP tool call input, parses and validates the response,
+  implements the approval loop with fallback, session-rule cache, and
+  destination-aware JSON writers. (planned)
+- `packages/coding-agent/src/core/permissions/rule-store.ts` — in-memory session
+  rule cache and persistent-rule read/write helpers. (planned)
+- `packages/coding-agent/src/core/agent-session.ts` — wire
+  `mcp-permission-prompt` into `_installAgentToolHooks` so it runs before
+  `ui.confirm`. (planned)
+
+## Tests asserting this spec
+
+(none yet — unimplemented)
+
+## Known gaps (current cycle)
+
+- [ ] **Verify `claude-bash-hook-approval` wire compatibility first** — this whole
+  bridge exists to reuse the existing `mcp__claude-bash-hook-approval__approval_prompt`
+  server (driver for the feature). Before building anything else, contract-test the
+  real wire shapes against each other: Claude Code's permission-prompt-tool returns
+  `allow` / `allow`+`updatedInput` / `deny`+message, while `approval_prompt.rs` decides
+  via MCP elicitation (SAFE→auto-allow, UNSURE/UNSAFE→prompt with the codex reason as
+  hint). Confirm the server's response maps 1:1 onto the three decision shapes — and
+  that elicitation round-trips through Pi's MCP client — rather than assuming it does
+  because it was written as a Claude permission-prompt-tool.
+- [ ] Define MCP tool call input schema (tool name, tool input, session context).
+- [ ] Implement response parser and decision dispatcher.
+- [ ] Implement session-rule cache and persistent-rule writers.
+- [ ] Wire into `agent-session.ts` `beforeToolCall` hook.
+- [ ] Add `--permission-prompt-tool` flag to `args.ts` and thread through `main.ts`.
+- [ ] Write unit tests for each decision shape and fallback path.
+- [ ] Write integration test spinning up a stub MCP server and exercising all
+  decision + persistence combinations.
+
+## Out of scope
+
+- Reimplementing Claude Code's full rule-matching syntax; exact `ruleContent`
+  equality matching is sufficient for now.
+- A Pi-native TUI approval modal; the existing `ui.confirm` interactive path is
+  the fallback when no MCP tool is configured.
+- Applying `--permission-prompt-tool` to MCP tool calls registered by
+  extensions; the initial scope covers built-in Pi tools only.

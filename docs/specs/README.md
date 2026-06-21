@@ -1,0 +1,70 @@
+# Pi feature specs
+
+This directory holds one spec per feature, describing **what** each feature must do (the
+contract). How a feature works belongs in `docs/wiki/systems/<feature>.md` (stubs, written
+later). Specs are tracked in git; add or update a feature's spec in the same commit as its code.
+
+These specs were seeded by transposing the behavioral features of the Osso `codex` fork
+(`~/Repos/codex/docs/specs/`) onto Pi. Pi's native extension system already provides most of
+codex's hook-style features, so each transposed feature falls into one of three buckets:
+
+- **NATIVE** — Pi already provides the capability via its extension API; the spec documents the
+  existing contract and cites real source. Build work is limited to closing test gaps.
+- **BUILD** — a genuine gap in Pi; the spec describes the target contract and all bullets are
+  `- [ ]` until implemented and tested.
+- **DROP** (not specced) — codex-internal or upstream-divergence housekeeping with no meaning in
+  Pi; recorded below for traceability so the triage decision is not re-litigated.
+
+## Feature → spec map
+
+| Feature | Spec | Status | Notes |
+|---|---|---|---|
+| Goal system (`/goal`) | [`goal-system.md`](goal-system.md) | **BUILD** (primary) | New; not in codex. Evidence-gated acceptance contract (tests→lint→coverage→deploy→smoke→Sentry). |
+| `/run-plan` command | [`run-plan-command.md`](run-plan-command.md) | **BUILD** | Trivial via `pi.registerCommand`; walks `PLAN.md`. |
+| User rules loader (`rules/*.md`) | [`user-rules-loader.md`](user-rules-loader.md) | **BUILD** (additive) | Pi already loads AGENTS.md/CLAUDE.md hierarchy; adds `~/.pi/agent/rules/` + project `.pi/rules/`. |
+| Worktree startup (`-w/--worktree`) | [`worktree-startup-option.md`](worktree-startup-option.md) | **BUILD** | New CLI flag; create/reuse sibling git worktree. |
+| MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
+| Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | `on-request`/`never`/`auto-approve` + `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
+| Hostrun (`hostrun_eval`) | [`hostrun.md`](hostrun.md) | **BUILD** | Stateful QuickJS host tool ported as a Pi extension; approval-gated; optional stdio MCP server. |
+| Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
+| PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |
+| Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |
+| TUI customization | [`tui-customization.md`](tui-customization.md) | **NATIVE** | Themes, keybindings, `registerShortcut`, header/footer/widget/editor swap, `ui.custom()`. |
+
+## Build priority
+
+1. **`/goal`** + **`/run-plan`** — daily workflow; `/goal` is the headline feature and depends on
+   the NATIVE context-injection + lifecycle contracts already documented.
+2. **user-rules-loader**, **worktree-startup** — small, high-value, low-risk.
+3. **permission-prompt-tool** + **approval-system** — needed to reuse the existing
+   `claude-bash-hook-approval` MCP approval flow; build together (shared `core/permissions/`).
+4. **hostrun** — larger; port once the extension/tool surface is comfortable.
+
+## Dropped codex features (recorded, not specced)
+
+These carried no portable value for Pi:
+
+| Codex feature | Why dropped |
+|---|---|
+| Apply-patch → Claude `Write` translation | Pi has no `apply_patch`; native Write/Edit tools. |
+| Unified-exec shell tool (legacy alias removal) | Codex upstream-divergence; Pi has its own shell tool. |
+| Multi-agent v1 removal | Rebase housekeeping. (Multi-agent *v2* itself was deferred, not dropped.) |
+| Skip `PWD` in shell env | Narrow codex parent-process fix. |
+| Deploy + Osso branding (`-osso` suffix, LTO) | Codex fork-maintenance artifact. |
+| Model prompt hygiene (GPT-5.4 apply_patch tuning, `*.snap.new`) | Codex/OpenAI + Rust-insta specifics. |
+| Resume picker SQLite-first listing | Codex thread-store/rollout architecture; Pi uses JSONL sessions. |
+| Session-end transcript parser | Pi exposes `SessionManager` API; no jq-in-shell-hook need. |
+| App-server / MCP robustness fixes | Codex-specific bugs. |
+| Upstream removals (~170k LOC) | Pure codex rebase deletion. |
+
+## Deferred (not yet specced, may build later)
+
+| Feature | Why deferred |
+|---|---|
+| Native subagent / multi-agent + inter-agent messaging | Pi has zero primitives today; largest build. Revisit after the core batch. |
+
+## Conventions
+
+See the `spec-format` skill for the 7-section template. A bullet is `- [x]` **only** when a
+named test asserts it; otherwise `- [ ]`. NATIVE specs already carry a few `- [x]` where Pi tests
+exist; their remaining `- [ ]` bullets are untested-but-present behaviors that need coverage.
