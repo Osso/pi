@@ -17,6 +17,12 @@ function createGitExec(results: Array<{ stdout?: string; stderr?: string; reject
 	return { calls, exec: vi.fn(exec) };
 }
 
+function gitFailure(message: string, stderr: string): Error {
+	const error = new Error(message) as Error & { stderr: string };
+	error.stderr = stderr;
+	return error;
+}
+
 describe("resolveWorktree", () => {
 	it("reuses an existing sibling worktree", async () => {
 		const git = createGitExec([
@@ -82,6 +88,34 @@ describe("resolveWorktree", () => {
 
 		await expect(resolveWorktree("feature", { cwd: "/repo/project", exec: git.exec })).rejects.toThrow(
 			new WorktreeStartupError("No origin/main or origin/master ref found for worktree creation"),
+		);
+	});
+
+	it("surfaces git stderr when the startup directory is not in a repository", async () => {
+		const git = createGitExec([
+			{ reject: gitFailure("Command failed: git rev-parse --show-toplevel", "fatal: not a git repository") },
+		]);
+
+		await expect(resolveWorktree("feature", { cwd: "/repo/project", exec: git.exec })).rejects.toThrow(
+			"fatal: not a git repository",
+		);
+	});
+
+	it("surfaces git stderr when worktree creation fails", async () => {
+		const git = createGitExec([
+			{ stdout: "/repo/project\n" },
+			{ stdout: "worktree /repo/project\nHEAD abc\n" },
+			{ stdout: "origin/main\n" },
+			{
+				reject: gitFailure(
+					"Command failed: git worktree add /repo/project-feature origin/main",
+					"fatal: 'feature' is already checked out",
+				),
+			},
+		]);
+
+		await expect(resolveWorktree("feature", { cwd: "/repo/project", exec: git.exec })).rejects.toThrow(
+			"fatal: 'feature' is already checked out",
 		);
 	});
 });

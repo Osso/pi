@@ -354,6 +354,29 @@ Content`,
 			expect(agentsFiles.some((f) => f.path.includes("AGENTS.md"))).toBe(true);
 		});
 
+		it("should load context files and rules from the resolved worktree cwd", async () => {
+			const originalCwd = join(tempDir, "repo");
+			const worktreeCwd = join(tempDir, "repo-feature");
+			mkdirSync(join(originalCwd, ".pi", "rules"), { recursive: true });
+			mkdirSync(join(worktreeCwd, ".pi", "rules"), { recursive: true });
+			writeFileSync(join(originalCwd, "AGENTS.md"), "Original context.");
+			writeFileSync(join(originalCwd, ".pi", "rules", "rule.md"), "Original rule.");
+			writeFileSync(join(worktreeCwd, "AGENTS.md"), "Worktree context.");
+			writeFileSync(join(worktreeCwd, ".pi", "rules", "rule.md"), "Worktree rule.");
+
+			const loader = new DefaultResourceLoader({
+				cwd: worktreeCwd,
+				agentDir,
+				settingsManager: SettingsManager.create(worktreeCwd, agentDir, { projectTrusted: true }),
+			});
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(worktreeCwd, "AGENTS.md"), content: "Worktree context." },
+			]);
+			expect(loader.getRulesContent()).toBe("Worktree rule.");
+		});
+
 		it("should skip AGENTS.md and CLAUDE.md discovery when noContextFiles is true", async () => {
 			writeFileSync(join(cwd, "AGENTS.md"), "# Project Guidelines\n\nBe helpful.");
 			writeFileSync(join(cwd, "CLAUDE.md"), "# Claude Guidelines\n\nBe helpful.");

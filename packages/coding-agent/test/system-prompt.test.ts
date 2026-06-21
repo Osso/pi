@@ -2,6 +2,18 @@ import { describe, expect, test } from "vitest";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
 
 describe("buildSystemPrompt", () => {
+	test("shows the resolved worktree cwd as the current working directory", () => {
+		const prompt = buildSystemPrompt({
+			selectedTools: [],
+			contextFiles: [],
+			skills: [],
+			cwd: "/repo/project-feature",
+		});
+
+		expect(prompt).toContain("Current working directory: /repo/project-feature");
+		expect(prompt).not.toContain("Current working directory: /repo/project\n");
+	});
+
 	describe("empty tools", () => {
 		test("shows (none) for empty tools list", () => {
 			const prompt = buildSystemPrompt({
