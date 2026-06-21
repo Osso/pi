@@ -35,7 +35,7 @@ Implementation details belong in
   the auto-reviewer path (a guardian LLM call that pre-approves the tool call).
 - [x] Expose LLM-approved mode as an explicit choice in the `/approvals` preset
   selector, distinct from `never` and `auto-approve`.
-- [ ] Skip the LLM-approved reviewer when the action has already been approved
+- [x] Skip the LLM-approved reviewer when the action has already been approved
   by a hook (`tool_call` handler returned no block), a cached rule, or an
   explicit policy decision — hook `allow` short-circuits both human and LLM
   review.

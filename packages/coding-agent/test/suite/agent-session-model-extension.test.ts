@@ -390,6 +390,115 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("llm denied");
 	});
 
+	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {
+		let autoReviewerCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: {
+				approvalPolicy: "on-request",
+				approvalPreset: "llm-approved",
+				permissionPromptTool: "mcp__approval__prompt",
+				permissionRules: { allow: { echo: ['{"text":"hello"}'] } },
+			},
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				if (!toolResult) {
+					autoReviewerCalls++;
+					return fauxAssistantMessage('{"behavior":"deny","message":"llm should have been skipped"}');
+				}
+				return fauxAssistantMessage(getMessageText(toolResult));
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(autoReviewerCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
+	it("skips the LLM-approved reviewer when never policy blocks explicitly", async () => {
+		let autoReviewerCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "never", approvalPreset: "llm-approved" },
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				if (!toolResult) {
+					autoReviewerCalls++;
+					return fauxAssistantMessage('{"behavior":"allow"}');
+				}
+				return fauxAssistantMessage(getMessageText(toolResult));
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(autoReviewerCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("Blocked by approval policy: never");
+	});
+
+	it("skips the LLM-approved reviewer when auto-approve policy allows explicitly", async () => {
+		let autoReviewerCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "auto-approve", approvalPreset: "llm-approved" },
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				if (!toolResult) {
+					autoReviewerCalls++;
+					return fauxAssistantMessage('{"behavior":"deny","message":"llm should have been skipped"}');
+				}
+				return fauxAssistantMessage(getMessageText(toolResult));
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(autoReviewerCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
 	it("runs configured permission prompt tool before executing tool calls", async () => {
 		const approvalInputs: unknown[] = [];
 		const echoTool: AgentTool = {
