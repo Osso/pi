@@ -135,6 +135,47 @@ describe("AgentSession model and extension characterization", () => {
 		).toBeDefined();
 	});
 
+	it("preserves baseline tool_call review with bypassPermissions=false under on-request", async () => {
+		const hookEvents: Array<{ bypassPermissions?: boolean; toolName: string }> = [];
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async (event) => {
+						hookEvents.push({
+							bypassPermissions: (event as { bypassPermissions?: boolean }).bypassPermissions,
+							toolName: event.toolName,
+						});
+						return { block: true, reason: "Blocked by baseline hook" };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(hookEvents).toEqual([{ bypassPermissions: false, toolName: "echo" }]);
+		expect(getAssistantTexts(harness)).toContain("Blocked by baseline hook");
+	});
+
 	it("blocks tool calls under never approval policy without running hook reviewers", async () => {
 		let hookCalls = 0;
 		const echoTool: AgentTool = {
