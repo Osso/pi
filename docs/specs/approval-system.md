@@ -121,6 +121,8 @@ Implementation details belong in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
 - `packages/coding-agent/test/approval-auto-reviewer.test.ts` — LLM-approved
   reviewer prompt contract and result parser.
+- `packages/coding-agent/test/approval-selector.test.ts` — red tests for
+  `/approvals` and `/sandbox` selector rendering and selection behavior.
 
 ## Known gaps (current cycle)
 
@@ -138,6 +140,7 @@ Implementation details belong in
   selectors.
 - [x] Add tests for scoped sandbox profile serialization without changing
   approval policy.
+- [x] Add selector UI tests for `/approvals` and `/sandbox`.
 - [x] Add failing tests for LLM-approved auto-reviewer prompt/result parsing.
 
 ## Out of scope
