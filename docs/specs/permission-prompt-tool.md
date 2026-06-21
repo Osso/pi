@@ -81,6 +81,17 @@ on 2026-06-21.
   This must be fixed in the hook server or explicitly accepted as unsafe before Pi can rely on it
   for denial decisions.
 
+Compatibility decision for Pi:
+
+- Pi-side response parsing and dispatch must still implement the full Claude decision contract,
+  including `{"behavior":"deny","message":"..."}`.
+- Tests for Pi's parser/dispatcher must use a stub MCP tool that returns real `allow`,
+  `allow`+`updatedInput`, and `deny` responses, so Pi does not inherit the current hook-server bug.
+- Real `mcp__claude-bash-hook-approval__approval_prompt` integration remains blocked until the
+  hook server maps elicitation `deny` to `{"behavior":"deny","message":"..."}`. Until then,
+  configuring that specific tool must either be rejected with a clear diagnostic or treated as
+  experimental and not counted as satisfying deny-path acceptance.
+
 Evidence:
 
 - `approval_prompt.rs:41-61` — `ApprovalInput` schema.
@@ -122,7 +133,7 @@ Evidence:
   hint). Confirm the server's response maps 1:1 onto the three decision shapes — and
   that elicitation round-trips through Pi's MCP client — rather than assuming it does
   because it was written as a Claude permission-prompt-tool.
-- [ ] Fix or account for the hook-server compatibility gap where elicitation `deny`
+- [x] Fix or account for the hook-server compatibility gap where elicitation `deny`
   currently returns allow-once instead of `{"behavior":"deny","message":"..."}`.
 - [ ] Define MCP tool call input schema (tool name, tool input, session context).
 - [ ] Implement response parser and decision dispatcher.
