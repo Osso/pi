@@ -28,10 +28,10 @@ not yet written).
 ### Starting and continuing work
 
 - [x] Setting a goal while the session is idle immediately submits a user message that asks the agent to work toward the objective.
-- [ ] When an `agent_end` event fires and a goal is active but not completed, Pi re-submits a continuation message.
-- [ ] A `goal_complete` tool or equivalent completion signal marks the active goal complete and stops further continuation.
-- [ ] Autonomous continuation stops on a configured turn cap even if the goal is still active.
-- [ ] Continuation does not start a second overlapping turn while the agent is already busy.
+- [x] When an `agent_end` event fires and a goal is active but not completed, Pi re-submits a continuation message.
+- [x] A `goal_complete` tool or equivalent completion signal marks the active goal complete and stops further continuation.
+- [x] Autonomous continuation stops on a configured turn cap even if the goal is still active.
+- [x] Continuation does not start a second overlapping turn while the agent is already busy.
 
 ### Budget bounds
 
@@ -49,21 +49,21 @@ not yet written).
 
 ## Implementation inventory
 
-- `.pi/extensions/goal.ts` — extension entry: registers `/goal`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, and starts work when a goal is set while idle.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, objective length cap, context injection, and start-on-set behavior.
+- `.pi/extensions/goal.ts` — extension entry: registers `/goal`, registers `goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, starts work when a goal is set while idle, and continues active goals from `agent_end`.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, objective length cap, context injection, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, and turn cap.
 - `.gitignore` — ignores `.pi/goal.json` as local goal state.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, and corrupt goal state handling.
+- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, and turn cap.
 
 ## Known gaps (current cycle)
 
 - [x] Add regression coverage for resume/session_start notification and corrupt `.pi/goal.json` handling.
 - [ ] Add an explicit replacement path for setting a new goal while one is already active.
-- [ ] Implement autonomous continue-when-idle on `agent_end`.
-- [ ] Add a `goal_complete` completion signal and stop continuation when it is called.
-- [ ] Implement continuation turn-cap handling.
+- [x] Implement autonomous continue-when-idle on `agent_end`.
+- [x] Add a `goal_complete` completion signal and stop continuation when it is called.
+- [x] Implement continuation turn-cap handling.
 - [ ] Implement token and wall-clock budget bounds.
 - [ ] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
 - [ ] Write `docs/wiki/systems/goal-system.md`.

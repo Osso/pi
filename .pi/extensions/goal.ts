@@ -25,14 +25,19 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
+const MAX_CONTINUATION_TURNS = 8;
 
 interface Goal {
 	objective: string;
 	branch: string;
 	createdAt: string;
+	completedAt?: string;
+	completionReason?: string;
+	continuationTurns?: number;
 }
 
 function goalPath(cwd: string): string {
@@ -53,6 +58,18 @@ function saveGoal(cwd: string, goal: Goal): void {
 	const file = goalPath(cwd);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	fs.writeFileSync(file, `${JSON.stringify(goal, null, 2)}\n`, "utf8");
+}
+
+function markGoalComplete(cwd: string, reason: string): Goal | null {
+	const goal = loadGoal(cwd);
+	if (!goal) return null;
+	const completedGoal: Goal = {
+		...goal,
+		completedAt: new Date().toISOString(),
+		completionReason: reason,
+	};
+	saveGoal(cwd, completedGoal);
+	return completedGoal;
 }
 
 function clearGoal(cwd: string): boolean {
@@ -89,10 +106,48 @@ function goalSystemBlock(goal: Goal): string {
 }
 
 export default function goalExtension(pi: ExtensionAPI) {
+	pi.registerTool({
+		name: "goal_complete",
+		label: "Goal Complete",
+		description: "Mark the active long-running /goal objective as complete.",
+		parameters: Type.Object({
+			reason: Type.Optional(Type.String()),
+		}),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+			const reason = params.reason?.trim() || "complete";
+			const goal = markGoalComplete(ctx.cwd, reason);
+			if (!goal) {
+				return {
+					content: [{ type: "text", text: "No active goal to complete." }],
+					details: {},
+				};
+			}
+			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+			return {
+				content: [{ type: "text", text: `Goal marked complete: ${reason}` }],
+				details: {},
+			};
+		},
+	});
+
 	// Notify on session start if an objective is active.
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		const goal = loadGoal(ctx.cwd);
 		if (goal) ctx.ui.notify(`Active goal: ${goal.objective}`, "info");
+	});
+
+	pi.on("agent_end", async (_event, ctx: ExtensionContext) => {
+		const goal = loadGoal(ctx.cwd);
+		if (!goal || goal.completedAt || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+
+		const continuationTurns = goal.continuationTurns ?? 0;
+		if (continuationTurns >= MAX_CONTINUATION_TURNS) {
+			ctx.ui.notify(`Goal continuation stopped at turn cap (${MAX_CONTINUATION_TURNS})`, "warning");
+			return;
+		}
+
+		saveGoal(ctx.cwd, { ...goal, continuationTurns: continuationTurns + 1 });
+		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`);
 	});
 
 	// Inject the active objective into the system prompt every turn.
@@ -126,7 +181,12 @@ export default function goalExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(`Objective too long (${objective.length} > ${MAX_OBJECTIVE_CHARS} chars)`, "error");
 				return;
 			}
-			const goal: Goal = { objective, branch: currentBranch(cwd), createdAt: new Date().toISOString() };
+			const goal: Goal = {
+				objective,
+				branch: currentBranch(cwd),
+				createdAt: new Date().toISOString(),
+				continuationTurns: 0,
+			};
 			saveGoal(cwd, goal);
 			ctx.ui.notify("Goal set — starting work", "info");
 
