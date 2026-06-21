@@ -135,6 +135,83 @@ describe("AgentSession model and extension characterization", () => {
 		).toBeDefined();
 	});
 
+	it("blocks tool calls under never approval policy without running hook reviewers", async () => {
+		let hookCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "never" },
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async () => {
+						hookCalls++;
+						return undefined;
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(hookCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("Blocked by approval policy: never");
+	});
+
+	it("runs tool calls under auto-approve policy without running hook reviewers", async () => {
+		let hookCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "auto-approve" },
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async () => {
+						hookCalls++;
+						return { block: true, reason: "hook should have been skipped" };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(hookCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
 	it("runs configured permission prompt tool before executing tool calls", async () => {
 		const approvalInputs: unknown[] = [];
 		const echoTool: AgentTool = {

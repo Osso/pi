@@ -6,9 +6,9 @@ the native `tool_call` extension hook (`pi.on("tool_call", handler)` in
 `packages/coding-agent/src/core/agent-session.ts:414–462`). This spec adds a
 policy preset layer and two slash commands on top of that existing baseline;
 it does not replace the hook. Slash-command registration lives in
-`packages/coding-agent/src/core/slash-commands.ts`. Policy state and preset
-logic live in the planned `packages/coding-agent/src/core/permissions/`
-directory. Implementation details belong in
+`packages/coding-agent/src/core/slash-commands.ts`. Policy state, preset logic,
+and policy gating live in `packages/coding-agent/src/core/permissions/`.
+Implementation details belong in
 `docs/wiki/systems/approval-system.md` (stub — not yet written).
 
 ## What it must do
@@ -39,7 +39,7 @@ directory. Implementation details belong in
   by a hook (`tool_call` handler returned no block), a cached rule, or an
   explicit policy decision — hook `allow` short-circuits both human and LLM
   review.
-- [ ] Do not run the LLM-approved reviewer when the active policy is `never` or
+- [x] Do not run the LLM-approved reviewer when the active policy is `never` or
   `auto-approve`.
 
 ### Presets and slash commands
@@ -78,7 +78,8 @@ directory. Implementation details belong in
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/permissions/` — new directory. (planned)
+- `packages/coding-agent/src/core/permissions/` — approval policy helpers and
+  rule stores.
 - `packages/coding-agent/src/core/permissions/policy.ts` — `ApprovalPolicy`
   type (`on-request` | `never` | `auto-approve`), active policy state,
   and preset behavior evaluation.
@@ -88,14 +89,14 @@ directory. Implementation details belong in
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny. (planned)
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
-  approval flow: check policy, check hook result, route to human or LLM
-  reviewer, apply cached rules. (planned)
+  approval flow: check policy and route `on-request` calls to the configured
+  reviewer. (partial; LLM reviewer routing still planned)
 - `packages/coding-agent/src/core/slash-commands.ts` — register `/approvals`
   and `/sandbox` commands; render preset selectors. (planned additions to
   existing file)
 - `packages/coding-agent/src/core/agent-session.ts` — thread active policy into
-  `_installAgentToolHooks` so the orchestrator is called after hook evaluation.
-  (planned)
+  `_installAgentToolHooks` so the orchestrator wraps permission prompt and
+  `tool_call` review.
 
 ## Tests asserting this spec
 
@@ -105,16 +106,20 @@ directory. Implementation details belong in
 - `packages/coding-agent/test/settings-manager.test.ts` — approval policy default,
   project-over-global settings merge, and distinct persisted values for `never`
   and `auto-approve`.
+- `packages/coding-agent/test/approval-orchestrator.test.ts` — orchestrator
+  policy gating for `on-request`, `never`, and `auto-approve`.
+- `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
+  session-level coverage proving `never` and `auto-approve` skip hook reviewers.
 
 ## Known gaps (current cycle)
 
 - [x] Define `ApprovalPolicy` type and config read/write in `policy.ts`.
-- [ ] Implement approval orchestrator with policy-gating and hook-shortcircuit
+- [x] Implement approval orchestrator with policy-gating and hook-shortcircuit
   logic.
 - [ ] Implement LLM-approved auto-reviewer.
 - [ ] Register `/approvals` command with preset selector UI.
 - [ ] Register `/sandbox` command with profile selector UI.
-- [ ] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
+- [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
 - [x] Add tests for `on-request`/`never`/`auto-approve` core behavior.
 - [ ] Add tests proving hook-approved actions skip LLM-approved reviewer.
 - [ ] Add tests for `/approvals` command registration and preset serialization.

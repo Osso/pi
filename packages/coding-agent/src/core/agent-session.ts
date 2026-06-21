@@ -84,6 +84,7 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
+import { orchestrateToolApproval } from "./permissions/orchestrator.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
@@ -437,34 +438,40 @@ export class AgentSession {
 				toolCallId: toolCall.id,
 				input: args as Record<string, unknown>,
 			} as const;
-			const permissionPromptResult = await createPermissionPromptHandler({
-				permissionPromptTool: this._permissionPromptTool,
-				cwd: this._cwd,
-				ruleStore: this._permissionRuleStore,
-				callTool: async (permissionPromptTool, input) => {
-					const tool = this._toolRegistry.get(permissionPromptTool);
-					if (!tool) {
-						throw new Error(`Permission prompt tool not found: ${permissionPromptTool}`);
+			return orchestrateToolApproval({
+				policy: this.settingsManager.getApprovalPolicy(),
+				approvalRequired: true,
+				reviewer: async () => {
+					const permissionPromptResult = await createPermissionPromptHandler({
+						permissionPromptTool: this._permissionPromptTool,
+						cwd: this._cwd,
+						ruleStore: this._permissionRuleStore,
+						callTool: async (permissionPromptTool, input) => {
+							const tool = this._toolRegistry.get(permissionPromptTool);
+							if (!tool) {
+								throw new Error(`Permission prompt tool not found: ${permissionPromptTool}`);
+							}
+							return tool.execute(`permission-prompt:${input.tool_use_id}`, input as never);
+						},
+					})(event);
+					if (permissionPromptResult?.block) {
+						return permissionPromptResult;
 					}
-					return tool.execute(`permission-prompt:${input.tool_use_id}`, input as never);
+
+					if (!runner.hasHandlers("tool_call")) {
+						return undefined;
+					}
+
+					try {
+						return await runner.emitToolCall(event);
+					} catch (err) {
+						if (err instanceof Error) {
+							throw err;
+						}
+						throw new Error(`Extension failed, blocking execution: ${String(err)}`);
+					}
 				},
-			})(event);
-			if (permissionPromptResult?.block) {
-				return permissionPromptResult;
-			}
-
-			if (!runner.hasHandlers("tool_call")) {
-				return undefined;
-			}
-
-			try {
-				return await runner.emitToolCall(event);
-			} catch (err) {
-				if (err instanceof Error) {
-					throw err;
-				}
-				throw new Error(`Extension failed, blocking execution: ${String(err)}`);
-			}
+			});
 		};
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
