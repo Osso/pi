@@ -58,6 +58,10 @@ export interface WarningSettings {
 	anthropicExtraUsage?: boolean; // default: true
 }
 
+export interface PermissionRulesSettings {
+	allow?: Record<string, string[]>;
+}
+
 export type DefaultProjectTrust = "ask" | "always" | "never";
 
 export type TransportSetting = Transport;
@@ -121,6 +125,7 @@ export interface Settings {
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
 	permissionPromptTool?: string; // MCP tool name used to approve or deny tool calls
+	permissionRules?: PermissionRulesSettings; // Persisted permission-prompt allow rules by tool name
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */

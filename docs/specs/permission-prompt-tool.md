@@ -40,22 +40,22 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
   existing `ToolCallEvent` mutation contract).
 - [x] `{"behavior":"deny","message":"..."}` → tool call is blocked; return
   `{block: true, reason: message}` from the `tool_call` handler.
-- [ ] `updatedPermissions:[{type:"addRules",destination,behavior,rules:[...]}]`
+- [x] `updatedPermissions:[{type:"addRules",destination,behavior,rules:[...]}]`
   is honored when present alongside the decision.
 
 ### Rule persistence
 
-- [ ] `destination:"session"` + `behavior:"allow"` rule caches approval in memory
+- [x] `destination:"session"` + `behavior:"allow"` rule caches approval in memory
   and suppresses future prompts for the matching `{toolName, ruleContent}` within
   the same Pi session.
-- [ ] `destination:"userSettings"` writes the rule to `~/.pi/agent/settings.json`
-  and suppresses future prompts across sessions.
-- [ ] `destination:"projectSettings"` writes the rule to `.pi/settings.json`.
-- [ ] `destination:"localSettings"` writes to `.pi/settings.local.json`.
+- [x] `destination:"userSettings"` writes the rule to `~/.pi/agent/settings.json`.
+- [x] `destination:"projectSettings"` writes the rule to `.pi/settings.json`.
+- [x] `destination:"localSettings"` writes to `.pi/settings.local.json`.
 - [ ] JSON writes preserve existing file formatting using surgical key insertion,
   not full re-serialization.
 - [ ] Non-session rules do not suppress in-memory follow-up prompts unless they
   also match the persisted-rules check on next evaluation.
+- [ ] Persisted allow rules suppress future prompts across sessions after settings reload.
 
 ## How it works
 
@@ -113,7 +113,7 @@ Evidence:
   and implements the decision/fallback dispatcher. (partial; session-rule cache
   and destination-aware JSON writers still planned)
 - `packages/coding-agent/src/core/permissions/rule-store.ts` — in-memory session
-  rule cache and persistent-rule read/write helpers. (planned)
+  rule cache and persistent-rule write helpers.
 - `packages/coding-agent/src/core/agent-session.ts` — wire
   `mcp-permission-prompt` into `_installAgentToolHooks` so it runs before
   `ui.confirm`.
@@ -122,7 +122,10 @@ Evidence:
 
 - `packages/coding-agent/test/mcp-permission-prompt.test.ts` — parser and dispatcher
   coverage for allow, allow+updatedInput, deny, malformed response fallback,
-  invalid tool-name fallback, and MCP error fallback.
+  invalid tool-name fallback, MCP error fallback, `updatedPermissions`, and session
+  allow-rule cache suppression.
+- `packages/coding-agent/test/permission-rule-store.test.ts` — in-memory exact rule
+  matching plus user/project/local settings writes.
 - `packages/coding-agent/test/args.test.ts` — CLI flag parsing and missing-value
   diagnostics.
 - `packages/coding-agent/test/settings-manager.test.ts` — settings merge for
@@ -145,7 +148,7 @@ Evidence:
   currently returns allow-once instead of `{"behavior":"deny","message":"..."}`.
 - [x] Define MCP tool call input schema (tool name, tool input, session context).
 - [x] Implement response parser and decision dispatcher.
-- [ ] Implement session-rule cache and persistent-rule writers.
+- [x] Implement session-rule cache and persistent-rule writers.
 - [x] Wire into `agent-session.ts` `beforeToolCall` hook.
 - [x] Add `--permission-prompt-tool` flag to `args.ts` and thread through `main.ts`.
 - [x] Write unit tests for each decision shape and fallback path.

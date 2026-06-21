@@ -1,4 +1,5 @@
 import type { ToolCallEvent, ToolCallEventResult } from "../extensions/types.ts";
+import { buildPermissionRuleContent, type PermissionRuleStore, type PermissionRuleUpdate } from "./rule-store.ts";
 
 export type PermissionPromptInput = {
 	tool_name: string;
@@ -13,6 +14,7 @@ export type PermissionPromptDecision =
 	| {
 			behavior: "allow";
 			updatedInput?: Record<string, unknown>;
+			updatedPermissions?: PermissionRuleUpdate[];
 	  }
 	| {
 			behavior: "deny";
@@ -23,6 +25,7 @@ export type PermissionPromptHandlerOptions = {
 	permissionPromptTool: string | undefined;
 	cwd: string;
 	callTool: PermissionPromptCaller;
+	ruleStore?: PermissionRuleStore;
 };
 
 const MCP_TOOL_NAME_PATTERN = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/;
@@ -36,13 +39,19 @@ export function parsePermissionPromptDecision(rawResponse: unknown): PermissionP
 	const behavior = response.behavior;
 	if (behavior === "allow") {
 		const updatedInput = response.updatedInput;
+		const updatedPermissions = parseUpdatedPermissions(response.updatedPermissions);
+		if (response.updatedPermissions !== undefined && updatedPermissions === undefined) {
+			return undefined;
+		}
 		if (updatedInput === undefined) {
-			return { behavior };
+			return updatedPermissions === undefined ? { behavior } : { behavior, updatedPermissions };
 		}
 		if (!isRecord(updatedInput)) {
 			return undefined;
 		}
-		return { behavior, updatedInput };
+		return updatedPermissions === undefined
+			? { behavior, updatedInput }
+			: { behavior, updatedInput, updatedPermissions };
 	}
 
 	if (behavior === "deny") {
@@ -62,6 +71,11 @@ export function createPermissionPromptHandler(
 	return async (event) => {
 		const { permissionPromptTool } = options;
 		if (!permissionPromptTool || !MCP_TOOL_NAME_PATTERN.test(permissionPromptTool)) {
+			return undefined;
+		}
+
+		const ruleContent = buildPermissionRuleContent(event.toolName, event.input);
+		if (options.ruleStore?.hasAllowRule(event.toolName, ruleContent)) {
 			return undefined;
 		}
 
@@ -86,12 +100,55 @@ export function createPermissionPromptHandler(
 			return { block: true, reason: decision.message };
 		}
 
+		options.ruleStore?.applyUpdatedPermissions(event.toolName, decision.updatedPermissions);
 		if (decision.updatedInput) {
 			replaceInputInPlace(event.input, decision.updatedInput);
 		}
 
 		return undefined;
 	};
+}
+
+function parseUpdatedPermissions(value: unknown): PermissionRuleUpdate[] | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+
+	const updates: PermissionRuleUpdate[] = [];
+	for (const update of value) {
+		if (!isRecord(update)) {
+			return undefined;
+		}
+		if (
+			update.type !== "addRules" ||
+			update.behavior !== "allow" ||
+			!isPermissionRuleDestination(update.destination) ||
+			!Array.isArray(update.rules)
+		) {
+			return undefined;
+		}
+
+		const rules = update.rules.filter((rule): rule is string => typeof rule === "string");
+		if (rules.length !== update.rules.length) {
+			return undefined;
+		}
+
+		updates.push({
+			type: "addRules",
+			destination: update.destination,
+			behavior: "allow",
+			rules,
+		});
+	}
+
+	return updates;
+}
+
+function isPermissionRuleDestination(value: unknown): value is PermissionRuleUpdate["destination"] {
+	return value === "session" || value === "userSettings" || value === "projectSettings" || value === "localSettings";
 }
 
 function parseResponseObject(rawResponse: unknown): Record<string, unknown> | undefined {

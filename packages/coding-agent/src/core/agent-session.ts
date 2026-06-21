@@ -33,6 +33,7 @@ import {
 	resetApiProviders,
 	streamSimple,
 } from "@earendil-works/pi-ai";
+import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -83,6 +84,7 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
+import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
@@ -177,6 +179,8 @@ export interface AgentSessionConfig {
 	excludedToolNames?: string[];
 	/** Optional MCP tool name used to approve or deny tool calls before native handlers. */
 	permissionPromptTool?: string;
+	/** Global settings directory used for persistent permission rule writes. */
+	agentDir?: string;
 	/**
 	 * Override base tools (useful for custom runtimes).
 	 *
@@ -312,6 +316,8 @@ export class AgentSession {
 	private _allowedToolNames?: Set<string>;
 	private _excludedToolNames?: Set<string>;
 	private _permissionPromptTool?: string;
+	private _permissionRuleStore: PermissionRuleStore;
+	private _agentDir: string;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
@@ -349,6 +355,8 @@ export class AgentSession {
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._permissionPromptTool = config.permissionPromptTool ?? this.settingsManager.getPermissionPromptTool();
+		this._agentDir = config.agentDir ?? getAgentDir();
+		this._permissionRuleStore = new PermissionRuleStore({ agentDir: this._agentDir, cwd: this._cwd });
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 
@@ -428,6 +436,7 @@ export class AgentSession {
 			const permissionPromptResult = await createPermissionPromptHandler({
 				permissionPromptTool: this._permissionPromptTool,
 				cwd: this._cwd,
+				ruleStore: this._permissionRuleStore,
 				callTool: async (permissionPromptTool, input) => {
 					const tool = this._toolRegistry.get(permissionPromptTool);
 					if (!tool) {

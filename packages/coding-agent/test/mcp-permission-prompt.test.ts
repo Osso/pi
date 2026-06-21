@@ -5,6 +5,7 @@ import {
 	type PermissionPromptCaller,
 	parsePermissionPromptDecision,
 } from "../src/core/permissions/mcp-permission-prompt.ts";
+import { PermissionRuleStore } from "../src/core/permissions/rule-store.ts";
 
 function createToolCallEvent(input: Record<string, unknown> = { command: "git status" }): ToolCallEvent {
 	return {
@@ -15,13 +16,17 @@ function createToolCallEvent(input: Record<string, unknown> = { command: "git st
 	};
 }
 
-function createHandler(callTool: PermissionPromptCaller, ...permissionPromptTool: [string | undefined] | []) {
-	const configuredTool = permissionPromptTool.length === 0 ? "mcp__approval__prompt" : permissionPromptTool[0];
+function createHandler(
+	callTool: PermissionPromptCaller,
+	options: { permissionPromptTool?: string; ruleStore?: PermissionRuleStore } = {},
+) {
+	const configuredTool = "permissionPromptTool" in options ? options.permissionPromptTool : "mcp__approval__prompt";
 
 	return createPermissionPromptHandler({
 		callTool,
 		cwd: "/repo",
 		permissionPromptTool: configuredTool,
+		ruleStore: options.ruleStore,
 	});
 }
 
@@ -36,6 +41,24 @@ describe("parsePermissionPromptDecision", () => {
 		).toEqual({
 			behavior: "allow",
 			updatedInput: { command: "git status --short" },
+		});
+	});
+
+	it("parses allow decisions with updated permissions", () => {
+		expect(
+			parsePermissionPromptDecision(
+				'{"behavior":"allow","updatedPermissions":[{"type":"addRules","destination":"session","behavior":"allow","rules":["git status"]}]}',
+			),
+		).toEqual({
+			behavior: "allow",
+			updatedPermissions: [
+				{
+					type: "addRules",
+					destination: "session",
+					behavior: "allow",
+					rules: ["git status"],
+				},
+			],
 		});
 	});
 
@@ -101,7 +124,7 @@ describe("createPermissionPromptHandler", () => {
 
 	it("falls back when no permission prompt tool is configured", async () => {
 		const callTool = vi.fn<PermissionPromptCaller>();
-		const handler = createHandler(callTool, undefined);
+		const handler = createHandler(callTool, { permissionPromptTool: undefined });
 
 		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
 
@@ -110,7 +133,7 @@ describe("createPermissionPromptHandler", () => {
 
 	it("falls back when the configured permission prompt tool name is invalid", async () => {
 		const callTool = vi.fn<PermissionPromptCaller>();
-		const handler = createHandler(callTool, "approval_prompt");
+		const handler = createHandler(callTool, { permissionPromptTool: "approval_prompt" });
 
 		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
 
@@ -122,5 +145,28 @@ describe("createPermissionPromptHandler", () => {
 		const handler = createHandler(callTool);
 
 		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+	});
+
+	it("uses session allow rules to skip future permission prompt calls", async () => {
+		const ruleStore = new PermissionRuleStore();
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue(
+			JSON.stringify({
+				behavior: "allow",
+				updatedPermissions: [
+					{
+						type: "addRules",
+						destination: "session",
+						behavior: "allow",
+						rules: ["git status"],
+					},
+				],
+			}),
+		);
+		const handler = createHandler(callTool, { ruleStore });
+
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+
+		expect(callTool).toHaveBeenCalledTimes(1);
 	});
 });
