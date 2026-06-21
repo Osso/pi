@@ -23,22 +23,22 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 - [ ] When a `tool_call` event fires AND a permission-prompt tool is configured,
   call the external MCP tool first and honor its decision before falling through to
   the native `ui.confirm` prompt.
-- [ ] No tool configured → fall through to the existing native `tool_call`/
+- [x] No tool configured → fall through to the existing native `tool_call`/
   `ui.confirm` interactive path.
-- [ ] Invalid tool name (not in `mcp__server__tool` shape) → fall through to
+- [x] Invalid tool name (not in `mcp__server__tool` shape) → fall through to
   native interactive path.
-- [ ] MCP tool errors, timeouts, or connection failures → fall through to native
+- [x] MCP tool errors, timeouts, or connection failures → fall through to native
   interactive path.
-- [ ] Malformed tool response (missing `behavior`, non-JSON, unexpected shape) →
+- [x] Malformed tool response (missing `behavior`, non-JSON, unexpected shape) →
   fall through to native interactive path.
 
 ### Decision shapes
 
-- [ ] `{"behavior":"allow"}` → tool call runs without further prompting.
-- [ ] `{"behavior":"allow","updatedInput":{...}}` → tool call runs with its
+- [x] `{"behavior":"allow"}` → tool call runs without further prompting.
+- [x] `{"behavior":"allow","updatedInput":{...}}` → tool call runs with its
   input replaced by `updatedInput`; mutate `event.input` in place (matching the
   existing `ToolCallEvent` mutation contract).
-- [ ] `{"behavior":"deny","message":"..."}` → tool call is blocked; return
+- [x] `{"behavior":"deny","message":"..."}` → tool call is blocked; return
   `{block: true, reason: message}` from the `tool_call` handler.
 - [ ] `updatedPermissions:[{type:"addRules",destination,behavior,rules:[...]}]`
   is honored when present alongside the decision.
@@ -107,11 +107,11 @@ Evidence:
   to the `Args` interface and parse `--permission-prompt-tool` flag. (planned)
 - `packages/coding-agent/src/main.ts` — thread the parsed flag into session
   creation options. (planned)
-- `packages/coding-agent/src/core/permissions/` — new directory. (planned)
+- `packages/coding-agent/src/core/permissions/` — new directory. (started)
 - `packages/coding-agent/src/core/permissions/mcp-permission-prompt.ts` — main
   module: builds the MCP tool call input, parses and validates the response,
-  implements the approval loop with fallback, session-rule cache, and
-  destination-aware JSON writers. (planned)
+  and implements the decision/fallback dispatcher. (partial; session-rule cache
+  and destination-aware JSON writers still planned)
 - `packages/coding-agent/src/core/permissions/rule-store.ts` — in-memory session
   rule cache and persistent-rule read/write helpers. (planned)
 - `packages/coding-agent/src/core/agent-session.ts` — wire
@@ -120,7 +120,9 @@ Evidence:
 
 ## Tests asserting this spec
 
-(none yet — unimplemented)
+- `packages/coding-agent/test/mcp-permission-prompt.test.ts` — parser and dispatcher
+  coverage for allow, allow+updatedInput, deny, malformed response fallback,
+  invalid tool-name fallback, and MCP error fallback.
 
 ## Known gaps (current cycle)
 
@@ -135,12 +137,12 @@ Evidence:
   because it was written as a Claude permission-prompt-tool.
 - [x] Fix or account for the hook-server compatibility gap where elicitation `deny`
   currently returns allow-once instead of `{"behavior":"deny","message":"..."}`.
-- [ ] Define MCP tool call input schema (tool name, tool input, session context).
-- [ ] Implement response parser and decision dispatcher.
+- [x] Define MCP tool call input schema (tool name, tool input, session context).
+- [x] Implement response parser and decision dispatcher.
 - [ ] Implement session-rule cache and persistent-rule writers.
 - [ ] Wire into `agent-session.ts` `beforeToolCall` hook.
 - [ ] Add `--permission-prompt-tool` flag to `args.ts` and thread through `main.ts`.
-- [ ] Write unit tests for each decision shape and fallback path.
+- [x] Write unit tests for each decision shape and fallback path.
 - [ ] Write integration test spinning up a stub MCP server and exercising all
   decision + persistence combinations.
 
