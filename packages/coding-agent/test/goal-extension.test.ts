@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import goalExtension from "../../../.pi/extensions/goal.ts";
+import goalExtension from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
 	BeforeAgentStartEvent,
@@ -84,6 +84,8 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 		runAgentEnd: async () => agentEnd?.({ type: "agent_end", messages: [] }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
+		hasGoalCommand: () => command !== undefined,
+		hasGoalCompleteTool: () => completeTool !== undefined,
 		notify,
 		sendUserMessage,
 	};
@@ -99,6 +101,13 @@ describe("goal extension", () => {
 
 	afterEach(() => {
 		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("registers from the first-party extension path", () => {
+		const harness = createGoalHarness(cwd);
+
+		expect(harness.hasGoalCommand()).toBe(true);
+		expect(harness.hasGoalCompleteTool()).toBe(true);
 	});
 
 	it("sets an objective, persists it, and starts work when idle", async () => {

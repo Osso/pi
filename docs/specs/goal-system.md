@@ -18,6 +18,8 @@ not yet written).
 - [x] At most one active goal exists per project at a time; setting a new goal while one is active requires an explicit replacement path.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
 - [x] Corrupt `.pi/goal.json` is handled as "no active goal" without crashing the command or turn hook.
+- [x] `/goal` is delivered from a tracked first-party extension package, not from
+  project-local `.pi/extensions/` code.
 
 ### Context anchoring
 
@@ -49,13 +51,15 @@ not yet written).
 
 ## Implementation inventory
 
-- `.pi/extensions/goal.ts` — extension entry: registers `/goal`, registers `goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, starts work when a goal is set while idle, and continues active goals from `agent_end`.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, starts work when a goal is set while idle, and continues active goals from `agent_end`.
+- `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
+- `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 - `.gitignore` — ignores `.pi/goal.json` as local goal state.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `/goal` set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 
 ## Known gaps (current cycle)
 
@@ -65,7 +69,7 @@ not yet written).
 - [x] Add a `goal_complete` completion signal and stop continuation when it is called.
 - [x] Implement continuation turn-cap handling.
 - [x] Implement token and wall-clock budget bounds.
-- [ ] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
+- [x] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
 - [ ] Write `docs/wiki/systems/goal-system.md`.
 
 ## Out of scope
