@@ -6,7 +6,9 @@ export type ApprovalReviewer = () => Promise<ToolCallEventResult | undefined>;
 export type ApprovalOrchestratorOptions = {
 	policy: ApprovalPolicy;
 	approvalRequired: boolean;
-	reviewer: ApprovalReviewer;
+	reviewer?: ApprovalReviewer;
+	hookReviewer?: ApprovalReviewer;
+	llmReviewer?: ApprovalReviewer;
 };
 
 export async function orchestrateToolApproval(
@@ -24,5 +26,13 @@ export async function orchestrateToolApproval(
 		return { block: true, reason: decision.reason };
 	}
 
-	return options.reviewer();
+	if (options.hookReviewer) {
+		return options.hookReviewer();
+	}
+
+	if (options.reviewer) {
+		return options.reviewer();
+	}
+
+	return options.llmReviewer?.();
 }

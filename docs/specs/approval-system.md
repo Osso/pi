@@ -113,7 +113,8 @@ Implementation details belong in
   `auto-approve`, scoped approval preset serialization, and sandbox profile
   serialization.
 - `packages/coding-agent/test/approval-orchestrator.test.ts` — orchestrator
-  policy gating for `on-request`, `never`, and `auto-approve`.
+  policy gating for `on-request`, `never`, and `auto-approve`, plus hook
+  reviewer short-circuit behavior before the future LLM reviewer.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
   session-level coverage proving `never` and `auto-approve` skip hook reviewers.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
@@ -129,7 +130,7 @@ Implementation details belong in
 - [ ] Register `/sandbox` command with profile selector UI.
 - [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
 - [x] Add tests for `on-request`/`never`/`auto-approve` core behavior.
-- [ ] Add tests proving hook-approved actions skip LLM-approved reviewer.
+- [x] Add tests proving hook-approved actions skip LLM-approved reviewer.
 - [x] Add tests for `/approvals` command registration and preset serialization.
 - [x] Add tests for `/approvals` and `/sandbox` command metadata before wiring UI
   selectors.

@@ -40,4 +40,49 @@ describe("orchestrateToolApproval", () => {
 		).resolves.toBeUndefined();
 		expect(reviewer).not.toHaveBeenCalled();
 	});
+
+	it("skips the LLM reviewer when a hook reviewer allows", async () => {
+		const hookReviewer = vi.fn().mockResolvedValue(undefined);
+		const llmReviewer = vi.fn().mockResolvedValue({ block: true, reason: "llm blocked" });
+
+		await expect(
+			orchestrateToolApproval({
+				approvalRequired: true,
+				hookReviewer,
+				llmReviewer,
+				policy: "on-request",
+			}),
+		).resolves.toBeUndefined();
+		expect(hookReviewer).toHaveBeenCalledTimes(1);
+		expect(llmReviewer).not.toHaveBeenCalled();
+	});
+
+	it("skips the LLM reviewer when a hook reviewer blocks", async () => {
+		const hookReviewer = vi.fn().mockResolvedValue({ block: true, reason: "hook blocked" });
+		const llmReviewer = vi.fn().mockResolvedValue(undefined);
+
+		await expect(
+			orchestrateToolApproval({
+				approvalRequired: true,
+				hookReviewer,
+				llmReviewer,
+				policy: "on-request",
+			}),
+		).resolves.toEqual({ block: true, reason: "hook blocked" });
+		expect(hookReviewer).toHaveBeenCalledTimes(1);
+		expect(llmReviewer).not.toHaveBeenCalled();
+	});
+
+	it("uses the LLM reviewer when no hook reviewer is available", async () => {
+		const llmReviewer = vi.fn().mockResolvedValue({ block: true, reason: "llm blocked" });
+
+		await expect(
+			orchestrateToolApproval({
+				approvalRequired: true,
+				llmReviewer,
+				policy: "on-request",
+			}),
+		).resolves.toEqual({ block: true, reason: "llm blocked" });
+		expect(llmReviewer).toHaveBeenCalledTimes(1);
+	});
 });
