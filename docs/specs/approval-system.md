@@ -15,14 +15,15 @@ directory. Implementation details belong in
 
 ### Approval policies
 
-- [ ] Support normal ask mode as `on-request`: approval-required actions are
+- [x] Support normal ask mode as `on-request`: approval-required actions are
   routed to the configured reviewer (human or LLM).
-- [ ] Support no-prompt reject mode as `never`: approval-required actions are
+- [x] Support no-prompt reject mode as `never`: approval-required actions are
   rejected and returned to the model without showing any reviewer.
-- [ ] Support no-prompt approve mode as `auto-approve`: approval-required
+- [x] Support no-prompt approve mode as `auto-approve`: approval-required
   actions are treated as approved without human or LLM review.
-- [ ] Keep `never` and `auto-approve` distinct in config, CLI parsing, settings
-  serialization, and UI surfaces — they must never collapse into the same value.
+- [x] Keep `never` and `auto-approve` distinct in config and settings
+  serialization — they must never collapse into the same value.
+- [ ] Keep `never` and `auto-approve` distinct in CLI parsing and UI surfaces.
 - [ ] Map a future `--dangerously-bypass-approvals` flag to `auto-approve`, not
   to `never`.
 
@@ -80,8 +81,9 @@ directory. Implementation details belong in
 - `packages/coding-agent/src/core/permissions/` — new directory. (planned)
 - `packages/coding-agent/src/core/permissions/policy.ts` — `ApprovalPolicy`
   type (`on-request` | `never` | `auto-approve`), active policy state,
-  persistence helpers for `.pi/settings.json` and `~/.pi/agent/settings.json`.
-  (planned)
+  and preset behavior evaluation.
+- `packages/coding-agent/src/core/settings-manager.ts` — approval policy settings
+  read/write helpers. (partial; CLI/UI plumbing still planned)
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny. (planned)
@@ -97,18 +99,23 @@ directory. Implementation details belong in
 
 ## Tests asserting this spec
 
-(none yet — unimplemented)
+- `packages/coding-agent/test/approval-policy.test.ts` — pure policy behavior for
+  `on-request`, `never`, and `auto-approve`, including non-approval-required
+  actions.
+- `packages/coding-agent/test/settings-manager.test.ts` — approval policy default,
+  project-over-global settings merge, and distinct persisted values for `never`
+  and `auto-approve`.
 
 ## Known gaps (current cycle)
 
-- [ ] Define `ApprovalPolicy` type and config read/write in `policy.ts`.
+- [x] Define `ApprovalPolicy` type and config read/write in `policy.ts`.
 - [ ] Implement approval orchestrator with policy-gating and hook-shortcircuit
   logic.
 - [ ] Implement LLM-approved auto-reviewer.
 - [ ] Register `/approvals` command with preset selector UI.
 - [ ] Register `/sandbox` command with profile selector UI.
 - [ ] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
-- [ ] Add tests for `on-request`/`never`/`auto-approve` core behavior.
+- [x] Add tests for `on-request`/`never`/`auto-approve` core behavior.
 - [ ] Add tests proving hook-approved actions skip LLM-approved reviewer.
 - [ ] Add tests for `/approvals` command registration and preset serialization.
 

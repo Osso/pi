@@ -6,6 +6,7 @@ import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
+import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -126,6 +127,7 @@ export interface Settings {
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
 	permissionPromptTool?: string; // MCP tool name used to approve or deny tool calls
 	permissionRules?: PermissionRulesSettings; // Persisted permission-prompt allow rules by tool name
+	approvalPolicy?: ApprovalPolicy; // Tool approval policy preset
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -453,6 +455,16 @@ export class SettingsManager {
 
 	getPermissionPromptTool(): string | undefined {
 		return this.settings.permissionPromptTool;
+	}
+
+	getApprovalPolicy(): ApprovalPolicy {
+		return normalizeApprovalPolicy(this.settings.approvalPolicy);
+	}
+
+	setApprovalPolicy(policy: ApprovalPolicy): void {
+		this.globalSettings.approvalPolicy = policy;
+		this.markModified("approvalPolicy");
+		this.save();
 	}
 
 	isProjectTrusted(): boolean {

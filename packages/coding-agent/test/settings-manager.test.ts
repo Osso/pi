@@ -122,6 +122,36 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("approval policy", () => {
+		it("defaults to on-request", () => {
+			const settingsManager = SettingsManager.inMemory();
+
+			expect(settingsManager.getApprovalPolicy()).toBe("on-request");
+		});
+
+		it("loads approvalPolicy from settings with project overriding global", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ approvalPolicy: "never" }));
+			storage.withLock("project", () => JSON.stringify({ approvalPolicy: "auto-approve" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			expect(settingsManager.getApprovalPolicy()).toBe("auto-approve");
+		});
+
+		it("persists distinct approvalPolicy presets", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			const settingsManager = SettingsManager.create(projectDir, agentDir);
+
+			settingsManager.setApprovalPolicy("never");
+			await settingsManager.flush();
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).approvalPolicy).toBe("never");
+
+			settingsManager.setApprovalPolicy("auto-approve");
+			await settingsManager.flush();
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).approvalPolicy).toBe("auto-approve");
+		});
+	});
+
 	describe("packages migration", () => {
 		it("should keep local-only extensions in extensions array", () => {
 			const settingsPath = join(agentDir, "settings.json");
