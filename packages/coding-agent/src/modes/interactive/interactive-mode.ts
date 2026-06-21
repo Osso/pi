@@ -97,6 +97,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -117,6 +118,7 @@ import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./c
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
 import { type AuthSelectorProvider, OAuthSelectorComponent } from "./components/oauth-selector.ts";
+import { SandboxSelectorComponent } from "./components/sandbox-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
@@ -2604,6 +2606,16 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/approvals") {
+				this.showApprovalSelector();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/sandbox") {
+				this.showSandboxSelector();
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/login") {
 				this.showOAuthSelector("login");
 				this.editor.setText("");
@@ -4234,6 +4246,46 @@ export class InteractiveMode {
 					done();
 					this.showStatus(
 						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
+					);
+				},
+				onCancel: () => {
+					done();
+					this.ui.requestRender();
+				},
+			});
+			return { component: selector, focus: selector };
+		});
+	}
+
+	private showApprovalSelector(): void {
+		this.showSelector((done) => {
+			const selector = new ApprovalSelectorComponent({
+				currentPreset: this.settingsManager.getApprovalPreset(),
+				onSelect: (selection) => {
+					this.settingsManager.setApprovalPreset(selection.preset, selection.scope);
+					done();
+					this.showStatus(
+						`Saved approval preset to ${selection.scope} settings. Restart pi for this to take effect.`,
+					);
+				},
+				onCancel: () => {
+					done();
+					this.ui.requestRender();
+				},
+			});
+			return { component: selector, focus: selector };
+		});
+	}
+
+	private showSandboxSelector(): void {
+		this.showSelector((done) => {
+			const selector = new SandboxSelectorComponent({
+				currentProfile: this.settingsManager.getSandboxProfile(),
+				onSelect: (selection) => {
+					this.settingsManager.setSandboxProfile(selection.profile, selection.scope);
+					done();
+					this.showStatus(
+						`Saved sandbox profile to ${selection.scope} settings. Restart pi for this to take effect.`,
 					);
 				},
 				onCancel: () => {

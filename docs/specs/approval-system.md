@@ -33,7 +33,7 @@ Implementation details belong in
   `tool_call` hook and `ui.confirm`.
 - [x] Support LLM-approved approvals as `on-request` with the reviewer set to
   the auto-reviewer path (a guardian LLM call that pre-approves the tool call).
-- [ ] Expose LLM-approved mode as an explicit choice in the `/approvals` preset
+- [x] Expose LLM-approved mode as an explicit choice in the `/approvals` preset
   selector, distinct from `never` and `auto-approve`.
 - [ ] Skip the LLM-approved reviewer when the action has already been approved
   by a hook (`tool_call` handler returned no block), a cached rule, or an
@@ -44,17 +44,17 @@ Implementation details belong in
 
 ### Presets and slash commands
 
-- [ ] Register `/approvals` as a slash command that opens an approval preset
+- [x] Register `/approvals` as a slash command that opens an approval preset
   selector; choices must include at least: Ask Me (on-request/human),
   LLM Approved (on-request/auto-reviewer), Never Ask/Deny (never), and
   Auto Approve (auto-approve).
-- [ ] Register `/sandbox` as a slash command that opens a sandbox/profile
+- [x] Register `/sandbox` as a slash command that opens a sandbox/profile
   selector without changing approval policy; choices must include at least:
   Read Only (where supported by the external container), Default/Workspace
   Write, and Full Access.
 - [x] Do not present `/sandbox` choices as approval modes; approval behavior and
   sandbox access are separate concerns.
-- [ ] Persist the selected approval preset to `.pi/settings.json` (project) or
+- [x] Persist the selected approval preset to `.pi/settings.json` (project) or
   `~/.pi/agent/settings.json` (global) when the user saves from the selector.
 
 ### Hook compatibility
@@ -130,8 +130,8 @@ Implementation details belong in
 - [x] Implement approval orchestrator with policy-gating and hook-shortcircuit
   logic.
 - [x] Implement LLM-approved auto-reviewer.
-- [ ] Register `/approvals` command with preset selector UI.
-- [ ] Register `/sandbox` command with profile selector UI.
+- [x] Register `/approvals` command with preset selector UI.
+- [x] Register `/sandbox` command with profile selector UI.
 - [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
 - [x] Add tests for `on-request`/`never`/`auto-approve` core behavior.
 - [x] Add tests proving hook-approved actions skip LLM-approved reviewer.
