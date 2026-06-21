@@ -29,7 +29,7 @@ Implementation details belong in
 
 ### Approval reviewers
 
-- [ ] Support human-reviewed approvals for `on-request` via the native
+- [x] Support human-reviewed approvals for `on-request` via the native
   `tool_call` hook and `ui.confirm`.
 - [x] Support LLM-approved approvals as `on-request` with the reviewer set to
   the auto-reviewer path (a guardian LLM call that pre-approves the tool call).

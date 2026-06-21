@@ -446,6 +446,7 @@ export class AgentSession {
 				policy: this.settingsManager.getApprovalPolicy(),
 				approvalRequired: true,
 				hookReviewer: this._createToolApprovalHookReviewer(event, runner),
+				reviewer: this._createToolApprovalHumanReviewer(event, runner),
 				llmReviewer: this._createToolApprovalLlmReviewer(event),
 			});
 		};
@@ -515,6 +516,25 @@ export class AgentSession {
 				}
 				throw new Error(`Extension failed, blocking execution: ${String(err)}`);
 			}
+		};
+	}
+
+	private _createToolApprovalHumanReviewer(
+		event: ToolCallEvent,
+		runner: ExtensionRunner,
+	): ApprovalReviewer | undefined {
+		if (this.settingsManager.getApprovalPreset() !== "ask-me" || !runner.hasUI()) {
+			return undefined;
+		}
+
+		return async () => {
+			const approved = await runner
+				.getUIContext()
+				.confirm(`Approve ${event.toolName}?`, JSON.stringify(event.input, null, 2));
+			if (approved) {
+				return undefined;
+			}
+			return { block: true, reason: "Tool call rejected by user" };
 		};
 	}
 
