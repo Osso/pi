@@ -4,10 +4,14 @@ Hostrun is a stateful JavaScript host-execution extension for Pi. It registers a
 `hostrun_eval` tool that exposes a persistent QuickJS session — `globalThis.ctx`
 survives across evaluations within a session — and approval-gates all host
 effects (filesystem, HTTP, CLI commands, search helpers) through Pi's native
-`tool_call`/`ui.confirm` path. The extension can optionally run as a standalone
-stdio MCP server so other MCP clients (Claude Code, etc.) can reuse the same
-runtime. Source will live in
-`packages/coding-agent/extensions/hostrun/` (a first-party extension package).
+`tool_call`/`ui.confirm` path. The tested first slice is backed by
+`quickjs-emscripten`, captures console output in the structured tool details,
+returns JavaScript exception details without replacing `ctx`, and keeps session
+state alive after those exceptions. A later slice will add a standalone stdio
+MCP server so other MCP clients (Claude Code, etc.) can reuse the same runtime.
+Source lives in
+`packages/coding-agent/extensions/hostrun/` (a first-party extension package)
+with its runtime dependencies recorded in the root `package-lock.json`.
 Implementation details belong in `docs/wiki/systems/hostrun.md`
 (stub — not yet written).
 
@@ -26,7 +30,18 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   must not destroy session state).
 - [x] Capture `console.log`, `console.info`, `console.warn`, `console.error`,
   and `console.debug` output and include it in the tool result.
+- [x] Return JavaScript exception details in the tool result without treating
+  the evaluation as a transport failure.
 - [x] Return the executed code in the result for transcript visibility.
+
+### Runtime dependency packaging
+
+- [x] Use `quickjs-emscripten` as an exact, first-party extension dependency
+  rather than a scaffold evaluator or host `eval`.
+- [x] Include the Hostrun extension workspace in the root npm lockfile so the
+  QuickJS runtime dependency tree is reviewed with normal dependency changes.
+- [x] Keep the QuickJS and schema dependencies pinned to exact versions in the
+  extension package and root lockfile.
 
 ### Approval-gated host library
 
@@ -80,14 +95,17 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
   stdio MCP server for non-Pi hosts. (planned)
 - `packages/coding-agent/extensions/hostrun/package.json` — extension package
-  metadata; pins `quickjs-emscripten` and is included as a root npm workspace so
-  `package-lock.json` records the runtime dependency tree.
+  metadata; pins `quickjs-emscripten` and `typebox` as exact dependencies.
+- `package-lock.json` — records the Hostrun workspace and lockfile-backed
+  QuickJS runtime dependency tree.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
   per-session `ctx` persistence, console capture, and exception-survival
-  coverage.
+  coverage, including returned exception details.
+- `npm run check` — validates the workspace and lockfile state as part of the
+  repo-wide verification flow.
 
 ## Known gaps (current cycle)
 
