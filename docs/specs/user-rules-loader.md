@@ -7,27 +7,27 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 ### Directory discovery
 - [ ] Returns no content (does not error) when `~/.pi/agent/rules/` does not exist.
 - [ ] Returns no content when the directory exists but contains no non-empty `*.md` files.
-- [ ] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
+- [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
 - [ ] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
 
 ### File loading
-- [ ] Only `*.md` files are loaded; other extensions in the directory are ignored.
-- [ ] Files are sorted by filename (lexicographic ascending) before reading, producing deterministic ordering.
-- [ ] Each file's content is trimmed of leading and trailing whitespace before inclusion.
-- [ ] Files whose trimmed content is empty are silently skipped.
-- [ ] Non-empty trimmed contents are joined with a double newline (`\n\n`).
+- [x] Only `*.md` files are loaded; other extensions in the directory are ignored.
+- [x] Files are sorted by filename (lexicographic ascending) before reading, producing deterministic ordering.
+- [x] Each file's content is trimmed of leading and trailing whitespace before inclusion.
+- [x] Files whose trimmed content is empty are silently skipped.
+- [x] Non-empty trimmed contents are joined with a double newline (`\n\n`).
 
 ### Load order
-- [ ] Global rules (`~/.pi/agent/rules/`) are loaded first.
-- [ ] Project-local rules (`.pi/rules/`, trust-gated) are appended after global rules.
+- [x] Global rules (`~/.pi/agent/rules/`) are loaded first.
+- [x] Project-local rules (`.pi/rules/`, trust-gated) are appended after global rules.
 
 ### System-prompt injection
-- [ ] The concatenated rules string is injected into the system prompt in `buildSystemPrompt()` (`core/system-prompt.ts`), appended after the existing `<project_instructions>` context-file block.
-- [ ] When no rules files are found, the system prompt is unmodified (no empty tags or extra whitespace).
-- [ ] Rules are wrapped in a distinct XML tag (e.g., `<user_rules>...</user_rules>`) to separate them from AGENTS.md content.
+- [x] The concatenated rules string is injected into the system prompt in `buildSystemPrompt()` (`core/system-prompt.ts`), appended after the existing `<project_instructions>` context-file block.
+- [x] When no rules files are found, the system prompt is unmodified (no empty tags or extra whitespace).
+- [x] Rules are wrapped in a distinct XML tag (e.g., `<user_rules>...</user_rules>`) to separate them from AGENTS.md content.
 
 ### ResourceLoader integration
-- [ ] `DefaultResourceLoader` calls the rules loader during construction or `reload()` and exposes the result via a `getRulesContent(): string | undefined` method (or equivalent).
+- [x] `DefaultResourceLoader` calls the rules loader during construction or `reload()` and exposes the result via a `getRulesContent(): string | undefined` method (or equivalent).
 - [ ] `reload()` re-reads the rules directories so changes take effect without restarting Pi.
 
 ## How it works
@@ -42,17 +42,18 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 
 ## Tests asserting this spec
 
-(none yet — feature unimplemented)
+- `packages/coding-agent/test/resource-loader.test.ts` — sorted global rules, markdown-only filtering, empty-file skip, global/project merge order, and project trust gating.
+- `packages/coding-agent/test/system-prompt.test.ts` — `<user_rules>` injection after project context and no empty tags when no rules content exists.
 
 ## Known gaps (current cycle)
 
-- [ ] Implement `loadRulesFromDir(dirPath: string): string | undefined` in `resource-loader.ts`: glob `*.md`, sort, read, trim, skip-empty, join with `\n\n`.
-- [ ] Wire global rules load: `loadRulesFromDir(join(agentDir, "rules"))`.
-- [ ] Wire project-local rules load: `loadRulesFromDir(join(cwd, CONFIG_DIR_NAME, "rules"))` gated on `settingsManager.isProjectTrusted()`.
-- [ ] Merge global + local with global first; store on `DefaultResourceLoader`.
-- [ ] Extend `BuildSystemPromptOptions` with `rulesContent?: string` and inject `<user_rules>` block in `buildSystemPrompt()`.
-- [ ] Pass `rulesContent` through from `createAgentSessionServices` → `buildSystemPrompt`.
-- [ ] Add `rules` directory name to `TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES` in `trust-manager.ts` (or verify it is implicitly covered).
+- [x] Implement `loadRulesFromDir(dirPath: string): string | undefined` in `resource-loader.ts`: glob `*.md`, sort, read, trim, skip-empty, join with `\n\n`.
+- [x] Wire global rules load: `loadRulesFromDir(join(agentDir, "rules"))`.
+- [x] Wire project-local rules load: `loadRulesFromDir(join(cwd, CONFIG_DIR_NAME, "rules"))` gated on `settingsManager.isProjectTrusted()`.
+- [x] Merge global + local with global first; store on `DefaultResourceLoader`.
+- [x] Extend `BuildSystemPromptOptions` with `rulesContent?: string` and inject `<user_rules>` block in `buildSystemPrompt()`.
+- [x] Pass `rulesContent` through from `createAgentSessionServices` → `buildSystemPrompt`.
+- [x] Add `rules` directory name to `TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES` in `trust-manager.ts` (or verify it is implicitly covered).
 - [ ] Write unit tests: no-dir returns undefined, empty-dir returns undefined, sorts correctly, skips empty files, project-local gated by trust.
 
 ## Out of scope

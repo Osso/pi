@@ -32,6 +32,7 @@ const TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES = [
 	"skills",
 	"prompts",
 	"themes",
+	"rules",
 	"SYSTEM.md",
 	"APPEND_SYSTEM.md",
 ] as const;

@@ -5,6 +5,15 @@
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
+function appendUserRulesSection(prompt: string, rulesContent: string | undefined): string {
+	if (!rulesContent) {
+		return prompt;
+	}
+
+	const separator = prompt.endsWith("\n") ? "\n" : "\n\n";
+	return `${prompt}${separator}<user_rules>\n${rulesContent}\n</user_rules>`;
+}
+
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt (replaces default). */
 	customPrompt?: string;
@@ -20,6 +29,8 @@ export interface BuildSystemPromptOptions {
 	cwd: string;
 	/** Pre-loaded context files. */
 	contextFiles?: Array<{ path: string; content: string }>;
+	/** Pre-loaded user rules. */
+	rulesContent?: string;
 	/** Pre-loaded skills. */
 	skills?: Skill[];
 }
@@ -34,6 +45,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		appendSystemPrompt,
 		cwd,
 		contextFiles: providedContextFiles,
+		rulesContent,
 		skills: providedSkills,
 	} = options;
 	const resolvedCwd = cwd;
@@ -66,6 +78,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			}
 			prompt += "</project_context>\n";
 		}
+
+		prompt = appendUserRulesSection(prompt, rulesContent);
 
 		// Append skills section (only if read tool is available)
 		const customPromptHasRead = !selectedTools || selectedTools.includes("read");
@@ -159,6 +173,8 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 		}
 		prompt += "</project_context>\n";
 	}
+
+	prompt = appendUserRulesSection(prompt, rulesContent);
 
 	// Append skills section (only if read tool is available)
 	if (hasRead && skills.length > 0) {

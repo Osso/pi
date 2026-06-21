@@ -111,4 +111,30 @@ describe("buildSystemPrompt", () => {
 			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
 		});
 	});
+
+	describe("user rules", () => {
+		test("wraps rules content after project context", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [{ path: "/repo/AGENTS.md", content: "Project instructions." }],
+				rulesContent: "Global rule.\n\nProject rule.",
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("<project_context>");
+			expect(prompt).toContain("</project_context>\n\n<user_rules>\nGlobal rule.\n\nProject rule.\n</user_rules>");
+			expect(prompt.indexOf("</project_context>")).toBeLessThan(prompt.indexOf("<user_rules>"));
+		});
+
+		test("does not add empty user rules tags", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				rulesContent: undefined,
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).not.toContain("<user_rules>");
+		});
+	});
 });

@@ -365,6 +365,46 @@ Content`,
 			expect(agentsFiles).toEqual([]);
 		});
 
+		it("should load global user rules in sorted markdown order", async () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(rulesDir, { recursive: true });
+			writeFileSync(join(rulesDir, "20-second.md"), "\nSecond rule.\n");
+			writeFileSync(join(rulesDir, "10-first.md"), "\nFirst rule.\n");
+			writeFileSync(join(rulesDir, "empty.md"), "   \n");
+			writeFileSync(join(rulesDir, "ignore.txt"), "Ignored rule.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("First rule.\n\nSecond rule.");
+		});
+
+		it("should append project rules only when project is trusted", async () => {
+			const globalRulesDir = join(agentDir, "rules");
+			const projectRulesDir = join(cwd, ".pi", "rules");
+			mkdirSync(globalRulesDir, { recursive: true });
+			mkdirSync(projectRulesDir, { recursive: true });
+			writeFileSync(join(globalRulesDir, "global.md"), "Global rule.");
+			writeFileSync(join(projectRulesDir, "project.md"), "Project rule.");
+
+			const untrustedLoader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: false }),
+			});
+			await untrustedLoader.reload();
+
+			const trustedLoader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: true }),
+			});
+			await trustedLoader.reload();
+
+			expect(untrustedLoader.getRulesContent()).toBe("Global rule.");
+			expect(trustedLoader.getRulesContent()).toBe("Global rule.\n\nProject rule.");
+		});
+
 		it("should discover SYSTEM.md from cwd/.pi", async () => {
 			const piDir = join(cwd, ".pi");
 			mkdirSync(piDir, { recursive: true });

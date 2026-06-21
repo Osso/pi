@@ -40,6 +40,7 @@ export interface ResourceLoader {
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] };
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
+	getRulesContent(): string | undefined;
 	getSystemPrompt(): string | undefined;
 	getAppendSystemPrompt(): string[];
 	extendResources(paths: ResourceExtensionPaths): void;
@@ -119,6 +120,20 @@ export function loadProjectContextFiles(options: {
 	contextFiles.push(...ancestorContextFiles);
 
 	return contextFiles;
+}
+
+export function loadRulesFromDir(dirPath: string): string | undefined {
+	if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) {
+		return undefined;
+	}
+
+	const contents = readdirSync(dirPath)
+		.filter((entry) => entry.endsWith(".md"))
+		.sort((a, b) => a.localeCompare(b))
+		.map((entry) => readFileSync(join(dirPath, entry), "utf-8").trim())
+		.filter((content) => content.length > 0);
+
+	return contents.length > 0 ? contents.join("\n\n") : undefined;
 }
 
 export interface DefaultResourceLoaderOptions {
@@ -203,6 +218,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private themes: Theme[];
 	private themeDiagnostics: ResourceDiagnostic[];
 	private agentsFiles: Array<{ path: string; content: string }>;
+	private rulesContent?: string;
 	private systemPrompt?: string;
 	private appendSystemPrompt: string[];
 	private lastSkillPaths: string[];
@@ -251,6 +267,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.themes = [];
 		this.themeDiagnostics = [];
 		this.agentsFiles = [];
+		this.rulesContent = undefined;
 		this.appendSystemPrompt = [];
 		this.lastSkillPaths = [];
 		this.extensionSkillSourceInfos = new Map();
@@ -279,6 +296,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> } {
 		return { agentsFiles: this.agentsFiles };
+	}
+
+	getRulesContent(): string | undefined {
+		return this.rulesContent;
 	}
 
 	getSystemPrompt(): string | undefined {
@@ -470,6 +491,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
 		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
+		const rulesSources = [loadRulesFromDir(join(this.agentDir, "rules"))];
+		if (this.settingsManager.isProjectTrusted()) {
+			rulesSources.push(loadRulesFromDir(join(this.cwd, CONFIG_DIR_NAME, "rules")));
+		}
+		const loadedRules = rulesSources.filter((content): content is string => content !== undefined);
+		this.rulesContent = loadedRules.length > 0 ? loadedRules.join("\n\n") : undefined;
 
 		const baseSystemPrompt = resolvePromptInput(
 			this.systemPromptSource ?? this.discoverSystemPromptFile(),
