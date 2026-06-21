@@ -76,4 +76,23 @@ describe("writePermissionRules", () => {
 		}
 		expect(settings.permissionRules?.allow?.bash).toEqual(["git status"]);
 	});
+
+	it("adds permission rules without reformatting existing settings", () => {
+		const settingsPath = join(agentDir, "settings.json");
+		writeFileSync(settingsPath, '{"theme":"dark","extensions":["./ext.ts"]}\n');
+
+		writePermissionRules({
+			agentDir,
+			behavior: "allow",
+			cwd,
+			destination: "userSettings",
+			rules: ["git status"],
+			toolName: "bash",
+		});
+
+		const content = readFileSync(settingsPath, "utf-8");
+		expect(content).toContain('"theme":"dark"');
+		expect(content).toContain('"extensions":["./ext.ts"]');
+		expect(JSON.parse(content).permissionRules.allow.bash).toEqual(["git status"]);
+	});
 });

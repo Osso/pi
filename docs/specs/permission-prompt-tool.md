@@ -51,7 +51,7 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 - [x] `destination:"userSettings"` writes the rule to `~/.pi/agent/settings.json`.
 - [x] `destination:"projectSettings"` writes the rule to `.pi/settings.json`.
 - [x] `destination:"localSettings"` writes to `.pi/settings.local.json`.
-- [ ] JSON writes preserve existing file formatting using surgical key insertion,
+- [x] JSON writes preserve existing file formatting using surgical key insertion,
   not full re-serialization.
 - [ ] Non-session rules do not suppress in-memory follow-up prompts unless they
   also match the persisted-rules check on next evaluation.
@@ -125,7 +125,8 @@ Evidence:
   invalid tool-name fallback, MCP error fallback, `updatedPermissions`, and session
   allow-rule cache suppression.
 - `packages/coding-agent/test/permission-rule-store.test.ts` — in-memory exact rule
-  matching, persisted rule loading, plus user/project/local settings writes.
+  matching, persisted rule loading, user/project/local settings writes, and
+  formatting-preserving write insertion.
 - `packages/coding-agent/test/args.test.ts` — CLI flag parsing and missing-value
   diagnostics.
 - `packages/coding-agent/test/settings-manager.test.ts` — settings merge for

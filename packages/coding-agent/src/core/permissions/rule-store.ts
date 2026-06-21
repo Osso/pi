@@ -102,6 +102,7 @@ export function buildPermissionRuleContent(toolName: string, input: Record<strin
 
 export function writePermissionRules(options: WritePermissionRulesOptions): void {
 	const settingsPath = resolveSettingsPath(options);
+	const currentContent = existsSync(settingsPath) ? readFileSync(settingsPath, "utf-8") : undefined;
 	const currentSettings = readSettings(settingsPath);
 	const permissionRules = readPermissionRules(currentSettings.permissionRules);
 	const behaviorRules = permissionRules[options.behavior] ?? {};
@@ -117,7 +118,7 @@ export function writePermissionRules(options: WritePermissionRulesOptions): void
 	};
 
 	mkdirSync(dirname(settingsPath), { recursive: true });
-	writeFileSync(settingsPath, `${JSON.stringify(currentSettings, null, 2)}\n`, "utf-8");
+	writeFileSync(settingsPath, updatePermissionRulesContent(currentContent, currentSettings.permissionRules), "utf-8");
 }
 
 function resolveSettingsPath(options: WritePermissionRulesOptions): string {
@@ -137,6 +138,144 @@ function readSettings(settingsPath: string): Record<string, unknown> & { permiss
 
 	const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf-8"));
 	return isRecord(parsed) ? parsed : {};
+}
+
+function updatePermissionRulesContent(currentContent: string | undefined, permissionRules: unknown): string {
+	const formattedRules = JSON.stringify(permissionRules, null, 2);
+	if (!currentContent) {
+		return `${JSON.stringify({ permissionRules }, null, 2)}\n`;
+	}
+
+	const propertyRange = findTopLevelPropertyValueRange(currentContent, "permissionRules");
+	if (propertyRange) {
+		return `${currentContent.slice(0, propertyRange.start)}${formattedRules}${currentContent.slice(propertyRange.end)}`;
+	}
+
+	const closingBraceIndex = findFinalObjectBrace(currentContent);
+	if (closingBraceIndex === undefined) {
+		return `${JSON.stringify({ permissionRules }, null, 2)}\n`;
+	}
+
+	const beforeBrace = currentContent.slice(0, closingBraceIndex);
+	const afterBrace = currentContent.slice(closingBraceIndex);
+	const hasExistingProperties = beforeBrace.trim() !== "{";
+	const separator = hasExistingProperties ? "," : "";
+	const linePrefix = beforeBrace.includes("\n") ? "\n  " : "";
+	const lineSuffix = beforeBrace.includes("\n") ? "\n" : "";
+	const compactRules = beforeBrace.includes("\n")
+		? formattedRules.replace(/\n/g, "\n  ")
+		: JSON.stringify(permissionRules);
+	return `${beforeBrace.trimEnd()}${separator}${linePrefix}"permissionRules":${beforeBrace.includes("\n") ? " " : ""}${compactRules}${lineSuffix}${afterBrace}`;
+}
+
+function findTopLevelPropertyValueRange(
+	content: string,
+	propertyName: string,
+): { start: number; end: number } | undefined {
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (let index = 0; index < content.length; index++) {
+		const char = content[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === "\\") {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			const endQuote = findStringEnd(content, index);
+			const name = JSON.parse(content.slice(index, endQuote + 1)) as string;
+			if (depth === 1 && name === propertyName) {
+				const colonIndex = content.indexOf(":", endQuote + 1);
+				if (colonIndex === -1) return undefined;
+				const start = findNextNonWhitespace(content, colonIndex + 1);
+				if (start === undefined) return undefined;
+				return { start, end: findJsonValueEnd(content, start) };
+			}
+			index = endQuote;
+			continue;
+		}
+
+		if (char === "{") depth++;
+		if (char === "}") depth--;
+	}
+
+	return undefined;
+}
+
+function findFinalObjectBrace(content: string): number | undefined {
+	const index = content.lastIndexOf("}");
+	return index === -1 ? undefined : index;
+}
+
+function findNextNonWhitespace(content: string, start: number): number | undefined {
+	for (let index = start; index < content.length; index++) {
+		if (!/\s/.test(content[index])) {
+			return index;
+		}
+	}
+	return undefined;
+}
+
+function findStringEnd(content: string, startQuote: number): number {
+	let escaped = false;
+	for (let index = startQuote + 1; index < content.length; index++) {
+		const char = content[index];
+		if (escaped) {
+			escaped = false;
+		} else if (char === "\\") {
+			escaped = true;
+		} else if (char === '"') {
+			return index;
+		}
+	}
+	return startQuote;
+}
+
+function findJsonValueEnd(content: string, start: number): number {
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (let index = start; index < content.length; index++) {
+		const char = content[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === "\\") {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+		if (char === "{" || char === "[") {
+			depth++;
+			continue;
+		}
+		if (char === "}" || char === "]") {
+			if (depth === 0) return index;
+			depth--;
+			continue;
+		}
+		if (char === "," && depth === 0) {
+			return index;
+		}
+	}
+
+	return content.length;
 }
 
 function readPermissionRules(value: unknown): PermissionRulesSettings {
