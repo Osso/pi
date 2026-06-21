@@ -35,10 +35,10 @@ not yet written).
 
 ### Budget bounds
 
-- [ ] A goal may define a token budget and wall-clock budget.
-- [ ] When a token budget is reached, continuation stops or steers the model to summarize remaining work rather than silently continuing.
-- [ ] When a wall-clock budget is reached, continuation stops or steers with a visible budget-limit reason.
-- [ ] Budget state is persisted with the active objective so resume/reload keeps the same bounds.
+- [x] A goal may define a token budget and wall-clock budget.
+- [x] When a token budget is reached, continuation stops or steers the model to summarize remaining work rather than silently continuing.
+- [x] When a wall-clock budget is reached, continuation stops or steers with a visible budget-limit reason.
+- [x] Budget state is persisted with the active objective so resume/reload keeps the same bounds.
 
 ## How it works
 
@@ -50,12 +50,12 @@ not yet written).
 ## Implementation inventory
 
 - `.pi/extensions/goal.ts` — extension entry: registers `/goal`, registers `goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, starts work when a goal is set while idle, and continues active goals from `agent_end`.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, objective length cap, context injection, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, and turn cap.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, objective length cap, context injection, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 - `.gitignore` — ignores `.pi/goal.json` as local goal state.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, and turn cap.
+- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 
 ## Known gaps (current cycle)
 
@@ -64,7 +64,7 @@ not yet written).
 - [x] Implement autonomous continue-when-idle on `agent_end`.
 - [x] Add a `goal_complete` completion signal and stop continuation when it is called.
 - [x] Implement continuation turn-cap handling.
-- [ ] Implement token and wall-clock budget bounds.
+- [x] Implement token and wall-clock budget bounds.
 - [ ] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
 - [ ] Write `docs/wiki/systems/goal-system.md`.
 

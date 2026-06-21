@@ -38,6 +38,14 @@ interface Goal {
 	completedAt?: string;
 	completionReason?: string;
 	continuationTurns?: number;
+	tokenBudget?: number;
+	wallClockBudgetMs?: number;
+}
+
+interface ParsedGoalArgs {
+	objective: string;
+	tokenBudget?: number;
+	wallClockBudgetMs?: number;
 }
 
 function goalPath(cwd: string): string {
@@ -77,6 +85,58 @@ function clearGoal(cwd: string): boolean {
 	if (!fs.existsSync(file)) return false;
 	fs.rmSync(file);
 	return true;
+}
+
+function parsePositiveInteger(value: string | undefined): number | null {
+	if (!value) return null;
+	const parsed = Number(value);
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
+	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
+	let tokenBudget: number | undefined;
+	let wallClockBudgetMs: number | undefined;
+	const objectiveParts: string[] = [];
+
+	for (let index = 0; index < parts.length; index++) {
+		const part = parts[index];
+		if (part === "--token-budget") {
+			const parsed = parsePositiveInteger(parts[++index]);
+			if (parsed === null) return { error: "--token-budget requires a positive integer" };
+			tokenBudget = parsed;
+			continue;
+		}
+		if (part === "--wall-clock-minutes") {
+			const parsed = parsePositiveInteger(parts[++index]);
+			if (parsed === null) return { error: "--wall-clock-minutes requires a positive integer" };
+			wallClockBudgetMs = parsed * 60 * 1000;
+			continue;
+		}
+		objectiveParts.push(part);
+	}
+
+	return { objective: objectiveParts.join(" "), tokenBudget, wallClockBudgetMs };
+}
+
+function wallClockBudgetMinutes(goal: Goal): number {
+	return Math.max(1, Math.round((goal.wallClockBudgetMs ?? 0) / (60 * 1000)));
+}
+
+function budgetStopReason(goal: Goal, ctx: ExtensionContext): string | null {
+	const contextUsage = ctx.getContextUsage();
+	if (goal.tokenBudget !== undefined && contextUsage?.tokens !== null && (contextUsage?.tokens ?? 0) >= goal.tokenBudget) {
+		return `token budget (${goal.tokenBudget})`;
+	}
+
+	if (goal.wallClockBudgetMs !== undefined) {
+		const createdAtMs = Date.parse(goal.createdAt);
+		if (!Number.isNaN(createdAtMs) && Date.now() - createdAtMs >= goal.wallClockBudgetMs) {
+			return `wall-clock budget (${wallClockBudgetMinutes(goal)}m)`;
+		}
+	}
+
+	return null;
 }
 
 function currentBranch(cwd: string): string {
@@ -140,6 +200,12 @@ export default function goalExtension(pi: ExtensionAPI) {
 		const goal = loadGoal(ctx.cwd);
 		if (!goal || goal.completedAt || !ctx.isIdle() || ctx.hasPendingMessages()) return;
 
+		const stopReason = budgetStopReason(goal, ctx);
+		if (stopReason) {
+			ctx.ui.notify(`Goal continuation stopped at ${stopReason}`, "warning");
+			return;
+		}
+
 		const continuationTurns = goal.continuationTurns ?? 0;
 		if (continuationTurns >= MAX_CONTINUATION_TURNS) {
 			ctx.ui.notify(`Goal continuation stopped at turn cap (${MAX_CONTINUATION_TURNS})`, "warning");
@@ -160,8 +226,13 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.registerCommand("goal", {
 		description: "Set or view the objective for a long-running task (/goal <objective> | /goal | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const objective = args.trim();
 			const cwd = ctx.cwd;
+			const parsedArgs = parseGoalArgs(args);
+			if ("error" in parsedArgs) {
+				ctx.ui.notify(parsedArgs.error, "error");
+				return;
+			}
+			const { objective, tokenBudget, wallClockBudgetMs } = parsedArgs;
 
 			// View
 			if (!objective) {
@@ -186,6 +257,8 @@ export default function goalExtension(pi: ExtensionAPI) {
 				branch: currentBranch(cwd),
 				createdAt: new Date().toISOString(),
 				continuationTurns: 0,
+				tokenBudget,
+				wallClockBudgetMs,
 			};
 			saveGoal(cwd, goal);
 			ctx.ui.notify("Goal set — starting work", "info");

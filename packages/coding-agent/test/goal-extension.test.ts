@@ -7,6 +7,7 @@ import type {
 	AgentEndEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
+	ContextUsage,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -21,7 +22,7 @@ type GoalCompleteTool = ToolDefinition;
 type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | SessionStartEvent;
 type GoalEventResult = BeforeAgentStartEventResult | undefined;
 
-function createGoalHarness(cwd: string, options?: { idle?: boolean }) {
+function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage?: ContextUsage }) {
 	let command: RegisteredGoalCommand | undefined;
 	let completeTool: GoalCompleteTool | undefined;
 	let agentEnd: ExtensionHandler<AgentEndEvent, undefined> | undefined;
@@ -62,6 +63,7 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean }) {
 		ui: { notify },
 		isIdle: () => options?.idle ?? true,
 		hasPendingMessages: () => false,
+		getContextUsage: () => options?.contextUsage,
 	} as unknown as ExtensionCommandContext;
 
 	const event = {
@@ -217,5 +219,45 @@ describe("goal extension", () => {
 
 		expect(harness.sendUserMessage).toHaveBeenCalledTimes(8);
 		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at turn cap (8)", "warning");
+	});
+
+	it("persists token and wall-clock budgets when setting a goal", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("--token-budget 100 --wall-clock-minutes 5 budgeted objective");
+
+		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as {
+			objective: string;
+			tokenBudget: number;
+			wallClockBudgetMs: number;
+		};
+		expect(goal.objective).toBe("budgeted objective");
+		expect(goal.tokenBudget).toBe(100);
+		expect(goal.wallClockBudgetMs).toBe(5 * 60 * 1000);
+	});
+
+	it("stops continuation when the token budget is reached", async () => {
+		const harness = createGoalHarness(cwd, { contextUsage: { tokens: 101, contextWindow: 1000, percent: 10.1 } });
+
+		await harness.runCommand("--token-budget 100 token bounded");
+		harness.sendUserMessage.mockClear();
+		await harness.runAgentEnd();
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at token budget (100)", "warning");
+	});
+
+	it("stops continuation when the wall-clock budget is reached", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("--wall-clock-minutes 1 time bounded");
+		const goalPath = join(cwd, ".pi", "goal.json");
+		const goal = JSON.parse(readFileSync(goalPath, "utf8")) as Record<string, unknown>;
+		writeFileSync(goalPath, `${JSON.stringify({ ...goal, createdAt: "2000-01-01T00:00:00.000Z" })}\n`, "utf8");
+		harness.sendUserMessage.mockClear();
+		await harness.runAgentEnd();
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at wall-clock budget (1m)", "warning");
 	});
 });
