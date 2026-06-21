@@ -18,13 +18,13 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Register as a Pi extension via `pi.registerTool("hostrun_eval", ...)` with
   a minimal public schema: required field `code` (string), optional
   `session_id` (string).
-- [ ] Evaluate `code` in a persistent QuickJS session; keep `globalThis.ctx`
+- [x] Evaluate `code` in a persistent QuickJS session; keep `globalThis.ctx`
   live across evaluations in the same session.
 - [x] Keep separate `ctx` state per `session_id`; default a missing `session_id`
   to a per-Pi-session default Hostrun session.
 - [x] Preserve `ctx` after normal JavaScript exceptions (a failing evaluation
   must not destroy session state).
-- [ ] Capture `console.log`, `console.info`, `console.warn`, `console.error`,
+- [x] Capture `console.log`, `console.info`, `console.warn`, `console.error`,
   and `console.debug` output and include it in the tool result.
 - [x] Return the executed code in the result for transcript visibility.
 
@@ -72,25 +72,27 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/extensions/hostrun/src/index.ts` — Pi extension entry
   point; calls `pi.registerTool("hostrun_eval", ...)` and wires the session
   store.
-- `packages/coding-agent/extensions/hostrun/src/session.ts` — JavaScript session
-  lifecycle, `ctx` persistence, and console capture. QuickJS and host-effect
-  helpers are still pending.
+- `packages/coding-agent/extensions/hostrun/src/session.ts` — QuickJS session
+  lifecycle, `ctx` persistence, and console capture. Host-effect helpers are
+  still pending.
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — shared
   `hostrun_eval` argument parsing and session dispatch.
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
   stdio MCP server for non-Pi hosts. (planned)
 - `packages/coding-agent/extensions/hostrun/package.json` — extension package
-  metadata.
+  metadata; pins `quickjs-emscripten` and is included as a root npm workspace so
+  `package-lock.json` records the runtime dependency tree.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
-  per-session `ctx` persistence, and exception-survival coverage.
+  per-session `ctx` persistence, console capture, and exception-survival
+  coverage.
 
 ## Known gaps (current cycle)
 
 - [x] Scaffold `packages/coding-agent/extensions/hostrun/` package.
-- [ ] Implement QuickJS session with persistent `ctx` and console capture.
+- [x] Implement QuickJS session with persistent `ctx` and console capture.
 - [ ] Implement approval-gated `cli.*`, `fs.*`, and `http.*` helpers.
 - [ ] Implement `rg.*` and `fd.*` lazy wrappers.
 - [x] Register extension via `pi.registerTool` in `index.ts`.

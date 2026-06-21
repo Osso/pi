@@ -28,7 +28,7 @@ function formatToolText(result: HostrunEvalResult): string {
 
 export function createHostrunEvalExecutor(store: HostrunSessionStore) {
 	return async (params: HostrunEvalParams): Promise<AgentToolResult<HostrunEvalResult>> => {
-		const result = store.evaluate({ code: params.code, sessionId: params.session_id });
+		const result = await store.evaluate({ code: params.code, sessionId: params.session_id });
 		return {
 			content: [{ type: "text", text: formatToolText(result) }],
 			details: result,
