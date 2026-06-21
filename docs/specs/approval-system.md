@@ -52,7 +52,7 @@ Implementation details belong in
   selector without changing approval policy; choices must include at least:
   Read Only (where supported by the external container), Default/Workspace
   Write, and Full Access.
-- [ ] Do not present `/sandbox` choices as approval modes; approval behavior and
+- [x] Do not present `/sandbox` choices as approval modes; approval behavior and
   sandbox access are separate concerns.
 - [ ] Persist the selected approval preset to `.pi/settings.json` (project) or
   `~/.pi/agent/settings.json` (global) when the user saves from the selector.
@@ -83,6 +83,9 @@ Implementation details belong in
 - `packages/coding-agent/src/core/permissions/policy.ts` — `ApprovalPolicy`
   type (`on-request` | `never` | `auto-approve`), active policy state,
   and preset behavior evaluation.
+- `packages/coding-agent/src/core/permissions/presets.ts` — approval preset and
+  sandbox profile metadata used by command selectors. (partial; UI wiring still
+  planned)
 - `packages/coding-agent/src/core/settings-manager.ts` — approval policy settings
   read/write helpers. (partial; CLI/UI plumbing still planned)
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
@@ -110,6 +113,8 @@ Implementation details belong in
   policy gating for `on-request`, `never`, and `auto-approve`.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
   session-level coverage proving `never` and `auto-approve` skip hook reviewers.
+- `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
+  `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
 
 ## Known gaps (current cycle)
 
@@ -123,6 +128,8 @@ Implementation details belong in
 - [x] Add tests for `on-request`/`never`/`auto-approve` core behavior.
 - [ ] Add tests proving hook-approved actions skip LLM-approved reviewer.
 - [ ] Add tests for `/approvals` command registration and preset serialization.
+- [x] Add tests for `/approvals` and `/sandbox` command metadata before wiring UI
+  selectors.
 
 ## Out of scope
 
