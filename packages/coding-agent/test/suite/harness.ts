@@ -17,7 +17,7 @@ import { ModelRegistry } from "../../src/core/model-registry.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
-import type { ExtensionFactory, ResourceLoader } from "../../src/index.ts";
+import type { ExtensionFactory, ExtensionUIContext, ResourceLoader } from "../../src/index.ts";
 import {
 	type CreateTestExtensionsResultInput,
 	createTestExtensionsResult,
@@ -65,6 +65,7 @@ export interface HarnessOptions {
 	excludedToolNames?: string[];
 	resourceLoader?: ResourceLoader;
 	extensionFactories?: Array<ExtensionFactory | CreateTestExtensionsResultInput>;
+	uiContext?: ExtensionUIContext;
 	withConfiguredAuth?: boolean;
 }
 
@@ -186,6 +187,10 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	session.subscribe((event) => {
 		events.push(event);
 	});
+
+	if (options.uiContext) {
+		await session.bindExtensions({ mode: "tui", uiContext: options.uiContext });
+	}
 
 	return {
 		session,

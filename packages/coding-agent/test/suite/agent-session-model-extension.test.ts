@@ -1,8 +1,8 @@
 import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
-import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionUIContext } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
 
 describe("AgentSession model and extension characterization", () => {
@@ -13,6 +13,39 @@ describe("AgentSession model and extension characterization", () => {
 			harnesses.pop()?.cleanup();
 		}
 	});
+
+	function createConfirmUiContext(confirm: ExtensionUIContext["confirm"]): ExtensionUIContext {
+		return {
+			addAutocompleteProvider: () => {},
+			confirm,
+			custom: async () => undefined as never,
+			editor: async () => undefined,
+			getAllThemes: () => [],
+			getEditorComponent: () => undefined,
+			getEditorText: () => "",
+			getTheme: () => undefined,
+			getToolsExpanded: () => false,
+			input: async () => undefined,
+			notify: () => {},
+			onTerminalInput: () => () => {},
+			pasteToEditor: () => {},
+			select: async () => undefined,
+			setEditorComponent: () => {},
+			setEditorText: () => {},
+			setFooter: () => {},
+			setHeader: () => {},
+			setHiddenThinkingLabel: () => {},
+			setStatus: () => {},
+			setTheme: () => ({ success: false, error: "not available in tests" }),
+			setTitle: () => {},
+			setToolsExpanded: () => {},
+			setWidget: () => {},
+			setWorkingIndicator: () => {},
+			setWorkingMessage: () => {},
+			setWorkingVisible: () => {},
+			theme: {} as ExtensionUIContext["theme"],
+		};
+	}
 
 	it("setModel saves the model and emits model_select", async () => {
 		const modelEvents: string[] = [];
@@ -130,6 +163,77 @@ describe("AgentSession model and extension characterization", () => {
 		await harness.session.prompt("hi");
 
 		expect(getAssistantTexts(harness)).toContain("Blocked by test");
+		expect(
+			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
+		).toBeDefined();
+	});
+
+	it("allows on-request tool calls when the human confirmation fallback approves", async () => {
+		const confirm = vi.fn(async () => true);
+		let toolExecutions = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				toolExecutions++;
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
+			tools: [echoTool],
+			uiContext: createConfirmUiContext(confirm),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(toolExecutions).toBe(1);
+		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
+	it("blocks on-request tool calls when the human confirmation fallback rejects", async () => {
+		const confirm = vi.fn(async () => false);
+		let toolExecutions = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				toolExecutions++;
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
+			tools: [echoTool],
+			uiContext: createConfirmUiContext(confirm),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(toolExecutions).toBe(0);
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();
