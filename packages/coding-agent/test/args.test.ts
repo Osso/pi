@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { parseArgs } from "../src/cli/args.ts";
 
+type ParsedApprovalArgs = ReturnType<typeof parseArgs> & {
+	approvalPreset?: "ask-me" | "llm-approved" | "never-ask-deny" | "auto-approve";
+};
+
+function parseApprovalArgs(args: string[]): ParsedApprovalArgs {
+	return parseArgs(args) as ParsedApprovalArgs;
+}
+
 describe("parseArgs", () => {
 	describe("--version flag", () => {
 		test("parses --version flag", () => {
@@ -346,6 +354,38 @@ describe("parseArgs", () => {
 		test("parses --offline flag", () => {
 			const result = parseArgs(["--offline"]);
 			expect(result.offline).toBe(true);
+		});
+	});
+
+	describe("approval policy flags", () => {
+		test("parses explicit never and auto-approve presets as distinct values", () => {
+			const never = parseApprovalArgs(["--approval-preset", "never-ask-deny"]);
+			const autoApprove = parseApprovalArgs(["--approval-preset", "auto-approve"]);
+
+			expect(never.approvalPreset).toBe("never-ask-deny");
+			expect(autoApprove.approvalPreset).toBe("auto-approve");
+			expect(never.approvalPreset).not.toBe(autoApprove.approvalPreset);
+			expect(never.unknownFlags.has("approval-preset")).toBe(false);
+			expect(autoApprove.unknownFlags.has("approval-preset")).toBe(false);
+		});
+
+		test("maps approval policy names to distinct approval presets", () => {
+			const never = parseApprovalArgs(["--approval-policy", "never"]);
+			const autoApprove = parseApprovalArgs(["--approval-policy", "auto-approve"]);
+
+			expect(never.approvalPreset).toBe("never-ask-deny");
+			expect(autoApprove.approvalPreset).toBe("auto-approve");
+			expect(never.approvalPreset).not.toBe(autoApprove.approvalPreset);
+			expect(never.unknownFlags.has("approval-policy")).toBe(false);
+			expect(autoApprove.unknownFlags.has("approval-policy")).toBe(false);
+		});
+
+		test("maps future bypass flag to auto-approve instead of never", () => {
+			const result = parseApprovalArgs(["--dangerously-bypass-approvals"]);
+
+			expect(result.approvalPreset).toBe("auto-approve");
+			expect(result.approvalPreset).not.toBe("never-ask-deny");
+			expect(result.unknownFlags.has("dangerously-bypass-approvals")).toBe(false);
 		});
 	});
 
