@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,20 +11,27 @@ import type {
 	ExtensionContext,
 	ExtensionHandler,
 	RegisteredCommand,
+	SessionStartEvent,
 } from "../src/core/extensions/types.ts";
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
+type GoalEvent = BeforeAgentStartEvent | SessionStartEvent;
+type GoalEventResult = BeforeAgentStartEventResult | undefined;
 
 function createGoalHarness(cwd: string) {
 	let command: RegisteredGoalCommand | undefined;
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
+	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
 
 	const pi = {
-		on(event: string, handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>) {
+		on(event: string, handler: ExtensionHandler<GoalEvent, GoalEventResult>) {
 			if (event === "before_agent_start") {
-				beforeAgentStart = handler;
+				beforeAgentStart = handler as ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>;
+			}
+			if (event === "session_start") {
+				sessionStart = handler as ExtensionHandler<SessionStartEvent, undefined>;
 			}
 		},
 		registerCommand(name: string, options: RegisteredGoalCommand) {
@@ -56,6 +63,8 @@ function createGoalHarness(cwd: string) {
 			await command?.handler(args, ctx);
 		},
 		runBeforeAgentStart: async () => beforeAgentStart?.(event, ctx as ExtensionContext),
+		runSessionStart: async (reason: SessionStartEvent["reason"]) =>
+			sessionStart?.({ type: "session_start", reason }, ctx as ExtensionContext),
 		notify,
 		sendUserMessage,
 	};
@@ -117,5 +126,32 @@ describe("goal extension", () => {
 
 		expect(harness.notify).toHaveBeenCalledWith("Objective too long (4001 > 4000 chars)", "error");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("notifies when a persisted goal is restored on resume, reload, and fork", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("resume this objective");
+		harness.notify.mockClear();
+		await harness.runSessionStart("resume");
+		await harness.runSessionStart("reload");
+		await harness.runSessionStart("fork");
+
+		expect(harness.notify).toHaveBeenCalledTimes(3);
+		expect(harness.notify).toHaveBeenNthCalledWith(1, "Active goal: resume this objective", "info");
+		expect(harness.notify).toHaveBeenNthCalledWith(2, "Active goal: resume this objective", "info");
+		expect(harness.notify).toHaveBeenNthCalledWith(3, "Active goal: resume this objective", "info");
+	});
+
+	it("treats corrupt goal state as no active objective", async () => {
+		const harness = createGoalHarness(cwd);
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "goal.json"), "{not json", "utf8");
+
+		await harness.runCommand("");
+		const result = await harness.runBeforeAgentStart();
+
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(result).toBeUndefined();
 	});
 });

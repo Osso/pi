@@ -16,8 +16,8 @@ not yet written).
 - [x] `/goal clear` removes the active objective.
 - [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted.
 - [ ] At most one active goal exists per project at a time; setting a new goal while one is active requires an explicit replacement path.
-- [ ] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
-- [ ] Corrupt `.pi/goal.json` is handled as "no active goal" without crashing the command or turn hook.
+- [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
+- [x] Corrupt `.pi/goal.json` is handled as "no active goal" without crashing the command or turn hook.
 
 ### Context anchoring
 
@@ -55,11 +55,11 @@ not yet written).
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, and immediate start-on-set behavior.
+- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, and corrupt goal state handling.
 
 ## Known gaps (current cycle)
 
-- [ ] Add regression coverage for resume/session_start notification and corrupt `.pi/goal.json` handling.
+- [x] Add regression coverage for resume/session_start notification and corrupt `.pi/goal.json` handling.
 - [ ] Add an explicit replacement path for setting a new goal while one is already active.
 - [ ] Implement autonomous continue-when-idle on `agent_end`.
 - [ ] Add a `goal_complete` completion signal and stop continuation when it is called.
