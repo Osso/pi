@@ -87,7 +87,8 @@ Implementation details belong in
   sandbox profile metadata used by command selectors. (partial; UI wiring still
   planned)
 - `packages/coding-agent/src/core/settings-manager.ts` — approval policy settings
-  read/write helpers. (partial; CLI/UI plumbing still planned)
+  read/write helpers, including `approvalPreset` identity plus derived
+  `approvalPolicy`. (partial; UI plumbing still planned)
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny. (planned)
@@ -107,8 +108,8 @@ Implementation details belong in
   `on-request`, `never`, and `auto-approve`, including non-approval-required
   actions.
 - `packages/coding-agent/test/settings-manager.test.ts` — approval policy default,
-  project-over-global settings merge, and distinct persisted values for `never`
-  and `auto-approve`.
+  project-over-global settings merge, distinct persisted values for `never` and
+  `auto-approve`, and scoped approval preset serialization.
 - `packages/coding-agent/test/approval-orchestrator.test.ts` — orchestrator
   policy gating for `on-request`, `never`, and `auto-approve`.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
@@ -127,7 +128,7 @@ Implementation details belong in
 - [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
 - [x] Add tests for `on-request`/`never`/`auto-approve` core behavior.
 - [ ] Add tests proving hook-approved actions skip LLM-approved reviewer.
-- [ ] Add tests for `/approvals` command registration and preset serialization.
+- [x] Add tests for `/approvals` command registration and preset serialization.
 - [x] Add tests for `/approvals` and `/sandbox` command metadata before wiring UI
   selectors.
 

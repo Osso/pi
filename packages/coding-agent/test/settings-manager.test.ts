@@ -150,6 +150,34 @@ describe("SettingsManager", () => {
 			await settingsManager.flush();
 			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).approvalPolicy).toBe("auto-approve");
 		});
+
+		it("persists approval preset identity alongside derived policy", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			const settingsManager = SettingsManager.create(projectDir, agentDir);
+
+			settingsManager.setApprovalPreset("llm-approved");
+			await settingsManager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.approvalPreset).toBe("llm-approved");
+			expect(savedSettings.approvalPolicy).toBe("on-request");
+			expect(settingsManager.getApprovalPreset()).toBe("llm-approved");
+		});
+
+		it("can persist approval preset selection to project settings", async () => {
+			const globalSettingsPath = join(agentDir, "settings.json");
+			const projectSettingsPath = join(projectDir, ".pi", "settings.json");
+			const settingsManager = SettingsManager.create(projectDir, agentDir);
+
+			settingsManager.setApprovalPreset("never-ask-deny", "project");
+			await settingsManager.flush();
+
+			expect(existsSync(globalSettingsPath)).toBe(false);
+			const savedSettings = JSON.parse(readFileSync(projectSettingsPath, "utf-8"));
+			expect(savedSettings.approvalPreset).toBe("never-ask-deny");
+			expect(savedSettings.approvalPolicy).toBe("never");
+			expect(settingsManager.getApprovalPolicy()).toBe("never");
+		});
 	});
 
 	describe("packages migration", () => {

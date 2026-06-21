@@ -7,6 +7,12 @@ import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
+import {
+	type ApprovalPresetName,
+	approvalPresetForPolicy,
+	findApprovalPreset,
+	isApprovalPresetName,
+} from "./permissions/presets.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -127,7 +133,8 @@ export interface Settings {
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
 	permissionPromptTool?: string; // MCP tool name used to approve or deny tool calls
 	permissionRules?: PermissionRulesSettings; // Persisted permission-prompt allow rules by tool name
-	approvalPolicy?: ApprovalPolicy; // Tool approval policy preset
+	approvalPolicy?: ApprovalPolicy; // Derived tool approval policy
+	approvalPreset?: ApprovalPresetName; // User-facing approval selector preset
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -461,8 +468,38 @@ export class SettingsManager {
 		return normalizeApprovalPolicy(this.settings.approvalPolicy);
 	}
 
+	getApprovalPreset(): ApprovalPresetName {
+		if (isApprovalPresetName(this.settings.approvalPreset)) {
+			return this.settings.approvalPreset;
+		}
+
+		return approvalPresetForPolicy(this.getApprovalPolicy());
+	}
+
 	setApprovalPolicy(policy: ApprovalPolicy): void {
 		this.globalSettings.approvalPolicy = policy;
+		this.globalSettings.approvalPreset = approvalPresetForPolicy(policy);
+		this.markModified("approvalPolicy");
+		this.markModified("approvalPreset");
+		this.save();
+	}
+
+	setApprovalPreset(presetName: ApprovalPresetName, scope: SettingsScope = "global"): void {
+		const preset = findApprovalPreset(presetName);
+		if (scope === "project") {
+			this.assertProjectTrustedForWrite();
+			const projectSettings = structuredClone(this.projectSettings);
+			projectSettings.approvalPreset = presetName;
+			projectSettings.approvalPolicy = preset.policy;
+			this.markProjectModified("approvalPreset");
+			this.markProjectModified("approvalPolicy");
+			this.saveProjectSettings(projectSettings);
+			return;
+		}
+
+		this.globalSettings.approvalPreset = presetName;
+		this.globalSettings.approvalPolicy = preset.policy;
+		this.markModified("approvalPreset");
 		this.markModified("approvalPolicy");
 		this.save();
 	}
