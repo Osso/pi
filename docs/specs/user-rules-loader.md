@@ -5,10 +5,10 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 ## What it must do
 
 ### Directory discovery
-- [ ] Returns no content (does not error) when `~/.pi/agent/rules/` does not exist.
-- [ ] Returns no content when the directory exists but contains no non-empty `*.md` files.
+- [x] Returns no content (does not error) when `~/.pi/agent/rules/` does not exist.
+- [x] Returns no content when the directory exists but contains no non-empty `*.md` files.
 - [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
-- [ ] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
+- [x] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
 
 ### File loading
 - [x] Only `*.md` files are loaded; other extensions in the directory are ignored.
@@ -28,7 +28,7 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 
 ### ResourceLoader integration
 - [x] `DefaultResourceLoader` calls the rules loader during construction or `reload()` and exposes the result via a `getRulesContent(): string | undefined` method (or equivalent).
-- [ ] `reload()` re-reads the rules directories so changes take effect without restarting Pi.
+- [x] `reload()` re-reads the rules directories so changes take effect without restarting Pi.
 
 ## How it works
 
@@ -54,7 +54,7 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - [x] Extend `BuildSystemPromptOptions` with `rulesContent?: string` and inject `<user_rules>` block in `buildSystemPrompt()`.
 - [x] Pass `rulesContent` through from `createAgentSessionServices` → `buildSystemPrompt`.
 - [x] Add `rules` directory name to `TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES` in `trust-manager.ts` (or verify it is implicitly covered).
-- [ ] Write unit tests: no-dir returns undefined, empty-dir returns undefined, sorts correctly, skips empty files, project-local gated by trust.
+- [x] Write unit tests: no-dir returns undefined, empty-dir returns undefined, sorts correctly, skips empty files, project-local gated by trust.
 
 ## Out of scope
 

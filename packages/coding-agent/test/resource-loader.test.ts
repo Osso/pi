@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
-import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
+import { DefaultResourceLoader, loadRulesFromDir } from "../src/core/resource-loader.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import type { Skill } from "../src/core/skills.ts";
@@ -379,6 +379,49 @@ Content`,
 			expect(loader.getRulesContent()).toBe("First rule.\n\nSecond rule.");
 		});
 
+		it("should return no rules content when the rules directory is missing", () => {
+			expect(loadRulesFromDir(join(agentDir, "rules"))).toBeUndefined();
+		});
+
+		it("should return no rules content when the rules directory has no non-empty markdown files", () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(rulesDir, { recursive: true });
+			writeFileSync(join(rulesDir, "empty.md"), "  \n\t");
+			writeFileSync(join(rulesDir, "notes.txt"), "Ignored rule.");
+
+			expect(loadRulesFromDir(rulesDir)).toBeUndefined();
+		});
+
+		it("should silently skip missing and untrusted project rules", async () => {
+			const projectRulesDir = join(cwd, ".pi", "rules");
+			mkdirSync(projectRulesDir, { recursive: true });
+			writeFileSync(join(projectRulesDir, "project.md"), "Project rule.");
+
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: false }),
+			});
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBeUndefined();
+		});
+
+		it("should silently skip missing project rules for trusted projects", async () => {
+			const globalRulesDir = join(agentDir, "rules");
+			mkdirSync(globalRulesDir, { recursive: true });
+			writeFileSync(join(globalRulesDir, "global.md"), "Global rule.");
+
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: true }),
+			});
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("Global rule.");
+		});
+
 		it("should append project rules only when project is trusted", async () => {
 			const globalRulesDir = join(agentDir, "rules");
 			const projectRulesDir = join(cwd, ".pi", "rules");
@@ -403,6 +446,21 @@ Content`,
 
 			expect(untrustedLoader.getRulesContent()).toBe("Global rule.");
 			expect(trustedLoader.getRulesContent()).toBe("Global rule.\n\nProject rule.");
+		});
+
+		it("should reload user rules from disk", async () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(rulesDir, { recursive: true });
+			writeFileSync(join(rulesDir, "rule.md"), "First rule.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+			expect(loader.getRulesContent()).toBe("First rule.");
+
+			writeFileSync(join(rulesDir, "rule.md"), "Updated rule.");
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("Updated rule.");
 		});
 
 		it("should discover SYSTEM.md from cwd/.pi", async () => {
