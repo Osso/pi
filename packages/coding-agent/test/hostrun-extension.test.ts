@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 
@@ -34,7 +39,7 @@ type HostrunTool = {
 	) => Promise<AgentToolResult<HostrunEvalDetails>>;
 };
 
-function createHostrunHarness() {
+function createHostrunHarness(options: { confirm?: (title: string, message: string) => Promise<boolean> } = {}) {
 	let hostrunTool: HostrunTool | undefined;
 
 	const pi = {
@@ -52,14 +57,45 @@ function createHostrunHarness() {
 	}
 
 	const registeredHostrunTool = hostrunTool;
+	const ctx = {
+		cwd: process.cwd(),
+		hasUI: true,
+		mode: "tui",
+		ui: {
+			confirm: options.confirm ?? (async () => false),
+		},
+	} as ExtensionContext;
 
 	return {
 		evaluate: (params: HostrunEvalParams) =>
-			registeredHostrunTool.execute("hostrun-test-call", params, undefined, undefined, {} as ExtensionContext),
+			registeredHostrunTool.execute("hostrun-test-call", params, undefined, undefined, ctx),
 	};
 }
 
+function listen(server: Server): Promise<number> {
+	return new Promise((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(0, "127.0.0.1", () => {
+			const address = server.address() as AddressInfo;
+			resolve(address.port);
+		});
+	});
+}
+
 describe("hostrun extension", () => {
+	let tempDir: string;
+	const servers: Server[] = [];
+
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-hostrun-"));
+	});
+
+	afterEach(async () => {
+		rmSync(tempDir, { recursive: true, force: true });
+		await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+		servers.length = 0;
+	});
+
 	it("registers hostrun_eval with persistent ctx per session", async () => {
 		const harness = createHostrunHarness();
 
@@ -109,5 +145,90 @@ describe("hostrun extension", () => {
 			console: [{ level: "error", text: "boom soon" }],
 		});
 		expect(recovered.details.result).toBe(7);
+	});
+
+	it("blocks cli commands when approval is denied", async () => {
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: "cli.node('-e', 'console.log(\"should-not-run\")').stdout.text()",
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(confirm.mock.calls[0]?.[0]).toContain("node");
+		expect(result.details.error?.message).toContain("denied");
+	});
+
+	it("runs cli commands only after approval", async () => {
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: "cli.node('-e', 'console.log(\"hostrun-ok\")').stdout.text()" });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.result).toBe("hostrun-ok\n");
+	});
+
+	it("does not write files when approval is denied", async () => {
+		const target = join(tempDir, "blocked.txt");
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: `fs.write(${JSON.stringify(target)}, 'blocked')` });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
+		expect(existsSync(target)).toBe(false);
+	});
+
+	it("reads and writes files only after approval", async () => {
+		const target = join(tempDir, "allowed.txt");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: `fs.write(${JSON.stringify(target)}, 'allowed'); fs.read(${JSON.stringify(target)})`,
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(2);
+		expect(result.details.result).toBe("allowed");
+		expect(readFileSync(target, "utf8")).toBe("allowed");
+	});
+
+	it("does not send HTTP requests when approval is denied", async () => {
+		let requests = 0;
+		const server = createServer((_request, response) => {
+			requests++;
+			response.end("blocked");
+		});
+		servers.push(server);
+		const port = await listen(server);
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: `http.get('http://127.0.0.1:${port}/blocked').text()` });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
+		expect(requests).toBe(0);
+	});
+
+	it("sends HTTP requests only after approval", async () => {
+		let requests = 0;
+		const server = createServer((_request, response) => {
+			requests++;
+			response.end("hostrun-http-ok");
+		});
+		servers.push(server);
+		const port = await listen(server);
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: `http.get('http://127.0.0.1:${port}/allowed').text()` });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.result).toBe("hostrun-http-ok");
+		expect(requests).toBe(1);
 	});
 });
