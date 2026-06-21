@@ -80,4 +80,34 @@ describe("hostrun extension", () => {
 
 		expect(result.details.result).toBe("yes");
 	});
+
+	it("captures console output from evaluations", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({
+			code: "console.log('ready', { count: 2 }); console.warn('careful'); 'done'",
+		});
+
+		expect(result.details.console).toEqual([
+			{ level: "log", text: "ready { count: 2 }" },
+			{ level: "warn", text: "careful" },
+		]);
+		expect(result.details.result).toBe("done");
+	});
+
+	it("returns exception details without discarding ctx", async () => {
+		const harness = createHostrunHarness();
+
+		const failed = await harness.evaluate({
+			code: "ctx.beforeThrow = 7; console.error('boom soon'); throw new TypeError('bad hostrun')",
+		});
+		const recovered = await harness.evaluate({ code: "ctx.beforeThrow" });
+
+		expect(failed.details).toMatchObject({
+			error: { name: "TypeError", message: "bad hostrun" },
+			result: undefined,
+			console: [{ level: "error", text: "boom soon" }],
+		});
+		expect(recovered.details.result).toBe(7);
+	});
 });

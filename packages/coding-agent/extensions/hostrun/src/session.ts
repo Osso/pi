@@ -68,6 +68,11 @@ function toEvalError(error: unknown): HostrunEvalError {
 	if (error instanceof Error) {
 		return { name: error.name, message: error.message };
 	}
+	if (typeof error === "object" && error !== null) {
+		const name = "name" in error && typeof error.name === "string" ? error.name : "Error";
+		const message = "message" in error && typeof error.message === "string" ? error.message : String(error);
+		return { name, message };
+	}
 	return { name: "Error", message: String(error) };
 }
 
