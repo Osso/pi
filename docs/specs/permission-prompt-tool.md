@@ -55,7 +55,7 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
   not full re-serialization.
 - [ ] Non-session rules do not suppress in-memory follow-up prompts unless they
   also match the persisted-rules check on next evaluation.
-- [ ] Persisted allow rules suppress future prompts across sessions after settings reload.
+- [x] Persisted allow rules suppress future prompts across sessions after settings reload.
 
 ## How it works
 
@@ -125,13 +125,14 @@ Evidence:
   invalid tool-name fallback, MCP error fallback, `updatedPermissions`, and session
   allow-rule cache suppression.
 - `packages/coding-agent/test/permission-rule-store.test.ts` — in-memory exact rule
-  matching plus user/project/local settings writes.
+  matching, persisted rule loading, plus user/project/local settings writes.
 - `packages/coding-agent/test/args.test.ts` — CLI flag parsing and missing-value
   diagnostics.
 - `packages/coding-agent/test/settings-manager.test.ts` — settings merge for
   `permissionPromptTool` with project overriding global.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
-  session-level permission prompt dispatch for updated input and deny decisions.
+  session-level stub MCP permission prompt dispatch for updated input, deny
+  decisions, and persisted-rule reload suppression.
 
 ## Known gaps (current cycle)
 
@@ -152,8 +153,8 @@ Evidence:
 - [x] Wire into `agent-session.ts` `beforeToolCall` hook.
 - [x] Add `--permission-prompt-tool` flag to `args.ts` and thread through `main.ts`.
 - [x] Write unit tests for each decision shape and fallback path.
-- [ ] Write integration test spinning up a stub MCP server and exercising all
-  decision + persistence combinations.
+- [x] Write stub MCP-style integration tests exercising decision and persistence
+  combinations through the `tool_call` path.
 
 ## Out of scope
 

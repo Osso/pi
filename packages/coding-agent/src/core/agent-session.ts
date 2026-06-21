@@ -356,7 +356,11 @@ export class AgentSession {
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._permissionPromptTool = config.permissionPromptTool ?? this.settingsManager.getPermissionPromptTool();
 		this._agentDir = config.agentDir ?? getAgentDir();
-		this._permissionRuleStore = new PermissionRuleStore({ agentDir: this._agentDir, cwd: this._cwd });
+		this._permissionRuleStore = new PermissionRuleStore({
+			agentDir: this._agentDir,
+			cwd: this._cwd,
+			settings: this.settingsManager.getMergedSettings(),
+		});
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 

@@ -243,6 +243,65 @@ describe("AgentSession model and extension characterization", () => {
 		).toBeDefined();
 	});
 
+	it("skips configured permission prompt tool when persisted allow rule matches", async () => {
+		let approvalCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return {
+					content: [{ type: "text", text }],
+					details: { text },
+				};
+			},
+		};
+		const approvalTool: AgentTool = {
+			name: "mcp__approval__prompt",
+			label: "Approval",
+			description: "Approve tool calls",
+			parameters: Type.Object({
+				tool_name: Type.String(),
+				input: Type.Any(),
+				tool_use_id: Type.String(),
+				cwd: Type.String(),
+			}),
+			execute: async () => {
+				approvalCalls++;
+				return {
+					content: [{ type: "text", text: JSON.stringify({ behavior: "deny", message: "should not run" }) }],
+					details: undefined,
+				};
+			},
+		};
+		const harness = await createHarness({
+			settings: {
+				permissionPromptTool: "mcp__approval__prompt",
+				permissionRules: {
+					allow: {
+						echo: [JSON.stringify({ text: "original" })],
+					},
+				},
+			},
+			tools: [echoTool, approvalTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(approvalCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("original");
+	});
+
 	it("allows extension tool_result handlers to modify tool results", async () => {
 		const echoTool: AgentTool = {
 			name: "echo",

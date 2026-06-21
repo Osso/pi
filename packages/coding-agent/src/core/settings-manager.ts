@@ -447,6 +447,10 @@ export class SettingsManager {
 		return structuredClone(this.projectSettings);
 	}
 
+	getMergedSettings(): Settings {
+		return structuredClone(this.settings);
+	}
+
 	getPermissionPromptTool(): string | undefined {
 		return this.settings.permissionPromptTool;
 	}

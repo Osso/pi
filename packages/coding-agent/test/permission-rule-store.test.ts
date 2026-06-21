@@ -18,6 +18,18 @@ describe("PermissionRuleStore", () => {
 		expect(store.hasAllowRule("bash", "git diff")).toBe(false);
 		expect(store.hasAllowRule("read", "git status")).toBe(false);
 	});
+
+	it("loads persisted allow rules from settings", () => {
+		const store = PermissionRuleStore.fromSettings({
+			permissionRules: {
+				allow: {
+					bash: ["git status"],
+				},
+			},
+		});
+
+		expect(store.hasAllowRule("bash", "git status")).toBe(true);
+	});
 });
 
 describe("writePermissionRules", () => {

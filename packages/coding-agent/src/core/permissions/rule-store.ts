@@ -27,6 +27,7 @@ export type PermissionRuleStoreOptions = {
 	cwd?: string;
 	agentDir?: string;
 	writer?: PermissionRuleWriter;
+	settings?: { permissionRules?: unknown };
 };
 
 type PermissionRulesSettings = {
@@ -43,6 +44,11 @@ export class PermissionRuleStore {
 		this.cwd = options.cwd;
 		this.agentDir = options.agentDir;
 		this.writer = options.writer ?? writePermissionRules;
+		this.addSettingsRules(options.settings);
+	}
+
+	static fromSettings(settings: { permissionRules?: unknown }): PermissionRuleStore {
+		return new PermissionRuleStore({ settings });
 	}
 
 	hasAllowRule(toolName: string, ruleContent: string): boolean {
@@ -55,6 +61,13 @@ export class PermissionRuleStore {
 			ruleSet.add(rule);
 		}
 		this.allowRules.set(toolName, ruleSet);
+	}
+
+	addSettingsRules(settings: { permissionRules?: unknown } | undefined): void {
+		const permissionRules = readPermissionRules(settings?.permissionRules);
+		for (const [toolName, rules] of Object.entries(permissionRules.allow ?? {})) {
+			this.addAllowRules(toolName, rules);
+		}
 	}
 
 	applyUpdatedPermissions(toolName: string, updates: PermissionRuleUpdate[] | undefined): void {
