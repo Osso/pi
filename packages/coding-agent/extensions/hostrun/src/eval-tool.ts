@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "../../../src/core/extensions/types.ts";
+import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { HostrunSessionStore, type HostrunEvalResult } from "./session.ts";
 
 export interface HostrunEvalParams {
@@ -27,8 +27,12 @@ function formatToolText(result: HostrunEvalResult): string {
 }
 
 export function createHostrunEvalExecutor(store: HostrunSessionStore) {
-	return async (params: HostrunEvalParams): Promise<AgentToolResult<HostrunEvalResult>> => {
-		const result = await store.evaluate({ code: params.code, sessionId: params.session_id });
+	return async (params: HostrunEvalParams, ctx: ExtensionContext): Promise<AgentToolResult<HostrunEvalResult>> => {
+		const result = await store.evaluate({
+			approval: async (request) => ctx.hasUI && (await ctx.ui.confirm(request.title, request.message)),
+			code: params.code,
+			sessionId: params.session_id,
+		});
 		return {
 			content: [{ type: "text", text: formatToolText(result) }],
 			details: result,
