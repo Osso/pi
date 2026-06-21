@@ -14,16 +14,16 @@ The `-w`/`--worktree <NAME>` CLI flag creates or reuses a sibling Git worktree b
 - [x] If no such worktree exists, `git worktree add <sibling-path>/<NAME> origin/main` is executed; if `origin/main` does not exist, `origin/master` is used as the fallback.
 - [x] If neither `origin/main` nor `origin/master` exists, a visible error is shown and the session does not start.
 - [x] The worktree is created as a sibling of the repo root (e.g., if the repo is at `/home/user/project`, the worktree is at `/home/user/project-<NAME>`).
-- [ ] Resolution runs before any resource loading or session creation so the correct cwd is used throughout.
+- [x] Resolution runs before any resource loading or session creation so the correct cwd is used throughout.
 
 ### Session cwd override
-- [ ] The resolved worktree path is passed as the `cwd` option to `createAgentSessionServices()`.
-- [ ] All context-file loading (AGENTS.md hierarchy, `.pi/rules/`, etc.) uses the worktree cwd, not the original cwd.
-- [ ] The working directory shown in the system prompt reflects the worktree path.
+- [x] The resolved worktree path is passed as the `cwd` option to `createAgentSessionServices()`.
+- [x] All context-file loading (AGENTS.md hierarchy, `.pi/rules/`, etc.) uses the worktree cwd, not the original cwd.
+- [x] The working directory shown in the system prompt reflects the worktree path.
 
 ### Error handling
-- [ ] If `git` is not available or the current directory is not inside a Git repository, a clear error is shown and the session does not start.
-- [ ] If worktree creation fails (e.g., `NAME` conflicts with an existing branch in a way Git rejects), the Git error output is surfaced to the user.
+- [x] If `git` is not available or the current directory is not inside a Git repository, a clear error is shown and the session does not start.
+- [x] If worktree creation fails (e.g., `NAME` conflicts with an existing branch in a way Git rejects), the Git error output is surfaced to the user.
 
 ## How it works
 
@@ -38,7 +38,10 @@ The `-w`/`--worktree <NAME>` CLI flag creates or reuses a sibling Git worktree b
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/args.test.ts` — `--worktree`/`-w` parsing and missing-value diagnostics.
-- `packages/coding-agent/test/git-worktree.test.ts` — existing worktree reuse, `origin/main` creation, `origin/master` fallback, missing-base error, and sibling path selection.
+- `packages/coding-agent/test/git-worktree.test.ts` — existing worktree reuse, `origin/main` creation, `origin/master` fallback, missing-base error, sibling path selection, and git stderr surfacing.
+- `packages/coding-agent/test/worktree-startup.test.ts` — pre-runtime worktree resolution, cwd propagation to session services, and startup error stop behavior.
+- `packages/coding-agent/test/resource-loader.test.ts` — context-file and `.pi/rules/` loading from the resolved worktree cwd.
+- `packages/coding-agent/test/system-prompt.test.ts` — current working directory prompt text uses the resolved worktree cwd.
 
 ## Known gaps (current cycle)
 

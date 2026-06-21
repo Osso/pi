@@ -21,10 +21,7 @@ const defaultGitExec: GitExec = async (args, options) => {
 		const result = await execFileAsync("git", args, { cwd: options.cwd });
 		return { stdout: result.stdout, stderr: result.stderr };
 	} catch (error) {
-		if (error instanceof Error) {
-			throw new WorktreeStartupError(error.message);
-		}
-		throw new WorktreeStartupError(String(error));
+		throw new WorktreeStartupError(formatGitError(error));
 	}
 };
 
@@ -32,9 +29,35 @@ function outputText(output: string | Buffer): string {
 	return typeof output === "string" ? output : output.toString("utf8");
 }
 
+function formatGitError(error: unknown): string {
+	if (typeof error !== "object" || error === null) {
+		return String(error);
+	}
+
+	const maybeOutput = error as { stderr?: string | Buffer; stdout?: string | Buffer; message?: string };
+	const stderr = maybeOutput.stderr === undefined ? "" : outputText(maybeOutput.stderr).trim();
+	if (stderr.length > 0) {
+		return stderr;
+	}
+
+	const stdout = maybeOutput.stdout === undefined ? "" : outputText(maybeOutput.stdout).trim();
+	if (stdout.length > 0) {
+		return stdout;
+	}
+
+	return maybeOutput.message ?? String(error);
+}
+
 async function gitOutput(exec: GitExec, args: string[], cwd: string): Promise<string> {
-	const result = await exec(args, { cwd });
-	return outputText(result.stdout).trim();
+	try {
+		const result = await exec(args, { cwd });
+		return outputText(result.stdout).trim();
+	} catch (error) {
+		if (error instanceof WorktreeStartupError) {
+			throw error;
+		}
+		throw new WorktreeStartupError(formatGitError(error));
+	}
 }
 
 function parseWorktreePaths(output: string): string[] {
