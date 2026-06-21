@@ -114,6 +114,43 @@ describe("goal extension", () => {
 		);
 	});
 
+	it("requires an explicit replace flag before overwriting an active goal", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("first objective");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		await harness.runCommand("second objective");
+
+		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		expect(goal.objective).toBe("first objective");
+		expect(harness.notify).toHaveBeenCalledWith(
+			"Active goal already set — use /goal --replace <objective> to replace it",
+			"warning",
+		);
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("replaces an active goal when the replace flag is present", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("first objective");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		await harness.runCommand("--replace second objective");
+
+		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as {
+			objective: string;
+			continuationTurns: number;
+		};
+		expect(goal.objective).toBe("second objective");
+		expect(goal.continuationTurns).toBe(0);
+		expect(harness.notify).toHaveBeenCalledWith("Goal replaced — starting work", "info");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Work toward this objective until it is achieved: second objective",
+		);
+	});
+
 	it("injects the active objective into the system prompt", async () => {
 		const harness = createGoalHarness(cwd);
 

@@ -15,7 +15,7 @@ not yet written).
 - [x] `/goal` prints the active objective, or a visible notice when no goal is active.
 - [x] `/goal clear` removes the active objective.
 - [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted.
-- [ ] At most one active goal exists per project at a time; setting a new goal while one is active requires an explicit replacement path.
+- [x] At most one active goal exists per project at a time; setting a new goal while one is active requires an explicit replacement path.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
 - [x] Corrupt `.pi/goal.json` is handled as "no active goal" without crashing the command or turn hook.
 
@@ -50,17 +50,17 @@ not yet written).
 ## Implementation inventory
 
 - `.pi/extensions/goal.ts` — extension entry: registers `/goal`, registers `goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, starts work when a goal is set while idle, and continues active goals from `agent_end`.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, objective length cap, context injection, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for set/view/clear, explicit replacement, objective length cap, context injection, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 - `.gitignore` — ignores `.pi/goal.json` as local goal state.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` set/view/clear, explicit replacement, objective length cap, context injection, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 
 ## Known gaps (current cycle)
 
 - [x] Add regression coverage for resume/session_start notification and corrupt `.pi/goal.json` handling.
-- [ ] Add an explicit replacement path for setting a new goal while one is already active.
+- [x] Add an explicit replacement path for setting a new goal while one is already active.
 - [x] Implement autonomous continue-when-idle on `agent_end`.
 - [x] Add a `goal_complete` completion signal and stop continuation when it is called.
 - [x] Implement continuation turn-cap handling.
