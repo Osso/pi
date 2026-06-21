@@ -84,6 +84,26 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("--worktree flag", () => {
+		test("parses --worktree value", () => {
+			const result = parseArgs(["--worktree", "feature-a"]);
+			expect(result.worktree).toBe("feature-a");
+		});
+
+		test("parses -w shorthand", () => {
+			const result = parseArgs(["-w", "feature-a"]);
+			expect(result.worktree).toBe("feature-a");
+		});
+
+		test("reports an error when --worktree has no value", () => {
+			const result = parseArgs(["--worktree"]);
+			expect(result.diagnostics).toContainEqual({
+				type: "error",
+				message: "--worktree requires a value",
+			});
+		});
+	});
+
 	describe("flags with values", () => {
 		test("parses --provider", () => {
 			const result = parseArgs(["--provider", "openai"]);

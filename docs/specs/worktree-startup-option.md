@@ -5,15 +5,15 @@ The `-w`/`--worktree <NAME>` CLI flag creates or reuses a sibling Git worktree b
 ## What it must do
 
 ### CLI surface
-- [ ] `-w <NAME>` and `--worktree <NAME>` are accepted by `parseArgs()` in `cli/args.ts` and stored on the `Args` object.
-- [ ] The flag is documented in `printHelp()` output.
-- [ ] Passing `-w` without a value is a parse error reported via `args.diagnostics`.
+- [x] `-w <NAME>` and `--worktree <NAME>` are accepted by `parseArgs()` in `cli/args.ts` and stored on the `Args` object.
+- [x] The flag is documented in `printHelp()` output.
+- [x] Passing `-w` without a value is a parse error reported via `args.diagnostics`.
 
 ### Worktree resolution
-- [ ] If a sibling worktree directory named `<NAME>` already exists (detected via `git worktree list`), it is reused without re-creating.
-- [ ] If no such worktree exists, `git worktree add <sibling-path>/<NAME> origin/main` is executed; if `origin/main` does not exist, `origin/master` is used as the fallback.
-- [ ] If neither `origin/main` nor `origin/master` exists, a visible error is shown and the session does not start.
-- [ ] The worktree is created as a sibling of the repo root (e.g., if the repo is at `/home/user/project`, the worktree is at `/home/user/project-<NAME>`).
+- [x] If a sibling worktree directory named `<NAME>` already exists (detected via `git worktree list`), it is reused without re-creating.
+- [x] If no such worktree exists, `git worktree add <sibling-path>/<NAME> origin/main` is executed; if `origin/main` does not exist, `origin/master` is used as the fallback.
+- [x] If neither `origin/main` nor `origin/master` exists, a visible error is shown and the session does not start.
+- [x] The worktree is created as a sibling of the repo root (e.g., if the repo is at `/home/user/project`, the worktree is at `/home/user/project-<NAME>`).
 - [ ] Resolution runs before any resource loading or session creation so the correct cwd is used throughout.
 
 ### Session cwd override
@@ -37,16 +37,17 @@ The `-w`/`--worktree <NAME>` CLI flag creates or reuses a sibling Git worktree b
 
 ## Tests asserting this spec
 
-(none yet — feature unimplemented)
+- `packages/coding-agent/test/args.test.ts` — `--worktree`/`-w` parsing and missing-value diagnostics.
+- `packages/coding-agent/test/git-worktree.test.ts` — existing worktree reuse, `origin/main` creation, `origin/master` fallback, missing-base error, and sibling path selection.
 
 ## Known gaps (current cycle)
 
-- [ ] Add `worktree?: string` to the `Args` interface in `cli/args.ts`.
-- [ ] Parse `-w`/`--worktree <NAME>` in `parseArgs()`; add diagnostic on missing value.
-- [ ] Document in `printHelp()`.
-- [ ] Implement `packages/coding-agent/src/utils/git-worktree.ts` with `resolveWorktree()`: shell out to `git rev-parse --show-toplevel`, `git worktree list --porcelain`, and `git worktree add`.
-- [ ] Wire into `main.ts`: resolve worktree if `args.worktree` is set, override `cwd`.
-- [ ] Write unit tests for `resolveWorktree`: existing worktree reused, new worktree created from `origin/main`, fallback to `origin/master`, error on missing remote.
+- [x] Add `worktree?: string` to the `Args` interface in `cli/args.ts`.
+- [x] Parse `-w`/`--worktree <NAME>` in `parseArgs()`; add diagnostic on missing value.
+- [x] Document in `printHelp()`.
+- [x] Implement `packages/coding-agent/src/utils/git-worktree.ts` with `resolveWorktree()`: shell out to `git rev-parse --show-toplevel`, `git worktree list --porcelain`, and `git worktree add`.
+- [x] Wire into `main.ts`: resolve worktree if `args.worktree` is set, override `cwd`.
+- [x] Write unit tests for `resolveWorktree`: existing worktree reused, new worktree created from `origin/main`, fallback to `origin/master`, error on missing remote.
 
 ## Out of scope
 

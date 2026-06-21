@@ -46,6 +46,7 @@ import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
@@ -466,7 +467,7 @@ export async function main(args: string[], options?: MainOptions) {
 		cleanupWindowsSelfUpdateQuarantine(getPackageDir());
 	}
 
-	const cwd = process.cwd();
+	let cwd = process.cwd();
 	const agentDir = getAgentDir();
 	const bootstrapSettingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
@@ -533,6 +534,16 @@ export async function main(args: string[], options?: MainOptions) {
 
 	validateForkFlags(parsed);
 	validateSessionIdFlags(parsed);
+	if (parsed.worktree) {
+		try {
+			cwd = await resolveWorktree(parsed.worktree, { cwd });
+		} catch (error) {
+			const message =
+				error instanceof WorktreeStartupError || error instanceof Error ? error.message : String(error);
+			console.error(chalk.red(`Error: ${message}`));
+			process.exit(1);
+		}
+	}
 
 	// Run migrations (pass cwd for project-local migrations)
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
