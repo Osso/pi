@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
+import runPlanExtension from "../extensions/run-plan.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
 
@@ -243,7 +244,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.additionalSkillPaths = options.additionalSkillPaths ?? [];
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
 		this.additionalThemePaths = options.additionalThemePaths ?? [];
-		this.extensionFactories = options.extensionFactories ?? [];
+		this.extensionFactories = options.noExtensions
+			? (options.extensionFactories ?? [])
+			: [runPlanExtension, ...(options.extensionFactories ?? [])];
 		this.noExtensions = options.noExtensions ?? false;
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
