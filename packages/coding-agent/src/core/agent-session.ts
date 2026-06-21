@@ -82,6 +82,7 @@ import {
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
+import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
@@ -174,6 +175,8 @@ export interface AgentSessionConfig {
 	allowedToolNames?: string[];
 	/** Optional denylist of tool names. When provided, these tool names are not exposed. */
 	excludedToolNames?: string[];
+	/** Optional MCP tool name used to approve or deny tool calls before native handlers. */
+	permissionPromptTool?: string;
 	/**
 	 * Override base tools (useful for custom runtimes).
 	 *
@@ -308,6 +311,7 @@ export class AgentSession {
 	private _initialActiveToolNames?: string[];
 	private _allowedToolNames?: Set<string>;
 	private _excludedToolNames?: Set<string>;
+	private _permissionPromptTool?: string;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
@@ -344,6 +348,7 @@ export class AgentSession {
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
+		this._permissionPromptTool = config.permissionPromptTool ?? this.settingsManager.getPermissionPromptTool();
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 
@@ -414,17 +419,33 @@ export class AgentSession {
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = async ({ toolCall, args }) => {
 			const runner = this._extensionRunner;
+			const event = {
+				type: "tool_call",
+				toolName: toolCall.name,
+				toolCallId: toolCall.id,
+				input: args as Record<string, unknown>,
+			} as const;
+			const permissionPromptResult = await createPermissionPromptHandler({
+				permissionPromptTool: this._permissionPromptTool,
+				cwd: this._cwd,
+				callTool: async (permissionPromptTool, input) => {
+					const tool = this._toolRegistry.get(permissionPromptTool);
+					if (!tool) {
+						throw new Error(`Permission prompt tool not found: ${permissionPromptTool}`);
+					}
+					return tool.execute(`permission-prompt:${input.tool_use_id}`, input as never);
+				},
+			})(event);
+			if (permissionPromptResult?.block) {
+				return permissionPromptResult;
+			}
+
 			if (!runner.hasHandlers("tool_call")) {
 				return undefined;
 			}
 
 			try {
-				return await runner.emitToolCall({
-					type: "tool_call",
-					toolName: toolCall.name,
-					toolCallId: toolCall.id,
-					input: args as Record<string, unknown>,
-				});
+				return await runner.emitToolCall(event);
 			} catch (err) {
 				if (err instanceof Error) {
 					throw err;

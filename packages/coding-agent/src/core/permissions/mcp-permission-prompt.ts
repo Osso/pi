@@ -69,7 +69,7 @@ export function createPermissionPromptHandler(
 		try {
 			const response = await options.callTool(permissionPromptTool, {
 				cwd: options.cwd,
-				input: event.input,
+				input: structuredClone(event.input) as Record<string, unknown>,
 				tool_name: event.toolName,
 				tool_use_id: event.toolCallId,
 			});

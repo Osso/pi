@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
-import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
+import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
 
 describe("AgentSession model and extension characterization", () => {
 	const harnesses: Harness[] = [];
@@ -130,6 +130,114 @@ describe("AgentSession model and extension characterization", () => {
 		await harness.session.prompt("hi");
 
 		expect(getAssistantTexts(harness)).toContain("Blocked by test");
+		expect(
+			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
+		).toBeDefined();
+	});
+
+	it("runs configured permission prompt tool before executing tool calls", async () => {
+		const approvalInputs: unknown[] = [];
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return {
+					content: [{ type: "text", text }],
+					details: { text },
+				};
+			},
+		};
+		const approvalTool: AgentTool = {
+			name: "mcp__approval__prompt",
+			label: "Approval",
+			description: "Approve tool calls",
+			parameters: Type.Object({
+				tool_name: Type.String(),
+				input: Type.Any(),
+				tool_use_id: Type.String(),
+				cwd: Type.String(),
+			}),
+			execute: async (_toolCallId, params) => {
+				approvalInputs.push(params);
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ behavior: "allow", updatedInput: { text: "approved" } }),
+						},
+					],
+					details: undefined,
+				};
+			},
+		};
+		const harness = await createHarness({
+			settings: { permissionPromptTool: "mcp__approval__prompt" },
+			tools: [echoTool, approvalTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(approvalInputs).toMatchObject([
+			{
+				input: { text: "original" },
+				tool_name: "echo",
+			},
+		]);
+		expect(getAssistantTexts(harness)).toContain("approved");
+	});
+
+	it("blocks tool calls denied by the configured permission prompt tool", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const approvalTool: AgentTool = {
+			name: "mcp__approval__prompt",
+			label: "Approval",
+			description: "Approve tool calls",
+			parameters: Type.Object({
+				tool_name: Type.String(),
+				input: Type.Any(),
+				tool_use_id: Type.String(),
+				cwd: Type.String(),
+			}),
+			execute: async () => ({
+				content: [{ type: "text", text: JSON.stringify({ behavior: "deny", message: "blocked by policy" }) }],
+				details: undefined,
+			}),
+		};
+		const harness = await createHarness({
+			settings: { permissionPromptTool: "mcp__approval__prompt" },
+			tools: [echoTool, approvalTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("blocked by policy");
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();

@@ -31,6 +31,7 @@ export interface Args {
 	models?: string[];
 	tools?: string[];
 	excludeTools?: string[];
+	permissionPromptTool?: string;
 	noTools?: boolean;
 	noBuiltinTools?: boolean;
 	extensions?: string[];
@@ -134,6 +135,12 @@ export function parseArgs(args: string[]): Args {
 				.split(",")
 				.map((s) => s.trim())
 				.filter((name) => name.length > 0);
+		} else if (arg === "--permission-prompt-tool") {
+			if (i + 1 < args.length) {
+				result.permissionPromptTool = args[++i];
+			} else {
+				result.diagnostics.push({ type: "error", message: "--permission-prompt-tool requires a value" });
+			}
 		} else if (arg === "--thinking" && i + 1 < args.length) {
 			const level = args[++i];
 			if (isValidThinkingLevel(level)) {
@@ -266,6 +273,8 @@ ${chalk.bold("Options:")}
                                  Applies to built-in, extension, and custom tools
   --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable
                                  Applies to built-in, extension, and custom tools
+  --permission-prompt-tool <mcp__server__tool>
+                                 Delegate tool approval decisions to an MCP tool
   --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh
   --extension, -e <path>         Load an extension file (can be used multiple times)
   --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)

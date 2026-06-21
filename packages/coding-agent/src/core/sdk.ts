@@ -67,6 +67,8 @@ export interface CreateAgentSessionOptions {
 	tools?: string[];
 	/** Optional denylist of tool names to disable. Applies after `tools` when both are provided. */
 	excludeTools?: string[];
+	/** Optional MCP tool name used to approve or deny tool calls. Defaults to settings. */
+	permissionPromptTool?: string;
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
 
@@ -386,6 +388,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		initialActiveToolNames,
 		allowedToolNames,
 		excludedToolNames,
+		permissionPromptTool: options.permissionPromptTool,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});

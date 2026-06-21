@@ -385,6 +385,19 @@ describe("parseArgs", () => {
 			expect(result.excludeTools).toEqual(["read", "bash"]);
 		});
 
+		test("parses --permission-prompt-tool flag", () => {
+			const result = parseArgs(["--permission-prompt-tool", "mcp__approval__prompt"]);
+			expect(result.permissionPromptTool).toBe("mcp__approval__prompt");
+			expect(result.messages).toEqual([]);
+			expect(result.unknownFlags.size).toBe(0);
+		});
+
+		test("reports missing --permission-prompt-tool value", () => {
+			const result = parseArgs(["--permission-prompt-tool"]);
+			expect(result.permissionPromptTool).toBeUndefined();
+			expect(result.diagnostics).toEqual([{ type: "error", message: "--permission-prompt-tool requires a value" }]);
+		});
+
 		test("parses -xt shorthand", () => {
 			const result = parseArgs(["-xt", "read,bash"]);
 			expect(result.excludeTools).toEqual(["read", "bash"]);

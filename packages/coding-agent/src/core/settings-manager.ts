@@ -120,6 +120,7 @@ export interface Settings {
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
+	permissionPromptTool?: string; // MCP tool name used to approve or deny tool calls
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -439,6 +440,10 @@ export class SettingsManager {
 
 	getProjectSettings(): Settings {
 		return structuredClone(this.projectSettings);
+	}
+
+	getPermissionPromptTool(): string | undefined {
+		return this.settings.permissionPromptTool;
 	}
 
 	isProjectTrusted(): boolean {

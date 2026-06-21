@@ -3,7 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS } from "../src/core/http-dispatcher.ts";
-import { SettingsManager } from "../src/core/settings-manager.ts";
+import { InMemorySettingsStorage, SettingsManager } from "../src/core/settings-manager.ts";
 
 describe("SettingsManager", () => {
 	const testDir = join(process.cwd(), "test-settings-tmp");
@@ -108,6 +108,17 @@ describe("SettingsManager", () => {
 			// In-memory change should win
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 			expect(savedSettings.defaultThinkingLevel).toBe("high");
+		});
+	});
+
+	describe("permission prompt tool", () => {
+		it("loads permissionPromptTool from settings with project overriding global", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ permissionPromptTool: "mcp__global__approval" }));
+			storage.withLock("project", () => JSON.stringify({ permissionPromptTool: "mcp__project__approval" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			expect(settingsManager.getPermissionPromptTool()).toBe("mcp__project__approval");
 		});
 	});
 

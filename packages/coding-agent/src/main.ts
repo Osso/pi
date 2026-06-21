@@ -433,6 +433,9 @@ function buildSessionOptions(
 	if (parsed.excludeTools) {
 		options.excludeTools = [...parsed.excludeTools];
 	}
+	if (parsed.permissionPromptTool) {
+		options.permissionPromptTool = parsed.permissionPromptTool;
+	}
 
 	return { options, cliThinkingFromModel, diagnostics };
 }
@@ -719,6 +722,7 @@ export async function main(args: string[], options?: MainOptions) {
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
+			permissionPromptTool: sessionOptions.permissionPromptTool,
 			customTools: sessionOptions.customTools,
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;

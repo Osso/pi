@@ -12,15 +12,15 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 
 ### CLI / config surface
 
-- [ ] Accept `--permission-prompt-tool <mcp__server__tool>` on the `pi` CLI.
-- [ ] Accept `permissionPromptTool` in `.pi/settings.json` (project) and
+- [x] Accept `--permission-prompt-tool <mcp__server__tool>` on the `pi` CLI.
+- [x] Accept `permissionPromptTool` in `.pi/settings.json` (project) and
   `~/.pi/agent/settings.json` (global).
-- [ ] Thread the configured tool name through session creation options so it is
+- [x] Thread the configured tool name through session creation options so it is
   part of the per-session snapshot.
 
 ### Approval loop
 
-- [ ] When a `tool_call` event fires AND a permission-prompt tool is configured,
+- [x] When a `tool_call` event fires AND a permission-prompt tool is configured,
   call the external MCP tool first and honor its decision before falling through to
   the native `ui.confirm` prompt.
 - [x] No tool configured → fall through to the existing native `tool_call`/
@@ -103,10 +103,10 @@ Evidence:
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/cli/args.ts` — add `permissionPromptTool?: string`
-  to the `Args` interface and parse `--permission-prompt-tool` flag. (planned)
+- `packages/coding-agent/src/cli/args.ts` — adds `permissionPromptTool?: string`
+  to the `Args` interface and parses `--permission-prompt-tool` flag.
 - `packages/coding-agent/src/main.ts` — thread the parsed flag into session
-  creation options. (planned)
+  creation options.
 - `packages/coding-agent/src/core/permissions/` — new directory. (started)
 - `packages/coding-agent/src/core/permissions/mcp-permission-prompt.ts` — main
   module: builds the MCP tool call input, parses and validates the response,
@@ -116,13 +116,19 @@ Evidence:
   rule cache and persistent-rule read/write helpers. (planned)
 - `packages/coding-agent/src/core/agent-session.ts` — wire
   `mcp-permission-prompt` into `_installAgentToolHooks` so it runs before
-  `ui.confirm`. (planned)
+  `ui.confirm`.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/mcp-permission-prompt.test.ts` — parser and dispatcher
   coverage for allow, allow+updatedInput, deny, malformed response fallback,
   invalid tool-name fallback, and MCP error fallback.
+- `packages/coding-agent/test/args.test.ts` — CLI flag parsing and missing-value
+  diagnostics.
+- `packages/coding-agent/test/settings-manager.test.ts` — settings merge for
+  `permissionPromptTool` with project overriding global.
+- `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
+  session-level permission prompt dispatch for updated input and deny decisions.
 
 ## Known gaps (current cycle)
 
@@ -140,8 +146,8 @@ Evidence:
 - [x] Define MCP tool call input schema (tool name, tool input, session context).
 - [x] Implement response parser and decision dispatcher.
 - [ ] Implement session-rule cache and persistent-rule writers.
-- [ ] Wire into `agent-session.ts` `beforeToolCall` hook.
-- [ ] Add `--permission-prompt-tool` flag to `args.ts` and thread through `main.ts`.
+- [x] Wire into `agent-session.ts` `beforeToolCall` hook.
+- [x] Add `--permission-prompt-tool` flag to `args.ts` and thread through `main.ts`.
 - [x] Write unit tests for each decision shape and fallback path.
 - [ ] Write integration test spinning up a stub MCP server and exercising all
   decision + persistence combinations.
