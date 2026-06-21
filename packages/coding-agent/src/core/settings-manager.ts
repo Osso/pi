@@ -12,6 +12,8 @@ import {
 	approvalPresetForPolicy,
 	findApprovalPreset,
 	isApprovalPresetName,
+	isSandboxProfileName,
+	type SandboxProfileName,
 } from "./permissions/presets.ts";
 
 export interface CompactionSettings {
@@ -135,6 +137,7 @@ export interface Settings {
 	permissionRules?: PermissionRulesSettings; // Persisted permission-prompt allow rules by tool name
 	approvalPolicy?: ApprovalPolicy; // Derived tool approval policy
 	approvalPreset?: ApprovalPresetName; // User-facing approval selector preset
+	sandboxProfile?: SandboxProfileName; // User-facing sandbox selector profile
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -501,6 +504,23 @@ export class SettingsManager {
 		this.globalSettings.approvalPolicy = preset.policy;
 		this.markModified("approvalPreset");
 		this.markModified("approvalPolicy");
+		this.save();
+	}
+
+	getSandboxProfile(): SandboxProfileName {
+		return isSandboxProfileName(this.settings.sandboxProfile) ? this.settings.sandboxProfile : "workspace-write";
+	}
+
+	setSandboxProfile(profileName: SandboxProfileName, scope: SettingsScope = "global"): void {
+		if (scope === "project") {
+			this.updateProjectSettings("sandboxProfile", (settings) => {
+				settings.sandboxProfile = profileName;
+			});
+			return;
+		}
+
+		this.globalSettings.sandboxProfile = profileName;
+		this.markModified("sandboxProfile");
 		this.save();
 	}
 

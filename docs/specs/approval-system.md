@@ -88,7 +88,8 @@ Implementation details belong in
   planned)
 - `packages/coding-agent/src/core/settings-manager.ts` — approval policy settings
   read/write helpers, including `approvalPreset` identity plus derived
-  `approvalPolicy`. (partial; UI plumbing still planned)
+  `approvalPolicy`, and scoped sandbox profile serialization. (partial; UI
+  plumbing still planned)
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny. (planned)
@@ -109,7 +110,8 @@ Implementation details belong in
   actions.
 - `packages/coding-agent/test/settings-manager.test.ts` — approval policy default,
   project-over-global settings merge, distinct persisted values for `never` and
-  `auto-approve`, and scoped approval preset serialization.
+  `auto-approve`, scoped approval preset serialization, and sandbox profile
+  serialization.
 - `packages/coding-agent/test/approval-orchestrator.test.ts` — orchestrator
   policy gating for `on-request`, `never`, and `auto-approve`.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
@@ -131,6 +133,8 @@ Implementation details belong in
 - [x] Add tests for `/approvals` command registration and preset serialization.
 - [x] Add tests for `/approvals` and `/sandbox` command metadata before wiring UI
   selectors.
+- [x] Add tests for scoped sandbox profile serialization without changing
+  approval policy.
 
 ## Out of scope
 

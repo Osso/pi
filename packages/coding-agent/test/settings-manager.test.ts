@@ -180,6 +180,42 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("sandbox profile", () => {
+		it("defaults to workspace-write", () => {
+			const settingsManager = SettingsManager.inMemory();
+
+			expect(settingsManager.getSandboxProfile()).toBe("workspace-write");
+		});
+
+		it("persists sandbox profile without changing approval policy", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			const settingsManager = SettingsManager.create(projectDir, agentDir);
+
+			settingsManager.setApprovalPreset("auto-approve");
+			settingsManager.setSandboxProfile("read-only");
+			await settingsManager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.sandboxProfile).toBe("read-only");
+			expect(savedSettings.approvalPolicy).toBe("auto-approve");
+			expect(savedSettings.approvalPreset).toBe("auto-approve");
+		});
+
+		it("can persist sandbox profile selection to project settings", async () => {
+			const globalSettingsPath = join(agentDir, "settings.json");
+			const projectSettingsPath = join(projectDir, ".pi", "settings.json");
+			const settingsManager = SettingsManager.create(projectDir, agentDir);
+
+			settingsManager.setSandboxProfile("full-access", "project");
+			await settingsManager.flush();
+
+			expect(existsSync(globalSettingsPath)).toBe(false);
+			const savedSettings = JSON.parse(readFileSync(projectSettingsPath, "utf-8"));
+			expect(savedSettings.sandboxProfile).toBe("full-access");
+			expect(settingsManager.getSandboxProfile()).toBe("full-access");
+		});
+	});
+
 	describe("packages migration", () => {
 		it("should keep local-only extensions in extensions array", () => {
 			const settingsPath = join(agentDir, "settings.json");

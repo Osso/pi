@@ -43,8 +43,14 @@ export function approvalPresetForPolicy(policy: ApprovalPolicy): ApprovalPresetN
 	return "ask-me";
 }
 
-export const SANDBOX_PROFILES: ReadonlyArray<SandboxProfile> = [
+export const SANDBOX_PROFILES = [
 	{ name: "read-only", label: "Read Only" },
 	{ name: "workspace-write", label: "Default/Workspace Write" },
 	{ name: "full-access", label: "Full Access" },
-];
+] as const satisfies ReadonlyArray<SandboxProfile>;
+
+export type SandboxProfileName = (typeof SANDBOX_PROFILES)[number]["name"];
+
+export function isSandboxProfileName(value: unknown): value is SandboxProfileName {
+	return typeof value === "string" && SANDBOX_PROFILES.some((profile) => profile.name === value);
+}
