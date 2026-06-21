@@ -38,4 +38,5 @@ todo.md
 plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
+.pi/goal.json
 collect.sh
