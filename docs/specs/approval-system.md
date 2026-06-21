@@ -31,7 +31,7 @@ Implementation details belong in
 
 - [ ] Support human-reviewed approvals for `on-request` via the native
   `tool_call` hook and `ui.confirm`.
-- [ ] Support LLM-approved approvals as `on-request` with the reviewer set to
+- [x] Support LLM-approved approvals as `on-request` with the reviewer set to
   the auto-reviewer path (a guardian LLM call that pre-approves the tool call).
 - [ ] Expose LLM-approved mode as an explicit choice in the `/approvals` preset
   selector, distinct from `never` and `auto-approve`.
@@ -62,7 +62,7 @@ Implementation details belong in
 - [ ] Preserve the native `tool_call` hook as the baseline rule/preclassification
   engine: a handler may return `{block: true, reason}` to deny, mutate
   `event.input` in place to rewrite args, or return nothing to allow.
-- [ ] Treat a `tool_call` handler that returns no block as an allow decision;
+- [x] Treat a `tool_call` handler that returns no block as an allow decision;
   do not re-prompt the human or run the LLM-approved reviewer after an implicit
   hook allow.
 - [ ] Never map Pi `never` policy to Claude Code `bypassPermissions` in hook
@@ -92,7 +92,7 @@ Implementation details belong in
   plumbing still planned)
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
-  allow/deny. (planned)
+  allow/deny.
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
   approval flow: check policy and route `on-request` calls to the configured
   reviewer. (partial; LLM reviewer routing still planned)
@@ -119,15 +119,15 @@ Implementation details belong in
   session-level coverage proving `never` and `auto-approve` skip hook reviewers.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
-- `packages/coding-agent/test/approval-auto-reviewer.test.ts` — red tests for
-  the LLM-approved reviewer prompt contract and result parser.
+- `packages/coding-agent/test/approval-auto-reviewer.test.ts` — LLM-approved
+  reviewer prompt contract and result parser.
 
 ## Known gaps (current cycle)
 
 - [x] Define `ApprovalPolicy` type and config read/write in `policy.ts`.
 - [x] Implement approval orchestrator with policy-gating and hook-shortcircuit
   logic.
-- [ ] Implement LLM-approved auto-reviewer.
+- [x] Implement LLM-approved auto-reviewer.
 - [ ] Register `/approvals` command with preset selector UI.
 - [ ] Register `/sandbox` command with profile selector UI.
 - [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.

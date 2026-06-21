@@ -70,6 +70,7 @@ import {
 	type SessionBeforeTreeResult,
 	type SessionStartEvent,
 	type ShutdownHandler,
+	type ToolCallEvent,
 	type ToolDefinition,
 	type ToolExecutionEndEvent,
 	type ToolExecutionStartEvent,
@@ -83,8 +84,9 @@ import {
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
+import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
-import { orchestrateToolApproval } from "./permissions/orchestrator.ts";
+import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
@@ -441,36 +443,8 @@ export class AgentSession {
 			return orchestrateToolApproval({
 				policy: this.settingsManager.getApprovalPolicy(),
 				approvalRequired: true,
-				reviewer: async () => {
-					const permissionPromptResult = await createPermissionPromptHandler({
-						permissionPromptTool: this._permissionPromptTool,
-						cwd: this._cwd,
-						ruleStore: this._permissionRuleStore,
-						callTool: async (permissionPromptTool, input) => {
-							const tool = this._toolRegistry.get(permissionPromptTool);
-							if (!tool) {
-								throw new Error(`Permission prompt tool not found: ${permissionPromptTool}`);
-							}
-							return tool.execute(`permission-prompt:${input.tool_use_id}`, input as never);
-						},
-					})(event);
-					if (permissionPromptResult?.block) {
-						return permissionPromptResult;
-					}
-
-					if (!runner.hasHandlers("tool_call")) {
-						return undefined;
-					}
-
-					try {
-						return await runner.emitToolCall(event);
-					} catch (err) {
-						if (err instanceof Error) {
-							throw err;
-						}
-						throw new Error(`Extension failed, blocking execution: ${String(err)}`);
-					}
-				},
+				hookReviewer: this._createToolApprovalHookReviewer(event, runner),
+				llmReviewer: this._createToolApprovalLlmReviewer(event),
 			});
 		};
 
@@ -500,6 +474,70 @@ export class AgentSession {
 				isError: hookResult.isError ?? isError,
 			};
 		};
+	}
+
+	private _createToolApprovalHookReviewer(
+		event: ToolCallEvent,
+		runner: ExtensionRunner,
+	): ApprovalReviewer | undefined {
+		if (!this._permissionPromptTool && !runner.hasHandlers("tool_call")) {
+			return undefined;
+		}
+
+		return async () => {
+			const permissionPromptResult = await createPermissionPromptHandler({
+				permissionPromptTool: this._permissionPromptTool,
+				cwd: this._cwd,
+				ruleStore: this._permissionRuleStore,
+				callTool: async (permissionPromptTool, input) => {
+					const tool = this._toolRegistry.get(permissionPromptTool);
+					if (!tool) {
+						throw new Error(`Permission prompt tool not found: ${permissionPromptTool}`);
+					}
+					return tool.execute(`permission-prompt:${input.tool_use_id}`, input as never);
+				},
+			})(event);
+			if (permissionPromptResult?.block) {
+				return permissionPromptResult;
+			}
+
+			if (!runner.hasHandlers("tool_call")) {
+				return undefined;
+			}
+
+			try {
+				return await runner.emitToolCall(event);
+			} catch (err) {
+				if (err instanceof Error) {
+					throw err;
+				}
+				throw new Error(`Extension failed, blocking execution: ${String(err)}`);
+			}
+		};
+	}
+
+	private _createToolApprovalLlmReviewer(event: ToolCallEvent): ApprovalReviewer | undefined {
+		if (this.settingsManager.getApprovalPreset() !== "llm-approved") {
+			return undefined;
+		}
+
+		return async () =>
+			reviewToolCallWithAutoReviewer(
+				{
+					cwd: this._cwd,
+					input: event.input,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+				},
+				async (prompt) => {
+					const stream = await this.agent.streamFn(this.agent.state.model, {
+						messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+						systemPrompt: "",
+						tools: [],
+					});
+					return stream.result();
+				},
+			);
 	}
 
 	// =========================================================================

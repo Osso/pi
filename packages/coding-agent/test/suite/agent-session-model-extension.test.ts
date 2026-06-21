@@ -212,6 +212,39 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("hello");
 	});
 
+	it("blocks tool calls denied by the LLM-approved reviewer", async () => {
+		let toolExecutions = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				toolExecutions++;
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved" },
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage('{"behavior":"deny","message":"llm denied"}'),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(toolExecutions).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("llm denied");
+	});
+
 	it("runs configured permission prompt tool before executing tool calls", async () => {
 		const approvalInputs: unknown[] = [];
 		const echoTool: AgentTool = {
