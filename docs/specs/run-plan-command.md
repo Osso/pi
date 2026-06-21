@@ -5,7 +5,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 ## What it must do
 
 ### Command registration
-- [x] The `run-plan` command is registered via `pi.registerCommand("run-plan", { description, handler, getArgumentCompletions })` and appears in the `/` command list.
+- [x] The `run-plan` command is registered via `pi.registerCommand("run-plan", { description, handler, getArgumentCompletions })` and appears in the `/` command list when the first-party extension is loaded.
 - [x] An optional inline filename argument is accepted; when absent, `PLAN.md` in the session cwd is used.
 - [x] `getArgumentCompletions` completes `.md` filenames from the session cwd.
 
@@ -34,7 +34,6 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 ## Implementation inventory
 
 - `packages/coding-agent/src/extensions/run-plan.ts` — Extension factory: registers the `run-plan` command, implements `findNextPlanItem()`, handles plan-file argument resolution, env export, and session entry append.
-- `packages/coding-agent/src/core/resource-loader.ts` — Registers `/run-plan` as a built-in extension factory.
 
 ## Tests asserting this spec
 
@@ -46,7 +45,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 - [x] Implement `findNextPlanItem(filePath: string): Promise<string | null>` — reads file, walks lines, returns first unchecked item text or null.
 - [x] Wire `getArgumentCompletions` to list `.md` files in cwd.
 - [x] Set `process.env.PI_PLAN_FILE` and call `pi.appendEntry("run-plan:active", { file })` before `pi.sendUserMessage()`.
-- [x] Surface the extension via `packages/coding-agent/src/extensions/run-plan.ts` and register it in the default extension list.
+- [x] Surface the extension via `packages/coding-agent/src/extensions/run-plan.ts`; callers can load it through `extensionFactories` or extension path configuration.
 - [x] Write unit tests for `findNextPlanItem`: checked skip, all-checked no-op, missing file error.
 
 ## Out of scope

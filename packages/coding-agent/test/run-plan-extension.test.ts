@@ -2,12 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthStorage } from "../src/core/auth-storage.ts";
-import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
-import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
-import { SessionManager } from "../src/core/session-manager.ts";
 import runPlanExtension, { findNextPlanItem } from "../src/extensions/run-plan.ts";
 
 type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
@@ -118,22 +113,5 @@ describe("run-plan extension", () => {
 		} finally {
 			process.chdir(originalCwd);
 		}
-	});
-
-	it("is registered by the default resource loader", async () => {
-		const agentDir = join(cwd, "agent");
-		mkdirSync(agentDir, { recursive: true });
-		const loader = new DefaultResourceLoader({ cwd, agentDir });
-		await loader.reload();
-		const authStorage = AuthStorage.create(join(cwd, "auth.json"));
-		const runner = new ExtensionRunner(
-			loader.getExtensions().extensions,
-			loader.getExtensions().runtime,
-			cwd,
-			SessionManager.inMemory(),
-			ModelRegistry.create(authStorage),
-		);
-
-		expect(runner.getCommand("run-plan")?.description).toContain("PLAN.md");
 	});
 });
