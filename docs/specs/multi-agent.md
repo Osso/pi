@@ -89,7 +89,8 @@ runtime contract belongs here; implementation details will live in
 
 - [`packages/coding-agent/src/core/multi-agent-store.ts`](../../packages/coding-agent/src/core/multi-agent-store.ts)
   defines the first pure in-memory store, lifecycle transitions, revision checks, active-count
-  derivation, and steering mailbox acknowledgement behavior.
+  derivation, steering mailbox acknowledgement behavior, and SessionManager-backed snapshot
+  persistence/reload.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
@@ -99,7 +100,8 @@ runtime contract belongs here; implementation details will live in
 
 - [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
-  core-derived active counts.
+  core-derived active counts. It also asserts snapshot persistence through SessionManager custom
+  entries and rehydration after reopening a persisted session.
 
 ## Known gaps (current cycle)
 
@@ -109,6 +111,8 @@ runtime contract belongs here; implementation details will live in
       read-only TUI projection contract.
 - [x] Add the first failing tests for stale-revision rejection, read-only agent switching, mailbox
       steering acknowledgement, and core-derived active counts.
+- [x] Add and implement store persistence tests for `SessionManager` custom entries and reloadable
+      snapshots/events.
 
 ## Out of scope
 

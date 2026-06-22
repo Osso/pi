@@ -1,3 +1,7 @@
+import type { CustomEntry, SessionManager } from "./session-manager.ts";
+
+export const MULTI_AGENT_EVENT_CUSTOM_TYPE = "multi_agent_event";
+
 export type AgentLifecycleState =
 	| "queued"
 	| "starting"
@@ -104,6 +108,16 @@ export interface MultiAgentStoreOptions {
 	now?: () => string;
 }
 
+export interface PersistedMultiAgentSnapshot {
+	version: 1;
+	kind: "snapshot";
+	agents: AgentSnapshot[];
+	mailboxMessages: AgentMailboxMessage[];
+	selectedAgentId?: string;
+	nextAgentNumber: number;
+	nextMessageNumber: number;
+}
+
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
 const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
@@ -198,6 +212,10 @@ export class MultiAgentStore {
 		return Array.from(this.agents.values(), copyAgent);
 	}
 
+	listMailboxMessages(): AgentMailboxMessage[] {
+		return Array.from(this.mailboxMessages.values(), copyMessage);
+	}
+
 	listActiveAgents(): AgentSnapshot[] {
 		return this.listAgents().filter((agent) => isActiveLifecycle(agent.lifecycle));
 	}
@@ -288,6 +306,51 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(updatedMessage) };
 	}
 
+	toPersistedSnapshot(): PersistedMultiAgentSnapshot {
+		return {
+			version: 1,
+			kind: "snapshot",
+			agents: this.listAgents(),
+			mailboxMessages: this.listMailboxMessages(),
+			selectedAgentId: this.selectedAgentId,
+			nextAgentNumber: this.nextAgentNumber,
+			nextMessageNumber: this.nextMessageNumber,
+		};
+	}
+
+	persistSnapshot(sessionManager: SessionManager): string {
+		return sessionManager.appendCustomEntry(MULTI_AGENT_EVENT_CUSTOM_TYPE, this.toPersistedSnapshot());
+	}
+
+	static fromSessionManager(sessionManager: SessionManager, options: MultiAgentStoreOptions = {}): MultiAgentStore {
+		const store = new MultiAgentStore(options);
+		const snapshot = findLatestPersistedSnapshot(sessionManager);
+		if (!snapshot) {
+			return store;
+		}
+
+		store.restoreSnapshot(snapshot);
+
+		return store;
+	}
+
+	private restoreSnapshot(snapshot: PersistedMultiAgentSnapshot): void {
+		this.agents.clear();
+		this.mailboxMessages.clear();
+
+		for (const agent of snapshot.agents) {
+			this.agents.set(agent.id, copyAgent(agent));
+		}
+
+		for (const message of snapshot.mailboxMessages) {
+			this.mailboxMessages.set(message.id, copyMessage(message));
+		}
+
+		this.selectedAgentId = snapshot.selectedAgentId;
+		this.nextAgentNumber = snapshot.nextAgentNumber;
+		this.nextMessageNumber = snapshot.nextMessageNumber;
+	}
+
 	private checkRevision(
 		current: AgentNode,
 		expectedRevision: number,
@@ -371,4 +434,45 @@ function copyResult(result: AgentResult | undefined): AgentResult | undefined {
 				artifactIds: result.artifactIds ? [...result.artifactIds] : undefined,
 			}
 		: undefined;
+}
+
+function findLatestPersistedSnapshot(sessionManager: SessionManager): PersistedMultiAgentSnapshot | undefined {
+	const entries = sessionManager.getEntries();
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index];
+		if (isMultiAgentSnapshotEntry(entry)) {
+			return entry.data;
+		}
+	}
+
+	return undefined;
+}
+
+function isMultiAgentSnapshotEntry(entry: unknown): entry is CustomEntry<PersistedMultiAgentSnapshot> {
+	if (!entry || typeof entry !== "object") {
+		return false;
+	}
+
+	const customEntry = entry as CustomEntry;
+	return (
+		customEntry.type === "custom" &&
+		customEntry.customType === MULTI_AGENT_EVENT_CUSTOM_TYPE &&
+		isSnapshotData(customEntry.data)
+	);
+}
+
+function isSnapshotData(data: unknown): data is PersistedMultiAgentSnapshot {
+	if (!data || typeof data !== "object") {
+		return false;
+	}
+
+	const snapshot = data as PersistedMultiAgentSnapshot;
+	return (
+		snapshot.version === 1 &&
+		snapshot.kind === "snapshot" &&
+		Array.isArray(snapshot.agents) &&
+		Array.isArray(snapshot.mailboxMessages) &&
+		typeof snapshot.nextAgentNumber === "number" &&
+		typeof snapshot.nextMessageNumber === "number"
+	);
 }

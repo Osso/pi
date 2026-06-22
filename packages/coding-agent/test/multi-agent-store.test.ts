@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { MULTI_AGENT_EVENT_CUSTOM_TYPE, MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { type CustomEntry, SessionManager } from "../src/core/session-manager.ts";
 
 function spawnScout(store: MultiAgentStore) {
 	return store.spawnAgent({
@@ -126,5 +130,94 @@ describe("MultiAgentStore", () => {
 
 		expect(store.getActiveAgentCount()).toBe(2);
 		expect(store.listActiveAgents().map((agent) => agent.id)).toEqual([queued.agent.id, running.agent.id]);
+	});
+
+	it("persists snapshots as SessionManager custom entries", () => {
+		const session = SessionManager.inMemory("/repo");
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+		const viewed = store.selectAgentView(spawned.agent.id);
+
+		const entryId = store.persistSnapshot(session);
+
+		const entry = session.getEntries().find((candidate) => candidate.id === entryId) as CustomEntry | undefined;
+		expect(viewed?.id).toBe(spawned.agent.id);
+		expect(entry).toMatchObject({
+			customType: MULTI_AGENT_EVENT_CUSTOM_TYPE,
+			data: {
+				kind: "snapshot",
+				selectedAgentId: spawned.agent.id,
+				version: 1,
+			},
+		});
+	});
+
+	it("rehydrates the latest persisted snapshot after reopening a session", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-multi-agent-store-"));
+		try {
+			const session = SessionManager.create(tempDir, join(tempDir, "sessions"));
+			session.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+			session.appendMessage({
+				api: "anthropic-messages",
+				content: [{ text: "hi", type: "text" }],
+				model: "test",
+				provider: "anthropic",
+				role: "assistant",
+				stopReason: "stop",
+				timestamp: 2,
+				usage: {
+					cacheRead: 0,
+					cacheWrite: 0,
+					cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: 0 },
+					input: 1,
+					output: 1,
+					totalTokens: 2,
+				},
+			});
+
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const spawned = spawnScout(store);
+			const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+			expect(started.ok).toBe(true);
+			if (!started.ok) {
+				throw new Error("expected start to succeed");
+			}
+			const running = store.transitionAgent(spawned.agent.id, started.agent.revision, "running");
+			expect(running.ok).toBe(true);
+			if (!running.ok) {
+				throw new Error("expected run to succeed");
+			}
+			const steer = store.sendSteering(spawned.agent.id, running.agent.revision, {
+				body: "Continue with tests",
+				fromAgentId: "root",
+				targetCheckpoint: "after_tool_result",
+			});
+			expect(steer.ok).toBe(true);
+			store.persistSnapshot(session);
+
+			const sessionFile = session.getSessionFile();
+			if (!sessionFile) {
+				throw new Error("expected persisted session file");
+			}
+			const reopenedSession = SessionManager.open(sessionFile);
+			const rehydrated = MultiAgentStore.fromSessionManager(reopenedSession, {
+				now: () => "2026-06-21T00:00:00.000Z",
+			});
+
+			expect(rehydrated.getAgent(spawned.agent.id)).toMatchObject({
+				id: spawned.agent.id,
+				lifecycle: "steering_pending",
+				revision: 4,
+			});
+			expect(rehydrated.getActiveAgentCount()).toBe(1);
+			expect(rehydrated.listMailboxMessages()).toHaveLength(1);
+			expect(rehydrated.listMailboxMessages()[0]).toMatchObject({
+				body: "Continue with tests",
+				status: "pending",
+				targetCheckpoint: "after_tool_result",
+			});
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
 	});
 });

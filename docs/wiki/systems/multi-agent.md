@@ -5,9 +5,10 @@ contract lives in [`docs/specs/multi-agent.md`](../../specs/multi-agent.md).
 
 ## Current state
 
-Pi now has the first pure in-memory multi-agent store in
-`packages/coding-agent/src/core/multi-agent-store.ts`. It proves the core synchronization rules
-before any child model sessions, subprocesses, persistence, or TUI views are added.
+Pi now has the first pure multi-agent store in
+`packages/coding-agent/src/core/multi-agent-store.ts`. It proves the core synchronization rules and
+SessionManager-backed snapshot reload before any child model sessions, subprocesses, or TUI views
+are added.
 
 Existing primitives worth reusing:
 
@@ -27,7 +28,7 @@ Existing primitives worth reusing:
 Still missing first-party pieces:
 
 - Headless spawn/list/wait/cancel APIs.
-- Durable mailbox persistence.
+- Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
 - Bounded artifact store so diffs/logs/results do not become unbounded mailbox events.
 
@@ -214,12 +215,13 @@ Rules:
 
 ### Persistence
 
-After the in-memory store tests pass, persist two data classes:
+The first persistence slice writes full store snapshots:
 
-- Snapshots/events as `SessionManager.appendCustomEntry()` with `customType:
-  "multi_agent_event"`.
-- Agent-visible coordination as `appendCustomMessageEntry()` only when a message should enter LLM
-  context.
+- Snapshots use `SessionManager.appendCustomEntry()` with `customType: "multi_agent_event"`.
+- `MultiAgentStore.fromSessionManager()` rehydrates the latest valid snapshot from reopened session
+  entries.
+- Agent-visible coordination should use `appendCustomMessageEntry()` later only when a message
+  should enter LLM context.
 
 Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
 sessions may show previous agents as terminal, detached, or resumable; they must not pretend a dead
