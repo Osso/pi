@@ -3,9 +3,14 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getModel } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
+import { createAgentSession } from "../src/core/sdk.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 
 interface HostrunEvalParams {
 	code: string;
@@ -41,10 +46,12 @@ type HostrunTool = {
 
 function createHostrunHarness(options: { confirm?: (title: string, message: string) => Promise<boolean> } = {}) {
 	let hostrunTool: HostrunTool | undefined;
+	let hostrunDefinition: ToolDefinition | undefined;
 
 	const pi = {
 		registerTool(tool: ToolDefinition) {
 			if (tool.name === "hostrun_eval") {
+				hostrunDefinition = tool;
 				hostrunTool = tool as unknown as HostrunTool;
 			}
 		},
@@ -67,6 +74,7 @@ function createHostrunHarness(options: { confirm?: (title: string, message: stri
 	} as ExtensionContext;
 
 	return {
+		toolDefinition: hostrunDefinition,
 		evaluate: (params: HostrunEvalParams) =>
 			registeredHostrunTool.execute("hostrun-test-call", params, undefined, undefined, ctx),
 	};
@@ -84,14 +92,17 @@ function listen(server: Server): Promise<number> {
 
 describe("hostrun extension", () => {
 	let tempDir: string;
+	let agentDir: string;
 	const servers: Server[] = [];
 
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-hostrun-"));
+		agentDir = mkdtempSync(join(tmpdir(), "pi-hostrun-agent-"));
 	});
 
 	afterEach(async () => {
 		rmSync(tempDir, { recursive: true, force: true });
+		rmSync(agentDir, { recursive: true, force: true });
 		await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 		servers.length = 0;
 	});
@@ -106,6 +117,45 @@ describe("hostrun extension", () => {
 		expect(first.details).toMatchObject({ code: "ctx.count = 41; ctx.count", sessionId: "default", result: 41 });
 		expect(second.details.result).toBe(42);
 		expect(named.details).toMatchObject({ sessionId: "named", result: "undefined" });
+	});
+
+	it("registers model-facing hostrun_eval instructions", () => {
+		const harness = createHostrunHarness();
+
+		expect(harness.toolDefinition?.promptSnippet).toContain("synchronous JavaScript");
+		expect(harness.toolDefinition?.promptGuidelines).toContain(
+			"Hostrun evaluates synchronous JavaScript in a persistent QuickJS session; do not use await.",
+		);
+	});
+
+	it("passes hostrun_eval instructions into the active system prompt", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			extensionFactories: [hostrunExtension],
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+		});
+
+		await session.bindExtensions({});
+
+		expect(session.getActiveToolNames()).toContain("hostrun_eval");
+		expect(session.systemPrompt).toContain("- hostrun_eval:");
+		expect(session.systemPrompt).toContain("Hostrun evaluates synchronous JavaScript");
+		expect(session.systemPrompt).toContain("do not use await");
+
+		session.dispose();
 	});
 
 	it("keeps ctx alive after a JavaScript exception", async () => {

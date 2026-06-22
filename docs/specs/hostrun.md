@@ -24,6 +24,9 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   `session_id` (string).
 - [x] Load as a default first-party runtime extension so `hostrun_eval` appears
   in `pi tools` without project-local extension code.
+- [x] Provide model-facing `promptSnippet` and `promptGuidelines` instructions
+  for synchronous QuickJS evaluation, persistent `ctx`, and approval-gated
+  Hostrun helpers whenever `hostrun_eval` is active.
 - [x] Evaluate `code` in a persistent QuickJS session; keep `globalThis.ctx`
   live across evaluations in the same session.
 - [x] Keep separate `ctx` state per `session_id`; default a missing `session_id`
@@ -125,11 +128,11 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
   per-session `ctx` persistence, console capture, and exception-survival
-  coverage, including returned exception details, approval-gated
-  `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects, denied-approval
-  no-effect behavior, CLI terminal selectors, CLI argv approval metadata,
-  parsed `fs.open` formats, and persistent `host.cwd()` / `host.cd(path)`
-  behavior.
+  coverage, including returned exception details, model-facing prompt
+  instructions, approval-gated `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host
+  effects, denied-approval no-effect behavior, CLI terminal selectors, CLI argv
+  approval metadata, parsed `fs.open` formats, and persistent `host.cwd()` /
+  `host.cd(path)` behavior.
 - `packages/coding-agent/test/hostrun-mcp-server.test.ts` — standalone MCP
   server registration shape, `hostrun-mcp` package wiring, README install
   command, and pending-approval defaults for CLI, filesystem, and HTTP host
