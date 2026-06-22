@@ -404,14 +404,8 @@ async function executeToolCallsSequential(
 	const messages: ToolResultMessage[] = [];
 
 	for (const toolCall of toolCalls) {
-		await emit({
-			type: "tool_execution_start",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			args: toolCall.arguments,
-		});
-
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
+		await emitToolExecutionStart(toolCall, preparation, emit);
 		let finalized: FinalizedToolCallOutcome;
 		if (preparation.kind === "immediate") {
 			finalized = {
@@ -459,14 +453,8 @@ async function executeToolCallsParallel(
 	const finalizedCalls: FinalizedToolCallEntry[] = [];
 
 	for (const toolCall of toolCalls) {
-		await emit({
-			type: "tool_execution_start",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			args: toolCall.arguments,
-		});
-
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
+		await emitToolExecutionStart(toolCall, preparation, emit);
 		if (preparation.kind === "immediate") {
 			const finalized = {
 				toolCall,
@@ -526,6 +514,7 @@ type ImmediateToolCallOutcome = {
 	kind: "immediate";
 	result: AgentToolResult<any>;
 	isError: boolean;
+	args: unknown;
 };
 
 type ExecutedToolCallOutcome = {
@@ -572,6 +561,7 @@ async function prepareToolCall(
 			kind: "immediate",
 			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
 			isError: true,
+			args: toolCall.arguments,
 		};
 	}
 
@@ -593,6 +583,7 @@ async function prepareToolCall(
 					kind: "immediate",
 					result: createErrorToolResult("Operation aborted"),
 					isError: true,
+					args: validatedArgs,
 				};
 			}
 			if (beforeResult?.block) {
@@ -600,6 +591,7 @@ async function prepareToolCall(
 					kind: "immediate",
 					result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
 					isError: true,
+					args: validatedArgs,
 				};
 			}
 		}
@@ -608,6 +600,7 @@ async function prepareToolCall(
 				kind: "immediate",
 				result: createErrorToolResult("Operation aborted"),
 				isError: true,
+				args: validatedArgs,
 			};
 		}
 		return {
@@ -621,6 +614,7 @@ async function prepareToolCall(
 			kind: "immediate",
 			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
 			isError: true,
+			args: toolCall.arguments,
 		};
 	}
 }
@@ -646,7 +640,7 @@ async function executePreparedToolCall(
 							type: "tool_execution_update",
 							toolCallId: prepared.toolCall.id,
 							toolName: prepared.toolCall.name,
-							args: prepared.toolCall.arguments,
+							args: prepared.args,
 							partialResult,
 						}),
 					),
@@ -727,6 +721,19 @@ async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: A
 		toolName: finalized.toolCall.name,
 		result: finalized.result,
 		isError: finalized.isError,
+	});
+}
+
+async function emitToolExecutionStart(
+	toolCall: AgentToolCall,
+	preparation: PreparedToolCall | ImmediateToolCallOutcome,
+	emit: AgentEventSink,
+): Promise<void> {
+	await emit({
+		type: "tool_execution_start",
+		toolCallId: toolCall.id,
+		toolName: toolCall.name,
+		args: preparation.args,
 	});
 }
 

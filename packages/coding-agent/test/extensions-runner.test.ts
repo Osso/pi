@@ -14,6 +14,7 @@ import type {
 	ExtensionContextActions,
 	ExtensionUIContext,
 	ProviderConfig,
+	ToolCallEvent,
 } from "../src/core/extensions/types.ts";
 import { KeybindingsManager, type KeyId } from "../src/core/keybindings.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
@@ -891,6 +892,28 @@ describe("ExtensionRunner", () => {
 
 			expect(runner.hasHandlers("tool_call")).toBe(true);
 			expect(runner.hasHandlers("agent_end")).toBe(false);
+		});
+
+		it("returns the last non-blocking tool_call handler result", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("tool_call", async () => ({ reason: "first" }));
+					pi.on("tool_call", async () => undefined);
+					pi.on("tool_call", async () => ({ reason: "last" }));
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "handler.ts"), extCode);
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const event: ToolCallEvent = {
+				type: "tool_call",
+				toolCallId: "tool-call-1",
+				toolName: "bash",
+				bypassPermissions: false,
+				input: { command: "pwd" },
+			};
+
+			await expect(runner.emitToolCall(event)).resolves.toEqual({ reason: "last" });
 		});
 	});
 });

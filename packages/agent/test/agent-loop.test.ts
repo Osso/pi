@@ -361,12 +361,15 @@ describe("agentLoop with AgentMessage", () => {
 			return stream;
 		};
 
+		const events: AgentEvent[] = [];
 		const stream = agentLoop([userPrompt], context, config, undefined, streamFn);
-		for await (const _event of stream) {
-			// consume
+		for await (const event of stream) {
+			events.push(event);
 		}
 
 		expect(executed).toEqual([123]);
+		const toolStart = events.find((event) => event.type === "tool_execution_start");
+		expect(toolStart).toMatchObject({ args: { value: 123 } });
 	});
 
 	it("should prepare tool arguments for validation", async () => {

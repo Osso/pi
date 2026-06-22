@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { readdir as fsReaddir, stat as fsStat } from "node:fs/promises";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Text } from "@earendil-works/pi-tui";
@@ -24,6 +25,11 @@ export interface LsToolDetails {
 	truncation?: TruncationResult;
 	entryLimitReached?: number;
 }
+
+type LsToolResult = {
+	content: [{ type: "text"; text: string }];
+	details: LsToolDetails | undefined;
+};
 
 /**
  * Pluggable operations for the ls tool.
@@ -52,7 +58,7 @@ export interface LsToolOptions {
 function formatLsCall(args: { path?: string; limit?: number } | undefined, theme: Theme, cwd: string): string {
 	const limit = args?.limit;
 	const pathDisplay = renderToolPath(str(args?.path), theme, cwd, { emptyFallback: "." });
-	let text = `${theme.fg("toolTitle", theme.bold("ls"))} ${pathDisplay}`;
+	let text = `${theme.fg("toolTitle", theme.bold("rtk ls"))} ${pathDisplay}`;
 	if (limit !== undefined) {
 		text += theme.fg("toolOutput", ` (limit ${limit})`);
 	}
@@ -97,10 +103,11 @@ export function createLsToolDefinition(
 	options?: LsToolOptions,
 ): ToolDefinition<typeof lsSchema, LsToolDetails | undefined> {
 	const ops = options?.operations ?? defaultLsOperations;
+	const canUseRtk = options?.operations === undefined;
 	return {
 		name: "ls",
-		label: "ls",
-		description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
+		label: "rtk ls",
+		description: `List directory contents through rtk ls when available. Returns token-optimized entries, includes dotfiles, and truncates output to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: "List directory contents",
 		parameters: lsSchema,
 		async execute(
@@ -121,6 +128,15 @@ export function createLsToolDefinition(
 
 				(async () => {
 					try {
+						if (canUseRtk) {
+							const rtkResult = await executeRtkLs(cwd, path, limit, signal);
+							if (rtkResult) {
+								signal?.removeEventListener("abort", onAbort);
+								resolve(rtkResult);
+								return;
+							}
+						}
+
 						const dirPath = resolveToCwd(path || ".", cwd);
 						const effectiveLimit = limit ?? DEFAULT_LIMIT;
 
@@ -218,6 +234,85 @@ export function createLsToolDefinition(
 			return text;
 		},
 	};
+}
+
+async function executeRtkLs(
+	cwd: string,
+	path: string | undefined,
+	limit: number | undefined,
+	signal: AbortSignal | undefined,
+): Promise<LsToolResult | undefined> {
+	try {
+		const stdout = await runRtkLs(cwd, path ?? ".", signal);
+		return formatRtkLsOutput(stdout, limit);
+	} catch (error) {
+		if (isMissingExecutableError(error)) {
+			return undefined;
+		}
+		throw new Error(formatRtkLsError(error));
+	}
+}
+
+function runRtkLs(cwd: string, path: string, signal: AbortSignal | undefined): Promise<string> {
+	return new Promise((resolve, reject) => {
+		execFile("rtk", ["ls", path], { cwd, maxBuffer: DEFAULT_MAX_BYTES * 2, signal }, (error, stdout, stderr) => {
+			if (error) {
+				reject(attachCommandOutput(error, stdout, stderr));
+				return;
+			}
+			resolve(String(stdout));
+		});
+	});
+}
+
+function formatRtkLsOutput(stdout: string, limit: number | undefined): LsToolResult {
+	const effectiveLimit = limit ?? DEFAULT_LIMIT;
+	const lines = stdout.trimEnd().split("\n").filter(Boolean);
+	const limitedLines = lines.slice(0, effectiveLimit);
+	const entryLimitReached = lines.length > effectiveLimit;
+	const rawOutput = limitedLines.length > 0 ? limitedLines.join("\n") : "(empty directory)";
+	const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+	const details: LsToolDetails = {};
+	const notices: string[] = [];
+
+	if (entryLimitReached) {
+		notices.push(`${effectiveLimit} entries limit reached. Use limit=${effectiveLimit * 2} for more`);
+		details.entryLimitReached = effectiveLimit;
+	}
+	if (truncation.truncated) {
+		notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+		details.truncation = truncation;
+	}
+
+	const noticeText = notices.length > 0 ? `\n\n[${notices.join(". ")}]` : "";
+	return {
+		content: [{ type: "text", text: `${truncation.content}${noticeText}` }],
+		details: Object.keys(details).length > 0 ? details : undefined,
+	};
+}
+
+function attachCommandOutput(error: Error, stdout: string | Buffer, stderr: string | Buffer): Error {
+	const outputError = error as Error & { stdout?: string; stderr?: string };
+	outputError.stdout = String(stdout);
+	outputError.stderr = String(stderr);
+	return outputError;
+}
+
+function isMissingExecutableError(error: unknown): boolean {
+	return isCommandError(error) && error.code === "ENOENT";
+}
+
+function formatRtkLsError(error: unknown): string {
+	if (!isCommandError(error)) {
+		return String(error);
+	}
+	const stderr = error.stderr?.trim();
+	const stdout = error.stdout?.trim();
+	return stderr || stdout || error.message;
+}
+
+function isCommandError(error: unknown): error is Error & { code?: unknown; stderr?: string; stdout?: string } {
+	return error instanceof Error;
 }
 
 export function createLsTool(cwd: string, options?: LsToolOptions): AgentTool<typeof lsSchema> {

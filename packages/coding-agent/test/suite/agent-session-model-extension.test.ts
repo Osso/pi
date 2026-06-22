@@ -7,7 +7,13 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import claudeBashHookExtension from "../../extensions/claude-bash-hook/src/index.ts";
 import hostrunExtension from "../../extensions/hostrun/src/index.ts";
-import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionUIContext } from "../../src/index.ts";
+import {
+	type BuildSystemPromptOptions,
+	type ExtensionAPI,
+	type ExtensionUIContext,
+	isToolCallEventType,
+	type ToolCallEvent,
+} from "../../src/index.ts";
 import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
 
 describe("AgentSession model and extension characterization", () => {
@@ -84,6 +90,36 @@ describe("AgentSession model and extension characterization", () => {
 		chmodSync(scriptPath, 0o755);
 		process.env.PI_CLAUDE_BASH_HOOK = scriptPath;
 	}
+
+	it("narrows built-in and custom tool_call inputs with isToolCallEventType", () => {
+		const bashEvent: ToolCallEvent = {
+			type: "tool_call",
+			toolCallId: "tool-call-1",
+			toolName: "bash",
+			bypassPermissions: false,
+			input: { command: "pwd" },
+		};
+		const customEvent: ToolCallEvent = {
+			type: "tool_call",
+			toolCallId: "tool-call-2",
+			toolName: "custom_tool",
+			bypassPermissions: false,
+			input: { action: "inspect" },
+		};
+
+		let command: string | undefined;
+		if (isToolCallEventType("bash", bashEvent)) {
+			command = bashEvent.input.command;
+		}
+		let action: string | undefined;
+		if (isToolCallEventType<"custom_tool", { action: string }>("custom_tool", customEvent)) {
+			action = customEvent.input.action;
+		}
+
+		expect(command).toBe("pwd");
+		expect(action).toBe("inspect");
+		expect(isToolCallEventType("read", bashEvent)).toBe(false);
+	});
 
 	it("setModel saves the model and emits model_select", async () => {
 		const modelEvents: string[] = [];
@@ -204,6 +240,160 @@ describe("AgentSession model and extension characterization", () => {
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();
+	});
+
+	it("dispatches in-place tool_call input rewrites to the tool and later handlers", async () => {
+		const observedInputs: Record<string, unknown>[] = [];
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async (event) => {
+						observedInputs.push(event.input);
+						if (isToolCallEventType<"echo", Record<string, unknown> & { text: unknown }>("echo", event)) {
+							event.input.text = "rewritten";
+						}
+					});
+					pi.on("tool_call", async (event) => {
+						observedInputs.push(event.input);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(observedInputs).toHaveLength(2);
+		expect(observedInputs[0]).toBe(observedInputs[1]);
+		expect(observedInputs[1]).toMatchObject({ text: "rewritten" });
+		expect(getAssistantTexts(harness)).toContain("rewritten");
+	});
+
+	it("does not re-validate tool_call input after an in-place rewrite", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? params.text : undefined;
+				return { content: [{ type: "text", text: `type:${typeof text}` }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async (event) => {
+						if (isToolCallEventType<"echo", Record<string, unknown> & { text: unknown }>("echo", event)) {
+							event.input.text = 123;
+						}
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("type:number");
+	});
+
+	it("short-circuits later tool_call handlers after a block result", async () => {
+		let laterHandlerCalls = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async () => ({ block: true, reason: "first handler blocked" }));
+					pi.on("tool_call", async () => {
+						laterHandlerCalls++;
+						return undefined;
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(laterHandlerCalls).toBe(0);
+		expect(getAssistantTexts(harness)).toContain("first handler blocked");
+	});
+
+	it("blocks execution when a tool_call handler throws a non-Error value", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async () => {
+						throw "non-error failure";
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("Extension failed, blocking execution: non-error failure");
 	});
 
 	it("allows on-request tool calls when the human confirmation fallback approves", async () => {
@@ -444,6 +634,33 @@ describe("AgentSession model and extension characterization", () => {
 
 		expect(confirm).not.toHaveBeenCalled();
 		expect(getAssistantTexts(harness)).toContain("hook-approved");
+	});
+
+	it("applies claude-bash-hook updatedInput before auto-approve executes bash", async () => {
+		useFakeClaudeBashHook({
+			permissionDecision: "allow",
+			permissionDecisionReason: "safe",
+			updatedInput: { command: "printf auto-rewritten" },
+		});
+		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
+		const harness = await createHarness({
+			extensionFactories: [claudeBashHookExtension],
+			settings: { approvalPolicy: "auto-approve" },
+			uiContext: createConfirmUiContext(confirm),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "printf original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(confirm).not.toHaveBeenCalled();
+		expect(getAssistantTexts(harness)).toContain("auto-rewritten");
 	});
 
 	it("falls back to native approval when claude-bash-hook asks", async () => {
@@ -896,6 +1113,14 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("allows extension tool_result handlers to modify tool results", async () => {
+		const resultEvents: Array<{
+			toolName: string;
+			toolCallId: string;
+			input: Record<string, unknown>;
+			contentText: string;
+			details: unknown;
+			isError: boolean;
+		}> = [];
 		const echoTool: AgentTool = {
 			name: "echo",
 			label: "Echo",
@@ -910,10 +1135,24 @@ describe("AgentSession model and extension characterization", () => {
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
-					pi.on("tool_result", async () => ({
-						content: [{ type: "text", text: "patched result" }],
-						details: { patched: true },
-					}));
+					pi.on("tool_result", async (event) => {
+						resultEvents.push({
+							toolName: event.toolName,
+							toolCallId: event.toolCallId,
+							input: event.input,
+							contentText: event.content
+								.filter((part): part is { type: "text"; text: string } => part.type === "text")
+								.map((part) => part.text)
+								.join("\n"),
+							details: event.details,
+							isError: event.isError,
+						});
+						return {
+							content: [{ type: "text", text: "patched result" }],
+							details: { patched: true },
+							isError: true,
+						};
+					});
 				},
 			],
 		});
@@ -935,9 +1174,22 @@ describe("AgentSession model and extension characterization", () => {
 
 		await harness.session.prompt("hi");
 
+		expect(resultEvents).toMatchObject([
+			{
+				toolName: "echo",
+				input: { text: "hello" },
+				contentText: "hello",
+				details: { text: "hello" },
+				isError: false,
+			},
+		]);
+		expect(resultEvents[0]?.toolCallId).toMatch(/^tool[:_-]/);
 		expect(getAssistantTexts(harness)).toContain("patched result");
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.details?.patched === true),
+		).toBeDefined();
+		expect(
+			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();
 	});
 

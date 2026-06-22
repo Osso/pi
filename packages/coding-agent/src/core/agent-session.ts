@@ -71,6 +71,7 @@ import {
 	type SessionStartEvent,
 	type ShutdownHandler,
 	type ToolCallEvent,
+	type ToolCallEventResult,
 	type ToolDefinition,
 	type ToolExecutionEndEvent,
 	type ToolExecutionStartEvent,
@@ -470,8 +471,17 @@ export class AgentSession {
 				input: args as Record<string, unknown>,
 			} as const;
 			const approvalRequired = this._toolDefinitions.get(toolCall.name)?.definition.approvalRequired ?? true;
+			const policy = this.settingsManager.getApprovalPolicy();
+			const autoApproveReviewResult =
+				policy === "auto-approve"
+					? await this._reviewAutoApprovedToolCall(event, runner, approvalRequired)
+					: undefined;
+			if (autoApproveReviewResult) {
+				return autoApproveReviewResult;
+			}
+
 			return orchestrateToolApproval({
-				policy: this.settingsManager.getApprovalPolicy(),
+				policy,
 				approvalRequired,
 				hookReviewer: this._createToolApprovalHookReviewer(event, runner),
 				reviewer: this._createToolApprovalHumanReviewer(event, runner),
@@ -505,6 +515,23 @@ export class AgentSession {
 				isError: hookResult.isError ?? isError,
 			};
 		};
+	}
+
+	private async _reviewAutoApprovedToolCall(
+		event: ToolCallEvent,
+		runner: ExtensionRunner,
+		approvalRequired: boolean,
+	): Promise<ToolCallEventResult | undefined> {
+		if (!approvalRequired || !runner.hasApprovalReviewers()) {
+			return undefined;
+		}
+
+		const reviewerResult = await runner.emitApprovalReviewers(event);
+		if (reviewerResult?.action === "deny") {
+			return { block: true, reason: reviewerResult.reason };
+		}
+
+		return undefined;
 	}
 
 	private _createToolApprovalHookReviewer(

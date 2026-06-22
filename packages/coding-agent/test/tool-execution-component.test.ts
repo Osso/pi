@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
+import { createLsToolDefinition } from "../src/core/tools/ls.ts";
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
@@ -117,6 +118,22 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("edit");
 		expect(rendered).toContain("README.md");
 		expect(rendered).not.toContain(":1");
+	});
+
+	test("renders ls calls as rtk ls", () => {
+		const component = new ToolExecutionComponent(
+			"ls",
+			"tool-ls",
+			{ path: "." },
+			{},
+			createLsToolDefinition(process.cwd()),
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("rtk ls");
+		expect(rendered).not.toContain("\nls .");
 	});
 
 	test("preserves legacy file_path rendering compatibility for built-in tools", () => {

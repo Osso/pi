@@ -74,7 +74,10 @@ Implementation details belong in
 - [x] Never map Pi `never` policy to Claude Code `bypassPermissions` in hook
   compatibility payloads.
 - [x] Allow Pi `auto-approve` policy to map to `bypassPermissions` in hook
-  compatibility payloads when Pi operates as a hook host.
+	  compatibility payloads when Pi operates as a hook host.
+- [x] Under `auto-approve`, still run registered approval reviewers far enough to
+	  apply `updatedInput` rewrites or deny the call before execution; do not fall
+	  through to native human approval or the LLM reviewer.
 
 ## How it works
 
@@ -122,9 +125,10 @@ Implementation details belong in
   policy gating for `on-request`, `never`, and `auto-approve`, plus hook
   reviewer short-circuit behavior before the future LLM reviewer.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
-  session-level coverage proving `never` and `auto-approve` skip hook reviewers,
-  and internally gated tools skip generic wrapper approval while ordinary tools
-  still prompt.
+  session-level coverage proving `never` blocks before hook reviewers,
+  `auto-approve` skips human/LLM review while preserving approval-reviewer
+  `updatedInput`, and internally gated tools skip generic wrapper approval while
+  ordinary tools still prompt.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
 - `packages/coding-agent/test/approval-auto-reviewer.test.ts` — LLM-approved
