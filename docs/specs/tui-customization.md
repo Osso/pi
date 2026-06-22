@@ -42,14 +42,30 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 - `packages/coding-agent/src/core/extensions/types.ts:1182-1188` — `registerShortcut(shortcut, { description?, handler })`.
 - `packages/coding-agent/src/core/extensions/runner.ts:67-85` — `RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS` (~17 action IDs reserved against extension override).
 - `packages/coding-agent/src/core/extensions/runner.ts:89-108` — `buildBuiltinKeybindings`: reserved action wins over non-reserved on key collision.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2062-2078` — live interactive `ctx.ui` theme surface: readonly `theme`, `getAllThemes`, `getTheme`, and `setTheme`; string themes persist through `SettingsManager.setTheme`, `Theme` instances apply without persisting a settings name.
+- `packages/coding-agent/src/modes/interactive/theme/theme.ts:323-422` — `Theme` class styling API exposed to extensions through `ctx.ui.theme` and `ctx.ui.getTheme`.
+- `packages/coding-agent/src/modes/interactive/theme/theme.ts:428-479` — theme listing combines built-in themes, user custom themes, and registered package/resource themes.
+- `packages/coding-agent/src/modes/interactive/theme/theme.ts:613-633` — `loadThemeFromPath` / `getThemeByName` parsing and lookup.
+- `packages/coding-agent/src/modes/interactive/theme/theme.ts:772-835` — global current theme proxy, registered-theme map, and `setTheme` failure fallback to `dark`.
+- `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts:36-72` — interactive theme application from settings, explicit theme names, and direct `Theme` instances.
+- `packages/coding-agent/src/config.ts:396-404` and `:523-526` — built-in theme directory and `~/.pi/agent/themes` directory resolution.
+- `packages/coding-agent/src/cli/args.ts:201-209` and `packages/coding-agent/src/main.ts:608-611` — CLI `--theme` / `--no-themes` parsing and path resolution.
+- `packages/coding-agent/src/core/settings-manager.ts:800-814` and `:1087-1100` — persisted active theme and configured theme path settings.
+- `packages/coding-agent/src/core/package-manager.ts:2261-2284`, `:2342-2356`, `:2391-2404`, and `:2465-2490` — resource aggregation for project/user theme directories and settings/package theme paths.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
+- `packages/coding-agent/test/theme-picker.test.ts:34-50` — theme listing uses custom theme content names and returns file paths for `getAvailableThemesWithPaths`.
+- `packages/coding-agent/test/theme-detection.test.ts:16-133` — terminal background detection, RGB classification, color-mode selection, and automatic light/dark theme setting parsing.
+- `packages/coding-agent/test/theme-export.test.ts:18-83` — HTML export theme color derivation and variable resolution.
+- `packages/coding-agent/test/suite/regressions/5596-missing-theme-export.test.ts:26-44` — export fallback when a configured theme is missing.
 
 ## Known gaps (current cycle)
 
-- No dedicated test for the theme API (`setTheme`/`getAllThemes`/`getTheme`); existing theme tests cover discovery/loading, not the `ctx.ui` extension surface.
+- No dedicated test for the interactive extension theme API (`ctx.ui.theme`, `ctx.ui.setTheme`, `ctx.ui.getAllThemes`, `ctx.ui.getTheme`) through a real extension context; existing theme tests cover lower-level discovery/loading, not the `ctx.ui` extension surface.
+- No dedicated test proving `ctx.ui.setTheme("name")` persists the string setting while `ctx.ui.setTheme(themeInstance)` applies without writing a theme name to settings.
+- No dedicated test proving project `.pi/themes`, settings `themes`, package themes, and CLI `--theme` entries appear through the extension-facing `ctx.ui.getAllThemes()` path.
 - No dedicated test for `setHeader`/`setFooter`/`setWidget` or `setEditorComponent`/`custom`.
 - No dedicated test for live `/reload` re-applying keybindings.
 
