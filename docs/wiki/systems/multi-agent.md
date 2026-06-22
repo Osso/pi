@@ -116,6 +116,7 @@ interface AgentNode {
 	permission: { policy: string; inheritedFrom?: string; narrowed: boolean };
 	slot?: { index: number; pinned: boolean };
 	transcript?: { sessionId: string; path?: string };
+	worker?: { adapter: "terminal" | "subprocess"; handleId: string; cwd?: string };
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
 	error?: { message: string; code?: string };
@@ -124,7 +125,10 @@ interface AgentNode {
 
 Runtime-only handles live outside `AgentNode` in an internal `AgentRuntimeHandle` map keyed by
 agent ID. Handles can contain abort controllers, child `AgentSession` instances, timers, process
-handles, or cleanup callbacks. They are never persisted and never sent to the TUI.
+handles, terminal pane clients, or cleanup callbacks. They are never persisted and never sent to the
+TUI. Persisted worker adapter metadata is only a core-owned pointer; terminal and subprocess workers
+still mutate lifecycle through revision-checked commands and coordinate through the same mailbox and
+permission contracts as model-backed child agents.
 
 ### Revisions
 

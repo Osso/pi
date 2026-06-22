@@ -39,6 +39,12 @@ export interface AgentArtifactReference {
 
 export type AgentArtifactKind = "summary" | "diff" | "log" | "finding" | "transcript" | "file";
 
+export interface AgentWorkerAdapter {
+	adapter: "terminal" | "subprocess";
+	handleId: string;
+	cwd?: string;
+}
+
 export interface AgentArtifact {
 	id: string;
 	agentId: string;
@@ -82,6 +88,7 @@ export interface AgentNode {
 	permission: { policy: string; inheritedFrom?: string; narrowed: boolean };
 	slot?: { index: number; pinned: boolean };
 	transcript?: { sessionId: string; path?: string };
+	worker?: AgentWorkerAdapter;
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
 	error?: { message: string; code?: string };
@@ -101,6 +108,7 @@ export interface SpawnAgentInput {
 	account?: AgentNode["account"];
 	slot?: AgentNode["slot"];
 	transcript?: AgentNode["transcript"];
+	worker?: AgentNode["worker"];
 }
 
 export type SpawnChildAgentInput = Omit<SpawnAgentInput, "account" | "model" | "parentId"> & {
@@ -266,6 +274,7 @@ export class MultiAgentStore {
 			model: copyOptional(input.model),
 			slot: copyOptional(input.slot),
 			transcript: copyOptional(input.transcript),
+			worker: copyWorker(input.worker),
 			worktree: copyOptional(input.worktree),
 		};
 
@@ -776,6 +785,7 @@ function copyAgent(agent: AgentNode): AgentSnapshot {
 		result: copyResult(agent.result),
 		slot: copyOptional(agent.slot),
 		transcript: copyOptional(agent.transcript),
+		worker: copyWorker(agent.worker),
 		worktree: copyOptional(agent.worktree),
 	};
 }
@@ -806,6 +816,17 @@ function copyAccount(account: AgentNode["account"] | undefined): AgentNode["acco
 		providerFallback: account.providerFallback ? [...account.providerFallback] : undefined,
 		rateLimit: account.rateLimit ? { ...account.rateLimit } : undefined,
 		tokenBudget: account.tokenBudget ? { ...account.tokenBudget } : undefined,
+	};
+}
+
+function copyWorker(worker: AgentWorkerAdapter | undefined): AgentWorkerAdapter | undefined {
+	if (!worker) {
+		return undefined;
+	}
+	return {
+		adapter: worker.adapter,
+		cwd: worker.cwd,
+		handleId: worker.handleId,
 	};
 }
 

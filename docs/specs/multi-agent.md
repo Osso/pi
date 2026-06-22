@@ -59,7 +59,7 @@ runtime contract belongs here; implementation details will live in
 - [x] Accounts do not store mailbox messages, workflow state, or UI selection state.
 - [x] Child agents inherit or narrow the parent permission policy; they must not silently broaden
       tool or filesystem access.
-- [ ] Optional subprocess or terminal-pane workers remain bounded by the same core permission,
+- [x] Optional subprocess or terminal-pane workers remain bounded by the same core permission,
       mailbox, and lifecycle contracts.
 
 ### TUI behavior
@@ -113,8 +113,9 @@ runtime contract belongs here; implementation details will live in
   agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
   current core state. It covers child-agent model/account/budget metadata inheritance, rejects
-  permission broadening, and keeps account metadata separate from mailbox, workflow, and UI
-  selection state.
+  permission broadening, keeps account metadata separate from mailbox, workflow, and UI selection
+  state, and verifies terminal/subprocess worker adapter metadata stays under the same permission,
+  mailbox, and lifecycle contracts.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
@@ -174,6 +175,8 @@ runtime contract belongs here; implementation details will live in
 - [x] Add focused account/policy inheritance tests for child agent model, account, budget, and
       narrowed permission metadata.
 - [x] Add focused tests proving account metadata stays separate from mailbox/workflow state.
+- [x] Add focused tests for terminal/subprocess worker adapter boundaries sharing core permission,
+      mailbox, and lifecycle contracts.
 
 ## Out of scope
 

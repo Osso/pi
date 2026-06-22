@@ -249,6 +249,61 @@ describe("MultiAgentStore", () => {
 		expect(store.listMailboxMessages()).toEqual([]);
 	});
 
+	it("bounds terminal and subprocess workers by core permission mailbox and lifecycle contracts", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const supervisor = store.spawnAgent({
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Lead",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const terminalWorker = store.spawnChildAgent(supervisor.agent.id, {
+			agentType: "terminal-pane-worker",
+			cwd: "/repo",
+			displayName: "Terminal Worker",
+			permission: { inheritedFrom: supervisor.agent.id, narrowed: true, policy: "on-request" },
+			worker: { adapter: "terminal", handleId: "pane-1" },
+		});
+		const broadenedWorker = store.spawnChildAgent(supervisor.agent.id, {
+			agentType: "subprocess-worker",
+			cwd: "/repo",
+			displayName: "Broad Worker",
+			permission: { inheritedFrom: supervisor.agent.id, narrowed: false, policy: "auto-approve" },
+			worker: { adapter: "subprocess", handleId: "pid-1" },
+		});
+		const sibling = store.spawnAgent({
+			agentType: "subprocess-worker",
+			cwd: "/repo",
+			displayName: "Sibling Worker",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			worker: { adapter: "subprocess", handleId: "pid-2" },
+		});
+
+		expect(terminalWorker.ok).toBe(true);
+		if (!terminalWorker.ok) {
+			throw new Error("expected terminal worker spawn");
+		}
+		expect(terminalWorker.agent).toMatchObject({
+			lifecycle: "queued",
+			parentId: supervisor.agent.id,
+			permission: { inheritedFrom: supervisor.agent.id, narrowed: true, policy: "on-request" },
+			worker: { adapter: "terminal", handleId: "pane-1" },
+		});
+		expect(broadenedWorker).toMatchObject({ ok: false, error: "permission_broadened" });
+
+		const siblingMessage = store.sendMailboxMessage(terminalWorker.agent.id, terminalWorker.agent.revision, {
+			body: "hi sibling",
+			toAgentId: sibling.agent.id,
+		});
+		expect(siblingMessage).toMatchObject({ ok: false, error: "forbidden_target" });
+
+		const starting = store.transitionAgent(terminalWorker.agent.id, terminalWorker.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		const staleRunning = store.transitionAgent(terminalWorker.agent.id, terminalWorker.agent.revision, "running");
+		expect(staleRunning).toMatchObject({ ok: false, error: "stale_revision" });
+	});
+
 	it("projects authoritative snapshots for UI surfaces without sharing mutable state", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const first = store.spawnAgent({
