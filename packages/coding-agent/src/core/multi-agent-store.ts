@@ -130,6 +130,11 @@ export type SupervisorContactResult =
 	| { ok: false; error: "not_found"; agentId: string }
 	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
 
+export type AgentMetadataCommandResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "not_found"; agentId: string }
+	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
+
 export interface MultiAgentStoreOptions {
 	now?: () => string;
 }
@@ -280,6 +285,40 @@ export class MultiAgentStore {
 		}
 
 		return activeCount;
+	}
+
+	pinAgentSlot(agentId: string, expectedRevision: number, slotIndex: number): AgentMetadataCommandResult {
+		const current = this.agents.get(agentId);
+		if (!current) {
+			return { ok: false, error: "not_found", agentId };
+		}
+
+		const revisionCheck = this.checkRevision(current, expectedRevision);
+		if (revisionCheck) {
+			return revisionCheck;
+		}
+
+		const updated = this.updateAgent(current, {
+			slot: { index: slotIndex, pinned: true },
+		});
+		return { ok: true, agent: copyAgent(updated) };
+	}
+
+	clearAgentSlot(agentId: string, expectedRevision: number): AgentMetadataCommandResult {
+		const current = this.agents.get(agentId);
+		if (!current) {
+			return { ok: false, error: "not_found", agentId };
+		}
+
+		const revisionCheck = this.checkRevision(current, expectedRevision);
+		if (revisionCheck) {
+			return revisionCheck;
+		}
+
+		const updated = this.updateAgent(current, {
+			slot: undefined,
+		});
+		return { ok: true, agent: copyAgent(updated) };
 	}
 
 	contactSupervisor(
@@ -453,7 +492,7 @@ export class MultiAgentStore {
 
 	private updateAgent(
 		current: AgentNode,
-		updates: TransitionAgentDetails & Partial<Pick<AgentNode, "lifecycle">>,
+		updates: TransitionAgentDetails & Partial<Pick<AgentNode, "lifecycle" | "slot">>,
 	): AgentNode {
 		const updated = {
 			...current,

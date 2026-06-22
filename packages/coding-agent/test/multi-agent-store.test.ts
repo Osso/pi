@@ -132,6 +132,90 @@ describe("MultiAgentStore", () => {
 		expect(store.listActiveAgents().map((agent) => agent.id)).toEqual([queued.agent.id, running.agent.id]);
 	});
 
+	it("preserves stable metadata and supports pinned slot updates without lifecycle changes", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			account: { budgetId: "budget-1", id: "account-1" },
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			model: { modelId: "gpt-test", providerId: "faux", thinkingLevel: "medium" },
+			parentId: "root",
+			permission: { inheritedFrom: "root", narrowed: true, policy: "on-request" },
+			slot: { index: 2, pinned: true },
+			transcript: { path: "sessions/child.jsonl", sessionId: "session-1" },
+			worktree: { base: "main", branch: "agent/worker", path: "/repo-worktrees/worker" },
+		});
+
+		const pinned = store.pinAgentSlot(spawned.agent.id, spawned.agent.revision, 7);
+
+		expect(pinned.ok).toBe(true);
+		if (!pinned.ok) {
+			throw new Error("expected slot pin to succeed");
+		}
+		expect(pinned.agent).toMatchObject({
+			account: { budgetId: "budget-1", id: "account-1" },
+			cwd: "/repo",
+			id: spawned.agent.id,
+			lifecycle: "queued",
+			model: { modelId: "gpt-test", providerId: "faux", thinkingLevel: "medium" },
+			parentId: "root",
+			permission: { inheritedFrom: "root", narrowed: true, policy: "on-request" },
+			revision: spawned.agent.revision + 1,
+			slot: { index: 7, pinned: true },
+			transcript: { path: "sessions/child.jsonl", sessionId: "session-1" },
+			worktree: { base: "main", branch: "agent/worker", path: "/repo-worktrees/worker" },
+		});
+
+		const cleared = store.clearAgentSlot(pinned.agent.id, pinned.agent.revision);
+		expect(cleared.ok).toBe(true);
+		if (!cleared.ok) {
+			throw new Error("expected slot clear to succeed");
+		}
+		expect(cleared.agent).toMatchObject({
+			id: spawned.agent.id,
+			lifecycle: "queued",
+			revision: pinned.agent.revision + 1,
+		});
+		expect(cleared.agent.slot).toBeUndefined();
+	});
+
+	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+
+		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) {
+			throw new Error("expected starting transition");
+		}
+		const running = store.transitionAgent(spawned.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected running transition");
+		}
+		const waiting = store.transitionAgent(spawned.agent.id, running.agent.revision, "waiting_for_input");
+		expect(waiting.ok).toBe(true);
+		if (!waiting.ok) {
+			throw new Error("expected waiting transition");
+		}
+		const cancelling = store.transitionAgent(spawned.agent.id, waiting.agent.revision, "cancelling");
+		expect(cancelling.ok).toBe(true);
+		if (!cancelling.ok) {
+			throw new Error("expected cancelling transition");
+		}
+		const aborted = store.transitionAgent(spawned.agent.id, cancelling.agent.revision, "aborted");
+
+		expect(aborted).toMatchObject({
+			ok: true,
+			agent: {
+				id: spawned.agent.id,
+				lifecycle: "aborted",
+				revision: spawned.agent.revision + 5,
+			},
+		});
+	});
+
 	it("lists descendants below a parent without leaking sibling branches", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const scout = spawnScout(store);

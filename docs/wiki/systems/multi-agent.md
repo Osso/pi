@@ -24,6 +24,8 @@ send a pending mailbox request only to its direct parent or root supervisor; it 
 arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
 and labels, so large logs or diffs stay outside coordination events. `wait_agent` can include the
 target agent's descendant snapshots and pending mailbox messages without reading any TUI state.
+The store also supports revision-checked pinned slot updates while preserving stable metadata and
+lifecycle state.
 
 Existing primitives worth reusing:
 

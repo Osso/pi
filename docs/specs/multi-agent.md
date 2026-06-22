@@ -11,9 +11,9 @@ runtime contract belongs here; implementation details will live in
 
 - [ ] Core state is authoritative for every agent; TUI rows, terminal panes, and extension views
       are projections that must resync from core snapshots.
-- [ ] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
+- [x] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
       model/account metadata, permission policy, and monotonic revision.
-- [ ] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,
+- [x] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,
       `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, and
       `aborted`.
 - [x] Commands that mutate agent state carry an expected revision and fail with a conflict when
@@ -108,7 +108,9 @@ runtime contract belongs here; implementation details will live in
   core-derived active counts. It also asserts snapshot persistence through SessionManager custom
   entries, rehydration after reopening a persisted session, descendant listing below a parent, and
   child-to-supervisor mailbox contact without sibling targeting. It verifies mailbox artifact
-  references carry only ID/path metadata and do not copy large artifact content.
+  references carry only ID/path metadata and do not copy large artifact content, covers stable
+  agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
+  transitions.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing spawn/list/wait/cancel/contact/steer tool surface is
   store-backed and does not start child model sessions by default. It also asserts the spawn tool
@@ -146,6 +148,8 @@ runtime contract belongs here; implementation details will live in
       coordination events.
 - [x] Add and implement richer `wait_agent` behavior for descendant filtering and pending mailbox
       summaries without TUI coupling.
+- [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
+      transitions before marking core runtime bullets.
 
 ## Out of scope
 
