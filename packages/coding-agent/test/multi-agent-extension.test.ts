@@ -1,7 +1,7 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
-import type { MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
+import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
 import multiAgentExtension, {
@@ -70,6 +70,11 @@ interface SendAgentMessageDetails extends Record<string, unknown> {
 	message: AgentMailboxMessage;
 }
 
+interface AgentArtifactsDetails extends Record<string, unknown> {
+	artifact?: AgentArtifact;
+	artifacts?: AgentArtifact[];
+}
+
 function createMultiAgentHarness(
 	options: {
 		createChildSession?: ChildAgentSessionFactory;
@@ -121,6 +126,7 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness();
 
 		expect([...harness.tools.keys()].sort()).toEqual([
+			"agent_artifacts",
 			"agent_viewer",
 			"agents_mailbox",
 			"cancel_agent",
@@ -332,6 +338,48 @@ describe("multi-agent extension tools", () => {
 			agent: { id: child.details.agent.id, revision: child.details.agent.revision },
 			message: { status: "failed", toAgentId: sibling.details.agent.id },
 		});
+	});
+
+	it("records and lists shared artifacts outside mailbox events", async () => {
+		const harness = createMultiAgentHarness();
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Run tests",
+		});
+
+		const recorded = await harness.call<AgentArtifactsDetails>("agent_artifacts", {
+			agentId: spawned.details.agent.id,
+			inlinePreview: "First five log lines",
+			kind: "log",
+			metadata: { exitCode: 1 },
+			path: "artifacts/tests.log",
+			title: "Test log",
+		});
+		await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+			agentId: spawned.details.agent.id,
+			artifactRefs: [
+				{
+					id: recorded.details.artifact?.id,
+					label: recorded.details.artifact?.title,
+					path: recorded.details.artifact?.path,
+				},
+			],
+			expectedRevision: spawned.details.agent.revision,
+			message: "Review log",
+		});
+		const listed = await harness.call<AgentArtifactsDetails>("agent_artifacts", {
+			agentId: spawned.details.agent.id,
+		});
+
+		expect(recorded.details.artifact).toMatchObject({
+			agentId: spawned.details.agent.id,
+			inlinePreview: "First five log lines",
+			kind: "log",
+			path: "artifacts/tests.log",
+			title: "Test log",
+		});
+		expect(listed.details.artifacts).toEqual([recorded.details.artifact]);
+		expect(JSON.stringify(harness.store.listMailboxMessages())).not.toContain("First five log lines");
 	});
 
 	it("lets a child contact its supervisor without choosing a sibling target", async () => {

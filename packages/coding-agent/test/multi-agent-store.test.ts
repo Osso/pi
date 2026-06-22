@@ -444,6 +444,32 @@ describe("MultiAgentStore", () => {
 		expect(JSON.stringify(contact.message)).not.toContain("large diff content");
 	});
 
+	it("records shared artifacts outside mailbox events", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+
+		const artifact = store.recordArtifact({
+			agentId: spawned.agent.id,
+			inlinePreview: "First five log lines",
+			kind: "log",
+			metadata: { exitCode: 1 },
+			path: "artifacts/auth.log",
+			title: "Auth test log",
+		});
+		const contact = store.contactSupervisor(spawned.agent.id, spawned.agent.revision, {
+			artifactRefs: [{ id: artifact.id, label: artifact.title, path: artifact.path }],
+			body: "See log",
+		});
+
+		expect(contact.ok).toBe(true);
+		expect(store.listArtifacts()).toEqual([artifact]);
+		expect(store.getArtifact(artifact.id)).toEqual(artifact);
+		expect(contact.ok && contact.message.artifactRefs).toEqual([
+			{ id: artifact.id, label: "Auth test log", path: "artifacts/auth.log" },
+		]);
+		expect(JSON.stringify(store.listMailboxMessages())).not.toContain("First five log lines");
+	});
+
 	it("persists snapshots as SessionManager custom entries", () => {
 		const session = SessionManager.inMemory("/repo");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

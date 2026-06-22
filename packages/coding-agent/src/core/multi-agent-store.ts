@@ -37,6 +37,28 @@ export interface AgentArtifactReference {
 	label?: string;
 }
 
+export type AgentArtifactKind = "summary" | "diff" | "log" | "finding" | "transcript" | "file";
+
+export interface AgentArtifact {
+	id: string;
+	agentId: string;
+	kind: AgentArtifactKind;
+	title: string;
+	path?: string;
+	inlinePreview?: string;
+	metadata?: Record<string, unknown>;
+	createdAt: string;
+}
+
+export interface RecordAgentArtifactInput {
+	agentId: string;
+	kind: AgentArtifactKind;
+	title: string;
+	path?: string;
+	inlinePreview?: string;
+	metadata?: Record<string, unknown>;
+}
+
 export interface AgentNode {
 	id: string;
 	parentId: string | undefined;
@@ -158,9 +180,11 @@ export interface PersistedMultiAgentSnapshot {
 	version: 1;
 	kind: "snapshot";
 	agents: AgentSnapshot[];
+	artifacts: AgentArtifact[];
 	mailboxMessages: AgentMailboxMessage[];
 	selectedAgentId?: string;
 	nextAgentNumber: number;
+	nextArtifactNumber: number;
 	nextMessageNumber: number;
 }
 
@@ -196,9 +220,11 @@ const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLif
 
 export class MultiAgentStore {
 	private readonly agents = new Map<string, AgentNode>();
+	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
+	private nextArtifactNumber = 1;
 	private nextMessageNumber = 1;
 	private selectedAgentId: string | undefined;
 
@@ -300,6 +326,32 @@ export class MultiAgentStore {
 
 	listMailboxMessages(): AgentMailboxMessage[] {
 		return Array.from(this.mailboxMessages.values(), copyMessage);
+	}
+
+	recordArtifact(input: RecordAgentArtifactInput): AgentArtifact {
+		const artifact: AgentArtifact = {
+			id: this.createArtifactId(),
+			agentId: input.agentId,
+			kind: input.kind,
+			title: input.title,
+			createdAt: this.now(),
+			inlinePreview: input.inlinePreview,
+			metadata: input.metadata ? { ...input.metadata } : undefined,
+			path: input.path,
+		};
+		this.artifacts.set(artifact.id, artifact);
+
+		return copyArtifact(artifact);
+	}
+
+	getArtifact(artifactId: string): AgentArtifact | undefined {
+		const artifact = this.artifacts.get(artifactId);
+		return artifact ? copyArtifact(artifact) : undefined;
+	}
+
+	listArtifacts(agentId?: string): AgentArtifact[] {
+		const artifacts = Array.from(this.artifacts.values(), copyArtifact);
+		return agentId ? artifacts.filter((artifact) => artifact.agentId === agentId) : artifacts;
 	}
 
 	getProjectionSnapshot(): MultiAgentProjectionSnapshot {
@@ -527,9 +579,11 @@ export class MultiAgentStore {
 			version: 1,
 			kind: "snapshot",
 			agents: this.listAgents(),
+			artifacts: this.listArtifacts(),
 			mailboxMessages: this.listMailboxMessages(),
 			selectedAgentId: this.selectedAgentId,
 			nextAgentNumber: this.nextAgentNumber,
+			nextArtifactNumber: this.nextArtifactNumber,
 			nextMessageNumber: this.nextMessageNumber,
 		};
 	}
@@ -552,10 +606,15 @@ export class MultiAgentStore {
 
 	private restoreSnapshot(snapshot: PersistedMultiAgentSnapshot): void {
 		this.agents.clear();
+		this.artifacts.clear();
 		this.mailboxMessages.clear();
 
 		for (const agent of snapshot.agents) {
 			this.agents.set(agent.id, copyAgent(agent));
+		}
+
+		for (const artifact of snapshot.artifacts ?? []) {
+			this.artifacts.set(artifact.id, copyArtifact(artifact));
 		}
 
 		for (const message of snapshot.mailboxMessages) {
@@ -564,6 +623,7 @@ export class MultiAgentStore {
 
 		this.selectedAgentId = snapshot.selectedAgentId;
 		this.nextAgentNumber = snapshot.nextAgentNumber;
+		this.nextArtifactNumber = snapshot.nextArtifactNumber ?? 1;
 		this.nextMessageNumber = snapshot.nextMessageNumber;
 	}
 
@@ -629,6 +689,13 @@ export class MultiAgentStore {
 		return id;
 	}
 
+	private createArtifactId(): string {
+		const id = `artifact_${this.nextArtifactNumber}`;
+		this.nextArtifactNumber += 1;
+
+		return id;
+	}
+
 	private createMessageId(): string {
 		const id = `message_${this.nextMessageNumber}`;
 		this.nextMessageNumber += 1;
@@ -669,6 +736,13 @@ function copyMessage(message: AgentMailboxMessage): AgentMailboxMessage {
 		...message,
 		artifactIds: message.artifactIds ? [...message.artifactIds] : undefined,
 		artifactRefs: copyArtifactRefs(message.artifactRefs),
+	};
+}
+
+function copyArtifact(artifact: AgentArtifact): AgentArtifact {
+	return {
+		...artifact,
+		metadata: artifact.metadata ? { ...artifact.metadata } : undefined,
 	};
 }
 
@@ -728,8 +802,10 @@ function isSnapshotData(data: unknown): data is PersistedMultiAgentSnapshot {
 		snapshot.version === 1 &&
 		snapshot.kind === "snapshot" &&
 		Array.isArray(snapshot.agents) &&
+		(snapshot.artifacts === undefined || Array.isArray(snapshot.artifacts)) &&
 		Array.isArray(snapshot.mailboxMessages) &&
 		typeof snapshot.nextAgentNumber === "number" &&
+		(snapshot.nextArtifactNumber === undefined || typeof snapshot.nextArtifactNumber === "number") &&
 		typeof snapshot.nextMessageNumber === "number"
 	);
 }

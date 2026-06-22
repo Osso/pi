@@ -47,7 +47,7 @@ runtime contract belongs here; implementation details will live in
       explicit commands such as stop, resume, and steer.
 - [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
       supervisor contact, and inter-agent messages.
-- [ ] `agent artifacts` stores shared outputs such as summaries, findings, diffs, and file links
+- [x] `agent artifacts` stores shared outputs such as summaries, findings, diffs, and file links
       outside the mailbox event log.
 - [ ] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.
@@ -96,9 +96,9 @@ runtime contract belongs here; implementation details will live in
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
-  registers the first store-backed `agent_viewer`, `agents_mailbox`, `spawn_agent`, `list_agents`,
-  `wait_agent`, `cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent` tool
-  surface without spawning real child model sessions.
+  registers the first store-backed `agent_artifacts`, `agent_viewer`, `agents_mailbox`,
+  `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, `contact_supervisor`,
+  `send_agent_message`, and `steer_agent` tool surface without spawning real child model sessions.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -114,9 +114,9 @@ runtime contract belongs here; implementation details will live in
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
   current core state.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
-  asserts the first extension-facing viewer/mailbox/spawn/list/wait/cancel/contact/steer tool
-  surface is store-backed and does not start child model sessions by default. It also asserts the
-  spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
+  asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
+  tool surface is store-backed and does not start child model sessions by default. It also asserts
+  the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that `wait_agent` reports terminal store state without TUI
   coupling, that `wait_agent` can include descendant snapshots and pending mailbox summaries, that
   `list_agents` can return descendants below a parent without TUI state, and that
@@ -124,7 +124,8 @@ runtime contract belongs here; implementation details will live in
   ID/path rather than copied content. It verifies `agent_viewer` returns a read-only projection
   snapshot without advancing lifecycle state and `agents_mailbox` returns inbox/outbox plus
   acknowledgement summaries from core mailbox state. It also verifies `send_agent_message` allows
-  direct parent-child mailbox messages while rejecting sibling targets.
+  direct parent-child mailbox messages while rejecting sibling targets and `agent_artifacts`
+  records/list shared artifact pointers outside mailbox events.
 
 ## Known gaps (current cycle)
 
@@ -162,6 +163,8 @@ runtime contract belongs here; implementation details will live in
 - [x] Add first `agents mailbox` extension projection tests for inbox/outbox summaries and
       acknowledgements over core mailbox state.
 - [x] Add direct inter-agent mailbox message tests and the smallest sibling-safe send/list surface.
+- [x] Add first artifact store tests for shared summaries/findings/log references outside mailbox
+      events.
 
 ## Out of scope
 

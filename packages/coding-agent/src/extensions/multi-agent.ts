@@ -7,6 +7,7 @@ import {
 	type ExtensionContext,
 } from "../core/extensions/types.ts";
 import {
+	type AgentArtifact,
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
 	type AgentResult,
@@ -30,6 +31,15 @@ const artifactReferenceSchema = Type.Object({
 	label: Type.Optional(Type.String()),
 	path: Type.Optional(Type.String()),
 });
+
+const artifactKindSchema = Type.Union([
+	Type.Literal("summary"),
+	Type.Literal("diff"),
+	Type.Literal("log"),
+	Type.Literal("finding"),
+	Type.Literal("transcript"),
+	Type.Literal("file"),
+]);
 
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
@@ -90,6 +100,15 @@ const sendAgentMessageSchema = Type.Object({
 	toAgentId: Type.String(),
 });
 
+const agentArtifactsSchema = Type.Object({
+	agentId: Type.Optional(Type.String()),
+	inlinePreview: Type.Optional(Type.String()),
+	kind: Type.Optional(artifactKindSchema),
+	metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+	path: Type.Optional(Type.String()),
+	title: Type.Optional(Type.String()),
+});
+
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type WaitAgentParams = Static<typeof waitAgentSchema>;
@@ -98,6 +117,7 @@ type SteerAgentParams = Static<typeof steerAgentSchema>;
 type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
 type AgentsMailboxParams = Static<typeof agentsMailboxSchema>;
 type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
+type AgentArtifactsParams = Static<typeof agentArtifactsSchema>;
 
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
@@ -171,6 +191,11 @@ interface AgentsMailboxToolDetails {
 interface SendAgentMessageToolDetails {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
+}
+
+interface AgentArtifactsToolDetails {
+	artifact?: AgentArtifact;
+	artifacts?: AgentArtifact[];
 }
 
 function result<TDetails extends Record<string, unknown>>(text: string, details: TDetails): AgentToolResult<TDetails> {
@@ -360,6 +385,26 @@ function agentsMailbox(store: MultiAgentStore, params: AgentsMailboxParams): Age
 		outbox,
 		pendingCount,
 	});
+}
+
+function agentArtifacts(
+	store: MultiAgentStore,
+	params: AgentArtifactsParams,
+): AgentToolResult<AgentArtifactsToolDetails> {
+	if (params.agentId && params.kind && params.title) {
+		const artifact = store.recordArtifact({
+			agentId: params.agentId,
+			inlinePreview: params.inlinePreview,
+			kind: params.kind,
+			metadata: params.metadata,
+			path: params.path,
+			title: params.title,
+		});
+		return result(`Recorded artifact ${artifact.id}.`, { artifact });
+	}
+
+	const artifacts = store.listArtifacts(params.agentId);
+	return result(`Found ${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}.`, { artifacts });
 }
 
 function sendAgentMessage(
@@ -582,6 +627,16 @@ export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgen
 			description: "Read a projection snapshot for agent tree/status/slot viewer surfaces.",
 			parameters: agentViewerSchema,
 			execute: async () => agentViewer(store),
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "agent_artifacts",
+			label: "Agent Artifacts",
+			description: "Record or list shared multi-agent artifact pointers outside mailbox events.",
+			parameters: agentArtifactsSchema,
+			execute: async (_toolCallId, params) => agentArtifacts(store, params),
 		}),
 	);
 
