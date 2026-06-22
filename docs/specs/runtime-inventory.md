@@ -11,6 +11,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] Tool inventory output must include every configured tool, whether each tool is active, its source, and its description.
 - [x] Tool inventory output must keep terminal table lines compact by truncating long descriptions.
 - [x] Tool inventory output must show an explicit empty state when no tools are available.
+- [x] Default coding sessions must keep the read-only discovery tools `grep`, `find`, and `ls` active alongside editing tools.
 - [x] Tool inventory data must include tools registered by extensions during `session_start`.
 - [x] Tool inventory data must include default first-party runtime tools such as `spawn_agent`, `set_goal`, `goal_complete`, and `hostrun_eval`.
 
@@ -31,6 +32,9 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - `packages/coding-agent/src/cli/args.ts` - Parses `tools` and `extensions` metadata actions.
 - `packages/coding-agent/src/cli/list-tools.ts` - Formats and prints current tool inventory.
 - `packages/coding-agent/src/cli/list-extensions.ts` - Formats and prints current extension inventory.
+- `packages/coding-agent/src/core/tools/index.ts` - Defines built-in tool names and the default active tool set.
+- `packages/coding-agent/src/core/sdk.ts` - Applies default active tools when creating a session.
+- `packages/coding-agent/src/core/system-prompt.ts` - Uses default active tools when building prompt text without an explicit tool selection.
 - `packages/coding-agent/src/core/resource-loader.ts` - Preserves first-party synthetic extensions through project trust reload.
 - `packages/coding-agent/src/main.ts` - Dispatches CLI inventory actions after runtime creation.
 - `packages/coding-agent/src/core/slash-commands.ts` - Registers `/tools` and `/extensions` for autocomplete.
@@ -40,8 +44,10 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 
 - `packages/coding-agent/test/args.test.ts`
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts`
+- `packages/coding-agent/test/system-prompt.test.ts`
 - `packages/coding-agent/test/tool-inventory.test.ts`
 - `packages/coding-agent/test/tool-inventory-session.test.ts`
+- `packages/coding-agent/test/suite/regressions/5109-exclude-tools.test.ts`
 
 ## Known gaps (current cycle)
 
