@@ -87,15 +87,17 @@ runtime contract belongs here; implementation details will live in
 
 ## Implementation inventory
 
-- No first-party implementation yet.
+- No first-party runtime implementation yet.
+- [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
+  external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
 
-- No first-party tests yet.
+- No first-party runtime tests yet.
 
 ## Known gaps (current cycle)
 
-- [ ] Audit existing Pi subagent extensions and local Claude Code task primitives; record which
+- [x] Audit existing Pi subagent extensions and local Claude Code task primitives; record which
       behavior should be reused, adapted, or rejected.
 - [ ] Design the core authoritative agent state store, lifecycle revisions, mailbox commands, and
       read-only TUI projection contract.
