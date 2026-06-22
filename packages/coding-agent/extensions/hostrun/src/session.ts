@@ -128,6 +128,34 @@ function parseDelimitedRows(content: string, separator: "," | "\t"): Record<stri
 	});
 }
 
+function parseYamlScalar(value: string): string | number | boolean {
+	if (value === "true") {
+		return true;
+	}
+	if (value === "false") {
+		return false;
+	}
+	const numericValue = Number(value);
+	if (value !== "" && !Number.isNaN(numericValue)) {
+		return numericValue;
+	}
+	return value;
+}
+
+function parseSimpleYaml(content: string): Record<string, string | number | boolean> {
+	return Object.fromEntries(
+		splitNonEmptyLines(content).map((line) => {
+			const separatorIndex = line.indexOf(":");
+			if (separatorIndex === -1) {
+				throw new Error(`Unsupported YAML line: ${line}`);
+			}
+			const key = line.slice(0, separatorIndex).trim();
+			const value = line.slice(separatorIndex + 1).trim();
+			return [key, parseYamlScalar(value)];
+		}),
+	);
+}
+
 function parseFileContent(content: string, path: string, format?: string): unknown {
 	const resolvedFormat = format ?? extname(path).slice(1);
 	if (resolvedFormat === "json") {
@@ -141,6 +169,9 @@ function parseFileContent(content: string, path: string, format?: string): unkno
 	}
 	if (resolvedFormat === "tsv") {
 		return parseDelimitedRows(content, "\t");
+	}
+	if (resolvedFormat === "yaml" || resolvedFormat === "yml") {
+		return parseSimpleYaml(content);
 	}
 	return content;
 }
@@ -445,21 +476,41 @@ class HostrunSession {
 
 	private createCliBuilder(context: QuickJSAsyncContext, program: string, args: string[]): QuickJSHandle {
 		const builder = context.newObject();
-		const stdout = context.newObject();
-		const text = context.newAsyncifiedFunction("text", async () => {
-			const result = await this.executeProcess(program, args);
-			return context.newString(result.stdout);
-		});
-		context.setProp(stdout, "text", text);
-		text.dispose();
-		context.setProp(builder, "stdout", stdout);
-		stdout.dispose();
+		const stdout = this.createProcessStreamBuilder(context, program, args, "stdout");
+		const stderr = this.createProcessStreamBuilder(context, program, args, "stderr");
 
 		const run = context.newAsyncifiedFunction("run", async () => {
 			return this.createJsonHandle(context, await this.executeProcess(program, args));
 		});
 		context.setProp(builder, "run", run);
 		run.dispose();
+		context.setProp(builder, "stderr", stderr);
+		stderr.dispose();
+		context.setProp(builder, "stdout", stdout);
+		stdout.dispose();
+		return builder;
+	}
+
+	private createProcessStreamBuilder(
+		context: QuickJSAsyncContext,
+		program: string,
+		args: string[],
+		stream: "stderr" | "stdout",
+	): QuickJSHandle {
+		const builder = context.newObject();
+		const text = context.newAsyncifiedFunction("text", async () => {
+			const result = await this.executeProcess(program, args);
+			return context.newString(result[stream]);
+		});
+		context.setProp(builder, "text", text);
+		text.dispose();
+
+		const lines = context.newAsyncifiedFunction("lines", async () => {
+			const result = await this.executeProcess(program, args);
+			return this.createJsonHandle(context, splitNonEmptyLines(result[stream]));
+		});
+		context.setProp(builder, "lines", lines);
+		lines.dispose();
 		return builder;
 	}
 
