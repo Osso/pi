@@ -91,6 +91,12 @@ export interface SendSteeringInput {
 	artifactIds?: string[];
 }
 
+export interface TransitionAgentDetails {
+	error?: AgentNode["error"];
+	lastActivity?: AgentActivity;
+	result?: AgentResult;
+}
+
 export type AgentCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "not_found"; agentId: string }
@@ -169,7 +175,12 @@ export class MultiAgentStore {
 		return { agent: copyAgent(agent) };
 	}
 
-	transitionAgent(agentId: string, expectedRevision: number, requested: AgentLifecycleState): AgentCommandResult {
+	transitionAgent(
+		agentId: string,
+		expectedRevision: number,
+		requested: AgentLifecycleState,
+		details: TransitionAgentDetails = {},
+	): AgentCommandResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
 			return { ok: false, error: "not_found", agentId };
@@ -184,7 +195,7 @@ export class MultiAgentStore {
 			return { ok: false, error: "invalid_transition", current: copyAgent(current), requested };
 		}
 
-		const updated = this.updateAgent(current, { lifecycle: requested });
+		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
@@ -362,7 +373,7 @@ export class MultiAgentStore {
 		return { ok: false, error: "stale_revision", current: copyAgent(current) };
 	}
 
-	private updateAgent(current: AgentNode, updates: Pick<AgentNode, "lifecycle">): AgentNode {
+	private updateAgent(current: AgentNode, updates: TransitionAgentDetails & Pick<AgentNode, "lifecycle">): AgentNode {
 		const updated = {
 			...current,
 			...updates,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import multiAgentExtension from "../src/extensions/multi-agent.ts";
+import multiAgentExtension, { type ChildAgentDispatcher } from "../src/extensions/multi-agent.ts";
 
 type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 	execute: (
@@ -15,6 +15,7 @@ type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 
 interface SpawnAgentDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
+	dispatched: boolean;
 	prompt: string;
 }
 
@@ -38,7 +39,7 @@ interface SteerAgentDetails extends Record<string, unknown> {
 	message: AgentMailboxMessage;
 }
 
-function createMultiAgentHarness() {
+function createMultiAgentHarness(options: { dispatcher?: ChildAgentDispatcher } = {}) {
 	const tools = new Map<string, RegisteredTool>();
 	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
@@ -47,7 +48,7 @@ function createMultiAgentHarness() {
 		},
 	} as unknown as ExtensionAPI;
 
-	multiAgentExtension(pi, { store });
+	multiAgentExtension(pi, { dispatcher: options.dispatcher, store });
 
 	const ctx = {
 		cwd: "/repo",
@@ -160,6 +161,43 @@ describe("multi-agent extension tools", () => {
 			status: "pending",
 			targetCheckpoint: "next_model_call",
 			toAgentId: agent.id,
+		});
+	});
+
+	it("dispatches a real child runner behind spawn_agent without TUI coupling", async () => {
+		const dispatched: Array<{ agent: AgentSnapshot; prompt: string; mode: string; hasUI: boolean }> = [];
+		const dispatcher: ChildAgentDispatcher = async ({ agent, ctx, prompt }) => {
+			dispatched.push({ agent, hasUI: ctx.hasUI, mode: ctx.mode, prompt });
+			return { lifecycle: "completed", result: { summary: "done" } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "worker",
+			displayName: "Worker",
+			prompt: "Implement auth tests",
+		});
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+
+		expect(dispatched).toEqual([
+			{
+				agent: expect.objectContaining({
+					agentType: "worker",
+					displayName: "Worker",
+					lifecycle: "running",
+				}) as AgentSnapshot,
+				hasUI: false,
+				mode: "print",
+				prompt: "Implement auth tests",
+			},
+		]);
+		expect(spawned.details).toMatchObject({
+			dispatched: true,
+			agent: { lifecycle: "completed", result: { summary: "done" } },
+		});
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
+			terminal: true,
 		});
 	});
 });

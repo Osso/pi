@@ -8,6 +8,7 @@ import {
 import {
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
+	type AgentResult,
 	type AgentSnapshot,
 	isActiveLifecycle,
 	MultiAgentStore,
@@ -57,11 +58,27 @@ type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
 
 export interface MultiAgentExtensionOptions {
+	dispatcher?: ChildAgentDispatcher;
 	store?: MultiAgentStore;
 }
 
+export interface ChildAgentDispatchInput {
+	agent: AgentSnapshot;
+	ctx: ExtensionContext;
+	prompt: string;
+}
+
+export interface ChildAgentDispatchResult {
+	lifecycle: "completed" | "failed" | "aborted";
+	error?: { message: string; code?: string };
+	result?: AgentResult;
+}
+
+export type ChildAgentDispatcher = (input: ChildAgentDispatchInput) => Promise<ChildAgentDispatchResult>;
+
 interface AgentToolDetails {
 	agent: AgentSnapshot;
+	dispatched?: boolean;
 	prompt?: string;
 	reason?: string;
 	terminal?: boolean;
@@ -94,11 +111,12 @@ function errorResult<TDetails extends Record<string, unknown>>(
 	};
 }
 
-function spawnAgent(
+async function spawnAgent(
 	store: MultiAgentStore,
+	dispatcher: ChildAgentDispatcher | undefined,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
-): AgentToolResult<AgentToolDetails> {
+): Promise<AgentToolResult<AgentToolDetails>> {
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
 	const spawned = store.spawnAgent({
@@ -110,10 +128,57 @@ function spawnAgent(
 		permission: { narrowed: true, policy: "on-request" },
 	});
 
+	if (dispatcher) {
+		const dispatched = await dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx);
+		return result(`Spawned ${dispatched.displayName} (${dispatched.id})`, {
+			agent: dispatched,
+			dispatched: true,
+			prompt: params.prompt,
+		});
+	}
+
 	return result(`Spawned ${spawned.agent.displayName} (${spawned.agent.id})`, {
 		agent: spawned.agent,
+		dispatched: false,
 		prompt: params.prompt,
 	});
+}
+
+async function dispatchAgent(
+	store: MultiAgentStore,
+	dispatcher: ChildAgentDispatcher,
+	initialAgent: AgentSnapshot,
+	prompt: string,
+	ctx: ExtensionContext,
+): Promise<AgentSnapshot> {
+	const starting = moveToStarting(store, initialAgent);
+	const running = store.transitionAgent(starting.id, starting.revision, "running");
+	if (!running.ok) {
+		return starting;
+	}
+
+	try {
+		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
+		const finished = store.transitionAgent(running.agent.id, running.agent.revision, dispatchResult.lifecycle, {
+			error: dispatchResult.error,
+			result: dispatchResult.result,
+		});
+		return finished.ok ? finished.agent : running.agent;
+	} catch (error) {
+		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+			error: { message: error instanceof Error ? error.message : String(error) },
+		});
+		return failed.ok ? failed.agent : running.agent;
+	}
+}
+
+function moveToStarting(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
+	if (agent.lifecycle === "starting") {
+		return agent;
+	}
+
+	const starting = store.transitionAgent(agent.id, agent.revision, "starting");
+	return starting.ok ? starting.agent : agent;
 }
 
 function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentToolResult<AgentListToolDetails> {
@@ -201,14 +266,15 @@ function emptyMessage(agentId: string, body: string): AgentMailboxMessage {
 
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = options.store ?? new MultiAgentStore();
+	const dispatcher = options.dispatcher;
 
 	pi.registerTool(
 		defineTool({
 			name: "spawn_agent",
 			label: "Spawn Agent",
-			description: "Create a child agent record in the multi-agent store without starting a model session.",
+			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			parameters: spawnAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => spawnAgent(store, params, ctx),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => spawnAgent(store, dispatcher, params, ctx),
 		}),
 	);
 

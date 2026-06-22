@@ -107,7 +107,8 @@ runtime contract belongs here; implementation details will live in
   entries and rehydration after reopening a persisted session.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing spawn/list/wait/cancel/steer tool surface is store-backed and
-  does not start child model sessions.
+  does not start child model sessions by default. It also asserts the spawn tool can call an
+  injected child dispatcher and that `wait_agent` reports terminal store state without TUI coupling.
 
 ## Known gaps (current cycle)
 
@@ -123,6 +124,8 @@ runtime contract belongs here; implementation details will live in
       without spawning real child model sessions.
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over `MultiAgentStore`, update
       `docs/specs/multi-agent.md`, run targeted tests and `npm run check`.
+- [x] Add and implement injected child-dispatcher tests behind `spawn_agent` plus terminal-state
+      `wait_agent` behavior without TUI coupling.
 
 ## Out of scope
 

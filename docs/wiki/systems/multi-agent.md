@@ -12,7 +12,9 @@ are added.
 
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
 `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, and `steer_agent`. These tools mutate or
-read only `MultiAgentStore`; they intentionally do not create live child model sessions yet.
+read `MultiAgentStore`. `spawn_agent` can call an injected child dispatcher and reports terminal
+state through `wait_agent`, but the default path intentionally does not create live child model
+sessions yet.
 
 Existing primitives worth reusing:
 
