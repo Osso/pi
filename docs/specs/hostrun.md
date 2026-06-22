@@ -86,11 +86,11 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 ### MCP server option
 
-- [ ] Provide a standalone stdio MCP server binary (`hostrun-mcp`) that exposes
+- [x] Provide a standalone stdio MCP server binary (`hostrun-mcp`) that exposes
   `hostrun_eval` to any MCP client without requiring the Pi coding agent.
 - [x] The standalone server defaults all host operations to pending-approval
   (never auto-approves filesystem writes, HTTP calls, or CLI commands).
-- [ ] Document a working stdio MCP installation command for Claude Code in the
+- [x] Document a working stdio MCP installation command for Claude Code in the
   extension README after the `hostrun-mcp` binary exists.
 
 ## How it works
@@ -113,7 +113,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
   stdio MCP server factory for non-Pi hosts.
 - `packages/coding-agent/extensions/hostrun/package.json` — extension package
-  metadata; pins `quickjs-emscripten` and `typebox` as exact dependencies.
+  metadata; wires `hostrun-mcp` and pins `quickjs-emscripten` and `typebox` as
+  exact dependencies.
 - `package-lock.json` — records the Hostrun workspace and lockfile-backed
   QuickJS runtime dependency tree.
 
@@ -124,8 +125,9 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   coverage, including returned exception details and approval-gated
   `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects.
 - `packages/coding-agent/test/hostrun-mcp-server.test.ts` — standalone MCP
-  server registration shape and pending-approval defaults for CLI, filesystem,
-  and HTTP host effects.
+  server registration shape, `hostrun-mcp` package wiring, README install
+  command, and pending-approval defaults for CLI, filesystem, and HTTP host
+  effects.
 - `npm run check` — validates the workspace and lockfile state as part of the
   repo-wide verification flow.
 
@@ -146,7 +148,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Implement standalone `mcp-server.ts` with pending-approval default.
 - [x] Add tests for `ctx` persistence across evaluations and after exceptions.
 - [x] Add tests for `rg.matches` structured parsing and `fd.files` output.
-- [ ] Add `hostrun-mcp` binary wiring and document the working stdio MCP install
+- [x] Add `hostrun-mcp` binary wiring and document the working stdio MCP install
   command in `packages/coding-agent/extensions/hostrun/README.md`.
 
 ## Out of scope
