@@ -553,6 +553,48 @@ describe("MultiAgentStore", () => {
 		expect(store.getAgent(ninth.agent.id)).toMatchObject({ lifecycle: "starting", revision: started.agent.revision });
 	});
 
+	it("keeps pinned slot bindings stable when another agent tries to claim the same slot", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const first = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 4, pinned: true },
+		});
+		const second = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 5, pinned: true },
+		});
+		const startedFirst = store.transitionAgent(first.agent.id, first.agent.revision, "starting");
+		expect(startedFirst.ok).toBe(true);
+		if (!startedFirst.ok) {
+			throw new Error("expected first start");
+		}
+
+		const conflict = store.pinAgentSlot(second.agent.id, second.agent.revision, 4);
+
+		expect(conflict).toMatchObject({
+			ok: false,
+			error: "slot_conflict",
+			current: { id: second.agent.id, revision: second.agent.revision },
+			occupant: { id: first.agent.id, revision: startedFirst.agent.revision },
+			projection: {
+				slots: [
+					{ agentId: first.agent.id, index: 4, revision: startedFirst.agent.revision },
+					{ agentId: second.agent.id, index: 5, revision: second.agent.revision },
+				],
+			},
+		});
+		expect(store.selectAgentSlot(4)).toMatchObject({ id: first.agent.id, revision: startedFirst.agent.revision });
+		expect(store.selectAgentSlot(5)).toMatchObject({ id: second.agent.id, revision: second.agent.revision });
+	});
+
 	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);

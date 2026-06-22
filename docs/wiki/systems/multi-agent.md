@@ -162,6 +162,8 @@ with the conflict so visible rows and pane slots can redraw by agent ID before r
 `app.agent.slot1` through `app.agent.slot9` default to `Alt+1` through `Alt+9`; consuming those
 bindings should call `selectAgentSlot(index)`, which only updates selected view state and never
 advances lifecycle or revisions.
+Pinned slots are unique. If a caller tries to pin an agent into an occupied slot, core returns a
+`slot_conflict` with the occupant and current projection instead of changing either binding.
 
 ### Lifecycle transitions
 

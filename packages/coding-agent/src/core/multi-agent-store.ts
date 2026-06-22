@@ -209,7 +209,14 @@ export type MailboxMessageCommandResult =
 export type AgentMetadataCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "not_found"; agentId: string }
-	| { ok: false; error: "stale_revision"; current: AgentSnapshot; projection: MultiAgentProjectionSnapshot };
+	| { ok: false; error: "stale_revision"; current: AgentSnapshot; projection: MultiAgentProjectionSnapshot }
+	| {
+			ok: false;
+			error: "slot_conflict";
+			current: AgentSnapshot;
+			occupant: AgentSnapshot;
+			projection: MultiAgentProjectionSnapshot;
+	  };
 
 export interface MultiAgentStoreOptions {
 	now?: () => string;
@@ -480,6 +487,17 @@ export class MultiAgentStore {
 			};
 		}
 
+		const occupant = this.findSlotOccupant(slotIndex, current.id);
+		if (occupant) {
+			return {
+				ok: false,
+				error: "slot_conflict",
+				current: copyAgent(current),
+				occupant: copyAgent(occupant),
+				projection: this.getProjectionSnapshot(),
+			};
+		}
+
 		const updated = this.updateAgent(current, {
 			slot: { index: slotIndex, pinned: true },
 		});
@@ -744,6 +762,16 @@ export class MultiAgentStore {
 			slotIndex: agent.slot?.index,
 			workerAdapter: agent.worker?.adapter,
 		}));
+	}
+
+	private findSlotOccupant(slotIndex: number, excludedAgentId: string): AgentNode | undefined {
+		for (const agent of this.agents.values()) {
+			if (agent.id !== excludedAgentId && agent.slot?.index === slotIndex) {
+				return agent;
+			}
+		}
+
+		return undefined;
 	}
 
 	private canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {

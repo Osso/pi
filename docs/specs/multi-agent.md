@@ -65,8 +65,8 @@ runtime contract belongs here; implementation details will live in
 ### TUI behavior
 
 - [x] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
-- [ ] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
-- [ ] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
+- [x] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
+- [x] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
 - [x] TUI controls show stale-revision conflicts and require the user or caller to retry against
       the latest snapshot.
 
@@ -118,7 +118,8 @@ runtime contract belongs here; implementation details will live in
   mailbox, and lifecycle contracts, persists bounded transcript/event stream metadata across
   SessionManager rehydrate without retaining inline child output logs, and exposes TUI row/slot
   projections plus stale slot-conflict refresh payloads from current core snapshots. It verifies
-  visible slot selection is read-only over lifecycle state.
+  visible slot selection is read-only over lifecycle state and conflicting pinned slot claims are
+  rejected with the current projection so existing slot bindings stay stable.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
@@ -191,6 +192,8 @@ runtime contract belongs here; implementation details will live in
       explicit stop/resume/steer command descriptors.
 - [x] Add focused TUI slot-key tests for `Alt+1` through `Alt+9` switching visible agent slots
       without lifecycle mutation.
+- [x] Add focused TUI slot persistence tests for stable bindings across list refreshes and pinned
+      slot updates.
 
 ## Out of scope
 
