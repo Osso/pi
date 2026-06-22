@@ -10,6 +10,10 @@ Pi now has the first pure multi-agent store in
 SessionManager-backed snapshot reload before any child model sessions, subprocesses, or TUI views
 are added.
 
+`packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
+`spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, and `steer_agent`. These tools mutate or
+read only `MultiAgentStore`; they intentionally do not create live child model sessions yet.
+
 Existing primitives worth reusing:
 
 - `packages/coding-agent/src/core/agent-session.ts` owns one live agent session, prompt steering,
@@ -27,7 +31,8 @@ Existing primitives worth reusing:
 
 Still missing first-party pieces:
 
-- Headless spawn/list/wait/cancel APIs.
+- Real child `AgentSession` dispatch behind the store-backed tools.
+- Descendant filtering and richer wait behavior.
 - Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
 - Bounded artifact store so diffs/logs/results do not become unbounded mailbox events.
