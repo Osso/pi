@@ -5,7 +5,11 @@ contract lives in [`docs/specs/multi-agent.md`](../../specs/multi-agent.md).
 
 ## Current state
 
-Pi does not have a first-party multi-agent runtime yet. Current primitives worth reusing:
+Pi now has the first pure in-memory multi-agent store in
+`packages/coding-agent/src/core/multi-agent-store.ts`. It proves the core synchronization rules
+before any child model sessions, subprocesses, persistence, or TUI views are added.
+
+Existing primitives worth reusing:
 
 - `packages/coding-agent/src/core/agent-session.ts` owns one live agent session, prompt steering,
   follow-up queues, tool approval, abort, compaction, and extension binding.
@@ -20,12 +24,10 @@ Pi does not have a first-party multi-agent runtime yet. Current primitives worth
   child-agent isolation can reuse.
 - `packages/tui/test/keys.test.ts` already proves terminal parsing for `alt+1`.
 
-Missing first-party pieces:
+Still missing first-party pieces:
 
-- Authoritative child-agent store with stable IDs, parent IDs, lifecycle state, monotonic
-  revisions, cwd/worktree/model/account metadata, permission metadata, and pinned display slots.
 - Headless spawn/list/wait/cancel APIs.
-- Durable mailbox and steering acknowledgements.
+- Durable mailbox persistence.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
 - Bounded artifact store so diffs/logs/results do not become unbounded mailbox events.
 

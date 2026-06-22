@@ -16,11 +16,11 @@ runtime contract belongs here; implementation details will live in
 - [ ] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,
       `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, and
       `aborted`.
-- [ ] Commands that mutate agent state carry an expected revision and fail with a conflict when
+- [x] Commands that mutate agent state carry an expected revision and fail with a conflict when
       the caller is acting on stale state.
-- [ ] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
+- [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
       cancel, or otherwise advance that agent.
-- [ ] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
+- [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
 - [ ] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI.
@@ -29,11 +29,11 @@ runtime contract belongs here; implementation details will live in
 
 ### Mailbox and steering
 
-- [ ] Steering is delivered through the mailbox as a command, not by editing a live prompt/input
+- [x] Steering is delivered through the mailbox as a command, not by editing a live prompt/input
       buffer.
-- [ ] A steering message can target a whole agent or a safe checkpoint such as the next model call,
+- [x] A steering message can target a whole agent or a safe checkpoint such as the next model call,
       after a tool result, or while the child is waiting for input.
-- [ ] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
+- [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
       delivered state.
 - [ ] Child agents can contact the supervisor without direct access to sibling internals.
 - [ ] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
@@ -87,13 +87,19 @@ runtime contract belongs here; implementation details will live in
 
 ## Implementation inventory
 
-- No first-party runtime implementation yet.
+- [`packages/coding-agent/src/core/multi-agent-store.ts`](../../packages/coding-agent/src/core/multi-agent-store.ts)
+  defines the first pure in-memory store, lifecycle transitions, revision checks, active-count
+  derivation, and steering mailbox acknowledgement behavior.
+- [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
+  the first multi-agent store API surface.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
 
-- No first-party runtime tests yet.
+- [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
+  asserts stale revision rejection, read-only view selection, steering acknowledgement, and
+  core-derived active counts.
 
 ## Known gaps (current cycle)
 
@@ -101,7 +107,7 @@ runtime contract belongs here; implementation details will live in
       behavior should be reused, adapted, or rejected.
 - [x] Design the core authoritative agent state store, lifecycle revisions, mailbox commands, and
       read-only TUI projection contract.
-- [ ] Add the first failing tests for stale-revision rejection, read-only agent switching, mailbox
+- [x] Add the first failing tests for stale-revision rejection, read-only agent switching, mailbox
       steering acknowledgement, and core-derived active counts.
 
 ## Out of scope

@@ -75,4 +75,23 @@ export {
 	type TurnStartEvent,
 	type WorkingIndicatorOptions,
 } from "./extensions/index.ts";
+export {
+	type AgentActivity,
+	type AgentCommandResult,
+	type AgentLifecycleState,
+	type AgentMailboxMessage,
+	type AgentNode,
+	type AgentResult,
+	type AgentSnapshot,
+	isActiveLifecycle,
+	type MailboxMessageKind,
+	type MailboxMessageStatus,
+	MultiAgentStore,
+	type MultiAgentStoreOptions,
+	type SendSteeringInput,
+	type SpawnAgentInput,
+	type SteeringCheckpoint,
+	type SteeringCommandResult,
+	type TerminalAgentLifecycleState,
+} from "./multi-agent-store.ts";
 export { createSyntheticSourceInfo } from "./source-info.ts";
