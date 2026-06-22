@@ -26,7 +26,7 @@ runtime contract belongs here; implementation details will live in
       list descendants without depending on the TUI.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
-- [ ] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
+- [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log.
 
 ### Mailbox and steering
@@ -114,8 +114,9 @@ runtime contract belongs here; implementation details will live in
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
   current core state. It covers child-agent model/account/budget metadata inheritance, rejects
   permission broadening, keeps account metadata separate from mailbox, workflow, and UI selection
-  state, and verifies terminal/subprocess worker adapter metadata stays under the same permission,
-  mailbox, and lifecycle contracts.
+  state, verifies terminal/subprocess worker adapter metadata stays under the same permission,
+  mailbox, and lifecycle contracts, and persists bounded transcript/event stream metadata across
+  SessionManager rehydrate without retaining inline child output logs.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
@@ -177,6 +178,8 @@ runtime contract belongs here; implementation details will live in
 - [x] Add focused tests proving account metadata stays separate from mailbox/workflow state.
 - [x] Add focused tests for terminal/subprocess worker adapter boundaries sharing core permission,
       mailbox, and lifecycle contracts.
+- [x] Add focused tests for durable bounded transcript/event stream metadata across SessionManager
+      persistence and projection snapshots.
 
 ## Out of scope
 

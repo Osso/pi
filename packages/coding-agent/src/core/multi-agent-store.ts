@@ -45,6 +45,18 @@ export interface AgentWorkerAdapter {
 	cwd?: string;
 }
 
+export interface AgentTranscriptMetadata {
+	sessionId: string;
+	path?: string;
+}
+
+export interface AgentEventStreamMetadata {
+	path: string;
+	eventCount: number;
+	truncated: boolean;
+	byteLimit?: number;
+}
+
 export interface AgentArtifact {
 	id: string;
 	agentId: string;
@@ -87,7 +99,8 @@ export interface AgentNode {
 	};
 	permission: { policy: string; inheritedFrom?: string; narrowed: boolean };
 	slot?: { index: number; pinned: boolean };
-	transcript?: { sessionId: string; path?: string };
+	transcript?: AgentTranscriptMetadata;
+	eventStream?: AgentEventStreamMetadata;
 	worker?: AgentWorkerAdapter;
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
@@ -108,6 +121,7 @@ export interface SpawnAgentInput {
 	account?: AgentNode["account"];
 	slot?: AgentNode["slot"];
 	transcript?: AgentNode["transcript"];
+	eventStream?: AgentNode["eventStream"];
 	worker?: AgentNode["worker"];
 }
 
@@ -273,7 +287,8 @@ export class MultiAgentStore {
 			account: copyAccount(input.account),
 			model: copyOptional(input.model),
 			slot: copyOptional(input.slot),
-			transcript: copyOptional(input.transcript),
+			eventStream: copyEventStream(input.eventStream),
+			transcript: copyTranscript(input.transcript),
 			worker: copyWorker(input.worker),
 			worktree: copyOptional(input.worktree),
 		};
@@ -784,7 +799,8 @@ function copyAgent(agent: AgentNode): AgentSnapshot {
 		permission: { ...agent.permission },
 		result: copyResult(agent.result),
 		slot: copyOptional(agent.slot),
-		transcript: copyOptional(agent.transcript),
+		eventStream: copyEventStream(agent.eventStream),
+		transcript: copyTranscript(agent.transcript),
 		worker: copyWorker(agent.worker),
 		worktree: copyOptional(agent.worktree),
 	};
@@ -827,6 +843,28 @@ function copyWorker(worker: AgentWorkerAdapter | undefined): AgentWorkerAdapter 
 		adapter: worker.adapter,
 		cwd: worker.cwd,
 		handleId: worker.handleId,
+	};
+}
+
+function copyTranscript(transcript: AgentTranscriptMetadata | undefined): AgentTranscriptMetadata | undefined {
+	if (!transcript) {
+		return undefined;
+	}
+	return {
+		path: transcript.path,
+		sessionId: transcript.sessionId,
+	};
+}
+
+function copyEventStream(eventStream: AgentEventStreamMetadata | undefined): AgentEventStreamMetadata | undefined {
+	if (!eventStream) {
+		return undefined;
+	}
+	return {
+		byteLimit: eventStream.byteLimit,
+		eventCount: eventStream.eventCount,
+		path: eventStream.path,
+		truncated: eventStream.truncated,
 	};
 }
 

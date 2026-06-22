@@ -116,6 +116,7 @@ interface AgentNode {
 	permission: { policy: string; inheritedFrom?: string; narrowed: boolean };
 	slot?: { index: number; pinned: boolean };
 	transcript?: { sessionId: string; path?: string };
+	eventStream?: { path: string; eventCount: number; truncated: boolean; byteLimit?: number };
 	worker?: { adapter: "terminal" | "subprocess"; handleId: string; cwd?: string };
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
@@ -129,6 +130,10 @@ handles, terminal pane clients, or cleanup callbacks. They are never persisted a
 TUI. Persisted worker adapter metadata is only a core-owned pointer; terminal and subprocess workers
 still mutate lifecycle through revision-checked commands and coordinate through the same mailbox and
 permission contracts as model-backed child agents.
+
+Transcript and event stream fields are durable metadata only. They point to child session/event-log
+artifacts and carry bounded counters such as `eventCount`, `truncated`, and optional `byteLimit`;
+inline child output is excluded from core snapshots and UI projections.
 
 ### Revisions
 

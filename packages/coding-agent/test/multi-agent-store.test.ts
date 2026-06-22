@@ -304,6 +304,80 @@ describe("MultiAgentStore", () => {
 		expect(staleRunning).toMatchObject({ ok: false, error: "stale_revision" });
 	});
 
+	it("persists bounded transcript and event stream metadata without inline output logs", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-multi-agent-"));
+		try {
+			const session = SessionManager.create(tempDir, join(tempDir, "sessions"));
+			session.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+			session.appendMessage({
+				api: "anthropic-messages",
+				content: [{ text: "hi", type: "text" }],
+				model: "test",
+				provider: "anthropic",
+				role: "assistant",
+				stopReason: "stop",
+				timestamp: 2,
+				usage: {
+					cacheRead: 0,
+					cacheWrite: 0,
+					cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: 0 },
+					input: 1,
+					output: 1,
+					totalTokens: 2,
+				},
+			});
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const spawned = store.spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Worker",
+				eventStream: {
+					eventCount: 50,
+					inlineEvents: ["hidden child output"],
+					path: join(tempDir, "agent-events.jsonl"),
+					truncated: true,
+				},
+				parentId: "root",
+				permission: { narrowed: true, policy: "on-request" },
+				transcript: {
+					inlineMessages: ["hidden transcript output"],
+					path: join(tempDir, "agent-transcript.jsonl"),
+					sessionId: "child-session",
+				},
+			} as Parameters<MultiAgentStore["spawnAgent"]>[0] & {
+				eventStream: { eventCount: number; inlineEvents: string[]; path: string; truncated: boolean };
+				transcript: { inlineMessages: string[]; path: string; sessionId: string };
+			});
+
+			store.persistSnapshot(session);
+			const sessionFile = session.getSessionFile();
+			if (!sessionFile) {
+				throw new Error("expected persisted session file");
+			}
+			const reopenedSession = SessionManager.open(sessionFile);
+			const rehydrated = MultiAgentStore.fromSessionManager(reopenedSession, {
+				now: () => "2026-06-21T00:00:00.000Z",
+			});
+			const rehydratedAgent = rehydrated.getAgent(spawned.agent.id);
+
+			expect(rehydratedAgent).toMatchObject({
+				eventStream: {
+					eventCount: 50,
+					path: join(tempDir, "agent-events.jsonl"),
+					truncated: true,
+				},
+				transcript: {
+					path: join(tempDir, "agent-transcript.jsonl"),
+					sessionId: "child-session",
+				},
+			});
+			expect(JSON.stringify(rehydratedAgent)).not.toContain("hidden");
+			expect(JSON.stringify(rehydrated.getProjectionSnapshot())).not.toContain("hidden");
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("projects authoritative snapshots for UI surfaces without sharing mutable state", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const first = store.spawnAgent({
