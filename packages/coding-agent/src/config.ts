@@ -555,6 +555,11 @@ export function getPromptsDir(): string {
 	return join(getAgentDir(), "prompts");
 }
 
+/** Get path to persistent prompt history */
+export function getPromptHistoryPath(): string {
+	return join(getAgentDir(), "prompt-history.json");
+}
+
 /** Get path to sessions directory */
 export function getSessionsDir(): string {
 	return join(getAgentDir(), "sessions");

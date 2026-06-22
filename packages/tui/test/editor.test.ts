@@ -195,6 +195,18 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "first");
 		});
 
+		it("sets prompt history from persisted newest-first entries", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.setHistory(["newest", "older", "", "   "]);
+
+			assert.deepStrictEqual(editor.getHistory(), ["newest", "older"]);
+			editor.handleInput("\x1b[A");
+			assert.strictEqual(editor.getText(), "newest");
+			editor.handleInput("\x1b[A");
+			assert.strictEqual(editor.getText(), "older");
+		});
+
 		it("uses cursor movement instead of history when editor has content", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

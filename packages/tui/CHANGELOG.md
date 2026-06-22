@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added editor APIs for loading and reading prompt history.
+
 ## [0.79.9] - 2026-06-20
 
 ### Fixed

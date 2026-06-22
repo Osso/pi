@@ -390,6 +390,19 @@ export class Editor implements Component, Focusable {
 		}
 	}
 
+	getHistory(): string[] {
+		return [...this.history];
+	}
+
+	setHistory(history: string[]): void {
+		this.history = history
+			.map((entry) => entry.trim())
+			.filter(Boolean)
+			.slice(0, 100);
+		this.historyIndex = -1;
+		this.historyDraft = null;
+	}
+
 	private isEditorEmpty(): boolean {
 		return this.state.lines.length === 1 && this.state.lines[0] === "";
 	}

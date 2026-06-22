@@ -1,11 +1,18 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.ts";
+
+export interface CustomEditorOptions extends EditorOptions {
+	promptHistoryPath?: string;
+}
 
 /**
  * Custom editor that handles app-level keybindings for coding-agent.
  */
 export class CustomEditor extends Editor {
 	private keybindings: KeybindingsManager;
+	private readonly promptHistoryPath?: string;
 	public actionHandlers: Map<AppKeybinding, () => void> = new Map();
 
 	// Special handlers that can be dynamically replaced
@@ -15,9 +22,13 @@ export class CustomEditor extends Editor {
 	/** Handler for extension-registered shortcuts. Returns true if handled. */
 	public onExtensionShortcut?: (data: string) => boolean;
 
-	constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: EditorOptions) {
+	constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: CustomEditorOptions) {
 		super(tui, theme, options);
 		this.keybindings = keybindings;
+		this.promptHistoryPath = options?.promptHistoryPath;
+		if (this.promptHistoryPath) {
+			this.setHistory(readPromptHistory(this.promptHistoryPath));
+		}
 	}
 
 	/**
@@ -25,6 +36,15 @@ export class CustomEditor extends Editor {
 	 */
 	onAction(action: AppKeybinding, handler: () => void): void {
 		this.actionHandlers.set(action, handler);
+	}
+
+	override addToHistory(text: string): void {
+		const before = this.getHistory();
+		super.addToHistory(text);
+		const after = this.getHistory();
+		if (this.promptHistoryPath && !sameHistory(before, after)) {
+			writePromptHistory(this.promptHistoryPath, after);
+		}
 	}
 
 	handleInput(data: string): void {
@@ -77,4 +97,28 @@ export class CustomEditor extends Editor {
 		// Pass to parent for editor handling
 		super.handleInput(data);
 	}
+}
+
+function readPromptHistory(path: string): string[] {
+	if (!existsSync(path)) {
+		return [];
+	}
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+		if (!Array.isArray(parsed)) {
+			return [];
+		}
+		return parsed.filter((entry): entry is string => typeof entry === "string").slice(0, 100);
+	} catch {
+		return [];
+	}
+}
+
+function writePromptHistory(path: string, history: string[]): void {
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify(history.slice(0, 100), null, 2));
+}
+
+function sameHistory(left: string[], right: string[]): boolean {
+	return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
