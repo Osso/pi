@@ -4,10 +4,14 @@ Module boundary: extension API contract, not a standalone first-party extension 
 
 Prompt-context hooks let extensions inject or replace model-facing context at three distinct levels of the agent loop: per-turn (before the agent starts), per-LLM-call (the full message list), and per-provider-request (the raw wire payload). Unlike a fork that bolts external hook binaries onto fixed events, Pi exposes this natively through its in-process extension system: an extension calls `pi.on("before_agent_start", h)`, `pi.on("context", h)`, or `pi.on("before_provider_request", h)` and returns a value that Pi chains into the request. The contract lives in `packages/coding-agent/src/core/extensions/types.ts` (event + result types) and is dispatched from `packages/coding-agent/src/core/extensions/runner.ts` (the `emit*` chaining loops). How it works belongs in docs/wiki/systems/prompt-context-hooks.md.
 
+First-party dependents: `/goal` needs `before_agent_start` to keep the active goal in the model context without core prompt hacks. Multi-agent extensions need the same hook layer as the extension-safe place to add supervisor/child-agent context, mailbox steering, or agent-specific prompt state to normal parent and child `AgentSession` prompts.
+
 ## What it must do
 
 ### Turn-level injection (`before_agent_start`)
 
+- [x] First-party `/goal` can inject active-goal context through `before_agent_start` without modifying core prompt assembly.
+- [ ] First-party multi-agent extensions can use prompt-context hooks to inject agent-specific supervision, mailbox, and steering context into parent or child agent prompts without editing core prompt assembly.
 - [x] A `before_agent_start` handler that returns `{ systemPrompt }` replaces the assembled system prompt for the turn, and multiple handlers chain through `ctx.getSystemPrompt()` so each sees the prior handler's result (`extensions-runner.test.ts:654`, "base\nfirst\nsecond").
 - [ ] A `before_agent_start` handler that returns `{ message }` injects that message into the turn; multiple injected messages are collected in registration order.
 - [ ] The event exposes the raw expanded `prompt`, attached `images`, the fully assembled `systemPrompt`, and structured `systemPromptOptions` so an extension can inspect what Pi loaded without re-discovering resources.
@@ -45,11 +49,14 @@ Prompt-context hooks let extensions inject or replace model-facing context at th
 - `packages/coding-agent/src/core/extensions/runner.ts:914-944` — `emitContext`: `structuredClone` then chained `{ messages }` replacement, per-extension error catch.
 - `packages/coding-agent/src/core/extensions/runner.ts:946-978` — `emitBeforeProviderRequest`: chained payload replacement, `undefined` = no-op, per-extension error catch.
 - `packages/coding-agent/src/core/extensions/runner.ts:980-1044` — `emitBeforeAgentStart`: `ctx.getSystemPrompt()` returns the chained value, collects `message[]`, returns combined result only if modified.
+- `packages/coding-agent/extensions/goal/src/index.ts` — first-party `/goal` extension injects active-goal context with `before_agent_start`.
+- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — first-party multi-agent extension creates normal child `AgentSession` prompts; agent-specific prompt state belongs on this hook surface rather than in core prompt assembly.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/extensions-runner.test.ts:654` — `before_agent_start` system-prompt chaining across two handlers.
 - `packages/coding-agent/test/extensions-runner.test.ts:539` — `context` handler error is caught and reported (error path only; message replacement itself is untested).
+- `packages/coding-agent/test/goal-extension.test.ts` — `/goal` uses `before_agent_start` to inject active-goal context.
 
 ## Known gaps (current cycle)
 
