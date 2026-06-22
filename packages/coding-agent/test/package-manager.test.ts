@@ -298,7 +298,7 @@ Content`,
 	});
 
 	describe("auto-discovered skill metadata", () => {
-		it("should use the agent dir as baseDir for user .pi/agent skills", async () => {
+		it("should use the agent dir as baseDir for user global agent skills", async () => {
 			const skillPath = join(agentDir, "skills", "user-pi", "SKILL.md");
 			mkdirSync(join(agentDir, "skills", "user-pi"), { recursive: true });
 			writeFileSync(skillPath, "---\nname: user-pi\ndescription: user pi\n---\n");
@@ -496,7 +496,7 @@ Content`,
 			}
 		});
 
-		it("should dedupe user skill entries when ~/.pi/agent/skills is a symlink to ~/.agents/skills", async () => {
+		it("should dedupe user skill entries when global agent skills is a symlink to ~/.agents/skills", async () => {
 			const previousHome = process.env.HOME;
 			process.env.HOME = tempDir;
 

@@ -61,7 +61,7 @@ Implementation details belong in
 - [x] Do not present `/sandbox` choices as approval modes; approval behavior and
   sandbox access are separate concerns.
 - [x] Persist the selected approval preset to `.pi/settings.json` (project) or
-  `~/.pi/agent/settings.json` (global) when the user saves from the selector.
+  `~/.config/pi/agent/settings.json` (global) when the user saves from the selector.
 
 ### Hook compatibility
 

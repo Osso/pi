@@ -2,12 +2,12 @@
 
 Module boundary: core resource-loader/system-prompt feature, not a first-party extension module.
 
-The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under `~/.pi/agent/rules/` (global) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside AGENTS.md. Pi already loads AGENTS.md/CLAUDE.md from cwd ancestors and from `~/.pi/agent/` via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts` (lines 84–122); this spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
+The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under the global agent rules directory (`~/.config/pi/agent/rules/` by default) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside AGENTS.md. Pi already loads AGENTS.md/CLAUDE.md from cwd ancestors and from the global agent directory via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts` (lines 84–122); this spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
 
 ## What it must do
 
 ### Directory discovery
-- [x] Returns no content (does not error) when `~/.pi/agent/rules/` does not exist.
+- [x] Returns no content (does not error) when the global agent `rules/` directory does not exist.
 - [x] Returns no content when the directory exists but contains no non-empty `*.md` files.
 - [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
 - [x] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
@@ -20,7 +20,7 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - [x] Non-empty trimmed contents are joined with a double newline (`\n\n`).
 
 ### Load order
-- [x] Global rules (`~/.pi/agent/rules/`) are loaded first.
+- [x] Global rules (`~/.config/pi/agent/rules/` by default) are loaded first.
 - [x] Project-local rules (`.pi/rules/`, trust-gated) are appended after global rules.
 
 ### System-prompt injection

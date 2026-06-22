@@ -18,7 +18,7 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 
 - [x] Accept `--permission-prompt-tool <mcp__server__tool>` on the `pi` CLI.
 - [x] Accept `permissionPromptTool` in `.pi/settings.json` (project) and
-  `~/.pi/agent/settings.json` (global).
+  `~/.config/pi/agent/settings.json` (global).
 - [x] Thread the configured tool name through session creation options so it is
   part of the per-session snapshot.
 
@@ -63,7 +63,7 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 - [x] `destination:"session"` + `behavior:"allow"` rule caches approval in memory
   and suppresses future prompts for the matching `{toolName, ruleContent}` within
   the same Pi session.
-- [x] `destination:"userSettings"` writes the rule to `~/.pi/agent/settings.json`.
+- [x] `destination:"userSettings"` writes the rule to `~/.config/pi/agent/settings.json`.
 - [x] `destination:"projectSettings"` writes the rule to `.pi/settings.json`.
 - [x] `destination:"localSettings"` writes to `.pi/settings.local.json`.
 - [x] JSON writes preserve existing file formatting using surgical key insertion,

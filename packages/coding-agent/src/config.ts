@@ -508,16 +508,28 @@ export function getShareViewerUrl(gistId: string): string {
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (~/.config/pi/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the XDG config root for Pi (e.g., ~/.config/pi/) */
+export function getUserConfigRoot(): string {
+	const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+	const configHome = xdgConfigHome ? expandTildePath(xdgConfigHome) : join(homedir(), ".config");
+	return join(configHome, APP_NAME);
+}
+
+/** Get the legacy agent config directory (e.g., ~/.pi/agent/) */
+export function getLegacyAgentDir(): string {
+	return join(homedir(), CONFIG_DIR_NAME, "agent");
+}
+
+/** Get the agent config directory (e.g., ~/.config/pi/agent/) */
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {
 		return expandTildePath(envDir);
 	}
-	return join(homedir(), CONFIG_DIR_NAME, "agent");
+	return join(getUserConfigRoot(), "agent");
 }
 
 /** Get path to user's custom themes directory */

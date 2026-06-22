@@ -26,7 +26,7 @@ terminal_resize_reflow_max_rows = 5000
 
 ### Keybindings
 
-- [ ] User keybindings load from `~/.pi/agent/keybindings.json`, mapping ~50 documented action IDs (e.g. `app.interrupt`, `app.model.select`, `tui.input.submit`) to keys.
+- [ ] User keybindings load from `~/.config/pi/agent/keybindings.json` by default, mapping ~50 documented action IDs (e.g. `app.interrupt`, `app.model.select`, `tui.input.submit`) to keys.
 - [x] `pi.registerShortcut(key, { description?, handler })` registers an extension shortcut; binding a key that resolves to a reserved built-in action is blocked with a "conflicts with built-in" warning (`extensions-runner.test.ts:129`).
 - [x] When a reserved action is removed from the config, a previously-conflicting extension shortcut is allowed (`extensions-runner.test.ts:152`).
 - [x] A reserved action wins over a non-reserved action bound to the same key, regardless of iteration order, so extensions stay blocked (`extensions-runner.test.ts:228`; `runner.ts:97-104`).
@@ -43,7 +43,7 @@ terminal_resize_reflow_max_rows = 5000
 ## How it works
 
 - See docs/wiki/systems/tui-customization.md (stub).
-- Existing operator/author docs: `packages/coding-agent/docs/keybindings.md` (~50 action IDs, `~/.pi/agent/keybindings.json`), `packages/coding-agent/docs/themes.md` (JSON theme files + resolution order), `packages/coding-agent/docs/extensions.md` (`registerShortcut` ~line 1510), `packages/coding-agent/docs/tui.md`.
+- Existing operator/author docs: `packages/coding-agent/docs/keybindings.md` (~50 action IDs, `~/.config/pi/agent/keybindings.json`), `packages/coding-agent/docs/themes.md` (JSON theme files + resolution order), `packages/coding-agent/docs/extensions.md` (`registerShortcut` ~line 1510), `packages/coding-agent/docs/tui.md`.
 
 ## Implementation inventory
 
@@ -56,7 +56,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/src/core/extensions/runner.ts:89-108` — `buildBuiltinKeybindings`: reserved action wins over non-reserved on key collision.
 - `packages/coding-agent/src/core/keybindings.ts:13-202` — app keybinding id inventory plus default app bindings, merged with `@earendil-works/pi-tui` editor/select/input bindings.
 - `packages/coding-agent/src/core/keybindings.ts:204-309` — legacy pre-namespaced keybinding migration to namespaced ids.
-- `packages/coding-agent/src/core/keybindings.ts:330-368` — `KeybindingsManager.create()` loads `~/.pi/agent/keybindings.json` and accepts string or string-array bindings.
+- `packages/coding-agent/src/core/keybindings.ts:330-368` — `KeybindingsManager.create()` loads `~/.config/pi/agent/keybindings.json` by default and accepts string or string-array bindings.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:411-412` — interactive mode creates the keybindings manager and installs it into the TUI package singleton.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1796-1835` — `ctx.ui.setWidget` implementation: removes an existing widget with the same key from either placement, accepts string arrays or component factories, truncates string widgets after ten lines, and renders above or below the editor.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1838-1864` — extension UI reset clears widgets and restores extension footer/header.
@@ -74,7 +74,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:613-633` — `loadThemeFromPath` / `getThemeByName` parsing and lookup.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:772-835` — global current theme proxy, registered-theme map, and `setTheme` failure fallback to `dark`.
 - `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts:36-72` — interactive theme application from settings, explicit theme names, and direct `Theme` instances.
-- `packages/coding-agent/src/config.ts:396-404` and `:523-526` — built-in theme directory and `~/.pi/agent/themes` directory resolution.
+- `packages/coding-agent/src/config.ts:396-404` and `:523-526` — built-in theme directory and `~/.config/pi/agent/themes` directory resolution.
 - `packages/coding-agent/src/cli/args.ts:201-209` and `packages/coding-agent/src/main.ts:608-611` — CLI `--theme` / `--no-themes` parsing and path resolution.
 - `packages/coding-agent/src/core/settings-manager.ts:800-814` and `:1087-1100` — persisted active theme and configured theme path settings.
 - `packages/coding-agent/src/core/package-manager.ts:2261-2284`, `:2342-2356`, `:2391-2404`, and `:2465-2490` — resource aggregation for project/user theme directories and settings/package theme paths.
