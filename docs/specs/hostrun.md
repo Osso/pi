@@ -45,20 +45,29 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 ### Approval-gated host library
 
+- [x] Tested `cli.*`, `fs.write`/`fs.read`, and `http.get` host effects request
+  approval via Pi's `ui.confirm` path before executing.
 - [ ] All operations with host-side effects must request approval via Pi's
   `tool_call` event / `ui.confirm` before executing; no host effect runs
   without an approval gate.
-- [ ] Expose `cli.<program>(...args)` as a lazy command builder; `.run()` or a
-  terminal selector triggers an approval-gated execution request.
+- [x] Expose `cli.<program>(...args)` as a lazy command builder whose
+  `.stdout.text()` terminal selector triggers an approval-gated execution
+  request.
+- [ ] Expose `cli.<program>(...args).run()` and remaining terminal selectors as
+  approval-gated execution requests.
 - [ ] Expose `run.<program>(...args)` for no-capture command execution.
-- [ ] Include program name and argv in the approval request for `cli.*`; never
-  pass shell strings, always use argv arrays.
-- [ ] Expose `fs.write(path, content)`, `fs.read(path)`, `fs.exists(path)`,
-  `fs.remove(path)`, and `fs.glob(pattern, options)` as approval-gated file
+- [x] Include program name and argv in the approval request for tested `cli.*`;
+  never pass shell strings, always use argv arrays.
+- [ ] Include program name and argv in the approval request for all `cli.*`;
+  never pass shell strings, always use argv arrays.
+- [x] Expose `fs.write(path, content)` and `fs.read(path)` as approval-gated file
   helpers.
+- [ ] Expose `fs.exists(path)`, `fs.remove(path)`, and
+  `fs.glob(pattern, options)` as approval-gated file helpers.
 - [ ] Expose `fs.open(path, options)` as a readable wrapper that parses JSON,
   JSONL, YAML, CSV, and TSV by extension or explicit format.
-- [ ] Expose `http.get`, `http.post`, `http.put`, `http.patch`, `http.delete`,
+- [x] Expose `http.get(...).text()` as an approval-gated HTTP helper.
+- [ ] Expose `http.post`, `http.put`, `http.patch`, `http.delete`,
   and `http.head` as approval-gated HTTP helpers; redact auth secrets from
   approval metadata.
 - [ ] Expose `rg.search`, `rg.files`, and `rg.matches` as lazy wrappers around
@@ -88,8 +97,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   point; calls `pi.registerTool("hostrun_eval", ...)` and wires the session
   store.
 - `packages/coding-agent/extensions/hostrun/src/session.ts` — QuickJS session
-  lifecycle, `ctx` persistence, and console capture. Host-effect helpers are
-  still pending.
+  lifecycle, `ctx` persistence, console capture, and the tested approval-gated
+  `cli.*`, `fs.read`/`fs.write`, and `http.get` helper slice.
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — shared
   `hostrun_eval` argument parsing and session dispatch.
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
@@ -103,7 +112,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
   per-session `ctx` persistence, console capture, and exception-survival
-  coverage, including returned exception details.
+  coverage, including returned exception details and approval-gated
+  `cli.*`/`fs.*`/`http.*` host effects.
 - `npm run check` — validates the workspace and lockfile state as part of the
   repo-wide verification flow.
 
@@ -111,12 +121,15 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 - [x] Scaffold `packages/coding-agent/extensions/hostrun/` package.
 - [x] Implement QuickJS session with persistent `ctx` and console capture.
-- [ ] Implement approval-gated `cli.*`, `fs.*`, and `http.*` helpers.
+- [x] Implement minimal approval-gated `cli.*`, `fs.write`/`fs.read`, and
+  `http.get` helpers.
+- [x] Add tests confirming tested host effects do not run without an approval
+  gate.
+- [ ] Implement remaining approval-gated `cli.*`, `fs.*`, and `http.*` helpers.
 - [ ] Implement `rg.*` and `fd.*` lazy wrappers.
 - [x] Register extension via `pi.registerTool` in `index.ts`.
 - [ ] Implement standalone `mcp-server.ts` with pending-approval default.
 - [x] Add tests for `ctx` persistence across evaluations and after exceptions.
-- [ ] Add tests confirming no host effect runs without an approval gate.
 - [ ] Add tests for `rg.matches` structured parsing and `fd.files` output.
 - [ ] Document stdio MCP install in `packages/coding-agent/extensions/hostrun/README.md`.
 
