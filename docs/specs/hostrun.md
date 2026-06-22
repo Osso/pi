@@ -45,31 +45,38 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 ### Approval-gated host library
 
-- [x] Tested `cli.*`, `fs.write`/`fs.read`, and `http.get` host effects request
-  approval via Pi's `ui.confirm` path before executing.
+- [x] Tested `cli.*`, `run.*`, `fs.write`/`fs.read`/`fs.exists`/`fs.remove`/
+  `fs.glob`, and `http.get`/`http.post` host effects request approval via Pi's
+  `ui.confirm` path before executing.
 - [ ] All operations with host-side effects must request approval via Pi's
   `tool_call` event / `ui.confirm` before executing; no host effect runs
   without an approval gate.
 - [x] Expose `cli.<program>(...args)` as a lazy command builder whose
   `.stdout.text()` terminal selector triggers an approval-gated execution
   request.
-- [ ] Expose `cli.<program>(...args).run()` and remaining terminal selectors as
+- [x] Expose `cli.<program>(...args).run()` as an approval-gated execution
+  request returning process details.
+- [ ] Expose remaining `cli.<program>(...args)` terminal selectors as
   approval-gated execution requests.
-- [ ] Expose `run.<program>(...args)` for no-capture command execution.
-- [x] Include program name and argv in the approval request for tested `cli.*`;
-  never pass shell strings, always use argv arrays.
-- [ ] Include program name and argv in the approval request for all `cli.*`;
+- [x] Expose `run.<program>(...args)` for no-capture command execution.
+- [x] Include program name and argv in the approval request for tested `cli.*`
+  and `run.*`; never pass shell strings, always use argv arrays.
+- [ ] Include program name and argv in the approval request for all future
+  `cli.*`/`run.*` helper variants;
   never pass shell strings, always use argv arrays.
 - [x] Expose `fs.write(path, content)` and `fs.read(path)` as approval-gated file
   helpers.
-- [ ] Expose `fs.exists(path)`, `fs.remove(path)`, and
-  `fs.glob(pattern, options)` as approval-gated file helpers.
+- [x] Expose `fs.exists(path)`, `fs.remove(path)`, and `fs.glob(pattern)` as
+  approval-gated file helpers.
+- [ ] Expose `fs.glob(pattern, options)` options support as approval-gated file
+  helper behavior.
 - [ ] Expose `fs.open(path, options)` as a readable wrapper that parses JSON,
   JSONL, YAML, CSV, and TSV by extension or explicit format.
 - [x] Expose `http.get(...).text()` as an approval-gated HTTP helper.
-- [ ] Expose `http.post`, `http.put`, `http.patch`, `http.delete`,
-  and `http.head` as approval-gated HTTP helpers; redact auth secrets from
-  approval metadata.
+- [x] Expose `http.post(...).text()` as an approval-gated HTTP helper; redact
+  auth secrets from approval metadata while preserving the real request.
+- [ ] Expose `http.put`, `http.patch`, `http.delete`, and `http.head` as
+  approval-gated HTTP helpers; redact auth secrets from approval metadata.
 - [ ] Expose `rg.search`, `rg.files`, and `rg.matches` as lazy wrappers around
   ripgrep; `rg.matches` parses `rg --json` output into structured objects.
 - [ ] Expose `fd.find`, `fd.files`, and `fd.dirs` as lazy wrappers around
@@ -97,8 +104,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   point; calls `pi.registerTool("hostrun_eval", ...)` and wires the session
   store.
 - `packages/coding-agent/extensions/hostrun/src/session.ts` — QuickJS session
-  lifecycle, `ctx` persistence, console capture, and the tested approval-gated
-  `cli.*`, `fs.read`/`fs.write`, and `http.get` helper slice.
+  lifecycle, `ctx` persistence, console capture, approval-gated process helpers,
+  approval-gated file helpers, and the tested `http.get`/`http.post` slice.
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — shared
   `hostrun_eval` argument parsing and session dispatch.
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
@@ -125,7 +132,10 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   `http.get` helpers.
 - [x] Add tests confirming tested host effects do not run without an approval
   gate.
-- [ ] Implement remaining approval-gated `cli.*`, `fs.*`, and `http.*` helpers.
+- [x] Implement tested approval-gated `cli.run`, `run.*`,
+  `fs.exists`/`fs.remove`/`fs.glob`, and `http.post` helpers.
+- [ ] Implement remaining approval-gated `cli.*`, `fs.*`, and `http.*` helpers
+  not yet covered by tests.
 - [ ] Implement `rg.*` and `fd.*` lazy wrappers.
 - [x] Register extension via `pi.registerTool` in `index.ts`.
 - [ ] Implement standalone `mcp-server.ts` with pending-approval default.
