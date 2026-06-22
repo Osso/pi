@@ -34,6 +34,7 @@ const spawnAgentSchema = Type.Object({
 
 const listAgentsSchema = Type.Object({
 	activeOnly: Type.Optional(Type.Boolean()),
+	parentId: Type.Optional(Type.String()),
 });
 
 const waitAgentSchema = Type.Object({
@@ -258,12 +259,17 @@ function moveToStarting(store: MultiAgentStore, agent: AgentSnapshot): AgentSnap
 }
 
 function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentToolResult<AgentListToolDetails> {
-	const agents = params.activeOnly ? store.listActiveAgents() : store.listAgents();
+	const agents = listMatchingAgents(store, params);
 
 	return result(`Found ${agents.length} agent${agents.length === 1 ? "" : "s"}.`, {
 		activeCount: store.getActiveAgentCount(),
 		agents,
 	});
+}
+
+function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): AgentSnapshot[] {
+	const agents = params.parentId ? store.listDescendants(params.parentId) : store.listAgents();
+	return params.activeOnly ? agents.filter((agent) => isActiveLifecycle(agent.lifecycle)) : agents;
 }
 
 function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolResult<AgentToolDetails> {

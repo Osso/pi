@@ -17,7 +17,8 @@ read `MultiAgentStore`. `spawn_agent` can call an injected child dispatcher or c
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
 `SessionManager.create()` primitives so production callers can create child sessions with the
 parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
-does not create live child model sessions yet.
+does not create live child model sessions yet. `list_agents` can now scope results to descendants
+below a parent ID, using core store state rather than rendered TUI rows.
 
 Existing primitives worth reusing:
 
@@ -37,7 +38,7 @@ Existing primitives worth reusing:
 Still missing first-party pieces:
 
 - Startup/runtime registration that opts `spawn_agent` into the production child factory.
-- Descendant filtering and richer wait behavior.
+- Richer wait behavior.
 - Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
 - Bounded artifact store so diffs/logs/results do not become unbounded mailbox events.

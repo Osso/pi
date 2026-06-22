@@ -129,6 +129,30 @@ describe("multi-agent extension tools", () => {
 		expect(listed.details.agents).toEqual([spawned.details.agent]);
 	});
 
+	it("lists descendants for a parent without TUI state", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Sibling",
+			prompt: "Sibling task",
+		});
+
+		const listed = await harness.call<ListAgentsDetails>("list_agents", {
+			parentId: parent.details.agent.id,
+		});
+
+		expect(listed.details).toMatchObject({ activeCount: 3 });
+		expect(listed.details.agents.map((agent) => agent.id)).toEqual([child.details.agent.id]);
+	});
+
 	it("waits and cancels through the core store", async () => {
 		const harness = createMultiAgentHarness();
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {

@@ -223,6 +223,25 @@ export class MultiAgentStore {
 		return Array.from(this.agents.values(), copyAgent);
 	}
 
+	listDescendants(parentId: string): AgentSnapshot[] {
+		const descendants: AgentNode[] = [];
+
+		const visitChildren = (currentParentId: string) => {
+			for (const agent of this.agents.values()) {
+				if (agent.parentId !== currentParentId) {
+					continue;
+				}
+
+				descendants.push(agent);
+				visitChildren(agent.id);
+			}
+		};
+
+		visitChildren(parentId);
+
+		return descendants.map(copyAgent);
+	}
+
 	listMailboxMessages(): AgentMailboxMessage[] {
 		return Array.from(this.mailboxMessages.values(), copyMessage);
 	}

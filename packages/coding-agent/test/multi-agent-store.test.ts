@@ -132,6 +132,32 @@ describe("MultiAgentStore", () => {
 		expect(store.listActiveAgents().map((agent) => agent.id)).toEqual([queued.agent.id, running.agent.id]);
 	});
 
+	it("lists descendants below a parent without leaking sibling branches", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const scout = spawnScout(store);
+		const scoutChild = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Scout Child",
+			parentId: scout.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const sibling = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Sibling",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		expect(store.listDescendants("root").map((agent) => agent.id)).toEqual([
+			scout.agent.id,
+			scoutChild.agent.id,
+			sibling.agent.id,
+		]);
+		expect(store.listDescendants(scout.agent.id).map((agent) => agent.id)).toEqual([scoutChild.agent.id]);
+	});
+
 	it("persists snapshots as SessionManager custom entries", () => {
 		const session = SessionManager.inMemory("/repo");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

@@ -22,7 +22,7 @@ runtime contract belongs here; implementation details will live in
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
-- [ ] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
+- [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
@@ -106,12 +106,13 @@ runtime contract belongs here; implementation details will live in
 - [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
   core-derived active counts. It also asserts snapshot persistence through SessionManager custom
-  entries and rehydration after reopening a persisted session.
+  entries, rehydration after reopening a persisted session, and descendant listing below a parent.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing spawn/list/wait/cancel/steer tool surface is store-backed and
   does not start child model sessions by default. It also asserts the spawn tool can call an
   injected child dispatcher, a real child `AgentSession` factory, or the production child factory
-  wrapper and that `wait_agent` reports terminal store state without TUI coupling.
+  wrapper, that `wait_agent` reports terminal store state without TUI coupling, and that `list_agents`
+  can return descendants below a parent without TUI state.
 
 ## Known gaps (current cycle)
 
@@ -133,6 +134,8 @@ runtime contract belongs here; implementation details will live in
       terminal-state `wait_agent` behavior without TUI coupling.
 - [x] Implement production child `AgentSession` factory wiring for `spawn_agent` using existing
       session primitives, without real provider calls in tests.
+- [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
+      trees without TUI state.
 
 ## Out of scope
 
