@@ -91,6 +91,12 @@ export interface SendSteeringInput {
 	artifactIds?: string[];
 }
 
+export interface ContactSupervisorInput {
+	body: string;
+	threadId?: string;
+	artifactIds?: string[];
+}
+
 export interface TransitionAgentDetails {
 	error?: AgentNode["error"];
 	lastActivity?: AgentActivity;
@@ -109,6 +115,11 @@ export type SteeringCommandResult =
 	| { ok: false; error: "stale_revision"; current: AgentSnapshot }
 	| { ok: false; error: "message_not_found"; agent: AgentSnapshot; messageId: string }
 	| { ok: false; error: "invalid_transition"; current: AgentSnapshot; requested: AgentLifecycleState };
+
+export type SupervisorContactResult =
+	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
+	| { ok: false; error: "not_found"; agentId: string }
+	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
 
 export interface MultiAgentStoreOptions {
 	now?: () => string;
@@ -262,6 +273,43 @@ export class MultiAgentStore {
 		return activeCount;
 	}
 
+	contactSupervisor(
+		agentId: string,
+		expectedRevision: number,
+		input: ContactSupervisorInput,
+	): SupervisorContactResult {
+		const current = this.agents.get(agentId);
+		if (!current) {
+			return { ok: false, error: "not_found", agentId };
+		}
+
+		const revisionCheck = this.checkRevision(current, expectedRevision);
+		if (revisionCheck) {
+			return revisionCheck;
+		}
+
+		const timestamp = this.now();
+		const message: AgentMailboxMessage = {
+			id: this.createMessageId(),
+			threadId: input.threadId,
+			fromAgentId: current.id,
+			toAgentId: current.parentId ?? "supervisor",
+			kind: "supervisor_request",
+			status: "pending",
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			body: input.body,
+			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
+		};
+		this.mailboxMessages.set(message.id, message);
+
+		const updated = this.updateAgent(current, {
+			lastActivity: { description: "Contacted supervisor" },
+		});
+
+		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
+	}
+
 	sendSteering(agentId: string, expectedRevision: number, input: SendSteeringInput): SteeringCommandResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
@@ -392,7 +440,10 @@ export class MultiAgentStore {
 		return { ok: false, error: "stale_revision", current: copyAgent(current) };
 	}
 
-	private updateAgent(current: AgentNode, updates: TransitionAgentDetails & Pick<AgentNode, "lifecycle">): AgentNode {
+	private updateAgent(
+		current: AgentNode,
+		updates: TransitionAgentDetails & Partial<Pick<AgentNode, "lifecycle">>,
+	): AgentNode {
 		const updated = {
 			...current,
 			...updates,

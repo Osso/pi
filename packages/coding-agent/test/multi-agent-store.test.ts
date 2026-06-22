@@ -158,6 +158,48 @@ describe("MultiAgentStore", () => {
 		expect(store.listDescendants(scout.agent.id).map((agent) => agent.id)).toEqual([scoutChild.agent.id]);
 	});
 
+	it("lets a child contact only its supervisor through the mailbox", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const supervisor = spawnScout(store);
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: supervisor.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Sibling",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		const contact = store.contactSupervisor(child.agent.id, child.agent.revision, {
+			body: "Need clarification on auth scope",
+			artifactIds: ["artifact-1"],
+		});
+
+		expect(contact.ok).toBe(true);
+		if (!contact.ok) {
+			throw new Error("expected supervisor contact to succeed");
+		}
+		expect(contact.agent).toMatchObject({
+			id: child.agent.id,
+			lastActivity: { description: "Contacted supervisor" },
+			revision: child.agent.revision + 1,
+		});
+		expect(contact.message).toMatchObject({
+			artifactIds: ["artifact-1"],
+			body: "Need clarification on auth scope",
+			fromAgentId: child.agent.id,
+			kind: "supervisor_request",
+			status: "pending",
+			toAgentId: supervisor.agent.id,
+		});
+	});
+
 	it("persists snapshots as SessionManager custom entries", () => {
 		const session = SessionManager.inMemory("/repo");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

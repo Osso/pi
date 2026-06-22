@@ -55,11 +55,20 @@ const steerAgentSchema = Type.Object({
 	targetCheckpoint: Type.Optional(checkpointSchema),
 });
 
+const contactSupervisorSchema = Type.Object({
+	agentId: Type.String(),
+	artifactIds: Type.Optional(Type.Array(Type.String())),
+	expectedRevision: Type.Number(),
+	message: Type.String(),
+	threadId: Type.Optional(Type.String()),
+});
+
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type WaitAgentParams = Static<typeof waitAgentSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
+type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
 
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
@@ -108,6 +117,11 @@ interface AgentListToolDetails {
 }
 
 interface AgentSteerToolDetails {
+	agent: AgentSnapshot;
+	message: AgentMailboxMessage;
+}
+
+interface ContactSupervisorToolDetails {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
 }
@@ -297,6 +311,28 @@ function cancelAgent(store: MultiAgentStore, params: CancelAgentParams): AgentTo
 	});
 }
 
+function contactSupervisor(
+	store: MultiAgentStore,
+	params: ContactSupervisorParams,
+): AgentToolResult<ContactSupervisorToolDetails> {
+	const contacted = store.contactSupervisor(params.agentId, params.expectedRevision, {
+		artifactIds: params.artifactIds,
+		body: params.message,
+		threadId: params.threadId,
+	});
+	if (!contacted.ok) {
+		return errorResult(`Could not contact supervisor for ${params.agentId}: ${contacted.error}`, {
+			agent: "current" in contacted ? contacted.current : emptyAgent(params.agentId),
+			message: emptySupervisorRequest(params.agentId, params.message),
+		});
+	}
+
+	return result(`Contacted supervisor for ${contacted.agent.displayName}.`, {
+		agent: contacted.agent,
+		message: contacted.message,
+	});
+}
+
 function steerAgent(store: MultiAgentStore, params: SteerAgentParams): AgentToolResult<AgentSteerToolDetails> {
 	const steered = store.sendSteering(params.agentId, params.expectedRevision, {
 		body: params.message,
@@ -342,6 +378,20 @@ function emptyMessage(agentId: string, body: string): AgentMailboxMessage {
 		kind: "steer",
 		status: "failed",
 		toAgentId: agentId,
+		updatedAt: timestamp,
+	};
+}
+
+function emptySupervisorRequest(agentId: string, body: string): AgentMailboxMessage {
+	const timestamp = new Date(0).toISOString();
+	return {
+		body,
+		createdAt: timestamp,
+		fromAgentId: agentId,
+		id: "",
+		kind: "supervisor_request",
+		status: "failed",
+		toAgentId: "supervisor",
 		updatedAt: timestamp,
 	};
 }
@@ -416,6 +466,16 @@ export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgen
 			description: "Cancel an agent through the multi-agent store with revision checking.",
 			parameters: cancelAgentSchema,
 			execute: async (_toolCallId, params) => cancelAgent(store, params),
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "contact_supervisor",
+			label: "Contact Supervisor",
+			description: "Send a child-agent mailbox request to its direct supervisor.",
+			parameters: contactSupervisorSchema,
+			execute: async (_toolCallId, params) => contactSupervisor(store, params),
 		}),
 	);
 

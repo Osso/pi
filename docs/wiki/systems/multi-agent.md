@@ -11,14 +11,17 @@ SessionManager-backed snapshot reload before any child model sessions, subproces
 are added.
 
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
-`spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, and `steer_agent`. These tools mutate or
-read `MultiAgentStore`. `spawn_agent` can call an injected child dispatcher or create a child
-`AgentSession` through an injected factory, then reports terminal state through `wait_agent`.
+`spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, `contact_supervisor`, and `steer_agent`.
+These tools mutate or read `MultiAgentStore`. `spawn_agent` can call an injected child dispatcher or
+create a child `AgentSession` through an injected factory, then reports terminal state through
+`wait_agent`.
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
 `SessionManager.create()` primitives so production callers can create child sessions with the
 parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
-does not create live child model sessions yet. `list_agents` can now scope results to descendants
-below a parent ID, using core store state rather than rendered TUI rows.
+does not create live child model sessions yet. `list_agents` can scope results to descendants below
+a parent ID, using core store state rather than rendered TUI rows. `contact_supervisor` lets a child
+send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
+arbitrary sibling target.
 
 Existing primitives worth reusing:
 

@@ -37,7 +37,7 @@ runtime contract belongs here; implementation details will live in
       after a tool result, or while the child is waiting for input.
 - [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
       delivered state.
-- [ ] Child agents can contact the supervisor without direct access to sibling internals.
+- [x] Child agents can contact the supervisor without direct access to sibling internals.
 - [ ] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
       findings are not copied into every coordination event.
 
@@ -96,8 +96,8 @@ runtime contract belongs here; implementation details will live in
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
-  registers the first store-backed `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, and
-  `steer_agent` tool surface without spawning real child model sessions.
+  registers the first store-backed `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`,
+  `contact_supervisor`, and `steer_agent` tool surface without spawning real child model sessions.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -106,13 +106,15 @@ runtime contract belongs here; implementation details will live in
 - [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
   core-derived active counts. It also asserts snapshot persistence through SessionManager custom
-  entries, rehydration after reopening a persisted session, and descendant listing below a parent.
+  entries, rehydration after reopening a persisted session, descendant listing below a parent, and
+  child-to-supervisor mailbox contact without sibling targeting.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
-  asserts the first extension-facing spawn/list/wait/cancel/steer tool surface is store-backed and
-  does not start child model sessions by default. It also asserts the spawn tool can call an
-  injected child dispatcher, a real child `AgentSession` factory, or the production child factory
-  wrapper, that `wait_agent` reports terminal store state without TUI coupling, and that `list_agents`
-  can return descendants below a parent without TUI state.
+  asserts the first extension-facing spawn/list/wait/cancel/contact/steer tool surface is
+  store-backed and does not start child model sessions by default. It also asserts the spawn tool
+  can call an injected child dispatcher, a real child `AgentSession` factory, or the production
+  child factory wrapper, that `wait_agent` reports terminal store state without TUI coupling, that
+  `list_agents` can return descendants below a parent without TUI state, and that
+  `contact_supervisor` routes child messages to the direct parent.
 
 ## Known gaps (current cycle)
 
@@ -136,6 +138,7 @@ runtime contract belongs here; implementation details will live in
       session primitives, without real provider calls in tests.
 - [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
       trees without TUI state.
+- [x] Add and implement child-to-supervisor mailbox contact without sibling access.
 
 ## Out of scope
 

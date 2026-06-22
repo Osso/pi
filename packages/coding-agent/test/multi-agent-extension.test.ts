@@ -46,6 +46,11 @@ interface SteerAgentDetails extends Record<string, unknown> {
 	message: AgentMailboxMessage;
 }
 
+interface ContactSupervisorDetails extends Record<string, unknown> {
+	agent: AgentSnapshot;
+	message: AgentMailboxMessage;
+}
+
 function createMultiAgentHarness(
 	options: {
 		createChildSession?: ChildAgentSessionFactory;
@@ -93,11 +98,12 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("registers spawn/list/wait/cancel/steer tools", () => {
+	it("registers spawn/list/wait/cancel/steer/contact tools", () => {
 		const harness = createMultiAgentHarness();
 
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"cancel_agent",
+			"contact_supervisor",
 			"list_agents",
 			"spawn_agent",
 			"steer_agent",
@@ -151,6 +157,44 @@ describe("multi-agent extension tools", () => {
 
 		expect(listed.details).toMatchObject({ activeCount: 3 });
 		expect(listed.details.agents.map((agent) => agent.id)).toEqual([child.details.agent.id]);
+	});
+
+	it("lets a child contact its supervisor without choosing a sibling target", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Sibling",
+			prompt: "Sibling task",
+		});
+
+		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+			agentId: child.details.agent.id,
+			artifactIds: ["artifact-1"],
+			expectedRevision: child.details.agent.revision,
+			message: "Need auth scope",
+		});
+
+		expect(contact.details.agent).toMatchObject({
+			id: child.details.agent.id,
+			lastActivity: { description: "Contacted supervisor" },
+			revision: child.details.agent.revision + 1,
+		});
+		expect(contact.details.message).toMatchObject({
+			artifactIds: ["artifact-1"],
+			body: "Need auth scope",
+			fromAgentId: child.details.agent.id,
+			kind: "supervisor_request",
+			status: "pending",
+			toAgentId: parent.details.agent.id,
+		});
 	});
 
 	it("waits and cancels through the core store", async () => {
