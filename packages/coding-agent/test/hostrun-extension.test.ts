@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -367,5 +367,83 @@ describe("hostrun extension", () => {
 		expect(confirm).toHaveBeenCalledTimes(1);
 		expect(result.details.error?.message).toContain("denied");
 		expect(requests).toBe(0);
+	});
+
+	it("gates rg.search, rg.files, and rg.matches", async () => {
+		const first = join(tempDir, "first.txt");
+		const second = join(tempDir, "second.txt");
+		writeFileSync(first, "alpha\nbeta\n");
+		writeFileSync(second, "alpha\n");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const search = rg.search('alpha', ${JSON.stringify(tempDir)}).text();`,
+				`const files = rg.files(${JSON.stringify(tempDir)}).lines().sort();`,
+				`const matches = rg.matches('alpha', ${JSON.stringify(tempDir)});`,
+				`({ search, files, matches })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(3);
+		expect(result.details.result).toMatchObject({
+			files: [first, second],
+			matches: [
+				{ line: "alpha", lineNumber: 1, path: first },
+				{ line: "alpha", lineNumber: 1, path: second },
+			],
+		});
+		expect((result.details.result as { search: string }).search).toContain("alpha");
+	});
+
+	it("does not run rg wrappers when approval is denied", async () => {
+		writeFileSync(join(tempDir, "blocked.txt"), "blocked");
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: `rg.search('blocked', ${JSON.stringify(tempDir)}).text()` });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
+	});
+
+	it("gates fd.find, fd.files, and fd.dirs", async () => {
+		const nested = join(tempDir, "nested");
+		const deeper = join(nested, "deeper");
+		mkdirSync(deeper, { recursive: true });
+		const first = join(tempDir, "first.txt");
+		const second = join(nested, "second.txt");
+		writeFileSync(first, "first");
+		writeFileSync(second, "second");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const found = fd.find('*.txt', ${JSON.stringify(tempDir)}).lines().sort();`,
+				`const files = fd.files(${JSON.stringify(tempDir)}).sort();`,
+				`const dirs = fd.dirs(${JSON.stringify(tempDir)}).sort();`,
+				`({ found, files, dirs })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(3);
+		expect(result.details.result).toEqual({
+			dirs: [deeper, nested],
+			files: [first, second],
+			found: [first, second],
+		});
+	});
+
+	it("does not run fd wrappers when approval is denied", async () => {
+		writeFileSync(join(tempDir, "blocked.txt"), "blocked");
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: `fd.files(${JSON.stringify(tempDir)})` });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
 	});
 });
