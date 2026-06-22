@@ -26,13 +26,18 @@ interface HostrunEvalDetails {
 	value?: unknown;
 }
 
+interface HostrunProgressDetails {
+	message?: string;
+	type: string;
+}
+
 type HostrunTool = {
 	name: string;
 	execute: (
 		toolCallId: string,
 		params: HostrunEvalParams,
 		signal: AbortSignal | undefined,
-		onUpdate: undefined,
+		onUpdate: ((result: AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>) => void) | undefined,
 		ctx: ExtensionContext,
 	) => Promise<AgentToolResult<HostrunEvalDetails>>;
 };
@@ -68,8 +73,10 @@ function createHostrunHarness() {
 
 	return {
 		toolDefinition: hostrunDefinition,
-		evaluate: (params: HostrunEvalParams) =>
-			registeredHostrunTool.execute("hostrun-test-call", params, undefined, undefined, ctx),
+		evaluate: (
+			params: HostrunEvalParams,
+			onUpdate?: (result: AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>) => void,
+		) => registeredHostrunTool.execute("hostrun-test-call", params, undefined, onUpdate, ctx),
 	};
 }
 
@@ -110,6 +117,11 @@ function resultFor(request) {
         args: { path: "/tmp/probe.txt", content: "hello" }
       }
     };
+  }
+  if (request.code === "run.longTask()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "starting long task" }) + "\\n");
+    process.stdout.write(JSON.stringify({ type: "progress", message: "halfway done" }) + "\\n");
+    return { type: "completed", executed: request.code, value: "done" };
   }
   return { type: "completed", executed: request.code, value: null };
 }
@@ -204,6 +216,27 @@ describe("hostrun extension", () => {
 				tool: "fs.write",
 			},
 			type: "needs_approval",
+		});
+	});
+
+	it("streams canonical Hostrun in-progress output before the completed result", async () => {
+		const harness = createHostrunHarness();
+		const updates: Array<AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "run.longTask()" }, (update) => updates.push(update));
+
+		expect(updates.map((update) => update.details)).toEqual([
+			{ type: "status", message: "starting long task" },
+			{ type: "progress", message: "halfway done" },
+		]);
+		expect(updates.map((update) => (update.content[0]?.type === "text" ? update.content[0].text : ""))).toEqual([
+			"starting long task",
+			"halfway done",
+		]);
+		expect(result.details).toEqual({
+			executed: "run.longTask()",
+			type: "completed",
+			value: "done",
 		});
 	});
 });

@@ -28,7 +28,19 @@ export interface CanonicalHostrunEvalResult {
 	value?: unknown;
 }
 
+export interface CanonicalHostrunProgressUpdate {
+	message?: string;
+	output?: string;
+	status?: string;
+	text?: string;
+	type: string;
+	value?: unknown;
+}
+
+export type CanonicalHostrunRunnerMessage = CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate;
+
 interface PendingRequest {
+	onProgress?: (update: CanonicalHostrunProgressUpdate) => void;
 	reject: (error: Error) => void;
 	resolve: (result: CanonicalHostrunEvalResult) => void;
 }
@@ -81,11 +93,14 @@ export class HostrunRunnerClient {
 		this.options = options;
 	}
 
-	evaluate(params: CanonicalHostrunEvalParams): Promise<CanonicalHostrunEvalResult> {
+	evaluate(
+		params: CanonicalHostrunEvalParams,
+		onProgress?: (update: CanonicalHostrunProgressUpdate) => void,
+	): Promise<CanonicalHostrunEvalResult> {
 		const child = this.ensureProcess();
 		const payload = JSON.stringify(params);
 		return new Promise((resolve, reject) => {
-			this.pending.push({ reject, resolve });
+			this.pending.push({ onProgress, reject, resolve });
 			child.stdin.write(`${payload}\n`, (error) => {
 				if (error) {
 					this.rejectNext(error);
@@ -136,13 +151,20 @@ export class HostrunRunnerClient {
 	}
 
 	private resolveNext(line: string): void {
-		const pending = this.pending.shift();
+		const pending = this.pending[0];
 		if (!pending) {
 			return;
 		}
 		try {
-			pending.resolve(JSON.parse(line) as CanonicalHostrunEvalResult);
+			const message = JSON.parse(line) as CanonicalHostrunRunnerMessage;
+			if (isFinalEvalResult(message)) {
+				this.pending.shift();
+				pending.resolve(message);
+				return;
+			}
+			pending.onProgress?.(message);
 		} catch (error) {
+			this.pending.shift();
 			pending.reject(error instanceof Error ? error : new Error(String(error)));
 		}
 	}
@@ -159,4 +181,8 @@ export class HostrunRunnerClient {
 			this.rejectNext(error);
 		}
 	}
+}
+
+function isFinalEvalResult(message: CanonicalHostrunRunnerMessage): message is CanonicalHostrunEvalResult {
+	return message.type === "completed" || message.type === "needs_approval";
 }

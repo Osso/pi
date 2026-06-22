@@ -1,5 +1,9 @@
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
-import { HostrunRunnerClient, type CanonicalHostrunEvalResult } from "./runner.ts";
+import {
+	HostrunRunnerClient,
+	type CanonicalHostrunEvalResult,
+	type CanonicalHostrunProgressUpdate,
+} from "./runner.ts";
 
 export interface HostrunEvalParams {
 	code: string;
@@ -37,12 +41,37 @@ function formatToolText(params: HostrunEvalParams, result: CanonicalHostrunEvalR
 	return lines.join("\n");
 }
 
+function formatProgressText(update: CanonicalHostrunProgressUpdate): string {
+	if (typeof update.message === "string") {
+		return update.message;
+	}
+	if (typeof update.text === "string") {
+		return update.text;
+	}
+	if (typeof update.output === "string") {
+		return update.output;
+	}
+	if (typeof update.status === "string") {
+		return update.status;
+	}
+	if (update.value !== undefined) {
+		return typeof update.value === "string" ? update.value : JSON.stringify(update.value);
+	}
+	return update.type;
+}
+
 export function createHostrunEvalExecutor(runner: HostrunRunnerClient) {
 	return async (
 		params: HostrunEvalParams,
 		_ctx: HostrunEvalContext,
+		onUpdate?: (partialResult: AgentToolResult<CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate>) => void,
 	): Promise<AgentToolResult<CanonicalHostrunEvalResult>> => {
-		const result = await runner.evaluate(params);
+		const result = await runner.evaluate(params, (update) => {
+			onUpdate?.({
+				content: [{ type: "text", text: formatProgressText(update) }],
+				details: update,
+			});
+		});
 		return {
 			content: [{ type: "text", text: formatToolText(params, result) }],
 			details: result,

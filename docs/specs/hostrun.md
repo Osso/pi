@@ -45,6 +45,9 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 - [x] Return canonical Hostrun `completed` results, console messages, and
   `needs_approval` approval requests without translating them into Pi-local
   helper shapes.
+- [x] Surface canonical Hostrun in-progress/status output for long-running
+  `hostrun_eval` requests while the runner is still evaluating, without waiting
+  for the final `completed` result.
 
 ## How it works
 
@@ -69,7 +72,7 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — tool registration,
   runner delegation, session persistence at the runner boundary, and canonical
-  Hostrun result shapes.
+  Hostrun result/update shapes.
 - `packages/coding-agent/test/hostrun-adapter-package.test.ts` — package
   boundary checks proving Pi does not publish `hostrun-mcp` or depend on
   QuickJS.
@@ -80,6 +83,7 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 
 - [x] Add the canonical `hostrun-jsonl` runner in `/home/osso/Repos/hostrun`;
   Pi expects this non-MCP runner boundary instead of owning runtime code.
+- [x] Add tests and adapter wiring for in-progress `hostrun_eval` runner output.
 - [ ] Write `docs/wiki/systems/hostrun.md` for Pi's adapter wiring after the
   runner binary is available.
 

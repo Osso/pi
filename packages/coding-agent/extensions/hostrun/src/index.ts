@@ -30,6 +30,6 @@ export default function hostrunExtension(pi: ExtensionAPI) {
 			code: Type.String({ description: "JavaScript source to evaluate." }),
 			session_id: Type.Optional(Type.String({ description: "Hostrun session id. Defaults to this Pi session." })),
 		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => evaluate(params, ctx),
+		execute: async (_toolCallId, params, _signal, onUpdate, ctx) => evaluate(params, ctx, onUpdate),
 	});
 }
