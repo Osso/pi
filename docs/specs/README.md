@@ -27,6 +27,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | `on-request`/`never`/`auto-approve` + `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
 | Hostrun (`hostrun_eval`) | [`hostrun.md`](hostrun.md) | **BUILD** | Stateful QuickJS host tool ported as a Pi extension; approval-gated; optional stdio MCP server. |
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox/artifact extensions, account-governed budgets/permissions. |
+| Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
 | PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |
 | Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |

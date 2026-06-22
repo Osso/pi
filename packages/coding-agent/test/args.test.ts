@@ -29,6 +29,22 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("tools command", () => {
+		test("parses tools as a metadata command instead of a prompt", () => {
+			const result = parseArgs(["tools"]);
+			expect(result.listTools).toBe(true);
+			expect(result.messages).toEqual([]);
+		});
+	});
+
+	describe("extensions command", () => {
+		test("parses extensions as a metadata command instead of a prompt", () => {
+			const result = parseArgs(["extensions"]);
+			expect(result.listExtensions).toBe(true);
+			expect(result.messages).toEqual([]);
+		});
+	});
+
 	describe("--help flag", () => {
 		test("parses --help flag", () => {
 			const result = parseArgs(["--help"]);

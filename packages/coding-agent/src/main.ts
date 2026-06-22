@@ -11,7 +11,9 @@ import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
+import { listExtensions } from "./cli/list-extensions.ts";
 import { listModels } from "./cli/list-models.ts";
+import { listTools } from "./cli/list-tools.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
@@ -114,7 +116,14 @@ function toPrintOutputMode(appMode: AppMode): Exclude<Mode, "rpc"> {
 }
 
 function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
-	return !parsed.print && parsed.mode === undefined && (parsed.help === true || parsed.listModels !== undefined);
+	return (
+		!parsed.print &&
+		parsed.mode === undefined &&
+		(parsed.help === true ||
+			parsed.listModels !== undefined ||
+			parsed.listTools === true ||
+			parsed.listExtensions === true)
+	);
 }
 
 async function prepareInitialMessage(
@@ -257,7 +266,13 @@ async function createSessionManager(
 	sessionDir: string | undefined,
 	settingsManager: SettingsManager,
 ): Promise<SessionManager> {
-	if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
+	if (
+		parsed.noSession ||
+		parsed.help ||
+		parsed.listModels !== undefined ||
+		parsed.listTools ||
+		parsed.listExtensions
+	) {
 		return SessionManager.inMemory(cwd);
 	}
 
@@ -602,7 +617,8 @@ export async function main(args: string[], options?: MainOptions) {
 		parsed.projectTrustOverride === undefined && !hasTrustRequiringProjectResources(sessionCwd)
 			? sessionCwd
 			: undefined;
-	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
+	const trustPromptMode: AppMode =
+		parsed.help || parsed.listModels !== undefined || parsed.listTools || parsed.listExtensions ? "print" : appMode;
 	const projectTrustByCwd = new Map<string, boolean>();
 
 	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
@@ -759,6 +775,16 @@ export async function main(args: string[], options?: MainOptions) {
 	if (parsed.listModels !== undefined) {
 		const searchPattern = typeof parsed.listModels === "string" ? parsed.listModels : undefined;
 		await listModels(modelRegistry, searchPattern);
+		process.exit(0);
+	}
+
+	if (parsed.listTools || parsed.listExtensions) {
+		await session.bindExtensions({});
+		if (parsed.listTools) {
+			listTools(session.getAllTools(), session.getActiveToolNames());
+		} else {
+			listExtensions(resourceLoader.getExtensions().extensions);
+		}
 		process.exit(0);
 	}
 

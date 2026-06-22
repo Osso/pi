@@ -49,6 +49,8 @@ import {
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
+import { formatExtensionInventory } from "../../cli/list-extensions.ts";
+import { formatToolInventory } from "../../cli/list-tools.ts";
 import {
 	APP_NAME,
 	APP_TITLE,
@@ -2573,6 +2575,16 @@ export class InteractiveMode {
 			}
 			if (text === "/session") {
 				this.handleSessionCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/tools") {
+				this.handleToolsCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/extensions") {
+				this.handleExtensionsCommand();
 				this.editor.setText("");
 				return;
 			}
@@ -5426,6 +5438,20 @@ export class InteractiveMode {
 			info += `${theme.fg("dim", "Total:")} ${stats.cost.toFixed(4)}`;
 		}
 
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(info, 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handleToolsCommand(): void {
+		const info = formatToolInventory(this.session.getAllTools(), this.session.getActiveToolNames());
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(info, 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handleExtensionsCommand(): void {
+		const info = formatExtensionInventory(this.session.resourceLoader.getExtensions().extensions);
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(info, 1, 0));
 		this.ui.requestRender();

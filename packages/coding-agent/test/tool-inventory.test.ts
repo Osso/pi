@@ -1,0 +1,97 @@
+import { Type } from "typebox";
+import { describe, expect, it } from "vitest";
+import { formatExtensionInventory } from "../src/cli/list-extensions.ts";
+import { formatToolInventory } from "../src/cli/list-tools.ts";
+import type { Extension, ToolInfo } from "../src/core/extensions/types.ts";
+import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
+
+describe("tool inventory", () => {
+	it("formats active and inactive tools with their sources", () => {
+		const tools: ToolInfo[] = [
+			{
+				name: "read",
+				description: "Read file contents",
+				parameters: Type.Object({}),
+				sourceInfo: {
+					path: "<builtin:read>",
+					source: "builtin",
+					scope: "temporary",
+					origin: "top-level",
+				},
+			},
+			{
+				name: "spawn_agent",
+				description: "Start a sub-agent",
+				parameters: Type.Object({}),
+				sourceInfo: {
+					path: "/repo/extensions/multi-agent.ts",
+					source: "extension:multi-agent",
+					scope: "project",
+					origin: "top-level",
+				},
+			},
+		];
+
+		expect(formatToolInventory(tools, ["spawn_agent"])).toBe(
+			[
+				"Available tools (2)",
+				"",
+				"active  tool         source                 description",
+				"------  -----------  ---------------------  ------------------",
+				"no      read         builtin                Read file contents",
+				"yes     spawn_agent  extension:multi-agent  Start a sub-agent",
+			].join("\n"),
+		);
+	});
+
+	it("shows an explicit empty state when no tools are available", () => {
+		expect(formatToolInventory([], [])).toBe("Available tools: none");
+	});
+
+	it("registers /tools as a built-in slash command", () => {
+		expect(BUILTIN_SLASH_COMMANDS).toContainEqual({
+			name: "tools",
+			description: "Show available tools",
+		});
+	});
+
+	it("formats loaded extension inventory with registered resource counts", () => {
+		const extension = {
+			path: "/repo/extensions/multi-agent.ts",
+			resolvedPath: "/repo/extensions/multi-agent.ts",
+			sourceInfo: {
+				path: "/repo/extensions/multi-agent.ts",
+				source: "local",
+				scope: "project",
+				origin: "top-level",
+			},
+			handlers: new Map([["session_start", [async () => undefined]]]),
+			tools: new Map([["spawn_agent", {}]]),
+			messageRenderers: new Map(),
+			commands: new Map([["agents", {}]]),
+			flags: new Map(),
+			shortcuts: new Map(),
+		} as Extension;
+
+		expect(formatExtensionInventory([extension])).toBe(
+			[
+				"Loaded extensions (1)",
+				"",
+				"scope    source  extension       commands  tools  handlers",
+				"-------  ------  --------------  --------  -----  --------",
+				"project  local   multi-agent.ts  1         1      1",
+			].join("\n"),
+		);
+	});
+
+	it("shows an explicit empty state when no extensions are loaded", () => {
+		expect(formatExtensionInventory([])).toBe("Loaded extensions: none");
+	});
+
+	it("registers /extensions as a built-in slash command", () => {
+		expect(BUILTIN_SLASH_COMMANDS).toContainEqual({
+			name: "extensions",
+			description: "Show loaded extensions",
+		});
+	});
+});

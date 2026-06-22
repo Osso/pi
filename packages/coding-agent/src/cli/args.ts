@@ -49,6 +49,8 @@ export interface Args {
 	noThemes?: boolean;
 	noContextFiles?: boolean;
 	listModels?: string | true;
+	listTools?: boolean;
+	listExtensions?: boolean;
 	offline?: boolean;
 	verbose?: boolean;
 	projectTrustOverride?: boolean;
@@ -216,6 +218,10 @@ export function parseArgs(args: string[]): Args {
 			} else {
 				result.listModels = true;
 			}
+		} else if (arg === "tools") {
+			result.listTools = true;
+		} else if (arg === "extensions") {
+			result.listExtensions = true;
 		} else if (arg === "--verbose") {
 			result.verbose = true;
 		} else if (arg === "--approve" || arg === "-a") {
@@ -272,6 +278,8 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} uninstall <source> [-l]   Alias for remove
   ${APP_NAME} update [source|self|pi]   Update pi (use --all for pi and extensions)
   ${APP_NAME} list                      List installed extensions from settings
+  ${APP_NAME} tools                     List tools available to the current session
+  ${APP_NAME} extensions                List extensions loaded for the current session
   ${APP_NAME} config                    Open TUI to enable/disable package resources
   ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list
 
