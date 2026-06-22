@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, glob, readFile, rm, writeFile } from "node:fs/promises";
 import { inspect } from "node:util";
 import { promisify } from "node:util";
 import { newAsyncContext, type QuickJSAsyncContext, type QuickJSHandle } from "quickjs-emscripten";
@@ -63,6 +63,27 @@ function stringifyArgs(value: unknown): string[] {
 		throw new Error("Hostrun expected an argument array");
 	}
 	return value.map((item) => String(item));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function redactApprovalValue(key: string, value: unknown): unknown {
+	if (/(?:authorization|cookie|token|key|secret)/i.test(key)) {
+		return "[redacted]";
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => redactApprovalValue(key, item));
+	}
+	if (isRecord(value)) {
+		return redactApprovalMetadata(value);
+	}
+	return value;
+}
+
+function redactApprovalMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(Object.entries(metadata).map(([key, value]) => [key, redactApprovalValue(key, value)]));
 }
 
 class HostrunSession {
@@ -156,6 +177,49 @@ class HostrunSession {
 		context.setProp(context.global, "__hostrunFsRead", fsRead);
 		fsRead.dispose();
 
+		const fsExists = context.newAsyncifiedFunction("__hostrunFsExists", async (pathHandle) => {
+			const path = String(context.dump(pathHandle));
+			await this.requireApproval({
+				title: `Hostrun fs.exists ${path}`,
+				message: JSON.stringify({ operation: "fs.exists", path }, null, 2),
+			});
+			try {
+				await access(path);
+				return context.true;
+			} catch {
+				return context.false;
+			}
+		});
+		context.setProp(context.global, "__hostrunFsExists", fsExists);
+		fsExists.dispose();
+
+		const fsRemove = context.newAsyncifiedFunction("__hostrunFsRemove", async (pathHandle) => {
+			const path = String(context.dump(pathHandle));
+			await this.requireApproval({
+				title: `Hostrun fs.remove ${path}`,
+				message: JSON.stringify({ operation: "fs.remove", path }, null, 2),
+			});
+			await rm(path, { force: true, recursive: true });
+			return context.undefined;
+		});
+		context.setProp(context.global, "__hostrunFsRemove", fsRemove);
+		fsRemove.dispose();
+
+		const fsGlob = context.newAsyncifiedFunction("__hostrunFsGlob", async (patternHandle) => {
+			const pattern = String(context.dump(patternHandle));
+			await this.requireApproval({
+				title: `Hostrun fs.glob ${pattern}`,
+				message: JSON.stringify({ operation: "fs.glob", pattern }, null, 2),
+			});
+			const matches: string[] = [];
+			for await (const match of glob(pattern)) {
+				matches.push(match);
+			}
+			return this.createJsonHandle(context, matches);
+		});
+		context.setProp(context.global, "__hostrunFsGlob", fsGlob);
+		fsGlob.dispose();
+
 		const httpGet = context.newFunction("__hostrunHttpGet", (urlHandle) => {
 			const url = String(context.dump(urlHandle));
 			return this.createHttpBuilder(context, "GET", url);
@@ -163,18 +227,43 @@ class HostrunSession {
 		context.setProp(context.global, "__hostrunHttpGet", httpGet);
 		httpGet.dispose();
 
+		const httpPost = context.newFunction("__hostrunHttpPost", (urlHandle, optionsHandle) => {
+			const url = String(context.dump(urlHandle));
+			const options = this.dumpHandle(context, optionsHandle);
+			return this.createHttpBuilder(context, "POST", url, isRecord(options) ? options : {});
+		});
+		context.setProp(context.global, "__hostrunHttpPost", httpPost);
+		httpPost.dispose();
+
+		const runFactory = context.newAsyncifiedFunction("__hostrunRun", async (programHandle, argsHandle) => {
+			const program = String(context.dump(programHandle));
+			const args = stringifyArgs(context.dump(argsHandle));
+			return this.runProcess(context, program, args, false);
+		});
+		context.setProp(context.global, "__hostrunRun", runFactory);
+		runFactory.dispose();
+
 		const bootstrap = context.evalCode(`
 			globalThis.cli = new Proxy({}, {
 				get(_target, program) {
 					return (...args) => globalThis.__hostrunCli(String(program), args);
 				},
 			});
+			globalThis.run = new Proxy({}, {
+				get(_target, program) {
+					return (...args) => globalThis.__hostrunRun(String(program), args);
+				},
+			});
 			globalThis.fs = {
+				exists(path) { return globalThis.__hostrunFsExists(path); },
+				glob(pattern) { return globalThis.__hostrunFsGlob(pattern); },
 				read(path) { return globalThis.__hostrunFsRead(path); },
+				remove(path) { return globalThis.__hostrunFsRemove(path); },
 				write(path, content) { return globalThis.__hostrunFsWrite(path, content); },
 			};
 			globalThis.http = {
 				get(url) { return globalThis.__hostrunHttpGet(url); },
+				post(url, options = {}) { return globalThis.__hostrunHttpPost(url, options); },
 			};
 		`);
 		if (bootstrap.error) {
@@ -189,33 +278,89 @@ class HostrunSession {
 		const builder = context.newObject();
 		const stdout = context.newObject();
 		const text = context.newAsyncifiedFunction("text", async () => {
-			await this.requireApproval({
-				title: `Hostrun cli.${program}`,
-				message: JSON.stringify({ args, operation: "cli", program }, null, 2),
-			});
-			const result = await execFileAsync(program, args);
+			const result = await this.executeProcess(program, args);
 			return context.newString(result.stdout);
 		});
 		context.setProp(stdout, "text", text);
 		text.dispose();
 		context.setProp(builder, "stdout", stdout);
 		stdout.dispose();
+
+		const run = context.newAsyncifiedFunction("run", async () => {
+			return this.createJsonHandle(context, await this.executeProcess(program, args));
+		});
+		context.setProp(builder, "run", run);
+		run.dispose();
 		return builder;
 	}
 
-	private createHttpBuilder(context: QuickJSAsyncContext, method: string, url: string): QuickJSHandle {
+	private createHttpBuilder(
+		context: QuickJSAsyncContext,
+		method: string,
+		url: string,
+		options: Record<string, unknown> = {},
+	): QuickJSHandle {
 		const builder = context.newObject();
 		const text = context.newAsyncifiedFunction("text", async () => {
+			const approvalMetadata = redactApprovalMetadata({ method, operation: "http", url, ...options });
 			await this.requireApproval({
 				title: `Hostrun http.${method.toLowerCase()} ${url}`,
-				message: JSON.stringify({ method, operation: "http", url }, null, 2),
+				message: JSON.stringify(approvalMetadata, null, 2),
 			});
-			const response = await fetch(url, { method });
+			const response = await fetch(url, { ...options, method });
 			return context.newString(await response.text());
 		});
 		context.setProp(builder, "text", text);
 		text.dispose();
 		return builder;
+	}
+
+	private async executeProcess(
+		program: string,
+		args: string[],
+	): Promise<{ exitCode: number; signal: string | null; stderr: string; stdout: string }> {
+		await this.requireApproval({
+			title: `Hostrun cli.${program}`,
+			message: JSON.stringify({ args, operation: "cli", program }, null, 2),
+		});
+		try {
+			const result = await execFileAsync(program, args);
+			return { exitCode: 0, signal: null, stderr: result.stderr, stdout: result.stdout };
+		} catch (error) {
+			if (isRecord(error)) {
+				return {
+					exitCode: typeof error.code === "number" ? error.code : 1,
+					signal: typeof error.signal === "string" ? error.signal : null,
+					stderr: typeof error.stderr === "string" ? error.stderr : "",
+					stdout: typeof error.stdout === "string" ? error.stdout : "",
+				};
+			}
+			throw error;
+		}
+	}
+
+	private async runProcess(
+		context: QuickJSAsyncContext,
+		program: string,
+		args: string[],
+		capture: boolean,
+	): Promise<QuickJSHandle> {
+		const result = await this.executeProcess(program, args);
+		return capture ? this.createJsonHandle(context, result) : context.undefined;
+	}
+
+	private createJsonHandle(context: QuickJSAsyncContext, value: unknown): QuickJSHandle {
+		const json = JSON.stringify(value);
+		if (json === undefined) {
+			return context.undefined;
+		}
+		const result = context.evalCode(`JSON.parse(${JSON.stringify(json)})`);
+		if (result.error) {
+			const error = this.dumpHandle(context, result.error);
+			result.error.dispose();
+			throw new Error(`Failed to convert Hostrun value: ${toEvalError(error).message}`);
+		}
+		return result.value;
 	}
 
 	private async requireApproval(request: HostrunApprovalRequest): Promise<void> {
