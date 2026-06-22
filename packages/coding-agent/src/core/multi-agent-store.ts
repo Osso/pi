@@ -149,6 +149,22 @@ export interface PersistedMultiAgentSnapshot {
 	nextMessageNumber: number;
 }
 
+export interface AgentSlotProjection {
+	agentId: string;
+	agent: AgentSnapshot;
+	index: number;
+	pinned: boolean;
+	revision: number;
+}
+
+export interface MultiAgentProjectionSnapshot {
+	activeCount: number;
+	agents: AgentSnapshot[];
+	mailboxMessages: AgentMailboxMessage[];
+	selectedAgentId?: string;
+	slots: AgentSlotProjection[];
+}
+
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
 const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
@@ -269,6 +285,16 @@ export class MultiAgentStore {
 
 	listMailboxMessages(): AgentMailboxMessage[] {
 		return Array.from(this.mailboxMessages.values(), copyMessage);
+	}
+
+	getProjectionSnapshot(): MultiAgentProjectionSnapshot {
+		return {
+			activeCount: this.getActiveAgentCount(),
+			agents: this.listAgents(),
+			mailboxMessages: this.listMailboxMessages(),
+			selectedAgentId: this.selectedAgentId,
+			slots: this.listSlotProjections(),
+		};
 	}
 
 	listActiveAgents(): AgentSnapshot[] {
@@ -477,6 +503,19 @@ export class MultiAgentStore {
 		this.selectedAgentId = snapshot.selectedAgentId;
 		this.nextAgentNumber = snapshot.nextAgentNumber;
 		this.nextMessageNumber = snapshot.nextMessageNumber;
+	}
+
+	private listSlotProjections(): AgentSlotProjection[] {
+		return Array.from(this.agents.values())
+			.filter((agent): agent is AgentNode & { slot: NonNullable<AgentNode["slot"]> } => agent.slot !== undefined)
+			.map((agent) => ({
+				agentId: agent.id,
+				agent: copyAgent(agent),
+				index: agent.slot.index,
+				pinned: agent.slot.pinned,
+				revision: agent.revision,
+			}))
+			.sort((left, right) => left.index - right.index || left.agentId.localeCompare(right.agentId));
 	}
 
 	private checkRevision(

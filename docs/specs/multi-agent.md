@@ -110,7 +110,8 @@ runtime contract belongs here; implementation details will live in
   child-to-supervisor mailbox contact without sibling targeting. It verifies mailbox artifact
   references carry only ID/path metadata and do not copy large artifact content, covers stable
   agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
-  transitions.
+  transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
+  current core state.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing spawn/list/wait/cancel/contact/steer tool surface is
   store-backed and does not start child model sessions by default. It also asserts the spawn tool
@@ -150,6 +151,8 @@ runtime contract belongs here; implementation details will live in
       summaries without TUI coupling.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
+- [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID
+      before starting TUI viewer wiring.
 
 ## Out of scope
 

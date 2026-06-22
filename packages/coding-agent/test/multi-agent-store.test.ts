@@ -180,6 +180,77 @@ describe("MultiAgentStore", () => {
 		expect(cleared.agent.slot).toBeUndefined();
 	});
 
+	it("projects authoritative snapshots for UI surfaces without sharing mutable state", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const first = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 1, pinned: true },
+		});
+		store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectAgentView(first.agent.id);
+
+		const projection = store.getProjectionSnapshot();
+		expect(projection).toMatchObject({
+			activeCount: 2,
+			selectedAgentId: first.agent.id,
+			slots: [
+				{
+					agent: { id: first.agent.id, displayName: "First" },
+					agentId: first.agent.id,
+					index: 1,
+					pinned: true,
+					revision: first.agent.revision,
+				},
+			],
+		});
+
+		projection.agents[0].displayName = "mutated projection";
+		if (projection.slots[0]) {
+			projection.slots[0].agent.displayName = "mutated slot projection";
+		}
+		expect(store.getAgent(first.agent.id)?.displayName).toBe("First");
+	});
+
+	it("resyncs stale slot projections by agent ID from current core state", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 1, pinned: true },
+		});
+		const staleProjection = store.getProjectionSnapshot();
+
+		const pinned = store.pinAgentSlot(spawned.agent.id, spawned.agent.revision, 4);
+		expect(pinned.ok).toBe(true);
+		if (!pinned.ok) {
+			throw new Error("expected slot pin to succeed");
+		}
+		const currentProjection = store.getProjectionSnapshot();
+
+		expect(staleProjection.slots).toMatchObject([{ agentId: spawned.agent.id, index: 1 }]);
+		expect(currentProjection.slots).toMatchObject([
+			{
+				agent: { id: spawned.agent.id, revision: pinned.agent.revision },
+				agentId: spawned.agent.id,
+				index: 4,
+				revision: pinned.agent.revision,
+			},
+		]);
+	});
+
 	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);

@@ -25,7 +25,8 @@ arbitrary sibling target. Mailbox messages can carry sanitized artifact referenc
 and labels, so large logs or diffs stay outside coordination events. `wait_agent` can include the
 target agent's descendant snapshots and pending mailbox messages without reading any TUI state.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
-lifecycle state.
+lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
+surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
 
 Existing primitives worth reusing:
 
