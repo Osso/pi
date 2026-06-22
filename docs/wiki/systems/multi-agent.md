@@ -74,7 +74,8 @@ model call, after a tool result, or while waiting for input.
 
 Accounts own resource policy only: model/account choice, provider fallback, token budgets,
 concurrency caps, and rate limits. Accounts do not own mailbox state, workflow state, or UI
-selection state.
+selection state. `MultiAgentStore` copies account metadata through a whitelist so snapshots cannot
+smuggle mailbox messages, workflow state, or selected-agent UI state into account records.
 
 Workflow extensions compile into core operations: spawn, message, wait, cancel, and artifact reads.
 They do not own lifecycle state.

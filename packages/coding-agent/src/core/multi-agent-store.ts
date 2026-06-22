@@ -262,7 +262,7 @@ export class MultiAgentStore {
 			updatedAt: timestamp,
 			cwd: input.cwd,
 			permission: { ...input.permission },
-			account: copyOptional(input.account),
+			account: copyAccount(input.account),
 			model: copyOptional(input.model),
 			slot: copyOptional(input.slot),
 			transcript: copyOptional(input.transcript),
@@ -286,7 +286,7 @@ export class MultiAgentStore {
 
 		const spawned = this.spawnAgent({
 			...input,
-			account: copyOptional(input.account) ?? copyOptional(parent.account),
+			account: copyAccount(input.account) ?? copyAccount(parent.account),
 			model: copyOptional(input.model) ?? copyOptional(parent.model),
 			parentId,
 		});
@@ -768,7 +768,7 @@ function wouldBroadenPermission(parent: AgentNode["permission"], requested: Agen
 function copyAgent(agent: AgentNode): AgentSnapshot {
 	return {
 		...agent,
-		account: copyOptional(agent.account),
+		account: copyAccount(agent.account),
 		error: copyOptional(agent.error),
 		lastActivity: copyOptional(agent.lastActivity),
 		model: copyOptional(agent.model),
@@ -792,6 +792,20 @@ function copyArtifact(artifact: AgentArtifact): AgentArtifact {
 	return {
 		...artifact,
 		metadata: artifact.metadata ? { ...artifact.metadata } : undefined,
+	};
+}
+
+function copyAccount(account: AgentNode["account"] | undefined): AgentNode["account"] | undefined {
+	if (!account) {
+		return undefined;
+	}
+	return {
+		budgetId: account.budgetId,
+		concurrencyCap: account.concurrencyCap,
+		id: account.id,
+		providerFallback: account.providerFallback ? [...account.providerFallback] : undefined,
+		rateLimit: account.rateLimit ? { ...account.rateLimit } : undefined,
+		tokenBudget: account.tokenBudget ? { ...account.tokenBudget } : undefined,
 	};
 }
 

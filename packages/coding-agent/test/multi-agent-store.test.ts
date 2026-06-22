@@ -228,6 +228,27 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("keeps account metadata separate from mailbox workflow and UI selection state", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			account: {
+				id: "account-1",
+				mailboxMessages: ["hidden message"],
+				selectedAgentId: "agent_999",
+				workflowState: { step: "hidden" },
+			} as { id: string; mailboxMessages: string[]; selectedAgentId: string; workflowState: { step: string } },
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		expect(spawned.agent.account).toEqual({ id: "account-1" });
+		expect(JSON.stringify(spawned.agent.account)).not.toContain("hidden");
+		expect(store.getProjectionSnapshot().selectedAgentId).toBeUndefined();
+		expect(store.listMailboxMessages()).toEqual([]);
+	});
+
 	it("projects authoritative snapshots for UI surfaces without sharing mutable state", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const first = store.spawnAgent({
