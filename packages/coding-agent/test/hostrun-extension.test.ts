@@ -430,7 +430,7 @@ describe("hostrun extension", () => {
 
 		expect(confirm).toHaveBeenCalledTimes(3);
 		expect(result.details.result).toEqual({
-			dirs: [deeper, nested],
+			dirs: [nested, deeper],
 			files: [first, second],
 			found: [first, second],
 		});

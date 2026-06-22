@@ -86,6 +86,35 @@ function redactApprovalMetadata(metadata: Record<string, unknown>): Record<strin
 	return Object.fromEntries(Object.entries(metadata).map(([key, value]) => [key, redactApprovalValue(key, value)]));
 }
 
+function splitNonEmptyLines(text: string): string[] {
+	return text
+		.split(/\r?\n/)
+		.filter((line) => line.length > 0);
+}
+
+function stripTrailingSlash(path: string): string {
+	if (path.length <= 1) {
+		return path;
+	}
+	return path.replace(/\/+$/, "");
+}
+
+function parseRipgrepMatches(output: string): Array<{ line: string; lineNumber: number; path: string }> {
+	return splitNonEmptyLines(output)
+		.map((line) => JSON.parse(line) as unknown)
+		.filter((entry): entry is Record<string, unknown> => isRecord(entry) && entry.type === "match")
+		.map((entry) => entry.data)
+		.filter(isRecord)
+		.map((data) => {
+			const path = isRecord(data.path) && typeof data.path.text === "string" ? data.path.text : "";
+			const line =
+				isRecord(data.lines) && typeof data.lines.text === "string" ? data.lines.text.replace(/\r?\n$/, "") : "";
+			const lineNumber = typeof data.line_number === "number" ? data.line_number : 0;
+			return { line, lineNumber, path };
+		})
+		.sort((a, b) => a.path.localeCompare(b.path) || a.lineNumber - b.lineNumber);
+}
+
 class HostrunSession {
 	private approval: HostrunApproval | undefined;
 	private context: QuickJSAsyncContext | undefined;
@@ -243,6 +272,54 @@ class HostrunSession {
 		context.setProp(context.global, "__hostrunRun", runFactory);
 		runFactory.dispose();
 
+		const rgSearch = context.newFunction("__hostrunRgSearch", (patternHandle, pathHandle) => {
+			const pattern = String(context.dump(patternHandle));
+			const path = String(context.dump(pathHandle));
+			return this.createLineCommandBuilder(context, "rg", [pattern, path]);
+		});
+		context.setProp(context.global, "__hostrunRgSearch", rgSearch);
+		rgSearch.dispose();
+
+		const rgFiles = context.newFunction("__hostrunRgFiles", (pathHandle) => {
+			const path = String(context.dump(pathHandle));
+			return this.createLineCommandBuilder(context, "rg", ["--files", path]);
+		});
+		context.setProp(context.global, "__hostrunRgFiles", rgFiles);
+		rgFiles.dispose();
+
+		const rgMatches = context.newAsyncifiedFunction("__hostrunRgMatches", async (patternHandle, pathHandle) => {
+			const pattern = String(context.dump(patternHandle));
+			const path = String(context.dump(pathHandle));
+			const result = await this.executeProcess("rg", ["--json", pattern, path]);
+			return this.createJsonHandle(context, parseRipgrepMatches(result.stdout));
+		});
+		context.setProp(context.global, "__hostrunRgMatches", rgMatches);
+		rgMatches.dispose();
+
+		const fdFind = context.newFunction("__hostrunFdFind", (patternHandle, pathHandle) => {
+			const pattern = String(context.dump(patternHandle));
+			const path = String(context.dump(pathHandle));
+			return this.createLineCommandBuilder(context, "fd", ["--glob", pattern, path]);
+		});
+		context.setProp(context.global, "__hostrunFdFind", fdFind);
+		fdFind.dispose();
+
+		const fdFiles = context.newAsyncifiedFunction("__hostrunFdFiles", async (pathHandle) => {
+			const path = String(context.dump(pathHandle));
+			const result = await this.executeProcess("fd", ["--type", "f", ".", path]);
+			return this.createJsonHandle(context, splitNonEmptyLines(result.stdout));
+		});
+		context.setProp(context.global, "__hostrunFdFiles", fdFiles);
+		fdFiles.dispose();
+
+		const fdDirs = context.newAsyncifiedFunction("__hostrunFdDirs", async (pathHandle) => {
+			const path = String(context.dump(pathHandle));
+			const result = await this.executeProcess("fd", ["--type", "d", ".", path]);
+			return this.createJsonHandle(context, splitNonEmptyLines(result.stdout).map(stripTrailingSlash));
+		});
+		context.setProp(context.global, "__hostrunFdDirs", fdDirs);
+		fdDirs.dispose();
+
 		const bootstrap = context.evalCode(`
 			globalThis.cli = new Proxy({}, {
 				get(_target, program) {
@@ -264,6 +341,16 @@ class HostrunSession {
 			globalThis.http = {
 				get(url) { return globalThis.__hostrunHttpGet(url); },
 				post(url, options = {}) { return globalThis.__hostrunHttpPost(url, options); },
+			};
+			globalThis.rg = {
+				files(path) { return globalThis.__hostrunRgFiles(path); },
+				matches(pattern, path) { return globalThis.__hostrunRgMatches(pattern, path); },
+				search(pattern, path) { return globalThis.__hostrunRgSearch(pattern, path); },
+			};
+			globalThis.fd = {
+				dirs(path) { return globalThis.__hostrunFdDirs(path); },
+				files(path) { return globalThis.__hostrunFdFiles(path); },
+				find(pattern, path) { return globalThis.__hostrunFdFind(pattern, path); },
 			};
 		`);
 		if (bootstrap.error) {
@@ -291,6 +378,24 @@ class HostrunSession {
 		});
 		context.setProp(builder, "run", run);
 		run.dispose();
+		return builder;
+	}
+
+	private createLineCommandBuilder(context: QuickJSAsyncContext, program: string, args: string[]): QuickJSHandle {
+		const builder = context.newObject();
+		const text = context.newAsyncifiedFunction("text", async () => {
+			const result = await this.executeProcess(program, args);
+			return context.newString(result.stdout);
+		});
+		context.setProp(builder, "text", text);
+		text.dispose();
+
+		const lines = context.newAsyncifiedFunction("lines", async () => {
+			const result = await this.executeProcess(program, args);
+			return this.createJsonHandle(context, splitNonEmptyLines(result.stdout));
+		});
+		context.setProp(builder, "lines", lines);
+		lines.dispose();
 		return builder;
 	}
 
