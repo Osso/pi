@@ -44,6 +44,27 @@ describe("tool inventory", () => {
 		);
 	});
 
+	it("keeps default terminal output compact", () => {
+		const tools: ToolInfo[] = [
+			{
+				name: "bash",
+				description:
+					"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
+				parameters: Type.Object({}),
+				sourceInfo: {
+					path: "<builtin:bash>",
+					source: "builtin",
+					scope: "temporary",
+					origin: "top-level",
+				},
+			},
+		];
+
+		const output = formatToolInventory(tools, ["bash"]);
+		expect(output).toContain("Execute a bash command in the current working direc...");
+		expect(output.split("\n").every((line) => line.length <= 100)).toBe(true);
+	});
+
 	it("shows an explicit empty state when no tools are available", () => {
 		expect(formatToolInventory([], [])).toBe("Available tools: none");
 	});
@@ -57,12 +78,12 @@ describe("tool inventory", () => {
 
 	it("formats loaded extension inventory with registered resource counts", () => {
 		const extension = {
-			path: "/repo/extensions/multi-agent.ts",
-			resolvedPath: "/repo/extensions/multi-agent.ts",
+			path: "<first-party:multi-agent>",
+			resolvedPath: "<first-party:multi-agent>",
 			sourceInfo: {
-				path: "/repo/extensions/multi-agent.ts",
-				source: "local",
-				scope: "project",
+				path: "<first-party:multi-agent>",
+				source: "first-party",
+				scope: "temporary",
 				origin: "top-level",
 			},
 			handlers: new Map([["session_start", [async () => undefined]]]),
@@ -77,9 +98,9 @@ describe("tool inventory", () => {
 			[
 				"Loaded extensions (1)",
 				"",
-				"scope    source  extension       commands  tools  handlers",
-				"-------  ------  --------------  --------  -----  --------",
-				"project  local   multi-agent.ts  1         1      1",
+				"scope    source    extension    commands  tools  handlers",
+				"-------  --------  -----------  --------  -----  --------",
+				"runtime  built-in  multi-agent  1         1      1",
 			].join("\n"),
 		);
 	});

@@ -8,6 +8,7 @@
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
+import goalExtension from "../extensions/goal/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
@@ -44,6 +45,8 @@ import { assertValidSessionId, SessionManager } from "./core/session-manager.ts"
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
+import multiAgentExtension from "./extensions/multi-agent.ts";
+import runPlanExtension from "./extensions/run-plan.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
@@ -473,6 +476,18 @@ export interface MainOptions {
 	extensionFactories?: ExtensionFactory[];
 }
 
+function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): ExtensionFactory {
+	const namedFactory: ExtensionFactory = (pi) => factory(pi);
+	Object.defineProperty(namedFactory, "extensionPath", { value: `<first-party:${name}>` });
+	return namedFactory;
+}
+
+const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
+	firstPartyExtensionFactory("goal", goalExtension),
+	firstPartyExtensionFactory("multi-agent", multiAgentExtension),
+	firstPartyExtensionFactory("run-plan", runPlanExtension),
+];
+
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
@@ -509,6 +524,9 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	const parsed = parseArgs(args);
+	const extensionFactories = parsed.noExtensions
+		? (options?.extensionFactories ?? [])
+		: [...FIRST_PARTY_EXTENSION_FACTORIES, ...(options?.extensionFactories ?? [])];
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {
 			const color = d.type === "error" ? chalk.red : chalk.yellow;
@@ -687,7 +705,7 @@ export async function main(args: string[], options?: MainOptions) {
 				noContextFiles: parsed.noContextFiles,
 				systemPrompt: parsed.systemPrompt,
 				appendSystemPrompt: parsed.appendSystemPrompt,
-				extensionFactories: options?.extensionFactories,
+				extensionFactories,
 			},
 		});
 		const { settingsManager, modelRegistry, resourceLoader } = services;

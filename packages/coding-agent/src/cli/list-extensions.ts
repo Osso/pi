@@ -14,6 +14,25 @@ function pad(value: string, width: number): string {
 	return value.padEnd(width);
 }
 
+function isFirstPartyPath(path: string): boolean {
+	return path.startsWith("<first-party:") && path.endsWith(">");
+}
+
+function extensionLabel(extension: Extension): string {
+	if (isFirstPartyPath(extension.path)) {
+		return extension.path.slice("<first-party:".length, -1);
+	}
+	return basename(extension.path);
+}
+
+function scopeLabel(extension: Extension): string {
+	return isFirstPartyPath(extension.path) ? "runtime" : extension.sourceInfo.scope;
+}
+
+function sourceLabel(extension: Extension): string {
+	return isFirstPartyPath(extension.path) ? "built-in" : extension.sourceInfo.source;
+}
+
 function formatRows(headers: ExtensionInventoryRow, rows: ExtensionInventoryRow[]): string[] {
 	const widths = {
 		scope: Math.max(headers.scope.length, ...rows.map((row) => row.scope.length)),
@@ -64,9 +83,9 @@ export function formatExtensionInventory(extensions: Extension[]): string {
 	const rows = [...extensions]
 		.sort((a, b) => a.path.localeCompare(b.path))
 		.map((extension) => ({
-			scope: extension.sourceInfo.scope,
-			source: extension.sourceInfo.source,
-			extension: basename(extension.path),
+			scope: scopeLabel(extension),
+			source: sourceLabel(extension),
+			extension: extensionLabel(extension),
 			commands: extension.commands.size.toString(),
 			tools: extension.tools.size.toString(),
 			handlers: extension.handlers.size.toString(),

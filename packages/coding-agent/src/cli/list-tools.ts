@@ -7,6 +7,8 @@ interface ToolInventoryRow {
 	description: string;
 }
 
+const DESCRIPTION_WIDTH = 54;
+
 function pad(value: string, width: number): string {
 	return value.padEnd(width);
 }
@@ -19,6 +21,13 @@ function sourceLabel(tool: ToolInfo): string {
 		return "sdk";
 	}
 	return tool.sourceInfo.path.startsWith("<builtin:") ? "builtin" : tool.sourceInfo.source;
+}
+
+function truncateDescription(description: string): string {
+	if (description.length <= DESCRIPTION_WIDTH) {
+		return description;
+	}
+	return `${description.slice(0, DESCRIPTION_WIDTH - 3).trimEnd()}...`;
 }
 
 function formatRows(headers: ToolInventoryRow, rows: ToolInventoryRow[]): string[] {
@@ -67,7 +76,7 @@ export function formatToolInventory(tools: ToolInfo[], activeToolNames: string[]
 			active: active.has(tool.name) ? "yes" : "no",
 			name: tool.name,
 			source: sourceLabel(tool),
-			description: tool.description,
+			description: truncateDescription(tool.description),
 		}));
 
 	return [
