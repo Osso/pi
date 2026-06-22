@@ -6,6 +6,11 @@ export interface HostrunEvalParams {
 	session_id?: string;
 }
 
+export interface HostrunEvalContext {
+	hasUI: boolean;
+	ui: Pick<ExtensionContext["ui"], "confirm">;
+}
+
 function formatResult(result: unknown): string {
 	if (result === undefined) {
 		return "undefined";
@@ -27,7 +32,7 @@ function formatToolText(result: HostrunEvalResult): string {
 }
 
 export function createHostrunEvalExecutor(store: HostrunSessionStore) {
-	return async (params: HostrunEvalParams, ctx: ExtensionContext): Promise<AgentToolResult<HostrunEvalResult>> => {
+	return async (params: HostrunEvalParams, ctx: HostrunEvalContext): Promise<AgentToolResult<HostrunEvalResult>> => {
 		const result = await store.evaluate({
 			approval: async (request) => ctx.hasUI && (await ctx.ui.confirm(request.title, request.message)),
 			code: params.code,

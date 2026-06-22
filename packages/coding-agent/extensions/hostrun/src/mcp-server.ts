@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "../../../src/core/extensions/types.ts";
-import type { HostrunEvalParams } from "./eval-tool.ts";
-import type { HostrunEvalResult } from "./session.ts";
+import { createHostrunEvalExecutor, type HostrunEvalContext, type HostrunEvalParams } from "./eval-tool.ts";
+import { HostrunSessionStore, type HostrunEvalResult } from "./session.ts";
 
 export interface HostrunMcpTool {
 	description: string;
@@ -18,12 +18,41 @@ export interface HostrunMcpServer {
 	transport: "stdio";
 }
 
-export function createHostrunMcpServer(): HostrunMcpServer {
-	return {
-		async callTool() {
-			throw new Error("Hostrun MCP server is not implemented");
+const hostrunEvalTool: HostrunMcpTool = {
+	description: "Evaluate JavaScript in a persistent Hostrun session.",
+	inputSchema: {
+		properties: {
+			code: { type: "string" },
+			session_id: { type: "string" },
 		},
-		tools: [],
+		required: ["code"],
+		type: "object",
+	},
+	name: "hostrun_eval",
+};
+
+function createPendingApprovalContext(): HostrunEvalContext {
+	return {
+		hasUI: false,
+		ui: {
+			confirm: async () => false,
+		},
+	};
+}
+
+export function createHostrunMcpServer(): HostrunMcpServer {
+	const store = new HostrunSessionStore();
+	const evaluate = createHostrunEvalExecutor(store);
+	const context = createPendingApprovalContext();
+
+	return {
+		async callTool(name, params) {
+			if (name !== "hostrun_eval") {
+				throw new Error(`Unknown Hostrun MCP tool: ${name}`);
+			}
+			return evaluate(params, context);
+		},
+		tools: [hostrunEvalTool],
 		transport: "stdio",
 	};
 }
