@@ -7,6 +7,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } 
 import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import multiAgentExtension, {
 	type ChildAgentDispatcher,
 	type ChildAgentSessionFactory,
@@ -190,6 +191,23 @@ describe("multi-agent extension tools", () => {
 			"spawn_agent",
 			"steer_agent",
 			"wait_agent",
+		]);
+	});
+
+	it("does not route multi-agent orchestration tools through generic approval", () => {
+		const harness = createMultiAgentHarness();
+
+		expect([...harness.tools.values()].map((tool) => [tool.name, tool.approvalRequired]).sort()).toEqual([
+			["agent_artifacts", false],
+			["agent_viewer", false],
+			["agents_mailbox", false],
+			["cancel_agent", false],
+			["contact_supervisor", false],
+			["list_agents", false],
+			["send_agent_message", false],
+			["spawn_agent", false],
+			["steer_agent", false],
+			["wait_agent", false],
 		]);
 	});
 
@@ -863,5 +881,36 @@ describe("multi-agent extension tools", () => {
 			dispatched: true,
 			agent: { lifecycle: "completed", result: { summary: "factory child done" } },
 		});
+	});
+
+	it("uses the parent session directory for production child sessions by default", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		let sessionOptions: CreateAgentSessionOptions | undefined;
+		const parentSessionDir = `${parentHarness.tempDir}/parent-sessions`;
+		const parentSessionManager = SessionManager.create("/repo", parentSessionDir);
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentSessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSession: async (options) => {
+					sessionOptions = options;
+					const childHarness = await createHarness();
+					childHarnesses.push(childHarness);
+					childHarness.setResponses([fauxAssistantMessage("default dir child done")]);
+					return { session: childHarness.session };
+				},
+			}),
+		});
+
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Check default session dir",
+		});
+
+		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(parentSessionDir);
 	});
 });

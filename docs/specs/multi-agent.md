@@ -31,6 +31,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       rows, cached UI state, or subprocess lists.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI.
+- [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
+      host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so

@@ -25,6 +25,17 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
 - [x] When a `tool_call` event fires AND a permission-prompt tool is configured,
   call the external MCP tool first and honor its decision before falling through to
   the native `ui.confirm` prompt.
+- [x] When Bash approval reaches Pi and no MCP permission-prompt tool is
+  available, route the Bash call through the local `claude-bash-hook` adapter
+  before native approval: `allow` runs without Pi's modal, `ask` falls back to
+  Pi's native approval prompt, and `deny`/`block` prevents execution.
+- [x] When no `permissionPromptTool` is configured, discover loaded MCP tools
+  that implement the permission-prompt protocol and use the single unambiguous
+  match as the default approval reviewer before falling through to native
+  `ui.confirm`.
+- [x] If zero or multiple loaded MCP tools implement the permission-prompt
+  protocol and no explicit `permissionPromptTool` is configured, fall through to
+  the existing native `tool_call`/`ui.confirm` interactive path.
 - [x] No tool configured → fall through to the existing native `tool_call`/
   `ui.confirm` interactive path.
 - [x] Invalid tool name (not in `mcp__server__tool` shape) → fall through to
@@ -114,6 +125,9 @@ Evidence:
   module: builds the MCP tool call input, parses and validates the response,
   and implements the decision/fallback dispatcher. (partial; session-rule cache
   and destination-aware JSON writers still planned)
+- `packages/coding-agent/src/core/permissions/claude-bash-hook.ts` — invokes the
+  local `claude-bash-hook` command for Bash approvals when the MCP permission
+  prompt server is not loaded in Pi.
 - `packages/coding-agent/src/core/permissions/rule-store.ts` — in-memory session
   rule cache and persistent-rule write helpers.
 - `packages/coding-agent/src/core/agent-session.ts` — wire
@@ -135,7 +149,8 @@ Evidence:
   `permissionPromptTool` with project overriding global.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
   session-level stub MCP permission prompt dispatch for updated input, deny
-  decisions, and persisted-rule reload suppression.
+  decisions, persisted-rule reload suppression, protocol-tool discovery, and
+  direct `claude-bash-hook` Bash approval allow/ask behavior.
 
 ## Known gaps (current cycle)
 
@@ -158,6 +173,9 @@ Evidence:
 - [x] Write unit tests for each decision shape and fallback path.
 - [x] Write stub MCP-style integration tests exercising decision and persistence
   combinations through the `tool_call` path.
+- [x] Add protocol-discovery tests proving a single loaded permission-prompt MCP
+  tool becomes the default approval reviewer when no explicit tool is configured,
+  while ambiguous discovery falls back to native approval.
 
 ## Out of scope
 

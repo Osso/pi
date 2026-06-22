@@ -1,3 +1,6 @@
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -8,10 +11,20 @@ import { createHarness, getAssistantTexts, getMessageText, type Harness } from "
 
 describe("AgentSession model and extension characterization", () => {
 	const harnesses: Harness[] = [];
+	const hookScriptDirs: string[] = [];
+	const originalClaudeBashHook = process.env.PI_CLAUDE_BASH_HOOK;
 
 	afterEach(() => {
 		while (harnesses.length > 0) {
 			harnesses.pop()?.cleanup();
+		}
+		while (hookScriptDirs.length > 0) {
+			rmSync(hookScriptDirs.pop()!, { force: true, recursive: true });
+		}
+		if (originalClaudeBashHook === undefined) {
+			delete process.env.PI_CLAUDE_BASH_HOOK;
+		} else {
+			process.env.PI_CLAUDE_BASH_HOOK = originalClaudeBashHook;
 		}
 	});
 
@@ -46,6 +59,29 @@ describe("AgentSession model and extension characterization", () => {
 			setWorkingVisible: () => {},
 			theme: {} as ExtensionUIContext["theme"],
 		};
+	}
+
+	function useFakeClaudeBashHook(hookSpecificOutput: Record<string, unknown>): void {
+		const scriptDir = join(tmpdir(), `pi-claude-bash-hook-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const scriptPath = join(scriptDir, "claude-bash-hook");
+		hookScriptDirs.push(scriptDir);
+		mkdirSync(scriptDir, { recursive: true });
+		writeFileSync(
+			scriptPath,
+			[
+				"#!/usr/bin/env node",
+				"let input = '';",
+				"process.stdin.on('data', (chunk) => { input += chunk; });",
+				"process.stdin.on('end', () => {",
+				"  const parsed = JSON.parse(input);",
+				"  if (parsed.tool_name !== 'Bash') process.exit(3);",
+				`  console.log(${JSON.stringify(JSON.stringify({ hookSpecificOutput }))});`,
+				"});",
+				"",
+			].join("\n"),
+		);
+		chmodSync(scriptPath, 0o755);
+		process.env.PI_CLAUDE_BASH_HOOK = scriptPath;
 	}
 
 	it("setModel saves the model and emits model_select", async () => {
@@ -383,6 +419,55 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("hello");
 	});
 
+	it("routes bash approvals through claude-bash-hook and skips native approval when allowed", async () => {
+		useFakeClaudeBashHook({
+			permissionDecision: "allow",
+			permissionDecisionReason: "safe",
+			updatedInput: { command: "printf hook-approved" },
+		});
+		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
+		const harness = await createHarness({
+			uiContext: createConfirmUiContext(confirm),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "printf original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(confirm).not.toHaveBeenCalled();
+		expect(getAssistantTexts(harness)).toContain("hook-approved");
+	});
+
+	it("falls back to native approval when claude-bash-hook asks", async () => {
+		useFakeClaudeBashHook({
+			permissionDecision: "ask",
+			permissionDecisionReason: "needs human review",
+		});
+		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(true);
+		const harness = await createHarness({
+			uiContext: createConfirmUiContext(confirm),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "printf native-approved" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(getAssistantTexts(harness)).toContain("native-approved");
+	});
+
 	it("blocks tool calls denied by the LLM-approved reviewer", async () => {
 		let toolExecutions = 0;
 		const echoTool: AgentTool = {
@@ -585,6 +670,121 @@ describe("AgentSession model and extension characterization", () => {
 			},
 		]);
 		expect(getAssistantTexts(harness)).toContain("approved");
+	});
+
+	it("uses a single loaded permission prompt protocol tool without explicit config", async () => {
+		const approvalInputs: unknown[] = [];
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return {
+					content: [{ type: "text", text }],
+					details: { text },
+				};
+			},
+		};
+		const approvalTool: AgentTool = {
+			name: "mcp__project-approval__approval_prompt",
+			label: "Approval",
+			description: "Approve tool calls",
+			parameters: Type.Object({
+				tool_name: Type.String(),
+				input: Type.Any(),
+				tool_use_id: Type.String(),
+				cwd: Type.String(),
+			}),
+			execute: async (_toolCallId, params) => {
+				approvalInputs.push(params);
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ behavior: "allow", updatedInput: { text: "hook-approved" } }),
+						},
+					],
+					details: undefined,
+				};
+			},
+		};
+		const harness = await createHarness({ tools: [echoTool, approvalTool] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(approvalInputs).toMatchObject([
+			{
+				input: { text: "original" },
+				tool_name: "echo",
+			},
+		]);
+		expect(getAssistantTexts(harness)).toContain("hook-approved");
+	});
+
+	it("falls back to native approval when permission prompt tool discovery is ambiguous", async () => {
+		const approvalInputs: unknown[] = [];
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return {
+					content: [{ type: "text", text }],
+					details: { text },
+				};
+			},
+		};
+		const createApprovalTool = (name: string): AgentTool => ({
+			name,
+			label: "Approval",
+			description: "Approve tool calls",
+			parameters: Type.Object({
+				tool_name: Type.String(),
+				input: Type.Any(),
+				tool_use_id: Type.String(),
+				cwd: Type.String(),
+			}),
+			execute: async (_toolCallId, params) => {
+				approvalInputs.push(params);
+				return {
+					content: [{ type: "text", text: JSON.stringify({ behavior: "allow", updatedInput: { text: name } }) }],
+					details: undefined,
+				};
+			},
+		});
+		const harness = await createHarness({
+			tools: [
+				echoTool,
+				createApprovalTool("mcp__claude-bash-hook-approval__approval_prompt"),
+				createApprovalTool("mcp__other-approval__approval_prompt"),
+			],
+			uiContext: createConfirmUiContext(async () => true),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(approvalInputs).toEqual([]);
+		expect(getAssistantTexts(harness)).toContain("original");
 	});
 
 	it("blocks tool calls denied by the configured permission prompt tool", async () => {

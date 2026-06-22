@@ -85,6 +85,7 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
+import { canRunClaudeBashHook, reviewBashWithClaudeBashHook } from "./permissions/claude-bash-hook.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
 import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
@@ -100,6 +101,10 @@ import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-promp
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
+
+const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
+const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
+const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
 
 // ============================================================================
 // Skill Block Parsing
@@ -126,6 +131,29 @@ export function parseSkillBlock(text: string): ParsedSkillBlock | null {
 		content: match[3],
 		userMessage: match[4]?.trim() || undefined,
 	};
+}
+
+function isPermissionPromptProtocolTool(tool: AgentTool): boolean {
+	if (!MCP_TOOL_NAME_PATTERN.test(tool.name)) {
+		return false;
+	}
+
+	const toolName = tool.name.split("__")[2];
+	return toolName === PERMISSION_PROMPT_TOOL_NAME && hasPermissionPromptSchema(tool.parameters);
+}
+
+function hasPermissionPromptSchema(parameters: unknown): boolean {
+	const schema = toRecord(parameters);
+	const properties = toRecord(schema?.properties);
+	return PERMISSION_PROMPT_SCHEMA_FIELDS.every((field) => properties !== undefined && field in properties);
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return undefined;
+	}
+
+	return value as Record<string, unknown>;
 }
 
 /** Session-specific events that extend the core AgentEvent */
@@ -484,13 +512,32 @@ export class AgentSession {
 		event: ToolCallEvent,
 		runner: ExtensionRunner,
 	): ApprovalReviewer | undefined {
-		if (!this._permissionPromptTool && !runner.hasHandlers("tool_call")) {
+		const permissionPromptTool = this._resolvePermissionPromptTool();
+		const hasBashHook = event.toolName === "bash" && canRunClaudeBashHook();
+		if (!hasBashHook && !permissionPromptTool && !runner.hasHandlers("tool_call")) {
 			return undefined;
 		}
 
 		return async () => {
+			if (hasBashHook) {
+				const bashHookResult = await reviewBashWithClaudeBashHook(event, {
+					approvalPolicy: this.settingsManager.getApprovalPolicy(),
+					cwd: this._cwd,
+				});
+				if (bashHookResult.action === "allow") {
+					return undefined;
+				}
+				if (bashHookResult.action === "block") {
+					return bashHookResult.result;
+				}
+				if (bashHookResult.action === "ask") {
+					const humanReviewer = this._createToolApprovalHumanReviewer(event, runner);
+					return humanReviewer?.() ?? { block: true, reason: bashHookResult.reason };
+				}
+			}
+
 			const permissionPromptResult = await createPermissionPromptHandler({
-				permissionPromptTool: this._permissionPromptTool,
+				permissionPromptTool,
 				cwd: this._cwd,
 				ruleStore: this._permissionRuleStore,
 				callTool: async (permissionPromptTool, input) => {
@@ -518,6 +565,18 @@ export class AgentSession {
 				throw new Error(`Extension failed, blocking execution: ${String(err)}`);
 			}
 		};
+	}
+
+	private _resolvePermissionPromptTool(): string | undefined {
+		if (this._permissionPromptTool) {
+			return this._permissionPromptTool;
+		}
+
+		const discoveredTools = Array.from(this._toolRegistry.values())
+			.filter(isPermissionPromptProtocolTool)
+			.map((tool) => tool.name);
+
+		return discoveredTools.length === 1 ? discoveredTools[0] : undefined;
 	}
 
 	private _createToolApprovalHumanReviewer(

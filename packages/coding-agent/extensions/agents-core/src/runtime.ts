@@ -283,7 +283,8 @@ export function createProductionChildAgentSessionFactory(
 
 	return async ({ agent, ctx }) => {
 		const parentSession = ctx.sessionManager.getSessionFile() ?? ctx.sessionManager.getSessionId();
-		const sessionManager = SessionManager.create(agent.cwd, options.sessionDir, { parentSession });
+		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
+		const sessionManager = SessionManager.create(agent.cwd, sessionDir, { parentSession });
 		const result = await createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
@@ -742,6 +743,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "spawn_agent",
 			label: "Spawn Agent",
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
+			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
 				spawnAgent(store, createChildSession, dispatcher, params, ctx),
@@ -753,6 +755,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "list_agents",
 			label: "List Agents",
 			description: "List agents from the authoritative multi-agent store.",
+			approvalRequired: false,
 			parameters: listAgentsSchema,
 			execute: async (_toolCallId, params) => listAgents(store, params),
 		}),
@@ -763,6 +766,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "agent_artifacts",
 			label: "Agent Artifacts",
 			description: "Record or list shared multi-agent artifact pointers outside mailbox events.",
+			approvalRequired: false,
 			parameters: agentArtifactsSchema,
 			execute: async (_toolCallId, params) => agentArtifacts(store, params),
 		}),
@@ -773,6 +777,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "wait_agent",
 			label: "Wait Agent",
 			description: "Read the current agent state and whether it is terminal.",
+			approvalRequired: false,
 			parameters: waitAgentSchema,
 			execute: async (_toolCallId, params) => waitAgent(store, params),
 		}),
@@ -783,6 +788,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "cancel_agent",
 			label: "Cancel Agent",
 			description: "Cancel an agent through the multi-agent store with revision checking.",
+			approvalRequired: false,
 			parameters: cancelAgentSchema,
 			execute: async (_toolCallId, params) => cancelAgent(store, params),
 		}),
@@ -793,6 +799,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "steer_agent",
 			label: "Steer Agent",
 			description: "Queue a steering message through the multi-agent mailbox.",
+			approvalRequired: false,
 			parameters: steerAgentSchema,
 			execute: async (_toolCallId, params) => steerAgent(store, params),
 		}),
@@ -807,6 +814,7 @@ export function registerAgentViewerTools(pi: ExtensionAPI, options: MultiAgentEx
 			name: "agent_viewer",
 			label: "Agent Viewer",
 			description: "Read a projection snapshot for agent tree/status/slot viewer surfaces.",
+			approvalRequired: false,
 			parameters: agentViewerSchema,
 			execute: async () => agentViewer(store),
 		}),
@@ -821,6 +829,7 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 			name: "agents_mailbox",
 			label: "Agents Mailbox",
 			description: "Read inbox, outbox, and acknowledgement summaries from the multi-agent mailbox.",
+			approvalRequired: false,
 			parameters: agentsMailboxSchema,
 			execute: async (_toolCallId, params) => agentsMailbox(store, params),
 		}),
@@ -831,6 +840,7 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 			name: "send_agent_message",
 			label: "Send Agent Message",
 			description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.",
+			approvalRequired: false,
 			parameters: sendAgentMessageSchema,
 			execute: async (_toolCallId, params) => sendAgentMessage(store, params),
 		}),
@@ -841,6 +851,7 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 			name: "contact_supervisor",
 			label: "Contact Supervisor",
 			description: "Send a child-agent mailbox request to its direct supervisor.",
+			approvalRequired: false,
 			parameters: contactSupervisorSchema,
 			execute: async (_toolCallId, params) => contactSupervisor(store, params),
 		}),

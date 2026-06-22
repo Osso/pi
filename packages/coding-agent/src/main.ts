@@ -9,7 +9,7 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
-import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
+import agentsCoreExtension, { createProductionChildAgentSessionFactory } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
@@ -491,7 +491,12 @@ const firstPartyMultiAgentStore = new MultiAgentStore();
 
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
-	firstPartyExtensionFactory("agents-core", (pi) => agentsCoreExtension(pi, { store: firstPartyMultiAgentStore })),
+	firstPartyExtensionFactory("agents-core", (pi) =>
+		agentsCoreExtension(pi, {
+			createChildSession: createProductionChildAgentSessionFactory({ agentDir: getAgentDir() }),
+			store: firstPartyMultiAgentStore,
+		}),
+	),
 	firstPartyExtensionFactory("agent-viewer", (pi) => agentViewerExtension(pi, { store: firstPartyMultiAgentStore })),
 	firstPartyExtensionFactory("agents-mailbox", (pi) =>
 		agentsMailboxExtension(pi, { store: firstPartyMultiAgentStore }),
