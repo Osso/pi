@@ -46,10 +46,18 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 - `packages/coding-agent/src/core/keybindings.ts:204-309` — legacy pre-namespaced keybinding migration to namespaced ids.
 - `packages/coding-agent/src/core/keybindings.ts:330-368` — `KeybindingsManager.create()` loads `~/.pi/agent/keybindings.json`, accepts string or string-array bindings, and `reload()` re-reads the same file into user bindings.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:411-412` — interactive mode creates the keybindings manager and installs it into the TUI package singleton.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1796-1835` — `ctx.ui.setWidget` implementation: removes an existing widget with the same key from either placement, accepts string arrays or component factories, truncates string widgets after ten lines, and renders above or below the editor.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1838-1864` — extension UI reset clears widgets and restores extension footer/header.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1887-1915` — widget containers are rebuilt from the above/below widget maps.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1920-1948` — `ctx.ui.setFooter` implementation swaps between built-in footer and custom footer, passes the readonly footer data provider, and disposes the previous custom footer.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:1953-1991` — `ctx.ui.setHeader` implementation swaps the built-in header, carries expandable state forward, and disposes the previous custom header.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:5091-5140` — `/reload` handler reloads the session/resources, then calls `this.keybindings.reload()` before rebuilding interactive UI state.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:5559-5570` — `/hotkeys` lists extension-registered shortcuts using the current effective keybinding config.
 - `packages/coding-agent/src/core/slash-commands.ts:31` and `:41` — built-in `/hotkeys` and `/reload` command metadata.
 - `packages/coding-agent/src/core/extensions/types.ts:1183-1190` — extension shortcut registration API.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2217-2249` — `ctx.ui.editor` temporary multiline editor wiring and restore behavior.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2256-2319` — `ctx.ui.setEditorComponent` implementation: preserves editor text, forwards submit/change callbacks, copies appearance/autocomplete settings, and restores the default editor when passed `undefined`.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2335-2412` — `ctx.ui.custom` implementation for replacement and overlay UI, including editor restoration, overlay handle exposure, focus handling, and component disposal.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2062-2078` — live interactive `ctx.ui` theme surface: readonly `theme`, `getAllThemes`, `getTheme`, and `setTheme`; string themes persist through `SettingsManager.setTheme`, `Theme` instances apply without persisting a settings name.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:323-422` — `Theme` class styling API exposed to extensions through `ctx.ui.theme` and `ctx.ui.getTheme`.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:428-479` — theme listing combines built-in themes, user custom themes, and registered package/resource themes.
@@ -64,6 +72,7 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
+- `packages/coding-agent/test/interactive-mode-status.test.ts:201-270` — `ctx.ui.custom` overlay/replacement focus regression: an overlay reclaims input after a non-overlay custom UI closes.
 - `packages/coding-agent/test/keybindings-migration.test.ts:25-87` — legacy keybinding name migration, namespaced-id precedence, and in-memory loading through `KeybindingsManager.create(agentDir)`.
 - `packages/coding-agent/test/theme-picker.test.ts:34-50` — theme listing uses custom theme content names and returns file paths for `getAvailableThemesWithPaths`.
 - `packages/coding-agent/test/theme-detection.test.ts:16-133` — terminal background detection, RGB classification, color-mode selection, and automatic light/dark theme setting parsing.
@@ -75,7 +84,10 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 - No dedicated test for the interactive extension theme API (`ctx.ui.theme`, `ctx.ui.setTheme`, `ctx.ui.getAllThemes`, `ctx.ui.getTheme`) through a real extension context; existing theme tests cover lower-level discovery/loading, not the `ctx.ui` extension surface.
 - No dedicated test proving `ctx.ui.setTheme("name")` persists the string setting while `ctx.ui.setTheme(themeInstance)` applies without writing a theme name to settings.
 - No dedicated test proving project `.pi/themes`, settings `themes`, package themes, and CLI `--theme` entries appear through the extension-facing `ctx.ui.getAllThemes()` path.
-- No dedicated test for `setHeader`/`setFooter`/`setWidget` or `setEditorComponent`/`custom`.
+- No dedicated test for `setWidget`; smallest next test slice is a focused `InteractiveMode` private-method regression proving string widgets render above/below editor, same-key replacement disposes/removes the old component across placements, and `undefined` clears the widget.
+- No dedicated test for `setHeader`/`setFooter`; both need focused swap/restore/dispose coverage.
+- No dedicated test for `setEditorComponent`; it needs focused coverage for text preservation, callback forwarding, and default-editor restore.
+- `ctx.ui.custom` has overlay/replacement focus coverage, but no dedicated test for factory rejection restoring the editor or `dispose()` being called on close.
 - No dedicated test proving `KeybindingsManager.reload()` re-reads a changed `~/.pi/agent/keybindings.json` and updates the effective config.
 - No dedicated interactive-mode test proving `/reload` re-applies changed keybindings live without restarting the process.
 
