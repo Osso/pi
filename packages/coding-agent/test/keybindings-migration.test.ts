@@ -85,4 +85,23 @@ describe("keybindings migration", () => {
 		expect(effective["tui.select.confirm"]).toBe("enter");
 		expect(effective["app.interrupt"]).toBe("ctrl+x");
 	});
+
+	it("defaults Alt+1 through Alt+9 to visible agent slot actions", () => {
+		const keybindings = new KeybindingsManager();
+		const slotBindings = [
+			["app.agent.slot1", "alt+1"],
+			["app.agent.slot2", "alt+2"],
+			["app.agent.slot3", "alt+3"],
+			["app.agent.slot4", "alt+4"],
+			["app.agent.slot5", "alt+5"],
+			["app.agent.slot6", "alt+6"],
+			["app.agent.slot7", "alt+7"],
+			["app.agent.slot8", "alt+8"],
+			["app.agent.slot9", "alt+9"],
+		] as const;
+
+		for (const [binding, key] of slotBindings) {
+			expect(keybindings.getKeys(binding)).toEqual([key]);
+		}
+	});
 });

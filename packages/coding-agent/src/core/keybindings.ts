@@ -45,6 +45,15 @@ export interface AppKeybindings {
 	"app.models.toggleProvider": true;
 	"app.models.reorderUp": true;
 	"app.models.reorderDown": true;
+	"app.agent.slot1": true;
+	"app.agent.slot2": true;
+	"app.agent.slot3": true;
+	"app.agent.slot4": true;
+	"app.agent.slot5": true;
+	"app.agent.slot6": true;
+	"app.agent.slot7": true;
+	"app.agent.slot8": true;
+	"app.agent.slot9": true;
 	"app.tree.filter.default": true;
 	"app.tree.filter.noTools": true;
 	"app.tree.filter.userOnly": true;
@@ -170,6 +179,42 @@ export const KEYBINDINGS = {
 	"app.models.reorderDown": {
 		defaultKeys: "alt+down",
 		description: "Move model down in order",
+	},
+	"app.agent.slot1": {
+		defaultKeys: "alt+1",
+		description: "Switch to agent slot 1",
+	},
+	"app.agent.slot2": {
+		defaultKeys: "alt+2",
+		description: "Switch to agent slot 2",
+	},
+	"app.agent.slot3": {
+		defaultKeys: "alt+3",
+		description: "Switch to agent slot 3",
+	},
+	"app.agent.slot4": {
+		defaultKeys: "alt+4",
+		description: "Switch to agent slot 4",
+	},
+	"app.agent.slot5": {
+		defaultKeys: "alt+5",
+		description: "Switch to agent slot 5",
+	},
+	"app.agent.slot6": {
+		defaultKeys: "alt+6",
+		description: "Switch to agent slot 6",
+	},
+	"app.agent.slot7": {
+		defaultKeys: "alt+7",
+		description: "Switch to agent slot 7",
+	},
+	"app.agent.slot8": {
+		defaultKeys: "alt+8",
+		description: "Switch to agent slot 8",
+	},
+	"app.agent.slot9": {
+		defaultKeys: "alt+9",
+		description: "Switch to agent slot 9",
 	},
 	"app.tree.filter.default": {
 		defaultKeys: "ctrl+d",

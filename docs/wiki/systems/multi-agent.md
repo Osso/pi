@@ -159,6 +159,9 @@ instead of retrying blindly.
 display name, lifecycle, revision, active state, selection state, pinned slot index, and terminal or
 subprocess adapter type from current core state. Stale slot mutations return the latest projection
 with the conflict so visible rows and pane slots can redraw by agent ID before retrying.
+`app.agent.slot1` through `app.agent.slot9` default to `Alt+1` through `Alt+9`; consuming those
+bindings should call `selectAgentSlot(index)`, which only updates selected view state and never
+advances lifecycle or revisions.
 
 ### Lifecycle transitions
 

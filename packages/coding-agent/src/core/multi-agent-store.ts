@@ -365,6 +365,17 @@ export class MultiAgentStore {
 		return copyAgent(agent);
 	}
 
+	selectAgentSlot(slotIndex: number): AgentSnapshot | undefined {
+		for (const agent of this.agents.values()) {
+			if (agent.slot?.index === slotIndex) {
+				this.selectedAgentId = agent.id;
+				return copyAgent(agent);
+			}
+		}
+
+		return undefined;
+	}
+
 	getSelectedAgentId(): string | undefined {
 		return this.selectedAgentId;
 	}

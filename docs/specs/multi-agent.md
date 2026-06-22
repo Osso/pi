@@ -64,7 +64,7 @@ runtime contract belongs here; implementation details will live in
 
 ### TUI behavior
 
-- [ ] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
+- [x] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
 - [ ] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
 - [ ] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
 - [x] TUI controls show stale-revision conflicts and require the user or caller to retry against
@@ -117,7 +117,8 @@ runtime contract belongs here; implementation details will live in
   state, verifies terminal/subprocess worker adapter metadata stays under the same permission,
   mailbox, and lifecycle contracts, persists bounded transcript/event stream metadata across
   SessionManager rehydrate without retaining inline child output logs, and exposes TUI row/slot
-  projections plus stale slot-conflict refresh payloads from current core snapshots.
+  projections plus stale slot-conflict refresh payloads from current core snapshots. It verifies
+  visible slot selection is read-only over lifecycle state.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
@@ -134,6 +135,8 @@ runtime contract belongs here; implementation details will live in
   events. It verifies
   `createMultiAgentWorkflowOperations()` composes spawn/message/wait/artifact operations through
   `MultiAgentStore` without owning separate runtime state.
+- [`packages/coding-agent/test/keybindings-migration.test.ts`](../../packages/coding-agent/test/keybindings-migration.test.ts)
+  verifies the default `Alt+1` through `Alt+9` bindings for visible agent slot actions.
 
 ## Known gaps (current cycle)
 
@@ -186,6 +189,8 @@ runtime contract belongs here; implementation details will live in
       rows, pane slots, and stale conflict refresh.
 - [x] Add focused `agent_viewer` tests for read-only tree/status/transcript inspection plus
       explicit stop/resume/steer command descriptors.
+- [x] Add focused TUI slot-key tests for `Alt+1` through `Alt+9` switching visible agent slots
+      without lifecycle mutation.
 
 ## Out of scope
 

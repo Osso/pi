@@ -509,6 +509,50 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("switches visible slots by index without mutating lifecycle state", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const first = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 1, pinned: true },
+		});
+		const ninth = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Ninth",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 9, pinned: true },
+		});
+		const started = store.transitionAgent(ninth.agent.id, ninth.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) {
+			throw new Error("expected ninth start");
+		}
+
+		const selectedFirst = store.selectAgentSlot(1);
+		const selectedNinth = store.selectAgentSlot(9);
+		const missing = store.selectAgentSlot(2);
+
+		expect(selectedFirst).toMatchObject({
+			id: first.agent.id,
+			lifecycle: "queued",
+			revision: first.agent.revision,
+		});
+		expect(selectedNinth).toMatchObject({
+			id: ninth.agent.id,
+			lifecycle: "starting",
+			revision: started.agent.revision,
+		});
+		expect(missing).toBeUndefined();
+		expect(store.getSelectedAgentId()).toBe(ninth.agent.id);
+		expect(store.getAgent(first.agent.id)).toMatchObject({ lifecycle: "queued", revision: first.agent.revision });
+		expect(store.getAgent(ninth.agent.id)).toMatchObject({ lifecycle: "starting", revision: started.agent.revision });
+	});
+
 	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);
