@@ -56,7 +56,11 @@ interface ContactSupervisorDetails extends Record<string, unknown> {
 }
 
 interface AgentViewerDetails extends Record<string, unknown> {
+	commands: Array<{ agentId: string; command: "stop" | "resume" | "steer"; tool: string }>;
 	projection: MultiAgentProjectionSnapshot;
+	statuses: Array<{ agentId: string; lifecycle: string; revision: number; terminal: boolean }>;
+	transcripts: Array<{ agentId: string; path?: string; sessionId: string }>;
+	tree: Array<{ agentId: string; children: string[]; parentId?: string }>;
 }
 
 interface AgentsMailboxDetails extends Record<string, unknown> {
@@ -226,6 +230,56 @@ describe("multi-agent extension tools", () => {
 			id: child.details.agent.id,
 			lifecycle: "queued",
 			revision: pinned.agent.revision,
+		});
+	});
+
+	it("exposes read-only tree status transcript and command descriptors in agent_viewer", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = harness.store.spawnAgent({
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Lead",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const child = harness.store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: parent.agent.id,
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+			transcript: { path: "sessions/child.jsonl", sessionId: "child-session" },
+		});
+		const running = harness.store.transitionAgent(child.agent.id, child.agent.revision, "starting");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected child start");
+		}
+
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+
+		expect(viewed.details.tree).toEqual([
+			{ agentId: parent.agent.id, children: [child.agent.id], parentId: "root" },
+			{ agentId: child.agent.id, children: [], parentId: parent.agent.id },
+		]);
+		expect(viewed.details.statuses).toMatchObject([
+			{ agentId: parent.agent.id, lifecycle: "queued", revision: parent.agent.revision, terminal: false },
+			{ agentId: child.agent.id, lifecycle: "starting", revision: running.agent.revision, terminal: false },
+		]);
+		expect(viewed.details.transcripts).toEqual([
+			{ agentId: child.agent.id, path: "sessions/child.jsonl", sessionId: "child-session" },
+		]);
+		expect(viewed.details.commands).toEqual(
+			expect.arrayContaining([
+				{ agentId: child.agent.id, command: "stop", tool: "cancel_agent" },
+				{ agentId: child.agent.id, command: "resume", tool: "wait_agent" },
+				{ agentId: child.agent.id, command: "steer", tool: "steer_agent" },
+			]),
+		);
+		expect(harness.store.getAgent(child.agent.id)).toMatchObject({
+			id: child.agent.id,
+			lifecycle: "starting",
+			revision: running.agent.revision,
 		});
 	});
 

@@ -31,6 +31,9 @@ surfaces can resync from core state by agent ID instead of trusting stale render
 `send_agent_message` creates direct mailbox messages only across parent-child relationships, so
 siblings cannot target each other directly.
 `agent_artifacts` records and lists shared artifact pointers outside mailbox events.
+`agent_viewer` is read-only and returns the core projection plus explicit tree, status, transcript,
+and command descriptor lists for stop/resume/steer actions; those descriptors name existing tools
+and do not mutate agent lifecycle by themselves.
 `createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
 for higher-level workflow extensions without giving them a separate runtime state store.
 `spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.

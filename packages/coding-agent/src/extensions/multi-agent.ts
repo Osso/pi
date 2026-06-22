@@ -210,7 +210,36 @@ interface ContactSupervisorToolDetails {
 }
 
 interface AgentViewerToolDetails {
+	commands: AgentViewerCommand[];
 	projection: MultiAgentProjectionSnapshot;
+	statuses: AgentViewerStatus[];
+	transcripts: AgentViewerTranscript[];
+	tree: AgentViewerTreeNode[];
+}
+
+interface AgentViewerTreeNode {
+	agentId: string;
+	children: string[];
+	parentId?: string;
+}
+
+interface AgentViewerStatus {
+	agentId: string;
+	lifecycle: AgentSnapshot["lifecycle"];
+	revision: number;
+	terminal: boolean;
+}
+
+interface AgentViewerTranscript {
+	agentId: string;
+	path?: string;
+	sessionId: string;
+}
+
+interface AgentViewerCommand {
+	agentId: string;
+	command: "stop" | "resume" | "steer";
+	tool: "cancel_agent" | "wait_agent" | "steer_agent";
 }
 
 interface AgentsMailboxToolDetails {
@@ -425,8 +454,49 @@ function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): A
 function agentViewer(store: MultiAgentStore): AgentToolResult<AgentViewerToolDetails> {
 	const projection = store.getProjectionSnapshot();
 	return result(`Viewing ${projection.agents.length} agent${projection.agents.length === 1 ? "" : "s"}.`, {
+		commands: listViewerCommands(projection.agents),
 		projection,
+		statuses: listViewerStatuses(projection.agents),
+		transcripts: listViewerTranscripts(projection.agents),
+		tree: listViewerTree(projection.agents),
 	});
+}
+
+function listViewerTree(agents: AgentSnapshot[]): AgentViewerTreeNode[] {
+	return agents.map((agent) => ({
+		agentId: agent.id,
+		children: agents.filter((candidate) => candidate.parentId === agent.id).map((child) => child.id),
+		parentId: agent.parentId,
+	}));
+}
+
+function listViewerStatuses(agents: AgentSnapshot[]): AgentViewerStatus[] {
+	return agents.map((agent) => ({
+		agentId: agent.id,
+		lifecycle: agent.lifecycle,
+		revision: agent.revision,
+		terminal: agent.lifecycle === "completed" || agent.lifecycle === "failed" || agent.lifecycle === "aborted",
+	}));
+}
+
+function listViewerTranscripts(agents: AgentSnapshot[]): AgentViewerTranscript[] {
+	return agents
+		.filter((agent): agent is AgentSnapshot & { transcript: NonNullable<AgentSnapshot["transcript"]> } => {
+			return agent.transcript !== undefined;
+		})
+		.map((agent) => ({
+			agentId: agent.id,
+			path: agent.transcript.path,
+			sessionId: agent.transcript.sessionId,
+		}));
+}
+
+function listViewerCommands(agents: AgentSnapshot[]): AgentViewerCommand[] {
+	return agents.flatMap((agent) => [
+		{ agentId: agent.id, command: "stop", tool: "cancel_agent" },
+		{ agentId: agent.id, command: "resume", tool: "wait_agent" },
+		{ agentId: agent.id, command: "steer", tool: "steer_agent" },
+	]);
 }
 
 function agentsMailbox(store: MultiAgentStore, params: AgentsMailboxParams): AgentToolResult<AgentsMailboxToolDetails> {

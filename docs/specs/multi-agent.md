@@ -43,7 +43,7 @@ runtime contract belongs here; implementation details will live in
 
 ### Extension boundaries
 
-- [ ] `agent viewer` is a read-only extension surface for tree/status/transcript inspection plus
+- [x] `agent viewer` is a read-only extension surface for tree/status/transcript inspection plus
       explicit commands such as stop, resume, and steer.
 - [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
       supervisor contact, and inter-agent messages.
@@ -126,11 +126,12 @@ runtime contract belongs here; implementation details will live in
   coupling, that `wait_agent` can include descendant snapshots and pending mailbox summaries, that
   `list_agents` can return descendants below a parent without TUI state, and that
   `contact_supervisor` routes child messages to the direct parent with artifact references by
-  ID/path rather than copied content. It verifies `agent_viewer` returns a read-only projection
-  snapshot without advancing lifecycle state and `agents_mailbox` returns inbox/outbox plus
-  acknowledgement summaries from core mailbox state. It also verifies `send_agent_message` allows
-  direct parent-child mailbox messages while rejecting sibling targets and `agent_artifacts`
-  records/list shared artifact pointers outside mailbox events. It verifies
+  ID/path rather than copied content. It verifies `agent_viewer` returns read-only projection,
+  tree, status, transcript, and command descriptor details without advancing lifecycle state and
+  `agents_mailbox` returns inbox/outbox plus acknowledgement summaries from core mailbox state. It
+  also verifies `send_agent_message` allows direct parent-child mailbox messages while rejecting
+  sibling targets and `agent_artifacts` records/list shared artifact pointers outside mailbox
+  events. It verifies
   `createMultiAgentWorkflowOperations()` composes spawn/message/wait/artifact operations through
   `MultiAgentStore` without owning separate runtime state.
 
@@ -183,6 +184,8 @@ runtime contract belongs here; implementation details will live in
       persistence and projection snapshots.
 - [x] Add focused TUI-facing projection tests proving core snapshots are authoritative for visible
       rows, pane slots, and stale conflict refresh.
+- [x] Add focused `agent_viewer` tests for read-only tree/status/transcript inspection plus
+      explicit stop/resume/steer command descriptors.
 
 ## Out of scope
 
