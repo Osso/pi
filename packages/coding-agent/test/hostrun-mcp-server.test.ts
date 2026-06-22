@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -6,12 +6,27 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createHostrunMcpServer } from "../extensions/hostrun/src/mcp-server.ts";
 
+interface HostrunPackageJson {
+	bin?: Record<string, string>;
+	exports?: Record<string, string>;
+}
+
 function listen(server: Server): Promise<number> {
 	return new Promise((resolve) => {
 		server.listen(0, "127.0.0.1", () => {
 			resolve((server.address() as AddressInfo).port);
 		});
 	});
+}
+
+function readHostrunPackageJson(): HostrunPackageJson {
+	return JSON.parse(
+		readFileSync(join(process.cwd(), "extensions/hostrun/package.json"), "utf8"),
+	) as HostrunPackageJson;
+}
+
+function readHostrunReadme(): string {
+	return readFileSync(join(process.cwd(), "extensions/hostrun/README.md"), "utf8");
 }
 
 describe("Hostrun MCP server", () => {
@@ -52,6 +67,21 @@ describe("Hostrun MCP server", () => {
 				name: "hostrun_eval",
 			},
 		]);
+	});
+
+	it("wires the hostrun-mcp binary to the standalone server entrypoint", () => {
+		const packageJson = readHostrunPackageJson();
+
+		expect(packageJson.bin?.["hostrun-mcp"]).toBe("./src/mcp-server.ts");
+		expect(packageJson.exports?.["./mcp-server"]).toBe("./src/mcp-server.ts");
+	});
+
+	it("documents the working Claude Code install command", () => {
+		const readme = readHostrunReadme();
+
+		expect(readme).toContain("claude mcp add hostrun -- hostrun-mcp");
+		expect(readme).not.toContain("not enabled");
+		expect(readme).not.toContain("remaining packaging step");
 	});
 
 	it("defaults CLI effects to pending approval and does not execute them", async () => {
