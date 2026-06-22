@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { access, glob, readFile, rm, writeFile } from "node:fs/promises";
+import { extname, isAbsolute, resolve } from "node:path";
 import { inspect } from "node:util";
 import { promisify } from "node:util";
 import { newAsyncContext, type QuickJSAsyncContext, type QuickJSHandle } from "quickjs-emscripten";
@@ -115,10 +116,40 @@ function parseRipgrepMatches(output: string): Array<{ line: string; lineNumber: 
 		.sort((a, b) => a.path.localeCompare(b.path) || a.lineNumber - b.lineNumber);
 }
 
+function parseDelimitedRows(content: string, separator: "," | "\t"): Record<string, string>[] {
+	const [headerLine, ...rows] = splitNonEmptyLines(content);
+	if (!headerLine) {
+		return [];
+	}
+	const headers = headerLine.split(separator);
+	return rows.map((row) => {
+		const values = row.split(separator);
+		return Object.fromEntries(values.map((value, index) => [headers[index] ?? "", value]));
+	});
+}
+
+function parseFileContent(content: string, path: string, format?: string): unknown {
+	const resolvedFormat = format ?? extname(path).slice(1);
+	if (resolvedFormat === "json") {
+		return JSON.parse(content);
+	}
+	if (resolvedFormat === "jsonl") {
+		return splitNonEmptyLines(content).map((line) => JSON.parse(line) as unknown);
+	}
+	if (resolvedFormat === "csv") {
+		return parseDelimitedRows(content, ",");
+	}
+	if (resolvedFormat === "tsv") {
+		return parseDelimitedRows(content, "\t");
+	}
+	return content;
+}
+
 class HostrunSession {
 	private approval: HostrunApproval | undefined;
 	private context: QuickJSAsyncContext | undefined;
 	private consoleEntries: HostrunConsoleEntry[] = [];
+	private cwd = process.cwd();
 
 	async evaluate(request: HostrunEvalRequest, sessionId: string): Promise<HostrunEvalResult> {
 		this.approval = request.approval;
@@ -183,7 +214,7 @@ class HostrunSession {
 		cliFactory.dispose();
 
 		const fsWrite = context.newAsyncifiedFunction("__hostrunFsWrite", async (pathHandle, contentHandle) => {
-			const path = String(context.dump(pathHandle));
+			const path = this.resolvePath(String(context.dump(pathHandle)));
 			const content = String(context.dump(contentHandle));
 			await this.requireApproval({
 				title: `Hostrun fs.write ${path}`,
@@ -196,7 +227,7 @@ class HostrunSession {
 		fsWrite.dispose();
 
 		const fsRead = context.newAsyncifiedFunction("__hostrunFsRead", async (pathHandle) => {
-			const path = String(context.dump(pathHandle));
+			const path = this.resolvePath(String(context.dump(pathHandle)));
 			await this.requireApproval({
 				title: `Hostrun fs.read ${path}`,
 				message: JSON.stringify({ operation: "fs.read", path }, null, 2),
@@ -207,7 +238,7 @@ class HostrunSession {
 		fsRead.dispose();
 
 		const fsExists = context.newAsyncifiedFunction("__hostrunFsExists", async (pathHandle) => {
-			const path = String(context.dump(pathHandle));
+			const path = this.resolvePath(String(context.dump(pathHandle)));
 			await this.requireApproval({
 				title: `Hostrun fs.exists ${path}`,
 				message: JSON.stringify({ operation: "fs.exists", path }, null, 2),
@@ -223,7 +254,7 @@ class HostrunSession {
 		fsExists.dispose();
 
 		const fsRemove = context.newAsyncifiedFunction("__hostrunFsRemove", async (pathHandle) => {
-			const path = String(context.dump(pathHandle));
+			const path = this.resolvePath(String(context.dump(pathHandle)));
 			await this.requireApproval({
 				title: `Hostrun fs.remove ${path}`,
 				message: JSON.stringify({ operation: "fs.remove", path }, null, 2),
@@ -234,20 +265,36 @@ class HostrunSession {
 		context.setProp(context.global, "__hostrunFsRemove", fsRemove);
 		fsRemove.dispose();
 
-		const fsGlob = context.newAsyncifiedFunction("__hostrunFsGlob", async (patternHandle) => {
+		const fsGlob = context.newAsyncifiedFunction("__hostrunFsGlob", async (patternHandle, optionsHandle) => {
 			const pattern = String(context.dump(patternHandle));
+			const options = this.dumpHandle(context, optionsHandle);
+			const globOptions = isRecord(options) ? options : {};
+			const cwd = typeof globOptions.cwd === "string" ? this.resolvePath(globOptions.cwd) : this.cwd;
 			await this.requireApproval({
 				title: `Hostrun fs.glob ${pattern}`,
-				message: JSON.stringify({ operation: "fs.glob", pattern }, null, 2),
+				message: JSON.stringify({ cwd, operation: "fs.glob", pattern }, null, 2),
 			});
 			const matches: string[] = [];
-			for await (const match of glob(pattern)) {
+			for await (const match of glob(pattern, { ...globOptions, cwd })) {
 				matches.push(match);
 			}
 			return this.createJsonHandle(context, matches);
 		});
-		context.setProp(context.global, "__hostrunFsGlob", fsGlob);
-		fsGlob.dispose();
+			context.setProp(context.global, "__hostrunFsGlob", fsGlob);
+			fsGlob.dispose();
+
+		const fsOpen = context.newAsyncifiedFunction("__hostrunFsOpen", async (pathHandle, optionsHandle) => {
+			const path = this.resolvePath(String(context.dump(pathHandle)));
+			const options = this.dumpHandle(context, optionsHandle);
+			const format = isRecord(options) && typeof options.format === "string" ? options.format : undefined;
+			await this.requireApproval({
+				title: `Hostrun fs.open ${path}`,
+				message: JSON.stringify({ format, operation: "fs.open", path }, null, 2),
+			});
+			return this.createJsonHandle(context, parseFileContent(await readFile(path, "utf8"), path, format));
+		});
+		context.setProp(context.global, "__hostrunFsOpen", fsOpen);
+		fsOpen.dispose();
 
 		const httpGet = context.newFunction("__hostrunHttpGet", (urlHandle) => {
 			const url = String(context.dump(urlHandle));
@@ -263,6 +310,32 @@ class HostrunSession {
 		});
 		context.setProp(context.global, "__hostrunHttpPost", httpPost);
 		httpPost.dispose();
+
+		for (const [name, method] of [
+			["__hostrunHttpPut", "PUT"],
+			["__hostrunHttpPatch", "PATCH"],
+			["__hostrunHttpDelete", "DELETE"],
+			["__hostrunHttpHead", "HEAD"],
+		] as const) {
+			const httpMethod = context.newFunction(name, (urlHandle, optionsHandle) => {
+				const url = String(context.dump(urlHandle));
+				const options = this.dumpHandle(context, optionsHandle);
+				return this.createHttpBuilder(context, method, url, isRecord(options) ? options : {});
+			});
+			context.setProp(context.global, name, httpMethod);
+			httpMethod.dispose();
+		}
+
+		const hostCwd = context.newFunction("__hostrunHostCwd", () => context.newString(this.cwd));
+		context.setProp(context.global, "__hostrunHostCwd", hostCwd);
+		hostCwd.dispose();
+
+		const hostCd = context.newFunction("__hostrunHostCd", (pathHandle) => {
+			this.cwd = this.resolvePath(String(context.dump(pathHandle)));
+			return context.undefined;
+		});
+		context.setProp(context.global, "__hostrunHostCd", hostCd);
+		hostCd.dispose();
 
 		const runFactory = context.newAsyncifiedFunction("__hostrunRun", async (programHandle, argsHandle) => {
 			const program = String(context.dump(programHandle));
@@ -333,14 +406,23 @@ class HostrunSession {
 			});
 			globalThis.fs = {
 				exists(path) { return globalThis.__hostrunFsExists(path); },
-				glob(pattern) { return globalThis.__hostrunFsGlob(pattern); },
+				glob(pattern, options = {}) { return globalThis.__hostrunFsGlob(pattern, options); },
+				open(path, options = {}) { return globalThis.__hostrunFsOpen(path, options); },
 				read(path) { return globalThis.__hostrunFsRead(path); },
 				remove(path) { return globalThis.__hostrunFsRemove(path); },
 				write(path, content) { return globalThis.__hostrunFsWrite(path, content); },
 			};
 			globalThis.http = {
+				delete(url, options = {}) { return globalThis.__hostrunHttpDelete(url, options); },
 				get(url) { return globalThis.__hostrunHttpGet(url); },
+				head(url, options = {}) { return globalThis.__hostrunHttpHead(url, options); },
+				patch(url, options = {}) { return globalThis.__hostrunHttpPatch(url, options); },
 				post(url, options = {}) { return globalThis.__hostrunHttpPost(url, options); },
+				put(url, options = {}) { return globalThis.__hostrunHttpPut(url, options); },
+			};
+			globalThis.host = {
+				cd(path) { return globalThis.__hostrunHostCd(path); },
+				cwd() { return globalThis.__hostrunHostCwd(); },
 			};
 			globalThis.rg = {
 				files(path) { return globalThis.__hostrunRgFiles(path); },
@@ -442,6 +524,10 @@ class HostrunSession {
 			}
 			throw error;
 		}
+	}
+
+	private resolvePath(path: string): string {
+		return isAbsolute(path) ? path : resolve(this.cwd, path);
 	}
 
 	private async runProcess(
