@@ -209,7 +209,7 @@ export type MailboxMessageCommandResult =
 export type AgentMetadataCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "not_found"; agentId: string }
-	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
+	| { ok: false; error: "stale_revision"; current: AgentSnapshot; projection: MultiAgentProjectionSnapshot };
 
 export interface MultiAgentStoreOptions {
 	now?: () => string;
@@ -235,10 +235,22 @@ export interface AgentSlotProjection {
 	revision: number;
 }
 
+export interface AgentRowProjection {
+	agentId: string;
+	displayName: string;
+	lifecycle: AgentLifecycleState;
+	revision: number;
+	active: boolean;
+	selected: boolean;
+	slotIndex?: number;
+	workerAdapter?: AgentWorkerAdapter["adapter"];
+}
+
 export interface MultiAgentProjectionSnapshot {
 	activeCount: number;
 	agents: AgentSnapshot[];
 	mailboxMessages: AgentMailboxMessage[];
+	rows: AgentRowProjection[];
 	selectedAgentId?: string;
 	slots: AgentSlotProjection[];
 }
@@ -420,6 +432,7 @@ export class MultiAgentStore {
 			activeCount: this.getActiveAgentCount(),
 			agents: this.listAgents(),
 			mailboxMessages: this.listMailboxMessages(),
+			rows: this.listRowProjections(),
 			selectedAgentId: this.selectedAgentId,
 			slots: this.listSlotProjections(),
 		};
@@ -447,9 +460,13 @@ export class MultiAgentStore {
 			return { ok: false, error: "not_found", agentId };
 		}
 
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
+		if (current.revision !== expectedRevision) {
+			return {
+				ok: false,
+				error: "stale_revision",
+				current: copyAgent(current),
+				projection: this.getProjectionSnapshot(),
+			};
 		}
 
 		const updated = this.updateAgent(current, {
@@ -464,9 +481,13 @@ export class MultiAgentStore {
 			return { ok: false, error: "not_found", agentId };
 		}
 
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
+		if (current.revision !== expectedRevision) {
+			return {
+				ok: false,
+				error: "stale_revision",
+				current: copyAgent(current),
+				projection: this.getProjectionSnapshot(),
+			};
 		}
 
 		const updated = this.updateAgent(current, {
@@ -699,6 +720,19 @@ export class MultiAgentStore {
 				revision: agent.revision,
 			}))
 			.sort((left, right) => left.index - right.index || left.agentId.localeCompare(right.agentId));
+	}
+
+	private listRowProjections(): AgentRowProjection[] {
+		return Array.from(this.agents.values()).map((agent) => ({
+			active: isActiveLifecycle(agent.lifecycle),
+			agentId: agent.id,
+			displayName: agent.displayName,
+			lifecycle: agent.lifecycle,
+			revision: agent.revision,
+			selected: this.selectedAgentId === agent.id,
+			slotIndex: agent.slot?.index,
+			workerAdapter: agent.worker?.adapter,
+		}));
 	}
 
 	private canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {

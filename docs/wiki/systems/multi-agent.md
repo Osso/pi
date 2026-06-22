@@ -144,12 +144,18 @@ must include `expectedRevision`. If it does not match, the store returns:
 {
 	ok: false,
 	error: "stale_revision",
-	current: AgentSnapshot
+	current: AgentSnapshot,
+	projection?: MultiAgentProjectionSnapshot
 }
 ```
 
 Read commands do not require a revision. TUI clients should refresh from the returned snapshot
 instead of retrying blindly.
+
+`getProjectionSnapshot()` includes raw copied agents plus TUI-facing row projections. Rows derive
+display name, lifecycle, revision, active state, selection state, pinned slot index, and terminal or
+subprocess adapter type from current core state. Stale slot mutations return the latest projection
+with the conflict so visible rows and pane slots can redraw by agent ID before retrying.
 
 ### Lifecycle transitions
 

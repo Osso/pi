@@ -449,6 +449,66 @@ describe("MultiAgentStore", () => {
 		]);
 	});
 
+	it("projects TUI rows and stale slot conflicts from current core snapshots", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "terminal-pane-worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 1, pinned: true },
+			worker: { adapter: "terminal", handleId: "pane-1" },
+		});
+		const staleProjection = store.getProjectionSnapshot();
+		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) {
+			throw new Error("expected starting transition");
+		}
+		const repinned = store.pinAgentSlot(spawned.agent.id, starting.agent.revision, 3);
+		expect(repinned.ok).toBe(true);
+		if (!repinned.ok) {
+			throw new Error("expected slot repin");
+		}
+
+		const currentProjection = store.getProjectionSnapshot();
+		const staleConflict = store.pinAgentSlot(spawned.agent.id, spawned.agent.revision, 9);
+
+		expect(staleProjection.rows).toMatchObject([
+			{
+				agentId: spawned.agent.id,
+				lifecycle: "queued",
+				revision: spawned.agent.revision,
+				slotIndex: 1,
+				workerAdapter: "terminal",
+			},
+		]);
+		expect(currentProjection.rows).toMatchObject([
+			{
+				agentId: spawned.agent.id,
+				lifecycle: "starting",
+				revision: repinned.agent.revision,
+				slotIndex: 3,
+				workerAdapter: "terminal",
+			},
+		]);
+		expect(staleConflict).toMatchObject({
+			ok: false,
+			error: "stale_revision",
+			current: { id: spawned.agent.id, revision: repinned.agent.revision },
+			projection: {
+				rows: [
+					{
+						agentId: spawned.agent.id,
+						revision: repinned.agent.revision,
+						slotIndex: 3,
+					},
+				],
+			},
+		});
+	});
+
 	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);

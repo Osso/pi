@@ -9,7 +9,7 @@ runtime contract belongs here; implementation details will live in
 
 ### Core runtime
 
-- [ ] Core state is authoritative for every agent; TUI rows, terminal panes, and extension views
+- [x] Core state is authoritative for every agent; TUI rows, terminal panes, and extension views
       are projections that must resync from core snapshots.
 - [x] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
       model/account metadata, permission policy, and monotonic revision.
@@ -67,7 +67,7 @@ runtime contract belongs here; implementation details will live in
 - [ ] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
 - [ ] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
 - [ ] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
-- [ ] TUI controls show stale-revision conflicts and require the user or caller to retry against
+- [x] TUI controls show stale-revision conflicts and require the user or caller to retry against
       the latest snapshot.
 
 ### External extension learnings
@@ -115,8 +115,9 @@ runtime contract belongs here; implementation details will live in
   current core state. It covers child-agent model/account/budget metadata inheritance, rejects
   permission broadening, keeps account metadata separate from mailbox, workflow, and UI selection
   state, verifies terminal/subprocess worker adapter metadata stays under the same permission,
-  mailbox, and lifecycle contracts, and persists bounded transcript/event stream metadata across
-  SessionManager rehydrate without retaining inline child output logs.
+  mailbox, and lifecycle contracts, persists bounded transcript/event stream metadata across
+  SessionManager rehydrate without retaining inline child output logs, and exposes TUI row/slot
+  projections plus stale slot-conflict refresh payloads from current core snapshots.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
@@ -180,6 +181,8 @@ runtime contract belongs here; implementation details will live in
       mailbox, and lifecycle contracts.
 - [x] Add focused tests for durable bounded transcript/event stream metadata across SessionManager
       persistence and projection snapshots.
+- [x] Add focused TUI-facing projection tests proving core snapshots are authoritative for visible
+      rows, pane slots, and stale conflict refresh.
 
 ## Out of scope
 
