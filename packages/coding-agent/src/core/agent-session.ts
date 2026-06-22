@@ -442,9 +442,10 @@ export class AgentSession {
 				bypassPermissions: approvalPresetToBypassPermissions(this.settingsManager.getApprovalPreset()),
 				input: args as Record<string, unknown>,
 			} as const;
+			const approvalRequired = this._toolDefinitions.get(toolCall.name)?.definition.approvalRequired ?? true;
 			return orchestrateToolApproval({
 				policy: this.settingsManager.getApprovalPolicy(),
-				approvalRequired: true,
+				approvalRequired,
 				hookReviewer: this._createToolApprovalHookReviewer(event, runner),
 				reviewer: this._createToolApprovalHumanReviewer(event, runner),
 				llmReviewer: this._createToolApprovalLlmReviewer(event),

@@ -2,6 +2,7 @@ import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import hostrunExtension from "../../extensions/hostrun/src/index.ts";
 import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionUIContext } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
 
@@ -237,6 +238,31 @@ describe("AgentSession model and extension characterization", () => {
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();
+	});
+
+	it("does not ask for wrapper approval before internally gated hostrun_eval execution", async () => {
+		const confirm = vi.fn(async () => false);
+		const harness = await createHarness({
+			extensionFactories: [hostrunExtension],
+			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
+			uiContext: createConfirmUiContext(confirm),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("hostrun_eval", { code: "1 + 1" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(confirm).not.toHaveBeenCalled();
+		expect(getAssistantTexts(harness).join("\n")).toContain("Result: 2");
+		expect(
+			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
+		).toBeUndefined();
 	});
 
 	it("preserves baseline tool_call review with bypassPermissions=false under on-request", async () => {

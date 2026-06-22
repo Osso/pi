@@ -27,6 +27,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Provide model-facing `promptSnippet` and `promptGuidelines` instructions
   for synchronous QuickJS evaluation, persistent `ctx`, and approval-gated
   Hostrun helpers whenever `hostrun_eval` is active.
+- [x] Do not require generic wrapper approval for pure `hostrun_eval`
+  execution; approval must occur at the host-effect helper boundary instead.
 - [x] Evaluate `code` in a persistent QuickJS session; keep `globalThis.ctx`
   live across evaluations in the same session.
 - [x] Keep separate `ctx` state per `session_id`; default a missing `session_id`
@@ -108,8 +110,9 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 - `packages/coding-agent/extensions/hostrun/` — extension root.
 - `packages/coding-agent/extensions/hostrun/src/index.ts` — Pi extension entry
-  point; calls `pi.registerTool("hostrun_eval", ...)` and wires the session
-  store.
+  point; calls `pi.registerTool("hostrun_eval", ...)`, marks wrapper approval
+  unnecessary because helper effects are internally gated, and wires the
+  session store.
 - `packages/coding-agent/extensions/hostrun/src/session.ts` — QuickJS session
   lifecycle, `ctx` persistence, console capture, approval-gated process helpers,
   approval-gated file helpers, tested `http.get`/`http.post` helpers, and tested

@@ -41,6 +41,9 @@ Implementation details belong in
   review.
 - [x] Do not run the LLM-approved reviewer when the active policy is `never` or
   `auto-approve`.
+- [x] Tools can opt out of generic wrapper approval with `approvalRequired:
+  false` only when they gate their own host effects internally; those calls skip
+  hook, human, and LLM reviewers at the wrapper layer.
 
 ### Presets and slash commands
 
@@ -116,7 +119,9 @@ Implementation details belong in
   policy gating for `on-request`, `never`, and `auto-approve`, plus hook
   reviewer short-circuit behavior before the future LLM reviewer.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
-  session-level coverage proving `never` and `auto-approve` skip hook reviewers.
+  session-level coverage proving `never` and `auto-approve` skip hook reviewers,
+  and internally gated tools skip generic wrapper approval while ordinary tools
+  still prompt.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
 - `packages/coding-agent/test/approval-auto-reviewer.test.ts` — LLM-approved

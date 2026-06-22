@@ -23,6 +23,7 @@ export default function hostrunExtension(pi: ExtensionAPI) {
 		description: "Evaluate JavaScript in a persistent Hostrun session.",
 		promptSnippet: HOSTRUN_PROMPT_SNIPPET,
 		promptGuidelines: HOSTRUN_PROMPT_GUIDELINES,
+		approvalRequired: false,
 		parameters: Type.Object({
 			code: Type.String({ description: "JavaScript source to evaluate." }),
 			session_id: Type.Optional(Type.String({ description: "Hostrun session id. Defaults to this Pi session." })),
