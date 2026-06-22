@@ -22,7 +22,8 @@ does not create live child model sessions yet. `list_agents` can scope results t
 a parent ID, using core store state rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
-and labels, so large logs or diffs stay outside coordination events.
+and labels, so large logs or diffs stay outside coordination events. `wait_agent` can include the
+target agent's descendant snapshots and pending mailbox messages without reading any TUI state.
 
 Existing primitives worth reusing:
 
@@ -42,7 +43,7 @@ Existing primitives worth reusing:
 Still missing first-party pieces:
 
 - Startup/runtime registration that opts `spawn_agent` into the production child factory.
-- Richer wait behavior.
+- Blocking wait/notification behavior beyond immediate store snapshots.
 - Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
 - Bounded artifact store for storing referenced diff/log/result payloads outside mailbox events.

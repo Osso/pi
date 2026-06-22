@@ -45,6 +45,8 @@ const listAgentsSchema = Type.Object({
 
 const waitAgentSchema = Type.Object({
 	agentId: Type.String(),
+	includeDescendants: Type.Optional(Type.Boolean()),
+	includePendingMessages: Type.Optional(Type.Boolean()),
 });
 
 const cancelAgentSchema = Type.Object({
@@ -111,9 +113,11 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	sessionDir?: string;
 }
 
-interface AgentToolDetails {
+interface AgentToolDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
+	descendants?: AgentSnapshot[];
 	dispatched?: boolean;
+	pendingMessages?: AgentMailboxMessage[];
 	prompt?: string;
 	reason?: string;
 	terminal?: boolean;
@@ -301,7 +305,17 @@ function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolRe
 	}
 
 	const terminal = !isActiveLifecycle(agent.lifecycle);
-	return result(`${agent.displayName} is ${agent.lifecycle}.`, { agent, terminal });
+	const details: AgentToolDetails = { agent, terminal };
+	if (params.includeDescendants) {
+		details.descendants = store.listDescendants(agent.id);
+	}
+	if (params.includePendingMessages) {
+		details.pendingMessages = store
+			.listMailboxMessages()
+			.filter((message) => message.toAgentId === agent.id && message.status === "pending");
+	}
+
+	return result(`${agent.displayName} is ${agent.lifecycle}.`, details);
 }
 
 function cancelAgent(store: MultiAgentStore, params: CancelAgentParams): AgentToolResult<AgentToolDetails> {

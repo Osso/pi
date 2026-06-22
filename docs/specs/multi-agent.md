@@ -114,9 +114,10 @@ runtime contract belongs here; implementation details will live in
   store-backed and does not start child model sessions by default. It also asserts the spawn tool
   can call an injected child dispatcher, a real child `AgentSession` factory, or the production
   child factory wrapper, that `wait_agent` reports terminal store state without TUI coupling, that
-  `list_agents` can return descendants below a parent without TUI state, and that
-  `contact_supervisor` routes child messages to the direct parent with artifact references by
-  ID/path rather than copied content.
+  `wait_agent` can include descendant snapshots and pending mailbox summaries, that `list_agents`
+  can return descendants below a parent without TUI state, and that `contact_supervisor` routes
+  child messages to the direct parent with artifact references by ID/path rather than copied
+  content.
 
 ## Known gaps (current cycle)
 
@@ -143,6 +144,8 @@ runtime contract belongs here; implementation details will live in
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
 - [x] Add and implement mailbox artifact references by ID/path without copying large content into
       coordination events.
+- [x] Add and implement richer `wait_agent` behavior for descendant filtering and pending mailbox
+      summaries without TUI coupling.
 
 ## Out of scope
 

@@ -33,6 +33,8 @@ interface ListAgentsDetails extends Record<string, unknown> {
 
 interface WaitAgentDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
+	descendants?: AgentSnapshot[];
+	pendingMessages?: AgentMailboxMessage[];
 	terminal: boolean;
 }
 
@@ -256,6 +258,37 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(cancelled.details.reason).toBe("user stopped it");
 		expect(harness.store.getActiveAgentCount()).toBe(0);
+	});
+
+	it("waits with descendant state and pending mailbox summaries without TUI state", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+			agentId: child.details.agent.id,
+			expectedRevision: child.details.agent.revision,
+			message: "Need review",
+		});
+
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", {
+			agentId: parent.details.agent.id,
+			includeDescendants: true,
+			includePendingMessages: true,
+		});
+
+		expect(waited.details).toMatchObject({
+			agent: { id: parent.details.agent.id },
+			descendants: [{ id: child.details.agent.id }],
+			pendingMessages: [{ id: contact.details.message.id, toAgentId: parent.details.agent.id }],
+			terminal: false,
+		});
 	});
 
 	it("steers a running agent with mailbox acknowledgement state", async () => {
