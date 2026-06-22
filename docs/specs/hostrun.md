@@ -77,9 +77,9 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   auth secrets from approval metadata while preserving the real request.
 - [ ] Expose `http.put`, `http.patch`, `http.delete`, and `http.head` as
   approval-gated HTTP helpers; redact auth secrets from approval metadata.
-- [ ] Expose `rg.search`, `rg.files`, and `rg.matches` as lazy wrappers around
+- [x] Expose `rg.search`, `rg.files`, and `rg.matches` as lazy wrappers around
   ripgrep; `rg.matches` parses `rg --json` output into structured objects.
-- [ ] Expose `fd.find`, `fd.files`, and `fd.dirs` as lazy wrappers around
+- [x] Expose `fd.find`, `fd.files`, and `fd.dirs` as lazy wrappers around
   `fdfind`/`fd`.
 - [ ] Expose `host.cwd()` and `host.cd(path)` for persistent per-session working
   directory state; resolve relative paths against session cwd.
@@ -105,7 +105,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   store.
 - `packages/coding-agent/extensions/hostrun/src/session.ts` — QuickJS session
   lifecycle, `ctx` persistence, console capture, approval-gated process helpers,
-  approval-gated file helpers, and the tested `http.get`/`http.post` slice.
+  approval-gated file helpers, tested `http.get`/`http.post` helpers, and tested
+  `rg.*`/`fd.*` wrappers.
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — shared
   `hostrun_eval` argument parsing and session dispatch.
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
@@ -120,7 +121,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
   per-session `ctx` persistence, console capture, and exception-survival
   coverage, including returned exception details and approval-gated
-  `cli.*`/`fs.*`/`http.*` host effects.
+  `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects.
 - `npm run check` — validates the workspace and lockfile state as part of the
   repo-wide verification flow.
 
@@ -136,11 +137,11 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   `fs.exists`/`fs.remove`/`fs.glob`, and `http.post` helpers.
 - [ ] Implement remaining approval-gated `cli.*`, `fs.*`, and `http.*` helpers
   not yet covered by tests.
-- [ ] Implement `rg.*` and `fd.*` lazy wrappers.
+- [x] Implement `rg.*` and `fd.*` lazy wrappers.
 - [x] Register extension via `pi.registerTool` in `index.ts`.
 - [ ] Implement standalone `mcp-server.ts` with pending-approval default.
 - [x] Add tests for `ctx` persistence across evaluations and after exceptions.
-- [ ] Add tests for `rg.matches` structured parsing and `fd.files` output.
+- [x] Add tests for `rg.matches` structured parsing and `fd.files` output.
 - [ ] Document stdio MCP install in `packages/coding-agent/extensions/hostrun/README.md`.
 
 ## Out of scope
