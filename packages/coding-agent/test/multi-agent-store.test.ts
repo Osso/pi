@@ -355,6 +355,58 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("sends direct mailbox messages only across parent-child relationships", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const parent = spawnScout(store);
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Child",
+			parentId: parent.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const sibling = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Sibling",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		const sentToChild = store.sendMailboxMessage(parent.agent.id, parent.agent.revision, {
+			body: "Please inspect auth",
+			toAgentId: child.agent.id,
+		});
+		expect(sentToChild.ok).toBe(true);
+		if (!sentToChild.ok) {
+			throw new Error("expected parent-to-child message");
+		}
+		const siblingAttempt = store.sendMailboxMessage(child.agent.id, child.agent.revision, {
+			body: "Can I read your state?",
+			toAgentId: sibling.agent.id,
+		});
+
+		expect(sentToChild.message).toMatchObject({
+			body: "Please inspect auth",
+			fromAgentId: parent.agent.id,
+			kind: "message",
+			status: "pending",
+			toAgentId: child.agent.id,
+		});
+		expect(sentToChild.agent).toMatchObject({
+			id: parent.agent.id,
+			lastActivity: { description: "Sent mailbox message" },
+			revision: parent.agent.revision + 1,
+		});
+		expect(siblingAttempt).toMatchObject({
+			ok: false,
+			error: "forbidden_target",
+			current: { id: child.agent.id, revision: child.agent.revision },
+			target: { id: sibling.agent.id },
+		});
+		expect(store.listMailboxMessages()).toHaveLength(1);
+	});
+
 	it("stores mailbox artifact references by metadata without copying content", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const supervisor = spawnScout(store);

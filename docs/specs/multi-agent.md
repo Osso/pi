@@ -45,7 +45,7 @@ runtime contract belongs here; implementation details will live in
 
 - [ ] `agent viewer` is a read-only extension surface for tree/status/transcript inspection plus
       explicit commands such as stop, resume, and steer.
-- [ ] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
+- [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
       supervisor contact, and inter-agent messages.
 - [ ] `agent artifacts` stores shared outputs such as summaries, findings, diffs, and file links
       outside the mailbox event log.
@@ -97,8 +97,8 @@ runtime contract belongs here; implementation details will live in
   the first multi-agent store API surface.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
   registers the first store-backed `agent_viewer`, `agents_mailbox`, `spawn_agent`, `list_agents`,
-  `wait_agent`, `cancel_agent`, `contact_supervisor`, and `steer_agent` tool surface without
-  spawning real child model sessions.
+  `wait_agent`, `cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent` tool
+  surface without spawning real child model sessions.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -123,7 +123,8 @@ runtime contract belongs here; implementation details will live in
   `contact_supervisor` routes child messages to the direct parent with artifact references by
   ID/path rather than copied content. It verifies `agent_viewer` returns a read-only projection
   snapshot without advancing lifecycle state and `agents_mailbox` returns inbox/outbox plus
-  acknowledgement summaries from core mailbox state.
+  acknowledgement summaries from core mailbox state. It also verifies `send_agent_message` allows
+  direct parent-child mailbox messages while rejecting sibling targets.
 
 ## Known gaps (current cycle)
 
@@ -160,6 +161,7 @@ runtime contract belongs here; implementation details will live in
       wiring interactive TUI controls.
 - [x] Add first `agents mailbox` extension projection tests for inbox/outbox summaries and
       acknowledgements over core mailbox state.
+- [x] Add direct inter-agent mailbox message tests and the smallest sibling-safe send/list surface.
 
 ## Out of scope
 

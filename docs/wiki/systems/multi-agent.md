@@ -12,7 +12,7 @@ are added.
 
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
 `agent_viewer`, `agents_mailbox`, `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`,
-`contact_supervisor`, and `steer_agent`. These tools mutate or read `MultiAgentStore`.
+`contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate or read `MultiAgentStore`.
 `spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
 injected factory, then reports terminal state through `wait_agent`.
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
@@ -27,6 +27,8 @@ target agent's descendant snapshots and pending mailbox messages without reading
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
+`send_agent_message` creates direct mailbox messages only across parent-child relationships, so
+siblings cannot target each other directly.
 
 Existing primitives worth reusing:
 

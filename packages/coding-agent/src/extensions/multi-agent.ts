@@ -80,6 +80,16 @@ const agentsMailboxSchema = Type.Object({
 	agentId: Type.Optional(Type.String()),
 });
 
+const sendAgentMessageSchema = Type.Object({
+	artifactIds: Type.Optional(Type.Array(Type.String())),
+	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
+	expectedRevision: Type.Number(),
+	fromAgentId: Type.String(),
+	message: Type.String(),
+	threadId: Type.Optional(Type.String()),
+	toAgentId: Type.String(),
+});
+
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type WaitAgentParams = Static<typeof waitAgentSchema>;
@@ -87,6 +97,7 @@ type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
 type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
 type AgentsMailboxParams = Static<typeof agentsMailboxSchema>;
+type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
 
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
@@ -155,6 +166,11 @@ interface AgentsMailboxToolDetails {
 	inbox: AgentMailboxMessage[];
 	outbox: AgentMailboxMessage[];
 	pendingCount: number;
+}
+
+interface SendAgentMessageToolDetails {
+	agent: AgentSnapshot;
+	message: AgentMailboxMessage;
 }
 
 function result<TDetails extends Record<string, unknown>>(text: string, details: TDetails): AgentToolResult<TDetails> {
@@ -346,6 +362,30 @@ function agentsMailbox(store: MultiAgentStore, params: AgentsMailboxParams): Age
 	});
 }
 
+function sendAgentMessage(
+	store: MultiAgentStore,
+	params: SendAgentMessageParams,
+): AgentToolResult<SendAgentMessageToolDetails> {
+	const sent = store.sendMailboxMessage(params.fromAgentId, params.expectedRevision, {
+		artifactIds: params.artifactIds,
+		artifactRefs: params.artifactRefs,
+		body: params.message,
+		threadId: params.threadId,
+		toAgentId: params.toAgentId,
+	});
+	if (!sent.ok) {
+		return errorResult(`Could not send agent message from ${params.fromAgentId}: ${sent.error}`, {
+			agent: "current" in sent ? sent.current : emptyAgent(params.fromAgentId),
+			message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
+		});
+	}
+
+	return result(`Sent message to ${sent.message.toAgentId}.`, {
+		agent: sent.agent,
+		message: sent.message,
+	});
+}
+
 function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolResult<AgentToolDetails> {
 	const agent = store.getAgent(params.agentId);
 	if (!agent) {
@@ -468,6 +508,20 @@ function emptySupervisorRequest(agentId: string, body: string): AgentMailboxMess
 	};
 }
 
+function emptyDirectMessage(fromAgentId: string, toAgentId: string, body: string): AgentMailboxMessage {
+	const timestamp = new Date(0).toISOString();
+	return {
+		body,
+		createdAt: timestamp,
+		fromAgentId,
+		id: "",
+		kind: "message",
+		status: "failed",
+		toAgentId,
+		updatedAt: timestamp,
+	};
+}
+
 function lastAssistantText(messages: AgentMessage[]): string | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -538,6 +592,16 @@ export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgen
 			description: "Read inbox, outbox, and acknowledgement summaries from the multi-agent mailbox.",
 			parameters: agentsMailboxSchema,
 			execute: async (_toolCallId, params) => agentsMailbox(store, params),
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "send_agent_message",
+			label: "Send Agent Message",
+			description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.",
+			parameters: sendAgentMessageSchema,
+			execute: async (_toolCallId, params) => sendAgentMessage(store, params),
 		}),
 	);
 

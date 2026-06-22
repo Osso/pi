@@ -106,6 +106,14 @@ export interface ContactSupervisorInput {
 	artifactRefs?: AgentArtifactReference[];
 }
 
+export interface SendMailboxMessageInput {
+	body: string;
+	toAgentId: string;
+	threadId?: string;
+	artifactIds?: string[];
+	artifactRefs?: AgentArtifactReference[];
+}
+
 export interface TransitionAgentDetails {
 	error?: AgentNode["error"];
 	lastActivity?: AgentActivity;
@@ -129,6 +137,13 @@ export type SupervisorContactResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; error: "not_found"; agentId: string }
 	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
+
+export type MailboxMessageCommandResult =
+	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
+	| { ok: false; error: "not_found"; agentId: string }
+	| { ok: false; error: "target_not_found"; current: AgentSnapshot; targetId: string }
+	| { ok: false; error: "stale_revision"; current: AgentSnapshot }
+	| { ok: false; error: "forbidden_target"; current: AgentSnapshot; target: AgentSnapshot };
 
 export type AgentMetadataCommandResult =
 	| { ok: true; agent: AgentSnapshot }
@@ -385,6 +400,53 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
 
+	sendMailboxMessage(
+		agentId: string,
+		expectedRevision: number,
+		input: SendMailboxMessageInput,
+	): MailboxMessageCommandResult {
+		const current = this.agents.get(agentId);
+		if (!current) {
+			return { ok: false, error: "not_found", agentId };
+		}
+
+		const revisionCheck = this.checkRevision(current, expectedRevision);
+		if (revisionCheck) {
+			return revisionCheck;
+		}
+
+		const target = this.agents.get(input.toAgentId);
+		if (!target) {
+			return { ok: false, error: "target_not_found", current: copyAgent(current), targetId: input.toAgentId };
+		}
+
+		if (!this.canSendDirectMessage(current.id, target.id)) {
+			return { ok: false, error: "forbidden_target", current: copyAgent(current), target: copyAgent(target) };
+		}
+
+		const timestamp = this.now();
+		const message: AgentMailboxMessage = {
+			id: this.createMessageId(),
+			threadId: input.threadId,
+			fromAgentId: current.id,
+			toAgentId: target.id,
+			kind: "message",
+			status: "pending",
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			body: input.body,
+			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
+			artifactRefs: copyArtifactRefs(input.artifactRefs),
+		};
+		this.mailboxMessages.set(message.id, message);
+
+		const updated = this.updateAgent(current, {
+			lastActivity: { description: "Sent mailbox message" },
+		});
+
+		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
+	}
+
 	sendSteering(agentId: string, expectedRevision: number, input: SendSteeringInput): SteeringCommandResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
@@ -516,6 +578,22 @@ export class MultiAgentStore {
 				revision: agent.revision,
 			}))
 			.sort((left, right) => left.index - right.index || left.agentId.localeCompare(right.agentId));
+	}
+
+	private canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {
+		return this.isAncestor(fromAgentId, toAgentId) || this.isAncestor(toAgentId, fromAgentId);
+	}
+
+	private isAncestor(ancestorId: string, descendantId: string): boolean {
+		let current = this.agents.get(descendantId);
+		while (current?.parentId) {
+			if (current.parentId === ancestorId) {
+				return true;
+			}
+			current = this.agents.get(current.parentId);
+		}
+
+		return false;
 	}
 
 	private checkRevision(

@@ -65,6 +65,11 @@ interface AgentsMailboxDetails extends Record<string, unknown> {
 	pendingCount: number;
 }
 
+interface SendAgentMessageDetails extends Record<string, unknown> {
+	agent: AgentSnapshot;
+	message: AgentMailboxMessage;
+}
+
 function createMultiAgentHarness(
 	options: {
 		createChildSession?: ChildAgentSessionFactory;
@@ -121,6 +126,7 @@ describe("multi-agent extension tools", () => {
 			"cancel_agent",
 			"contact_supervisor",
 			"list_agents",
+			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
 			"wait_agent",
@@ -279,6 +285,52 @@ describe("multi-agent extension tools", () => {
 		expect(childAfterMailbox).toMatchObject({
 			id: child.details.agent.id,
 			revision: contact.details.agent.revision,
+		});
+	});
+
+	it("sends direct parent-child mailbox messages and rejects sibling targets", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		const sibling = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Sibling",
+			prompt: "Sibling task",
+		});
+
+		const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+			expectedRevision: parent.details.agent.revision,
+			fromAgentId: parent.details.agent.id,
+			message: "Please inspect auth",
+			toAgentId: child.details.agent.id,
+		});
+		const rejected = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+			expectedRevision: child.details.agent.revision,
+			fromAgentId: child.details.agent.id,
+			message: "Can I read your state?",
+			toAgentId: sibling.details.agent.id,
+		});
+		const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
+			agentId: child.details.agent.id,
+		});
+
+		expect(sent.details.message).toMatchObject({
+			body: "Please inspect auth",
+			fromAgentId: parent.details.agent.id,
+			kind: "message",
+			status: "pending",
+			toAgentId: child.details.agent.id,
+		});
+		expect(childMailbox.details.inbox).toMatchObject([{ id: sent.details.message.id }]);
+		expect(rejected.details).toMatchObject({
+			agent: { id: child.details.agent.id, revision: child.details.agent.revision },
+			message: { status: "failed", toAgentId: sibling.details.agent.id },
 		});
 	});
 
