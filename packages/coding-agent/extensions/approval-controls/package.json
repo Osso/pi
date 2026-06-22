@@ -1,0 +1,11 @@
+{
+	"name": "@earendil-works/pi-approval-controls-extension",
+	"version": "0.79.9",
+	"private": true,
+	"type": "module",
+	"description": "First-party approval and sandbox controls extension for Pi",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	}
+}

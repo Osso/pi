@@ -1,8 +1,12 @@
 # Multi-agent
 
+Module boundary: split first-party extension modules (`agents-core`, `agent-viewer`, `agents-mailbox`) over the core `MultiAgentStore`.
+
 Pi's multi-agent system lets one interactive session supervise child agents with isolated
 context, explicit lifecycle state, mailbox-based coordination, and optional TUI views. The
-runtime contract belongs here; implementation details will live in
+runtime state belongs in core, while user/model-facing affordances should be delivered as
+first-party extension modules: an agents-core tool surface, an agent-viewer projection, and
+an agents-mailbox coordination surface. The runtime contract belongs here; implementation details will live in
 [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) once the first slice lands.
 
 ## What it must do
@@ -11,6 +15,9 @@ runtime contract belongs here; implementation details will live in
 
 - [x] Core state is authoritative for every agent; TUI rows, terminal panes, and extension views
       are projections that must resync from core snapshots.
+- [x] Core runtime state is kept separate from first-party extension modules: the core store owns
+      lifecycle, revisions, snapshots, mailbox records, artifacts, and transcript metadata, while
+      extension packages own commands, tools, and presentation surfaces.
 - [x] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
       model/account metadata, permission policy, and monotonic revision.
 - [x] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,
@@ -43,6 +50,9 @@ runtime contract belongs here; implementation details will live in
 
 ### Extension boundaries
 
+- [x] Multi-agent first-party capabilities are split into explicit extension modules:
+      `agents-core` for spawn/list/wait/cancel/steer/artifact tools, `agent-viewer` for read-only
+      projections and focus commands, and `agents-mailbox` for inbox/outbox/contact/message actions.
 - [x] `agent viewer` is a read-only extension surface for tree/status/transcript inspection plus
       explicit commands such as stop, resume, and steer.
 - [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
@@ -95,10 +105,17 @@ runtime contract belongs here; implementation details will live in
   persistence/reload.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
+- [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
+  provides the shared store-backed registration helpers, production child-session factory, workflow
+  operations, and compatibility aggregate factory.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
-  registers the first store-backed `agent_artifacts`, `agent_viewer`, `agents_mailbox`,
-  `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, `contact_supervisor`,
-  `send_agent_message`, and `steer_agent` tool surface without spawning real child model sessions.
+  re-exports the first-party extension runtime for compatibility with older internal imports.
+- [`packages/coding-agent/extensions/agents-core/src/index.ts`](../../packages/coding-agent/extensions/agents-core/src/index.ts)
+  registers spawn/list/wait/cancel/steer/artifact tools against the shared store.
+- [`packages/coding-agent/extensions/agent-viewer/src/index.ts`](../../packages/coding-agent/extensions/agent-viewer/src/index.ts)
+  registers the read-only tree/status/transcript projection tool against the shared store.
+- [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
+  registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -194,6 +211,14 @@ runtime contract belongs here; implementation details will live in
       without lifecycle mutation.
 - [x] Add focused TUI slot persistence tests for stable bindings across list refreshes and pinned
       slot updates.
+- [x] Move spawn/list/wait/cancel/steer/artifact workflow tools into an `agents-core`
+      first-party extension package without moving authoritative state out of `MultiAgentStore`.
+- [x] Move read-only tree/status/transcript projection and focus/switch command descriptors into
+      an `agent-viewer` first-party extension package.
+- [x] Move inbox/outbox summaries, acknowledgements, supervisor contact, and direct message actions into an
+      `agents-mailbox` first-party extension package.
+- [x] Keep compatibility tests proving the split modules share the same `MultiAgentStore` snapshot
+      and do not create independent TUI/core state.
 
 ## Out of scope
 

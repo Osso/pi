@@ -1,5 +1,7 @@
 # Pre-Tool-Use Rewrites
 
+Module boundary: extension API contract, not a standalone first-party extension module.
+
 Pre-tool-use rewrites let an extension transparently mutate a tool call's arguments before dispatch, or deny the call outright — without the model knowing. Pi provides this natively: an extension registers `pi.on("tool_call", h)`, mutates `event.input` in place to patch arguments (e.g. expand a command alias), or returns `{ block: true, reason }` to deny execution. Typed per-tool guards (`isToolCallEventType`) narrow the event to bash/read/edit/write/grep/find/ls inputs. A companion `pi.on("tool_result", h)` can post-process tool output. The contract lives in `packages/coding-agent/src/core/extensions/types.ts` and is wired through `packages/coding-agent/src/core/agent-session.ts` (`beforeToolCall`/`afterToolCall`) into `runner.ts` (`emitToolCall`/`emitToolResult`). How it works belongs in docs/wiki/systems/pre-tool-use-rewrites.md.
 
 ## What it must do

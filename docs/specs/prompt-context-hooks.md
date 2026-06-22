@@ -1,5 +1,7 @@
 # Prompt-Context Hooks
 
+Module boundary: extension API contract, not a standalone first-party extension module.
+
 Prompt-context hooks let extensions inject or replace model-facing context at three distinct levels of the agent loop: per-turn (before the agent starts), per-LLM-call (the full message list), and per-provider-request (the raw wire payload). Unlike a fork that bolts external hook binaries onto fixed events, Pi exposes this natively through its in-process extension system: an extension calls `pi.on("before_agent_start", h)`, `pi.on("context", h)`, or `pi.on("before_provider_request", h)` and returns a value that Pi chains into the request. The contract lives in `packages/coding-agent/src/core/extensions/types.ts` (event + result types) and is dispatched from `packages/coding-agent/src/core/extensions/runner.ts` (the `emit*` chaining loops). How it works belongs in docs/wiki/systems/prompt-context-hooks.md.
 
 ## What it must do

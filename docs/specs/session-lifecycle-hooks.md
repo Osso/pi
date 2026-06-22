@@ -1,5 +1,7 @@
 # Session Lifecycle Hooks
 
+Module boundary: extension API contract, not a standalone first-party extension module.
+
 Session lifecycle hooks let an extension observe and, at key points, cancel or replace the session's own state transitions: startup, shutdown, switching, forking, compaction, and tree navigation, plus resource discovery and project-trust prompts. Pi provides these natively as in-process extension events with a discriminating `reason`/`position` field and, for the "before_*" events, a cancellable result. The contract lives in `packages/coding-agent/src/core/extensions/types.ts` (event + result types, `on` overloads) and is emitted from the session runtime. How it works belongs in docs/wiki/systems/session-lifecycle-hooks.md.
 
 ## What it must do

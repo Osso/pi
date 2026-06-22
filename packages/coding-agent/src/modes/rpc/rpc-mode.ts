@@ -319,6 +319,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			uiContext: createExtensionUIContext(),
 			mode: "rpc",
 			commandContextActions: {
+				showApprovalSelector: () => {},
+				showSandboxSelector: () => {},
 				waitForIdle: () => session.agent.waitForIdle(),
 				newSession: async (options) => runtimeHost.newSession(options),
 				fork: async (entryId, forkOptions) => {

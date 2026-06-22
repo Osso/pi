@@ -73,6 +73,8 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		await session.bindExtensions({
 			mode: mode === "json" ? "json" : "print",
 			commandContextActions: {
+				showApprovalSelector: () => {},
+				showSandboxSelector: () => {},
 				waitForIdle: () => session.agent.waitForIdle(),
 				newSession: async (newSessionOptions) => runtimeHost.newSession(newSessionOptions),
 				fork: async (entryId, forkOptions) => {

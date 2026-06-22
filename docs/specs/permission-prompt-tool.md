@@ -1,5 +1,7 @@
 # `--permission-prompt-tool` (MCP-delegated approval)
 
+Module boundary: core permission-dispatch integration, not a first-party extension module. It routes through existing tool-call approval plumbing.
+
 Lets Pi delegate "approve this tool call?" decisions to an external MCP tool,
 matching Claude Code's `--permission-prompt-tool` wire protocol so a single MCP
 server (e.g. `claude-bash-hook-approval`) works with both harnesses. Source will

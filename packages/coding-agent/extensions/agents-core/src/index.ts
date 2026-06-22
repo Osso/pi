@@ -1,0 +1,9 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerAgentsCoreTools, type MultiAgentExtensionOptions } from "./runtime.ts";
+
+export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
+	registerAgentsCoreTools(pi, options);
+}
+
+export { createMultiAgentWorkflowOperations, createProductionChildAgentSessionFactory } from "./runtime.ts";
+export type { ChildAgentDispatcher, ChildAgentSessionFactory, MultiAgentExtensionOptions } from "./runtime.ts";

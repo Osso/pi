@@ -273,6 +273,8 @@ export class ExtensionRunner {
 	private isProjectTrustedFn: () => boolean = () => true;
 	private getSignalFn: () => AbortSignal | undefined = () => undefined;
 	private waitForIdleFn: () => Promise<void> = async () => {};
+	private showApprovalSelectorHandler: () => void = () => {};
+	private showSandboxSelectorHandler: () => void = () => {};
 	private abortFn: () => void = () => {};
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
@@ -380,6 +382,8 @@ export class ExtensionRunner {
 
 	bindCommandContext(actions?: ExtensionCommandContextActions): void {
 		if (actions) {
+			this.showApprovalSelectorHandler = actions.showApprovalSelector;
+			this.showSandboxSelectorHandler = actions.showSandboxSelector;
 			this.waitForIdleFn = actions.waitForIdle;
 			this.newSessionHandler = actions.newSession;
 			this.forkHandler = actions.fork;
@@ -389,6 +393,8 @@ export class ExtensionRunner {
 			return;
 		}
 
+		this.showApprovalSelectorHandler = () => {};
+		this.showSandboxSelectorHandler = () => {};
 		this.waitForIdleFn = async () => {};
 		this.newSessionHandler = async () => ({ cancelled: false });
 		this.forkHandler = async () => ({ cancelled: false });
@@ -693,6 +699,14 @@ export class ExtensionRunner {
 			{},
 			Object.getOwnPropertyDescriptors(this.createContext()),
 		) as ExtensionCommandContext;
+		context.showApprovalSelector = () => {
+			this.assertActive();
+			this.showApprovalSelectorHandler();
+		};
+		context.showSandboxSelector = () => {
+			this.assertActive();
+			this.showSandboxSelectorHandler();
+		};
 		context.getSystemPromptOptions = () => {
 			this.assertActive();
 			return this.getSystemPromptOptionsFn();

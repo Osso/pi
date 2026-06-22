@@ -1,5 +1,7 @@
 # Runtime inventory commands
 
+Module boundary: core CLI/TUI diagnostic surface, not a first-party extension module.
+
 Runtime inventory commands expose what Pi actually loaded for the current startup context. The CLI actions and TUI slash commands are diagnostic surfaces for tools and extensions, so users can verify whether features such as multi-agent tools are available before relying on a model answer.
 
 ## What it must do
@@ -21,7 +23,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] `/extensions` must be a built-in slash command.
 - [x] Extension inventory output must include every loaded extension, its scope/source, and registered command/tool/handler counts.
 - [x] Extension inventory output must show an explicit empty state when no extensions are loaded.
-- [x] Extension inventory output must include built-in first-party runtime extensions such as `goal`, `hostrun`, `multi-agent`, and `run-plan` even while project trust is being resolved.
+- [x] Extension inventory output must include built-in first-party runtime extensions such as `approval-controls`, `goal`, `hostrun`, `agents-core`, `agent-viewer`, `agents-mailbox`, and `run-plan` even while project trust is being resolved.
 
 ## How it works
 

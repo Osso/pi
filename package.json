@@ -9,8 +9,13 @@
 		"packages/coding-agent/examples/extensions/custom-provider-gitlab-duo",
 		"packages/coding-agent/examples/extensions/sandbox",
 		"packages/coding-agent/examples/extensions/gondolin",
+		"packages/coding-agent/extensions/approval-controls",
+		"packages/coding-agent/extensions/agent-viewer",
+		"packages/coding-agent/extensions/agents-core",
+		"packages/coding-agent/extensions/agents-mailbox",
 		"packages/coding-agent/extensions/goal",
-		"packages/coding-agent/extensions/hostrun"
+		"packages/coding-agent/extensions/hostrun",
+		"packages/coding-agent/extensions/run-plan"
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",

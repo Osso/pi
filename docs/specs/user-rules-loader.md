@@ -1,5 +1,7 @@
 # User Rules Loader
 
+Module boundary: core resource-loader/system-prompt feature, not a first-party extension module.
+
 The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under `~/.pi/agent/rules/` (global) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside AGENTS.md. Pi already loads AGENTS.md/CLAUDE.md from cwd ancestors and from `~/.pi/agent/` via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts` (lines 84–122); this spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
 
 ## What it must do

@@ -1,13 +1,16 @@
 # Approval System
 
+Module boundary: core policy/enforcement subsystem plus first-party `approval-controls` extension module for `/approvals` and `/sandbox`.
+
 The approval system controls when Pi asks before running tools, who reviews
 those requests, and how no-prompt modes behave. The baseline reviewer today is
 the native `tool_call` extension hook (`pi.on("tool_call", handler)` in
 `packages/coding-agent/src/core/agent-session.ts:414–462`). This spec adds a
 policy preset layer and two slash commands on top of that existing baseline;
-it does not replace the hook. Slash-command registration lives in
-`packages/coding-agent/src/core/slash-commands.ts`. Policy state, preset logic,
-and policy gating live in `packages/coding-agent/src/core/permissions/`.
+it does not replace the hook. Slash-command registration lives in the
+`packages/coding-agent/extensions/approval-controls/` first-party extension.
+Policy state, preset logic, and policy gating live in
+`packages/coding-agent/src/core/permissions/`.
 Implementation details belong in
 `docs/wiki/systems/approval-system.md` (stub — not yet written).
 
@@ -87,21 +90,21 @@ Implementation details belong in
   type (`on-request` | `never` | `auto-approve`), active policy state,
   and preset behavior evaluation.
 - `packages/coding-agent/src/core/permissions/presets.ts` — approval preset and
-  sandbox profile metadata used by command selectors. (partial; UI wiring still
-  planned)
+  sandbox profile metadata used by command selectors.
 - `packages/coding-agent/src/core/settings-manager.ts` — approval policy settings
   read/write helpers, including `approvalPreset` identity plus derived
-  `approvalPolicy`, and scoped sandbox profile serialization. (partial; UI
-  plumbing still planned)
+  `approvalPolicy`, and scoped sandbox profile serialization.
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny.
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
   approval flow: check policy and route `on-request` calls to the configured
-  reviewer. (partial; LLM reviewer routing still planned)
-- `packages/coding-agent/src/core/slash-commands.ts` — register `/approvals`
-  and `/sandbox` commands; render preset selectors. (planned additions to
-  existing file)
+  reviewer.
+- `packages/coding-agent/extensions/approval-controls/src/index.ts` — registers
+  `/approvals` and `/sandbox` commands.
+- `packages/coding-agent/src/core/extensions/types.ts` and
+  `packages/coding-agent/src/core/extensions/runner.ts` — expose command-context
+  actions used by the controls extension to open the interactive selectors.
 - `packages/coding-agent/src/core/agent-session.ts` — thread active policy into
   `_installAgentToolHooks` so the orchestrator wraps permission prompt and
   `tool_call` review.

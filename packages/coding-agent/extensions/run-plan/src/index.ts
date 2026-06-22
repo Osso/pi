@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "../core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 const uncheckedItemPattern = /^\s*[-*]\s+\[\s\]\s+(.*)$/;
 

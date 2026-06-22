@@ -8,8 +8,13 @@
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
+import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
+import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
+import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
+import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
+import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
@@ -33,6 +38,7 @@ import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
@@ -46,8 +52,6 @@ import { assertValidSessionId, SessionManager } from "./core/session-manager.ts"
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
-import multiAgentExtension from "./extensions/multi-agent.ts";
-import runPlanExtension from "./extensions/run-plan.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
@@ -483,10 +487,17 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 	return namedFactory;
 }
 
+const firstPartyMultiAgentStore = new MultiAgentStore();
+
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
+	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
+	firstPartyExtensionFactory("agents-core", (pi) => agentsCoreExtension(pi, { store: firstPartyMultiAgentStore })),
+	firstPartyExtensionFactory("agent-viewer", (pi) => agentViewerExtension(pi, { store: firstPartyMultiAgentStore })),
+	firstPartyExtensionFactory("agents-mailbox", (pi) =>
+		agentsMailboxExtension(pi, { store: firstPartyMultiAgentStore }),
+	),
 	firstPartyExtensionFactory("goal", goalExtension),
 	firstPartyExtensionFactory("hostrun", hostrunExtension),
-	firstPartyExtensionFactory("multi-agent", multiAgentExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
 ];
 

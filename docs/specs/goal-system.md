@@ -1,5 +1,7 @@
 # Goal System (`/goal`)
 
+Module boundary: first-party extension module (`packages/coding-agent/extensions/goal/`), with only generic extension/runtime support in core.
+
 The goal system keeps a long-running objective active across turns and resumed sessions. A
 goal is a plain objective string, not a deploy gate checklist. It is persisted in an
 inspectable project-local state file, injected into the model context before each turn, and

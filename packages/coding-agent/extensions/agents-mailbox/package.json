@@ -1,0 +1,11 @@
+{
+	"name": "@earendil-works/pi-agents-mailbox-extension",
+	"version": "0.79.9",
+	"private": true,
+	"type": "module",
+	"description": "First-party multi-agent mailbox extension for Pi",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	}
+}

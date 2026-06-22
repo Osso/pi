@@ -1504,6 +1504,8 @@ export class InteractiveMode {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
 			commandContextActions: {
+				showApprovalSelector: () => this.showApprovalSelector(),
+				showSandboxSelector: () => this.showSandboxSelector(),
 				waitForIdle: () => this.session.agent.waitForIdle(),
 				newSession: async (options) => {
 					if (this.loadingAnimation) {
@@ -2580,16 +2582,6 @@ export class InteractiveMode {
 			}
 			if (text === "/trust") {
 				this.showTrustSelector();
-				this.editor.setText("");
-				return;
-			}
-			if (text === "/approvals") {
-				this.showApprovalSelector();
-				this.editor.setText("");
-				return;
-			}
-			if (text === "/sandbox") {
-				this.showSandboxSelector();
 				this.editor.setText("");
 				return;
 			}

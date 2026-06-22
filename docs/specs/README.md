@@ -3,6 +3,8 @@
 This directory holds one spec per feature, describing **what** each feature must do (the
 contract). How a feature works belongs in `docs/wiki/systems/<feature>.md` (stubs, written
 later). Specs are tracked in git; add or update a feature's spec in the same commit as its code.
+Each feature spec starts with a `Module boundary:` line saying whether the feature is a
+first-party extension module, a core subsystem, or an extension API contract.
 
 These specs were seeded by transposing the behavioral features of the Osso `codex` fork
 (`~/Repos/codex/docs/specs/`) onto Pi. Pi's native extension system already provides most of
@@ -24,7 +26,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | User rules loader (`rules/*.md`) | [`user-rules-loader.md`](user-rules-loader.md) | **BUILD** (additive) | Pi already loads AGENTS.md/CLAUDE.md hierarchy; adds `~/.pi/agent/rules/` + project `.pi/rules/`. |
 | Worktree startup (`-w/--worktree`) | [`worktree-startup-option.md`](worktree-startup-option.md) | **BUILD** | New CLI flag; create/reuse sibling git worktree. |
 | MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
-| Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | `on-request`/`never`/`auto-approve` + `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
+| Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | Core `on-request`/`never`/`auto-approve` enforcement plus first-party `approval-controls` extension for `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
 | Hostrun (`hostrun_eval`) | [`hostrun.md`](hostrun.md) | **BUILD** | Stateful QuickJS host tool ported as a Pi extension; approval-gated; optional stdio MCP server. |
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox/artifact extensions, account-governed budgets/permissions. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |

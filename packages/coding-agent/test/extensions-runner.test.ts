@@ -858,6 +858,8 @@ describe("ExtensionRunner", () => {
 			const fork = vi.fn(async () => ({ cancelled: false }));
 
 			runner.bindCommandContext({
+				showApprovalSelector: () => {},
+				showSandboxSelector: () => {},
 				waitForIdle: async () => {},
 				newSession: async () => ({ cancelled: false }),
 				fork,

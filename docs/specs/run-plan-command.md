@@ -1,10 +1,13 @@
 # Run-Plan Command
 
-The `/run-plan` slash command automates checklist-driven work by reading `PLAN.md` (or a user-specified file), finding the first unchecked `- [ ]` or `* [ ]` item, and submitting it as the next user message via `pi.sendUserMessage()`. The command is registered as a built-in extension via `pi.registerCommand("run-plan", {...})`. Source lives in `packages/coding-agent/src/extensions/run-plan.ts`. An active plan file is signaled to downstream hooks by writing the plan filename into a well-known entry in extension state via `pi.appendEntry("run-plan:active", { file })`; callers can also inspect `process.env.PI_PLAN_FILE`, which the handler sets before submission. See [docs/wiki/systems/run-plan-command.md](../wiki/systems/run-plan-command.md) for how it works.
+Module boundary: first-party extension module (`packages/coding-agent/extensions/run-plan/`).
+
+The `/run-plan` slash command automates checklist-driven work by reading `PLAN.md` (or a user-specified file), finding the first unchecked `- [ ]` or `* [ ]` item, and submitting it as the next user message via `pi.sendUserMessage()`. The command is registered as a first-party extension module via `pi.registerCommand("run-plan", {...})`. Source lives in `packages/coding-agent/extensions/run-plan/src/index.ts`. An active plan file is signaled to downstream hooks by writing the plan filename into a well-known entry in extension state via `pi.appendEntry("run-plan:active", { file })`; callers can also inspect `process.env.PI_PLAN_FILE`, which the handler sets before submission. See [docs/wiki/systems/run-plan-command.md](../wiki/systems/run-plan-command.md) for how it works.
 
 ## What it must do
 
 ### Command registration
+- [x] `run-plan` is implemented as a first-party extension package under `packages/coding-agent/extensions/run-plan`, matching the `/goal` and Hostrun extension boundary.
 - [x] The `run-plan` command is registered via `pi.registerCommand("run-plan", { description, handler, getArgumentCompletions })` and appears in the `/` command list when the first-party extension is loaded.
 - [x] An optional inline filename argument is accepted; when absent, `PLAN.md` in the session cwd is used.
 - [x] `getArgumentCompletions` completes `.md` filenames from the session cwd.
@@ -33,7 +36,9 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/extensions/run-plan.ts` — Extension factory: registers the `run-plan` command, implements `findNextPlanItem()`, handles plan-file argument resolution, env export, and session entry append.
+- `packages/coding-agent/extensions/run-plan/package.json` — First-party extension package manifest.
+- `packages/coding-agent/extensions/run-plan/src/index.ts` — Extension factory: registers the `run-plan` command, implements `findNextPlanItem()`, handles plan-file argument resolution, env export, and session entry append.
+- `packages/coding-agent/src/main.ts` — Loads the first-party run-plan extension factory.
 
 ## Tests asserting this spec
 

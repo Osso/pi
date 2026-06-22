@@ -337,6 +337,12 @@ export interface ExtensionContext {
  * Includes session control methods only safe in user-initiated commands.
  */
 export interface ExtensionCommandContext extends ExtensionContext {
+	/** Show the first-party approval preset selector. */
+	showApprovalSelector(): void;
+
+	/** Show the first-party sandbox profile selector. */
+	showSandboxSelector(): void;
+
 	/** Get the current base system-prompt construction options. */
 	getSystemPromptOptions(): BuildSystemPromptOptions;
 
@@ -1550,6 +1556,8 @@ export interface ExtensionContextActions {
  * Only needed for interactive mode where extension commands are invokable.
  */
 export interface ExtensionCommandContextActions {
+	showApprovalSelector: () => void;
+	showSandboxSelector: () => void;
 	waitForIdle: () => Promise<void>;
 	newSession: (options?: {
 		parentSession?: string;

@@ -1,5 +1,7 @@
 # Worktree Startup Option
 
+Module boundary: core CLI/startup utility, not a first-party extension module.
+
 The `-w`/`--worktree <NAME>` CLI flag creates or reuses a sibling Git worktree before the session starts, letting fork work begin in an isolated checkout without manual `git worktree` setup. When supplied, `main()` in `packages/coding-agent/src/main.ts` resolves the worktree path and sets the effective `cwd` passed to `createAgentSessionServices()` before any session or resource loading begins. New worktrees are created from `origin/main` (falling back to `origin/master` if `origin/main` does not exist). Worktree lifecycle logic will be isolated in a new utility module. Planned changes touch `packages/coding-agent/src/cli/args.ts` (flag parsing) and `packages/coding-agent/src/main.ts` (resolution and cwd override). See [docs/wiki/systems/worktree-startup-option.md](../wiki/systems/worktree-startup-option.md) for how it works.
 
 ## What it must do

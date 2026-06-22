@@ -1,5 +1,7 @@
 # Hostrun
 
+Module boundary: first-party extension module (`packages/coding-agent/extensions/hostrun/`) that adapts the canonical Hostrun repo; Pi must not own the runtime.
+
 Hostrun is a stateful JavaScript host-execution runtime owned by the standalone
 `https://github.com/Osso/hostrun` repository, with local source at
 `/home/osso/Repos/hostrun`. Pi's `packages/coding-agent/extensions/hostrun/`

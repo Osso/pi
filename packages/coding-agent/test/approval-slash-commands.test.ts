@@ -1,13 +1,28 @@
 import { describe, expect, it } from "vitest";
+import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
+import type { ExtensionAPI } from "../src/core/extensions/types.ts";
 import { APPROVAL_PRESETS, SANDBOX_PROFILES } from "../src/core/permissions/presets.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
 describe("approval slash commands", () => {
-	it("registers approval and sandbox commands as built-ins", () => {
+	it("does not register approval and sandbox commands as built-ins", () => {
 		const commandNames = BUILTIN_SLASH_COMMANDS.map((command) => command.name);
 
-		expect(commandNames).toContain("approvals");
-		expect(commandNames).toContain("sandbox");
+		expect(commandNames).not.toContain("approvals");
+		expect(commandNames).not.toContain("sandbox");
+	});
+
+	it("registers approval and sandbox commands from the approval-controls extension", () => {
+		const commandNames: string[] = [];
+		const pi = {
+			registerCommand(name: string) {
+				commandNames.push(name);
+			},
+		} as unknown as ExtensionAPI;
+
+		approvalControlsExtension(pi);
+
+		expect(commandNames.sort()).toEqual(["approvals", "sandbox"]);
 	});
 
 	it("keeps approval presets distinct from sandbox profiles", () => {

@@ -1,5 +1,7 @@
 # TUI Customization
 
+Module boundary: core TUI and extension API surface, not a single first-party extension module.
+
 TUI customization is Pi's native surface for users and extensions to reshape the terminal UI: switch and define themes, rebind ~50 keyboard actions and register extension shortcuts (with reserved-key conflict protection), and replace layout regions (header, footer, widgets) or the input editor itself. Unlike a fork that hard-codes a handful of color knobs and key remaps, Pi exposes a typed `ctx.ui` API plus user-editable JSON config. The contract lives in `packages/coding-agent/src/core/extensions/types.ts` (the `ctx.ui` interface and `registerShortcut`) and the reserved-key set in `packages/coding-agent/src/core/extensions/runner.ts`. How it works belongs in docs/wiki/systems/tui-customization.md.
 
 ## What it must do

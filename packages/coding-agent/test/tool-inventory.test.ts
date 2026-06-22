@@ -24,8 +24,8 @@ describe("tool inventory", () => {
 				description: "Start a sub-agent",
 				parameters: Type.Object({}),
 				sourceInfo: {
-					path: "/repo/extensions/multi-agent.ts",
-					source: "extension:multi-agent",
+					path: "/repo/extensions/agents-core.ts",
+					source: "extension:agents-core",
 					scope: "project",
 					origin: "top-level",
 				},
@@ -39,7 +39,7 @@ describe("tool inventory", () => {
 				"active  tool         source                 description",
 				"------  -----------  ---------------------  ------------------",
 				"no      read         builtin                Read file contents",
-				"yes     spawn_agent  extension:multi-agent  Start a sub-agent",
+				"yes     spawn_agent  extension:agents-core  Start a sub-agent",
 			].join("\n"),
 		);
 	});
@@ -78,10 +78,10 @@ describe("tool inventory", () => {
 
 	it("formats loaded extension inventory with registered resource counts", () => {
 		const extension = {
-			path: "<first-party:multi-agent>",
-			resolvedPath: "<first-party:multi-agent>",
+			path: "<first-party:agents-core>",
+			resolvedPath: "<first-party:agents-core>",
 			sourceInfo: {
-				path: "<first-party:multi-agent>",
+				path: "<first-party:agents-core>",
 				source: "first-party",
 				scope: "temporary",
 				origin: "top-level",
@@ -100,7 +100,7 @@ describe("tool inventory", () => {
 				"",
 				"scope    source    extension    commands  tools  handlers",
 				"-------  --------  -----------  --------  -----  --------",
-				"runtime  built-in  multi-agent  1         1      1",
+				"runtime  built-in  agents-core  1         1      1",
 			].join("\n"),
 		);
 	});

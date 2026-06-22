@@ -1,5 +1,8 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
+import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
+import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -118,6 +121,52 @@ function createMultiAgentHarness(
 	};
 }
 
+function createSplitMultiAgentHarness() {
+	const tools = new Map<string, RegisteredTool>();
+	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+	const pi = {
+		registerTool(tool: ToolDefinition) {
+			tools.set(tool.name, tool as RegisteredTool);
+		},
+	} as unknown as ExtensionAPI;
+
+	agentsCoreExtension(pi, { store });
+	agentViewerExtension(pi, { store });
+	agentsMailboxExtension(pi, { store });
+
+	const ctx = {
+		cwd: "/repo",
+		hasUI: false,
+		mode: "print",
+	} as ExtensionContext;
+
+	return {
+		call: async <TDetails extends Record<string, unknown>>(name: string, params: Record<string, unknown>) => {
+			const tool = tools.get(name);
+			if (!tool) {
+				throw new Error(`tool not registered: ${name}`);
+			}
+
+			return (await tool.execute(`${name}-call`, params, undefined, undefined, ctx)) as AgentToolResult<TDetails>;
+		},
+		store,
+		tools,
+	};
+}
+
+function collectTools(register: (pi: ExtensionAPI) => void): string[] {
+	const tools = new Map<string, RegisteredTool>();
+	const pi = {
+		registerTool(tool: ToolDefinition) {
+			tools.set(tool.name, tool as RegisteredTool);
+		},
+	} as unknown as ExtensionAPI;
+
+	register(pi);
+
+	return [...tools.keys()].sort();
+}
+
 describe("multi-agent extension tools", () => {
 	const childHarnesses: Harness[] = [];
 
@@ -141,6 +190,57 @@ describe("multi-agent extension tools", () => {
 			"spawn_agent",
 			"steer_agent",
 			"wait_agent",
+		]);
+	});
+
+	it("registers split first-party modules over one shared multi-agent store", async () => {
+		const harness = createSplitMultiAgentHarness();
+
+		expect([...harness.tools.keys()].sort()).toEqual([
+			"agent_artifacts",
+			"agent_viewer",
+			"agents_mailbox",
+			"cancel_agent",
+			"contact_supervisor",
+			"list_agents",
+			"send_agent_message",
+			"spawn_agent",
+			"steer_agent",
+			"wait_agent",
+		]);
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Split Worker",
+			prompt: "Use shared store",
+		});
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+		const mailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
+			agentId: spawned.details.agent.id,
+		});
+
+		expect(viewed.details.projection.agents.map((agent) => agent.id)).toEqual([spawned.details.agent.id]);
+		expect(mailbox.details.pendingCount).toBe(0);
+		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({
+			displayName: "Split Worker",
+		});
+	});
+
+	it("keeps split first-party modules scoped to core, viewer, and mailbox tools", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+
+		expect(collectTools((pi) => agentsCoreExtension(pi, { store }))).toEqual([
+			"agent_artifacts",
+			"cancel_agent",
+			"list_agents",
+			"spawn_agent",
+			"steer_agent",
+			"wait_agent",
+		]);
+		expect(collectTools((pi) => agentViewerExtension(pi, { store }))).toEqual(["agent_viewer"]);
+		expect(collectTools((pi) => agentsMailboxExtension(pi, { store }))).toEqual([
+			"agents_mailbox",
+			"contact_supervisor",
+			"send_agent_message",
 		]);
 	});
 

@@ -2,8 +2,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import runPlanExtension, { findNextPlanItem } from "../extensions/run-plan/src/index.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
-import runPlanExtension, { findNextPlanItem } from "../src/extensions/run-plan.ts";
 
 type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
