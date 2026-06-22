@@ -56,7 +56,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   request.
 - [x] Expose `cli.<program>(...args).run()` as an approval-gated execution
   request returning process details.
-- [ ] Expose remaining `cli.<program>(...args)` terminal selectors as
+- [x] Expose remaining `cli.<program>(...args)` terminal selectors as
   approval-gated execution requests.
 - [x] Expose `run.<program>(...args)` for no-capture command execution.
 - [x] Include program name and argv in the approval request for tested `cli.*`
@@ -72,7 +72,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   helper behavior.
 - [x] Expose `fs.open(path, options)` as a readable wrapper that parses JSON,
   JSONL, and CSV by extension or explicit format.
-- [ ] Extend `fs.open(path, options)` parsing coverage to YAML and TSV.
+- [x] Extend `fs.open(path, options)` parsing coverage to YAML and TSV.
 - [x] Expose `http.get(...).text()` as an approval-gated HTTP helper.
 - [x] Expose `http.post(...).text()` as an approval-gated HTTP helper; redact
   auth secrets from approval metadata while preserving the real request.
@@ -124,8 +124,9 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
   per-session `ctx` persistence, console capture, and exception-survival
   coverage, including returned exception details, approval-gated
-  `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects, parsed `fs.open` formats,
-  and persistent `host.cwd()` / `host.cd(path)` behavior.
+  `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects, CLI terminal selectors,
+  parsed `fs.open` formats, and persistent `host.cwd()` / `host.cd(path)`
+  behavior.
 - `packages/coding-agent/test/hostrun-mcp-server.test.ts` — standalone MCP
   server registration shape, `hostrun-mcp` package wiring, README install
   command, and pending-approval defaults for CLI, filesystem, and HTTP host
@@ -146,8 +147,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Implement tested approval-gated `fs.glob(pattern, options)`, `fs.open`
   JSON/JSONL/CSV parsing, `http.put`/`http.patch`/`http.delete`/`http.head`, and
   `host.cwd()`/`host.cd(path)` helpers.
-- [ ] Implement remaining approval-gated `cli.*` and `fs.*` helpers not yet
-  covered by tests.
+- [x] Implement tested approval-gated CLI stdout/stderr terminal selectors and
+  `fs.open` YAML/TSV parsing.
 - [x] Implement `rg.*` and `fd.*` lazy wrappers.
 - [x] Register extension via `pi.registerTool` in `index.ts`.
 - [x] Implement standalone `mcp-server.ts` with pending-approval default.
