@@ -70,7 +70,7 @@ not yet written).
 - [x] Implement continuation turn-cap handling.
 - [x] Implement token and wall-clock budget bounds.
 - [x] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
-- [ ] Write `docs/wiki/systems/goal-system.md`.
+- [x] Write `docs/wiki/systems/goal-system.md`.
 
 ## Out of scope
 
