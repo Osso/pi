@@ -3,17 +3,13 @@
 	"version": "0.79.9",
 	"private": true,
 	"type": "module",
-	"description": "First-party Hostrun extension for Pi",
+	"description": "Pi adapter for the canonical Hostrun runtime",
 	"main": "./src/index.ts",
-	"bin": {
-		"hostrun-mcp": "./src/mcp-server.ts"
-	},
 	"exports": {
 		".": "./src/index.ts",
 		"./mcp-server": "./src/mcp-server.ts"
 	},
 	"dependencies": {
-		"quickjs-emscripten": "0.31.0",
 		"typebox": "1.1.38"
 	}
 }

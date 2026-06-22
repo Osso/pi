@@ -1,28 +1,30 @@
-# Hostrun
+# Hostrun Pi Adapter
 
-First-party Pi extension package for `hostrun_eval`.
+This package is the Pi adapter for `hostrun_eval`. It does not implement the Hostrun runtime,
+helper library, approval request schema, or MCP server.
 
-The Pi extension registers `hostrun_eval`, keeps JavaScript `ctx` state alive per
-Hostrun session, and approval-gates host effects before running them.
+Canonical Hostrun source lives in `/home/osso/Repos/hostrun` and upstream
+`https://github.com/Osso/hostrun`. Pi registers the tool, contributes
+model-facing instructions, and delegates evaluation to a Hostrun adapter runner.
 
-## Pi Extension
+## Runtime Boundary
 
-Load the package as a Pi extension to use `hostrun_eval` inside Pi. The tool
-accepts:
+- Hostrun owns QuickJS session semantics, `ctx` persistence, helper APIs, command
+  builders, filesystem/HTTP/CLI behavior, and approval request shapes.
+- Pi owns tool registration, model prompt wiring, and Pi's wrapper approval path.
+- hostrun-mcp is owned by Hostrun. Pi must not publish a duplicate
+  `hostrun-mcp` binary or reimplement the MCP server.
 
-- `code` - JavaScript source to evaluate.
-- `session_id` - optional Hostrun session key. Calls with the same session keep
-  the same `globalThis.ctx`.
+## Runner Configuration
 
-## MCP Server
+By default the adapter starts `hostrun-jsonl --serve`.
 
-`src/mcp-server.ts` exposes the tested standalone server factory for non-Pi MCP
-hosts. It registers a `hostrun_eval` stdio tool descriptor and defaults host
-effects to pending approval: CLI, filesystem, and HTTP helpers deny before
-execution unless an approval host is wired in.
+For local development or tests, override the runner process:
 
-Install the standalone stdio MCP server in Claude Code with:
-
-```bash
-claude mcp add hostrun -- hostrun-mcp
+```sh
+PI_HOSTRUN_RUNNER_COMMAND=node
+PI_HOSTRUN_RUNNER_ARGS='["/path/to/fake-or-real-runner.mjs"]'
 ```
+
+`PI_HOSTRUN_RUNNER_ARGS` is a JSON string array so paths and arguments stay
+argv-based instead of shell-parsed.

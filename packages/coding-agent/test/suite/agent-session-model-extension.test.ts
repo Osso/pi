@@ -240,7 +240,7 @@ describe("AgentSession model and extension characterization", () => {
 		).toBeDefined();
 	});
 
-	it("does not ask for wrapper approval before internally gated hostrun_eval execution", async () => {
+	it("asks for wrapper approval before delegating hostrun_eval to the canonical adapter", async () => {
 		const confirm = vi.fn(async () => false);
 		const harness = await createHarness({
 			extensionFactories: [hostrunExtension],
@@ -258,11 +258,11 @@ describe("AgentSession model and extension characterization", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(confirm).not.toHaveBeenCalled();
-		expect(getAssistantTexts(harness).join("\n")).toContain("Result: 2");
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(confirm).toHaveBeenCalledWith("Approve hostrun_eval?", expect.any(String));
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
-		).toBeUndefined();
+		).toBeDefined();
 	});
 
 	it("preserves baseline tool_call review with bypassPermissions=false under on-request", async () => {

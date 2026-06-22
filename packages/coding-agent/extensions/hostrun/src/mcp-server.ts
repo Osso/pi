@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "../../../src/core/extensions/types.ts";
 import { createHostrunEvalExecutor, type HostrunEvalContext, type HostrunEvalParams } from "./eval-tool.ts";
-import { HostrunSessionStore, type HostrunEvalResult } from "./session.ts";
+import { HostrunRunnerClient, type CanonicalHostrunEvalResult } from "./runner.ts";
 
 export interface HostrunMcpTool {
 	description: string;
@@ -13,7 +13,7 @@ export interface HostrunMcpTool {
 }
 
 export interface HostrunMcpServer {
-	callTool(name: string, params: HostrunEvalParams): Promise<AgentToolResult<HostrunEvalResult>>;
+	callTool(name: string, params: HostrunEvalParams): Promise<AgentToolResult<CanonicalHostrunEvalResult>>;
 	tools: readonly HostrunMcpTool[];
 	transport: "stdio";
 }
@@ -41,8 +41,8 @@ function createPendingApprovalContext(): HostrunEvalContext {
 }
 
 export function createHostrunMcpServer(): HostrunMcpServer {
-	const store = new HostrunSessionStore();
-	const evaluate = createHostrunEvalExecutor(store);
+	const runner = new HostrunRunnerClient();
+	const evaluate = createHostrunEvalExecutor(runner);
 	const context = createPendingApprovalContext();
 
 	return {
