@@ -42,6 +42,14 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 - `packages/coding-agent/src/core/extensions/types.ts:1182-1188` — `registerShortcut(shortcut, { description?, handler })`.
 - `packages/coding-agent/src/core/extensions/runner.ts:67-85` — `RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS` (~17 action IDs reserved against extension override).
 - `packages/coding-agent/src/core/extensions/runner.ts:89-108` — `buildBuiltinKeybindings`: reserved action wins over non-reserved on key collision.
+- `packages/coding-agent/src/core/keybindings.ts:13-202` — app keybinding id inventory plus default app bindings, merged with `@earendil-works/pi-tui` editor/select/input bindings.
+- `packages/coding-agent/src/core/keybindings.ts:204-309` — legacy pre-namespaced keybinding migration to namespaced ids.
+- `packages/coding-agent/src/core/keybindings.ts:330-368` — `KeybindingsManager.create()` loads `~/.pi/agent/keybindings.json`, accepts string or string-array bindings, and `reload()` re-reads the same file into user bindings.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:411-412` — interactive mode creates the keybindings manager and installs it into the TUI package singleton.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:5091-5140` — `/reload` handler reloads the session/resources, then calls `this.keybindings.reload()` before rebuilding interactive UI state.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts:5559-5570` — `/hotkeys` lists extension-registered shortcuts using the current effective keybinding config.
+- `packages/coding-agent/src/core/slash-commands.ts:31` and `:41` — built-in `/hotkeys` and `/reload` command metadata.
+- `packages/coding-agent/src/core/extensions/types.ts:1183-1190` — extension shortcut registration API.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2062-2078` — live interactive `ctx.ui` theme surface: readonly `theme`, `getAllThemes`, `getTheme`, and `setTheme`; string themes persist through `SettingsManager.setTheme`, `Theme` instances apply without persisting a settings name.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:323-422` — `Theme` class styling API exposed to extensions through `ctx.ui.theme` and `ctx.ui.getTheme`.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:428-479` — theme listing combines built-in themes, user custom themes, and registered package/resource themes.
@@ -56,6 +64,7 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
+- `packages/coding-agent/test/keybindings-migration.test.ts:25-87` — legacy keybinding name migration, namespaced-id precedence, and in-memory loading through `KeybindingsManager.create(agentDir)`.
 - `packages/coding-agent/test/theme-picker.test.ts:34-50` — theme listing uses custom theme content names and returns file paths for `getAvailableThemesWithPaths`.
 - `packages/coding-agent/test/theme-detection.test.ts:16-133` — terminal background detection, RGB classification, color-mode selection, and automatic light/dark theme setting parsing.
 - `packages/coding-agent/test/theme-export.test.ts:18-83` — HTML export theme color derivation and variable resolution.
@@ -67,7 +76,8 @@ TUI customization is Pi's native surface for users and extensions to reshape the
 - No dedicated test proving `ctx.ui.setTheme("name")` persists the string setting while `ctx.ui.setTheme(themeInstance)` applies without writing a theme name to settings.
 - No dedicated test proving project `.pi/themes`, settings `themes`, package themes, and CLI `--theme` entries appear through the extension-facing `ctx.ui.getAllThemes()` path.
 - No dedicated test for `setHeader`/`setFooter`/`setWidget` or `setEditorComponent`/`custom`.
-- No dedicated test for live `/reload` re-applying keybindings.
+- No dedicated test proving `KeybindingsManager.reload()` re-reads a changed `~/.pi/agent/keybindings.json` and updates the effective config.
+- No dedicated interactive-mode test proving `/reload` re-applies changed keybindings live without restarting the process.
 
 ## Out of scope
 
