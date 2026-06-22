@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -230,5 +230,142 @@ describe("hostrun extension", () => {
 		expect(confirm).toHaveBeenCalledTimes(1);
 		expect(result.details.result).toBe("hostrun-http-ok");
 		expect(requests).toBe(1);
+	});
+
+	it("runs cli.run only after approval and returns process details", async () => {
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: "cli.node('-e', 'console.log(\"cli-run-ok\")').run()" });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.result).toMatchObject({
+			exitCode: 0,
+			stderr: "",
+			stdout: "cli-run-ok\n",
+		});
+	});
+
+	it("runs run helpers only after approval without captured output", async () => {
+		const target = join(tempDir, "run-helper.txt");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: `run.node('-e', ${JSON.stringify(`require('node:fs').writeFileSync(${JSON.stringify(target)}, 'ran')`)})`,
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.result).toBeUndefined();
+		expect(readFileSync(target, "utf8")).toBe("ran");
+	});
+
+	it("does not run run helpers when approval is denied", async () => {
+		const target = join(tempDir, "denied-run-helper.txt");
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: `run.node('-e', ${JSON.stringify(`require('node:fs').writeFileSync(${JSON.stringify(target)}, 'ran')`)})`,
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
+		expect(existsSync(target)).toBe(false);
+	});
+
+	it("gates fs.exists, fs.remove, and fs.glob", async () => {
+		const first = join(tempDir, "first.txt");
+		const second = join(tempDir, "second.txt");
+		writeFileSync(first, "first");
+		writeFileSync(second, "second");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const before = fs.exists(${JSON.stringify(first)});`,
+				`const files = fs.glob(${JSON.stringify(`${tempDir}/*.txt`)});`,
+				`fs.remove(${JSON.stringify(first)});`,
+				`({ before, after: fs.exists(${JSON.stringify(first)}), files: files.sort() })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(4);
+		expect(result.details.result).toEqual({
+			after: false,
+			before: true,
+			files: [first, second],
+		});
+		expect(existsSync(first)).toBe(false);
+		expect(existsSync(second)).toBe(true);
+	});
+
+	it("does not remove files when fs.remove approval is denied", async () => {
+		const target = join(tempDir, "keep.txt");
+		writeFileSync(target, "keep");
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({ code: `fs.remove(${JSON.stringify(target)})` });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
+		expect(readFileSync(target, "utf8")).toBe("keep");
+	});
+
+	it("posts HTTP bodies only after approval and redacts auth metadata", async () => {
+		let requestBody = "";
+		let authorizationHeader = "";
+		const server = createServer((request, response) => {
+			authorizationHeader = request.headers.authorization ?? "";
+			request.on("data", (chunk: Buffer) => {
+				requestBody += chunk.toString("utf8");
+			});
+			request.on("end", () => {
+				response.end("posted");
+			});
+		});
+		servers.push(server);
+		const port = await listen(server);
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`http.post('http://127.0.0.1:${port}/submit', {`,
+				`  headers: { authorization: 'Bearer super-secret-token' },`,
+				`  body: 'payload'`,
+				`}).text()`,
+			].join("\n"),
+		});
+		const approvalMessage = confirm.mock.calls[0]?.[1] ?? "";
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(approvalMessage).not.toContain("super-secret-token");
+		expect(approvalMessage).toContain("[redacted]");
+		expect(result.details.result).toBe("posted");
+		expect(requestBody).toBe("payload");
+		expect(authorizationHeader).toBe("Bearer super-secret-token");
+	});
+
+	it("does not send HTTP posts when approval is denied", async () => {
+		let requests = 0;
+		const server = createServer((_request, response) => {
+			requests++;
+			response.end("blocked");
+		});
+		servers.push(server);
+		const port = await listen(server);
+		const confirm = vi.fn().mockResolvedValue(false);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: `http.post('http://127.0.0.1:${port}/blocked', { body: 'payload' }).text()`,
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.error?.message).toContain("denied");
+		expect(requests).toBe(0);
 	});
 });
