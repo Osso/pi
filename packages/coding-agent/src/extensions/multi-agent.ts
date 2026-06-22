@@ -12,6 +12,7 @@ import {
 	type AgentResult,
 	type AgentSnapshot,
 	isActiveLifecycle,
+	type MultiAgentProjectionSnapshot,
 	MultiAgentStore,
 	type SteeringCheckpoint,
 } from "../core/multi-agent-store.ts";
@@ -72,6 +73,8 @@ const contactSupervisorSchema = Type.Object({
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
 });
+
+const agentViewerSchema = Type.Object({});
 
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
@@ -136,6 +139,10 @@ interface AgentSteerToolDetails {
 interface ContactSupervisorToolDetails {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
+}
+
+interface AgentViewerToolDetails {
+	projection: MultiAgentProjectionSnapshot;
 }
 
 function result<TDetails extends Record<string, unknown>>(text: string, details: TDetails): AgentToolResult<TDetails> {
@@ -296,6 +303,13 @@ function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentTool
 function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): AgentSnapshot[] {
 	const agents = params.parentId ? store.listDescendants(params.parentId) : store.listAgents();
 	return params.activeOnly ? agents.filter((agent) => isActiveLifecycle(agent.lifecycle)) : agents;
+}
+
+function agentViewer(store: MultiAgentStore): AgentToolResult<AgentViewerToolDetails> {
+	const projection = store.getProjectionSnapshot();
+	return result(`Viewing ${projection.agents.length} agent${projection.agents.length === 1 ? "" : "s"}.`, {
+		projection,
+	});
 }
 
 function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolResult<AgentToolDetails> {
@@ -470,6 +484,16 @@ export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgen
 			description: "List agents from the authoritative multi-agent store.",
 			parameters: listAgentsSchema,
 			execute: async (_toolCallId, params) => listAgents(store, params),
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "agent_viewer",
+			label: "Agent Viewer",
+			description: "Read a projection snapshot for agent tree/status/slot viewer surfaces.",
+			parameters: agentViewerSchema,
+			execute: async () => agentViewer(store),
 		}),
 	);
 

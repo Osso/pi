@@ -1,6 +1,7 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import type { MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
 import multiAgentExtension, {
@@ -53,6 +54,10 @@ interface ContactSupervisorDetails extends Record<string, unknown> {
 	message: AgentMailboxMessage;
 }
 
+interface AgentViewerDetails extends Record<string, unknown> {
+	projection: MultiAgentProjectionSnapshot;
+}
+
 function createMultiAgentHarness(
 	options: {
 		createChildSession?: ChildAgentSessionFactory;
@@ -100,10 +105,11 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("registers spawn/list/wait/cancel/steer/contact tools", () => {
+	it("registers spawn/list/wait/cancel/steer/contact/viewer tools", () => {
 		const harness = createMultiAgentHarness();
 
 		expect([...harness.tools.keys()].sort()).toEqual([
+			"agent_viewer",
 			"cancel_agent",
 			"contact_supervisor",
 			"list_agents",
@@ -159,6 +165,47 @@ describe("multi-agent extension tools", () => {
 
 		expect(listed.details).toMatchObject({ activeCount: 3 });
 		expect(listed.details.agents.map((agent) => agent.id)).toEqual([child.details.agent.id]);
+	});
+
+	it("projects a read-only agent viewer snapshot without lifecycle mutation", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		const pinned = harness.store.pinAgentSlot(child.details.agent.id, child.details.agent.revision, 3);
+		expect(pinned.ok).toBe(true);
+		if (!pinned.ok) {
+			throw new Error("expected slot pin to succeed");
+		}
+		harness.store.selectAgentView(child.details.agent.id);
+
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+		const afterView = harness.store.getAgent(child.details.agent.id);
+
+		expect(viewed.details.projection).toMatchObject({
+			activeCount: 2,
+			selectedAgentId: child.details.agent.id,
+			slots: [
+				{
+					agent: { id: child.details.agent.id, lifecycle: "queued", revision: pinned.agent.revision },
+					agentId: child.details.agent.id,
+					index: 3,
+					pinned: true,
+					revision: pinned.agent.revision,
+				},
+			],
+		});
+		expect(afterView).toMatchObject({
+			id: child.details.agent.id,
+			lifecycle: "queued",
+			revision: pinned.agent.revision,
+		});
 	});
 
 	it("lets a child contact its supervisor without choosing a sibling target", async () => {

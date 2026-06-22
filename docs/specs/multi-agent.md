@@ -96,8 +96,9 @@ runtime contract belongs here; implementation details will live in
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
-  registers the first store-backed `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`,
-  `contact_supervisor`, and `steer_agent` tool surface without spawning real child model sessions.
+  registers the first store-backed `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agent`,
+  `cancel_agent`, `contact_supervisor`, and `steer_agent` tool surface without spawning real child
+  model sessions.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -113,14 +114,15 @@ runtime contract belongs here; implementation details will live in
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
   current core state.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
-  asserts the first extension-facing spawn/list/wait/cancel/contact/steer tool surface is
+  asserts the first extension-facing viewer/spawn/list/wait/cancel/contact/steer tool surface is
   store-backed and does not start child model sessions by default. It also asserts the spawn tool
   can call an injected child dispatcher, a real child `AgentSession` factory, or the production
   child factory wrapper, that `wait_agent` reports terminal store state without TUI coupling, that
   `wait_agent` can include descendant snapshots and pending mailbox summaries, that `list_agents`
   can return descendants below a parent without TUI state, and that `contact_supervisor` routes
   child messages to the direct parent with artifact references by ID/path rather than copied
-  content.
+  content. It verifies `agent_viewer` returns a read-only projection snapshot without advancing
+  lifecycle state.
 
 ## Known gaps (current cycle)
 
@@ -153,6 +155,8 @@ runtime contract belongs here; implementation details will live in
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID
       before starting TUI viewer wiring.
+- [x] Add first read-only `agent viewer` extension projection tests over core snapshots before
+      wiring interactive TUI controls.
 
 ## Out of scope
 
