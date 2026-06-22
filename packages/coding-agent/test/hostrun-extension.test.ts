@@ -301,6 +301,53 @@ describe("hostrun extension", () => {
 		expect(existsSync(second)).toBe(true);
 	});
 
+	it("supports approval-gated fs.glob options", async () => {
+		const first = join(tempDir, "first.txt");
+		const nested = join(tempDir, "nested");
+		mkdirSync(nested);
+		writeFileSync(first, "first");
+		writeFileSync(join(nested, "second.txt"), "second");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: `fs.glob('*.txt', { cwd: ${JSON.stringify(tempDir)} }).sort()`,
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(result.details.result).toEqual(["first.txt"]);
+	});
+
+	it("parses JSON, JSONL, and CSV files through approval-gated fs.open", async () => {
+		const jsonPath = join(tempDir, "data.json");
+		const jsonlPath = join(tempDir, "events.jsonl");
+		const csvPath = join(tempDir, "scores.csv");
+		writeFileSync(jsonPath, '{"enabled":true,"count":2}');
+		writeFileSync(jsonlPath, '{"id":1}\n{"id":2}\n');
+		writeFileSync(csvPath, "name,score\nAda,10\nLin,9\n");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const json = fs.open(${JSON.stringify(jsonPath)});`,
+				`const jsonl = fs.open(${JSON.stringify(jsonlPath)});`,
+				`const csv = fs.open(${JSON.stringify(csvPath)}, { format: 'csv' });`,
+				`({ json, jsonl, csv })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(3);
+		expect(result.details.result).toEqual({
+			csv: [
+				{ name: "Ada", score: "10" },
+				{ name: "Lin", score: "9" },
+			],
+			json: { count: 2, enabled: true },
+			jsonl: [{ id: 1 }, { id: 2 }],
+		});
+	});
+
 	it("does not remove files when fs.remove approval is denied", async () => {
 		const target = join(tempDir, "keep.txt");
 		writeFileSync(target, "keep");
@@ -349,6 +396,49 @@ describe("hostrun extension", () => {
 		expect(authorizationHeader).toBe("Bearer super-secret-token");
 	});
 
+	it("supports approval-gated HTTP put, patch, delete, and head helpers", async () => {
+		const requests: Array<{ body: string; method: string; url: string | undefined }> = [];
+		const server = createServer((request, response) => {
+			let body = "";
+			request.on("data", (chunk: Buffer) => {
+				body += chunk.toString("utf8");
+			});
+			request.on("end", () => {
+				requests.push({ body, method: request.method ?? "", url: request.url });
+				response.end(request.method === "HEAD" ? undefined : `${request.method} ok`);
+			});
+		});
+		servers.push(server);
+		const port = await listen(server);
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const base = 'http://127.0.0.1:${port}';`,
+				`const put = http.put(base + '/put', { body: 'put-body' }).text();`,
+				`const patch = http.patch(base + '/patch', { body: 'patch-body' }).text();`,
+				`const deleted = http.delete(base + '/delete').text();`,
+				`const head = http.head(base + '/head').text();`,
+				`({ put, patch, deleted, head })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(4);
+		expect(result.details.result).toEqual({
+			deleted: "DELETE ok",
+			head: "",
+			patch: "PATCH ok",
+			put: "PUT ok",
+		});
+		expect(requests).toEqual([
+			{ body: "put-body", method: "PUT", url: "/put" },
+			{ body: "patch-body", method: "PATCH", url: "/patch" },
+			{ body: "", method: "DELETE", url: "/delete" },
+			{ body: "", method: "HEAD", url: "/head" },
+		]);
+	});
+
 	it("does not send HTTP posts when approval is denied", async () => {
 		let requests = 0;
 		const server = createServer((_request, response) => {
@@ -367,6 +457,31 @@ describe("hostrun extension", () => {
 		expect(confirm).toHaveBeenCalledTimes(1);
 		expect(result.details.error?.message).toContain("denied");
 		expect(requests).toBe(0);
+	});
+
+	it("persists host.cwd and resolves relative paths after host.cd", async () => {
+		const relativePath = join(tempDir, "relative.txt");
+		writeFileSync(relativePath, "from-relative");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const first = await harness.evaluate({
+			code: [
+				`const original = host.cwd();`,
+				`host.cd(${JSON.stringify(tempDir)});`,
+				`({ original, current: host.cwd(), text: fs.read('relative.txt') })`,
+			].join("\n"),
+			session_id: "cwd-test",
+		});
+		const second = await harness.evaluate({ code: "host.cwd()", session_id: "cwd-test" });
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(first.details.result).toEqual({
+			current: tempDir,
+			original: process.cwd(),
+			text: "from-relative",
+		});
+		expect(second.details.result).toBe(tempDir);
 	});
 
 	it("gates rg.search, rg.files, and rg.matches", async () => {
