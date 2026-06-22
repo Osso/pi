@@ -50,6 +50,179 @@ selection state.
 Workflow extensions compile into core operations: spawn, message, wait, cancel, and artifact reads.
 They do not own lifecycle state.
 
+## Core store design
+
+`MultiAgentStore` is the first implementation boundary. It should be pure TypeScript state plus a
+small event emitter; no model calls, subprocess spawning, terminal panes, filesystem writes, or TUI
+objects in the first slice.
+
+### State
+
+```ts
+type AgentLifecycleState =
+	| "queued"
+	| "starting"
+	| "running"
+	| "waiting_for_input"
+	| "steering_pending"
+	| "cancelling"
+	| "completed"
+	| "failed"
+	| "aborted";
+
+interface AgentNode {
+	id: string;
+	parentId: string | undefined;
+	displayName: string;
+	agentType: string;
+	lifecycle: AgentLifecycleState;
+	revision: number;
+	createdAt: string;
+	updatedAt: string;
+	cwd: string;
+	worktree?: { path: string; branch?: string; base?: string };
+	model?: { providerId: string; modelId: string; thinkingLevel?: string };
+	account?: { id: string; budgetId?: string };
+	permission: { policy: string; inheritedFrom?: string; narrowed: boolean };
+	slot?: { index: number; pinned: boolean };
+	transcript?: { sessionId: string; path?: string };
+	lastActivity?: AgentActivity;
+	result?: AgentResult;
+	error?: { message: string; code?: string };
+}
+```
+
+Runtime-only handles live outside `AgentNode` in an internal `AgentRuntimeHandle` map keyed by
+agent ID. Handles can contain abort controllers, child `AgentSession` instances, timers, process
+handles, or cleanup callbacks. They are never persisted and never sent to the TUI.
+
+### Revisions
+
+Every state mutation increments the target agent revision. Commands that mutate a specific agent
+must include `expectedRevision`. If it does not match, the store returns:
+
+```ts
+{
+	ok: false,
+	error: "stale_revision",
+	current: AgentSnapshot
+}
+```
+
+Read commands do not require a revision. TUI clients should refresh from the returned snapshot
+instead of retrying blindly.
+
+### Lifecycle transitions
+
+Allowed lifecycle transitions:
+
+| From | To |
+|---|---|
+| `queued` | `starting`, `aborted` |
+| `starting` | `running`, `failed`, `aborted` |
+| `running` | `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, `aborted` |
+| `waiting_for_input` | `running`, `steering_pending`, `cancelling`, `completed`, `aborted` |
+| `steering_pending` | `running`, `waiting_for_input`, `cancelling`, `failed`, `aborted` |
+| `cancelling` | `aborted`, `failed`, `completed` |
+| terminal states | no transitions except read-only annotation updates |
+
+Terminal states are `completed`, `failed`, and `aborted`.
+
+Active counts are derived from non-terminal states only. They are not cached by the TUI.
+
+### Core commands
+
+The first store-level commands:
+
+| Command | Mutation | Notes |
+|---|---|---|
+| `spawnAgent(input)` | creates `AgentNode` at `queued` or `starting` | Does not call a model in first slice. |
+| `transitionAgent(id, expectedRevision, lifecycle, details?)` | lifecycle update | Enforces transition table. |
+| `selectAgentView(id)` | none | Returns a snapshot and records UI-only selection outside lifecycle state. |
+| `pinAgentSlot(id, expectedRevision, slot)` | slot update | Stable `Alt+number` mapping. |
+| `clearAgentSlot(id, expectedRevision)` | slot update | Does not affect lifecycle. |
+| `sendMailboxMessage(input)` | creates message | Used for supervisor contact and peer messages. |
+| `sendSteering(id, expectedRevision, message, target?)` | creates steering message and marks pending | Does not edit prompt buffer. |
+| `ackSteering(id, messageId, expectedRevision, status)` | updates steering status | Status: accepted, rejected, delivered, failed. |
+| `cancelAgent(id, expectedRevision, reason?)` | moves to `cancelling` or terminal | Runtime handle performs actual abort later. |
+| `recordArtifact(input)` | creates artifact pointer | Stores metadata/pointer, not full large output. |
+| `listAgents(filter?)` | none | Snapshot projection. |
+| `getAgent(id)` | none | Snapshot projection. |
+
+### Mailbox
+
+Mailbox messages are durable coordination events:
+
+```ts
+interface AgentMailboxMessage {
+	id: string;
+	threadId?: string;
+	fromAgentId: string;
+	toAgentId: string;
+	kind: "message" | "ask" | "reply" | "steer" | "supervisor_request" | "system";
+	status: "pending" | "accepted" | "rejected" | "delivered" | "failed";
+	createdAt: string;
+	updatedAt: string;
+	body?: string;
+	artifactIds?: string[];
+	targetCheckpoint?: "next_model_call" | "after_tool_result" | "when_waiting";
+	error?: string;
+}
+```
+
+`steer` is a mailbox kind with stricter routing. It is consumed by the child runtime at safe
+checkpoints. Delivery acknowledgement changes message status; it does not mutate message body.
+
+Structured protocol messages such as cancellation, max-turn wrap-up, and permission clarifications
+must remain tagged as protocol/system messages until explicitly rendered for the model.
+
+### Artifact pointers
+
+Large outputs live as artifacts:
+
+```ts
+interface AgentArtifact {
+	id: string;
+	agentId: string;
+	kind: "summary" | "diff" | "log" | "finding" | "transcript" | "file";
+	title: string;
+	path?: string;
+	inlinePreview?: string;
+	metadata?: Record<string, unknown>;
+	createdAt: string;
+}
+```
+
+Mailbox messages and agent results reference artifact IDs. This prevents background runs from
+duplicating large logs in every event.
+
+### TUI projection
+
+The TUI subscribes to snapshots and events. It may store view-local selection, scroll position, and
+expanded rows, but not lifecycle truth.
+
+Rules:
+
+- `Alt+1` through `Alt+9` select slots only.
+- Opening a transcript calls `selectAgentView(id)` and receives a snapshot.
+- Viewer stop/steer/resume buttons call explicit core commands with `expectedRevision`.
+- A stale-revision response replaces the local row from `current` and shows a conflict message.
+- Slot order is stable while an agent exists. Pinned slots survive refreshes. Unpinned slots may be
+  recomputed from core snapshots, but never from rendered row order alone.
+
+### Persistence
+
+After the in-memory store tests pass, persist two data classes:
+
+- Snapshots/events as `SessionManager.appendCustomEntry()` with `customType:
+  "multi_agent_event"`.
+- Agent-visible coordination as `appendCustomMessageEntry()` only when a message should enter LLM
+  context.
+
+Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
+sessions may show previous agents as terminal, detached, or resumable; they must not pretend a dead
+runtime is still running.
+
 ## Extension audit
 
 ### HazAT/pi-interactive-subagents

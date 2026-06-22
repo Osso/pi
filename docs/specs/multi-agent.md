@@ -79,7 +79,7 @@ runtime contract belongs here; implementation details will live in
 ## How it works
 
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) will describe the runtime
-  architecture after the first implementation slice.
+  architecture, core store shape, mailbox design, and read-only TUI projection rules.
 - [`docs/specs/approval-system.md`](approval-system.md) defines the approval policy contract that
   child agents must inherit or narrow.
 - [`docs/specs/worktree-startup-option.md`](worktree-startup-option.md) defines worktree startup
@@ -99,7 +99,7 @@ runtime contract belongs here; implementation details will live in
 
 - [x] Audit existing Pi subagent extensions and local Claude Code task primitives; record which
       behavior should be reused, adapted, or rejected.
-- [ ] Design the core authoritative agent state store, lifecycle revisions, mailbox commands, and
+- [x] Design the core authoritative agent state store, lifecycle revisions, mailbox commands, and
       read-only TUI projection contract.
 - [ ] Add the first failing tests for stale-revision rejection, read-only agent switching, mailbox
       steering acknowledgement, and core-derived active counts.
