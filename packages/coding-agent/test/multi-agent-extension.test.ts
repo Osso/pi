@@ -58,6 +58,13 @@ interface AgentViewerDetails extends Record<string, unknown> {
 	projection: MultiAgentProjectionSnapshot;
 }
 
+interface AgentsMailboxDetails extends Record<string, unknown> {
+	acknowledgements: AgentMailboxMessage[];
+	inbox: AgentMailboxMessage[];
+	outbox: AgentMailboxMessage[];
+	pendingCount: number;
+}
+
 function createMultiAgentHarness(
 	options: {
 		createChildSession?: ChildAgentSessionFactory;
@@ -110,6 +117,7 @@ describe("multi-agent extension tools", () => {
 
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_viewer",
+			"agents_mailbox",
 			"cancel_agent",
 			"contact_supervisor",
 			"list_agents",
@@ -205,6 +213,72 @@ describe("multi-agent extension tools", () => {
 			id: child.details.agent.id,
 			lifecycle: "queued",
 			revision: pinned.agent.revision,
+		});
+	});
+
+	it("projects mailbox inbox, outbox, and acknowledgements without mutating state", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		const started = harness.store.transitionAgent(child.details.agent.id, child.details.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) {
+			throw new Error("expected starting transition");
+		}
+		const running = harness.store.transitionAgent(child.details.agent.id, started.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected running transition");
+		}
+		const steered = await harness.call<SteerAgentDetails>("steer_agent", {
+			agentId: child.details.agent.id,
+			expectedRevision: running.agent.revision,
+			message: "Check auth",
+		});
+		const accepted = harness.store.ackSteering(
+			child.details.agent.id,
+			steered.details.agent.revision,
+			steered.details.message.id,
+			"accepted",
+		);
+		expect(accepted.ok).toBe(true);
+		if (!accepted.ok) {
+			throw new Error("expected steering acknowledgement");
+		}
+		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+			agentId: child.details.agent.id,
+			expectedRevision: accepted.agent.revision,
+			message: "Need scope",
+		});
+
+		const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
+			agentId: child.details.agent.id,
+		});
+		const parentMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
+			agentId: parent.details.agent.id,
+		});
+		const childAfterMailbox = harness.store.getAgent(child.details.agent.id);
+
+		expect(childMailbox.details).toMatchObject({
+			acknowledgements: [{ id: steered.details.message.id, status: "accepted" }],
+			inbox: [{ id: steered.details.message.id, fromAgentId: "supervisor", status: "accepted" }],
+			outbox: [{ id: contact.details.message.id, toAgentId: parent.details.agent.id, status: "pending" }],
+			pendingCount: 1,
+		});
+		expect(parentMailbox.details).toMatchObject({
+			inbox: [{ id: contact.details.message.id, fromAgentId: child.details.agent.id, status: "pending" }],
+			pendingCount: 1,
+		});
+		expect(childAfterMailbox).toMatchObject({
+			id: child.details.agent.id,
+			revision: contact.details.agent.revision,
 		});
 	});
 
