@@ -180,6 +180,54 @@ describe("MultiAgentStore", () => {
 		expect(cleared.agent.slot).toBeUndefined();
 	});
 
+	it("spawns child agents with inherited account model budget and narrowed permission metadata", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const parent = store.spawnAgent({
+			account: {
+				budgetId: "budget-1",
+				concurrencyCap: 2,
+				id: "account-1",
+				providerFallback: ["openai", "anthropic"],
+				rateLimit: { perMinute: 30 },
+				tokenBudget: { limit: 100_000 },
+			},
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Lead",
+			model: { modelId: "gpt-test", providerId: "openai", thinkingLevel: "medium" },
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		const child = store.spawnChildAgent(parent.agent.id, {
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+		});
+		const broadened = store.spawnChildAgent(parent.agent.id, {
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Broad Worker",
+			permission: { inheritedFrom: parent.agent.id, narrowed: false, policy: "auto-approve" },
+		});
+
+		expect(child.ok).toBe(true);
+		if (!child.ok) {
+			throw new Error("expected inherited child spawn");
+		}
+		expect(child.agent).toMatchObject({
+			account: parent.agent.account,
+			model: parent.agent.model,
+			parentId: parent.agent.id,
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+		});
+		expect(broadened).toMatchObject({
+			ok: false,
+			error: "permission_broadened",
+			parent: { id: parent.agent.id },
+		});
+	});
+
 	it("projects authoritative snapshots for UI surfaces without sharing mutable state", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const first = store.spawnAgent({

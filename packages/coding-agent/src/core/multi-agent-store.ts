@@ -71,7 +71,14 @@ export interface AgentNode {
 	cwd: string;
 	worktree?: { path: string; branch?: string; base?: string };
 	model?: { providerId: string; modelId: string; thinkingLevel?: string };
-	account?: { id: string; budgetId?: string };
+	account?: {
+		id: string;
+		budgetId?: string;
+		providerFallback?: string[];
+		tokenBudget?: { limit: number };
+		concurrencyCap?: number;
+		rateLimit?: { perMinute: number };
+	};
 	permission: { policy: string; inheritedFrom?: string; narrowed: boolean };
 	slot?: { index: number; pinned: boolean };
 	transcript?: { sessionId: string; path?: string };
@@ -95,6 +102,11 @@ export interface SpawnAgentInput {
 	slot?: AgentNode["slot"];
 	transcript?: AgentNode["transcript"];
 }
+
+export type SpawnChildAgentInput = Omit<SpawnAgentInput, "account" | "model" | "parentId"> & {
+	account?: AgentNode["account"];
+	model?: AgentNode["model"];
+};
 
 export interface AgentMailboxMessage {
 	id: string;
@@ -147,6 +159,11 @@ export type AgentCommandResult =
 	| { ok: false; error: "not_found"; agentId: string }
 	| { ok: false; error: "stale_revision"; current: AgentSnapshot }
 	| { ok: false; error: "invalid_transition"; current: AgentSnapshot; requested: AgentLifecycleState };
+
+export type SpawnChildAgentResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "parent_not_found"; parentId: string }
+	| { ok: false; error: "permission_broadened"; parent: AgentSnapshot; requested: AgentNode["permission"] };
 
 export type SteeringCommandResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
@@ -255,6 +272,26 @@ export class MultiAgentStore {
 		this.agents.set(agent.id, agent);
 
 		return { agent: copyAgent(agent) };
+	}
+
+	spawnChildAgent(parentId: string, input: SpawnChildAgentInput): SpawnChildAgentResult {
+		const parent = this.agents.get(parentId);
+		if (!parent) {
+			return { ok: false, error: "parent_not_found", parentId };
+		}
+
+		if (wouldBroadenPermission(parent.permission, input.permission)) {
+			return { ok: false, error: "permission_broadened", parent: copyAgent(parent), requested: input.permission };
+		}
+
+		const spawned = this.spawnAgent({
+			...input,
+			account: copyOptional(input.account) ?? copyOptional(parent.account),
+			model: copyOptional(input.model) ?? copyOptional(parent.model),
+			parentId,
+		});
+
+		return { ok: true, agent: spawned.agent };
 	}
 
 	transitionAgent(
@@ -714,6 +751,18 @@ function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): bool
 	}
 
 	return ALLOWED_TRANSITIONS.get(from)?.has(to) ?? false;
+}
+
+function wouldBroadenPermission(parent: AgentNode["permission"], requested: AgentNode["permission"]): boolean {
+	if (!requested.narrowed) {
+		return true;
+	}
+
+	if (requested.policy !== parent.policy) {
+		return true;
+	}
+
+	return false;
 }
 
 function copyAgent(agent: AgentNode): AgentSnapshot {

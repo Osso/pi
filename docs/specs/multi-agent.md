@@ -54,10 +54,10 @@ runtime contract belongs here; implementation details will live in
 
 ### Accounts, budgets, and permissions
 
-- [ ] Accounts configure per-agent model/account selection, provider fallback, token budgets,
+- [x] Accounts configure per-agent model/account selection, provider fallback, token budgets,
       concurrency caps, and rate limits.
 - [ ] Accounts do not store mailbox messages, workflow state, or UI selection state.
-- [ ] Child agents inherit or narrow the parent permission policy; they must not silently broaden
+- [x] Child agents inherit or narrow the parent permission policy; they must not silently broaden
       tool or filesystem access.
 - [ ] Optional subprocess or terminal-pane workers remain bounded by the same core permission,
       mailbox, and lifecycle contracts.
@@ -112,7 +112,8 @@ runtime contract belongs here; implementation details will live in
   references carry only ID/path metadata and do not copy large artifact content, covers stable
   agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
-  current core state.
+  current core state. It covers child-agent model/account/budget metadata inheritance and rejects
+  permission broadening.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
@@ -169,6 +170,8 @@ runtime contract belongs here; implementation details will live in
       events.
 - [x] Add workflow-operation tests proving higher-level extensions can compose spawn/message/wait
       without owning separate runtime state.
+- [x] Add focused account/policy inheritance tests for child agent model, account, budget, and
+      narrowed permission metadata.
 
 ## Out of scope
 

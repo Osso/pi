@@ -33,6 +33,7 @@ siblings cannot target each other directly.
 `agent_artifacts` records and lists shared artifact pointers outside mailbox events.
 `createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
 for higher-level workflow extensions without giving them a separate runtime state store.
+`spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
 
 Existing primitives worth reusing:
 
