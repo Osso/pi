@@ -72,10 +72,10 @@ runtime contract belongs here; implementation details will live in
 
 ### External extension learnings
 
-- [ ] The first implementation pass audits `HazAT/pi-interactive-subagents`,
+- [x] The first implementation pass audits `HazAT/pi-interactive-subagents`,
       `nicobailon/pi-subagents`, `tintinweb/pi-subagents`, `@gotgenes/pi-subagents`,
       `pi-sub-agent`, and `pi-intercom` before finalizing the first core API.
-- [ ] Pi may reuse terminal-pane ideas from external extensions, but native core behavior must work
+- [x] Pi may reuse terminal-pane ideas from external extensions, but native core behavior must work
       headless and must not depend on cmux.
 
 ## How it works
