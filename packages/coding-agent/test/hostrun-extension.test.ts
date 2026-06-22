@@ -293,6 +293,107 @@ describe("hostrun extension", () => {
 		expect(existsSync(target)).toBe(false);
 	});
 
+	it("blocks every host-effect helper before execution when approval is denied", async () => {
+		const cliTarget = join(tempDir, "denied-cli-helper.txt");
+		const runTarget = join(tempDir, "denied-run-helper-all.txt");
+		const keptFile = join(tempDir, "kept.txt");
+		const dataFile = join(tempDir, "data.json");
+		writeFileSync(keptFile, "kept");
+		writeFileSync(dataFile, '{"ok":true}');
+		let httpRequests = 0;
+		const server = createServer((_request, response) => {
+			httpRequests++;
+			response.end("blocked");
+		});
+		servers.push(server);
+		const port = await listen(server);
+		const nodeWriteCliTarget = `require('node:fs').writeFileSync(${JSON.stringify(cliTarget)}, 'ran')`;
+		const nodeWriteRunTarget = `require('node:fs').writeFileSync(${JSON.stringify(runTarget)}, 'ran')`;
+		const httpBase = `http://127.0.0.1:${port}`;
+		const cases = [
+			{ code: `cli.node('-e', ${JSON.stringify(nodeWriteCliTarget)}).stdout.text()`, label: "cli stdout text" },
+			{ code: `cli.node('-e', ${JSON.stringify(nodeWriteCliTarget)}).stdout.lines()`, label: "cli stdout lines" },
+			{ code: `cli.node('-e', ${JSON.stringify(nodeWriteCliTarget)}).stderr.text()`, label: "cli stderr text" },
+			{ code: `cli.node('-e', ${JSON.stringify(nodeWriteCliTarget)}).stderr.lines()`, label: "cli stderr lines" },
+			{ code: `cli.node('-e', ${JSON.stringify(nodeWriteCliTarget)}).run()`, label: "cli run" },
+			{ code: `run.node('-e', ${JSON.stringify(nodeWriteRunTarget)})`, label: "run helper" },
+			{ code: `fs.write(${JSON.stringify(cliTarget)}, 'blocked')`, label: "fs.write" },
+			{ code: `fs.read(${JSON.stringify(keptFile)})`, label: "fs.read" },
+			{ code: `fs.exists(${JSON.stringify(keptFile)})`, label: "fs.exists" },
+			{ code: `fs.remove(${JSON.stringify(keptFile)})`, label: "fs.remove" },
+			{ code: `fs.glob(${JSON.stringify(`${tempDir}/*.txt`)})`, label: "fs.glob" },
+			{ code: `fs.open(${JSON.stringify(dataFile)})`, label: "fs.open" },
+			{ code: `http.get('${httpBase}/get').text()`, label: "http.get" },
+			{ code: `http.post('${httpBase}/post', { body: 'payload' }).text()`, label: "http.post" },
+			{ code: `http.put('${httpBase}/put', { body: 'payload' }).text()`, label: "http.put" },
+			{ code: `http.patch('${httpBase}/patch', { body: 'payload' }).text()`, label: "http.patch" },
+			{ code: `http.delete('${httpBase}/delete').text()`, label: "http.delete" },
+			{ code: `http.head('${httpBase}/head').text()`, label: "http.head" },
+			{ code: `rg.search('kept', ${JSON.stringify(tempDir)}).text()`, label: "rg.search" },
+			{ code: `rg.files(${JSON.stringify(tempDir)}).lines()`, label: "rg.files" },
+			{ code: `rg.matches('kept', ${JSON.stringify(tempDir)})`, label: "rg.matches" },
+			{ code: `fd.find('*.txt', ${JSON.stringify(tempDir)}).lines()`, label: "fd.find" },
+			{ code: `fd.files(${JSON.stringify(tempDir)})`, label: "fd.files" },
+			{ code: `fd.dirs(${JSON.stringify(tempDir)})`, label: "fd.dirs" },
+		];
+
+		for (const testCase of cases) {
+			const confirm = vi.fn().mockResolvedValue(false);
+			const harness = createHostrunHarness({ confirm });
+
+			const result = await harness.evaluate({ code: testCase.code });
+
+			expect(confirm, testCase.label).toHaveBeenCalledTimes(1);
+			expect(result.details.error?.message, testCase.label).toContain("denied");
+		}
+		expect(existsSync(cliTarget)).toBe(false);
+		expect(existsSync(runTarget)).toBe(false);
+		expect(readFileSync(keptFile, "utf8")).toBe("kept");
+		expect(httpRequests).toBe(0);
+	});
+
+	it("includes argv metadata for every cli and run execution path", async () => {
+		const cliScript = "console.log('out'); console.error('err')";
+		const runScript = "console.log('run')";
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const command = cli.node('-e', ${JSON.stringify(cliScript)});`,
+				`const stdoutText = command.stdout.text();`,
+				`const stdoutLines = command.stdout.lines();`,
+				`const stderrText = command.stderr.text();`,
+				`const stderrLines = command.stderr.lines();`,
+				`const runDetails = command.run();`,
+				`run.node('-e', ${JSON.stringify(runScript)});`,
+				`({ stdoutText, stdoutLines, stderrText, stderrLines, runDetails })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(6);
+		expect(result.details.result).toMatchObject({
+			runDetails: { exitCode: 0, stderr: "err\n", stdout: "out\n" },
+			stderrLines: ["err"],
+			stderrText: "err\n",
+			stdoutLines: ["out"],
+			stdoutText: "out\n",
+		});
+		const approvalMetadata = confirm.mock.calls.map((call) => JSON.parse(String(call[1])));
+		expect(approvalMetadata.slice(0, 5)).toEqual(
+			Array.from({ length: 5 }, () => ({
+				args: ["-e", cliScript],
+				operation: "cli",
+				program: "node",
+			})),
+		);
+		expect(approvalMetadata[5]).toEqual({
+			args: ["-e", runScript],
+			operation: "cli",
+			program: "node",
+		});
+	});
+
 	it("gates fs.exists, fs.remove, and fs.glob", async () => {
 		const first = join(tempDir, "first.txt");
 		const second = join(tempDir, "second.txt");

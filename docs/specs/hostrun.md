@@ -48,7 +48,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Tested `cli.*`, `run.*`, `fs.write`/`fs.read`/`fs.exists`/`fs.remove`/
   `fs.glob`, and `http.get`/`http.post` host effects request approval via Pi's
   `ui.confirm` path before executing.
-- [ ] All operations with host-side effects must request approval via Pi's
+- [x] All operations with host-side effects must request approval via Pi's
   `tool_call` event / `ui.confirm` before executing; no host effect runs
   without an approval gate.
 - [x] Expose `cli.<program>(...args)` as a lazy command builder whose
@@ -61,7 +61,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Expose `run.<program>(...args)` for no-capture command execution.
 - [x] Include program name and argv in the approval request for tested `cli.*`
   and `run.*`; never pass shell strings, always use argv arrays.
-- [ ] Include program name and argv in the approval request for all future
+- [x] Include program name and argv in the approval request for all current
   `cli.*`/`run.*` helper variants;
   never pass shell strings, always use argv arrays.
 - [x] Expose `fs.write(path, content)` and `fs.read(path)` as approval-gated file
@@ -124,7 +124,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/test/hostrun-extension.test.ts` — registration,
   per-session `ctx` persistence, console capture, and exception-survival
   coverage, including returned exception details, approval-gated
-  `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects, CLI terminal selectors,
+  `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects, denied-approval
+  no-effect behavior, CLI terminal selectors, CLI argv approval metadata,
   parsed `fs.open` formats, and persistent `host.cwd()` / `host.cd(path)`
   behavior.
 - `packages/coding-agent/test/hostrun-mcp-server.test.ts` — standalone MCP
