@@ -200,6 +200,43 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("stores mailbox artifact references by metadata without copying content", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const supervisor = spawnScout(store);
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: supervisor.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		const contact = store.contactSupervisor(child.agent.id, child.agent.revision, {
+			artifactRefs: [
+				{
+					id: "diff-1",
+					label: "Auth diff",
+					path: "artifacts/auth.diff",
+					content: "large diff content must not enter the mailbox",
+				} as { content: string; id: string; label: string; path: string },
+			],
+			body: "Review attached diff",
+		});
+
+		expect(contact.ok).toBe(true);
+		if (!contact.ok) {
+			throw new Error("expected supervisor contact to succeed");
+		}
+		expect(contact.message.artifactRefs).toEqual([
+			{
+				id: "diff-1",
+				label: "Auth diff",
+				path: "artifacts/auth.diff",
+			},
+		]);
+		expect(JSON.stringify(contact.message)).not.toContain("large diff content");
+	});
+
 	it("persists snapshots as SessionManager custom entries", () => {
 		const session = SessionManager.inMemory("/repo");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

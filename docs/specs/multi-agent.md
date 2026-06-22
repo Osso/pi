@@ -38,7 +38,7 @@ runtime contract belongs here; implementation details will live in
 - [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
       delivered state.
 - [x] Child agents can contact the supervisor without direct access to sibling internals.
-- [ ] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
+- [x] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
       findings are not copied into every coordination event.
 
 ### Extension boundaries
@@ -107,14 +107,16 @@ runtime contract belongs here; implementation details will live in
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
   core-derived active counts. It also asserts snapshot persistence through SessionManager custom
   entries, rehydration after reopening a persisted session, descendant listing below a parent, and
-  child-to-supervisor mailbox contact without sibling targeting.
+  child-to-supervisor mailbox contact without sibling targeting. It verifies mailbox artifact
+  references carry only ID/path metadata and do not copy large artifact content.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing spawn/list/wait/cancel/contact/steer tool surface is
   store-backed and does not start child model sessions by default. It also asserts the spawn tool
   can call an injected child dispatcher, a real child `AgentSession` factory, or the production
   child factory wrapper, that `wait_agent` reports terminal store state without TUI coupling, that
   `list_agents` can return descendants below a parent without TUI state, and that
-  `contact_supervisor` routes child messages to the direct parent.
+  `contact_supervisor` routes child messages to the direct parent with artifact references by
+  ID/path rather than copied content.
 
 ## Known gaps (current cycle)
 
@@ -139,6 +141,8 @@ runtime contract belongs here; implementation details will live in
 - [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
       trees without TUI state.
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
+- [x] Add and implement mailbox artifact references by ID/path without copying large content into
+      coordination events.
 
 ## Out of scope
 

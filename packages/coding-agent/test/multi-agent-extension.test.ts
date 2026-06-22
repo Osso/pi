@@ -197,6 +197,42 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("passes mailbox artifact references by ID/path without copying content", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "Parent task",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+
+		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+			agentId: child.details.agent.id,
+			artifactRefs: [
+				{
+					content: "large log content must not enter the mailbox",
+					id: "log-1",
+					label: "Tool log",
+					path: "artifacts/tool.log",
+				},
+			],
+			expectedRevision: child.details.agent.revision,
+			message: "Review log",
+		});
+
+		expect(contact.details.message.artifactRefs).toEqual([
+			{
+				id: "log-1",
+				label: "Tool log",
+				path: "artifacts/tool.log",
+			},
+		]);
+		expect(JSON.stringify(contact.details.message)).not.toContain("large log content");
+	});
+
 	it("waits and cancels through the core store", async () => {
 		const harness = createMultiAgentHarness();
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {

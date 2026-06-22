@@ -31,6 +31,12 @@ export interface AgentResult {
 	artifactIds?: string[];
 }
 
+export interface AgentArtifactReference {
+	id?: string;
+	path?: string;
+	label?: string;
+}
+
 export interface AgentNode {
 	id: string;
 	parentId: string | undefined;
@@ -79,6 +85,7 @@ export interface AgentMailboxMessage {
 	updatedAt: string;
 	body?: string;
 	artifactIds?: string[];
+	artifactRefs?: AgentArtifactReference[];
 	targetCheckpoint?: SteeringCheckpoint;
 	error?: string;
 }
@@ -89,12 +96,14 @@ export interface SendSteeringInput {
 	targetCheckpoint?: SteeringCheckpoint;
 	threadId?: string;
 	artifactIds?: string[];
+	artifactRefs?: AgentArtifactReference[];
 }
 
 export interface ContactSupervisorInput {
 	body: string;
 	threadId?: string;
 	artifactIds?: string[];
+	artifactRefs?: AgentArtifactReference[];
 }
 
 export interface TransitionAgentDetails {
@@ -300,6 +309,7 @@ export class MultiAgentStore {
 			updatedAt: timestamp,
 			body: input.body,
 			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
+			artifactRefs: copyArtifactRefs(input.artifactRefs),
 		};
 		this.mailboxMessages.set(message.id, message);
 
@@ -337,6 +347,7 @@ export class MultiAgentStore {
 			updatedAt: timestamp,
 			body: input.body,
 			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
+			artifactRefs: copyArtifactRefs(input.artifactRefs),
 			targetCheckpoint: input.targetCheckpoint,
 		};
 		this.mailboxMessages.set(message.id, message);
@@ -501,11 +512,20 @@ function copyMessage(message: AgentMailboxMessage): AgentMailboxMessage {
 	return {
 		...message,
 		artifactIds: message.artifactIds ? [...message.artifactIds] : undefined,
+		artifactRefs: copyArtifactRefs(message.artifactRefs),
 	};
 }
 
 function copyOptional<T extends object>(value: T | undefined): T | undefined {
 	return value ? { ...value } : undefined;
+}
+
+function copyArtifactRefs(refs: AgentArtifactReference[] | undefined): AgentArtifactReference[] | undefined {
+	return refs?.map((ref) => ({
+		id: ref.id,
+		label: ref.label,
+		path: ref.path,
+	}));
 }
 
 function copyResult(result: AgentResult | undefined): AgentResult | undefined {

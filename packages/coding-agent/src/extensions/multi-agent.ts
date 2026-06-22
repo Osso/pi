@@ -24,6 +24,12 @@ const checkpointSchema = Type.Union([
 	Type.Literal("when_waiting"),
 ]);
 
+const artifactReferenceSchema = Type.Object({
+	id: Type.Optional(Type.String()),
+	label: Type.Optional(Type.String()),
+	path: Type.Optional(Type.String()),
+});
+
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
 	displayName: Type.Optional(Type.String()),
@@ -49,6 +55,7 @@ const cancelAgentSchema = Type.Object({
 
 const steerAgentSchema = Type.Object({
 	agentId: Type.String(),
+	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
 	expectedRevision: Type.Number(),
 	message: Type.String(),
 	fromAgentId: Type.Optional(Type.String()),
@@ -58,6 +65,7 @@ const steerAgentSchema = Type.Object({
 const contactSupervisorSchema = Type.Object({
 	agentId: Type.String(),
 	artifactIds: Type.Optional(Type.Array(Type.String())),
+	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
 	expectedRevision: Type.Number(),
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
@@ -317,6 +325,7 @@ function contactSupervisor(
 ): AgentToolResult<ContactSupervisorToolDetails> {
 	const contacted = store.contactSupervisor(params.agentId, params.expectedRevision, {
 		artifactIds: params.artifactIds,
+		artifactRefs: params.artifactRefs,
 		body: params.message,
 		threadId: params.threadId,
 	});
@@ -335,6 +344,7 @@ function contactSupervisor(
 
 function steerAgent(store: MultiAgentStore, params: SteerAgentParams): AgentToolResult<AgentSteerToolDetails> {
 	const steered = store.sendSteering(params.agentId, params.expectedRevision, {
+		artifactRefs: params.artifactRefs,
 		body: params.message,
 		fromAgentId: params.fromAgentId?.trim() || "supervisor",
 		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,

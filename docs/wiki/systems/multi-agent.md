@@ -21,7 +21,8 @@ parent cwd, model, model registry, and `parentSession` metadata. The default pat
 does not create live child model sessions yet. `list_agents` can scope results to descendants below
 a parent ID, using core store state rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
-arbitrary sibling target.
+arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
+and labels, so large logs or diffs stay outside coordination events.
 
 Existing primitives worth reusing:
 
@@ -44,7 +45,7 @@ Still missing first-party pieces:
 - Richer wait behavior.
 - Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
-- Bounded artifact store so diffs/logs/results do not become unbounded mailbox events.
+- Bounded artifact store for storing referenced diff/log/result payloads outside mailbox events.
 
 ## Architecture decision
 
