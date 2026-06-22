@@ -64,6 +64,14 @@ If rebase conflicts occur:
 - If a conflict is in a file you did not modify, abort and ask the user.
 - Never force push.
 
+Upstream update strategy:
+
+- Prefer merging `origin/main` into long-running feature/spec branches. Preserve local commit history and resolve upstream drift once.
+- Do not rebase or rewrite a long-running branch with many local commits unless the user explicitly asks for a clean PR branch.
+- If a clean upstream PR branch is needed, create a separate branch from `origin/main` and cherry-pick or rework selected changes there.
+- Before merging upstream, fetch, record divergence (`git rev-list --left-right --count origin/main...HEAD`), list overlapping files, and make a backup branch or tag.
+- After merging upstream, run targeted tests for conflicted/touched systems and `npm run check` before committing the merge.
+
 ## Issues and PRs
 
 See `CONTRIBUTING.md` for the contributor gate (auto-close workflows, `lgtm`/`lgtmi`, quality bar).
