@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import multiAgentExtension, { type ChildAgentDispatcher } from "../src/extensions/multi-agent.ts";
+import multiAgentExtension, {
+	type ChildAgentDispatcher,
+	type ChildAgentSessionFactory,
+} from "../src/extensions/multi-agent.ts";
+import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
 
 type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 	execute: (
@@ -39,7 +44,9 @@ interface SteerAgentDetails extends Record<string, unknown> {
 	message: AgentMailboxMessage;
 }
 
-function createMultiAgentHarness(options: { dispatcher?: ChildAgentDispatcher } = {}) {
+function createMultiAgentHarness(
+	options: { createChildSession?: ChildAgentSessionFactory; dispatcher?: ChildAgentDispatcher } = {},
+) {
 	const tools = new Map<string, RegisteredTool>();
 	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
@@ -48,7 +55,7 @@ function createMultiAgentHarness(options: { dispatcher?: ChildAgentDispatcher } 
 		},
 	} as unknown as ExtensionAPI;
 
-	multiAgentExtension(pi, { dispatcher: options.dispatcher, store });
+	multiAgentExtension(pi, { createChildSession: options.createChildSession, dispatcher: options.dispatcher, store });
 
 	const ctx = {
 		cwd: "/repo",
@@ -71,6 +78,14 @@ function createMultiAgentHarness(options: { dispatcher?: ChildAgentDispatcher } 
 }
 
 describe("multi-agent extension tools", () => {
+	const childHarnesses: Harness[] = [];
+
+	afterEach(() => {
+		while (childHarnesses.length > 0) {
+			childHarnesses.pop()?.cleanup();
+		}
+	});
+
 	it("registers spawn/list/wait/cancel/steer tools", () => {
 		const harness = createMultiAgentHarness();
 
@@ -194,6 +209,40 @@ describe("multi-agent extension tools", () => {
 		expect(spawned.details).toMatchObject({
 			dispatched: true,
 			agent: { lifecycle: "completed", result: { summary: "done" } },
+		});
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
+			terminal: true,
+		});
+	});
+
+	it("dispatches a real child AgentSession behind spawn_agent", async () => {
+		let childHarness: Harness | undefined;
+		const harness = createMultiAgentHarness({
+			createChildSession: async () => {
+				childHarness = await createHarness();
+				childHarnesses.push(childHarness);
+				childHarness.setResponses([fauxAssistantMessage("child done")]);
+				return childHarness.session;
+			},
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "worker",
+			displayName: "Worker",
+			prompt: "Implement auth tests",
+		});
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+
+		expect(childHarness).toBeDefined();
+		if (!childHarness) {
+			throw new Error("expected child harness");
+		}
+		expect(getUserTexts(childHarness)).toEqual(["Implement auth tests"]);
+		expect(getAssistantTexts(childHarness)).toEqual(["child done"]);
+		expect(spawned.details).toMatchObject({
+			dispatched: true,
+			agent: { lifecycle: "completed", result: { summary: "child done" } },
 		});
 		expect(waited.details).toMatchObject({
 			agent: { id: spawned.details.agent.id, lifecycle: "completed" },

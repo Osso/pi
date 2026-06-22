@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
 	type AgentToolResult,
@@ -58,6 +59,7 @@ type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
 
 export interface MultiAgentExtensionOptions {
+	createChildSession?: ChildAgentSessionFactory;
 	dispatcher?: ChildAgentDispatcher;
 	store?: MultiAgentStore;
 }
@@ -75,6 +77,13 @@ export interface ChildAgentDispatchResult {
 }
 
 export type ChildAgentDispatcher = (input: ChildAgentDispatchInput) => Promise<ChildAgentDispatchResult>;
+
+export interface ChildAgentSession {
+	messages: AgentMessage[];
+	prompt(text: string): Promise<void>;
+}
+
+export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
 
 interface AgentToolDetails {
 	agent: AgentSnapshot;
@@ -113,6 +122,7 @@ function errorResult<TDetails extends Record<string, unknown>>(
 
 async function spawnAgent(
 	store: MultiAgentStore,
+	createChildSession: ChildAgentSessionFactory | undefined,
 	dispatcher: ChildAgentDispatcher | undefined,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
@@ -128,6 +138,15 @@ async function spawnAgent(
 		permission: { narrowed: true, policy: "on-request" },
 	});
 
+	if (createChildSession) {
+		const dispatched = await dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx);
+		return result(`Spawned ${dispatched.displayName} (${dispatched.id})`, {
+			agent: dispatched,
+			dispatched: true,
+			prompt: params.prompt,
+		});
+	}
+
 	if (dispatcher) {
 		const dispatched = await dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx);
 		return result(`Spawned ${dispatched.displayName} (${dispatched.id})`, {
@@ -142,6 +161,35 @@ async function spawnAgent(
 		dispatched: false,
 		prompt: params.prompt,
 	});
+}
+
+async function dispatchAgentSession(
+	store: MultiAgentStore,
+	createChildSession: ChildAgentSessionFactory,
+	initialAgent: AgentSnapshot,
+	prompt: string,
+	ctx: ExtensionContext,
+): Promise<AgentSnapshot> {
+	const starting = moveToStarting(store, initialAgent);
+	const running = store.transitionAgent(starting.id, starting.revision, "running");
+	if (!running.ok) {
+		return starting;
+	}
+
+	try {
+		const childSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		await childSession.prompt(prompt);
+		const summary = lastAssistantText(childSession.messages);
+		const finished = store.transitionAgent(running.agent.id, running.agent.revision, "completed", {
+			result: summary ? { summary } : undefined,
+		});
+		return finished.ok ? finished.agent : running.agent;
+	} catch (error) {
+		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+			error: { message: error instanceof Error ? error.message : String(error) },
+		});
+		return failed.ok ? failed.agent : running.agent;
+	}
 }
 
 async function dispatchAgent(
@@ -264,8 +312,36 @@ function emptyMessage(agentId: string, body: string): AgentMailboxMessage {
 	};
 }
 
+function lastAssistantText(messages: AgentMessage[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role === "assistant") {
+			return messageText(message);
+		}
+	}
+
+	return undefined;
+}
+
+function messageText(message: AgentMessage): string {
+	if (!("content" in message)) {
+		return "";
+	}
+
+	const content = message.content;
+	if (typeof content === "string") {
+		return content;
+	}
+
+	return content
+		.filter((part) => part.type === "text")
+		.map((part) => part.text)
+		.join("\n");
+}
+
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = options.store ?? new MultiAgentStore();
+	const createChildSession = options.createChildSession;
 	const dispatcher = options.dispatcher;
 
 	pi.registerTool(
@@ -274,7 +350,8 @@ export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgen
 			label: "Spawn Agent",
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			parameters: spawnAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => spawnAgent(store, dispatcher, params, ctx),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				spawnAgent(store, createChildSession, dispatcher, params, ctx),
 		}),
 	);
 
