@@ -220,6 +220,7 @@ interface LayoutLine {
 
 export interface EditorTheme {
 	borderColor: (str: string) => string;
+	promptPrefix?: (str: string) => string;
 	selectList: SelectListTheme;
 }
 
@@ -262,6 +263,7 @@ export class Editor implements Component, Focusable {
 	protected tui: TUI;
 	private theme: EditorTheme;
 	private paddingX: number = 0;
+	private promptPrefix: string = "";
 
 	// Store last render width for cursor navigation
 	private lastWidth: number = 80;
@@ -328,6 +330,7 @@ export class Editor implements Component, Focusable {
 		this.tui = tui;
 		this.theme = theme;
 		this.borderColor = theme.borderColor;
+		this.promptPrefix = theme.promptPrefix?.("›") ?? "";
 		const paddingX = options.paddingX ?? 0;
 		this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
 		const maxVisible = options.autocompleteMaxVisible ?? 5;
@@ -478,10 +481,15 @@ export class Editor implements Component, Focusable {
 		const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
 		const paddingX = Math.min(this.paddingX, maxPadding);
 		const contentWidth = Math.max(1, width - paddingX * 2);
+		const promptPrefixWidth = Math.min(
+			visibleWidth(this.promptPrefix) + (this.promptPrefix ? 1 : 0),
+			contentWidth - 1,
+		);
+		const editorContentWidth = Math.max(1, contentWidth - promptPrefixWidth);
 
 		// Layout width: with padding the cursor can overflow into it,
 		// without padding we reserve 1 column for the cursor.
-		const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+		const layoutWidth = Math.max(1, editorContentWidth - (paddingX ? 0 : 1));
 
 		// Store for cursor navigation (must match wrapping width)
 		this.lastWidth = layoutWidth;
@@ -536,7 +544,8 @@ export class Editor implements Component, Focusable {
 		// autocomplete (e.g. slash-command menu) is visible.
 		const emitCursorMarker = this.focused;
 
-		for (const layoutLine of visibleLines) {
+		for (let i = 0; i < visibleLines.length; i++) {
+			const layoutLine = visibleLines[i]!;
 			let displayText = layoutLine.text;
 			let lineVisibleWidth = visibleWidth(layoutLine.text);
 			let cursorInPadding = false;
@@ -564,18 +573,22 @@ export class Editor implements Component, Focusable {
 					displayText = before + marker + cursor;
 					lineVisibleWidth = lineVisibleWidth + 1;
 					// If cursor overflows content width into the padding, flag it
-					if (lineVisibleWidth > contentWidth && paddingX > 0) {
+					if (lineVisibleWidth > editorContentWidth && paddingX > 0) {
 						cursorInPadding = true;
 					}
 				}
 			}
 
 			// Calculate padding based on actual visible width
-			const padding = " ".repeat(Math.max(0, contentWidth - lineVisibleWidth));
+			const padding = " ".repeat(Math.max(0, editorContentWidth - lineVisibleWidth));
 			const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
+			const promptPrefix =
+				promptPrefixWidth > 0 && this.scrollOffset + i === 0
+					? this.promptPrefix + " ".repeat(Math.max(0, promptPrefixWidth - visibleWidth(this.promptPrefix)))
+					: " ".repeat(promptPrefixWidth);
 
 			// Render the line (no side borders, just horizontal lines above and below)
-			result.push(`${leftPadding}${displayText}${padding}${lineRightPadding}`);
+			result.push(`${leftPadding}${promptPrefix}${displayText}${padding}${lineRightPadding}`);
 		}
 
 		// Render bottom border (with scroll indicator if more content below)
@@ -590,11 +603,12 @@ export class Editor implements Component, Focusable {
 
 		// Add autocomplete list if active
 		if (this.autocompleteState && this.autocompleteList) {
-			const autocompleteResult = this.autocompleteList.render(contentWidth);
+			const autocompleteResult = this.autocompleteList.render(editorContentWidth);
 			for (const line of autocompleteResult) {
 				const lineWidth = visibleWidth(line);
-				const linePadding = " ".repeat(Math.max(0, contentWidth - lineWidth));
-				result.push(`${leftPadding}${line}${linePadding}${rightPadding}`);
+				const promptPrefixPadding = " ".repeat(promptPrefixWidth);
+				const linePadding = " ".repeat(Math.max(0, editorContentWidth - lineWidth));
+				result.push(`${leftPadding}${promptPrefixPadding}${line}${linePadding}${rightPadding}`);
 			}
 		}
 

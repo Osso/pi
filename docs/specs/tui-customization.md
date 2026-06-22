@@ -23,6 +23,7 @@ terminal_resize_reflow_max_rows = 5000
 - [ ] `[tui].code_color = "#E6B450"` overrides inline/fenced code color independently of the selected theme.
 - [ ] `[tui].terminal_resize_reflow_max_rows = 5000` caps how many terminal rows Pi reflows after a resize.
 - [ ] Invalid theme names or invalid color values fail clearly or fall back predictably; they must not silently leave a half-applied theme.
+- [x] The main user input editor renders a left prompt marker (`›`) inside the input area so the composer visually matches Codex/Claude-style prompt affordances.
 
 ### Keybindings
 
@@ -85,6 +86,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
 - `packages/coding-agent/test/interactive-mode-status.test.ts:201-270` — `ctx.ui.custom` overlay/replacement focus regression: an overlay reclaims input after a non-overlay custom UI closes.
 - `packages/coding-agent/test/keybindings-migration.test.ts:25-87` — legacy keybinding name migration, namespaced-id precedence, and in-memory loading through `KeybindingsManager.create(agentDir)`.
+- `packages/tui/test/editor.test.ts` — optional editor prompt prefix rendering and width preservation.
 - `packages/coding-agent/test/theme-picker.test.ts:34-50` — theme listing uses custom theme content names and returns file paths for `getAvailableThemesWithPaths`.
 - `packages/coding-agent/test/theme-detection.test.ts:16-133` — terminal background detection, RGB classification, color-mode selection, and automatic light/dark theme setting parsing.
 - `packages/coding-agent/test/theme-export.test.ts:18-83` — HTML export theme color derivation and variable resolution.

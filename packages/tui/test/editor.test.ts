@@ -712,6 +712,20 @@ describe("Editor component", () => {
 	});
 
 	describe("Grapheme-aware text wrapping", () => {
+		it("renders an optional prompt prefix before the first input line", () => {
+			const editor = new Editor(createTestTUI(), {
+				...defaultEditorTheme,
+				promptPrefix: (text) => `\x1b[36m${text}\x1b[0m`,
+			});
+			editor.setText("hello");
+
+			const lines = editor.render(12);
+			const contentLine = stripVTControlCharacters(lines[1]!);
+
+			assert.ok(contentLine.startsWith("› hello"));
+			assert.strictEqual(visibleWidth(lines[1]!), 12);
+		});
+
 		it("wraps lines correctly when text contains wide emojis", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			const width = 20;

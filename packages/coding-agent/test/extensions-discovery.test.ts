@@ -485,4 +485,29 @@ describe("extensions discovery", () => {
 		expect(result.errors).toHaveLength(0);
 		expect(result.extensions).toHaveLength(0);
 	});
+
+	it("loads extensions that import the pi-coding-agent public API", async () => {
+		const extensionPath = path.join(extensionsDir, "public-api.ts");
+		fs.writeFileSync(
+			extensionPath,
+			`
+				import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+
+				export default function(pi) {
+					if (!DynamicBorder) throw new Error("missing DynamicBorder");
+					pi.registerCommand("public-api", {
+						description: "public api import",
+						handler: async () => {},
+					});
+				}
+			`,
+		);
+
+		const { loadExtensions } = await import("../src/core/extensions/loader.ts");
+		const result = await loadExtensions([extensionPath], tempDir);
+
+		expect(result.errors.map((error) => error.error)).toEqual([]);
+		expect(result.extensions).toHaveLength(1);
+		expect(result.extensions[0]?.commands.has("public-api")).toBe(true);
+	});
 });
