@@ -74,6 +74,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("goal");
+		expect(result.stdout).toContain("hostrun");
 		expect(result.stdout).toContain("multi-agent");
 		expect(result.stdout).toContain("run-plan");
 	});
@@ -84,6 +85,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("goal");
+		expect(result.stdout).toContain("hostrun");
 		expect(result.stdout).toContain("multi-agent");
 		expect(result.stdout).toContain("run-plan");
 		expect(result.stdout).toContain("project.ts");
@@ -95,6 +97,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("goal");
+		expect(result.stdout).toContain("hostrun");
 		expect(result.stdout).toContain("multi-agent");
 		expect(result.stdout).toContain("run-plan");
 	});
@@ -105,6 +108,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("goal");
+		expect(result.stdout).toContain("hostrun");
 		expect(result.stdout).toContain("multi-agent");
 		expect(result.stdout).toContain("run-plan");
 		expect(result.stdout).not.toContain("project.ts");
@@ -116,6 +120,8 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("goal_complete");
+		expect(result.stdout).toContain("hostrun_eval");
+		expect(result.stdout).toContain("set_goal");
 		expect(result.stdout).toContain("spawn_agent");
 	});
 });

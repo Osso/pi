@@ -49,6 +49,12 @@ interface ParsedGoalArgs {
 	wallClockBudgetMs?: number;
 }
 
+interface SetGoalParams extends ParsedGoalArgs {
+	cwd: string;
+	ctx: ExtensionContext;
+	pi: ExtensionAPI;
+}
+
 function goalPath(cwd: string): string {
 	return path.join(cwd, ".pi", "goal.json");
 }
@@ -183,7 +189,94 @@ function goalSystemBlock(goal: Goal): string {
 	].join("\n");
 }
 
+function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
+	const { objective, replace, tokenBudget, wallClockBudgetMs, cwd, ctx, pi } = params;
+	if (objective.length > MAX_OBJECTIVE_CHARS) {
+		return {
+			ok: false,
+			message: `Objective too long (${objective.length} > ${MAX_OBJECTIVE_CHARS} chars)`,
+			severity: "error",
+		};
+	}
+
+	const activeGoal = loadGoal(cwd);
+	if (activeGoal && !activeGoal.completedAt && !replace) {
+		return {
+			ok: false,
+			message: "Active goal already set — use /goal --replace <objective> to replace it",
+			severity: "warning",
+		};
+	}
+
+	const goal: Goal = {
+		objective,
+		branch: currentBranch(cwd),
+		createdAt: new Date().toISOString(),
+		continuationTurns: 0,
+		tokenBudget,
+		wallClockBudgetMs,
+	};
+	saveGoal(cwd, goal);
+
+	if (ctx.isIdle()) {
+		pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
+	} else {
+		ctx.ui.notify("Agent is busy — goal saved; it will guide the current run.", "warning");
+	}
+
+	return {
+		ok: true,
+		message: replace && activeGoal ? "Goal replaced — starting work" : "Goal set — starting work",
+		severity: "info",
+		goal,
+	};
+}
+
 export default function goalExtension(pi: ExtensionAPI) {
+	pi.registerTool({
+		name: "set_goal",
+		label: "Set Goal",
+		description: "Set the active long-running /goal objective.",
+		parameters: Type.Object({
+			objective: Type.String(),
+			replace: Type.Optional(Type.Boolean()),
+			tokenBudget: Type.Optional(Type.Number()),
+			wallClockMinutes: Type.Optional(Type.Number()),
+		}),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+			const objective = params.objective.trim();
+			if (!objective) {
+				return {
+					content: [{ type: "text", text: "Objective is required." }],
+					details: {},
+				};
+			}
+
+			const wallClockBudgetMs =
+				params.wallClockMinutes !== undefined ? params.wallClockMinutes * 60 * 1000 : undefined;
+			const result = setGoal({
+				objective,
+				replace: params.replace ?? false,
+				tokenBudget: params.tokenBudget,
+				wallClockBudgetMs,
+				cwd: ctx.cwd,
+				ctx,
+				pi,
+			});
+			ctx.ui.notify(result.message, result.severity);
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: result.ok ? `Goal set: ${objective}` : result.message,
+					},
+				],
+				details: result.goal ? { objective: result.goal.objective } : {},
+			};
+		},
+	});
+
 	pi.registerTool({
 		name: "goal_complete",
 		label: "Goal Complete",
@@ -265,37 +358,8 @@ export default function goalExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			// Set
-			if (objective.length > MAX_OBJECTIVE_CHARS) {
-				ctx.ui.notify(`Objective too long (${objective.length} > ${MAX_OBJECTIVE_CHARS} chars)`, "error");
-				return;
-			}
-			const activeGoal = loadGoal(cwd);
-			if (activeGoal && !activeGoal.completedAt && !replace) {
-				ctx.ui.notify(
-					"Active goal already set — use /goal --replace <objective> to replace it",
-					"warning",
-				);
-				return;
-			}
-			const goal: Goal = {
-				objective,
-				branch: currentBranch(cwd),
-				createdAt: new Date().toISOString(),
-				continuationTurns: 0,
-				tokenBudget,
-				wallClockBudgetMs,
-			};
-			saveGoal(cwd, goal);
-			ctx.ui.notify(replace && activeGoal ? "Goal replaced — starting work" : "Goal set — starting work", "info");
-
-			// Setting a goal immediately starts the agent working toward it.
-			// The objective is also injected via before_agent_start every turn.
-			if (ctx.isIdle()) {
-				pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
-			} else {
-				ctx.ui.notify("Agent is busy — goal saved; it will guide the current run.", "warning");
-			}
+			const result = setGoal({ objective, replace, tokenBudget, wallClockBudgetMs, cwd, ctx, pi });
+			ctx.ui.notify(result.message, result.severity);
 		},
 	});
 }

@@ -9,6 +9,7 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import goalExtension from "../extensions/goal/src/index.ts";
+import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
@@ -484,6 +485,7 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("goal", goalExtension),
+	firstPartyExtensionFactory("hostrun", hostrunExtension),
 	firstPartyExtensionFactory("multi-agent", multiAgentExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
 ];

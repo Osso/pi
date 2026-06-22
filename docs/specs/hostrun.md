@@ -22,6 +22,8 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - [x] Register as a Pi extension via `pi.registerTool("hostrun_eval", ...)` with
   a minimal public schema: required field `code` (string), optional
   `session_id` (string).
+- [x] Load as a default first-party runtime extension so `hostrun_eval` appears
+  in `pi tools` without project-local extension code.
 - [x] Evaluate `code` in a persistent QuickJS session; keep `globalThis.ctx`
   live across evaluations in the same session.
 - [x] Keep separate `ctx` state per `session_id`; default a missing `session_id`

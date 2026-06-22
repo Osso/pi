@@ -12,7 +12,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] Tool inventory output must keep terminal table lines compact by truncating long descriptions.
 - [x] Tool inventory output must show an explicit empty state when no tools are available.
 - [x] Tool inventory data must include tools registered by extensions during `session_start`.
-- [x] Tool inventory data must include default first-party runtime tools such as `spawn_agent` and `goal_complete`.
+- [x] Tool inventory data must include default first-party runtime tools such as `spawn_agent`, `set_goal`, `goal_complete`, and `hostrun_eval`.
 
 ### Extension inventory
 
@@ -20,7 +20,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] `/extensions` must be a built-in slash command.
 - [x] Extension inventory output must include every loaded extension, its scope/source, and registered command/tool/handler counts.
 - [x] Extension inventory output must show an explicit empty state when no extensions are loaded.
-- [x] Extension inventory output must include built-in first-party runtime extensions such as `goal`, `multi-agent`, and `run-plan` even while project trust is being resolved.
+- [x] Extension inventory output must include built-in first-party runtime extensions such as `goal`, `hostrun`, `multi-agent`, and `run-plan` even while project trust is being resolved.
 
 ## How it works
 
@@ -50,3 +50,4 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 ## Out of scope
 
 - Installed package management remains covered by `pi list`; these commands report runtime-loaded extensions for the current trust and config context.
+- Codex-compatible `web.run` search/browse tooling is not implemented by the runtime inventory work; Hostrun supplies approval-gated HTTP helpers, not a web search wrapper.

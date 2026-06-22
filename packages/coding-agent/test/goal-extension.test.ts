@@ -18,13 +18,14 @@ import type {
 } from "../src/core/extensions/types.ts";
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
-type GoalCompleteTool = ToolDefinition;
+type GoalTool = ToolDefinition;
 type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | SessionStartEvent;
 type GoalEventResult = BeforeAgentStartEventResult | undefined;
 
 function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage?: ContextUsage }) {
 	let command: RegisteredGoalCommand | undefined;
-	let completeTool: GoalCompleteTool | undefined;
+	let completeTool: GoalTool | undefined;
+	let setGoalTool: GoalTool | undefined;
 	let agentEnd: ExtensionHandler<AgentEndEvent, undefined> | undefined;
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
@@ -48,9 +49,12 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 				command = options;
 			}
 		},
-		registerTool(tool: GoalCompleteTool) {
+		registerTool(tool: GoalTool) {
 			if (tool.name === "goal_complete") {
 				completeTool = tool;
+			}
+			if (tool.name === "set_goal") {
+				setGoalTool = tool;
 			}
 		},
 		sendUserMessage,
@@ -84,8 +88,11 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 		runAgentEnd: async () => agentEnd?.({ type: "agent_end", messages: [] }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
+		runSetGoal: async (objective: string, replace = false) =>
+			setGoalTool?.execute("set-goal-1", { objective, replace }, undefined, undefined, ctx as ExtensionContext),
 		hasGoalCommand: () => command !== undefined,
 		hasGoalCompleteTool: () => completeTool !== undefined,
+		hasSetGoalTool: () => setGoalTool !== undefined,
 		notify,
 		sendUserMessage,
 	};
@@ -108,6 +115,20 @@ describe("goal extension", () => {
 
 		expect(harness.hasGoalCommand()).toBe(true);
 		expect(harness.hasGoalCompleteTool()).toBe(true);
+		expect(harness.hasSetGoalTool()).toBe(true);
+	});
+
+	it("sets an objective through the set_goal tool", async () => {
+		const harness = createGoalHarness(cwd);
+
+		const result = await harness.runSetGoal("ship tool parity");
+
+		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		expect(goal.objective).toBe("ship tool parity");
+		expect(result?.content).toEqual([{ type: "text", text: "Goal set: ship tool parity" }]);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Work toward this objective until it is achieved: ship tool parity",
+		);
 	});
 
 	it("sets an objective, persists it, and starts work when idle", async () => {
