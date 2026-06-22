@@ -170,6 +170,25 @@ describe("hostrun extension", () => {
 		expect(result.details.result).toBe("hostrun-ok\n");
 	});
 
+	it("supports approval-gated cli stdout lines and stderr text selectors", async () => {
+		const script = "console.log('alpha'); console.log('beta'); console.error('warn-line')";
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const command = cli.node('-e', ${JSON.stringify(script)});`,
+				`({ stdoutLines: command.stdout.lines(), stderrText: command.stderr.text() })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(2);
+		expect(result.details.result).toEqual({
+			stderrText: "warn-line\n",
+			stdoutLines: ["alpha", "beta"],
+		});
+	});
+
 	it("does not write files when approval is denied", async () => {
 		const target = join(tempDir, "blocked.txt");
 		const confirm = vi.fn().mockResolvedValue(false);
@@ -345,6 +364,32 @@ describe("hostrun extension", () => {
 			],
 			json: { count: 2, enabled: true },
 			jsonl: [{ id: 1 }, { id: 2 }],
+		});
+	});
+
+	it("parses YAML and TSV files through approval-gated fs.open", async () => {
+		const yamlPath = join(tempDir, "config.yaml");
+		const tsvPath = join(tempDir, "scores.tsv");
+		writeFileSync(yamlPath, "name: Ada\nactive: true\ncount: 2\n");
+		writeFileSync(tsvPath, "name\tscore\nAda\t10\nLin\t9\n");
+		const confirm = vi.fn().mockResolvedValue(true);
+		const harness = createHostrunHarness({ confirm });
+
+		const result = await harness.evaluate({
+			code: [
+				`const yaml = fs.open(${JSON.stringify(yamlPath)});`,
+				`const tsv = fs.open(${JSON.stringify(tsvPath)});`,
+				`({ yaml, tsv })`,
+			].join("\n"),
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(2);
+		expect(result.details.result).toEqual({
+			tsv: [
+				{ name: "Ada", score: "10" },
+				{ name: "Lin", score: "9" },
+			],
+			yaml: { active: true, count: 2, name: "Ada" },
 		});
 	});
 
