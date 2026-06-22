@@ -12,6 +12,7 @@ import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import type {
+	ApprovalReviewerResult,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	BeforeProviderRequestEvent,
@@ -549,6 +550,10 @@ export class ExtensionRunner {
 		return false;
 	}
 
+	hasApprovalReviewers(): boolean {
+		return this.extensions.some((extension) => extension.approvalReviewers.length > 0);
+	}
+
 	getMessageRenderer(customType: string): MessageRenderer | undefined {
 		for (const ext of this.extensions) {
 			const renderer = ext.messageRenderers.get(customType);
@@ -896,6 +901,33 @@ export class ExtensionRunner {
 		return result;
 	}
 
+	async emitApprovalReviewers(event: ToolCallEvent): Promise<ApprovalReviewerResult | undefined> {
+		const ctx = this.createContext();
+
+		for (const ext of this.extensions) {
+			for (const reviewer of ext.approvalReviewers) {
+				const result = await reviewer(event, ctx);
+				if (!result) {
+					continue;
+				}
+				if (result.action === "allow") {
+					if (result.updatedInput) {
+						replaceToolInput(event.input, result.updatedInput);
+					}
+					return undefined;
+				}
+				if (result.action === "deny") {
+					return result;
+				}
+				if (result.action === "ask") {
+					return result;
+				}
+			}
+		}
+
+		return undefined;
+	}
+
 	async emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {
 		const ctx = this.createContext();
 
@@ -1146,4 +1178,11 @@ export class ExtensionRunner {
 			? { action: "transform", text: currentText, images: currentImages }
 			: { action: "continue" };
 	}
+}
+
+function replaceToolInput(target: Record<string, unknown>, source: Record<string, unknown>): void {
+	for (const key of Object.keys(target)) {
+		delete target[key];
+	}
+	Object.assign(target, source);
 }

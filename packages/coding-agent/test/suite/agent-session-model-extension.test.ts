@@ -5,6 +5,7 @@ import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import claudeBashHookExtension from "../../extensions/claude-bash-hook/src/index.ts";
 import hostrunExtension from "../../extensions/hostrun/src/index.ts";
 import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionUIContext } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
@@ -427,6 +428,7 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
 		const harness = await createHarness({
+			extensionFactories: [claudeBashHookExtension],
 			uiContext: createConfirmUiContext(confirm),
 		});
 		harnesses.push(harness);
@@ -451,6 +453,7 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(true);
 		const harness = await createHarness({
+			extensionFactories: [claudeBashHookExtension],
 			uiContext: createConfirmUiContext(confirm),
 		});
 		harnesses.push(harness);

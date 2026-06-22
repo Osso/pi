@@ -12,6 +12,7 @@ import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, { createProductionChildAgentSessionFactory } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
+import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
@@ -491,6 +492,7 @@ const firstPartyMultiAgentStore = new MultiAgentStore();
 
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
+	firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
 	firstPartyExtensionFactory("agents-core", (pi) =>
 		agentsCoreExtension(pi, {
 			createChildSession: createProductionChildAgentSessionFactory({ agentDir: getAgentDir() }),

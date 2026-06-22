@@ -874,6 +874,16 @@ export type ToolCallEvent =
 	| LsToolCallEvent
 	| CustomToolCallEvent;
 
+export type ApprovalReviewerResult =
+	| { action: "allow"; updatedInput?: Record<string, unknown> }
+	| { action: "ask"; reason?: string }
+	| { action: "deny"; reason: string };
+
+export type ApprovalReviewer = (
+	event: ToolCallEvent,
+	ctx: ExtensionContext,
+) => Promise<ApprovalReviewerResult | undefined> | ApprovalReviewerResult | undefined;
+
 interface ToolResultEventBase {
 	type: "tool_result";
 	toolCallId: string;
@@ -1180,6 +1190,13 @@ export interface ExtensionAPI {
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = any>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
 	): void;
+
+	/**
+	 * Register an approval reviewer that runs before native UI approval.
+	 *
+	 * Reviewers can allow, deny, ask for native approval, or rewrite tool input.
+	 */
+	registerApprovalReviewer(reviewer: ApprovalReviewer): void;
 
 	// =========================================================================
 	// Command, Shortcut, Flag Registration
@@ -1591,6 +1608,7 @@ export interface Extension {
 	resolvedPath: string;
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
+	approvalReviewers: ApprovalReviewer[];
 	tools: Map<string, RegisteredTool>;
 	messageRenderers: Map<string, MessageRenderer>;
 	commands: Map<string, RegisteredCommand>;

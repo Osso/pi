@@ -85,7 +85,6 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
-import { canRunClaudeBashHook, reviewBashWithClaudeBashHook } from "./permissions/claude-bash-hook.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
 import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
@@ -513,26 +512,22 @@ export class AgentSession {
 		runner: ExtensionRunner,
 	): ApprovalReviewer | undefined {
 		const permissionPromptTool = this._resolvePermissionPromptTool();
-		const hasBashHook = event.toolName === "bash" && canRunClaudeBashHook();
-		if (!hasBashHook && !permissionPromptTool && !runner.hasHandlers("tool_call")) {
+		if (!runner.hasApprovalReviewers() && !permissionPromptTool && !runner.hasHandlers("tool_call")) {
 			return undefined;
 		}
 
 		return async () => {
-			if (hasBashHook) {
-				const bashHookResult = await reviewBashWithClaudeBashHook(event, {
-					approvalPolicy: this.settingsManager.getApprovalPolicy(),
-					cwd: this._cwd,
-				});
-				if (bashHookResult.action === "allow") {
+			if (runner.hasApprovalReviewers()) {
+				const reviewerResult = await runner.emitApprovalReviewers(event);
+				if (reviewerResult?.action === "allow") {
 					return undefined;
 				}
-				if (bashHookResult.action === "block") {
-					return bashHookResult.result;
+				if (reviewerResult?.action === "deny") {
+					return { block: true, reason: reviewerResult.reason };
 				}
-				if (bashHookResult.action === "ask") {
+				if (reviewerResult?.action === "ask") {
 					const humanReviewer = this._createToolApprovalHumanReviewer(event, runner);
-					return humanReviewer?.() ?? { block: true, reason: bashHookResult.reason };
+					return humanReviewer?.() ?? { block: true, reason: reviewerResult.reason ?? "Approval required" };
 				}
 			}
 

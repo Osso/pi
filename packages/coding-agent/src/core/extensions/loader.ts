@@ -222,6 +222,11 @@ function createExtensionAPI(
 			runtime.refreshTools();
 		},
 
+		registerApprovalReviewer(reviewer): void {
+			runtime.assertActive();
+			extension.approvalReviewers.push(reviewer);
+		},
+
 		registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">): void {
 			runtime.assertActive();
 			extension.commands.set(name, {
@@ -402,6 +407,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		resolvedPath,
 		sourceInfo: createSyntheticSourceInfo(extensionPath, { source, baseDir }),
 		handlers: new Map(),
+		approvalReviewers: [],
 		tools: new Map(),
 		messageRenderers: new Map(),
 		commands: new Map(),

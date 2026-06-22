@@ -1,14 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import type { ToolCallEvent, ToolCallEventResult } from "../extensions/types.ts";
+import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_HOOK_PATH = "/home/osso/.cargo/bin/claude-bash-hook";
 const HOOK_TIMEOUT_MS = 30_000;
-
-type ClaudeBashHookOptions = {
-	cwd: string;
-	approvalPolicy: string;
-};
 
 type HookSpecificOutput = {
 	permissionDecision?: unknown;
@@ -21,19 +16,25 @@ type HookProcessResult = {
 	stderr: string;
 };
 
-export type ClaudeBashHookReviewResult =
-	| { action: "allow" }
+type ClaudeBashHookReviewResult =
+	| { action: "allow"; updatedInput?: Record<string, unknown> }
 	| { action: "ask"; reason: string }
-	| { action: "block"; result: ToolCallEventResult }
+	| { action: "deny"; reason: string }
 	| { action: "unavailable" };
 
-export function canRunClaudeBashHook(): boolean {
-	return resolveClaudeBashHookCommand() !== undefined;
+export default function claudeBashHookExtension(pi: ExtensionAPI): void {
+	pi.registerApprovalReviewer(async (event, ctx) => {
+		const result = await reviewBashWithClaudeBashHook(event, ctx.cwd);
+		if (result.action === "unavailable") {
+			return undefined;
+		}
+		return result;
+	});
 }
 
 export async function reviewBashWithClaudeBashHook(
 	event: ToolCallEvent,
-	options: ClaudeBashHookOptions,
+	cwd: string,
 ): Promise<ClaudeBashHookReviewResult> {
 	if (event.toolName !== "bash") {
 		return { action: "unavailable" };
@@ -51,10 +52,10 @@ export async function reviewBashWithClaudeBashHook(
 
 	const hookInput = {
 		access_mode: "supervised",
-		approval_policy: options.approvalPolicy,
-		cwd: options.cwd,
+		approval_policy: "on-request",
+		cwd,
 		supports_updated_input: true,
-		tool_input: { ...event.input, cwd: options.cwd },
+		tool_input: { ...event.input, cwd },
 		tool_name: "Bash",
 	};
 
@@ -64,23 +65,22 @@ export async function reviewBashWithClaudeBashHook(
 		return { action: "unavailable" };
 	}
 
+	return mapHookOutput(hookOutput);
+}
+
+function mapHookOutput(hookOutput: HookSpecificOutput): ClaudeBashHookReviewResult {
 	const decision = hookOutput.permissionDecision;
 	if (decision === "allow") {
-		if (isRecord(hookOutput.updatedInput)) {
-			replaceInputInPlace(event.input, hookOutput.updatedInput);
-		}
-		return { action: "allow" };
+		const updatedInput = isRecord(hookOutput.updatedInput) ? hookOutput.updatedInput : undefined;
+		return updatedInput ? { action: "allow", updatedInput } : { action: "allow" };
 	}
 
 	if (decision === "deny" || decision === "block") {
-		return {
-			action: "block",
-			result: { block: true, reason: formatHookBlockReason(hookOutput.permissionDecisionReason) },
-		};
+		return { action: "deny", reason: formatHookReason(hookOutput.permissionDecisionReason) };
 	}
 
 	if (decision === "ask") {
-		return { action: "ask", reason: formatHookBlockReason(hookOutput.permissionDecisionReason) };
+		return { action: "ask", reason: formatHookReason(hookOutput.permissionDecisionReason) };
 	}
 
 	return { action: "unavailable" };
@@ -136,8 +136,7 @@ function runHookProcess(command: string, input: unknown): Promise<HookProcessRes
 
 function parseHookSpecificOutput(stdout: string): HookSpecificOutput | undefined {
 	const parsed = parseJsonObject(stdout.trim());
-	const hookSpecificOutput = isRecord(parsed?.hookSpecificOutput) ? parsed.hookSpecificOutput : undefined;
-	return hookSpecificOutput;
+	return isRecord(parsed?.hookSpecificOutput) ? parsed.hookSpecificOutput : undefined;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | undefined {
@@ -153,15 +152,8 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
 	}
 }
 
-function formatHookBlockReason(reason: unknown): string {
+function formatHookReason(reason: unknown): string {
 	return typeof reason === "string" && reason.trim().length > 0 ? reason : "Blocked by claude-bash-hook";
-}
-
-function replaceInputInPlace(target: Record<string, unknown>, source: Record<string, unknown>): void {
-	for (const key of Object.keys(target)) {
-		delete target[key];
-	}
-	Object.assign(target, source);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

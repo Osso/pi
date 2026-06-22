@@ -1,6 +1,8 @@
 # `--permission-prompt-tool` (MCP-delegated approval)
 
-Module boundary: core permission-dispatch integration, not a first-party extension module. It routes through existing tool-call approval plumbing.
+Module boundary: core permission-dispatch integration plus first-party
+`claude-bash-hook` approval reviewer extension. It routes through existing
+tool-call approval plumbing.
 
 Lets Pi delegate "approve this tool call?" decisions to an external MCP tool,
 matching Claude Code's `--permission-prompt-tool` wire protocol so a single MCP
@@ -125,9 +127,12 @@ Evidence:
   module: builds the MCP tool call input, parses and validates the response,
   and implements the decision/fallback dispatcher. (partial; session-rule cache
   and destination-aware JSON writers still planned)
-- `packages/coding-agent/src/core/permissions/claude-bash-hook.ts` — invokes the
+- `packages/coding-agent/extensions/claude-bash-hook/src/index.ts` — invokes the
   local `claude-bash-hook` command for Bash approvals when the MCP permission
   prompt server is not loaded in Pi.
+- `packages/coding-agent/src/core/extensions/types.ts` and
+  `packages/coding-agent/src/core/extensions/runner.ts` — expose the extension
+  approval-reviewer API used by the first-party hook adapter.
 - `packages/coding-agent/src/core/permissions/rule-store.ts` — in-memory session
   rule cache and persistent-rule write helpers.
 - `packages/coding-agent/src/core/agent-session.ts` — wire
