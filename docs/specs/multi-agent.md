@@ -24,6 +24,8 @@ runtime contract belongs here; implementation details will live in
       rows, cached UI state, or subprocess lists.
 - [ ] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI.
+- [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
+      with the parent's model, model registry, cwd, and `parentSession` metadata.
 - [ ] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log.
 
@@ -108,8 +110,8 @@ runtime contract belongs here; implementation details will live in
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing spawn/list/wait/cancel/steer tool surface is store-backed and
   does not start child model sessions by default. It also asserts the spawn tool can call an
-  injected child dispatcher or a real child `AgentSession` factory and that `wait_agent` reports
-  terminal store state without TUI coupling.
+  injected child dispatcher, a real child `AgentSession` factory, or the production child factory
+  wrapper and that `wait_agent` reports terminal store state without TUI coupling.
 
 ## Known gaps (current cycle)
 
@@ -129,6 +131,8 @@ runtime contract belongs here; implementation details will live in
       `wait_agent` behavior without TUI coupling.
 - [x] Add and implement real child `AgentSession` factory tests behind `spawn_agent` and
       terminal-state `wait_agent` behavior without TUI coupling.
+- [x] Implement production child `AgentSession` factory wiring for `spawn_agent` using existing
+      session primitives, without real provider calls in tests.
 
 ## Out of scope
 

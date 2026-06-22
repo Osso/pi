@@ -13,8 +13,11 @@ are added.
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
 `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`, and `steer_agent`. These tools mutate or
 read `MultiAgentStore`. `spawn_agent` can call an injected child dispatcher or create a child
-`AgentSession` through an injected factory, then reports terminal state through `wait_agent`. The
-default path intentionally does not create live child model sessions yet.
+`AgentSession` through an injected factory, then reports terminal state through `wait_agent`.
+`createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
+`SessionManager.create()` primitives so production callers can create child sessions with the
+parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
+does not create live child model sessions yet.
 
 Existing primitives worth reusing:
 
@@ -33,7 +36,7 @@ Existing primitives worth reusing:
 
 Still missing first-party pieces:
 
-- Default child `AgentSession` factory wiring in production startup/runtime.
+- Startup/runtime registration that opts `spawn_agent` into the production child factory.
 - Descendant filtering and richer wait behavior.
 - Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.

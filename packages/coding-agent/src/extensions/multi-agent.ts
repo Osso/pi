@@ -15,6 +15,8 @@ import {
 	MultiAgentStore,
 	type SteeringCheckpoint,
 } from "../core/multi-agent-store.ts";
+import { type CreateAgentSessionOptions, createAgentSession } from "../core/sdk.ts";
+import { SessionManager } from "../core/session-manager.ts";
 
 const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -85,6 +87,12 @@ export interface ChildAgentSession {
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
 
+export interface ProductionChildAgentSessionFactoryOptions {
+	agentDir?: string;
+	createSession?: (options: CreateAgentSessionOptions) => Promise<{ session: ChildAgentSession }>;
+	sessionDir?: string;
+}
+
 interface AgentToolDetails {
 	agent: AgentSnapshot;
 	dispatched?: boolean;
@@ -117,6 +125,26 @@ function errorResult<TDetails extends Record<string, unknown>>(
 	return {
 		content: [{ type: "text", text }],
 		details,
+	};
+}
+
+export function createProductionChildAgentSessionFactory(
+	options: ProductionChildAgentSessionFactoryOptions = {},
+): ChildAgentSessionFactory {
+	const createSession = options.createSession ?? createAgentSession;
+
+	return async ({ agent, ctx }) => {
+		const parentSession = ctx.sessionManager.getSessionFile() ?? ctx.sessionManager.getSessionId();
+		const sessionManager = SessionManager.create(agent.cwd, options.sessionDir, { parentSession });
+		const result = await createSession({
+			agentDir: options.agentDir,
+			cwd: agent.cwd,
+			model: ctx.model,
+			modelRegistry: ctx.modelRegistry,
+			sessionManager,
+		});
+
+		return result.session;
 	};
 }
 

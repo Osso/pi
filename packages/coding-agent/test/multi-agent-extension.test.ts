@@ -2,9 +2,11 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
 import multiAgentExtension, {
 	type ChildAgentDispatcher,
 	type ChildAgentSessionFactory,
+	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
 
@@ -45,7 +47,11 @@ interface SteerAgentDetails extends Record<string, unknown> {
 }
 
 function createMultiAgentHarness(
-	options: { createChildSession?: ChildAgentSessionFactory; dispatcher?: ChildAgentDispatcher } = {},
+	options: {
+		createChildSession?: ChildAgentSessionFactory;
+		ctx?: Partial<ExtensionContext>;
+		dispatcher?: ChildAgentDispatcher;
+	} = {},
 ) {
 	const tools = new Map<string, RegisteredTool>();
 	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -61,6 +67,7 @@ function createMultiAgentHarness(
 		cwd: "/repo",
 		hasUI: false,
 		mode: "print",
+		...options.ctx,
 	} as ExtensionContext;
 
 	return {
@@ -247,6 +254,58 @@ describe("multi-agent extension tools", () => {
 		expect(waited.details).toMatchObject({
 			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
 			terminal: true,
+		});
+	});
+
+	it("wires spawn_agent to a production child AgentSession factory with parent session metadata", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		let childHarness: Harness | undefined;
+		let sessionOptions: CreateAgentSessionOptions | undefined;
+		const childSessionDir = `${parentHarness.tempDir}/child-sessions`;
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				sessionDir: childSessionDir,
+				createSession: async (options) => {
+					sessionOptions = options;
+					childHarness = await createHarness();
+					childHarnesses.push(childHarness);
+					childHarness.setResponses([fauxAssistantMessage("factory child done")]);
+					return { session: childHarness.session };
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "worker",
+			displayName: "Worker",
+			prompt: "Implement auth tests",
+		});
+
+		expect(sessionOptions).toMatchObject({
+			cwd: "/repo",
+			model: parentHarness.getModel(),
+			modelRegistry: parentHarness.session.modelRegistry,
+		});
+		expect(sessionOptions?.sessionManager?.getHeader()).toMatchObject({
+			cwd: "/repo",
+			parentSession: parentHarness.sessionManager.getSessionId(),
+		});
+		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(childSessionDir);
+		expect(childHarness).toBeDefined();
+		if (!childHarness) {
+			throw new Error("expected child harness");
+		}
+		expect(getUserTexts(childHarness)).toEqual(["Implement auth tests"]);
+		expect(getAssistantTexts(childHarness)).toEqual(["factory child done"]);
+		expect(spawned.details).toMatchObject({
+			dispatched: true,
+			agent: { lifecycle: "completed", result: { summary: "factory child done" } },
 		});
 	});
 });
