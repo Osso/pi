@@ -49,7 +49,7 @@ runtime contract belongs here; implementation details will live in
       supervisor contact, and inter-agent messages.
 - [x] `agent artifacts` stores shared outputs such as summaries, findings, diffs, and file links
       outside the mailbox event log.
-- [ ] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
+- [x] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.
 
 ### Accounts, budgets, and permissions
@@ -125,7 +125,9 @@ runtime contract belongs here; implementation details will live in
   snapshot without advancing lifecycle state and `agents_mailbox` returns inbox/outbox plus
   acknowledgement summaries from core mailbox state. It also verifies `send_agent_message` allows
   direct parent-child mailbox messages while rejecting sibling targets and `agent_artifacts`
-  records/list shared artifact pointers outside mailbox events.
+  records/list shared artifact pointers outside mailbox events. It verifies
+  `createMultiAgentWorkflowOperations()` composes spawn/message/wait/artifact operations through
+  `MultiAgentStore` without owning separate runtime state.
 
 ## Known gaps (current cycle)
 
@@ -165,6 +167,8 @@ runtime contract belongs here; implementation details will live in
 - [x] Add direct inter-agent mailbox message tests and the smallest sibling-safe send/list surface.
 - [x] Add first artifact store tests for shared summaries/findings/log references outside mailbox
       events.
+- [x] Add workflow-operation tests proving higher-level extensions can compose spawn/message/wait
+      without owning separate runtime state.
 
 ## Out of scope
 

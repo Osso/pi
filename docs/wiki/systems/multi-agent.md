@@ -31,6 +31,8 @@ surfaces can resync from core state by agent ID instead of trusting stale render
 `send_agent_message` creates direct mailbox messages only across parent-child relationships, so
 siblings cannot target each other directly.
 `agent_artifacts` records and lists shared artifact pointers outside mailbox events.
+`createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
+for higher-level workflow extensions without giving them a separate runtime state store.
 
 Existing primitives worth reusing:
 

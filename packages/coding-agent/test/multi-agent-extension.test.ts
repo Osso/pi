@@ -7,6 +7,7 @@ import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
 import multiAgentExtension, {
 	type ChildAgentDispatcher,
 	type ChildAgentSessionFactory,
+	createMultiAgentWorkflowOperations,
 	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
@@ -380,6 +381,49 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(listed.details.artifacts).toEqual([recorded.details.artifact]);
 		expect(JSON.stringify(harness.store.listMailboxMessages())).not.toContain("First five log lines");
+	});
+
+	it("exposes workflow operations that compose spawn, message, wait, and artifacts through core state", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const workflow = createMultiAgentWorkflowOperations(store);
+
+		const parent = workflow.spawnAgent({
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Lead",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const child = workflow.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: parent.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const artifact = workflow.recordArtifact({
+			agentId: child.agent.id,
+			kind: "finding",
+			title: "Auth finding",
+		});
+		const message = workflow.sendAgentMessage(parent.agent.id, parent.agent.revision, {
+			artifactRefs: [{ id: artifact.id, label: artifact.title }],
+			body: "Review finding",
+			toAgentId: child.agent.id,
+		});
+		const waited = workflow.waitAgent(parent.agent.id, {
+			includeDescendants: true,
+			includePendingMessages: true,
+		});
+
+		expect(message.ok).toBe(true);
+		expect(waited).toMatchObject({
+			agent: { id: parent.agent.id },
+			descendants: [{ id: child.agent.id }],
+			pendingMessages: [],
+			terminal: false,
+		});
+		expect(store.listMailboxMessages()).toHaveLength(1);
+		expect(store.listArtifacts()).toEqual([artifact]);
 	});
 
 	it("lets a child contact its supervisor without choosing a sibling target", async () => {

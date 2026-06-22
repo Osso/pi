@@ -12,9 +12,13 @@ import {
 	type AgentMailboxMessage,
 	type AgentResult,
 	type AgentSnapshot,
+	type ContactSupervisorInput,
 	isActiveLifecycle,
+	type MailboxMessageCommandResult,
 	type MultiAgentProjectionSnapshot,
 	MultiAgentStore,
+	type RecordAgentArtifactInput,
+	type SendMailboxMessageInput,
 	type SteeringCheckpoint,
 } from "../core/multi-agent-store.ts";
 import { type CreateAgentSessionOptions, createAgentSession } from "../core/sdk.ts";
@@ -152,6 +156,34 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	sessionDir?: string;
 }
 
+export interface WaitWorkflowOptions {
+	includeDescendants?: boolean;
+	includePendingMessages?: boolean;
+}
+
+export interface WorkflowWaitResult {
+	agent: AgentSnapshot;
+	descendants?: AgentSnapshot[];
+	pendingMessages?: AgentMailboxMessage[];
+	terminal: boolean;
+}
+
+export interface MultiAgentWorkflowOperations {
+	contactSupervisor(
+		agentId: string,
+		expectedRevision: number,
+		input: ContactSupervisorInput,
+	): ReturnType<MultiAgentStore["contactSupervisor"]>;
+	recordArtifact(input: RecordAgentArtifactInput): AgentArtifact;
+	sendAgentMessage(
+		agentId: string,
+		expectedRevision: number,
+		input: SendMailboxMessageInput,
+	): MailboxMessageCommandResult;
+	spawnAgent(input: Parameters<MultiAgentStore["spawnAgent"]>[0]): ReturnType<MultiAgentStore["spawnAgent"]>;
+	waitAgent(agentId: string, options?: WaitWorkflowOptions): WorkflowWaitResult | undefined;
+}
+
 interface AgentToolDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	descendants?: AgentSnapshot[];
@@ -232,6 +264,38 @@ export function createProductionChildAgentSessionFactory(
 		});
 
 		return result.session;
+	};
+}
+
+export function createMultiAgentWorkflowOperations(store: MultiAgentStore): MultiAgentWorkflowOperations {
+	return {
+		contactSupervisor: (agentId, expectedRevision, input) =>
+			store.contactSupervisor(agentId, expectedRevision, input),
+		recordArtifact: (input) => store.recordArtifact(input),
+		sendAgentMessage: (agentId, expectedRevision, input) =>
+			store.sendMailboxMessage(agentId, expectedRevision, input),
+		spawnAgent: (input) => store.spawnAgent(input),
+		waitAgent: (agentId, options = {}) => {
+			const agent = store.getAgent(agentId);
+			if (!agent) {
+				return undefined;
+			}
+
+			const result: WorkflowWaitResult = {
+				agent,
+				terminal: !isActiveLifecycle(agent.lifecycle),
+			};
+			if (options.includeDescendants) {
+				result.descendants = store.listDescendants(agent.id);
+			}
+			if (options.includePendingMessages) {
+				result.pendingMessages = store
+					.listMailboxMessages()
+					.filter((message) => message.toAgentId === agent.id && message.status === "pending");
+			}
+
+			return result;
+		},
 	};
 }
 
