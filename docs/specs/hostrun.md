@@ -88,9 +88,10 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 
 - [ ] Provide a standalone stdio MCP server binary (`hostrun-mcp`) that exposes
   `hostrun_eval` to any MCP client without requiring the Pi coding agent.
-- [ ] The standalone server defaults all host operations to pending-approval
+- [x] The standalone server defaults all host operations to pending-approval
   (never auto-approves filesystem writes, HTTP calls, or CLI commands).
-- [ ] Document stdio MCP installation for Claude Code in the extension README.
+- [ ] Document a working stdio MCP installation command for Claude Code in the
+  extension README after the `hostrun-mcp` binary exists.
 
 ## How it works
 
@@ -110,7 +111,7 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — shared
   `hostrun_eval` argument parsing and session dispatch.
 - `packages/coding-agent/extensions/hostrun/src/mcp-server.ts` — standalone
-  stdio MCP server for non-Pi hosts. (planned)
+  stdio MCP server factory for non-Pi hosts.
 - `packages/coding-agent/extensions/hostrun/package.json` — extension package
   metadata; pins `quickjs-emscripten` and `typebox` as exact dependencies.
 - `package-lock.json` — records the Hostrun workspace and lockfile-backed
@@ -122,6 +123,9 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   per-session `ctx` persistence, console capture, and exception-survival
   coverage, including returned exception details and approval-gated
   `cli.*`/`fs.*`/`http.*`/`rg.*`/`fd.*` host effects.
+- `packages/coding-agent/test/hostrun-mcp-server.test.ts` — standalone MCP
+  server registration shape and pending-approval defaults for CLI, filesystem,
+  and HTTP host effects.
 - `npm run check` — validates the workspace and lockfile state as part of the
   repo-wide verification flow.
 
@@ -139,10 +143,11 @@ Implementation details belong in `docs/wiki/systems/hostrun.md`
   not yet covered by tests.
 - [x] Implement `rg.*` and `fd.*` lazy wrappers.
 - [x] Register extension via `pi.registerTool` in `index.ts`.
-- [ ] Implement standalone `mcp-server.ts` with pending-approval default.
+- [x] Implement standalone `mcp-server.ts` with pending-approval default.
 - [x] Add tests for `ctx` persistence across evaluations and after exceptions.
 - [x] Add tests for `rg.matches` structured parsing and `fd.files` output.
-- [ ] Document stdio MCP install in `packages/coding-agent/extensions/hostrun/README.md`.
+- [ ] Add `hostrun-mcp` binary wiring and document the working stdio MCP install
+  command in `packages/coding-agent/extensions/hostrun/README.md`.
 
 ## Out of scope
 
