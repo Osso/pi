@@ -583,7 +583,21 @@ function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolRe
 			.filter((message) => message.toAgentId === agent.id && message.status === "pending");
 	}
 
-	return result(`${agent.displayName} is ${agent.lifecycle}.`, details);
+	return result(formatAgentStatus(agent), details);
+}
+
+function formatAgentStatus(agent: AgentSnapshot): string {
+	const summary = agent.result?.summary?.trim();
+	if (summary) {
+		return `${agent.displayName} is ${agent.lifecycle}: ${summary}`;
+	}
+
+	const errorMessage = agent.error?.message?.trim();
+	if (errorMessage) {
+		return `${agent.displayName} is ${agent.lifecycle}: ${errorMessage}`;
+	}
+
+	return `${agent.displayName} is ${agent.lifecycle}.`;
 }
 
 function cancelAgent(store: MultiAgentStore, params: CancelAgentParams): AgentToolResult<AgentToolDetails> {

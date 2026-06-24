@@ -797,6 +797,27 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("includes a completed agent summary in wait_agent output", async () => {
+		const dispatcher: ChildAgentDispatcher = async () => ({
+			lifecycle: "completed",
+			result: { summary: "Committed 18125d44 feat: add local deploy script" },
+		});
+		const harness = createMultiAgentHarness({ dispatcher });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "commit workflow",
+			prompt: "Commit current changes",
+		});
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+
+		expect(waited.content).toEqual([
+			{
+				type: "text",
+				text: "commit workflow is completed: Committed 18125d44 feat: add local deploy script",
+			},
+		]);
+	});
+
 	it("dispatches a real child AgentSession behind spawn_agent", async () => {
 		let childHarness: Harness | undefined;
 		const harness = createMultiAgentHarness({
