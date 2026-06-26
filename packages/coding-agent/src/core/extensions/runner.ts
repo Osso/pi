@@ -282,6 +282,7 @@ export class ExtensionRunner {
 	private compactFn: (options?: CompactOptions) => void = () => {};
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
+	private restartFn: (options?: { notice?: string }) => Promise<void> = async () => {};
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
@@ -339,6 +340,7 @@ export class ExtensionRunner {
 		this.abortFn = contextActions.abort;
 		this.hasPendingMessagesFn = contextActions.hasPendingMessages;
 		this.shutdownHandler = contextActions.shutdown;
+		this.restartFn = contextActions.restart;
 		this.getContextUsageFn = contextActions.getContextUsage;
 		this.compactFn = contextActions.compact;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
@@ -391,6 +393,7 @@ export class ExtensionRunner {
 			this.navigateTreeHandler = actions.navigateTree;
 			this.switchSessionHandler = actions.switchSession;
 			this.reloadHandler = actions.reload;
+			this.restartFn = actions.restart;
 			return;
 		}
 
@@ -402,6 +405,7 @@ export class ExtensionRunner {
 		this.navigateTreeHandler = async () => ({ cancelled: false });
 		this.switchSessionHandler = async () => ({ cancelled: false });
 		this.reloadHandler = async () => {};
+		this.restartFn = async () => {};
 	}
 
 	setUIContext(uiContext?: ExtensionUIContext, mode: ExtensionMode = "print"): void {
@@ -681,6 +685,10 @@ export class ExtensionRunner {
 				runner.assertActive();
 				runner.shutdownHandler();
 			},
+			restart: (options) => {
+				runner.assertActive();
+				return runner.restartFn(options);
+			},
 			getContextUsage: () => {
 				runner.assertActive();
 				return runner.getContextUsageFn();
@@ -739,6 +747,10 @@ export class ExtensionRunner {
 		context.reload = () => {
 			this.assertActive();
 			return this.reloadHandler();
+		};
+		context.restart = (options) => {
+			this.assertActive();
+			return this.restartFn(options);
 		};
 		return context;
 	}

@@ -2461,6 +2461,12 @@ export class AgentSession {
 				shutdown: () => {
 					this._extensionShutdownHandler?.();
 				},
+				restart: (options) => {
+					if (!this._extensionCommandContextActions) {
+						throw new Error("Restart is not available in this session mode");
+					}
+					return this._extensionCommandContextActions.restart(options);
+				},
 				getContextUsage: () => this.getContextUsage(),
 				compact: (options) => {
 					void (async () => {

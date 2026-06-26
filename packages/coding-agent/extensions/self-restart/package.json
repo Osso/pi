@@ -1,0 +1,10 @@
+{
+	"name": "@earendil-works/pi-extension-self-restart",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"main": "src/index.ts",
+	"dependencies": {
+		"typebox": "1.1.38"
+	}
+}

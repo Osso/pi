@@ -82,6 +82,7 @@ describe("ExtensionRunner", () => {
 		abort: () => {},
 		hasPendingMessages: () => false,
 		shutdown: () => {},
+		restart: async () => {},
 		getContextUsage: () => undefined,
 		compact: () => {},
 		getSystemPrompt: () => "",
@@ -867,6 +868,7 @@ describe("ExtensionRunner", () => {
 				navigateTree: async () => ({ cancelled: false }),
 				switchSession: async () => ({ cancelled: false }),
 				reload: async () => {},
+				restart: async () => {},
 			});
 
 			const commandContext = runner.createCommandContext();

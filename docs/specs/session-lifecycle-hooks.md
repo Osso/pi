@@ -8,8 +8,8 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 ### Start / shutdown
 
-- [x] `session_start` fires with `reason` ∈ {startup, reload, new, resume, fork}; for new/resume/fork it carries `previousSessionFile` (`agent-session-runtime-events.test.ts:106,120,132` assert the emitted `reason`/`previousSessionFile`).
-- [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts:119,131`).
+- [x] `session_start` fires with `reason` ∈ {startup, reload, new, resume, fork, restart}; for new/resume/fork/restart it carries `previousSessionFile` (`agent-session-runtime-events.test.ts:106,120,132` and `2860-replaced-session-context.test.ts` assert the emitted `reason`/`previousSessionFile`).
+- [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork, restart} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts:119,131` and `2860-replaced-session-context.test.ts`).
 - [x] On a `new`/`resume` switch the ordering is `session_before_switch` → `session_shutdown` → `session_start` (`agent-session-runtime-events.test.ts:118-120,130-132`).
 
 ### Switch / fork (cancellable)

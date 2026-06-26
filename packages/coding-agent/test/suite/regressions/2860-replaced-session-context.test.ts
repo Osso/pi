@@ -121,6 +121,9 @@ describe("regression #2860: replaced session callbacks", () => {
 					reload: async () => {
 						await session.reload();
 					},
+					restart: async (options) => {
+						await runtime.restart(options);
+					},
 				},
 			});
 		};
@@ -202,6 +205,32 @@ describe("regression #2860: replaced session callbacks", () => {
 			"user:Hello from the new session!",
 			"assistant:hello reply",
 		]);
+	});
+
+	it("restarts the current session runtime and appends a restart notice", async () => {
+		const events: string[] = [];
+		const sessionFiles: Array<string | undefined> = [];
+		const { runtime } = await createRuntimeForTest((pi) => {
+			pi.on("session_start", (event) => {
+				events.push(`start:${event.reason}`);
+			});
+			pi.on("session_shutdown", (event) => {
+				events.push(`shutdown:${event.reason}`);
+			});
+			pi.registerCommand("restart-now", {
+				description: "restart",
+				handler: async (_args, ctx) => {
+					sessionFiles.push(ctx.sessionManager.getSessionFile());
+					await ctx.restart({ notice: "Restarted test session." });
+				},
+			});
+		}, []);
+
+		await runtime.session.prompt("/restart-now");
+
+		expect(events).toEqual(["start:startup", "shutdown:restart", "start:restart"]);
+		expect(runtime.session.sessionFile).toBe(sessionFiles[0]);
+		expect(getText(runtime.session.messages.at(-1)!)).toBe("Restarted test session.");
 	});
 
 	it("supports withSession for fork", async () => {

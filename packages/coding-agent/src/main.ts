@@ -16,6 +16,7 @@ import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
+import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
@@ -43,6 +44,7 @@ import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
+import { applySelfRestartRequest } from "./core/self-restart.ts";
 import {
 	formatMissingSessionCwdPrompt,
 	getMissingSessionCwdIssue,
@@ -506,6 +508,7 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("goal", goalExtension),
 	firstPartyExtensionFactory("hostrun", hostrunExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
+	firstPartyExtensionFactory("self-restart", selfRestartExtension),
 ];
 
 export async function main(args: string[], options?: MainOptions) {
@@ -544,6 +547,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	const parsed = parseArgs(args);
+	applySelfRestartRequest(parsed);
 	const extensionFactories = parsed.noExtensions
 		? (options?.extensionFactories ?? [])
 		: [...FIRST_PARTY_EXTENSION_FACTORIES, ...(options?.extensionFactories ?? [])];

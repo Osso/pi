@@ -80,6 +80,7 @@ import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
+import { spawnSelfRestart } from "../../core/self-restart.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
@@ -1557,6 +1558,9 @@ export class InteractiveMode {
 				reload: async () => {
 					await this.handleReloadCommand();
 				},
+				restart: async (options) => {
+					await this.restartProcess(options);
+				},
 			},
 			shutdownHandler: () => {
 				this.shutdownRequested = true;
@@ -1664,6 +1668,7 @@ export class InteractiveMode {
 			shutdown: () => {
 				this.shutdownRequested = true;
 			},
+			restart: (options) => this.restartProcess(options),
 			getContextUsage: () => this.session.getContextUsage(),
 			compact: (options) => {
 				void (async () => {
@@ -3363,6 +3368,20 @@ export class InteractiveMode {
 		}
 
 		process.exit(0);
+	}
+
+	private async restartProcess(options?: { notice?: string }): Promise<void> {
+		const sessionFile = this.session.sessionFile;
+		if (!sessionFile) {
+			throw new Error("Cannot restart without a persisted session file");
+		}
+
+		this.themeController.disableAutoSync();
+		await this.ui.terminal.drainInput(1000);
+		this.stop();
+		await this.runtimeHost.dispose();
+		const exitCode = await spawnSelfRestart({ sessionFile, prompt: options?.notice });
+		process.exit(exitCode);
 	}
 
 	private emergencyTerminalExit(): never {

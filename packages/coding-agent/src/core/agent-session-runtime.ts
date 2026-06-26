@@ -220,6 +220,35 @@ export class AgentSessionRuntime {
 		return { cancelled: false };
 	}
 
+	async restart(options?: { notice?: string }): Promise<void> {
+		const previousSessionFile = this.session.sessionFile;
+		const currentSessionManager = this.session.sessionManager;
+		const currentSessionFile = currentSessionManager.getSessionFile();
+		const sessionManager =
+			currentSessionManager.isPersisted() && currentSessionFile
+				? SessionManager.open(
+						currentSessionFile,
+						currentSessionManager.getSessionDir(),
+						currentSessionManager.getCwd(),
+					)
+				: currentSessionManager;
+
+		if (options?.notice) {
+			sessionManager.appendCustomMessageEntry("self_restart", options.notice, true);
+		}
+
+		await this.teardownCurrent("restart", currentSessionFile);
+		this.apply(
+			await this.createRuntime({
+				cwd: sessionManager.getCwd(),
+				agentDir: this.services.agentDir,
+				sessionManager,
+				sessionStartEvent: { type: "session_start", reason: "restart", previousSessionFile },
+			}),
+		);
+		await this.finishSessionReplacement();
+	}
+
 	async newSession(options?: {
 		parentSession?: string;
 		setup?: (sessionManager: SessionManager) => Promise<void>;

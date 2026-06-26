@@ -324,6 +324,8 @@ export interface ExtensionContext {
 	hasPendingMessages(): boolean;
 	/** Gracefully shutdown pi and exit. Available in all contexts. */
 	shutdown(): void;
+	/** Restart the current session runtime and resume the same session file. */
+	restart(options?: { notice?: string }): Promise<void>;
 	/** Get current context usage for the active model. */
 	getContextUsage(): ContextUsage | undefined;
 	/** Trigger compaction without awaiting completion. */
@@ -554,8 +556,8 @@ export interface ResourcesDiscoverResult {
 export interface SessionStartEvent {
 	type: "session_start";
 	/** Why this session start happened. */
-	reason: "startup" | "reload" | "new" | "resume" | "fork";
-	/** Previously active session file. Present for "new", "resume", and "fork". */
+	reason: "startup" | "reload" | "new" | "resume" | "fork" | "restart";
+	/** Previously active session file. Present for "new", "resume", "fork", and "restart". */
 	previousSessionFile?: string;
 }
 
@@ -600,7 +602,7 @@ export interface SessionCompactEvent {
 /** Fired before an extension runtime is torn down due to quit, reload, or session replacement. */
 export interface SessionShutdownEvent {
 	type: "session_shutdown";
-	reason: "quit" | "reload" | "new" | "resume" | "fork";
+	reason: "quit" | "reload" | "new" | "resume" | "fork" | "restart";
 	/** Destination session file when shutting down due to session replacement. */
 	targetSessionFile?: string;
 }
@@ -1570,6 +1572,7 @@ export interface ExtensionContextActions {
 	abort: () => void;
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;
+	restart: (options?: { notice?: string }) => Promise<void>;
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (options?: CompactOptions) => void;
 	getSystemPrompt: () => string;
@@ -1602,6 +1605,7 @@ export interface ExtensionCommandContextActions {
 		options?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 	) => Promise<{ cancelled: boolean }>;
 	reload: () => Promise<void>;
+	restart: (options?: { notice?: string }) => Promise<void>;
 }
 
 /**

@@ -1362,4 +1362,38 @@ describe("AgentSession model and extension characterization", () => {
 
 		expect(lifecycleEvents).toEqual(["start:startup", "shutdown:reload", "start:reload"]);
 	});
+
+	it("adds restart to extension command contexts", async () => {
+		const restart = vi.fn(async () => {});
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerCommand("restart-now", {
+						description: "Restart current session",
+						async handler(_args, ctx) {
+							await ctx.restart({ notice: "Restarted test session." });
+						},
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+
+		await harness.session.bindExtensions({
+			commandContextActions: {
+				showApprovalSelector: () => {},
+				showSandboxSelector: () => {},
+				waitForIdle: async () => {},
+				newSession: async () => ({ cancelled: false }),
+				fork: async () => ({ cancelled: false }),
+				navigateTree: async () => ({ cancelled: false }),
+				switchSession: async () => ({ cancelled: false }),
+				reload: async () => {},
+				restart,
+			},
+		});
+		await harness.session.prompt("/restart-now");
+
+		expect(restart).toHaveBeenCalledWith({ notice: "Restarted test session." });
+	});
 });

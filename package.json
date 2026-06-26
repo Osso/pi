@@ -15,7 +15,8 @@
 		"packages/coding-agent/extensions/agents-mailbox",
 		"packages/coding-agent/extensions/goal",
 		"packages/coding-agent/extensions/hostrun",
-		"packages/coding-agent/extensions/run-plan"
+		"packages/coding-agent/extensions/run-plan",
+		"packages/coding-agent/extensions/self-restart"
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
