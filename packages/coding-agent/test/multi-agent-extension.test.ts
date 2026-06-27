@@ -956,6 +956,30 @@ describe("multi-agent extension tools", () => {
 		expect(spawned.details).toMatchObject({ dispatched: true });
 	});
 
+	it("wait_agent waits for a dispatched agent to reach a terminal state", async () => {
+		const dispatchGate = deferred<void>();
+		const dispatcher: ChildAgentDispatcher = async () => {
+			await dispatchGate.promise;
+			return { lifecycle: "completed", result: { summary: "done" } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Implement auth tests",
+		});
+
+		const waitPromise = harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+		const didResolveBeforeDispatch = await resolvesWithin(waitPromise, 20);
+		dispatchGate.resolve(undefined);
+		const waited = await waitPromise;
+
+		expect(didResolveBeforeDispatch).toBe(false);
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
+			terminal: true,
+		});
+	});
+
 	it("dispatches a real child runner behind spawn_agent without TUI coupling", async () => {
 		const dispatched: Array<{ agent: AgentSnapshot; prompt: string; mode: string; hasUI: boolean }> = [];
 		const dispatcher: ChildAgentDispatcher = async ({ agent, ctx, prompt }) => {

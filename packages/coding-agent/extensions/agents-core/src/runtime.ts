@@ -262,10 +262,12 @@ interface AgentArtifactsToolDetails {
 }
 
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
+type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
 
 interface BackgroundDispatchContext {
 	createChildSession: ChildAgentSessionFactory | undefined;
 	dispatcher: ChildAgentDispatcher | undefined;
+	dispatches: ActiveAgentDispatches;
 	handles: BackgroundSessionHandles;
 	store: MultiAgentStore;
 }
@@ -306,15 +308,25 @@ function startBackgroundDispatch(
 	ctx: ExtensionCommandContext,
 ): AgentSnapshot {
 	if (background.createChildSession) {
-		const promise = dispatchAgentSession(background.store, background.createChildSession, agent, prompt, ctx, (childSession) => {
-			background.handles.set(agent.id, childSession);
-		});
+		const promise = trackAgentDispatch(
+			background.store,
+			background.dispatches,
+			agent,
+			dispatchAgentSession(background.store, background.createChildSession, agent, prompt, ctx, (childSession) => {
+				background.handles.set(agent.id, childSession);
+			}),
+		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		return background.store.getAgent(agent.id) ?? agent;
 	}
 
 	if (background.dispatcher) {
-		const promise = dispatchAgent(background.store, background.dispatcher, agent, prompt, ctx);
+		const promise = trackAgentDispatch(
+			background.store,
+			background.dispatches,
+			agent,
+			dispatchAgent(background.store, background.dispatcher, agent, prompt, ctx),
+		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		return background.store.getAgent(agent.id) ?? agent;
 	}
@@ -407,6 +419,7 @@ async function spawnAgent(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory | undefined,
 	dispatcher: ChildAgentDispatcher | undefined,
+	dispatches: ActiveAgentDispatches,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
 ): Promise<AgentToolResult<AgentToolDetails>> {
@@ -424,6 +437,7 @@ async function spawnAgent(
 	if (createChildSession) {
 		const agent = startToolDispatch(
 			store,
+			dispatches,
 			spawned.agent,
 			dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx),
 		);
@@ -437,6 +451,7 @@ async function spawnAgent(
 	if (dispatcher) {
 		const agent = startToolDispatch(
 			store,
+			dispatches,
 			spawned.agent,
 			dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx),
 		);
@@ -456,16 +471,32 @@ async function spawnAgent(
 
 function startToolDispatch(
 	store: MultiAgentStore,
+	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: Promise<AgentSnapshot>,
 ): AgentSnapshot {
-	void dispatch.catch((error: unknown) => {
-		transitionActiveAgent(store, agent, "failed", {
-			error: { message: error instanceof Error ? error.message : String(error) },
-		});
-	});
+	trackAgentDispatch(store, dispatches, agent, dispatch);
 
 	return store.getAgent(agent.id) ?? agent;
+}
+
+function trackAgentDispatch(
+	store: MultiAgentStore,
+	dispatches: ActiveAgentDispatches,
+	agent: AgentSnapshot,
+	dispatch: Promise<AgentSnapshot>,
+): Promise<AgentSnapshot> {
+	const trackedDispatch = dispatch.catch((error: unknown) =>
+		transitionActiveAgent(store, agent, "failed", {
+			error: { message: error instanceof Error ? error.message : String(error) },
+		}),
+	);
+	dispatches.set(agent.id, trackedDispatch);
+	void trackedDispatch.finally(() => {
+		dispatches.delete(agent.id);
+	});
+
+	return trackedDispatch;
 }
 
 async function dispatchAgentSession(
@@ -686,14 +717,36 @@ function sendAgentMessage(
 	});
 }
 
-function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolResult<AgentToolDetails> {
-	const agent = store.getAgent(params.agentId);
-	if (!agent) {
+async function waitAgent(
+	store: MultiAgentStore,
+	dispatches: ActiveAgentDispatches,
+	params: WaitAgentParams,
+	signal: AbortSignal | undefined,
+): Promise<AgentToolResult<AgentToolDetails>> {
+	const initialAgent = store.getAgent(params.agentId);
+	if (!initialAgent) {
 		return errorResult(`Agent not found: ${params.agentId}`, { agent: emptyAgent(params.agentId), terminal: true });
 	}
 
-	const terminal = !isActiveLifecycle(agent.lifecycle);
-	const details: AgentToolDetails = { agent, terminal };
+	const dispatch = dispatches.get(initialAgent.id);
+	if (dispatch && isActiveLifecycle(initialAgent.lifecycle)) {
+		const aborted = await waitForDispatch(dispatch, signal);
+		if (aborted) {
+			const agent = store.getAgent(params.agentId) ?? initialAgent;
+			return errorResult(`Wait cancelled for ${agent.displayName}.`, createWaitAgentDetails(store, agent, params));
+		}
+	}
+
+	const agent = store.getAgent(params.agentId) ?? initialAgent;
+	return result(formatAgentStatus(agent), createWaitAgentDetails(store, agent, params));
+}
+
+function createWaitAgentDetails(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	params: WaitAgentParams,
+): AgentToolDetails {
+	const details: AgentToolDetails = { agent, terminal: !isActiveLifecycle(agent.lifecycle) };
 	if (params.includeDescendants) {
 		details.descendants = store.listDescendants(agent.id);
 	}
@@ -703,7 +756,28 @@ function waitAgent(store: MultiAgentStore, params: WaitAgentParams): AgentToolRe
 			.filter((message) => message.toAgentId === agent.id && message.status === "pending");
 	}
 
-	return result(formatAgentStatus(agent), details);
+	return details;
+}
+
+async function waitForDispatch(dispatch: Promise<AgentSnapshot>, signal: AbortSignal | undefined): Promise<boolean> {
+	if (!signal) {
+		await dispatch;
+		return false;
+	}
+	if (signal.aborted) {
+		return true;
+	}
+
+	return new Promise((resolve) => {
+		const onAbort = () => {
+			resolve(true);
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		void dispatch.finally(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(false);
+		});
+	});
 }
 
 function formatAgentStatus(agent: AgentSnapshot): string {
@@ -877,7 +951,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const createChildSession = options.createChildSession;
 	const dispatcher = options.dispatcher;
 	const backgroundSessions: BackgroundSessionHandles = new Map();
-	const backgroundDispatch = { createChildSession, dispatcher, handles: backgroundSessions, store };
+	const activeDispatches: ActiveAgentDispatches = new Map();
+	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
 
 	pi.registerCommand("bg", {
 		description: "Run a prompt as a background agent job.",
@@ -897,7 +972,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				spawnAgent(store, createChildSession, dispatcher, params, ctx),
+				spawnAgent(store, createChildSession, dispatcher, activeDispatches, params, ctx),
 		}),
 	);
 
@@ -927,10 +1002,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		defineTool({
 			name: "wait_agent",
 			label: "Wait Agent",
-			description: "Read the current agent state and whether it is terminal.",
+			description: "Wait for a dispatched agent to finish, then read its final state.",
 			approvalRequired: false,
 			parameters: waitAgentSchema,
-			execute: async (_toolCallId, params) => waitAgent(store, params),
+			execute: async (_toolCallId, params, signal) => waitAgent(store, activeDispatches, params, signal),
 		}),
 	);
 
