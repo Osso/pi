@@ -22,6 +22,7 @@
 - Do not preserve backward compatibility unless the user asks for it.
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
+- For private extensions that need exhaustive expected error handling around Node/platform APIs, using Effect internally is acceptable, especially `@effect/platform` wrappers that convert native failures into typed `PlatformError`s. Keep public `pi` extension boundaries plain TypeScript types, not Effect-specific APIs, unless explicitly requested.
 
 ## Commands
 
