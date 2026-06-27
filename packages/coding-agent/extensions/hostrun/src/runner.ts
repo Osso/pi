@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { EOL } from "node:os";
+import { EOL, homedir } from "node:os";
 
 export interface CanonicalHostrunEvalParams {
 	code: string;
@@ -50,6 +50,12 @@ export interface HostrunRunnerOptions {
 	command?: string;
 }
 
+export interface HostrunRunnerResolutionOptions {
+	env?: NodeJS.ProcessEnv;
+	exists?: (path: string) => boolean;
+	homeDir?: string;
+}
+
 function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	if (!value) {
 		return undefined;
@@ -61,23 +67,35 @@ function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	return parsed;
 }
 
-function defaultRunnerOptions(): Required<HostrunRunnerOptions> {
+export function resolveHostrunRunnerOptions(
+	resolution: HostrunRunnerResolutionOptions = {},
+): Required<HostrunRunnerOptions> {
+	const env = resolution.env ?? process.env;
+	const exists = resolution.exists ?? existsSync;
+	const homeDir = resolution.homeDir ?? homedir();
 	const localHostrunRunner = "/home/osso/Repos/hostrun/target/debug/hostrun-jsonl";
-	const command = process.env.PI_HOSTRUN_RUNNER_COMMAND ?? process.env.PI_HOSTRUN_RUNNER;
+	const cargoHostrunRunner = `${homeDir}/.cargo/bin/hostrun-jsonl`;
+	const command = env.PI_HOSTRUN_RUNNER_COMMAND ?? env.PI_HOSTRUN_RUNNER;
 	if (command) {
 		return {
-			args: parseRunnerArgs(process.env.PI_HOSTRUN_RUNNER_ARGS) ?? ["--serve"],
+			args: parseRunnerArgs(env.PI_HOSTRUN_RUNNER_ARGS) ?? ["--serve"],
 			command,
 		};
 	}
-	if (existsSync(localHostrunRunner)) {
+	if (exists(localHostrunRunner)) {
 		return {
-			args: parseRunnerArgs(process.env.PI_HOSTRUN_RUNNER_ARGS) ?? [],
+			args: parseRunnerArgs(env.PI_HOSTRUN_RUNNER_ARGS) ?? [],
 			command: localHostrunRunner,
 		};
 	}
+	if (exists(cargoHostrunRunner)) {
+		return {
+			args: parseRunnerArgs(env.PI_HOSTRUN_RUNNER_ARGS) ?? ["--serve"],
+			command: cargoHostrunRunner,
+		};
+	}
 	return {
-		args: parseRunnerArgs(process.env.PI_HOSTRUN_RUNNER_ARGS) ?? ["--serve"],
+		args: parseRunnerArgs(env.PI_HOSTRUN_RUNNER_ARGS) ?? ["--serve"],
 		command: "hostrun-jsonl",
 	};
 }
@@ -118,7 +136,7 @@ export class HostrunRunnerClient {
 		if (this.process) {
 			return this.process;
 		}
-		const options = { ...defaultRunnerOptions(), ...this.options };
+		const options = { ...resolveHostrunRunnerOptions(), ...this.options };
 		const child = spawn(options.command, options.args, { stdio: ["pipe", "pipe", "pipe"] });
 		this.process = child;
 		child.stdout.setEncoding("utf8");

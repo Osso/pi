@@ -63,6 +63,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       outside the mailbox event log.
 - [x] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.
+- [x] `agents-core` exposes `/bg <prompt>` and `/jobs` commands that submit new prompts as
+      background child-agent jobs without blocking the foreground command handler.
+- [x] Cancelling a background child-agent job aborts the backing child session when one is still
+      running, not only the store lifecycle row.
 
 ### Accounts, budgets, and permissions
 
@@ -108,12 +112,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
-  provides the shared store-backed registration helpers, production child-session factory, workflow
-  operations, and compatibility aggregate factory.
+  provides the shared store-backed registration helpers, background job commands, production
+  child-session factory, workflow operations, and compatibility aggregate factory.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
   re-exports the first-party extension runtime for compatibility with older internal imports.
 - [`packages/coding-agent/extensions/agents-core/src/index.ts`](../../packages/coding-agent/extensions/agents-core/src/index.ts)
-  registers spawn/list/wait/cancel/steer/artifact tools against the shared store.
+  registers `/bg`, `/jobs`, and spawn/list/wait/cancel/steer/artifact tools against the shared
+  store.
 - [`packages/coding-agent/extensions/agent-viewer/src/index.ts`](../../packages/coding-agent/extensions/agent-viewer/src/index.ts)
   registers the read-only tree/status/transcript projection tool against the shared store.
 - [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
@@ -154,7 +159,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   sibling targets and `agent_artifacts` records/list shared artifact pointers outside mailbox
   events. It verifies
   `createMultiAgentWorkflowOperations()` composes spawn/message/wait/artifact operations through
-  `MultiAgentStore` without owning separate runtime state.
+  `MultiAgentStore` without owning separate runtime state. It also asserts `/bg` registers a
+  background job command, starts child-session prompt work without waiting for completion, and
+  aborts a running background child session when the job is cancelled.
 - [`packages/coding-agent/test/keybindings-migration.test.ts`](../../packages/coding-agent/test/keybindings-migration.test.ts)
   verifies the default `Alt+1` through `Alt+9` bindings for visible agent slot actions.
 
@@ -221,6 +228,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `agents-mailbox` first-party extension package.
 - [x] Keep compatibility tests proving the split modules share the same `MultiAgentStore` snapshot
       and do not create independent TUI/core state.
+- [ ] Add true mid-flight detach for the currently running foreground turn; the current `/bg`
+      command starts a new background child-agent prompt instead of transferring an active
+      in-progress `AgentSession` run.
 
 ## Out of scope
 

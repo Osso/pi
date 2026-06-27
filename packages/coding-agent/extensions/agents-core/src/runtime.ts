@@ -4,6 +4,7 @@ import {
 	type AgentToolResult,
 	defineTool,
 	type ExtensionAPI,
+	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
 import {
@@ -144,6 +145,7 @@ export interface ChildAgentDispatchResult {
 export type ChildAgentDispatcher = (input: ChildAgentDispatchInput) => Promise<ChildAgentDispatchResult>;
 
 export interface ChildAgentSession {
+	abort?(): void;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
 }
@@ -259,6 +261,15 @@ interface AgentArtifactsToolDetails {
 	artifacts?: AgentArtifact[];
 }
 
+type BackgroundSessionHandles = Map<string, ChildAgentSession>;
+
+interface BackgroundDispatchContext {
+	createChildSession: ChildAgentSessionFactory | undefined;
+	dispatcher: ChildAgentDispatcher | undefined;
+	handles: BackgroundSessionHandles;
+	store: MultiAgentStore;
+}
+
 function result<TDetails extends Record<string, unknown>>(text: string, details: TDetails): AgentToolResult<TDetails> {
 	return {
 		content: [{ type: "text", text }],
@@ -274,6 +285,69 @@ function errorResult<TDetails extends Record<string, unknown>>(
 		content: [{ type: "text", text }],
 		details,
 	};
+}
+
+function notifyBackgroundDispatch(
+	promise: Promise<AgentSnapshot>,
+	handles: BackgroundSessionHandles,
+	ctx: ExtensionCommandContext,
+): void {
+	void promise.then((agent) => {
+		handles.delete(agent.id);
+		const level = agent.lifecycle === "completed" ? "info" : agent.lifecycle === "failed" ? "error" : "warning";
+		ctx.ui.notify(formatAgentStatus(agent), level);
+	});
+}
+
+function startBackgroundDispatch(
+	background: BackgroundDispatchContext,
+	agent: AgentSnapshot,
+	prompt: string,
+	ctx: ExtensionCommandContext,
+): AgentSnapshot {
+	if (background.createChildSession) {
+		const promise = dispatchAgentSession(background.store, background.createChildSession, agent, prompt, ctx, (childSession) => {
+			background.handles.set(agent.id, childSession);
+		});
+		notifyBackgroundDispatch(promise, background.handles, ctx);
+		return background.store.getAgent(agent.id) ?? agent;
+	}
+
+	if (background.dispatcher) {
+		const promise = dispatchAgent(background.store, background.dispatcher, agent, prompt, ctx);
+		notifyBackgroundDispatch(promise, background.handles, ctx);
+		return background.store.getAgent(agent.id) ?? agent;
+	}
+
+	return agent;
+}
+
+function backgroundCommand(background: BackgroundDispatchContext, args: string, ctx: ExtensionCommandContext): void {
+	const prompt = args.trim();
+	if (!prompt) {
+		ctx.ui.notify("Usage: /bg <prompt>", "error");
+		return;
+	}
+
+	const spawned = background.store.spawnAgent({
+		agentType: "background",
+		cwd: ctx.cwd,
+		displayName: "Background Job",
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	const agent = startBackgroundDispatch(background, spawned.agent, prompt, ctx);
+	ctx.ui.setEditorText("");
+	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs or wait_agent to inspect it.`, "info");
+}
+
+function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void {
+	const agents = store.listAgents().filter((agent) => agent.agentType === "background");
+	if (agents.length === 0) {
+		ctx.ui.notify("No background jobs.", "info");
+		return;
+	}
+
+	ctx.ui.notify(agents.map((agent) => `${agent.id} ${formatAgentStatus(agent)}`).join("\n"), "info");
 }
 
 export function createProductionChildAgentSessionFactory(
@@ -378,6 +452,7 @@ async function dispatchAgentSession(
 	initialAgent: AgentSnapshot,
 	prompt: string,
 	ctx: ExtensionContext,
+	onChildSession?: (childSession: ChildAgentSession) => void,
 ): Promise<AgentSnapshot> {
 	const starting = moveToStarting(store, initialAgent);
 	const running = store.transitionAgent(starting.id, starting.revision, "running");
@@ -387,17 +462,16 @@ async function dispatchAgentSession(
 
 	try {
 		const childSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		onChildSession?.(childSession);
 		await childSession.prompt(prompt);
 		const summary = lastAssistantText(childSession.messages);
-		const finished = store.transitionAgent(running.agent.id, running.agent.revision, "completed", {
+		return transitionRunningAgent(store, running.agent, "completed", {
 			result: summary ? { summary } : undefined,
 		});
-		return finished.ok ? finished.agent : running.agent;
 	} catch (error) {
-		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+		return transitionRunningAgent(store, running.agent, "failed", {
 			error: { message: error instanceof Error ? error.message : String(error) },
 		});
-		return failed.ok ? failed.agent : running.agent;
 	}
 }
 
@@ -416,17 +490,32 @@ async function dispatchAgent(
 
 	try {
 		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
-		const finished = store.transitionAgent(running.agent.id, running.agent.revision, dispatchResult.lifecycle, {
+		return transitionRunningAgent(store, running.agent, dispatchResult.lifecycle, {
 			error: dispatchResult.error,
 			result: dispatchResult.result,
 		});
-		return finished.ok ? finished.agent : running.agent;
 	} catch (error) {
-		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+		return transitionRunningAgent(store, running.agent, "failed", {
 			error: { message: error instanceof Error ? error.message : String(error) },
 		});
-		return failed.ok ? failed.agent : running.agent;
 	}
+}
+
+function transitionRunningAgent(
+	store: MultiAgentStore,
+	running: AgentSnapshot,
+	lifecycle: "completed" | "failed" | "aborted",
+	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
+): AgentSnapshot {
+	const current = store.getAgent(running.id);
+	if (!current) {
+		return running;
+	}
+	if (!isActiveLifecycle(current.lifecycle)) {
+		return current;
+	}
+	const transitioned = store.transitionAgent(current.id, current.revision, lifecycle, metadata);
+	return transitioned.ok ? transitioned.agent : (store.getAgent(running.id) ?? running);
 }
 
 function moveToStarting(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
@@ -600,7 +689,11 @@ function formatAgentStatus(agent: AgentSnapshot): string {
 	return `${agent.displayName} is ${agent.lifecycle}.`;
 }
 
-function cancelAgent(store: MultiAgentStore, params: CancelAgentParams): AgentToolResult<AgentToolDetails> {
+function cancelAgent(
+	store: MultiAgentStore,
+	handles: BackgroundSessionHandles | undefined,
+	params: CancelAgentParams,
+): AgentToolResult<AgentToolDetails> {
 	const cancelled = store.transitionAgent(params.agentId, params.expectedRevision, "aborted");
 	if (!cancelled.ok) {
 		return errorResult(`Could not cancel ${params.agentId}: ${cancelled.error}`, {
@@ -608,6 +701,7 @@ function cancelAgent(store: MultiAgentStore, params: CancelAgentParams): AgentTo
 			reason: params.reason,
 		});
 	}
+	handles?.get(params.agentId)?.abort?.();
 
 	return result(`Cancelled ${cancelled.agent.displayName}.`, {
 		agent: cancelled.agent,
@@ -751,6 +845,18 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const store = resolveMultiAgentStore(options);
 	const createChildSession = options.createChildSession;
 	const dispatcher = options.dispatcher;
+	const backgroundSessions: BackgroundSessionHandles = new Map();
+	const backgroundDispatch = { createChildSession, dispatcher, handles: backgroundSessions, store };
+
+	pi.registerCommand("bg", {
+		description: "Run a prompt as a background agent job.",
+		handler: async (args, ctx) => backgroundCommand(backgroundDispatch, args, ctx),
+	});
+
+	pi.registerCommand("jobs", {
+		description: "List background agent jobs.",
+		handler: async (_args, ctx) => jobsCommand(store, ctx),
+	});
 
 	pi.registerTool(
 		defineTool({
@@ -804,7 +910,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Cancel an agent through the multi-agent store with revision checking.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
-			execute: async (_toolCallId, params) => cancelAgent(store, params),
+			execute: async (_toolCallId, params) => cancelAgent(store, backgroundSessions, params),
 		}),
 	);
 

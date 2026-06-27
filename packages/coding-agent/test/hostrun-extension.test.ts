@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
+import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 
 interface HostrunEvalParams {
@@ -175,6 +176,19 @@ describe("hostrun extension", () => {
 		expect(harness.toolDefinition?.approvalRequired).toBe(true);
 		expect(harness.toolDefinition?.description).toContain("canonical Hostrun runtime");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not use MCP");
+	});
+
+	it("uses the installed cargo hostrun-jsonl when local debug runner is missing", () => {
+		const options = resolveHostrunRunnerOptions({
+			env: {},
+			exists: (path) => path === "/home/osso/.cargo/bin/hostrun-jsonl",
+			homeDir: "/home/osso",
+		});
+
+		expect(options).toEqual({
+			args: ["--serve"],
+			command: "/home/osso/.cargo/bin/hostrun-jsonl",
+		});
 	});
 
 	it("delegates evaluation to the canonical Hostrun runner process", async () => {

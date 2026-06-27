@@ -38,6 +38,9 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 - [x] Start an argv-based Hostrun runner process (`hostrun-jsonl --serve` by
   default, overridable with `PI_HOSTRUN_RUNNER_COMMAND` and
   `PI_HOSTRUN_RUNNER_ARGS`).
+- [x] Resolve the default Hostrun runner from the local debug build, the user's installed
+  `~/.cargo/bin/hostrun-jsonl`, or `hostrun-jsonl` on `PATH` so restarted runtimes do not depend on
+  a single development build path.
 - [x] Send each `hostrun_eval` request to the runner as JSONL instead of
   evaluating JavaScript in Pi.
 - [x] Keep session state in the runner process across evaluations for the same
@@ -71,8 +74,8 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — tool registration,
-  runner delegation, session persistence at the runner boundary, and canonical
-  Hostrun result/update shapes.
+  runner delegation, default runner resolution, session persistence at the runner boundary, and
+  canonical Hostrun result/update shapes.
 - `packages/coding-agent/test/hostrun-adapter-package.test.ts` — package
   boundary checks proving Pi does not publish `hostrun-mcp` or depend on
   QuickJS.

@@ -1,9 +1,17 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	ExtensionUIContext,
+	RegisteredCommand,
+	ToolDefinition,
+} from "../src/core/extensions/types.ts";
 import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
@@ -84,6 +92,17 @@ interface AgentArtifactsDetails extends Record<string, unknown> {
 	artifacts?: AgentArtifact[];
 }
 
+type TestCommandContext = Omit<Partial<ExtensionCommandContext>, "ui"> & {
+	ui?: Partial<ExtensionUIContext>;
+};
+
+const commandSourceInfo = {
+	origin: "top-level",
+	path: "test",
+	scope: "temporary",
+	source: "extension",
+} as const;
+
 function createMultiAgentHarness(
 	options: {
 		createChildSession?: ChildAgentSessionFactory;
@@ -91,9 +110,13 @@ function createMultiAgentHarness(
 		dispatcher?: ChildAgentDispatcher;
 	} = {},
 ) {
+	const commands = new Map<string, RegisteredCommand>();
 	const tools = new Map<string, RegisteredTool>();
 	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
+		registerCommand(name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+			commands.set(name, { ...command, name, sourceInfo: commandSourceInfo });
+		},
 		registerTool(tool: ToolDefinition) {
 			tools.set(tool.name, tool as RegisteredTool);
 		},
@@ -117,15 +140,34 @@ function createMultiAgentHarness(
 
 			return (await tool.execute(`${name}-call`, params, undefined, undefined, ctx)) as AgentToolResult<TDetails>;
 		},
+		command: async (name: string, args: string, commandCtx: TestCommandContext = {}) => {
+			const command = commands.get(name);
+			if (!command) {
+				throw new Error(`command not registered: ${name}`);
+			}
+
+			await command.handler(args, {
+				...commandCtx,
+				cwd: "/repo",
+				hasUI: true,
+				mode: "tui",
+				ui: { notify: () => {}, setEditorText: () => {}, ...commandCtx.ui },
+			} as ExtensionCommandContext);
+		},
+		commands,
 		store,
 		tools,
 	};
 }
 
 function createSplitMultiAgentHarness() {
+	const commands = new Map<string, RegisteredCommand>();
 	const tools = new Map<string, RegisteredTool>();
 	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
+		registerCommand(name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+			commands.set(name, { ...command, name, sourceInfo: commandSourceInfo });
+		},
 		registerTool(tool: ToolDefinition) {
 			tools.set(tool.name, tool as RegisteredTool);
 		},
@@ -150,6 +192,7 @@ function createSplitMultiAgentHarness() {
 
 			return (await tool.execute(`${name}-call`, params, undefined, undefined, ctx)) as AgentToolResult<TDetails>;
 		},
+		commands,
 		store,
 		tools,
 	};
@@ -158,6 +201,7 @@ function createSplitMultiAgentHarness() {
 function collectTools(register: (pi: ExtensionAPI) => void): string[] {
 	const tools = new Map<string, RegisteredTool>();
 	const pi = {
+		registerCommand() {},
 		registerTool(tool: ToolDefinition) {
 			tools.set(tool.name, tool as RegisteredTool);
 		},
@@ -166,6 +210,14 @@ function collectTools(register: (pi: ExtensionAPI) => void): string[] {
 	register(pi);
 
 	return [...tools.keys()].sort();
+}
+
+function deferred<T>() {
+	let resolve: (value: T | PromiseLike<T>) => void = () => {};
+	const promise = new Promise<T>((promiseResolve) => {
+		resolve = promiseResolve;
+	});
+	return { promise, resolve };
 }
 
 describe("multi-agent extension tools", () => {
@@ -260,6 +312,107 @@ describe("multi-agent extension tools", () => {
 			"contact_supervisor",
 			"send_agent_message",
 		]);
+	});
+
+	it("registers background job commands on the core module", () => {
+		const harness = createSplitMultiAgentHarness();
+
+		expect([...harness.commands.keys()].sort()).toEqual(["bg", "jobs"]);
+	});
+
+	it("runs /bg prompts as child jobs without waiting for completion", async () => {
+		const childPrompt = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const notifications: Array<{ message: string; level?: string }> = [];
+		const harness = createMultiAgentHarness({ createChildSession });
+
+		await harness.command("bg", "sleep 100", {
+			ui: {
+				notify: (message, level) => {
+					notifications.push({ level, message });
+				},
+			},
+		});
+
+		const [agent] = harness.store.listAgents();
+		expect(agent).toMatchObject({
+			displayName: "Background Job",
+			lifecycle: "running",
+		});
+		expect(notifications[0]?.message).toContain(agent.id);
+
+		childPrompt.resolve();
+		await harness.call<WaitAgentDetails>("wait_agent", { agentId: agent.id });
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "completed" });
+	});
+
+	it("aborts a running /bg child session when the job is cancelled", async () => {
+		const abort = vi.fn();
+		const childPrompt = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort,
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+
+		await harness.command("bg", "sleep 100");
+		await Promise.resolve();
+		const [agent] = harness.store.listAgents();
+		await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: agent.id,
+			expectedRevision: agent.revision,
+			reason: "user requested",
+		});
+
+		expect(abort).toHaveBeenCalledTimes(1);
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
+	});
+
+	it("does not abort a /bg child session when cancel uses a stale revision", async () => {
+		const abort = vi.fn();
+		const childPrompt = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort,
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+
+		await harness.command("bg", "sleep 100");
+		await Promise.resolve();
+		const [agent] = harness.store.listAgents();
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: agent.id,
+			expectedRevision: agent.revision - 1,
+			reason: "stale",
+		});
+
+		expect(cancelled.details.agent).toMatchObject({ id: agent.id, revision: agent.revision });
+		expect(abort).not.toHaveBeenCalled();
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "running" });
+	});
+
+	it("lists only background jobs in /jobs", async () => {
+		const notifications: string[] = [];
+		const harness = createMultiAgentHarness();
+
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Scout",
+			prompt: "Inspect auth",
+		});
+		await harness.command("jobs", "", {
+			ui: {
+				notify: (message) => {
+					notifications.push(message);
+				},
+			},
+		});
+
+		expect(notifications).toEqual(["No background jobs."]);
 	});
 
 	it("spawns and lists store-backed agents without starting child model sessions", async () => {
