@@ -14,6 +14,8 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
   `restart` while preserving the same session file.
 - [x] Let interactive mode spawn a fresh Pi process with the same argv and an
   environment restart request that resumes the current session.
+- [x] Let an external supervisor restart interactive mode by sending `SIGHUP`, using the same
+  persisted-session process handoff as `restart_self`.
 
 ### First-party Tool
 
@@ -46,6 +48,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 - `packages/coding-agent/test/suite/regressions/2860-replaced-session-context.test.ts`
 - `packages/coding-agent/test/self-restart-extension.test.ts`
+- `packages/coding-agent/test/suite/regressions/sighup-restart-harness.test.ts`
 
 ## Known gaps (current cycle)
 

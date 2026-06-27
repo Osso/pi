@@ -3441,11 +3441,18 @@ export class InteractiveMode {
 
 		for (const signal of signals) {
 			const handler = () => {
-				// SIGHUP no longer hard-exits: graceful shutdown emits session_shutdown
+				killTrackedDetachedChildren();
+				if (signal === "SIGHUP") {
+					void this.restartProcess({
+						notice: "The agent process was restarted by SIGHUP. Continue from the current session.",
+					});
+					return;
+				}
+
+				// SIGTERM no longer hard-exits: graceful shutdown emits session_shutdown
 				// first, then attempts terminal restore. A genuinely dead terminal
 				// surfaces as an EIO on the restore writes, which the stdout/stderr
 				// error handler converts into emergencyTerminalExit (see #4144, #5080).
-				killTrackedDetachedChildren();
 				void this.shutdown({ fromSignal: true });
 			};
 			process.prependListener(signal, handler);
