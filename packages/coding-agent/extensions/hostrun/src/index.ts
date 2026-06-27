@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
 import { createHostrunEvalExecutor } from "./eval-tool.ts";
 import { HostrunRunnerClient } from "./runner.ts";
 
@@ -14,6 +16,22 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
 ];
+
+function formatHostrunDisplay(text: string, executed: string | undefined, theme: Theme): string {
+	if (!executed || !text.startsWith(executed)) {
+		return theme.fg("toolOutput", text);
+	}
+
+	const rest = text.slice(executed.length).replace(/^\n+/, "");
+	const highlightedCode = highlightCode(executed, "javascript").join("\n");
+	return rest ? `${highlightedCode}\n\n${theme.fg("toolOutput", rest)}` : highlightedCode;
+}
+
+function getExecutedCode(details: unknown): string | undefined {
+	if (!details || typeof details !== "object") return undefined;
+	const executed = (details as { executed?: unknown }).executed;
+	return typeof executed === "string" ? executed : undefined;
+}
 
 export default function hostrunExtension(pi: ExtensionAPI) {
 	const runner = new HostrunRunnerClient();
@@ -30,6 +48,27 @@ export default function hostrunExtension(pi: ExtensionAPI) {
 			code: Type.String({ description: "JavaScript source to evaluate." }),
 			session_id: Type.Optional(Type.String({ description: "Hostrun session id. Defaults to this Pi session." })),
 		}),
-		execute: async (_toolCallId, params, _signal, onUpdate, ctx) => evaluate(params, ctx, onUpdate),
+		renderCall(args, theme, context) {
+			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			text.setText(theme.bold("hostrun_eval"));
+			return text;
+		},
+		renderResult(result, _options, theme, context) {
+			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			const output = result.content
+				.filter((item) => item.type === "text")
+				.map((item) => item.text ?? "")
+				.join("\n");
+			const executed = getExecutedCode(result.details);
+			text.setText(formatHostrunDisplay(output, executed, theme));
+			return text;
+		},
+		execute: async (_toolCallId, params, _signal, onUpdate, ctx) => {
+			onUpdate?.({
+				content: [{ type: "text", text: params.code }],
+				details: { executed: params.code, type: "running" },
+			});
+			return evaluate(params, ctx, onUpdate);
+		},
 	});
 }

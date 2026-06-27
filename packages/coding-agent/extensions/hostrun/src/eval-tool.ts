@@ -29,7 +29,7 @@ function formatResultValue(result: CanonicalHostrunEvalResult): string {
 }
 
 function formatToolText(params: HostrunEvalParams, result: CanonicalHostrunEvalResult): string {
-	const lines = ["Executed code:", params.code, "", `Session: ${params.session_id ?? "default"}`];
+	const lines = [params.code, "", `Session: ${params.session_id ?? "default"}`];
 	for (const entry of result.console ?? []) {
 		lines.push(`${entry.level}: ${entry.message}`);
 	}

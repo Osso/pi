@@ -1,10 +1,14 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 interface HostrunEvalParams {
 	code: string;
@@ -28,6 +32,7 @@ interface HostrunEvalDetails {
 }
 
 interface HostrunProgressDetails {
+	executed?: string;
 	message?: string;
 	type: string;
 }
@@ -79,6 +84,12 @@ function createHostrunHarness() {
 			onUpdate?: (result: AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>) => void,
 		) => registeredHostrunTool.execute("hostrun-test-call", params, undefined, onUpdate, ctx),
 	};
+}
+
+function createFakeTui(): TUI {
+	return {
+		requestRender: () => {},
+	} as unknown as TUI;
 }
 
 function writeFakeHostrunRunner(tempDir: string): string {
@@ -148,6 +159,7 @@ describe("hostrun extension", () => {
 	let tempDir: string;
 
 	beforeEach(() => {
+		initTheme("dark");
 		previousRunnerCommand = process.env.PI_HOSTRUN_RUNNER_COMMAND;
 		previousRunnerArgs = process.env.PI_HOSTRUN_RUNNER_ARGS;
 		tempDir = mkdtempSync(join(tmpdir(), "pi-hostrun-test-"));
@@ -178,6 +190,79 @@ describe("hostrun extension", () => {
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not use MCP");
 	});
 
+	it("renders only the Hostrun title before execution starts", () => {
+		const harness = createHostrunHarness();
+		const component = new ToolExecutionComponent(
+			"hostrun_eval",
+			"hostrun-render-test-call",
+			{ code: "run.sleep('10')" },
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("hostrun_eval");
+		expect(rendered).not.toContain("run.sleep('10')");
+	});
+
+	it("renders the Hostrun code from a pending update when call args are not available", () => {
+		const harness = createHostrunHarness();
+		const component = new ToolExecutionComponent(
+			"hostrun_eval",
+			"hostrun-render-test-call",
+			{},
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: 'run.sleep("10")' }],
+				details: { executed: 'run.sleep("10")', type: "running" },
+				isError: false,
+			},
+			true,
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("hostrun_eval");
+		expect(rendered).toContain('run.sleep("10")');
+	});
+
+	it("syntax-colors Hostrun JavaScript in the interactive result row", () => {
+		const harness = createHostrunHarness();
+		const component = new ToolExecutionComponent(
+			"hostrun_eval",
+			"hostrun-render-test-call",
+			{},
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [
+					{
+						type: "text",
+						text: 'const value = run.sleep("10");\n\nSession: default\nResult: {"success":true}',
+					},
+				],
+				details: { executed: 'const value = run.sleep("10");', type: "completed" },
+				isError: false,
+			},
+			false,
+		);
+
+		const rendered = component.render(120).join("\n");
+		expect(rendered).toContain("\x1b[");
+		expect(stripAnsi(rendered)).toContain('const value = run.sleep("10");');
+		expect(stripAnsi(rendered)).toContain("Session: default");
+	});
+
 	it("uses the installed cargo hostrun-jsonl when local debug runner is missing", () => {
 		const options = resolveHostrunRunnerOptions({
 			env: {},
@@ -203,6 +288,8 @@ describe("hostrun extension", () => {
 			value: 2,
 		});
 		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(text).toContain("console.log('hello'); 1 + 1");
+		expect(text).not.toContain("Executed code:");
 		expect(text).toContain("Result: 2");
 		expect(text).toContain("hello");
 	});
@@ -240,10 +327,12 @@ describe("hostrun extension", () => {
 		const result = await harness.evaluate({ code: "run.longTask()" }, (update) => updates.push(update));
 
 		expect(updates.map((update) => update.details)).toEqual([
+			{ type: "running", executed: "run.longTask()" },
 			{ type: "status", message: "starting long task" },
 			{ type: "progress", message: "halfway done" },
 		]);
 		expect(updates.map((update) => (update.content[0]?.type === "text" ? update.content[0].text : ""))).toEqual([
+			"run.longTask()",
 			"starting long task",
 			"halfway done",
 		]);

@@ -51,6 +51,10 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 - [x] Surface canonical Hostrun in-progress/status output for long-running
   `hostrun_eval` requests while the runner is still evaluating, without waiting
   for the final `completed` result.
+- [x] Show the submitted `hostrun_eval` source code with JavaScript syntax
+  highlighting in the interactive tool row while execution is still pending,
+  even when provider tool-call arguments are not available to the pending call
+  renderer.
 
 ## How it works
 
