@@ -18,6 +18,7 @@ import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
+import { handleControlCommand } from "./cli/control-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listExtensions } from "./cli/list-extensions.ts";
@@ -277,6 +278,7 @@ async function createSessionManager(
 	cwd: string,
 	sessionDir: string | undefined,
 	settingsManager: SettingsManager,
+	controlDbPath?: string,
 ): Promise<SessionManager> {
 	if (
 		parsed.noSession ||
@@ -341,6 +343,7 @@ async function createSessionManager(
 				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
 				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
 				settingsManager,
+				controlDbPath,
 			);
 			if (!selectedPath) {
 				console.log(chalk.dim("No session selected"));
@@ -547,6 +550,10 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 
+	if (handleControlCommand(args, { agentDir })) {
+		process.exit(process.exitCode ?? 0);
+	}
+
 	const parsed = parseArgs(args);
 	applySelfRestartRequest(parsed);
 	const extensionFactories = parsed.noExtensions
@@ -630,7 +637,8 @@ export async function main(args: string[], options?: MainOptions) {
 		(parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
 		startupSettingsManager.getSessionDir();
-	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager);
+	const controlDbPath = getControlDbPath(agentDir);
+	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
 	if (missingSessionCwdIssue) {
 		if (appMode === "interactive") {
@@ -653,7 +661,6 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionManager.appendSessionInfo(name);
 	}
 	time("createSessionManager");
-	const controlDbPath = getControlDbPath(agentDir);
 	const controlMessage = appMode === "interactive" ? claimLatestIncomingMessage(controlDbPath) : undefined;
 
 	const trustStore = new ProjectTrustStore(agentDir);

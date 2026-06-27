@@ -862,7 +862,10 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		panel.addChild(new Spacer(1));
 		panel.addChild(
 			new Text(
-				theme.fg("muted", `${keyText("tui.select.confirm")} to save · ${keyText("tui.select.cancel")} to cancel`),
+				theme.fg(
+					"muted",
+					`${keyText("tui.select.confirm")} to save · empty to unname · ${keyText("tui.select.cancel")} to cancel`,
+				),
 				1,
 				0,
 			),
@@ -883,7 +886,6 @@ export class SessionSelectorComponent extends Container implements Focusable {
 
 	private async confirmRename(value: string): Promise<void> {
 		const next = value.trim();
-		if (!next) return;
 		const target = this.renameTargetPath;
 		if (!target) {
 			this.exitRenameMode();
@@ -898,7 +900,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		}
 
 		try {
-			await renameSession(target, next);
+			await renameSession(target, next || undefined);
 			await this.refreshSessionsAfterMutation();
 		} finally {
 			this.exitRenameMode();

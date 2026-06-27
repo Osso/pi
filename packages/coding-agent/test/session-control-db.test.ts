@@ -7,8 +7,11 @@ import {
 	completeIncomingMessage,
 	enqueueIncomingMessage,
 	getControlDbPath,
+	listNamedSessions,
 	readIncomingMessageStatus,
 	readLastMessage,
+	removeNamedSession,
+	setNamedSession,
 	writeLastMessage,
 } from "../src/core/session-control-db.ts";
 
@@ -58,5 +61,25 @@ describe("session control DB", () => {
 			role: "assistant",
 			content: "second answer",
 		});
+	});
+
+	it("stores and removes named sessions", () => {
+		setNamedSession(controlDbPath, "/tmp/session-a.jsonl", "Alpha");
+		setNamedSession(controlDbPath, "/tmp/session-b.jsonl", "Beta");
+		setNamedSession(controlDbPath, "/tmp/session-a.jsonl", "Alpha renamed");
+
+		const namedSessions = listNamedSessions(controlDbPath)
+			.map((session) => [session.sessionPath, session.name])
+			.sort(([left], [right]) => left.localeCompare(right));
+		expect(namedSessions).toEqual([
+			["/tmp/session-a.jsonl", "Alpha renamed"],
+			["/tmp/session-b.jsonl", "Beta"],
+		]);
+
+		removeNamedSession(controlDbPath, "/tmp/session-a.jsonl");
+
+		expect(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name])).toEqual([
+			["/tmp/session-b.jsonl", "Beta"],
+		]);
 	});
 });

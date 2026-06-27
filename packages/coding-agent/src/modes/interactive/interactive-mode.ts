@@ -85,9 +85,17 @@ import {
 	completeIncomingMessage,
 	failIncomingMessage,
 	type IncomingControlMessage,
+	listNamedSessions,
+	removeNamedSession,
+	setNamedSession,
 } from "../../core/session-control-db.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
+import {
+	type SessionContext,
+	type SessionInfo,
+	type SessionListProgress,
+	SessionManager,
+} from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
@@ -2585,6 +2593,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/unname") {
+				this.handleUnnameCommand();
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/session") {
 				this.handleSessionCommand();
 				this.editor.setText("");
@@ -3422,10 +3435,7 @@ export class InteractiveMode {
 			this.stop();
 		}
 		await this.runtimeHost.dispose();
-		const exitCode = await spawnSelfRestart(
-			{ sessionFile, prompt: options?.notice },
-			{ waitForExit: !options?.fromSignal },
-		);
+		const exitCode = await spawnSelfRestart({ sessionFile, prompt: options?.notice });
 		process.exit(exitCode);
 	}
 
@@ -4589,13 +4599,28 @@ export class InteractiveMode {
 
 	private showSessionSelector(): void {
 		this.showSelector((done) => {
+			const loadWithNames = async (
+				loader: (onProgress?: SessionListProgress) => Promise<SessionInfo[]>,
+				onProgress?: SessionListProgress,
+			): Promise<SessionInfo[]> => {
+				const sessions = await loader(onProgress);
+				return this.applyControlSessionNames(sessions);
+			};
 			const selector = new SessionSelectorComponent(
 				(onProgress) =>
-					SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
+					loadWithNames(
+						(progress) =>
+							SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), progress),
+						onProgress,
+					),
 				(onProgress) =>
-					this.sessionManager.usesDefaultSessionDir()
-						? SessionManager.listAll(onProgress)
-						: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
+					loadWithNames(
+						(progress) =>
+							this.sessionManager.usesDefaultSessionDir()
+								? SessionManager.listAll(progress)
+								: SessionManager.listAll(this.sessionManager.getSessionDir(), progress),
+						onProgress,
+					),
 				async (sessionPath) => {
 					done();
 					await this.handleResumeSession(sessionPath);
@@ -4611,7 +4636,12 @@ export class InteractiveMode {
 				{
 					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
 						const next = (nextName ?? "").trim();
-						if (!next) return;
+						if (!this.options.controlDbPath) return;
+						if (!next) {
+							removeNamedSession(this.options.controlDbPath, sessionFilePath);
+							return;
+						}
+						setNamedSession(this.options.controlDbPath, sessionFilePath, next);
 						const mgr = SessionManager.open(sessionFilePath);
 						mgr.appendSessionInfo(next);
 					},
@@ -4623,6 +4653,21 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	private applyControlSessionNames(sessions: SessionInfo[]): SessionInfo[] {
+		const controlDbPath = this.options.controlDbPath;
+		if (!controlDbPath) return sessions;
+
+		const names = new Map(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name]));
+		return sessions
+			.map((session) => ({ ...session, name: names.get(session.path) ?? session.name }))
+			.sort((a, b) => {
+				const aNamed = names.has(a.path);
+				const bNamed = names.has(b.path);
+				if (aNamed !== bNamed) return aNamed ? -1 : 1;
+				return b.modified.getTime() - a.modified.getTime();
+			});
 	}
 
 	private async handleResumeSession(
@@ -5389,6 +5434,13 @@ export class InteractiveMode {
 		this.session.setSessionName(name);
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("dim", `Session name set: ${name}`), 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handleUnnameCommand(): void {
+		this.session.clearSessionName();
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(theme.fg("dim", "Session name removed"), 1, 0));
 		this.ui.requestRender();
 	}
 

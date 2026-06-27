@@ -4,6 +4,7 @@
 
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../core/keybindings.ts";
+import { listNamedSessions } from "../core/session-control-db.ts";
 import type { SessionInfo, SessionListProgress } from "../core/session-manager.ts";
 import type { SettingsManager } from "../core/settings-manager.ts";
 import { SessionSelectorComponent } from "../modes/interactive/components/session-selector.ts";
@@ -16,6 +17,7 @@ export async function selectSession(
 	currentSessionsLoader: SessionsLoader,
 	allSessionsLoader: SessionsLoader,
 	settingsManager: SettingsManager,
+	controlDbPath?: string,
 ): Promise<string | null> {
 	const ui = await createStartupTui(settingsManager);
 	return new Promise((resolve) => {
@@ -24,8 +26,8 @@ export async function selectSession(
 		let resolved = false;
 
 		const selector = new SessionSelectorComponent(
-			currentSessionsLoader,
-			allSessionsLoader,
+			(onProgress) => loadSessionsWithControlNames(currentSessionsLoader, controlDbPath, onProgress),
+			(onProgress) => loadSessionsWithControlNames(allSessionsLoader, controlDbPath, onProgress),
 			(path: string) => {
 				if (!resolved) {
 					resolved = true;
@@ -52,4 +54,23 @@ export async function selectSession(
 		ui.setFocus(selector.getSessionList());
 		startStartupTui(ui, settingsManager);
 	});
+}
+
+async function loadSessionsWithControlNames(
+	loader: SessionsLoader,
+	controlDbPath: string | undefined,
+	onProgress?: SessionListProgress,
+): Promise<SessionInfo[]> {
+	const sessions = await loader(onProgress);
+	if (!controlDbPath) return sessions;
+
+	const names = new Map(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name]));
+	return sessions
+		.map((session) => ({ ...session, name: names.get(session.path) ?? session.name }))
+		.sort((a, b) => {
+			const aNamed = names.has(a.path);
+			const bNamed = names.has(b.path);
+			if (aNamed !== bNamed) return aNamed ? -1 : 1;
+			return b.modified.getTime() - a.modified.getTime();
+		});
 }

@@ -12,6 +12,12 @@ export interface LastControlMessage {
 	updatedAt: string;
 }
 
+export interface NamedSession {
+	sessionPath: string;
+	name: string;
+	updatedAt: string;
+}
+
 type IncomingRow = {
 	id: number;
 	content: string;
@@ -25,6 +31,12 @@ type LastMessageRow = {
 
 type IncomingStatusRow = {
 	status: string;
+};
+
+type NamedSessionRow = {
+	session_path: string;
+	name: string;
+	updated_at: string;
 };
 
 export function getControlDbPath(agentDir: string): string {
@@ -166,6 +178,51 @@ export function readLastMessage(controlDbPath: string): LastControlMessage | und
 	});
 }
 
+export function setNamedSession(controlDbPath: string, sessionPath: string, name: string): void {
+	const trimmedName = name.trim();
+	if (!trimmedName) {
+		removeNamedSession(controlDbPath, sessionPath);
+		return;
+	}
+
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`
+			INSERT INTO named_sessions (session_path, name, updated_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT(session_path) DO UPDATE SET
+				name = excluded.name,
+				updated_at = excluded.updated_at
+			`,
+		).run(sessionPath, trimmedName, new Date().toISOString());
+	});
+}
+
+export function removeNamedSession(controlDbPath: string, sessionPath: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare("DELETE FROM named_sessions WHERE session_path = ?").run(sessionPath);
+	});
+}
+
+export function listNamedSessions(controlDbPath: string): NamedSession[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`
+				SELECT session_path, name, updated_at
+				FROM named_sessions
+				ORDER BY updated_at DESC
+				`,
+			)
+			.all() as NamedSessionRow[];
+		return rows.map((row) => ({
+			sessionPath: row.session_path,
+			name: row.name,
+			updatedAt: row.updated_at,
+		}));
+	});
+}
+
 function withControlDb<T>(controlDbPath: string, callback: (db: DatabaseSync) => T): T {
 	const db = new DatabaseSync(controlDbPath);
 	try {
@@ -193,6 +250,12 @@ function initializeSchema(db: DatabaseSync): void {
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			role TEXT NOT NULL,
 			content TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS named_sessions (
+			session_path TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
 	`);

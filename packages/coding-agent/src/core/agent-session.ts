@@ -92,7 +92,7 @@ import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
-import { getControlDbPath, writeLastMessage } from "./session-control-db.ts";
+import { getControlDbPath, removeNamedSession, setNamedSession, writeLastMessage } from "./session-control-db.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -2909,8 +2909,21 @@ export class AgentSession {
 	 * Set a display name for the current session.
 	 */
 	setSessionName(name: string): void {
+		const sessionFile = this.sessionFile;
+		if (sessionFile) {
+			setNamedSession(getControlDbPath(this._agentDir), sessionFile, name);
+		}
 		this.sessionManager.appendSessionInfo(name);
 		this._emit({ type: "session_info_changed", name: this.sessionManager.getSessionName() });
+	}
+
+	clearSessionName(): void {
+		const sessionFile = this.sessionFile;
+		if (sessionFile) {
+			removeNamedSession(getControlDbPath(this._agentDir), sessionFile);
+		}
+		this.sessionManager.appendSessionInfo("");
+		this._emit({ type: "session_info_changed", name: undefined });
 	}
 
 	// =========================================================================

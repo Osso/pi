@@ -35,6 +35,20 @@
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.
 - Never commit unless the user asks.
 
+## Pi Control CLI
+
+Use the control CLI for the SQLite control channel. Do not write to `control.sqlite` directly and do not type into tmux panes to steer a running Pi unless explicitly asked.
+
+From a repo checkout, use `./pi-test.sh control ...`; installed builds use `pi control ...`.
+
+- Send a prompt and restart the running Pi process: `./pi-test.sh control send --pid <pid> "finish the current work"`
+- Read the latest assistant reply: `./pi-test.sh control last`
+- Print the control DB path: `./pi-test.sh control path`
+
+Find a running Pi PID with `ps -eo pid,ppid,stat,cmd | rg 'packages/coding-agent/src/cli.ts|/pi( |$)'`.
+
+Session display names are also backed by the control DB. Use `/name <name>` to name the current session and `/unname` to clear it. In the restore picker, named sessions appear first; rename a selected session to an empty value to unname it from that list.
+
 ## Dependency and Install Security
 
 - Treat npm dep and lockfile changes as reviewed code. Direct external deps stay pinned to exact versions.
