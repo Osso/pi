@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	RegisteredCommand,
+	ToolDefinition,
+} from "../src/core/extensions/types.ts";
 
 type RestartSelfTool = {
 	name: string;
@@ -14,10 +21,25 @@ type RestartSelfTool = {
 };
 
 function createSelfRestartHarness() {
+	let restartCommand: RegisteredCommand | undefined;
 	let restartTool: RestartSelfTool | undefined;
 	let restartDefinition: ToolDefinition | undefined;
 
 	const pi = {
+		registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+			if (name === "restart") {
+				restartCommand = {
+					...options,
+					name,
+					sourceInfo: {
+						path: "self-restart-test",
+						source: "self-restart-test",
+						scope: "temporary",
+						origin: "top-level",
+					},
+				};
+			}
+		},
 		registerTool(tool: ToolDefinition) {
 			if (tool.name === "restart_self") {
 				restartDefinition = tool;
@@ -40,12 +62,27 @@ function createSelfRestartHarness() {
 
 	return {
 		restart,
+		commandDefinition: restartCommand,
+		runCommand: () => restartCommand?.handler("", ctx as unknown as ExtensionCommandContext),
 		toolDefinition: restartDefinition,
 		execute: () => registeredRestartTool.execute("restart-self-test-call", {}, undefined, undefined, ctx),
 	};
 }
 
 describe("self-restart extension", () => {
+	it("registers restart as a slash command", async () => {
+		const harness = createSelfRestartHarness();
+
+		expect(harness.commandDefinition?.name).toBe("restart");
+		expect(harness.commandDefinition?.description?.toLowerCase()).toContain("restart");
+
+		await harness.runCommand();
+
+		expect(harness.restart).toHaveBeenCalledWith({
+			notice: "The agent process was restarted by tool request. Continue from the current session.",
+		});
+	});
+
 	it("registers restart_self as an approval-gated tool", () => {
 		const harness = createSelfRestartHarness();
 

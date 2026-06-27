@@ -19,6 +19,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 
 ### First-party Tool
 
+- [x] Register a `/restart` slash command from the first-party extension.
 - [x] Register a `restart_self` tool from a first-party extension.
 - [x] Add a user-visible restart notice to the same session when the tool runs.
 
@@ -30,7 +31,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/self-restart/src/index.ts` — first-party
-  restart tool registration.
+  restart slash command and tool registration.
 - `packages/coding-agent/src/core/agent-session-runtime.ts` — same-session
   runtime replacement.
 - `packages/coding-agent/src/core/agent-session.ts` — command-context restart

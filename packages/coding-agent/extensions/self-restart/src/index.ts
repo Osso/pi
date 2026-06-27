@@ -1,9 +1,16 @@
 import { Type } from "typebox";
-import type { AgentToolResult, ExtensionAPI } from "../../../src/core/extensions/types.ts";
+import type { AgentToolResult, ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
 
 const RESTART_NOTICE = "The agent process was restarted by tool request. Continue from the current session.";
 
 export default function selfRestartExtension(pi: ExtensionAPI): void {
+	pi.registerCommand("restart", {
+		description: "Restart Pi and resume the current session",
+		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+			await ctx.restart({ notice: RESTART_NOTICE });
+		},
+	});
+
 	pi.registerTool({
 		name: "restart_self",
 		label: "Restart Self",
