@@ -227,9 +227,9 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
 		}
 	}
 
-	// Sort children and roots by modified date (descending)
+	// Sort children and roots with named sessions first, then by modified date.
 	const sortNodes = (nodes: SessionTreeNode[]): void => {
-		nodes.sort((a, b) => b.session.modified.getTime() - a.session.modified.getTime());
+		nodes.sort(compareSessionTreeNodes);
 		for (const node of nodes) {
 			sortNodes(node.children);
 		}
@@ -237,6 +237,13 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
 	sortNodes(roots);
 
 	return roots;
+}
+
+function compareSessionTreeNodes(a: SessionTreeNode, b: SessionTreeNode): number {
+	const aNamed = hasSessionName(a.session);
+	const bNamed = hasSessionName(b.session);
+	if (aNamed !== bNamed) return aNamed ? -1 : 1;
+	return b.session.modified.getTime() - a.session.modified.getTime();
 }
 
 /**

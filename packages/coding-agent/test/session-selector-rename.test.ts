@@ -76,6 +76,32 @@ describe("session selector rename", () => {
 		expect(output).not.toContain("rename");
 	});
 
+	it("shows named sessions before newer unnamed sessions in threaded mode", async () => {
+		const namedSession = makeSession({
+			id: "named",
+			name: "pi",
+			modified: new Date("2024-01-01T00:00:00Z"),
+		});
+		const newerUnnamedSession = makeSession({
+			id: "unnamed",
+			firstMessage: "newer raw session",
+			modified: new Date("2026-01-01T00:00:00Z"),
+		});
+		const keybindings = new KeybindingsManager();
+		const selector = new SessionSelectorComponent(
+			async () => [newerUnnamedSession, namedSession],
+			async () => [],
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+		);
+		await flushPromises();
+
+		expect(selector.getSessionList().getSelectedSessionPath()).toBe(namedSession.path);
+	});
+
 	it("enters rename mode on Ctrl+R and submits with Enter", async () => {
 		const sessions = [makeSession({ id: "a", name: "Old" })];
 		const renameSession = vi.fn(async () => {});

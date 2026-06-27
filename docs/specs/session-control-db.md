@@ -17,8 +17,9 @@ reply without changing the JSONL transcript format. How it works lives in
   harnesses use the CLI instead of writing SQLite directly.
 - [x] Store named-session metadata in the control DB.
 - [x] `/name <name>` names the current session and `/unname` removes that name.
-- [x] Session restore lists show named sessions first and support clearing a
-  selected session name from rename mode with an empty value.
+- [x] Session restore lists show named sessions first, including threaded
+  restore mode, and support clearing a selected session name from rename mode
+  with an empty value.
 - [x] On SIGHUP, restart the interactive process so startup can consume the
   control DB incoming message.
 
@@ -43,6 +44,7 @@ reply without changing the JSONL transcript format. How it works lives in
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/control-command.test.ts`
+- `packages/coding-agent/test/session-selector-rename.test.ts`
 - `packages/coding-agent/test/self-restart.test.ts`
 - `packages/coding-agent/test/interactive-mode-startup-input.test.ts`
 
