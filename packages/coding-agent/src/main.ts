@@ -16,6 +16,7 @@ import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts
 import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
+import loopExtension from "../extensions/loop/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
@@ -515,6 +516,7 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	),
 	firstPartyExtensionFactory("goal", goalExtension),
 	firstPartyExtensionFactory("hostrun", hostrunExtension),
+	firstPartyExtensionFactory("loop", loopExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
 	firstPartyExtensionFactory("self-restart", selfRestartExtension),
 ];
