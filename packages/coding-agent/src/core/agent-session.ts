@@ -92,6 +92,7 @@ import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { getControlDbPath, writeLastMessage } from "./session-control-db.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -131,6 +132,15 @@ export function parseSkillBlock(text: string): ParsedSkillBlock | null {
 		content: match[3],
 		userMessage: match[4]?.trim() || undefined,
 	};
+}
+
+export function getAssistantMessageText(message: AssistantMessage): string {
+	const content = message.content;
+	if (typeof content === "string") return content;
+	return content
+		.filter((item): item is TextContent => item.type === "text")
+		.map((item) => item.text)
+		.join("");
 }
 
 function isPermissionPromptProtocolTool(tool: AgentTool): boolean {
@@ -720,6 +730,7 @@ export class AgentSession {
 			// Track assistant message for auto-compaction (checked on agent_end)
 			if (event.message.role === "assistant") {
 				this._lastAssistantMessage = event.message;
+				this._writeLastAssistantControlMessage(event.message);
 
 				const assistantMsg = event.message as AssistantMessage;
 				if (assistantMsg.stopReason !== "error") {
@@ -762,6 +773,13 @@ export class AgentSession {
 		if (typeof content === "string") return content;
 		const textBlocks = content.filter((c) => c.type === "text");
 		return textBlocks.map((c) => (c as TextContent).text).join("");
+	}
+
+	private _writeLastAssistantControlMessage(message: AssistantMessage): void {
+		const content = getAssistantMessageText(message).trim();
+		if (!content) return;
+
+		writeLastMessage(getControlDbPath(this._agentDir), { role: "assistant", content });
 	}
 
 	/** Find the last assistant message in agent state (including aborted ones) */

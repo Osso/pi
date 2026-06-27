@@ -1,4 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	claimLatestIncomingMessage,
+	enqueueIncomingMessage,
+	getControlDbPath,
+	readIncomingMessageStatus,
+} from "../src/core/session-control-db.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 type SubmitContext = {
@@ -26,9 +35,21 @@ type InputContext = {
 type InteractiveModePrivate = {
 	setupEditorSubmitHandler(this: SubmitContext): void;
 	getUserInput(this: InputContext): Promise<string>;
+	processControlMessage(
+		this: ControlMessageContext,
+		message: { id: number; content: string } | undefined,
+		controlDbPath?: string,
+	): Promise<void>;
 };
 
 const interactiveModePrototype = InteractiveMode.prototype as unknown as InteractiveModePrivate;
+
+type ControlMessageContext = {
+	session: {
+		prompt: (text: string) => Promise<void>;
+	};
+	showError: (text: string) => void;
+};
 
 function createSubmitContext(): SubmitContext {
 	return {
@@ -49,6 +70,18 @@ function createSubmitContext(): SubmitContext {
 }
 
 describe("InteractiveMode startup input", () => {
+	let tempDir: string;
+	let controlDbPath: string;
+
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-interactive-control-"));
+		controlDbPath = getControlDbPath(tempDir);
+	});
+
+	afterEach(() => {
+		rmSync(tempDir, { force: true, recursive: true });
+	});
+
 	it("queues a normal prompt submitted before the input callback is installed", async () => {
 		const context = createSubmitContext();
 		interactiveModePrototype.setupEditorSubmitHandler.call(context);
@@ -68,5 +101,22 @@ describe("InteractiveMode startup input", () => {
 		await expect(interactiveModePrototype.getUserInput.call(context)).resolves.toBe("queued prompt");
 		expect(context.onInputCallback).toBeUndefined();
 		expect(context.pendingUserInputs).toEqual([]);
+	});
+
+	it("submits and completes a claimed control message on startup", async () => {
+		enqueueIncomingMessage(controlDbPath, "harness prompt");
+		const message = claimLatestIncomingMessage(controlDbPath);
+		const context: ControlMessageContext = {
+			session: {
+				prompt: vi.fn(async () => {}),
+			},
+			showError: vi.fn(),
+		};
+
+		await interactiveModePrototype.processControlMessage.call(context, message, controlDbPath);
+
+		expect(context.session.prompt).toHaveBeenCalledWith("harness prompt");
+		expect(readIncomingMessageStatus(controlDbPath, message!.id)).toBe("completed");
+		expect(context.showError).not.toHaveBeenCalled();
 	});
 });

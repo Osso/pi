@@ -20,6 +20,7 @@ interface SelfRestartDependencies {
 		args: readonly string[],
 		options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" },
 	) => RestartChildProcess;
+	waitForExit?: boolean;
 }
 
 export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = process.env): void {
@@ -52,6 +53,9 @@ export function spawnSelfRestart(
 		},
 		stdio: "inherit",
 	});
+	if (dependencies.waitForExit === false) {
+		return Promise.resolve(0);
+	}
 	return new Promise((resolve, reject) => {
 		child.once("error", reject);
 		child.once("exit", (code: number | null) => {

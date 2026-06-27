@@ -6,7 +6,7 @@ type SignalHandler = () => void;
 interface SignalContext {
 	signalCleanupHandlers: Array<() => void>;
 	unregisterSignalHandlers: () => void;
-	restartProcess: (options?: { notice?: string }) => Promise<void>;
+	restartProcess: (options?: { fromSignal?: boolean; notice?: string }) => Promise<void>;
 	shutdown: (options?: { fromSignal?: boolean }) => Promise<void>;
 }
 
@@ -46,9 +46,7 @@ describe("InteractiveMode SIGHUP restart harness", () => {
 		await Promise.resolve();
 
 		expect(context.restartProcess).toHaveBeenCalledTimes(1);
-		expect(context.restartProcess).toHaveBeenCalledWith({
-			notice: "The agent process was restarted by SIGHUP. Continue from the current session.",
-		});
+		expect(context.restartProcess).toHaveBeenCalledWith({ fromSignal: true });
 		expect(context.shutdown).toHaveBeenCalledWith({ fromSignal: true });
 	});
 });

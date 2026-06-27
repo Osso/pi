@@ -23,6 +23,18 @@ function createArgs(): Args {
 }
 
 describe("self restart request", () => {
+	it("resumes the requested session without injecting a prompt when none is provided", () => {
+		const args = createArgs();
+
+		applySelfRestartRequest(args, {
+			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
+		});
+
+		expect(args.session).toBe("/tmp/session.jsonl");
+		expect(args.messages).toEqual([]);
+		expect(args.fileArgs).toEqual([]);
+	});
+
 	it("overrides startup args to resume the requested session with the restart prompt", () => {
 		const args = createArgs();
 
@@ -84,5 +96,20 @@ describe("self restart request", () => {
 		child.emit("error", spawnError);
 
 		await expect(exitPromise).rejects.toThrow("spawn failed");
+	});
+
+	it("can return immediately after spawning the restarted child", async () => {
+		const child = new EventEmitter() as EventEmitter & { unref: () => void };
+		child.unref = () => {};
+
+		const exitPromise = spawnSelfRestart(
+			{ sessionFile: "/tmp/session.jsonl" },
+			{
+				spawn: () => child,
+				waitForExit: false,
+			},
+		);
+
+		await expect(exitPromise).resolves.toBe(0);
 	});
 });

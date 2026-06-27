@@ -81,6 +81,11 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { spawnSelfRestart } from "../../core/self-restart.ts";
+import {
+	completeIncomingMessage,
+	failIncomingMessage,
+	type IncomingControlMessage,
+} from "../../core/session-control-db.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
@@ -259,6 +264,10 @@ export interface InteractiveModeOptions {
 	initialImages?: ImageContent[];
 	/** Additional messages to send after the initial message */
 	initialMessages?: string[];
+	/** Claimed control DB message to submit once startup finishes */
+	controlMessage?: IncomingControlMessage;
+	/** Global control DB path used by the external harness control channel */
+	controlDbPath?: string;
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
 }
@@ -772,7 +781,15 @@ export class InteractiveMode {
 		});
 
 		// Show startup warnings
-		const { migratedProviders, modelFallbackMessage, initialMessage, initialImages, initialMessages } = this.options;
+		const {
+			migratedProviders,
+			modelFallbackMessage,
+			initialMessage,
+			initialImages,
+			initialMessages,
+			controlMessage,
+			controlDbPath,
+		} = this.options;
 
 		if (migratedProviders && migratedProviders.length > 0) {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
@@ -790,6 +807,8 @@ export class InteractiveMode {
 		void this.maybeWarnAboutAnthropicSubscriptionAuth();
 
 		// Process initial messages
+		await this.processControlMessage(controlMessage, controlDbPath);
+
 		if (initialMessage) {
 			try {
 				await this.session.prompt(initialMessage, { images: initialImages });
@@ -819,6 +838,27 @@ export class InteractiveMode {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
 			}
+		}
+	}
+
+	private async processControlMessage(
+		message: IncomingControlMessage | undefined,
+		controlDbPath?: string,
+	): Promise<void> {
+		if (!message) return;
+
+		if (!controlDbPath) {
+			this.showError("Cannot submit control message without a control DB path");
+			return;
+		}
+
+		try {
+			await this.session.prompt(message.content);
+			completeIncomingMessage(controlDbPath, message.id);
+		} catch (error: unknown) {
+			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+			failIncomingMessage(controlDbPath, message.id, errorMessage);
+			this.showError(errorMessage);
 		}
 	}
 
@@ -3370,17 +3410,22 @@ export class InteractiveMode {
 		process.exit(0);
 	}
 
-	private async restartProcess(options?: { notice?: string }): Promise<void> {
+	private async restartProcess(options?: { fromSignal?: boolean; notice?: string }): Promise<void> {
 		const sessionFile = this.session.sessionFile;
 		if (!sessionFile) {
 			throw new Error("Cannot restart without a persisted session file");
 		}
 
 		this.themeController.disableAutoSync();
-		await this.ui.terminal.drainInput(1000);
-		this.stop();
+		if (!options?.fromSignal) {
+			await this.ui.terminal.drainInput(1000);
+			this.stop();
+		}
 		await this.runtimeHost.dispose();
-		const exitCode = await spawnSelfRestart({ sessionFile, prompt: options?.notice });
+		const exitCode = await spawnSelfRestart(
+			{ sessionFile, prompt: options?.notice },
+			{ waitForExit: !options?.fromSignal },
+		);
 		process.exit(exitCode);
 	}
 
@@ -3443,9 +3488,7 @@ export class InteractiveMode {
 			const handler = () => {
 				killTrackedDetachedChildren();
 				if (signal === "SIGHUP") {
-					void this.restartProcess({
-						notice: "The agent process was restarted by SIGHUP. Continue from the current session.",
-					});
+					void this.restartProcess({ fromSignal: true });
 					return;
 				}
 

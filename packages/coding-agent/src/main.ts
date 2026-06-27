@@ -45,6 +45,7 @@ import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
 import { applySelfRestartRequest } from "./core/self-restart.ts";
+import { claimLatestIncomingMessage, getControlDbPath } from "./core/session-control-db.ts";
 import {
 	formatMissingSessionCwdPrompt,
 	getMissingSessionCwdIssue,
@@ -652,6 +653,8 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionManager.appendSessionInfo(name);
 	}
 	time("createSessionManager");
+	const controlDbPath = getControlDbPath(agentDir);
+	const controlMessage = appMode === "interactive" ? claimLatestIncomingMessage(controlDbPath) : undefined;
 
 	const trustStore = new ProjectTrustStore(agentDir);
 	const sessionCwd = sessionManager.getCwd();
@@ -883,6 +886,8 @@ export async function main(args: string[], options?: MainOptions) {
 			initialMessage,
 			initialImages,
 			initialMessages: parsed.messages,
+			controlMessage,
+			controlDbPath,
 			verbose: parsed.verbose,
 		});
 		if (startupBenchmark) {
