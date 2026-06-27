@@ -28,27 +28,6 @@ function formatTokens(count: number): string {
 	return `${Math.round(count / 1000000)}M`;
 }
 
-function formatAgentCounts(counts: FooterAgentLifecycleCounts | undefined): string | undefined {
-	if (!counts) {
-		return undefined;
-	}
-
-	const parts = [];
-	if (counts.running > 0) parts.push(`${counts.running} running`);
-	if (counts.waitingForInput > 0) parts.push(`${counts.waitingForInput} waiting`);
-	if (counts.steeringPending > 0) parts.push(`${counts.steeringPending} steering`);
-
-	return parts.length > 0 ? `agents ${parts.join(" ")}` : undefined;
-}
-
-export interface FooterAgentLifecycleCounts {
-	running: number;
-	waitingForInput: number;
-	steeringPending: number;
-}
-
-export type FooterAgentLifecycleCountsProvider = () => FooterAgentLifecycleCounts | undefined;
-
 export function formatCwdForFooter(cwd: string, home: string | undefined): string {
 	if (!home) return cwd;
 
@@ -71,16 +50,10 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
-	private agentCountsProvider: FooterAgentLifecycleCountsProvider | undefined;
 
-	constructor(
-		session: AgentSession,
-		footerData: ReadonlyFooterDataProvider,
-		agentCountsProvider?: FooterAgentLifecycleCountsProvider,
-	) {
+	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
 		this.footerData = footerData;
-		this.agentCountsProvider = agentCountsProvider;
 	}
 
 	setSession(session: AgentSession): void {
@@ -89,10 +62,6 @@ export class FooterComponent implements Component {
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
-	}
-
-	setAgentCountsProvider(agentCountsProvider: FooterAgentLifecycleCountsProvider | undefined): void {
-		this.agentCountsProvider = agentCountsProvider;
 	}
 
 	/**
@@ -161,8 +130,6 @@ export class FooterComponent implements Component {
 
 		// Build stats line
 		const statsParts = [];
-		const agentCounts = formatAgentCounts(this.agentCountsProvider?.());
-		if (agentCounts) statsParts.push(agentCounts);
 		if (totalInput) statsParts.push(`↑${formatTokens(totalInput)}`);
 		if (totalOutput) statsParts.push(`↓${formatTokens(totalOutput)}`);
 		if (totalCacheRead) statsParts.push(`R${formatTokens(totalCacheRead)}`);

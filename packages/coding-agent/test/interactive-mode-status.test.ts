@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
-import { type AgentLifecycleState, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -139,42 +139,15 @@ describe("InteractiveMode.setToolsExpanded", () => {
 });
 
 interface InteractiveModeKeyHandlerInternals {
-	getFooterAgentCounts(
-		this: unknown,
-	): { running: number; steeringPending: number; waitingForInput: number } | undefined;
+	currentFooter(this: unknown): Component & { dispose?(): void };
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
+	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
+	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setupKeyHandlers(this: unknown): void;
 }
 
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
-
-function spawnFooterAgent(store: MultiAgentStore, displayName: string): AgentSnapshot {
-	return store.spawnAgent({
-		agentType: "worker",
-		cwd: "/repo",
-		displayName,
-		permission: { narrowed: true, policy: "on-request" },
-	}).agent;
-}
-
-function transitionFooterAgent(
-	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	lifecycle: AgentLifecycleState,
-): AgentSnapshot {
-	const result = store.transitionAgent(agent.id, agent.revision, lifecycle);
-	expect(result.ok).toBe(true);
-	if (!result.ok) {
-		throw new Error(`expected transition to ${lifecycle}`);
-	}
-	return result.agent;
-}
-
-function runFooterAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
-	const starting = transitionFooterAgent(store, agent, "starting");
-	return transitionFooterAgent(store, starting, "running");
-}
 
 describe("InteractiveMode agent slot keybindings", () => {
 	test("switches selected agent when an agent slot action fires", () => {
@@ -244,22 +217,35 @@ describe("InteractiveMode agent slot keybindings", () => {
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
 	});
+});
 
-	test("counts only running waiting and steering agents for the footer", () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const queued = spawnFooterAgent(store, "Queued");
-		runFooterAgent(store, spawnFooterAgent(store, "Running"));
-		const waiting = runFooterAgent(store, spawnFooterAgent(store, "Waiting"));
-		const steering = runFooterAgent(store, spawnFooterAgent(store, "Steering"));
-		transitionFooterAgent(store, waiting, "waiting_for_input");
-		transitionFooterAgent(store, steering, "steering_pending");
+describe("InteractiveMode footer ownership", () => {
+	test("custom footers override default footers and clearing custom restores default", () => {
+		const added: Component[] = [];
+		const removed: Component[] = [];
+		const builtIn = { invalidate() {}, render: () => ["built-in"] };
+		const defaultFooter = { invalidate() {}, render: () => ["default"] };
+		const customFooter = { invalidate() {}, render: () => ["custom"] };
+		const fakeThis = {
+			currentFooter: interactiveModeKeyHandlers.currentFooter,
+			customFooter: undefined,
+			defaultExtensionFooter: undefined,
+			footer: builtIn,
+			footerDataProvider: {},
+			ui: {
+				addChild: (component: Component) => added.push(component),
+				removeChild: (component: Component) => removed.push(component),
+				requestRender: vi.fn(),
+			},
+		};
 
-		expect(queued.lifecycle).toBe("queued");
-		expect(interactiveModeKeyHandlers.getFooterAgentCounts.call({ multiAgentStore: store })).toEqual({
-			running: 1,
-			steeringPending: 1,
-			waitingForInput: 1,
-		});
+		interactiveModeKeyHandlers.setDefaultExtensionFooter.call(fakeThis, () => defaultFooter);
+		interactiveModeKeyHandlers.setExtensionFooter.call(fakeThis, () => customFooter);
+		interactiveModeKeyHandlers.setExtensionFooter.call(fakeThis, undefined);
+
+		expect(removed).toEqual([builtIn, defaultFooter, customFooter]);
+		expect(added).toEqual([defaultFooter, customFooter, defaultFooter]);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
 	});
 });
 
@@ -561,6 +547,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		contextFiles?: Array<{ path: string; content?: string }>;
 		extensions?: ExtensionFixture[];
 		skills?: Array<{ filePath: string; name: string }>;
+		activeToolNames?: string[];
 		skillDiagnostics?: Array<{ type: "warning" | "error" | "collision"; message: string }>;
 		useRealScopeGroups?: boolean;
 	}) {
@@ -576,6 +563,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			},
 			session: {
 				promptTemplates: [],
+				getActiveToolNames: () => options.activeToolNames ?? [],
 				extensionRunner: {
 					getCommandDiagnostics: () => [],
 					getShortcutDiagnostics: () => [],
@@ -750,6 +738,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 		expect(output).toContain("[Skills]");
 		expect(output).toContain("commit");
 		expect(output).not.toContain("resource-list");
+	});
+
+	test("shows active tools in startup resources", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			activeToolNames: ["read", "bash", "edit", "write"],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Tools]");
+		expect(output).toContain("bash, edit, read, write");
 	});
 
 	test("shows full resource listing when expanded", () => {

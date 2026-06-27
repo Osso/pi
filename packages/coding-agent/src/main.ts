@@ -13,6 +13,7 @@ import agentsCoreExtension, { createProductionChildAgentSessionFactory } from ".
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
 import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
+import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
@@ -508,6 +509,9 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("agent-viewer", (pi) => agentViewerExtension(pi, { store: firstPartyMultiAgentStore })),
 	firstPartyExtensionFactory("agents-mailbox", (pi) =>
 		agentsMailboxExtension(pi, { store: firstPartyMultiAgentStore }),
+	),
+	firstPartyExtensionFactory("default-footer", (pi) =>
+		defaultFooterExtension(pi, { multiAgentStore: firstPartyMultiAgentStore }),
 	),
 	firstPartyExtensionFactory("goal", goalExtension),
 	firstPartyExtensionFactory("hostrun", hostrunExtension),

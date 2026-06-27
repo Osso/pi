@@ -54,6 +54,7 @@ describe("AgentSession model and extension characterization", () => {
 			setEditorComponent: () => {},
 			setEditorText: () => {},
 			setFooter: () => {},
+			setDefaultFooter: () => {},
 			setHeader: () => {},
 			setHiddenThinkingLabel: () => {},
 			setStatus: () => {},

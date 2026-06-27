@@ -126,7 +126,7 @@ import { EarendilAnnouncementComponent } from "./components/earendil-announcemen
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
-import { type FooterAgentLifecycleCounts, FooterComponent } from "./components/footer.ts";
+import { FooterComponent } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
@@ -390,7 +390,9 @@ export class InteractiveMode {
 	private widgetContainerAbove!: Container;
 	private widgetContainerBelow!: Container;
 
-	// Custom footer from extension (undefined = use built-in footer)
+	// Default footer from a first-party extension, overridden by custom user footers.
+	private defaultExtensionFooter: (Component & { dispose?(): void }) | undefined = undefined;
+	// Custom footer from extension (undefined = use default extension or built-in footer)
 	private customFooter: (Component & { dispose?(): void }) | undefined = undefined;
 
 	// Header container that holds the built-in or custom header
@@ -416,24 +418,6 @@ export class InteractiveMode {
 	}
 	private get sessionManager() {
 		return this.session.sessionManager;
-	}
-	private getFooterAgentCounts(): FooterAgentLifecycleCounts | undefined {
-		if (!this.multiAgentStore) {
-			return undefined;
-		}
-
-		const counts: FooterAgentLifecycleCounts = {
-			running: 0,
-			steeringPending: 0,
-			waitingForInput: 0,
-		};
-		for (const agent of this.multiAgentStore.listAgents()) {
-			if (agent.lifecycle === "running") counts.running += 1;
-			if (agent.lifecycle === "waiting_for_input") counts.waitingForInput += 1;
-			if (agent.lifecycle === "steering_pending") counts.steeringPending += 1;
-		}
-
-		return counts;
 	}
 	private get settingsManager() {
 		return this.session.settingsManager;
@@ -472,7 +456,7 @@ export class InteractiveMode {
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
-		this.footer = new FooterComponent(this.session, this.footerDataProvider, () => this.getFooterAgentCounts());
+		this.footer = new FooterComponent(this.session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 
 		// Load hide thinking block setting
@@ -1417,6 +1401,7 @@ export class InteractiveMode {
 		const skillsResult = this.session.resourceLoader.getSkills();
 		const promptsResult = this.session.resourceLoader.getPrompts();
 		const themesResult = this.session.resourceLoader.getThemes();
+		const activeToolNames = this.session.getActiveToolNames();
 		const extensions =
 			options?.extensions ??
 			this.session.resourceLoader.getExtensions().extensions.map((extension) => ({
@@ -1457,6 +1442,11 @@ export class InteractiveMode {
 					{ sort: false },
 				);
 				addLoadedSection("Context", contextCompactList, contextList);
+			}
+
+			if (activeToolNames.length > 0) {
+				const toolList = formatCompactList(activeToolNames);
+				addLoadedSection("Tools", toolList);
 			}
 
 			const skills = skillsResult.skills;
@@ -1971,37 +1961,42 @@ export class InteractiveMode {
 		}
 	}
 
+	private currentFooter(): Component & { dispose?(): void } {
+		return this.customFooter ?? this.defaultExtensionFooter ?? this.footer;
+	}
+
 	/**
-	 * Set a custom footer component, or restore the built-in footer.
+	 * Set a custom footer component, or restore the default footer.
 	 */
 	private setExtensionFooter(
 		factory:
 			| ((tui: TUI, thm: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void })
 			| undefined,
 	): void {
-		// Dispose existing custom footer
-		if (this.customFooter?.dispose) {
-			this.customFooter.dispose();
-		}
-
-		// Remove current footer from UI
-		if (this.customFooter) {
-			this.ui.removeChild(this.customFooter);
-		} else {
-			this.ui.removeChild(this.footer);
-		}
-
-		if (factory) {
-			// Create and add custom footer, passing the data provider
-			this.customFooter = factory(this.ui, theme, this.footerDataProvider);
-			this.ui.addChild(this.customFooter);
-		} else {
-			// Restore built-in footer
-			this.customFooter = undefined;
-			this.ui.addChild(this.footer);
-		}
-
+		const previousFooter = this.currentFooter();
+		this.customFooter?.dispose?.();
+		this.customFooter = factory ? factory(this.ui, theme, this.footerDataProvider) : undefined;
+		this.ui.removeChild(previousFooter);
+		this.ui.addChild(this.currentFooter());
 		this.ui.requestRender();
+	}
+
+	/**
+	 * Set the default footer component used when no custom footer is active.
+	 */
+	private setDefaultExtensionFooter(
+		factory:
+			| ((tui: TUI, thm: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void })
+			| undefined,
+	): void {
+		const previousFooter = this.currentFooter();
+		this.defaultExtensionFooter?.dispose?.();
+		this.defaultExtensionFooter = factory ? factory(this.ui, theme, this.footerDataProvider) : undefined;
+		if (!this.customFooter) {
+			this.ui.removeChild(previousFooter);
+			this.ui.addChild(this.currentFooter());
+			this.ui.requestRender();
+		}
 	}
 
 	/**
@@ -2103,6 +2098,7 @@ export class InteractiveMode {
 			setHiddenThinkingLabel: (label) => this.setHiddenThinkingLabel(label),
 			setWidget: (key, content, options) => this.setExtensionWidget(key, content, options),
 			setFooter: (factory) => this.setExtensionFooter(factory),
+			setDefaultFooter: (factory) => this.setDefaultExtensionFooter(factory),
 			setHeader: (factory) => this.setExtensionHeader(factory),
 			setTitle: (title) => this.ui.terminal.setTitle(title),
 			custom: (factory, options) => this.showExtensionCustom(factory, options),
@@ -5884,6 +5880,8 @@ export class InteractiveMode {
 		}
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
+		this.customFooter?.dispose?.();
+		this.defaultExtensionFooter?.dispose?.();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
 		if (this.unsubscribe) {

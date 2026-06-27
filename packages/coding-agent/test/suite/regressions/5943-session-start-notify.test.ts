@@ -22,6 +22,7 @@ function createUiContext(
 		setHiddenThinkingLabel: () => {},
 		setWidget: () => {},
 		setFooter: () => {},
+		setDefaultFooter: () => {},
 		setHeader: () => {},
 		setTitle: () => {},
 		custom: async <T>() => undefined as T,

@@ -1,0 +1,11 @@
+{
+	"name": "@earendil-works/pi-default-footer-extension",
+	"version": "0.79.9",
+	"private": true,
+	"type": "module",
+	"description": "First-party default footer extension for Pi",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	}
+}

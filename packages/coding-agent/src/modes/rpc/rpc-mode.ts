@@ -210,6 +210,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// Custom footer not supported in RPC mode - requires TUI access
 		},
 
+		setDefaultFooter(_factory: unknown): void {
+			// Default footer not supported in RPC mode - requires TUI access
+		},
+
 		setHeader(_factory: unknown): void {
 			// Custom header not supported in RPC mode - requires TUI access
 		},
