@@ -122,6 +122,20 @@ Modifier combinations: `ctrl+shift+x`, `alt+ctrl+x`, `ctrl+shift+alt+x`, `ctrl+1
 | `app.message.followUp` | `alt+enter` | Queue follow-up message |
 | `app.message.dequeue` | `alt+up` | Restore queued messages to editor |
 
+### Agent Slots
+
+| Keybinding id | Default | Description |
+|--------|---------|-------------|
+| `app.agent.slot1` | `alt+1` | Switch to agent slot 1 |
+| `app.agent.slot2` | `alt+2` | Switch to agent slot 2 |
+| `app.agent.slot3` | `alt+3` | Switch to agent slot 3 |
+| `app.agent.slot4` | `alt+4` | Switch to agent slot 4 |
+| `app.agent.slot5` | `alt+5` | Switch to agent slot 5 |
+| `app.agent.slot6` | `alt+6` | Switch to agent slot 6 |
+| `app.agent.slot7` | `alt+7` | Switch to agent slot 7 |
+| `app.agent.slot8` | `alt+8` | Switch to agent slot 8 |
+| `app.agent.slot9` | `alt+9` | Switch to agent slot 9 |
+
 ### Tree Navigation
 
 | Keybinding id | Default | Description |

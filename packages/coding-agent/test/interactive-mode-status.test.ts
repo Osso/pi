@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
+import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -134,6 +135,84 @@ describe("InteractiveMode.setToolsExpanded", () => {
 		expect(header.setExpanded).toHaveBeenCalledWith(true);
 		expect(chatChild.setExpanded).toHaveBeenCalledWith(true);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+});
+
+interface InteractiveModeKeyHandlerInternals {
+	registerAgentSlotKeyHandlers(this: unknown): void;
+	selectAgentSlot(this: unknown, slotIndex: number): void;
+	setupKeyHandlers(this: unknown): void;
+}
+
+const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
+
+describe("InteractiveMode agent slot keybindings", () => {
+	test("switches selected agent when an agent slot action fires", () => {
+		const actions = new Map<string, () => void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const first = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 1, pinned: true },
+		});
+		const second = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 2, pinned: true },
+		});
+		const third = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Third",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 3, pinned: true },
+		});
+		store.selectAgentView(first.agent.id);
+		const fakeThis = {
+			defaultEditor: {
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			editor: { getText: () => "", setText: vi.fn() },
+			multiAgentStore: store,
+			footer: { invalidate: vi.fn() },
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
+			settingsManager: { getDoubleEscapeAction: () => "none" },
+			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cycleModel: vi.fn(),
+			cycleThinkingLevel: vi.fn(),
+			handleClearCommand: vi.fn(),
+			handleCtrlC: vi.fn(),
+			handleCtrlD: vi.fn(),
+			handleCtrlZ: vi.fn(),
+			handleDebugCommand: vi.fn(),
+			handleDequeue: vi.fn(),
+			handleFollowUp: vi.fn(),
+			handleClipboardImagePaste: vi.fn(),
+			openExternalEditor: vi.fn(),
+			restoreQueuedMessagesToEditor: vi.fn(),
+			showModelSelector: vi.fn(),
+			showSessionSelector: vi.fn(),
+			showTreeSelector: vi.fn(),
+			showUserMessageSelector: vi.fn(),
+			toggleThinkingBlockVisibility: vi.fn(),
+			toggleToolOutputExpansion: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+		};
+
+		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
+		actions.get("app.agent.slot2")?.();
+		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+
+		actions.get("app.agent.slot3")?.();
+		expect(store.getSelectedAgentId()).toBe(third.agent.id);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
 	});
 });
 

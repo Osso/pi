@@ -895,6 +895,7 @@ export async function main(args: string[], options?: MainOptions) {
 			initialMessages: parsed.messages,
 			controlMessage,
 			controlDbPath,
+			multiAgentStore: firstPartyMultiAgentStore,
 			verbose: parsed.verbose,
 		});
 		if (startupBenchmark) {

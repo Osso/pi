@@ -78,6 +78,7 @@ import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/htt
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
+import type { MultiAgentStore } from "../../core/multi-agent-store.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { spawnSelfRestart } from "../../core/self-restart.ts";
@@ -157,6 +158,18 @@ import {
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
 
 /** Interface for components that can be expanded/collapsed */
+const AGENT_SLOT_KEYBINDINGS = [
+	["app.agent.slot1", 1],
+	["app.agent.slot2", 2],
+	["app.agent.slot3", 3],
+	["app.agent.slot4", 4],
+	["app.agent.slot5", 5],
+	["app.agent.slot6", 6],
+	["app.agent.slot7", 7],
+	["app.agent.slot8", 8],
+	["app.agent.slot9", 9],
+] as const satisfies ReadonlyArray<readonly [AppKeybinding, number]>;
+
 interface Expandable {
 	setExpanded(expanded: boolean): void;
 }
@@ -276,6 +289,8 @@ export interface InteractiveModeOptions {
 	controlMessage?: IncomingControlMessage;
 	/** Global control DB path used by the external harness control channel */
 	controlDbPath?: string;
+	/** Shared first-party multi-agent store for agent slot selection. */
+	multiAgentStore?: MultiAgentStore;
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
 }
@@ -390,6 +405,7 @@ export class InteractiveMode {
 	private options: InteractiveModeOptions;
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
+	private multiAgentStore: MultiAgentStore | undefined;
 
 	// Convenience accessors
 	private get session(): AgentSession {
@@ -409,6 +425,7 @@ export class InteractiveMode {
 		this.runtimeHost = runtimeHost;
 		this.options = options;
 		this.autoTrustOnReloadCwd = options.autoTrustOnReloadCwd;
+		this.multiAgentStore = options.multiAgentStore;
 		this.runtimeHost.setBeforeSessionInvalidate(() => {
 			this.resetExtensionUI();
 		});
@@ -2458,6 +2475,22 @@ export class InteractiveMode {
 	// Key Handlers
 	// =========================================================================
 
+	private registerAgentSlotKeyHandlers(): void {
+		for (const [keybinding, slotIndex] of AGENT_SLOT_KEYBINDINGS) {
+			this.defaultEditor.onAction(keybinding, () => this.selectAgentSlot(slotIndex));
+		}
+	}
+
+	private selectAgentSlot(slotIndex: number): void {
+		const selected = this.multiAgentStore?.selectAgentSlot(slotIndex);
+		if (!selected) {
+			return;
+		}
+
+		this.footer.invalidate();
+		this.ui.requestRender();
+	}
+
 	private setupKeyHandlers(): void {
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
@@ -2509,6 +2542,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.session.tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
+		this.registerAgentSlotKeyHandlers();
 
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
