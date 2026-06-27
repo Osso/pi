@@ -176,6 +176,33 @@ describe("AgentSession model and extension characterization", () => {
 		expect(harness.session.thinkingLevel).toBe("high");
 	});
 
+	it("cycles only the persisted enabled model scope and never all enabled models", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+				{ id: "faux-3", name: "Three", reasoning: true },
+			],
+			settings: { enabledModels: ["faux-1", "faux-2"] },
+		});
+		harnesses.push(harness);
+
+		await harness.session.cycleModel();
+		expect(harness.session.model?.id).toBe("faux-2");
+
+		await harness.session.cycleModel();
+		expect(harness.session.model?.id).toBe("faux-1");
+
+		const allAvailableModelIds = (await harness.session.modelRegistry.getAvailable()).map(
+			(model) => `${model.provider}/${model.id}`,
+		);
+		harness.settingsManager.setEnabledModels(allAvailableModelIds);
+		const result = await harness.session.cycleModel();
+
+		expect(result).toBeUndefined();
+		expect(harness.session.model?.id).toBe("faux-1");
+	});
+
 	it("clamps thinking levels to model capabilities and cycles available levels", async () => {
 		const harness = await createHarness({ models: [{ id: "faux-1", reasoning: false }] });
 		harnesses.push(harness);

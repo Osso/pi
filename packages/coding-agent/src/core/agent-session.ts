@@ -85,6 +85,7 @@ import {
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
+import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
@@ -1672,19 +1673,47 @@ export class AgentSession {
 
 	/**
 	 * Cycle to next/previous model.
-	 * Uses scoped models (from --models flag) if available, otherwise all available models.
+	 * Uses scoped models from --models, /models, or enabledModels settings. Does not cycle all available models.
 	 * @param direction - "forward" (default) or "backward"
-	 * @returns The new model info, or undefined if only one model available
+	 * @returns The new model info, or undefined if no narrow scope is configured
 	 */
 	async cycleModel(direction: "forward" | "backward" = "forward"): Promise<ModelCycleResult | undefined> {
-		if (this._scopedModels.length > 0) {
-			return this._cycleScopedModel(direction);
+		const scopedModels = await this._getScopedModelsForCycle();
+		if (scopedModels.length > 0) {
+			return this._cycleScopedModel(direction, scopedModels);
 		}
-		return this._cycleAvailableModel(direction);
+		return undefined;
 	}
 
-	private async _cycleScopedModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
-		const scopedModels = this._scopedModels.filter((scoped) => this._modelRegistry.hasConfiguredAuth(scoped.model));
+	private async _getScopedModelsForCycle(): Promise<ScopedModel[]> {
+		if (this._scopedModels.length > 0) {
+			return this._filterNarrowModelScope(this._scopedModels);
+		}
+
+		const enabledModels = this.settingsManager.getEnabledModels();
+		if (!enabledModels || enabledModels.length === 0) {
+			return [];
+		}
+
+		return this._filterNarrowModelScope(await resolveModelScope(enabledModels, this._modelRegistry));
+	}
+
+	private async _filterNarrowModelScope(models: ReadonlyArray<ScopedModel>): Promise<ScopedModel[]> {
+		const availableModels = await this._modelRegistry.getAvailable();
+		const scopeCoversEveryAvailableModel = availableModels.every((model) =>
+			models.some((scoped) => modelsAreEqual(scoped.model, model)),
+		);
+		if (scopeCoversEveryAvailableModel) {
+			return [];
+		}
+		return [...models];
+	}
+
+	private async _cycleScopedModel(
+		direction: "forward" | "backward",
+		models: ReadonlyArray<ScopedModel>,
+	): Promise<ModelCycleResult | undefined> {
+		const scopedModels = models.filter((scoped) => this._modelRegistry.hasConfiguredAuth(scoped.model));
 		if (scopedModels.length <= 1) return undefined;
 
 		const currentModel = this.model;
@@ -1710,31 +1739,6 @@ export class AgentSession {
 		await this._emitModelSelect(next.model, currentModel, "cycle");
 
 		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
-	}
-
-	private async _cycleAvailableModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
-		const availableModels = await this._modelRegistry.getAvailable();
-		if (availableModels.length <= 1) return undefined;
-
-		const currentModel = this.model;
-		let currentIndex = availableModels.findIndex((m) => modelsAreEqual(m, currentModel));
-
-		if (currentIndex === -1) currentIndex = 0;
-		const len = availableModels.length;
-		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
-		const nextModel = availableModels[nextIndex];
-
-		const thinkingLevel = this._getThinkingLevelForModelSwitch();
-		this.agent.state.model = nextModel;
-		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
-		this.settingsManager.setDefaultModelAndProvider(nextModel.provider, nextModel.id);
-
-		// Re-clamp thinking level for new model's capabilities
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(nextModel, currentModel, "cycle");
-
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
 	}
 
 	// =========================================================================
