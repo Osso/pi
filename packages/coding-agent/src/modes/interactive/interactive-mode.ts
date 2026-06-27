@@ -126,7 +126,7 @@ import { EarendilAnnouncementComponent } from "./components/earendil-announcemen
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
-import { FooterComponent } from "./components/footer.ts";
+import { type FooterAgentLifecycleCounts, FooterComponent } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
@@ -417,6 +417,24 @@ export class InteractiveMode {
 	private get sessionManager() {
 		return this.session.sessionManager;
 	}
+	private getFooterAgentCounts(): FooterAgentLifecycleCounts | undefined {
+		if (!this.multiAgentStore) {
+			return undefined;
+		}
+
+		const counts: FooterAgentLifecycleCounts = {
+			running: 0,
+			steeringPending: 0,
+			waitingForInput: 0,
+		};
+		for (const agent of this.multiAgentStore.listAgents()) {
+			if (agent.lifecycle === "running") counts.running += 1;
+			if (agent.lifecycle === "waiting_for_input") counts.waitingForInput += 1;
+			if (agent.lifecycle === "steering_pending") counts.steeringPending += 1;
+		}
+
+		return counts;
+	}
 	private get settingsManager() {
 		return this.session.settingsManager;
 	}
@@ -454,7 +472,7 @@ export class InteractiveMode {
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
-		this.footer = new FooterComponent(this.session, this.footerDataProvider);
+		this.footer = new FooterComponent(this.session, this.footerDataProvider, () => this.getFooterAgentCounts());
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 
 		// Load hide thinking block setting

@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
-import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { type AgentLifecycleState, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -139,12 +139,42 @@ describe("InteractiveMode.setToolsExpanded", () => {
 });
 
 interface InteractiveModeKeyHandlerInternals {
+	getFooterAgentCounts(
+		this: unknown,
+	): { running: number; steeringPending: number; waitingForInput: number } | undefined;
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	setupKeyHandlers(this: unknown): void;
 }
 
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
+
+function spawnFooterAgent(store: MultiAgentStore, displayName: string): AgentSnapshot {
+	return store.spawnAgent({
+		agentType: "worker",
+		cwd: "/repo",
+		displayName,
+		permission: { narrowed: true, policy: "on-request" },
+	}).agent;
+}
+
+function transitionFooterAgent(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	lifecycle: AgentLifecycleState,
+): AgentSnapshot {
+	const result = store.transitionAgent(agent.id, agent.revision, lifecycle);
+	expect(result.ok).toBe(true);
+	if (!result.ok) {
+		throw new Error(`expected transition to ${lifecycle}`);
+	}
+	return result.agent;
+}
+
+function runFooterAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
+	const starting = transitionFooterAgent(store, agent, "starting");
+	return transitionFooterAgent(store, starting, "running");
+}
 
 describe("InteractiveMode agent slot keybindings", () => {
 	test("switches selected agent when an agent slot action fires", () => {
@@ -213,6 +243,23 @@ describe("InteractiveMode agent slot keybindings", () => {
 		expect(store.getSelectedAgentId()).toBe(third.agent.id);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
+	});
+
+	test("counts only running waiting and steering agents for the footer", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const queued = spawnFooterAgent(store, "Queued");
+		runFooterAgent(store, spawnFooterAgent(store, "Running"));
+		const waiting = runFooterAgent(store, spawnFooterAgent(store, "Waiting"));
+		const steering = runFooterAgent(store, spawnFooterAgent(store, "Steering"));
+		transitionFooterAgent(store, waiting, "waiting_for_input");
+		transitionFooterAgent(store, steering, "steering_pending");
+
+		expect(queued.lifecycle).toBe("queued");
+		expect(interactiveModeKeyHandlers.getFooterAgentCounts.call({ multiAgentStore: store })).toEqual({
+			running: 1,
+			steeringPending: 1,
+			waitingForInput: 1,
+		});
 	});
 });
 
