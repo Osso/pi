@@ -18,7 +18,7 @@ type AssistantUsage = {
 	cost: { total: number };
 };
 
-function createContext(usage: AssistantUsage): ExtensionContext {
+function createContext(usage: AssistantUsage, usingOAuth = false): ExtensionContext {
 	const entries = [
 		{
 			type: "message",
@@ -30,7 +30,7 @@ function createContext(usage: AssistantUsage): ExtensionContext {
 	];
 	return {
 		model: { id: "test-model", provider: "test", contextWindow: 272_000, reasoning: false },
-		modelRegistry: { isUsingOAuth: () => false },
+		modelRegistry: { isUsingOAuth: () => usingOAuth },
 		sessionManager: {
 			getCwd: () => "/tmp/project",
 			getEntries: () => entries,
@@ -49,16 +49,19 @@ function createFooterData(): ReadonlyFooterDataProvider {
 	};
 }
 
-function statsLine(counts?: DefaultFooterAgentLifecycleCounts): string {
+function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false): string {
 	initTheme(undefined, false);
 	const footer = createDefaultFooterComponent({
-		ctx: createContext({
-			input: 412_000,
-			output: 33_000,
-			cacheRead: 13_000_000,
-			cacheWrite: 0,
-			cost: { total: 9.389 },
-		}),
+		ctx: createContext(
+			{
+				input: 412_000,
+				output: 33_000,
+				cacheRead: 13_000_000,
+				cacheWrite: 0,
+				cost: { total: 9.389 },
+			},
+			usingOAuth,
+		),
 		footerData: createFooterData(),
 		getAgentCounts: () => counts,
 		theme,
@@ -71,10 +74,17 @@ describe("default footer extension", () => {
 		const line = statsLine({ running: 2, steeringPending: 1, waitingForInput: 3 });
 
 		expect(line).toContain("agents 2 running 3 waiting 1 steering");
-		expect(line).toContain("in 412k out 33k cost $9.389 ctx 60.9%/272k");
+		expect(line).toContain("in 412k out 33k cost $9.39 ctx 60.9%/272k");
 		expect(line).not.toContain("R13M");
 		expect(line).not.toContain("CH99.6%");
 		expect(line).not.toContain("auto");
+	});
+
+	it("does not show subscription shorthand in cost text", () => {
+		const line = statsLine(undefined, true);
+
+		expect(line).toContain("cost $9.39");
+		expect(line).not.toContain("sub");
 	});
 
 	it("omits agent counts when all tracked lifecycle counts are zero", () => {

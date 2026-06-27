@@ -31,11 +31,11 @@ function formatTokens(count: number): string {
 	return `${Math.round(count / 1000000)}M`;
 }
 
-function formatCost(cost: number, usingSubscription: boolean): string | undefined {
-	if (!cost && !usingSubscription) {
+function formatCost(cost: number): string | undefined {
+	if (!cost) {
 		return undefined;
 	}
-	return `cost $${cost.toFixed(3)}${usingSubscription ? " sub" : ""}`;
+	return `cost $${cost.toFixed(2)}`;
 }
 
 function formatContextUsage(ctx: ExtensionContext): string {
@@ -131,14 +131,10 @@ function formatStats(input: DefaultFooterComponentInput): string {
 	const parts = [formatAgentCounts(input.getAgentCounts?.())];
 	if (usage.input > 0) parts.push(`in ${formatTokens(usage.input)}`);
 	if (usage.output > 0) parts.push(`out ${formatTokens(usage.output)}`);
-	parts.push(formatCost(usage.cost, isUsingSubscription(input.ctx)));
+	parts.push(formatCost(usage.cost));
 	parts.push(formatContextUsage(input.ctx));
 
 	return parts.filter((part): part is string => part !== undefined).join(" ");
-}
-
-function isUsingSubscription(ctx: ExtensionContext): boolean {
-	return ctx.model ? ctx.modelRegistry.isUsingOAuth(ctx.model) : false;
 }
 
 function formatRightSide(input: DefaultFooterComponentInput): string {
