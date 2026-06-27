@@ -13,17 +13,23 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Pi delegates Hostrun runtime semantics to the canonical Hostrun adapter; Pi does not implement helper behavior locally.",
 	"Do not use MCP for Pi's built-in hostrun_eval path; use the adapter runner that links the Hostrun runtime.",
 	"Hostrun keeps globalThis.ctx across later hostrun_eval calls in the same Pi session.",
+	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Hostrun.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
 ];
 
-function formatHostrunDisplay(text: string, executed: string | undefined, theme: Theme): string {
-	if (!executed || !text.startsWith(executed)) {
+function formatHostrunDisplay(text: string, executed: string | undefined, isError: boolean, theme: Theme): string {
+	if (!executed) {
 		return theme.fg("toolOutput", text);
 	}
 
-	const rest = text.slice(executed.length).replace(/^\n+/, "");
 	const highlightedCode = highlightCode(executed, "javascript").join("\n");
+	if (!text.startsWith(executed)) {
+		const prefix = isError && !text.startsWith("Error:") ? "Error: " : "";
+		return `${highlightedCode}\n\n${theme.fg("toolOutput", `${prefix}${text}`)}`;
+	}
+
+	const rest = text.slice(executed.length).replace(/^\n+/, "");
 	return rest ? `${highlightedCode}\n\n${theme.fg("toolOutput", rest)}` : highlightedCode;
 }
 
@@ -31,6 +37,12 @@ function getExecutedCode(details: unknown): string | undefined {
 	if (!details || typeof details !== "object") return undefined;
 	const executed = (details as { executed?: unknown }).executed;
 	return typeof executed === "string" ? executed : undefined;
+}
+
+function getArgsCode(args: unknown): string | undefined {
+	if (!args || typeof args !== "object") return undefined;
+	const code = (args as { code?: unknown }).code;
+	return typeof code === "string" ? code : undefined;
 }
 
 export default function hostrunExtension(pi: ExtensionAPI) {
@@ -59,16 +71,16 @@ export default function hostrunExtension(pi: ExtensionAPI) {
 				.filter((item) => item.type === "text")
 				.map((item) => item.text ?? "")
 				.join("\n");
-			const executed = getExecutedCode(result.details);
-			text.setText(formatHostrunDisplay(output, executed, theme));
+			const executed = getExecutedCode(result.details) ?? getArgsCode(context.args);
+			text.setText(formatHostrunDisplay(output, executed, context.isError, theme));
 			return text;
 		},
-		execute: async (_toolCallId, params, _signal, onUpdate, ctx) => {
+		execute: async (_toolCallId, params, signal, onUpdate, ctx) => {
 			onUpdate?.({
 				content: [{ type: "text", text: params.code }],
 				details: { executed: params.code, type: "running" },
 			});
-			return evaluate(params, ctx, onUpdate);
+			return evaluate(params, ctx, onUpdate, signal);
 		},
 	});
 }

@@ -10,9 +10,23 @@ export interface HostrunEvalParams {
 	session_id?: string;
 }
 
+export interface HostrunPiCapabilitySnapshot {
+	footer: {
+		availableProviderCount: number;
+		branch: string | null;
+		contextUsage: ReturnType<ExtensionContext["getContextUsage"]>;
+		cwd: string;
+		extensionStatuses: Record<string, string>;
+		model: string | null;
+		sessionName: string | null;
+	};
+}
+
 export interface HostrunEvalContext {
-	hasUI: boolean;
-	ui: Pick<ExtensionContext["ui"], "confirm">;
+	footerData?: ExtensionContext["footerData"];
+	getContextUsage: ExtensionContext["getContextUsage"];
+	model: ExtensionContext["model"];
+	sessionManager: Pick<ExtensionContext["sessionManager"], "getCwd" | "getSessionName">;
 }
 
 function formatResultValue(result: CanonicalHostrunEvalResult): string {
@@ -60,18 +74,38 @@ function formatProgressText(update: CanonicalHostrunProgressUpdate): string {
 	return update.type;
 }
 
+function createPiCapabilitySnapshot(ctx: HostrunEvalContext): HostrunPiCapabilitySnapshot {
+	const footerData = ctx.footerData;
+	return {
+		footer: {
+			availableProviderCount: footerData?.getAvailableProviderCount() ?? 0,
+			branch: footerData?.getGitBranch() ?? null,
+			contextUsage: ctx.getContextUsage(),
+			cwd: ctx.sessionManager.getCwd(),
+			extensionStatuses: Object.fromEntries(footerData?.getExtensionStatuses() ?? []),
+			model: ctx.model?.id ?? null,
+			sessionName: ctx.sessionManager.getSessionName() ?? null,
+		},
+	};
+}
+
 export function createHostrunEvalExecutor(runner: HostrunRunnerClient) {
 	return async (
 		params: HostrunEvalParams,
-		_ctx: HostrunEvalContext,
+		ctx: HostrunEvalContext,
 		onUpdate?: (partialResult: AgentToolResult<CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate>) => void,
+		signal?: AbortSignal,
 	): Promise<AgentToolResult<CanonicalHostrunEvalResult>> => {
-		const result = await runner.evaluate(params, (update) => {
-			onUpdate?.({
-				content: [{ type: "text", text: formatProgressText(update) }],
-				details: update,
-			});
-		});
+		const result = await runner.evaluate(
+			{ ...params, pi: createPiCapabilitySnapshot(ctx) },
+			(update) => {
+				onUpdate?.({
+					content: [{ type: "text", text: formatProgressText(update) }],
+					details: update,
+				});
+			},
+			signal,
+		);
 		return {
 			content: [{ type: "text", text: formatToolText(params, result) }],
 			details: result,

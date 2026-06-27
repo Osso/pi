@@ -307,6 +307,8 @@ export type ExtensionMode = "tui" | "rpc" | "json" | "print";
 export interface ExtensionContext {
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
+	/** Read-only footer data, available when the current mode owns footer state. */
+	footerData?: ReadonlyFooterDataProvider;
 	/** Current run mode. Use "tui" to guard terminal-only UI such as custom components. */
 	mode: ExtensionMode;
 	/** Whether dialog-capable UI is available (true in TUI and RPC modes) */
@@ -1573,6 +1575,7 @@ export interface ExtensionActions {
  */
 export interface ExtensionContextActions {
 	getModel: () => Model<any> | undefined;
+	getFooterData?: () => ReadonlyFooterDataProvider | undefined;
 	isIdle: () => boolean;
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;

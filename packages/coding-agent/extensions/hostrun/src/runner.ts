@@ -4,6 +4,7 @@ import { EOL, homedir } from "node:os";
 
 export interface CanonicalHostrunEvalParams {
 	code: string;
+	pi?: unknown;
 	session_id?: string;
 }
 
@@ -40,6 +41,7 @@ export interface CanonicalHostrunProgressUpdate {
 export type CanonicalHostrunRunnerMessage = CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate;
 
 interface PendingRequest {
+	cleanup?: () => void;
 	onProgress?: (update: CanonicalHostrunProgressUpdate) => void;
 	reject: (error: Error) => void;
 	resolve: (result: CanonicalHostrunEvalResult) => void;
@@ -114,11 +116,25 @@ export class HostrunRunnerClient {
 	evaluate(
 		params: CanonicalHostrunEvalParams,
 		onProgress?: (update: CanonicalHostrunProgressUpdate) => void,
+		signal?: AbortSignal,
 	): Promise<CanonicalHostrunEvalResult> {
+		if (signal?.aborted) {
+			return Promise.reject(new Error("Hostrun evaluation aborted"));
+		}
 		const child = this.ensureProcess();
 		const payload = JSON.stringify(params);
 		return new Promise((resolve, reject) => {
-			this.pending.push({ onProgress, reject, resolve });
+			const pending: PendingRequest = { onProgress, reject, resolve };
+			if (signal) {
+				const onAbort = () => {
+					this.process?.kill();
+					this.process = undefined;
+					this.rejectAll(new Error("Hostrun evaluation aborted"));
+				};
+				signal.addEventListener("abort", onAbort, { once: true });
+				pending.cleanup = () => signal.removeEventListener("abort", onAbort);
+			}
+			this.pending.push(pending);
 			child.stdin.write(`${payload}\n`, (error) => {
 				if (error) {
 					this.rejectNext(error);
@@ -177,12 +193,14 @@ export class HostrunRunnerClient {
 			const message = JSON.parse(line) as CanonicalHostrunRunnerMessage;
 			if (isFinalEvalResult(message)) {
 				this.pending.shift();
+				pending.cleanup?.();
 				pending.resolve(message);
 				return;
 			}
 			pending.onProgress?.(message);
 		} catch (error) {
 			this.pending.shift();
+			pending.cleanup?.();
 			pending.reject(error instanceof Error ? error : new Error(String(error)));
 		}
 	}
@@ -190,6 +208,7 @@ export class HostrunRunnerClient {
 	private rejectNext(error: Error): void {
 		const pending = this.pending.shift();
 		if (pending) {
+			pending.cleanup?.();
 			pending.reject(error);
 		}
 	}

@@ -83,6 +83,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
+import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
@@ -239,6 +240,7 @@ export interface AgentSessionConfig {
 
 export interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
+	footerData?: ReadonlyFooterDataProvider;
 	mode?: ExtensionMode;
 	commandContextActions?: ExtensionCommandContextActions;
 	abortHandler?: () => void;
@@ -364,6 +366,7 @@ export class AgentSession {
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
+	private _extensionFooterData?: ReadonlyFooterDataProvider;
 	private _extensionMode: ExtensionMode = "print";
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
 	private _extensionAbortHandler?: () => void;
@@ -2298,6 +2301,9 @@ export class AgentSession {
 		if (bindings.uiContext !== undefined) {
 			this._extensionUIContext = bindings.uiContext;
 		}
+		if (bindings.footerData !== undefined) {
+			this._extensionFooterData = bindings.footerData;
+		}
 		if (bindings.mode !== undefined) {
 			this._extensionMode = bindings.mode;
 		}
@@ -2469,6 +2475,7 @@ export class AgentSession {
 			},
 			{
 				getModel: () => this.model,
+				getFooterData: () => this._extensionFooterData,
 				isIdle: () => !this.isStreaming,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this.agent.signal,

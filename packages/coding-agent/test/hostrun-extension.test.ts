@@ -15,6 +15,24 @@ interface HostrunEvalParams {
 	session_id?: string;
 }
 
+interface HostrunPiCapabilitySnapshot {
+	footer: {
+		availableProviderCount: number;
+		branch: string | null;
+		contextUsage:
+			| {
+					contextWindow: number;
+					percent: number | null;
+					tokens: number | null;
+			  }
+			| undefined;
+		cwd: string;
+		extensionStatuses: Record<string, string>;
+		model: string | null;
+		sessionName: string | null;
+	};
+}
+
 interface HostrunEvalDetails {
 	approval?: {
 		args: unknown;
@@ -26,6 +44,7 @@ interface HostrunEvalDetails {
 		level: string;
 		message: string;
 	}>;
+	error?: string;
 	executed?: string;
 	type: "completed" | "needs_approval";
 	value?: unknown;
@@ -70,8 +89,28 @@ function createHostrunHarness() {
 	const registeredHostrunTool = hostrunTool;
 	const ctx = {
 		cwd: process.cwd(),
+		footerData: {
+			getAvailableProviderCount: () => 3,
+			getExtensionStatuses: () =>
+				new Map([
+					["hostrun", "ready"],
+					["agent", "idle"],
+				]),
+			getGitBranch: () => "feat/hostrun-pi",
+			onBranchChange: () => () => {},
+		},
+		getContextUsage: () => ({
+			contextWindow: 200000,
+			percent: 12.5,
+			tokens: 25000,
+		}),
 		hasUI: false,
 		mode: "tui",
+		model: { id: "faux/model" },
+		sessionManager: {
+			getCwd: () => "/repo/project",
+			getSessionName: () => "hostrun work",
+		},
 		ui: {
 			confirm: async () => false,
 		},
@@ -82,7 +121,8 @@ function createHostrunHarness() {
 		evaluate: (
 			params: HostrunEvalParams,
 			onUpdate?: (result: AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>) => void,
-		) => registeredHostrunTool.execute("hostrun-test-call", params, undefined, onUpdate, ctx),
+			signal?: AbortSignal,
+		) => registeredHostrunTool.execute("hostrun-test-call", params, signal, onUpdate, ctx),
 	};
 }
 
@@ -135,6 +175,16 @@ function resultFor(request) {
     process.stdout.write(JSON.stringify({ type: "progress", message: "halfway done" }) + "\\n");
     return { type: "completed", executed: request.code, value: "done" };
   }
+  if (request.code === "run.never()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "still running" }) + "\\n");
+    return new Promise(() => {});
+  }
+  if (request.code === "throw new Error('boom')") {
+    throw new Error("boom");
+  }
+  if (request.code === "pi.footer.snapshot()") {
+    return { type: "completed", executed: request.code, value: request.pi.footer };
+  }
   return { type: "completed", executed: request.code, value: null };
 }
 
@@ -144,7 +194,12 @@ for await (const chunk of process.stdin) {
   buffer = lines.pop() ?? "";
   for (const line of lines) {
     if (line.trim().length === 0) continue;
-    process.stdout.write(JSON.stringify(resultFor(JSON.parse(line))) + "\\n");
+    const request = JSON.parse(line);
+    try {
+      process.stdout.write(JSON.stringify(await resultFor(request)) + "\\n");
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, error: error.message }) + "\\n");
+    }
   }
 }
 `,
@@ -263,6 +318,32 @@ describe("hostrun extension", () => {
 		expect(stripAnsi(rendered)).toContain("Session: default");
 	});
 
+	it("renders Hostrun errors with source and context instead of a generic error row", () => {
+		const harness = createHostrunHarness();
+		const component = new ToolExecutionComponent(
+			"hostrun_eval",
+			"hostrun-render-test-call",
+			{},
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "Hostrun runner failed: error" }],
+				details: { executed: "run.fails()", error: "Hostrun runner failed: error", type: "completed" },
+				isError: true,
+			},
+			false,
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("run.fails()");
+		expect(rendered).toContain("Error: Hostrun runner failed: error");
+		expect(rendered).not.toMatch(/^hostrun_eval\s+error$/);
+	});
+
 	it("uses the installed cargo hostrun-jsonl when local debug runner is missing", () => {
 		const options = resolveHostrunRunnerOptions({
 			env: {},
@@ -341,5 +422,55 @@ describe("hostrun extension", () => {
 			type: "completed",
 			value: "done",
 		});
+	});
+
+	it("aborts an in-progress Hostrun evaluation when the agent signal is aborted", async () => {
+		const harness = createHostrunHarness();
+		const controller = new AbortController();
+		const updates: Array<AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>> = [];
+		const result = harness.evaluate(
+			{ code: "run.never()" },
+			(update) => {
+				updates.push(update);
+				if (update.details.type === "status") {
+					controller.abort();
+				}
+			},
+			controller.signal,
+		);
+
+		await expect(
+			Promise.race([
+				result,
+				new Promise((_, reject) => setTimeout(() => reject(new Error("Hostrun abort did not settle")), 500)),
+			]),
+		).rejects.toThrow("Hostrun evaluation aborted");
+		expect(updates.map((update) => update.details)).toEqual([
+			{ type: "running", executed: "run.never()" },
+			{ type: "status", message: "still running" },
+		]);
+	});
+
+	it("sends Pi footer snapshot data to the Hostrun runner", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({ code: "pi.footer.snapshot()" });
+
+		expect(result.details.value).toEqual({
+			availableProviderCount: 3,
+			branch: "feat/hostrun-pi",
+			contextUsage: {
+				contextWindow: 200000,
+				percent: 12.5,
+				tokens: 25000,
+			},
+			cwd: "/repo/project",
+			extensionStatuses: {
+				agent: "idle",
+				hostrun: "ready",
+			},
+			model: "faux/model",
+			sessionName: "hostrun work",
+		} satisfies HostrunPiCapabilitySnapshot["footer"]);
 	});
 });

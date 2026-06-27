@@ -7,6 +7,7 @@ import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type { KeyId } from "@earendil-works/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
+import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
@@ -293,6 +294,7 @@ export class ExtensionRunner {
 	private shortcutDiagnostics: ResourceDiagnostic[] = [];
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
+	private getFooterData: () => ReadonlyFooterDataProvider | undefined = () => undefined;
 
 	constructor(
 		extensions: Extension[],
@@ -335,6 +337,7 @@ export class ExtensionRunner {
 
 		// Context actions (required)
 		this.getModel = contextActions.getModel;
+		this.getFooterData = contextActions.getFooterData ?? (() => undefined);
 		this.isIdleFn = contextActions.isIdle;
 		this.isProjectTrustedFn = contextActions.isProjectTrusted;
 		this.getSignalFn = contextActions.getSignal;
@@ -637,6 +640,10 @@ export class ExtensionRunner {
 			get ui() {
 				runner.assertActive();
 				return runner.uiContext;
+			},
+			get footerData() {
+				runner.assertActive();
+				return runner.getFooterData();
 			},
 			get mode() {
 				runner.assertActive();

@@ -51,6 +51,13 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 - [x] Surface canonical Hostrun in-progress/status output for long-running
   `hostrun_eval` requests while the runner is still evaluating, without waiting
   for the final `completed` result.
+- [x] Include a JSON-serializable Pi capability snapshot in each runner request,
+  starting with `pi.footer.snapshot()` for footer state such as cwd, model,
+  session name, context usage, git branch, provider count, and extension
+  statuses.
+- [x] Abort an in-flight runner evaluation when Pi aborts the tool call; the
+  adapter may restart the runner process and lose Hostrun session state after
+  interruption.
 - [x] Show the submitted `hostrun_eval` source code with JavaScript syntax
   highlighting in the interactive tool row while execution is still pending,
   even when provider tool-call arguments are not available to the pending call
