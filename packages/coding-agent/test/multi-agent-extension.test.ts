@@ -24,6 +24,14 @@ import multiAgentExtension, {
 } from "../src/extensions/multi-agent.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
 
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolvesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+	return Promise.race([promise.then(() => true), delay(ms).then(() => false)]);
+}
+
 type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 	execute: (
 		toolCallId: string,
@@ -158,6 +166,21 @@ function createMultiAgentHarness(
 		store,
 		tools,
 	};
+}
+
+async function waitForTerminalAgent(
+	harness: ReturnType<typeof createMultiAgentHarness>,
+	agentId: string,
+): Promise<AgentToolResult<WaitAgentDetails>> {
+	for (let attempt = 0; attempt < 50; attempt += 1) {
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId });
+		if (waited.details.terminal) {
+			return waited;
+		}
+		await delay(1);
+	}
+
+	throw new Error(`agent did not reach terminal state: ${agentId}`);
 }
 
 function createSplitMultiAgentHarness() {
@@ -913,6 +936,26 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("returns from spawn_agent before the background dispatcher settles", async () => {
+		const dispatchGate = deferred<void>();
+		const dispatcher: ChildAgentDispatcher = async () => {
+			await dispatchGate.promise;
+			return { lifecycle: "completed", result: { summary: "done" } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+
+		const spawnPromise = harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Implement auth tests",
+		});
+		const didResolveBeforeDispatch = await resolvesWithin(spawnPromise, 20);
+		dispatchGate.resolve(undefined);
+		const spawned = await spawnPromise;
+
+		expect(didResolveBeforeDispatch).toBe(true);
+		expect(spawned.details).toMatchObject({ dispatched: true });
+	});
+
 	it("dispatches a real child runner behind spawn_agent without TUI coupling", async () => {
 		const dispatched: Array<{ agent: AgentSnapshot; prompt: string; mode: string; hasUI: boolean }> = [];
 		const dispatcher: ChildAgentDispatcher = async ({ agent, ctx, prompt }) => {
@@ -926,7 +969,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			prompt: "Implement auth tests",
 		});
-		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(dispatched).toEqual([
 			{
@@ -942,7 +985,6 @@ describe("multi-agent extension tools", () => {
 		]);
 		expect(spawned.details).toMatchObject({
 			dispatched: true,
-			agent: { lifecycle: "completed", result: { summary: "done" } },
 		});
 		expect(waited.details).toMatchObject({
 			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
@@ -987,7 +1029,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			prompt: "Implement auth tests",
 		});
-		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(childHarness).toBeDefined();
 		if (!childHarness) {
@@ -997,7 +1039,6 @@ describe("multi-agent extension tools", () => {
 		expect(getAssistantTexts(childHarness)).toEqual(["child done"]);
 		expect(spawned.details).toMatchObject({
 			dispatched: true,
-			agent: { lifecycle: "completed", result: { summary: "child done" } },
 		});
 		expect(waited.details).toMatchObject({
 			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
@@ -1045,6 +1086,8 @@ describe("multi-agent extension tools", () => {
 			parentSession: parentHarness.sessionManager.getSessionId(),
 		});
 		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(childSessionDir);
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
+
 		expect(childHarness).toBeDefined();
 		if (!childHarness) {
 			throw new Error("expected child harness");
@@ -1053,7 +1096,10 @@ describe("multi-agent extension tools", () => {
 		expect(getAssistantTexts(childHarness)).toEqual(["factory child done"]);
 		expect(spawned.details).toMatchObject({
 			dispatched: true,
-			agent: { lifecycle: "completed", result: { summary: "factory child done" } },
+		});
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "completed", result: { summary: "factory child done" } },
+			terminal: true,
 		});
 	});
 

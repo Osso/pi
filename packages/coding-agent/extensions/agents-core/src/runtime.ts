@@ -422,18 +422,26 @@ async function spawnAgent(
 	});
 
 	if (createChildSession) {
-		const dispatched = await dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx);
-		return result(`Spawned ${dispatched.displayName} (${dispatched.id})`, {
-			agent: dispatched,
+		const agent = startToolDispatch(
+			store,
+			spawned.agent,
+			dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx),
+		);
+		return result(`Spawned ${agent.displayName} (${agent.id})`, {
+			agent,
 			dispatched: true,
 			prompt: params.prompt,
 		});
 	}
 
 	if (dispatcher) {
-		const dispatched = await dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx);
-		return result(`Spawned ${dispatched.displayName} (${dispatched.id})`, {
-			agent: dispatched,
+		const agent = startToolDispatch(
+			store,
+			spawned.agent,
+			dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx),
+		);
+		return result(`Spawned ${agent.displayName} (${agent.id})`, {
+			agent,
 			dispatched: true,
 			prompt: params.prompt,
 		});
@@ -444,6 +452,20 @@ async function spawnAgent(
 		dispatched: false,
 		prompt: params.prompt,
 	});
+}
+
+function startToolDispatch(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	dispatch: Promise<AgentSnapshot>,
+): AgentSnapshot {
+	void dispatch.catch((error: unknown) => {
+		transitionActiveAgent(store, agent, "failed", {
+			error: { message: error instanceof Error ? error.message : String(error) },
+		});
+	});
+
+	return store.getAgent(agent.id) ?? agent;
 }
 
 async function dispatchAgentSession(
@@ -507,15 +529,24 @@ function transitionRunningAgent(
 	lifecycle: "completed" | "failed" | "aborted",
 	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
 ): AgentSnapshot {
-	const current = store.getAgent(running.id);
+	return transitionActiveAgent(store, running, lifecycle, metadata);
+}
+
+function transitionActiveAgent(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	lifecycle: "completed" | "failed" | "aborted",
+	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
+): AgentSnapshot {
+	const current = store.getAgent(agent.id);
 	if (!current) {
-		return running;
+		return agent;
 	}
 	if (!isActiveLifecycle(current.lifecycle)) {
 		return current;
 	}
 	const transitioned = store.transitionAgent(current.id, current.revision, lifecycle, metadata);
-	return transitioned.ok ? transitioned.agent : (store.getAgent(running.id) ?? running);
+	return transitioned.ok ? transitioned.agent : (store.getAgent(agent.id) ?? agent);
 }
 
 function moveToStarting(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
