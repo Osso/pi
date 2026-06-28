@@ -4703,15 +4703,24 @@ export class InteractiveMode {
 				(onProgress) =>
 					loadWithNames(
 						(progress) =>
-							SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), progress),
+							SessionManager.list(
+								this.sessionManager.getCwd(),
+								this.sessionManager.getSessionDir(),
+								progress,
+								this.options.controlDbPath,
+							),
 						onProgress,
 					),
 				(onProgress) =>
 					loadWithNames(
 						(progress) =>
 							this.sessionManager.usesDefaultSessionDir()
-								? SessionManager.listAll(progress)
-								: SessionManager.listAll(this.sessionManager.getSessionDir(), progress),
+								? SessionManager.listAll(undefined, progress, this.options.controlDbPath)
+								: SessionManager.listAll(
+										this.sessionManager.getSessionDir(),
+										progress,
+										this.options.controlDbPath,
+									),
 						onProgress,
 					),
 				async (sessionPath) => {

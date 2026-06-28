@@ -18,6 +18,22 @@ export interface NamedSession {
 	updatedAt: string;
 }
 
+export interface SessionMetadata {
+	sessionPath: string;
+	id: string;
+	cwd: string;
+	name?: string;
+	parentSessionPath?: string;
+	createdAt: string;
+	modifiedAt: string;
+	messageCount: number;
+	firstMessage: string;
+	allMessagesText: string;
+	updatedAt: string;
+}
+
+export type WritableSessionMetadata = Omit<SessionMetadata, "updatedAt">;
+
 type IncomingRow = {
 	id: number;
 	content: string;
@@ -36,6 +52,20 @@ type IncomingStatusRow = {
 type NamedSessionRow = {
 	session_path: string;
 	name: string;
+	updated_at: string;
+};
+
+type SessionMetadataRow = {
+	session_path: string;
+	id: string;
+	cwd: string;
+	name: string | null;
+	parent_session_path: string | null;
+	created_at: string;
+	modified_at: string;
+	message_count: number;
+	first_message: string;
+	all_messages_text: string;
 	updated_at: string;
 };
 
@@ -186,6 +216,7 @@ export function setNamedSession(controlDbPath: string, sessionPath: string, name
 	}
 
 	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
 		db.prepare(
 			`
 			INSERT INTO named_sessions (session_path, name, updated_at)
@@ -194,13 +225,28 @@ export function setNamedSession(controlDbPath: string, sessionPath: string, name
 				name = excluded.name,
 				updated_at = excluded.updated_at
 			`,
-		).run(sessionPath, trimmedName, new Date().toISOString());
+		).run(sessionPath, trimmedName, now);
+		db.prepare(
+			`
+			UPDATE session_metadata
+			SET name = ?, updated_at = ?
+			WHERE session_path = ?
+			`,
+		).run(trimmedName, now, sessionPath);
 	});
 }
 
 export function removeNamedSession(controlDbPath: string, sessionPath: string): void {
 	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
 		db.prepare("DELETE FROM named_sessions WHERE session_path = ?").run(sessionPath);
+		db.prepare(
+			`
+			UPDATE session_metadata
+			SET name = NULL, updated_at = ?
+			WHERE session_path = ?
+			`,
+		).run(now, sessionPath);
 	});
 }
 
@@ -221,6 +267,128 @@ export function listNamedSessions(controlDbPath: string): NamedSession[] {
 			updatedAt: row.updated_at,
 		}));
 	});
+}
+
+export function writeSessionMetadata(controlDbPath: string, metadata: WritableSessionMetadata): void {
+	withControlDb(controlDbPath, (db) => {
+		const metadataName = metadata.name ?? readNamedSessionName(db, metadata.sessionPath);
+		db.prepare(
+			`
+			INSERT INTO session_metadata (
+				session_path,
+				id,
+				cwd,
+				name,
+				parent_session_path,
+				created_at,
+				modified_at,
+				message_count,
+				first_message,
+				all_messages_text,
+				updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(session_path) DO UPDATE SET
+				id = excluded.id,
+				cwd = excluded.cwd,
+				name = excluded.name,
+				parent_session_path = excluded.parent_session_path,
+				created_at = excluded.created_at,
+				modified_at = excluded.modified_at,
+				message_count = excluded.message_count,
+				first_message = excluded.first_message,
+				all_messages_text = excluded.all_messages_text,
+				updated_at = excluded.updated_at
+			`,
+		).run(
+			metadata.sessionPath,
+			metadata.id,
+			metadata.cwd,
+			metadataName,
+			metadata.parentSessionPath ?? null,
+			metadata.createdAt,
+			metadata.modifiedAt,
+			metadata.messageCount,
+			metadata.firstMessage,
+			metadata.allMessagesText,
+			new Date().toISOString(),
+		);
+	});
+}
+
+function readNamedSessionName(db: SqliteDatabase, sessionPath: string): string | null {
+	const row = db.prepare("SELECT name FROM named_sessions WHERE session_path = ?").get(sessionPath) as
+		| { name: string }
+		| undefined;
+	return row?.name ?? null;
+}
+
+export function readSessionMetadata(controlDbPath: string, sessionPath: string): SessionMetadata | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare(
+				`
+				SELECT
+					session_path,
+					id,
+					cwd,
+					name,
+					parent_session_path,
+					created_at,
+					modified_at,
+					message_count,
+					first_message,
+					all_messages_text,
+					updated_at
+				FROM session_metadata
+				WHERE session_path = ?
+				`,
+			)
+			.get(sessionPath) as SessionMetadataRow | undefined;
+		return row ? sessionMetadataFromRow(row) : undefined;
+	});
+}
+
+export function listSessionMetadata(controlDbPath: string): SessionMetadata[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`
+				SELECT
+					session_path,
+					id,
+					cwd,
+					name,
+					parent_session_path,
+					created_at,
+					modified_at,
+					message_count,
+					first_message,
+					all_messages_text,
+					updated_at
+				FROM session_metadata
+				ORDER BY modified_at DESC, updated_at DESC
+				`,
+			)
+			.all() as SessionMetadataRow[];
+		return rows.map(sessionMetadataFromRow);
+	});
+}
+
+function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
+	return {
+		sessionPath: row.session_path,
+		id: row.id,
+		cwd: row.cwd,
+		name: row.name ?? undefined,
+		parentSessionPath: row.parent_session_path ?? undefined,
+		createdAt: row.created_at,
+		modifiedAt: row.modified_at,
+		messageCount: row.message_count,
+		firstMessage: row.first_message,
+		allMessagesText: row.all_messages_text,
+		updatedAt: row.updated_at,
+	};
 }
 
 function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
@@ -258,5 +426,22 @@ function initializeSchema(db: SqliteDatabase): void {
 			name TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
+
+		CREATE TABLE IF NOT EXISTS session_metadata (
+			session_path TEXT PRIMARY KEY,
+			id TEXT NOT NULL,
+			cwd TEXT NOT NULL,
+			name TEXT,
+			parent_session_path TEXT,
+			created_at TEXT NOT NULL,
+			modified_at TEXT NOT NULL,
+			message_count INTEGER NOT NULL,
+			first_message TEXT NOT NULL,
+			all_messages_text TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS session_metadata_modified_at_idx
+		ON session_metadata(modified_at DESC, updated_at DESC);
 	`);
 }

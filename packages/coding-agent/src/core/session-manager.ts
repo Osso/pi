@@ -26,6 +26,12 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+import {
+	listSessionMetadata,
+	type SessionMetadata,
+	type WritableSessionMetadata,
+	writeSessionMetadata,
+} from "./session-control-db.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
 
@@ -587,16 +593,82 @@ function getMessageActivityTime(entry: SessionMessageEntry): number | undefined 
 	return Number.isNaN(t) ? undefined : t;
 }
 
+interface SessionInfoAccumulator {
+	messageCount: number;
+	firstMessage: string;
+	allMessages: string[];
+	name?: string;
+	lastActivityTime?: number;
+}
+
+function createSessionInfoAccumulator(): SessionInfoAccumulator {
+	return {
+		messageCount: 0,
+		firstMessage: "",
+		allMessages: [],
+	};
+}
+
+function applySessionInfoEntry(accumulator: SessionInfoAccumulator, entry: SessionEntry): void {
+	if (entry.type === "session_info") {
+		accumulator.name = entry.name?.trim() || undefined;
+	}
+
+	if (entry.type !== "message") return;
+	accumulator.messageCount++;
+
+	const activityTime = getMessageActivityTime(entry);
+	if (typeof activityTime === "number") {
+		accumulator.lastActivityTime = Math.max(accumulator.lastActivityTime ?? 0, activityTime);
+	}
+
+	const message = entry.message;
+	if (!isMessageWithContent(message)) return;
+	if (message.role !== "user" && message.role !== "assistant") return;
+
+	const textContent = extractTextContent(message);
+	if (!textContent) return;
+
+	accumulator.allMessages.push(textContent);
+	if (!accumulator.firstMessage && message.role === "user") {
+		accumulator.firstMessage = textContent;
+	}
+}
+
+function finishSessionInfo(
+	filePath: string,
+	header: SessionHeader,
+	accumulator: SessionInfoAccumulator,
+	fallbackModified: Date,
+): SessionInfo {
+	const cwd = typeof header.cwd === "string" ? header.cwd : "";
+	const headerTime = typeof header.timestamp === "string" ? new Date(header.timestamp).getTime() : NaN;
+	const modified =
+		typeof accumulator.lastActivityTime === "number" && accumulator.lastActivityTime > 0
+			? new Date(accumulator.lastActivityTime)
+			: !Number.isNaN(headerTime)
+				? new Date(headerTime)
+				: fallbackModified;
+
+	return {
+		path: filePath,
+		id: header.id,
+		cwd,
+		name: accumulator.name,
+		parentSessionPath: header.parentSession,
+		created: new Date(header.timestamp),
+		modified,
+		messageCount: accumulator.messageCount,
+		firstMessage: accumulator.firstMessage || "(no messages)",
+		allMessagesText: accumulator.allMessages.join(" "),
+	};
+}
+
 async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
 	try {
 		const stats = await stat(filePath);
 		let header: SessionHeader | null = null;
-		let messageCount = 0;
-		let firstMessage = "";
-		const allMessages: string[] = [];
-		let name: string | undefined;
-		let lastActivityTime: number | undefined;
-
+		const accumulator = createSessionInfoAccumulator();
 		const rl = createInterface({
 			input: createReadStream(filePath, { encoding: "utf8" }),
 			crlfDelay: Infinity,
@@ -612,59 +684,50 @@ async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
 				continue;
 			}
 
-			// Extract session name (use latest, including explicit clears)
-			if (entry.type === "session_info") {
-				name = entry.name?.trim() || undefined;
-			}
-
-			if (entry.type !== "message") continue;
-			messageCount++;
-
-			const activityTime = getMessageActivityTime(entry);
-			if (typeof activityTime === "number") {
-				lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
-			}
-
-			const message = entry.message;
-			if (!isMessageWithContent(message)) continue;
-			if (message.role !== "user" && message.role !== "assistant") continue;
-
-			const textContent = extractTextContent(message);
-			if (!textContent) continue;
-
-			allMessages.push(textContent);
-			if (!firstMessage && message.role === "user") {
-				firstMessage = textContent;
-			}
+			if (isSessionEntry(entry)) applySessionInfoEntry(accumulator, entry);
 		}
 
-		if (!header) return null;
-
-		const cwd = typeof header.cwd === "string" ? header.cwd : "";
-		const parentSessionPath = header.parentSession;
-		const headerTime = typeof header.timestamp === "string" ? new Date(header.timestamp).getTime() : NaN;
-		const modified =
-			typeof lastActivityTime === "number" && lastActivityTime > 0
-				? new Date(lastActivityTime)
-				: !Number.isNaN(headerTime)
-					? new Date(headerTime)
-					: stats.mtime;
-
-		return {
-			path: filePath,
-			id: header.id,
-			cwd,
-			name,
-			parentSessionPath,
-			created: new Date(header.timestamp),
-			modified,
-			messageCount,
-			firstMessage: firstMessage || "(no messages)",
-			allMessagesText: allMessages.join(" "),
-		};
+		return header ? finishSessionInfo(filePath, header, accumulator, stats.mtime) : null;
 	} catch {
 		return null;
 	}
+}
+
+function isSessionEntry(entry: FileEntry): entry is SessionEntry {
+	return entry.type !== "session";
+}
+
+function buildSessionInfoFromEntries(
+	filePath: string,
+	entries: FileEntry[],
+	fallbackModified: Date = new Date(),
+): SessionInfo | null {
+	const header = entries[0];
+	if (!header || header.type !== "session") return null;
+
+	const accumulator = createSessionInfoAccumulator();
+	for (const entry of entries) {
+		if (isSessionEntry(entry)) applySessionInfoEntry(accumulator, entry);
+	}
+
+	return finishSessionInfo(filePath, header, accumulator, fallbackModified);
+}
+
+function buildWritableSessionMetadata(filePath: string, entries: FileEntry[]): WritableSessionMetadata | null {
+	const info = buildSessionInfoFromEntries(filePath, entries);
+	if (!info) return null;
+	return {
+		sessionPath: info.path,
+		id: info.id,
+		cwd: info.cwd,
+		name: info.name,
+		parentSessionPath: info.parentSessionPath,
+		createdAt: info.created.toISOString(),
+		modifiedAt: info.modified.toISOString(),
+		messageCount: info.messageCount,
+		firstMessage: info.firstMessage,
+		allMessagesText: info.allMessagesText,
+	};
 }
 
 export type SessionListProgress = (loaded: number, total: number) => void;
@@ -709,6 +772,133 @@ async function buildSessionInfosWithConcurrency(
 	}
 
 	return results;
+}
+
+function sessionInfoFromMetadata(metadata: SessionMetadata): SessionInfo {
+	return {
+		path: metadata.sessionPath,
+		id: metadata.id,
+		cwd: metadata.cwd,
+		name: metadata.name,
+		parentSessionPath: metadata.parentSessionPath,
+		created: new Date(metadata.createdAt),
+		modified: new Date(metadata.modifiedAt),
+		messageCount: metadata.messageCount,
+		firstMessage: metadata.firstMessage,
+		allMessagesText: metadata.allMessagesText,
+	};
+}
+
+function metadataMatchesSessionDir(metadata: SessionMetadata, dir: string): boolean {
+	return normalizePath(metadata.sessionPath).startsWith(`${normalizePath(dir)}/`);
+}
+
+function listSessionsFromMetadata(controlDbPath: string, options?: { cwd?: string; dir?: string }): SessionInfo[] {
+	const resolvedCwd = options?.cwd ? resolvePath(options.cwd) : undefined;
+	return listSessionMetadata(controlDbPath)
+		.filter((metadata) => !options?.dir || metadataMatchesSessionDir(metadata, options.dir))
+		.map(sessionInfoFromMetadata)
+		.filter((session) => !resolvedCwd || sessionCwdMatches(session.cwd, resolvedCwd));
+}
+
+async function listSessionFilePathsInDir(dir: string): Promise<string[]> {
+	if (!existsSync(dir)) return [];
+	try {
+		const entries = await readdir(dir);
+		return entries.filter((entry) => entry.endsWith(".jsonl")).map((entry) => join(dir, entry));
+	} catch {
+		return [];
+	}
+}
+
+async function listSessionFilePathsInSessionRoot(sessionsDir: string): Promise<string[]> {
+	if (!existsSync(sessionsDir)) return [];
+	try {
+		const entries = await readdir(sessionsDir, { withFileTypes: true });
+		const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => join(sessionsDir, entry.name));
+		const pathsByDir = await Promise.all(dirs.map(listSessionFilePathsInDir));
+		return pathsByDir.flat();
+	} catch {
+		return [];
+	}
+}
+
+function metadataPathsMatchFiles(metadataSessions: SessionInfo[], sessionFilePaths: string[]): boolean {
+	if (metadataSessions.length === 0 || metadataSessions.length !== sessionFilePaths.length) return false;
+	const metadataPaths = new Set(metadataSessions.map((session) => normalizePath(session.path)));
+	return sessionFilePaths.every((sessionFilePath) => metadataPaths.has(normalizePath(sessionFilePath)));
+}
+
+function cacheSessionMetadata(controlDbPath: string | undefined, sessions: SessionInfo[]): void {
+	if (!controlDbPath) return;
+	for (const session of sessions) {
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: session.path,
+			id: session.id,
+			cwd: session.cwd,
+			name: session.name,
+			parentSessionPath: session.parentSessionPath,
+			createdAt: session.created.toISOString(),
+			modifiedAt: session.modified.toISOString(),
+			messageCount: session.messageCount,
+			firstMessage: session.firstMessage,
+			allMessagesText: session.allMessagesText,
+		});
+	}
+}
+
+async function listCompleteMetadataSessions(
+	controlDbPath: string | undefined,
+	options: { cwd?: string; dir?: string; sessionsRoot?: string },
+): Promise<SessionInfo[] | undefined> {
+	if (!controlDbPath) return undefined;
+
+	const metadataSessions = listSessionsFromMetadata(controlDbPath, { cwd: options.cwd, dir: options.dir });
+	const sessionFilePaths = options.sessionsRoot
+		? await listSessionFilePathsInSessionRoot(options.sessionsRoot)
+		: await listSessionFilePathsInDir(options.dir ?? "");
+	return metadataPathsMatchFiles(metadataSessions, sessionFilePaths) ? metadataSessions : undefined;
+}
+
+async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {
+	const sessionsDir = getSessionsDir();
+	if (!existsSync(sessionsDir)) return [];
+
+	try {
+		const entries = await readdir(sessionsDir, { withFileTypes: true });
+		const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => join(sessionsDir, entry.name));
+		const dirFiles = await listSessionFilesByDir(dirs);
+		return await buildSortedSessionInfos(dirFiles.flat(), progress);
+	} catch {
+		return [];
+	}
+}
+
+async function listSessionFilesByDir(dirs: string[]): Promise<string[][]> {
+	const dirFiles: string[][] = [];
+	for (const dir of dirs) {
+		try {
+			const files = (await readdir(dir)).filter((file) => file.endsWith(".jsonl"));
+			dirFiles.push(files.map((file) => join(dir, file)));
+		} catch {
+			dirFiles.push([]);
+		}
+	}
+	return dirFiles;
+}
+
+async function buildSortedSessionInfos(
+	files: string[],
+	progress: SessionListProgress | undefined,
+): Promise<SessionInfo[]> {
+	let loaded = 0;
+	const results = await buildSessionInfosWithConcurrency(files, () => {
+		loaded++;
+		progress?.(loaded, files.length);
+	});
+	const sessions = results.filter((info): info is SessionInfo => info !== null);
+	sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+	return sessions;
 }
 
 async function listSessionsFromDir(
@@ -767,6 +957,7 @@ export class SessionManager {
 	private labelsById: Map<string, string> = new Map();
 	private labelTimestampsById: Map<string, string> = new Map();
 	private leafId: string | null = null;
+	private metadataControlDbPath: string | undefined;
 
 	private constructor(
 		cwd: string,
@@ -909,6 +1100,18 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
+	setMetadataControlDbPath(controlDbPath: string | undefined): void {
+		this.metadataControlDbPath = controlDbPath;
+		this.writeMetadataSnapshot();
+	}
+
+	private writeMetadataSnapshot(): void {
+		if (!this.metadataControlDbPath || !this.persist || !this.sessionFile) return;
+		const metadata = buildWritableSessionMetadata(this.sessionFile, this.fileEntries);
+		if (!metadata) return;
+		writeSessionMetadata(this.metadataControlDbPath, metadata);
+	}
+
 	_persist(entry: SessionEntry): void {
 		if (!this.persist || !this.sessionFile) return;
 
@@ -943,6 +1146,7 @@ export class SessionManager {
 		this.byId.set(entry.id, entry);
 		this.leafId = entry.id;
 		this._persist(entry);
+		this.writeMetadataSnapshot();
 	}
 
 	/** Append a message as child of current leaf, then advance leaf. Returns entry id.
@@ -1504,14 +1708,23 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory. If omitted, uses default global sessions dir.
 	 * @param onProgress Optional callback for progress updates (loaded, total)
 	 */
-	static async list(cwd: string, sessionDir?: string, onProgress?: SessionListProgress): Promise<SessionInfo[]> {
+	static async list(
+		cwd: string,
+		sessionDir?: string,
+		onProgress?: SessionListProgress,
+		controlDbPath?: string,
+	): Promise<SessionInfo[]> {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
+		const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { cwd, dir });
+		if (metadataSessions) return metadataSessions;
+
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
 		const resolvedCwd = resolvePath(cwd);
 		const sessions = (await listSessionsFromDir(dir, onProgress)).filter(
 			(session) => !filterCwd || sessionCwdMatches(session.cwd, resolvedCwd),
 		);
 		sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+		cacheSessionMetadata(controlDbPath, sessions);
 		return sessions;
 	}
 
@@ -1520,62 +1733,34 @@ export class SessionManager {
 	 * @param onProgress Optional callback for progress updates (loaded, total)
 	 */
 	static async listAll(onProgress?: SessionListProgress): Promise<SessionInfo[]>;
-	static async listAll(sessionDir?: string, onProgress?: SessionListProgress): Promise<SessionInfo[]>;
+	static async listAll(
+		sessionDir: string | undefined,
+		onProgress?: SessionListProgress,
+		controlDbPath?: string,
+	): Promise<SessionInfo[]>;
 	static async listAll(
 		sessionDirOrOnProgress?: string | SessionListProgress,
 		onProgress?: SessionListProgress,
+		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
 		const customSessionDir =
 			typeof sessionDirOrOnProgress === "string" ? normalizePath(sessionDirOrOnProgress) : undefined;
 		const progress = typeof sessionDirOrOnProgress === "function" ? sessionDirOrOnProgress : onProgress;
 		if (customSessionDir) {
+			const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { dir: customSessionDir });
+			if (metadataSessions) return metadataSessions;
 			const sessions = await listSessionsFromDir(customSessionDir, progress);
 			sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+			cacheSessionMetadata(controlDbPath, sessions);
 			return sessions;
 		}
 
-		const sessionsDir = getSessionsDir();
+		const sessionsRoot = getSessionsDir();
+		const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { sessionsRoot });
+		if (metadataSessions) return metadataSessions;
 
-		try {
-			if (!existsSync(sessionsDir)) {
-				return [];
-			}
-			const entries = await readdir(sessionsDir, { withFileTypes: true });
-			const dirs = entries.filter((e) => e.isDirectory()).map((e) => join(sessionsDir, e.name));
-
-			// Count total files first for accurate progress
-			let totalFiles = 0;
-			const dirFiles: string[][] = [];
-			for (const dir of dirs) {
-				try {
-					const files = (await readdir(dir)).filter((f) => f.endsWith(".jsonl"));
-					dirFiles.push(files.map((f) => join(dir, f)));
-					totalFiles += files.length;
-				} catch {
-					dirFiles.push([]);
-				}
-			}
-
-			// Process all files with progress tracking
-			let loaded = 0;
-			const sessions: SessionInfo[] = [];
-			const allFiles = dirFiles.flat();
-
-			const results = await buildSessionInfosWithConcurrency(allFiles, () => {
-				loaded++;
-				progress?.(loaded, totalFiles);
-			});
-
-			for (const info of results) {
-				if (info) {
-					sessions.push(info);
-				}
-			}
-
-			sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
-			return sessions;
-		} catch {
-			return [];
-		}
+		const sessions = await listDefaultSessionRoot(progress);
+		cacheSessionMetadata(controlDbPath, sessions);
+		return sessions;
 	}
 }

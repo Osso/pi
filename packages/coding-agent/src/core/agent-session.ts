@@ -405,6 +405,7 @@ export class AgentSession {
 		});
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
+		this.sessionManager.setMetadataControlDbPath(getControlDbPath(this._agentDir));
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)

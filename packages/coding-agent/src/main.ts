@@ -370,8 +370,8 @@ async function createSessionManager(
 	if (parsed.resume) {
 		try {
 			const selectedPath = await selectSession(
-				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
-				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
+				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress, controlDbPath),
+				(onProgress) => SessionManager.listAll(sessionDir, onProgress, controlDbPath),
 				settingsManager,
 				controlDbPath,
 			);
@@ -685,6 +685,7 @@ export async function main(args: string[], options?: MainOptions) {
 		startupSettingsManager.getSessionDir();
 	const controlDbPath = getControlDbPath(agentDir);
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
+	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
 	if (missingSessionCwdIssue) {
 		if (appMode === "interactive") {

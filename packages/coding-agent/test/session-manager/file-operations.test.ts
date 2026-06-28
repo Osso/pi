@@ -3,6 +3,7 @@ import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, w
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../../src/core/session-control-db.ts";
 import { findMostRecentSession, loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
 
 describe("loadEntriesFromFile", () => {
@@ -233,6 +234,82 @@ describe("SessionManager custom flat session directory", () => {
 
 		const continuedA = SessionManager.continueRecent(projectA, tempDir);
 		expect(continuedA.getSessionFile()).toBe(sessionA);
+	});
+
+	it("falls back to file scanning when sqlite metadata paths are incomplete", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const sessionA = createPersistedSession(projectA, "from A");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		const sessionB = createPersistedSession(projectA, "from B");
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: sessionA,
+			id: "stale-a",
+			cwd: projectA,
+			name: undefined,
+			parentSessionPath: undefined,
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:00:00.000Z",
+			messageCount: 1,
+			firstMessage: "stale A",
+			allMessagesText: "stale A",
+		});
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: join(tempDir, "missing.jsonl"),
+			id: "stale-missing",
+			cwd: projectA,
+			name: undefined,
+			parentSessionPath: undefined,
+			createdAt: "2026-01-02T00:00:00.000Z",
+			modifiedAt: "2026-01-02T00:00:00.000Z",
+			messageCount: 1,
+			firstMessage: "stale missing",
+			allMessagesText: "stale missing",
+		});
+
+		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
+
+		expect(new Set(currentA.map((entry) => entry.path))).toEqual(new Set([sessionA, sessionB]));
+	});
+
+	it("writes session metadata to sqlite and lists from it", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const session = SessionManager.create(projectA, tempDir);
+		session.setMetadataControlDbPath(controlDbPath);
+		session.appendMessage({ role: "user", content: "fast listing prompt", timestamp: 1 });
+		session.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "fast listing reply" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: 2,
+		});
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persisted session file");
+
+		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
+			sessionPath: sessionFile,
+			id: session.getSessionId(),
+			cwd: projectA,
+			messageCount: 2,
+			firstMessage: "fast listing prompt",
+			allMessagesText: "fast listing prompt fast listing reply",
+		});
+
+		writeFileSync(sessionFile, "not jsonl metadata path proves sqlite listing is used\n");
+		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
+
+		expect(currentA.map((entry) => entry.path)).toEqual([sessionFile]);
+		expect(currentA[0]).toMatchObject({ firstMessage: "fast listing prompt" });
 	});
 });
 
