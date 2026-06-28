@@ -15,6 +15,7 @@ import type {
 	Model,
 	ThinkingLevel as PiThinkingLevel,
 	ProviderEnv,
+	ProviderHeaders,
 	SimpleStreamOptions,
 	StreamFunction,
 	StreamOptions,
@@ -24,6 +25,7 @@ import type {
 	ToolCall,
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { providerHeadersToRecord } from "../utils/headers.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import type { GoogleThinkingLevel } from "./google-shared.ts";
@@ -236,6 +238,7 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 							(chunk.usageMetadata.candidatesTokenCount || 0) + (chunk.usageMetadata.thoughtsTokenCount || 0),
 						cacheRead: chunk.usageMetadata.cachedContentTokenCount || 0,
 						cacheWrite: 0,
+						reasoning: chunk.usageMetadata.thoughtsTokenCount || 0,
 						totalTokens: chunk.usageMetadata.totalTokenCount || 0,
 						cost: {
 							input: 0,
@@ -299,7 +302,7 @@ export const streamSimple: StreamFunction<"google-vertex", SimpleStreamOptions> 
 	context: Context,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream => {
-	const base = buildBaseOptions(model, options, undefined);
+	const base = buildBaseOptions(model, context, options, undefined);
 	if (!options?.reasoning) {
 		return stream(model, context, {
 			...base,
@@ -334,7 +337,7 @@ function createClient(
 	model: Model<"google-vertex">,
 	project: string,
 	location: string,
-	optionsHeaders?: Record<string, string>,
+	optionsHeaders?: ProviderHeaders,
 	env?: ProviderEnv,
 ): GoogleGenAI {
 	const googleAuthOptions = buildGoogleAuthOptions(env);
@@ -351,7 +354,7 @@ function createClient(
 function createClientWithApiKey(
 	model: Model<"google-vertex">,
 	apiKey: string,
-	optionsHeaders?: Record<string, string>,
+	optionsHeaders?: ProviderHeaders,
 ): GoogleGenAI {
 	return new GoogleGenAI({
 		vertexai: true,
@@ -361,10 +364,7 @@ function createClientWithApiKey(
 	});
 }
 
-function buildHttpOptions(
-	model: Model<"google-vertex">,
-	optionsHeaders?: Record<string, string>,
-): HttpOptions | undefined {
+function buildHttpOptions(model: Model<"google-vertex">, optionsHeaders?: ProviderHeaders): HttpOptions | undefined {
 	const httpOptions: HttpOptions = {};
 	const baseUrl = resolveCustomBaseUrl(model.baseUrl);
 	if (baseUrl) {
@@ -375,8 +375,9 @@ function buildHttpOptions(
 		}
 	}
 
-	if (model.headers || optionsHeaders) {
-		httpOptions.headers = { ...model.headers, ...optionsHeaders };
+	const headers = providerHeadersToRecord({ ...model.headers, ...optionsHeaders });
+	if (headers) {
+		httpOptions.headers = headers;
 	}
 
 	return Object.keys(httpOptions).length > 0 ? httpOptions : undefined;

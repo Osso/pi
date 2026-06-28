@@ -190,6 +190,7 @@ class SessionSelectorHeader implements Component {
 interface SessionTreeNode {
 	session: SessionInfo;
 	children: SessionTreeNode[];
+	latestActivity: number;
 }
 
 /** Flattened node for display with tree structure info */
@@ -210,7 +211,7 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
 
 	for (const session of sessions) {
 		const sessionPath = canonicalizePath(session.path) ?? session.path;
-		byPath.set(sessionPath, { session, children: [] });
+		byPath.set(sessionPath, { session, children: [], latestActivity: session.modified.getTime() });
 	}
 
 	const roots: SessionTreeNode[] = [];
@@ -227,7 +228,20 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
 		}
 	}
 
-	// Sort children and roots with named sessions first, then by modified date.
+	const updateLatestActivity = (node: SessionTreeNode): number => {
+		let latestActivity = node.session.modified.getTime();
+		for (const child of node.children) {
+			latestActivity = Math.max(latestActivity, updateLatestActivity(child));
+		}
+		node.latestActivity = latestActivity;
+		return latestActivity;
+	};
+
+	for (const root of roots) {
+		updateLatestActivity(root);
+	}
+
+	// Sort children and roots with named sessions first, then by latest subtree activity.
 	const sortNodes = (nodes: SessionTreeNode[]): void => {
 		nodes.sort(compareSessionTreeNodes);
 		for (const node of nodes) {
@@ -243,7 +257,7 @@ function compareSessionTreeNodes(a: SessionTreeNode, b: SessionTreeNode): number
 	const aNamed = hasSessionName(a.session);
 	const bNamed = hasSessionName(b.session);
 	if (aNamed !== bNamed) return aNamed ? -1 : 1;
-	return b.session.modified.getTime() - a.session.modified.getTime();
+	return b.latestActivity - a.latestActivity;
 }
 
 /**

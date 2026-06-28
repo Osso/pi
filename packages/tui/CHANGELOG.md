@@ -5,6 +5,7 @@
 ### Added
 
 - Added editor APIs for loading and reading prompt history.
+- Added an opt-in Markdown renderer option to preserve source backslash escapes for transcript rendering ([#6105](https://github.com/earendil-works/pi/issues/6105)).
 
 ### Changed
 
@@ -13,6 +14,12 @@
 ### Fixed
 
 - Fixed `Ctrl+R` in the editor to open reverse prompt history search.
+
+## [0.80.2] - 2026-06-23
+
+## [0.80.1] - 2026-06-23
+
+## [0.80.0] - 2026-06-23
 
 ## [0.79.10] - 2026-06-22
 
