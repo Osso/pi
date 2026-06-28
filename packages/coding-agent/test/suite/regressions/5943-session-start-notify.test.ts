@@ -55,8 +55,10 @@ type LoadedResourcesContext = {
 	sessionManager: { getCwd: () => string };
 	session: {
 		promptTemplates: [];
+		getActiveToolNames: () => string[];
 		resourceLoader: {
 			getAgentsFiles: () => LoadedResourcesResult<{ agentsFiles: Array<{ path: string }> }>;
+			getRulesFiles: () => LoadedResourcesResult<{ rulesFiles: Array<{ path: string }> }>;
 			getSkills: () => LoadedResourcesResult<{ skills: [] }>;
 			getPrompts: () => LoadedResourcesResult<{ prompts: [] }>;
 			getThemes: () => LoadedResourcesResult<{ themes: [] }>;
@@ -227,8 +229,10 @@ function createLoadedResourcesContext(): LoadedResourcesContext {
 		sessionManager: { getCwd: () => "/repo" },
 		session: {
 			promptTemplates: [],
+			getActiveToolNames: () => [],
 			resourceLoader: {
 				getAgentsFiles: () => ({ agentsFiles: [{ path: "/repo/AGENTS.md" }], diagnostics: [] }),
+				getRulesFiles: () => ({ rulesFiles: [], diagnostics: [] }),
 				getSkills: () => ({ skills: [], diagnostics: [] }),
 				getPrompts: () => ({ prompts: [], diagnostics: [] }),
 				getThemes: () => ({ themes: [], diagnostics: [] }),

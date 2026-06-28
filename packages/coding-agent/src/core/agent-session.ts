@@ -1715,7 +1715,7 @@ export class AgentSession {
 
 	private async _getScopedModelsForCycle(): Promise<ScopedModel[]> {
 		if (this._scopedModels.length > 0) {
-			return this._filterNarrowModelScope(this._scopedModels);
+			return [...this._scopedModels];
 		}
 
 		const enabledModels = this.settingsManager.getEnabledModels();

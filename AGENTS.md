@@ -26,8 +26,9 @@
 
 ## Commands
 
-- After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
-- Never run `npm run build` or `npm test` unless requested by the user.
+- After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing.
+- After modifying code, run relevant tests for the touched behavior before committing. Prefer targeted tests first, then broader safe suites when the change spans multiple areas.
+- Builds and tests are allowed when needed to validate code changes or refresh generated/local build artifacts used by tests. Use the narrowest build that proves the change unless a broader build is required.
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. For targeted coding-agent tests, run `npm run test:coding-agent -- test/specific.test.ts` from the repo root.
 - If you create or modify a test file, run it and iterate on test or implementation until it passes.
 - For `packages/coding-agent/test/suite/`, use `test/suite/harness.ts` + the faux provider. No real provider APIs, keys, or paid tokens.

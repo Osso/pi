@@ -434,43 +434,14 @@ describe("AgentSession concurrent prompt guard", () => {
 		});
 
 		const snapshots: string[][] = [];
-		const sessionWithRunner = session as unknown as {
-			_extensionRunner?: {
-				hasHandlers: (eventType: string) => boolean;
-				emit: (event: { type: string; message?: { role?: string } }) => Promise<void>;
-				emitMessageEnd: (event: { type: string; message?: { role?: string } }) => Promise<undefined>;
-				emitToolCall: (event: { type: string; toolCallId: string }) => Promise<undefined>;
-				emitInput: (
-					text: string,
-					images: unknown,
-					source: "interactive" | "rpc" | "extension",
-					streamingBehavior?: "steer" | "followUp",
-				) => Promise<{ action: "continue" }>;
-				emitBeforeAgentStart: (
-					prompt: string,
-					images: unknown,
-					systemPrompt: string,
-					systemPromptOptions: BuildSystemPromptOptions,
-				) => Promise<undefined>;
-				invalidate: (message?: string) => void;
-			};
-		};
-		sessionWithRunner._extensionRunner = {
-			hasHandlers: (eventType) => eventType === "tool_call",
-			emit: async () => {},
-			emitMessageEnd: async () => undefined,
-			emitToolCall: async () => {
-				snapshots.push(
-					sessionManager
-						.getEntries()
-						.filter((entry) => entry.type === "message")
-						.map((entry) => entry.message.role),
-				);
-				return undefined;
-			},
-			emitInput: async () => ({ action: "continue" }),
-			emitBeforeAgentStart: async () => undefined,
-			invalidate: () => {},
+		agent.beforeToolCall = async () => {
+			snapshots.push(
+				sessionManager
+					.getEntries()
+					.filter((entry) => entry.type === "message")
+					.map((entry) => entry.message.role),
+			);
+			return undefined;
 		};
 
 		await session.prompt("hi");

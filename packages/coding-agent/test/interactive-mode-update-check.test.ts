@@ -15,6 +15,7 @@ describe("InteractiveMode update checks", () => {
 			},
 			init: async () => undefined,
 			maybeWarnAboutAnthropicSubscriptionAuth: async () => undefined,
+			processControlMessage: async () => undefined,
 			options: {},
 			session: {
 				modelRegistry: {

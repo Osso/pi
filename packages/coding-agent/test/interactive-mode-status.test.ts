@@ -791,7 +791,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			force: false,
 		});
 
-		const output = renderAll(fakeThis.chatContainer);
+		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Tools]");
 		expect(output).toContain("bash, edit, read, write");
 	});
@@ -808,7 +808,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			force: false,
 		});
 
-		const output = renderAll(fakeThis.chatContainer);
+		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Context]");
 		expect(output).toContain("AGENTS.md");
 		expect(output).toContain("[User Rules]");

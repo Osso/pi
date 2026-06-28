@@ -36,7 +36,20 @@ describe("deploy.sh", () => {
 		expect(readFileSync(join(fixture.installDir, "pi"), "utf8")).toContain(
 			`exec "${fixture.repoDir}/pi-test.sh" "$@"`,
 		);
-		expect(readFileSync(join(fixture.repoDir, "npm-args.log"), "utf8")).toBe("run check\n");
+		expect(readFileSync(join(fixture.repoDir, "npm-args.log"), "utf8")).toBe(
+			[
+				"run check",
+				"--prefix packages/tui run clean",
+				"--prefix packages/tui run build",
+				"--prefix packages/ai run clean",
+				"--prefix packages/ai exec -- tsgo -p packages/ai/tsconfig.build.json",
+				"--prefix packages/agent run clean",
+				"--prefix packages/agent run build",
+				"--prefix packages/coding-agent run clean",
+				"--prefix packages/coding-agent run build",
+				"",
+			].join("\n"),
+		);
 		expect(readlinkSync(join(fixture.binDir, "pi"))).toBe(join(fixture.installDir, "pi"));
 	});
 
@@ -83,7 +96,7 @@ describe("deploy.sh", () => {
 		const binDir = join(tempDir, "bin");
 
 		mkdirSync(fakeBinDir, { recursive: true });
-		mkdirSync(repoDir, { recursive: true });
+		mkdirSync(join(repoDir, "scripts"), { recursive: true });
 		writeExecutable(
 			join(fakeBinDir, "npm"),
 			`#!/usr/bin/env bash
@@ -100,6 +113,35 @@ if [[ "$1" == "--version" ]]; then
   exit 0
 fi
 exit 2
+`,
+		);
+		writeExecutable(
+			join(repoDir, "scripts", "build-binaries.sh"),
+			`#!/usr/bin/env bash
+set -euo pipefail
+platform=""
+out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --platform)
+      platform="$2"
+      shift 2
+      ;;
+    --out)
+      out="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$out/$platform"
+cat > "$out/$platform/pi" <<'EOF'
+#!/usr/bin/env bash
+exec "${repoDir}/pi-test.sh" "$@"
+EOF
+chmod +x "$out/$platform/pi"
 `,
 		);
 		writeFileSync(join(repoDir, "deploy.sh"), readFileSync(repoDeployScript));
