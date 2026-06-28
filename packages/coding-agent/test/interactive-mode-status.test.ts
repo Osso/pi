@@ -545,6 +545,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		toolOutputExpanded?: boolean;
 		cwd?: string;
 		contextFiles?: Array<{ path: string; content?: string }>;
+		rulesFiles?: Array<{ path: string; content?: string }>;
 		extensions?: ExtensionFixture[];
 		skills?: Array<{ filePath: string; name: string }>;
 		activeToolNames?: string[];
@@ -571,6 +572,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 				resourceLoader: {
 					getPathMetadata: () => new Map(),
 					getAgentsFiles: () => ({ agentsFiles: options.contextFiles ?? [] }),
+					getRulesFiles: () => ({ rulesFiles: options.rulesFiles ?? [] }),
 					getRulesContent: () => undefined,
 					getSkills: () => ({
 						skills: options.skills ?? [],
@@ -753,6 +755,25 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const output = renderAll(fakeThis.chatContainer);
 		expect(output).toContain("[Tools]");
 		expect(output).toContain("bash, edit, read, write");
+	});
+
+	test("shows user rules separately from context files in startup resources", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			cwd: "/tmp/project",
+			contextFiles: [{ path: "/tmp/project/AGENTS.md" }],
+			rulesFiles: [{ path: "/home/osso/AgentConfig/rules/01-identity.md" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+			force: false,
+		});
+
+		const output = renderAll(fakeThis.chatContainer);
+		expect(output).toContain("[Context]");
+		expect(output).toContain("AGENTS.md");
+		expect(output).toContain("[User Rules]");
+		expect(output).toContain("~/AgentConfig/rules/01-identity.md");
 	});
 
 	test("shows full resource listing when expanded", () => {

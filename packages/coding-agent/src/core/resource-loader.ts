@@ -40,6 +40,7 @@ export interface ResourceLoader {
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] };
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
+	getRulesFiles(): { rulesFiles: Array<{ path: string; content: string }> };
 	getRulesContent(): string | undefined;
 	getSystemPrompt(): string | undefined;
 	getAppendSystemPrompt(): string[];
@@ -122,17 +123,23 @@ export function loadProjectContextFiles(options: {
 	return contextFiles;
 }
 
-export function loadRulesFromDir(dirPath: string): string | undefined {
+export function loadRulesFilesFromDir(dirPath: string): Array<{ path: string; content: string }> {
 	if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) {
-		return undefined;
+		return [];
 	}
 
-	const contents = readdirSync(dirPath)
+	return readdirSync(dirPath)
 		.filter((entry) => entry.endsWith(".md"))
 		.sort((a, b) => a.localeCompare(b))
-		.map((entry) => readFileSync(join(dirPath, entry), "utf-8").trim())
-		.filter((content) => content.length > 0);
+		.map((entry) => {
+			const filePath = join(dirPath, entry);
+			return { path: filePath, content: readFileSync(filePath, "utf-8").trim() };
+		})
+		.filter((file) => file.content.length > 0);
+}
 
+export function loadRulesFromDir(dirPath: string): string | undefined {
+	const contents = loadRulesFilesFromDir(dirPath).map((file) => file.content);
 	return contents.length > 0 ? contents.join("\n\n") : undefined;
 }
 
@@ -218,6 +225,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private themes: Theme[];
 	private themeDiagnostics: ResourceDiagnostic[];
 	private agentsFiles: Array<{ path: string; content: string }>;
+	private rulesFiles: Array<{ path: string; content: string }>;
 	private rulesContent?: string;
 	private systemPrompt?: string;
 	private appendSystemPrompt: string[];
@@ -267,6 +275,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.themes = [];
 		this.themeDiagnostics = [];
 		this.agentsFiles = [];
+		this.rulesFiles = [];
 		this.rulesContent = undefined;
 		this.appendSystemPrompt = [];
 		this.lastSkillPaths = [];
@@ -296,6 +305,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> } {
 		return { agentsFiles: this.agentsFiles };
+	}
+
+	getRulesFiles(): { rulesFiles: Array<{ path: string; content: string }> } {
+		return { rulesFiles: this.rulesFiles };
 	}
 
 	getRulesContent(): string | undefined {
@@ -491,12 +504,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
 		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
-		const rulesSources = [loadRulesFromDir(join(this.agentDir, "rules"))];
+		const rulesFiles = loadRulesFilesFromDir(join(this.agentDir, "rules"));
 		if (this.settingsManager.isProjectTrusted()) {
-			rulesSources.push(loadRulesFromDir(join(this.cwd, CONFIG_DIR_NAME, "rules")));
+			rulesFiles.push(...loadRulesFilesFromDir(join(this.cwd, CONFIG_DIR_NAME, "rules")));
 		}
-		const loadedRules = rulesSources.filter((content): content is string => content !== undefined);
-		this.rulesContent = loadedRules.length > 0 ? loadedRules.join("\n\n") : undefined;
+		this.rulesFiles = rulesFiles;
+		this.rulesContent = rulesFiles.length > 0 ? rulesFiles.map((file) => file.content).join("\n\n") : undefined;
 
 		const baseSystemPrompt = resolvePromptInput(
 			this.systemPromptSource ?? this.discoverSystemPromptFile(),

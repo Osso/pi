@@ -1432,8 +1432,11 @@ export class InteractiveMode {
 
 		if (showListing) {
 			const contextFiles = this.session.resourceLoader.getAgentsFiles().agentsFiles;
-			if (contextFiles.length > 0) {
+			const rulesFiles = this.session.resourceLoader.getRulesFiles().rulesFiles;
+			if (contextFiles.length > 0 || rulesFiles.length > 0) {
 				this.chatContainer.addChild(new Spacer(1));
+			}
+			if (contextFiles.length > 0) {
 				const contextList = contextFiles
 					.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`))
 					.join("\n");
@@ -1442,6 +1445,14 @@ export class InteractiveMode {
 					{ sort: false },
 				);
 				addLoadedSection("Context", contextCompactList, contextList);
+			}
+			if (rulesFiles.length > 0) {
+				const rulesList = rulesFiles.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`)).join("\n");
+				const rulesCompactList = formatCompactList(
+					rulesFiles.map((rulesFile) => this.formatDisplayPath(rulesFile.path)),
+					{ sort: false },
+				);
+				addLoadedSection("User Rules", rulesCompactList, rulesList);
 			}
 
 			if (activeToolNames.length > 0) {

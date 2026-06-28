@@ -374,6 +374,9 @@ Content`,
 			expect(loader.getAgentsFiles().agentsFiles).toEqual([
 				{ path: join(worktreeCwd, "AGENTS.md"), content: "Worktree context." },
 			]);
+			expect(loader.getRulesFiles().rulesFiles).toEqual([
+				{ path: join(worktreeCwd, ".pi", "rules", "rule.md"), content: "Worktree rule." },
+			]);
 			expect(loader.getRulesContent()).toBe("Worktree rule.");
 		});
 
@@ -399,6 +402,10 @@ Content`,
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 			await loader.reload();
 
+			expect(loader.getRulesFiles().rulesFiles).toEqual([
+				{ path: join(rulesDir, "10-first.md"), content: "First rule." },
+				{ path: join(rulesDir, "20-second.md"), content: "Second rule." },
+			]);
 			expect(loader.getRulesContent()).toBe("First rule.\n\nSecond rule.");
 		});
 
