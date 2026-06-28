@@ -341,6 +341,7 @@ describe("Editor component", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
 			editor.addToHistory("older config note\nhidden detail");
+			editor.addToHistory("```\n  wrapped config prompt\n```");
 			editor.addToHistory("newer config fix");
 			editor.addToHistory("unrelated prompt");
 
@@ -348,11 +349,30 @@ describe("Editor component", () => {
 			editor.handleInput("c");
 			editor.handleInput("o");
 
-			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
+			const rawRendered = editor.render(60).join("\n");
+			const rendered = stripVTControlCharacters(rawRendered);
 			assert.match(rendered, /> newer config fix/);
+			assert.match(rendered, / {2}wrapped config prompt/);
+			assert.doesNotMatch(rendered, / {4}wrapped config prompt/);
 			assert.match(rendered, / {2}older config note/);
+			assert.doesNotMatch(rendered, /```/);
 			assert.doesNotMatch(rendered, /hidden detail/);
-			assert.match(rendered, /1\/2/);
+			assert.match(rendered, /1\/3/);
+			assert.match(rawRendered, /\x1b\[7mco\x1b\[27m/);
+		});
+
+		it("previews the matching line from multi-line reverse search results", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.addToHistory("Goal set - starting work\nsay hello twice");
+
+			editor.handleInput("\x12");
+			editor.handleInput("h");
+			editor.handleInput("e");
+
+			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
+			assert.match(rendered, /> say hello twice/);
+			assert.doesNotMatch(rendered, /Goal set - starting work/);
 		});
 
 		it("accepts the selected reverse search match on Enter", () => {

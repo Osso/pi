@@ -570,6 +570,37 @@ export class Editor implements Component, Focusable {
 		return false;
 	}
 
+	private historySearchPreviewLine(entry: string): string {
+		const lines = entry.split(/\r?\n/);
+		const displayableLines = lines.filter((line) => this.isHistorySearchPreviewLine(line));
+		const query = this.historySearchQuery.toLocaleLowerCase();
+		const previewLine =
+			displayableLines.find((line) => line.toLocaleLowerCase().includes(query)) ?? displayableLines[0] ?? "";
+		return previewLine.trimStart();
+	}
+
+	private isHistorySearchPreviewLine(line: string): boolean {
+		const trimmed = line.trim();
+		return trimmed.length > 0 && trimmed !== "```";
+	}
+
+	private highlightHistorySearchMatch(text: string): string {
+		const query = this.historySearchQuery;
+		if (query.length === 0) {
+			return text;
+		}
+
+		const matchIndex = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+		if (matchIndex < 0) {
+			return text;
+		}
+
+		const beforeMatch = text.slice(0, matchIndex);
+		const matchText = text.slice(matchIndex, matchIndex + query.length);
+		const afterMatch = text.slice(matchIndex + query.length);
+		return `${beforeMatch}\x1b[7m${matchText}\x1b[27m${afterMatch}`;
+	}
+
 	private renderHistorySearchLines(width: number): string[] {
 		const matches = this.getHistorySearchMatches();
 		const matchPosition = matches.indexOf(this.historySearchIndex);
@@ -577,7 +608,7 @@ export class Editor implements Component, Focusable {
 		const counter = `${matchPosition < 0 ? 0 : matchPosition + 1}/${matchCount}`;
 		if (matches.length === 0) {
 			const availablePreviewWidth = Math.max(0, width - counter.length - 1);
-			const line = `${"> ".padEnd(availablePreviewWidth)} ${counter}`;
+			const line = `${truncateToWidth("> ", availablePreviewWidth, "...", true)} ${counter}`;
 			return [truncateToWidth(line, width)];
 		}
 
@@ -585,11 +616,10 @@ export class Editor implements Component, Focusable {
 			const marker = historyIndex === this.historySearchIndex ? ">" : " ";
 			const suffix = index === matchPosition ? counter : "";
 			const availablePreviewWidth = Math.max(0, width - suffix.length - (suffix ? 1 : 0));
-			const firstLine = (this.history[historyIndex] ?? "").split("\n", 1)[0] ?? "";
-			const preview = `${marker} ${firstLine}`;
-			const line = suffix
-				? `${truncateToWidth(preview, availablePreviewWidth).padEnd(availablePreviewWidth)} ${suffix}`
-				: truncateToWidth(preview.padEnd(width), width);
+			const firstLine = this.historySearchPreviewLine(this.history[historyIndex] ?? "");
+			const preview = `${marker} ${this.highlightHistorySearchMatch(firstLine)}`;
+			const previewCell = truncateToWidth(preview, availablePreviewWidth, "...", true);
+			const line = suffix ? `${previewCell} ${suffix}` : truncateToWidth(preview, width, "...", true);
 			return truncateToWidth(line, width);
 		});
 	}
