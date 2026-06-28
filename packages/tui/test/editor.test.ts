@@ -301,10 +301,10 @@ describe("Editor component", () => {
 			editor.handleInput("\x12");
 
 			const rendered = stripVTControlCharacters(editor.render(40).join("\n"));
-			assert.match(rendered, /reverse-search/);
+			assert.match(rendered, /0\/0/);
 		});
 
-		it("filters history while reverse searching", () => {
+		it("keeps the search query in the editor while previewing the selected match", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
 			editor.addToHistory("open config docs");
@@ -315,7 +315,10 @@ describe("Editor component", () => {
 			editor.handleInput("c");
 			editor.handleInput("o");
 
-			assert.strictEqual(editor.getText(), "open config docs");
+			assert.strictEqual(editor.getText(), "co");
+			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
+			assert.match(rendered, /> open config docs/);
+			assert.match(rendered, /1\/1/);
 		});
 
 		it("steps through older reverse search matches on repeated Ctrl+R", () => {
@@ -327,10 +330,24 @@ describe("Editor component", () => {
 			editor.handleInput("\x12");
 			editor.handleInput("c");
 			editor.handleInput("o");
-			assert.strictEqual(editor.getText(), "newer config fix");
+			assert.match(stripVTControlCharacters(editor.render(60).join("\n")), /> newer config fix/);
 
 			editor.handleInput("\x12");
-			assert.strictEqual(editor.getText(), "older config note");
+			assert.match(stripVTControlCharacters(editor.render(60).join("\n")), /> older config note/);
+			assert.strictEqual(editor.getText(), "co");
+		});
+
+		it("accepts the selected reverse search match on Enter", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.addToHistory("open config docs");
+
+			editor.handleInput("\x12");
+			editor.handleInput("c");
+			editor.handleInput("o");
+			editor.handleInput("\r");
+
+			assert.strictEqual(editor.getText(), "open config docs");
 		});
 	});
 

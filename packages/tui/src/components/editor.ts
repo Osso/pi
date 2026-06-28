@@ -469,35 +469,54 @@ export class Editor implements Component, Focusable {
 		this.exitHistoryBrowsing();
 		if (!this.historySearchDraft) {
 			this.historySearchDraft = structuredClone(this.state);
-			this.historySearchQuery = "";
+			this.historySearchQuery = this.getText();
 			this.historySearchIndex = -1;
+			this.setTextInternal(this.historySearchQuery);
+			this.updateHistorySearch(0);
 			this.tui.requestRender();
 			return;
 		}
-		this.applyHistorySearch(this.historySearchIndex + 1);
+		this.stepHistorySearch();
 	}
 
-	private applyHistorySearch(startIndex: number): void {
-		if (!this.historySearchDraft) return;
+	private getHistorySearchMatches(): number[] {
+		if (!this.historySearchDraft) return [];
 		const query = this.historySearchQuery.toLocaleLowerCase();
-		for (let index = Math.max(0, startIndex); index < this.history.length; index++) {
+		if (!query) return [];
+		const matches: number[] = [];
+		for (let index = 0; index < this.history.length; index++) {
 			const entry = this.history[index]!;
 			if (entry.toLocaleLowerCase().includes(query)) {
-				this.historySearchIndex = index;
-				this.setTextInternal(entry);
-				return;
+				matches.push(index);
 			}
 		}
-		this.historySearchIndex = -1;
-		this.state = structuredClone(this.historySearchDraft);
-		if (this.onChange) this.onChange(this.getText());
+		return matches;
+	}
+
+	private updateHistorySearch(startMatchIndex: number): void {
+		if (!this.historySearchDraft) return;
+		this.setTextInternal(this.historySearchQuery);
+		const matches = this.getHistorySearchMatches();
+		this.historySearchIndex = matches[startMatchIndex] ?? -1;
+		this.tui.requestRender();
+	}
+
+	private stepHistorySearch(): void {
+		const matches = this.getHistorySearchMatches();
+		const currentMatchIndex = matches.indexOf(this.historySearchIndex);
+		const nextMatchIndex = currentMatchIndex < 0 ? 0 : (currentMatchIndex + 1) % matches.length;
+		this.historySearchIndex = matches[nextMatchIndex] ?? -1;
 		this.tui.requestRender();
 	}
 
 	private acceptHistorySearch(): void {
+		const selectedEntry = this.historySearchIndex >= 0 ? this.history[this.historySearchIndex] : undefined;
 		this.historySearchQuery = "";
 		this.historySearchIndex = -1;
 		this.historySearchDraft = null;
+		if (selectedEntry !== undefined) {
+			this.setTextInternal(selectedEntry);
+		}
 		this.tui.requestRender();
 	}
 
@@ -536,19 +555,31 @@ export class Editor implements Component, Focusable {
 		}
 		if (kb.matches(data, "tui.editor.deleteCharBackward")) {
 			this.historySearchQuery = this.historySearchQuery.slice(0, -1);
-			this.applyHistorySearch(0);
+			this.updateHistorySearch(0);
 			return true;
 		}
 
 		const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
 		if (printable !== undefined) {
 			this.historySearchQuery += printable;
-			this.applyHistorySearch(0);
+			this.updateHistorySearch(0);
 			return true;
 		}
 
 		this.acceptHistorySearch();
 		return false;
+	}
+
+	private renderHistorySearchLine(width: number): string {
+		const matches = this.getHistorySearchMatches();
+		const matchPosition = matches.indexOf(this.historySearchIndex);
+		const matchCount = matches.length;
+		const counter = `${matchPosition < 0 ? 0 : matchPosition + 1}/${matchCount}`;
+		const selectedEntry = this.historySearchIndex >= 0 ? this.history[this.historySearchIndex] : "";
+		const preview = selectedEntry ? `> ${selectedEntry}` : "> ";
+		const availablePreviewWidth = Math.max(0, width - counter.length - 1);
+		const line = `${truncateToWidth(preview, availablePreviewWidth).padEnd(availablePreviewWidth)} ${counter}`;
+		return truncateToWidth(line, width);
 	}
 
 	/** Internal setText that doesn't reset history state - used by navigateHistory */
@@ -618,8 +649,7 @@ export class Editor implements Component, Focusable {
 		const rightPadding = leftPadding;
 
 		if (this.historySearchDraft) {
-			const label = `reverse-search: ${this.historySearchQuery}`;
-			result.push(this.borderColor(truncateToWidth(label.padEnd(width), width)));
+			result.push(this.borderColor(this.renderHistorySearchLine(width)));
 		}
 
 		// Render top border (with scroll indicator if scrolled down)
