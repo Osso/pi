@@ -1,4 +1,6 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import goalExtension from "../../extensions/goal/src/index.ts";
 import type { ExtensionUIContext } from "../../src/core/extensions/index.ts";
@@ -69,5 +71,22 @@ describe("goal extension runtime", () => {
 		expect(getUserTexts(harness)).toContain(
 			"Continue working toward this objective until it is achieved: say hello twice in two different rounds",
 		);
+	});
+
+	it("does not let an agent reset an active goal through set_goal", async () => {
+		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("set_goal", { objective: "agent-chosen objective", replace: true }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("/goal first objective");
+		await waitForProviderCalls(harness, 2);
+
+		const goal = JSON.parse(readFileSync(join(harness.tempDir, ".pi", "goal.json"), "utf8")) as { objective: string };
+		expect(goal.objective).toBe("first objective");
 	});
 });

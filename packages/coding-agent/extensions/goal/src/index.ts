@@ -219,8 +219,9 @@ function goalSystemBlock(goal: Goal): string {
 		...goalStateLines(goal),
 		"",
 		"Keep working toward this objective across turns until it is achieved.",
-		"When it is achieved, state clearly that the goal is complete. If you cannot",
-		"make further progress, say what is blocking it rather than stopping silently.",
+		"When it is achieved, call the goal_complete tool.",
+		"Do not call set_goal for this objective; it is already active.",
+		"If you cannot make further progress, say what is blocking it rather than stopping silently.",
 		"</goal>",
 	].join("\n");
 }
@@ -288,11 +289,20 @@ export default function goalExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			const wallClockBudgetMs =
-				params.wallClockMinutes !== undefined ? params.wallClockMinutes * 60 * 1000 : undefined;
+			const activeGoal = loadActiveGoal(ctx.cwd);
+			if (activeGoal) {
+				const message = "Active goal already set — use /goal --replace <objective> to replace it";
+				ctx.ui.notify(message, "warning");
+				return {
+					content: [{ type: "text", text: message }],
+					details: { objective: activeGoal.objective },
+				};
+			}
+
+			const wallClockBudgetMs = params.wallClockMinutes !== undefined ? params.wallClockMinutes * 60 * 1000 : undefined;
 			const result = setGoal({
 				objective,
-				replace: params.replace ?? false,
+				replace: false,
 				tokenBudget: params.tokenBudget,
 				wallClockBudgetMs,
 				cwd: ctx.cwd,

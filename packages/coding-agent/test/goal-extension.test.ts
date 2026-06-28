@@ -131,6 +131,26 @@ describe("goal extension", () => {
 		);
 	});
 
+	it("does not let the set_goal tool replace an active goal", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("first objective");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		const result = await harness.runSetGoal("agent-chosen objective", true);
+
+		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		expect(goal.objective).toBe("first objective");
+		expect(result?.content).toEqual([
+			{ type: "text", text: "Active goal already set — use /goal --replace <objective> to replace it" },
+		]);
+		expect(harness.notify).toHaveBeenCalledWith(
+			"Active goal already set — use /goal --replace <objective> to replace it",
+			"warning",
+		);
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
 	it("sets an objective, persists it, and starts work when idle", async () => {
 		const harness = createGoalHarness(cwd);
 
@@ -189,6 +209,7 @@ describe("goal extension", () => {
 		const result = await harness.runBeforeAgentStart();
 		expect(result?.systemPrompt).toContain("<goal>");
 		expect(result?.systemPrompt).toContain("Long-running objective: keep context anchored");
+		expect(result?.systemPrompt).toContain("When it is achieved, call the goal_complete tool.");
 		expect(result?.systemPrompt).toContain("base prompt");
 	});
 
