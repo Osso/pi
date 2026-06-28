@@ -11,6 +11,7 @@ export {
 // Components
 export { Box } from "./components/box.ts";
 export { CancellableLoader } from "./components/cancellable-loader.ts";
+export { DynamicBorder } from "./components/dynamic-border.ts";
 export { Editor, type EditorOptions, type EditorTheme } from "./components/editor.ts";
 export { Image, type ImageOptions, type ImageTheme } from "./components/image.ts";
 export { Input } from "./components/input.ts";
