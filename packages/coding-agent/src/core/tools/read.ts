@@ -34,7 +34,16 @@ interface CompactReadClassification {
 	label: string;
 }
 
-const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+const COMPACT_RESOURCE_FILE_NAMES = new Set([
+	"AGENTS.md",
+	"AGENTS.local.md",
+	"AGENTS.MD",
+	"AGENTS.local.MD",
+	"CLAUDE.md",
+	"CLAUDE.local.md",
+	"CLAUDE.MD",
+	"CLAUDE.local.MD",
+]);
 
 /**
  * Pluggable operations for the read tool.

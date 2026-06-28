@@ -354,6 +354,31 @@ Content`,
 			expect(agentsFiles.some((f) => f.path.includes("AGENTS.md"))).toBe(true);
 		});
 
+		it("should load AGENTS.local.md after AGENTS.md from the same directory", async () => {
+			writeFileSync(join(cwd, "AGENTS.md"), "Shared context.");
+			writeFileSync(join(cwd, "AGENTS.local.md"), "Local context.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "AGENTS.md"), content: "Shared context." },
+				{ path: join(cwd, "AGENTS.local.md"), content: "Local context." },
+			]);
+		});
+
+		it("should not load AGENTS.md and CLAUDE.md twice when they resolve to the same file", async () => {
+			writeFileSync(join(cwd, "CLAUDE.md"), "Shared context.");
+			symlinkSync(join(cwd, "CLAUDE.md"), join(cwd, "AGENTS.md"));
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "AGENTS.md"), content: "Shared context." },
+			]);
+		});
+
 		it("should load context files and rules from the resolved worktree cwd", async () => {
 			const originalCwd = join(tempDir, "repo");
 			const worktreeCwd = join(tempDir, "repo-feature");

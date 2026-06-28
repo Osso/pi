@@ -95,13 +95,13 @@ See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 
 ## Context Files
 
-Pi loads `AGENTS.md` or `CLAUDE.md` at startup from:
+Pi loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, or `CLAUDE.local.md` at startup from:
 
 - `~/.pi/agent/AGENTS.md` for global instructions
 - parent directories, walking up from the current working directory
 - the current directory
 
-Use context files for project conventions, commands, safety rules, and preferences. Disable loading with `--no-context-files` or `-nc`.
+Use context files for project conventions, commands, safety rules, preferences, and local overrides. Disable loading with `--no-context-files` or `-nc`.
 
 ### System Prompt Files
 
@@ -222,7 +222,7 @@ Built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`.
 | `--no-prompt-templates` | Disable prompt template discovery |
 | `--theme <path>` | Load a theme; repeatable |
 | `--no-themes` | Disable theme discovery |
-| `--no-context-files`, `-nc` | Disable `AGENTS.md` and `CLAUDE.md` discovery |
+| `--no-context-files`, `-nc` | Disable `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` discovery |
 
 Combine `--no-*` with explicit flags to load exactly what you need, ignoring settings. Example:
 
