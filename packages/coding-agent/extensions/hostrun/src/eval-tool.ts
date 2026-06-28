@@ -123,6 +123,7 @@ export function createHostrunEvalExecutor(runner: HostrunRunnerClient, dispatchP
 		return {
 			content: [{ type: "text", text: formatToolText(params, result) }],
 			details: result,
+			isError: result.error !== undefined,
 		};
 	};
 }

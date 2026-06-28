@@ -649,7 +649,7 @@ async function executePreparedToolCall(
 		);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
-		return { result, isError: false };
+		return { result, isError: result.isError ?? false };
 	} catch (error) {
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);

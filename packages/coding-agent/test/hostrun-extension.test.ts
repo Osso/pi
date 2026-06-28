@@ -466,6 +466,23 @@ describe("hostrun extension", () => {
 		});
 	});
 
+	it("marks canonical Hostrun eval errors as final tool errors", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({ code: "throw new Error('boom')" });
+
+		expect(result.isError).toBe(true);
+		expect(result.details).toEqual({
+			error: "boom",
+			executed: "throw new Error('boom')",
+			type: "completed",
+		});
+		expect(result.content[0]).toEqual({
+			type: "text",
+			text: "throw new Error('boom')\n\nSession: default\nError: boom",
+		});
+	});
+
 	it("aborts an in-progress Hostrun evaluation when the agent signal is aborted", async () => {
 		const harness = createHostrunHarness();
 		const controller = new AbortController();
