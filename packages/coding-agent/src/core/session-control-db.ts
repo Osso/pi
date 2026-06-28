@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 export interface IncomingControlMessage {
 	id: number;
@@ -223,8 +223,8 @@ export function listNamedSessions(controlDbPath: string): NamedSession[] {
 	});
 }
 
-function withControlDb<T>(controlDbPath: string, callback: (db: DatabaseSync) => T): T {
-	const db = new DatabaseSync(controlDbPath);
+function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
+	const db = createSqliteDatabase(controlDbPath);
 	try {
 		db.exec("PRAGMA busy_timeout = 5000");
 		initializeSchema(db);
@@ -234,7 +234,7 @@ function withControlDb<T>(controlDbPath: string, callback: (db: DatabaseSync) =>
 	}
 }
 
-function initializeSchema(db: DatabaseSync): void {
+function initializeSchema(db: SqliteDatabase): void {
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS incoming_messages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

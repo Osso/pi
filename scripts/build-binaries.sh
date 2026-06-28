@@ -109,6 +109,7 @@ fi
 
 if [[ "$SKIP_BUILD" == "false" ]]; then
     echo "==> Building all packages..."
+    npm --prefix packages/coding-agent run clean
     npm run build
 else
     echo "==> Skipping package build (--skip-build)"
