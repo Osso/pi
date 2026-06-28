@@ -373,14 +373,14 @@ export class MultiAgentStore {
 	}
 
 	selectAgentSlot(slotIndex: number): AgentSnapshot | undefined {
-		for (const agent of this.agents.values()) {
-			if (agent.slot?.index === slotIndex) {
-				this.selectedAgentId = agent.id;
-				return copyAgent(agent);
-			}
+		const pinnedAgent = this.findAgentByPinnedSlot(slotIndex);
+		const selectedAgent = pinnedAgent ?? Array.from(this.agents.values())[slotIndex - 1];
+		if (!selectedAgent) {
+			return undefined;
 		}
 
-		return undefined;
+		this.selectedAgentId = selectedAgent.id;
+		return copyAgent(selectedAgent);
 	}
 
 	getSelectedAgentId(): string | undefined {
@@ -762,6 +762,16 @@ export class MultiAgentStore {
 			slotIndex: agent.slot?.index,
 			workerAdapter: agent.worker?.adapter,
 		}));
+	}
+
+	private findAgentByPinnedSlot(slotIndex: number): AgentNode | undefined {
+		for (const agent of this.agents.values()) {
+			if (agent.slot?.index === slotIndex) {
+				return agent;
+			}
+		}
+
+		return undefined;
 	}
 
 	private findSlotOccupant(slotIndex: number, excludedAgentId: string): AgentNode | undefined {

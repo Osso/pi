@@ -26,7 +26,7 @@ export interface CanonicalHostrunEvalResult {
 	console?: CanonicalHostrunConsoleEntry[];
 	error?: string;
 	executed?: string;
-	type: "completed" | "needs_approval";
+	type: "completed" | "error" | "needs_approval";
 	value?: unknown;
 }
 
@@ -243,7 +243,7 @@ export class HostrunRunnerClient {
 }
 
 function isFinalEvalResult(message: CanonicalHostrunRunnerMessage): message is CanonicalHostrunEvalResult {
-	return message.type === "completed" || message.type === "needs_approval";
+	return message.type === "completed" || message.type === "error" || message.type === "needs_approval";
 }
 
 function isPiRequest(message: CanonicalHostrunRunnerMessage): message is CanonicalHostrunProgressUpdate {

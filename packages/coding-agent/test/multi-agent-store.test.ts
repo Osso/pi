@@ -509,7 +509,7 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
-	it("switches visible slots by index without mutating lifecycle state", () => {
+	it("switches pinned slots by index and falls back to agent row order", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const first = store.spawnAgent({
 			agentType: "worker",
@@ -527,6 +527,13 @@ describe("MultiAgentStore", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 9, pinned: true },
 		});
+		const third = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Third",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
 		const started = store.transitionAgent(ninth.agent.id, ninth.agent.revision, "starting");
 		expect(started.ok).toBe(true);
 		if (!started.ok) {
@@ -535,7 +542,9 @@ describe("MultiAgentStore", () => {
 
 		const selectedFirst = store.selectAgentSlot(1);
 		const selectedNinth = store.selectAgentSlot(9);
-		const missing = store.selectAgentSlot(2);
+		const selectedSecondRow = store.selectAgentSlot(2);
+		const selectedThirdRow = store.selectAgentSlot(3);
+		const missing = store.selectAgentSlot(4);
 
 		expect(selectedFirst).toMatchObject({
 			id: first.agent.id,
@@ -547,8 +556,10 @@ describe("MultiAgentStore", () => {
 			lifecycle: "starting",
 			revision: started.agent.revision,
 		});
+		expect(selectedSecondRow).toMatchObject({ id: ninth.agent.id, revision: started.agent.revision });
+		expect(selectedThirdRow).toMatchObject({ id: third.agent.id, revision: third.agent.revision });
 		expect(missing).toBeUndefined();
-		expect(store.getSelectedAgentId()).toBe(ninth.agent.id);
+		expect(store.getSelectedAgentId()).toBe(third.agent.id);
 		expect(store.getAgent(first.agent.id)).toMatchObject({ lifecycle: "queued", revision: first.agent.revision });
 		expect(store.getAgent(ninth.agent.id)).toMatchObject({ lifecycle: "starting", revision: started.agent.revision });
 	});

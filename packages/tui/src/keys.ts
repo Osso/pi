@@ -1159,8 +1159,9 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 			if (data === `\x1b${rawCtrl}`) return true;
 		}
 
-		if (modifier === MODIFIERS.alt && !_kittyProtocolActive && (isLetter || isDigit)) {
-			// Legacy: alt+letter/digit is ESC followed by the key
+		if (modifier === MODIFIERS.alt && (isDigit || (!_kittyProtocolActive && isLetter))) {
+			// Legacy: alt+letter/digit is ESC followed by the key. Digits stay
+			// unambiguous after Kitty negotiation and are used for app slot shortcuts.
 			if (data === `\x1b${key}`) return true;
 		}
 
@@ -1291,13 +1292,16 @@ export function parseKey(data: string): string | undefined {
 	if (data === "\x1b\x7f" || data === "\x1b\b") return "alt+backspace";
 	if (!_kittyProtocolActive && data === "\x1bB") return "alt+left";
 	if (!_kittyProtocolActive && data === "\x1bF") return "alt+right";
-	if (!_kittyProtocolActive && data.length === 2 && data[0] === "\x1b") {
+	if (data.length === 2 && data[0] === "\x1b") {
 		const code = data.charCodeAt(1);
-		if (code >= 1 && code <= 26) {
+		if (!_kittyProtocolActive && code >= 1 && code <= 26) {
 			return `ctrl+alt+${String.fromCharCode(code + 96)}`;
 		}
-		// Legacy alt+letter/digit (ESC followed by the key)
-		if ((code >= 97 && code <= 122) || (code >= 48 && code <= 57)) {
+		// Legacy alt+digit stays unambiguous after Kitty negotiation; alt+letter remains legacy-only.
+		if (code >= 48 && code <= 57) {
+			return `alt+${String.fromCharCode(code)}`;
+		}
+		if (!_kittyProtocolActive && code >= 97 && code <= 122) {
 			return `alt+${String.fromCharCode(code)}`;
 		}
 	}

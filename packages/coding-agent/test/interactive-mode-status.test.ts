@@ -220,6 +220,41 @@ describe("InteractiveMode agent slot keybindings", () => {
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
 	});
+
+	test("switches to the nth agent view when agents are not pinned to slots", () => {
+		const actions = new Map<string, () => void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const first = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const second = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectAgentView(first.agent.id);
+		const fakeThis = {
+			defaultEditor: {
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			multiAgentStore: store,
+			footer: { invalidate: vi.fn() },
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			ui: { requestRender: vi.fn() },
+		};
+
+		interactiveModeKeyHandlers.registerAgentSlotKeyHandlers.call(fakeThis);
+		actions.get("app.agent.slot2")?.();
+
+		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("InteractiveMode footer ownership", () => {
