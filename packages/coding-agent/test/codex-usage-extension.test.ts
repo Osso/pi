@@ -5,6 +5,7 @@ import {
 	mapCodexUsagePayload,
 	resolveCodexAccountId,
 	resolveCodexAccountInfo,
+	resolveCodexDisplayEmail,
 } from "../extensions/codex-usage/src/index.ts";
 
 function usagePayload(overrides: Partial<CodexUsagePayload> = {}): CodexUsagePayload {
@@ -88,5 +89,14 @@ describe("codex usage extension", () => {
 		const token = `header.${payload}.signature`;
 
 		expect(resolveCodexAccountInfo(token)).toEqual({ accountId: "acct_123", email: "user@example.com" });
+	});
+
+	it("prefers a stored email when the access token has no email claim", () => {
+		const payload = Buffer.from(
+			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acct_123" } }),
+		).toString("base64url");
+		const token = `header.${payload}.signature`;
+
+		expect(resolveCodexDisplayEmail(token, "stored@example.com")).toBe("stored@example.com");
 	});
 });

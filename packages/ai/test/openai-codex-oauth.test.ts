@@ -20,15 +20,21 @@ function getUrl(input: unknown): string {
 }
 
 function createAccessToken(accountId: string): string {
+	return createJwt({
+		"https://api.openai.com/auth": {
+			chatgpt_account_id: accountId,
+		},
+	});
+}
+
+function createIdToken(email: string): string {
+	return createJwt({ email });
+}
+
+function createJwt(payload: unknown): string {
 	const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64");
-	const payload = Buffer.from(
-		JSON.stringify({
-			"https://api.openai.com/auth": {
-				chatgpt_account_id: accountId,
-			},
-		}),
-	).toString("base64");
-	return `${header}.${payload}.signature`;
+	const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64");
+	return `${header}.${encodedPayload}.signature`;
 }
 
 function deviceAuthPendingResponse(): Response {
@@ -153,6 +159,48 @@ describe("OpenAI Codex OAuth", () => {
 			accountId: "account-123",
 		});
 		expect(pollTimes).toEqual([startTime.getTime(), startTime.getTime() + 5000]);
+	});
+
+	it("stores the user email from the OpenAI Codex id token", async () => {
+		const accessToken = createAccessToken("account-email");
+		const idToken = createIdToken("user@example.com");
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: unknown): Promise<Response> => {
+				const url = getUrl(input);
+				if (url === "https://auth.openai.com/api/accounts/deviceauth/usercode") {
+					return jsonResponse({
+						device_auth_id: "device-auth-id",
+						user_code: "ABCD-1234",
+						interval: "5",
+					});
+				}
+				if (url === "https://auth.openai.com/api/accounts/deviceauth/token") {
+					return jsonResponse({
+						authorization_code: "oauth-code",
+						code_challenge: "device-code-challenge",
+						code_verifier: "device-code-verifier",
+					});
+				}
+				if (url === "https://auth.openai.com/oauth/token") {
+					return jsonResponse({
+						access_token: accessToken,
+						refresh_token: "refresh-token",
+						expires_in: 3600,
+						id_token: idToken,
+					});
+				}
+				throw new Error(`Unexpected fetch URL: ${url}`);
+			}),
+		);
+
+		await expect(loginOpenAICodexDeviceCode({ onDeviceCode: () => {} })).resolves.toMatchObject({
+			access: accessToken,
+			refresh: "refresh-token",
+			accountId: "account-email",
+			email: "user@example.com",
+		});
 	});
 
 	it("offers browser login first and uses the selected OpenAI Codex device code flow", async () => {

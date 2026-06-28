@@ -45,7 +45,7 @@ export const OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD = "device_code";
 const SCOPE = "openid profile email offline_access";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 
-type OAuthToken = { access: string; refresh: string; expires: number };
+type OAuthToken = { access: string; refresh: string; expires: number; idToken?: string };
 type TokenOperation = "exchange" | "refresh";
 
 function getCallbackHost(): string {
@@ -64,6 +64,8 @@ type DeviceTokenSuccess = {
 };
 
 type JwtPayload = {
+	email?: unknown;
+	profile?: { email?: unknown };
 	[JWT_CLAIM_PATH]?: {
 		chatgpt_account_id?: string;
 	};
@@ -141,6 +143,7 @@ async function readTokenResponse(response: Response, operation: TokenOperation):
 		access_token?: string;
 		refresh_token?: string;
 		expires_in?: number;
+		id_token?: string;
 	} | null;
 	if (!json?.access_token || !json.refresh_token || typeof json.expires_in !== "number") {
 		throw new Error(`OpenAI Codex token ${operation} response missing fields: ${JSON.stringify(json)}`);
@@ -150,6 +153,7 @@ async function readTokenResponse(response: Response, operation: TokenOperation):
 		access: json.access_token,
 		refresh: json.refresh_token,
 		expires: Date.now() + json.expires_in * 1000,
+		idToken: json.id_token,
 	};
 }
 
@@ -406,17 +410,27 @@ function getAccountId(accessToken: string): string | null {
 	return typeof accountId === "string" && accountId.length > 0 ? accountId : null;
 }
 
+function getEmail(idToken: string | undefined): string | null {
+	if (!idToken) return null;
+	const payload = decodeJwt(idToken);
+	if (typeof payload?.email === "string" && payload.email.length > 0) return payload.email;
+	const profileEmail = payload?.profile?.email;
+	return typeof profileEmail === "string" && profileEmail.length > 0 ? profileEmail : null;
+}
+
 function credentialsFromToken(token: OAuthToken): OAuthCredentials {
 	const accountId = getAccountId(token.access);
 	if (!accountId) {
 		throw new Error("Failed to extract accountId from token");
 	}
 
+	const email = getEmail(token.idToken);
 	return {
 		access: token.access,
 		refresh: token.refresh,
 		expires: token.expires,
 		accountId,
+		...(email ? { email } : {}),
 	};
 }
 

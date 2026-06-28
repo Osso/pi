@@ -95,6 +95,11 @@ export function resolveCodexAccountInfo(token: string): CodexAccountInfo {
 	return { accountId, email: resolveEmailClaim(payload) };
 }
 
+export function resolveCodexDisplayEmail(token: string, storedEmail: unknown): string | null {
+	if (typeof storedEmail === "string" && storedEmail.length > 0) return storedEmail;
+	return resolveCodexAccountInfo(token).email;
+}
+
 function decodeCodexTokenPayload(token: string): CodexTokenPayload {
 	const parts = token.split(".");
 	if (parts.length !== 3) throw new Error("Invalid OpenAI Codex access token");
@@ -286,12 +291,19 @@ async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI):
 async function readCodexUsage(ctx: ExtensionCommandContext): Promise<CodexUsage> {
 	const token = await getCodexAccessToken(ctx);
 	const accountInfo = resolveCodexAccountInfo(token);
+	const storedEmail = resolveStoredCodexEmail(ctx);
 	const response = await fetch(CODEX_USAGE_URL, { headers: createCodexHeaders(token) });
 	return {
 		...mapCodexUsagePayload((await decodeJsonResponse(response)) as CodexUsagePayload),
 		accountId: accountInfo.accountId,
-		email: accountInfo.email,
+		email: resolveCodexDisplayEmail(token, storedEmail),
 	};
+}
+
+function resolveStoredCodexEmail(ctx: ExtensionCommandContext): string | null {
+	const credential = ctx.modelRegistry.authStorage.get(CODEX_PROVIDER_ID);
+	const email = credential && "email" in credential ? credential.email : undefined;
+	return typeof email === "string" && email.length > 0 ? email : null;
 }
 
 async function getCodexAccessToken(ctx: ExtensionCommandContext): Promise<string> {
