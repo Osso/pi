@@ -345,7 +345,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 	pi.on("agent_end", async (_event, ctx: ExtensionContext) => {
 		const goal = loadActiveGoal(ctx.cwd);
-		if (!goal || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+		if (!goal || ctx.hasPendingMessages()) return;
 
 		const stopReason = budgetStopReason(goal, ctx);
 		if (stopReason) {
@@ -360,7 +360,9 @@ export default function goalExtension(pi: ExtensionAPI) {
 		}
 
 		saveGoal(ctx.cwd, { ...goal, continuationTurns: continuationTurns + 1 });
-		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`);
+		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`, {
+			deliverAs: "followUp",
+		});
 	});
 
 	// Inject the active objective into the system prompt every turn.

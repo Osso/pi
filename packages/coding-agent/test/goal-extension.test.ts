@@ -294,17 +294,21 @@ describe("goal extension", () => {
 
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
 			"Continue working toward this objective until it is achieved: continue this objective",
+			{ deliverAs: "followUp" },
 		);
 	});
 
-	it("does not continue when the agent is busy", async () => {
+	it("continues after agent_end even before the runtime reports idle", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
 
-		await harness.runCommand("do not overlap");
+		await harness.runCommand("continue from agent_end");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Continue working toward this objective until it is achieved: continue from agent_end",
+			{ deliverAs: "followUp" },
+		);
 	});
 
 	it("stops continuation after goal_complete is called", async () => {
