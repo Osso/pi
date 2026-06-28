@@ -375,6 +375,32 @@ describe("Editor component", () => {
 			assert.doesNotMatch(rendered, /Goal set - starting work/);
 		});
 
+		it("limits reverse search rendering to 20 rows while keeping all matches navigable", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			for (let i = 1; i <= 25; i++) {
+				editor.addToHistory(`match ${i}`);
+			}
+
+			editor.handleInput("\x12");
+			editor.handleInput("m");
+			editor.handleInput("a");
+
+			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
+			const visibleMatches = rendered.match(/^. match /gm) ?? [];
+			assert.strictEqual(visibleMatches.length, 20);
+			assert.match(rendered, /1\/25/);
+			assert.doesNotMatch(rendered, /match 5/);
+
+			for (let i = 0; i < 20; i++) {
+				editor.handleInput("\x12");
+			}
+
+			const steppedRendered = stripVTControlCharacters(editor.render(60).join("\n"));
+			assert.match(steppedRendered, /> match 5\b/);
+			assert.match(steppedRendered, /21\/25/);
+		});
+
 		it("accepts the selected reverse search match on Enter", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

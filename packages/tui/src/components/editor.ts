@@ -236,6 +236,7 @@ const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 
 const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
 const DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS = ["@", "#"];
+const HISTORY_SEARCH_MAX_RENDERED_ROWS = 20;
 
 function escapeCharacterClass(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|-]/g, "\\$&");
@@ -612,7 +613,11 @@ export class Editor implements Component, Focusable {
 			return [truncateToWidth(line, width)];
 		}
 
-		return matches.map((historyIndex, index) => {
+		const visibleStartIndex = Math.max(0, Math.min(matchPosition, matches.length - HISTORY_SEARCH_MAX_RENDERED_ROWS));
+		const visibleMatches = matches.slice(visibleStartIndex, visibleStartIndex + HISTORY_SEARCH_MAX_RENDERED_ROWS);
+
+		return visibleMatches.map((historyIndex, visibleIndex) => {
+			const index = visibleStartIndex + visibleIndex;
 			const marker = historyIndex === this.historySearchIndex ? ">" : " ";
 			const suffix = index === matchPosition ? counter : "";
 			const availablePreviewWidth = Math.max(0, width - suffix.length - (suffix ? 1 : 0));
