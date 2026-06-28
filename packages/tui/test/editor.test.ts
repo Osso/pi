@@ -337,10 +337,10 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "co");
 		});
 
-		it("shows only the selected reverse search match row", () => {
+		it("shows each reverse search match as a single first-line row", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.addToHistory("older config note");
+			editor.addToHistory("older config note\nhidden detail");
 			editor.addToHistory("newer config fix");
 			editor.addToHistory("unrelated prompt");
 
@@ -350,7 +350,8 @@ describe("Editor component", () => {
 
 			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
 			assert.match(rendered, /> newer config fix/);
-			assert.doesNotMatch(rendered, /older config note/);
+			assert.match(rendered, / {2}older config note/);
+			assert.doesNotMatch(rendered, /hidden detail/);
 			assert.match(rendered, /1\/2/);
 		});
 
