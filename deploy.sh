@@ -25,10 +25,21 @@ require_safe_absolute_dir() {
 	esac
 }
 
+cleanup_extension_build_outputs() {
+	shopt -s globstar nullglob
+	rm -f \
+		packages/coding-agent/extensions/**/src/*.js \
+		packages/coding-agent/extensions/**/src/*.js.map \
+		packages/coding-agent/extensions/**/src/*.d.ts \
+		packages/coding-agent/extensions/**/src/*.d.ts.map
+	shopt -u globstar nullglob
+}
+
 require_safe_absolute_dir "PI_DEPLOY_INSTALL_DIR" "$INSTALL_DIR"
 require_safe_absolute_dir "PI_DEPLOY_BIN_DIR" "$BIN_DIR"
 
 cd "$ROOT_DIR"
+trap cleanup_extension_build_outputs EXIT
 
 case "$(uname -s)-$(uname -m)" in
 	Linux-x86_64)
@@ -54,7 +65,16 @@ npm run check
 rm -rf "$TMP_INSTALL_DIR" "$OLD_INSTALL_DIR"
 mkdir -p "$(dirname "$INSTALL_DIR")" "$BIN_DIR"
 
-"$ROOT_DIR/scripts/build-binaries.sh" --skip-install --skip-deps --platform "$PLATFORM" --out "$BUILD_DIR"
+npm --prefix packages/tui run clean
+npm --prefix packages/tui run build
+npm --prefix packages/ai run clean
+npm --prefix packages/ai exec -- tsgo -p packages/ai/tsconfig.build.json
+npm --prefix packages/agent run clean
+npm --prefix packages/agent run build
+npm --prefix packages/coding-agent run clean
+npm --prefix packages/coding-agent run build
+
+"$ROOT_DIR/scripts/build-binaries.sh" --skip-install --skip-deps --skip-build --platform "$PLATFORM" --out "$BUILD_DIR"
 cp -R "$BUILD_DIR/$PLATFORM" "$TMP_INSTALL_DIR"
 
 if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
