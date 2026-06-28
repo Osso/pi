@@ -337,7 +337,7 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "co");
 		});
 
-		it("shows all reverse search matches with the selected row highlighted", () => {
+		it("shows only the selected reverse search match row", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
 			editor.addToHistory("older config note");
@@ -350,7 +350,7 @@ describe("Editor component", () => {
 
 			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
 			assert.match(rendered, /> newer config fix/);
-			assert.match(rendered, / {2}older config note/);
+			assert.doesNotMatch(rendered, /older config note/);
 			assert.match(rendered, /1\/2/);
 		});
 
