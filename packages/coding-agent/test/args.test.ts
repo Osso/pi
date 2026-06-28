@@ -45,6 +45,20 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("login command", () => {
+		test("parses login provider as a command instead of a prompt", () => {
+			const result = parseArgs(["login", "openai-codex-gc"]);
+			expect(result.loginProvider).toBe("openai-codex-gc");
+			expect(result.messages).toEqual([]);
+		});
+
+		test("reports missing login provider", () => {
+			const result = parseArgs(["login"]);
+			expect(result.loginProvider).toBeUndefined();
+			expect(result.diagnostics).toContainEqual({ type: "error", message: "login requires a provider" });
+		});
+	});
+
 	describe("--help flag", () => {
 		test("parses --help flag", () => {
 			const result = parseArgs(["--help"]);

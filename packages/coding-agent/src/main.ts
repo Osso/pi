@@ -31,6 +31,7 @@ import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listExtensions } from "./cli/list-extensions.ts";
 import { listModels } from "./cli/list-models.ts";
 import { listTools } from "./cli/list-tools.ts";
+import { handleLoginCommand } from "./cli/login-command.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
@@ -594,6 +595,10 @@ export async function main(args: string[], options?: MainOptions) {
 
 	if (await handleConfigCommand(args, { extensionFactories: options?.extensionFactories })) {
 		return;
+	}
+
+	if (await handleLoginCommand(args)) {
+		process.exit(process.exitCode ?? 0);
 	}
 
 	if (handleControlCommand(args, { agentDir })) {
