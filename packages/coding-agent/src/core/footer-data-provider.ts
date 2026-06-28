@@ -99,6 +99,7 @@ function shouldPollGitHead(repoDir: string): boolean {
 export class FooterDataProvider {
 	private cwd: string;
 	private static readonly WATCH_DEBOUNCE_MS = 500;
+	private static readonly GIT_FILE_POLL_INTERVAL_MS = 1000;
 
 	private extensionStatuses = new Map<string, string>();
 	private cachedBranch: string | null | undefined = undefined;
@@ -333,7 +334,11 @@ export class FooterDataProvider {
 					this.scheduleRefresh();
 				}
 			};
-			watchFile(this.headWatchFilePath, { interval: 1000 }, this.headWatchFileListener);
+			watchFile(
+				this.headWatchFilePath,
+				{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
+				this.headWatchFileListener,
+			);
 		}
 		if (!this.headWatcher && !pollGitHead) {
 			return;
@@ -367,15 +372,19 @@ export class FooterDataProvider {
 				if (!this.reftableTablesListWatcher) {
 					return;
 				}
-				watchFile(tablesListPath, { interval: 250 }, (current, previous) => {
-					if (
-						current.mtimeMs !== previous.mtimeMs ||
-						current.ctimeMs !== previous.ctimeMs ||
-						current.size !== previous.size
-					) {
-						this.scheduleRefresh();
-					}
-				});
+				watchFile(
+					tablesListPath,
+					{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
+					(current, previous) => {
+						if (
+							current.mtimeMs !== previous.mtimeMs ||
+							current.ctimeMs !== previous.ctimeMs ||
+							current.size !== previous.size
+						) {
+							this.scheduleRefresh();
+						}
+					},
+				);
 			}
 		}
 	}

@@ -1,10 +1,20 @@
 import { execFile, spawnSync } from "child_process";
-import { existsSync, type FSWatcher, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import type * as Fs from "fs";
+import { existsSync, type FSWatcher, mkdirSync, mkdtempSync, rmSync, watchFile, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let resolvedBranch = "main";
+
+vi.mock("fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof Fs>();
+	return {
+		...actual,
+		unwatchFile: vi.fn(actual.unwatchFile),
+		watchFile: vi.fn(actual.watchFile),
+	};
+});
 
 vi.mock("child_process", () => ({
 	execFile: vi.fn(
@@ -97,6 +107,7 @@ describe("FooterDataProvider reftable branch detection", () => {
 		resolvedBranch = "main";
 		vi.mocked(spawnSync).mockClear();
 		vi.mocked(execFile).mockClear();
+		vi.mocked(watchFile).mockClear();
 	});
 
 	afterEach(() => {
@@ -162,6 +173,22 @@ describe("FooterDataProvider reftable branch detection", () => {
 		const provider = new FooterDataProvider(repoDir);
 		try {
 			expect(provider.getGitBranch()).toBe("detached");
+		} finally {
+			provider.dispose();
+		}
+	});
+
+	it("polls reftable tables.list at the idle-safe git polling cadence", () => {
+		const { worktreeDir, reftableDir } = createReftableWorktree(tempDir);
+		process.chdir(worktreeDir);
+
+		const provider = new FooterDataProvider(worktreeDir);
+		try {
+			expect(vi.mocked(watchFile)).toHaveBeenCalledWith(
+				join(reftableDir, "tables.list"),
+				{ interval: 1000 },
+				expect.any(Function),
+			);
 		} finally {
 			provider.dispose();
 		}
