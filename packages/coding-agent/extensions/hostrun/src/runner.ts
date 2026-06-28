@@ -5,6 +5,7 @@ import { EOL, homedir } from "node:os";
 export interface CanonicalHostrunEvalParams {
 	code: string;
 	pi?: unknown;
+	pi_bridge?: boolean;
 	session_id?: string;
 }
 

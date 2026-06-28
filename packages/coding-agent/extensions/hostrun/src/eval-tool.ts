@@ -110,7 +110,7 @@ export function createHostrunEvalExecutor(runner: HostrunRunnerClient, dispatchP
 			return dispatchPiRequest(request, ctx, signal);
 		};
 		const result = await runner.evaluate(
-			{ ...params, pi: createPiCapabilitySnapshot(ctx) },
+			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true },
 			(update) => {
 				onUpdate?.({
 					content: [{ type: "text", text: formatProgressText(update) }],
