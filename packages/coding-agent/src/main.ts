@@ -5,6 +5,7 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
@@ -44,6 +45,7 @@ import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage } from "./core/auth-storage.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
+import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
@@ -190,9 +192,20 @@ async function findLocalSessionByExactId(
 }
 
 async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: string): Promise<ResolvedSession> {
+	const pathLike = sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl");
+	const resolvedSessionArgPath = pathLike ? resolvePath(sessionArg, cwd) : undefined;
+	if (resolvedSessionArgPath && (sessionArg.endsWith(".jsonl") || existsSync(resolvedSessionArgPath))) {
+		return { type: "path", path: resolvedSessionArgPath };
+	}
+
+	if (isExternalSessionAlias(sessionArg)) {
+		const importedSession = await importExternalSessionAlias(sessionArg, { sessionDir, fallbackCwd: cwd });
+		return importedSession ? { type: "path", path: importedSession.path } : { type: "not_found", arg: sessionArg };
+	}
+
 	// If it looks like a file path, resolve it before handing it to the session manager.
-	if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
-		return { type: "path", path: resolvePath(sessionArg, cwd) };
+	if (resolvedSessionArgPath) {
+		return { type: "path", path: resolvedSessionArgPath };
 	}
 
 	// Try to match as session ID in current project first
