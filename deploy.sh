@@ -35,11 +35,33 @@ cleanup_extension_build_outputs() {
 	shopt -u globstar nullglob
 }
 
+rollback_install_on_failure() {
+	local status="$1"
+
+	if [[ "$status" -ne 0 ]]; then
+		if [[ "$DEPLOY_REPLACED_INSTALL" -eq 1 ]]; then
+			rm -rf "$INSTALL_DIR"
+			if [[ -e "$OLD_INSTALL_DIR" || -L "$OLD_INSTALL_DIR" ]]; then
+				mv "$OLD_INSTALL_DIR" "$INSTALL_DIR"
+			fi
+		fi
+		rm -rf "$TMP_INSTALL_DIR" "$OLD_INSTALL_DIR"
+	fi
+}
+
+on_exit() {
+	local status="$?"
+	cleanup_extension_build_outputs
+	rollback_install_on_failure "$status"
+	exit "$status"
+}
+
 require_safe_absolute_dir "PI_DEPLOY_INSTALL_DIR" "$INSTALL_DIR"
 require_safe_absolute_dir "PI_DEPLOY_BIN_DIR" "$BIN_DIR"
 
 cd "$ROOT_DIR"
-trap cleanup_extension_build_outputs EXIT
+DEPLOY_REPLACED_INSTALL=0
+trap on_exit EXIT
 
 case "$(uname -s)-$(uname -m)" in
 	Linux-x86_64)
@@ -81,8 +103,9 @@ if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
 	mv "$INSTALL_DIR" "$OLD_INSTALL_DIR"
 fi
 mv "$TMP_INSTALL_DIR" "$INSTALL_DIR"
-rm -rf "$OLD_INSTALL_DIR"
+DEPLOY_REPLACED_INSTALL=1
 
 ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
+rm -rf "$OLD_INSTALL_DIR"

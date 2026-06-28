@@ -68,6 +68,25 @@ describe("deploy.sh", () => {
 		expect(existsSync(`${fixture.installDir}.tmp`)).toBe(false);
 	});
 
+	it("restores the previous install when the deployed binary fails validation", () => {
+		const fixture = createDeployFixture({ piVersionExitCode: 2 });
+		mkdirSync(fixture.installDir, { recursive: true });
+		writeExecutable(
+			join(fixture.installDir, "pi"),
+			`#!/usr/bin/env bash
+set -euo pipefail
+printf 'old install\\n'
+`,
+		);
+
+		const result = runDeploy(fixture);
+
+		expect(result.status).toBe(2);
+		expect(readFileSync(join(fixture.installDir, "pi"), "utf8")).toContain("old install");
+		expect(existsSync(`${fixture.installDir}.old`)).toBe(false);
+		expect(existsSync(`${fixture.installDir}.tmp`)).toBe(false);
+	});
+
 	it("rejects relative install directories before running checks", () => {
 		const fixture = createDeployFixture();
 
@@ -88,7 +107,7 @@ describe("deploy.sh", () => {
 		expect(existsSync(join(fixture.repoDir, "npm-args.log"))).toBe(false);
 	});
 
-	function createDeployFixture() {
+	function createDeployFixture(options: { piVersionExitCode?: number } = {}) {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-deploy-test-"));
 		const repoDir = join(tempDir, "repo");
 		const fakeBinDir = join(tempDir, "fake-bin");
@@ -110,7 +129,7 @@ printf '%s\\n' "$*" >> "${repoDir}/npm-args.log"
 set -euo pipefail
 if [[ "$1" == "--version" ]]; then
   printf '0.79.10\\n'
-  exit 0
+  exit ${options.piVersionExitCode ?? 0}
 fi
 exit 2
 `,
