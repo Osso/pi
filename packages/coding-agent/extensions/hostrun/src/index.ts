@@ -2,8 +2,12 @@ import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
-import { createHostrunEvalExecutor } from "./eval-tool.ts";
+import { createHostrunEvalExecutor, type HostrunPiRequestDispatcher } from "./eval-tool.ts";
 import { HostrunRunnerClient } from "./runner.ts";
+
+export interface HostrunExtensionOptions {
+	piRequestHandlers?: HostrunPiRequestDispatcher[];
+}
 
 const HOSTRUN_PROMPT_SNIPPET =
 	"Evaluate synchronous JavaScript through the canonical Hostrun runtime adapter; do not use await";
@@ -14,6 +18,7 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Do not use MCP for Pi's built-in hostrun_eval path; use the adapter runner that links the Hostrun runtime.",
 	"Hostrun keeps globalThis.ctx across later hostrun_eval calls in the same Pi session.",
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Hostrun.",
+	"Use pi.agents.spawn(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
 ];
@@ -45,9 +50,37 @@ function getArgsCode(args: unknown): string | undefined {
 	return typeof code === "string" ? code : undefined;
 }
 
-export default function hostrunExtension(pi: ExtensionAPI) {
+function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "followUp"; message: string } {
+	if (typeof params === "string") {
+		return { message: params };
+	}
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.messages.enqueue requires a message string or { message } object");
+	}
+	const record = params as { deliverAs?: unknown; message?: unknown };
+	if (typeof record.message !== "string") {
+		throw new Error("pi.messages.enqueue requires a string message");
+	}
+	const deliverAs = record.deliverAs === "steer" || record.deliverAs === "followUp" ? record.deliverAs : undefined;
+	return { deliverAs, message: record.message };
+}
+
+export default function hostrunExtension(pi: ExtensionAPI, options: HostrunExtensionOptions = {}) {
 	const runner = new HostrunRunnerClient();
-	const evaluate = createHostrunEvalExecutor(runner);
+	const evaluate = createHostrunEvalExecutor(runner, async (request, ctx, signal) => {
+		if (request.method === "messages.enqueue") {
+			const message = normalizeMessageParams(request.params);
+			pi.sendUserMessage(message.message, { deliverAs: message.deliverAs });
+			return { enqueued: true };
+		}
+		for (const handler of options.piRequestHandlers ?? []) {
+			const result = await handler(request, ctx, signal);
+			if (result !== undefined) {
+				return result;
+			}
+		}
+		throw new Error(`Pi capability is unavailable: ${request.method}`);
+	});
 
 	pi.registerTool({
 		name: "hostrun_eval",

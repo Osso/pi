@@ -3,6 +3,7 @@ import {
 	HostrunRunnerClient,
 	type CanonicalHostrunEvalResult,
 	type CanonicalHostrunProgressUpdate,
+	type HostrunPiRequestHandler,
 } from "./runner.ts";
 
 export interface HostrunEvalParams {
@@ -28,6 +29,12 @@ export interface HostrunEvalContext {
 	model: ExtensionContext["model"];
 	sessionManager: Pick<ExtensionContext["sessionManager"], "getCwd" | "getSessionName">;
 }
+
+export type HostrunPiRequestDispatcher = (
+	request: { method: string; params: unknown },
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+) => Promise<unknown> | unknown;
 
 function formatResultValue(result: CanonicalHostrunEvalResult): string {
 	if (result.type === "needs_approval") {
@@ -89,13 +96,19 @@ function createPiCapabilitySnapshot(ctx: HostrunEvalContext): HostrunPiCapabilit
 	};
 }
 
-export function createHostrunEvalExecutor(runner: HostrunRunnerClient) {
+export function createHostrunEvalExecutor(runner: HostrunRunnerClient, dispatchPiRequest?: HostrunPiRequestDispatcher) {
 	return async (
 		params: HostrunEvalParams,
-		ctx: HostrunEvalContext,
+		ctx: ExtensionContext,
 		onUpdate?: (partialResult: AgentToolResult<CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate>) => void,
 		signal?: AbortSignal,
 	): Promise<AgentToolResult<CanonicalHostrunEvalResult>> => {
+		const onPiRequest: HostrunPiRequestHandler = async (request) => {
+			if (!dispatchPiRequest) {
+				throw new Error(`Pi capability is unavailable: ${request.method}`);
+			}
+			return dispatchPiRequest(request, ctx, signal);
+		};
 		const result = await runner.evaluate(
 			{ ...params, pi: createPiCapabilitySnapshot(ctx) },
 			(update) => {
@@ -105,6 +118,7 @@ export function createHostrunEvalExecutor(runner: HostrunRunnerClient) {
 				});
 			},
 			signal,
+			onPiRequest,
 		);
 		return {
 			content: [{ type: "text", text: formatToolText(params, result) }],

@@ -30,8 +30,10 @@ export interface CanonicalHostrunEvalResult {
 }
 
 export interface CanonicalHostrunProgressUpdate {
+	method?: string;
 	message?: string;
 	output?: string;
+	params?: unknown;
 	status?: string;
 	text?: string;
 	type: string;
@@ -39,9 +41,11 @@ export interface CanonicalHostrunProgressUpdate {
 }
 
 export type CanonicalHostrunRunnerMessage = CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate;
+export type HostrunPiRequestHandler = (request: { method: string; params: unknown }) => Promise<unknown>;
 
 interface PendingRequest {
 	cleanup?: () => void;
+	onPiRequest?: HostrunPiRequestHandler;
 	onProgress?: (update: CanonicalHostrunProgressUpdate) => void;
 	reject: (error: Error) => void;
 	resolve: (result: CanonicalHostrunEvalResult) => void;
@@ -117,6 +121,7 @@ export class HostrunRunnerClient {
 		params: CanonicalHostrunEvalParams,
 		onProgress?: (update: CanonicalHostrunProgressUpdate) => void,
 		signal?: AbortSignal,
+		onPiRequest?: HostrunPiRequestHandler,
 	): Promise<CanonicalHostrunEvalResult> {
 		if (signal?.aborted) {
 			return Promise.reject(new Error("Hostrun evaluation aborted"));
@@ -124,7 +129,7 @@ export class HostrunRunnerClient {
 		const child = this.ensureProcess();
 		const payload = JSON.stringify(params);
 		return new Promise((resolve, reject) => {
-			const pending: PendingRequest = { onProgress, reject, resolve };
+			const pending: PendingRequest = { onPiRequest, onProgress, reject, resolve };
 			if (signal) {
 				const onAbort = () => {
 					this.process?.kill();
@@ -197,11 +202,27 @@ export class HostrunRunnerClient {
 				pending.resolve(message);
 				return;
 			}
+			if (isPiRequest(message)) {
+				void this.respondToPiRequest(message, pending);
+				return;
+			}
 			pending.onProgress?.(message);
 		} catch (error) {
 			this.pending.shift();
 			pending.cleanup?.();
 			pending.reject(error instanceof Error ? error : new Error(String(error)));
+		}
+	}
+
+	private async respondToPiRequest(message: CanonicalHostrunProgressUpdate, pending: PendingRequest): Promise<void> {
+		const child = this.process;
+		const method = typeof message.method === "string" ? message.method : "";
+		try {
+			const result = await pending.onPiRequest?.({ method, params: message.params });
+			child?.stdin.write(`${JSON.stringify({ result })}\n`);
+		} catch (error) {
+			const text = error instanceof Error ? error.message : String(error);
+			child?.stdin.write(`${JSON.stringify({ error: text })}\n`);
 		}
 	}
 
@@ -222,4 +243,8 @@ export class HostrunRunnerClient {
 
 function isFinalEvalResult(message: CanonicalHostrunRunnerMessage): message is CanonicalHostrunEvalResult {
 	return message.type === "completed" || message.type === "needs_approval";
+}
+
+function isPiRequest(message: CanonicalHostrunRunnerMessage): message is CanonicalHostrunProgressUpdate {
+	return message.type === "pi_request";
 }

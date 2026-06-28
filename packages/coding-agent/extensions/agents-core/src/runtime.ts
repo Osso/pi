@@ -186,6 +186,12 @@ export interface MultiAgentWorkflowOperations {
 	waitAgent(agentId: string, options?: WaitWorkflowOptions): WorkflowWaitResult | undefined;
 }
 
+export type HostrunMultiAgentRequestHandler = (
+	request: { method: string; params: unknown },
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+) => Promise<unknown> | unknown;
+
 interface AgentToolDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	descendants?: AgentSnapshot[];
@@ -412,6 +418,36 @@ export function createMultiAgentWorkflowOperations(store: MultiAgentStore): Mult
 
 			return result;
 		},
+	};
+}
+
+export function createHostrunMultiAgentRequestHandler(
+	options: MultiAgentExtensionOptions,
+): HostrunMultiAgentRequestHandler {
+	const store = resolveMultiAgentStore(options);
+	const activeDispatches: ActiveAgentDispatches = new Map();
+
+	return async (request, ctx, signal) => {
+		if (request.method === "agents.spawn") {
+			const result = await spawnAgent(
+				store,
+				options.createChildSession,
+				options.dispatcher,
+				activeDispatches,
+				request.params as SpawnAgentParams,
+				ctx,
+			);
+			return result.details;
+		}
+
+		if (request.method === "agents.wait") {
+			const params =
+				typeof request.params === "string" ? { agentId: request.params } : (request.params as WaitAgentParams);
+			const result = await waitAgent(store, activeDispatches, params, signal);
+			return result.details;
+		}
+
+		return undefined;
 	};
 }
 

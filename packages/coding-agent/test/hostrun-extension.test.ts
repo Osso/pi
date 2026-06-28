@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import hostrunExtension from "../extensions/hostrun/src/index.ts";
+import hostrunExtension, { type HostrunExtensionOptions } from "../extensions/hostrun/src/index.ts";
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
@@ -67,9 +67,10 @@ type HostrunTool = {
 	) => Promise<AgentToolResult<HostrunEvalDetails>>;
 };
 
-function createHostrunHarness() {
+function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 	let hostrunTool: HostrunTool | undefined;
 	let hostrunDefinition: ToolDefinition | undefined;
+	const enqueuedMessages: Array<{ content: unknown; options: unknown }> = [];
 
 	const pi = {
 		registerTool(tool: ToolDefinition) {
@@ -78,9 +79,12 @@ function createHostrunHarness() {
 				hostrunTool = tool as unknown as HostrunTool;
 			}
 		},
+		sendUserMessage(content: unknown, messageOptions: unknown) {
+			enqueuedMessages.push({ content, options: messageOptions });
+		},
 	} as unknown as ExtensionAPI;
 
-	hostrunExtension(pi);
+	hostrunExtension(pi, options);
 
 	if (!hostrunTool) {
 		throw new Error("hostrun_eval was not registered");
@@ -117,6 +121,7 @@ function createHostrunHarness() {
 	} as unknown as ExtensionContext;
 
 	return {
+		enqueuedMessages,
 		toolDefinition: hostrunDefinition,
 		evaluate: (
 			params: HostrunEvalParams,
@@ -139,8 +144,23 @@ function writeFakeHostrunRunner(tempDir: string): string {
 		`
 const sessionValues = new Map();
 let buffer = "";
+const stdin = process.stdin[Symbol.asyncIterator]();
 
-function resultFor(request) {
+async function readNextLine() {
+  while (true) {
+    const newline = buffer.indexOf("\\n");
+    if (newline >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (line.trim().length > 0) return line;
+    }
+    const chunk = await stdin.next();
+    if (chunk.done) return undefined;
+    buffer += String(chunk.value);
+  }
+}
+
+async function resultFor(request) {
   const sessionId = request.session_id ?? "default";
   if (request.code === "ctx.count = 41; ctx.count;") {
     sessionValues.set(sessionId, 41);
@@ -185,21 +205,38 @@ function resultFor(request) {
   if (request.code === "pi.footer.snapshot()") {
     return { type: "completed", executed: request.code, value: request.pi.footer };
   }
+  if (request.code === "pi.agents.spawn({ prompt: 'inspect X' })") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.agents.wait('agent-1')") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: { agentId: "agent-1" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.messages.enqueue({ message: 'next', deliverAs: 'followUp' })") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "messages.enqueue", params: { message: "next", deliverAs: "followUp" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   return { type: "completed", executed: request.code, value: null };
 }
 
-for await (const chunk of process.stdin) {
-  buffer += String(chunk);
-  const lines = buffer.split("\\n");
-  buffer = lines.pop() ?? "";
-  for (const line of lines) {
-    if (line.trim().length === 0) continue;
-    const request = JSON.parse(line);
-    try {
-      process.stdout.write(JSON.stringify(await resultFor(request)) + "\\n");
-    } catch (error) {
-      process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, error: error.message }) + "\\n");
-    }
+async function readNextResponse() {
+  const line = await readNextLine();
+  if (line === undefined) throw new Error("response stream ended");
+  return JSON.parse(line);
+}
+
+while (true) {
+  const line = await readNextLine();
+  if (line === undefined) break;
+  const request = JSON.parse(line);
+  try {
+    process.stdout.write(JSON.stringify(await resultFor(request)) + "\\n");
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, error: error.message }) + "\\n");
   }
 }
 `,
@@ -472,5 +509,48 @@ describe("hostrun extension", () => {
 			model: "faux/model",
 			sessionName: "hostrun work",
 		} satisfies HostrunPiCapabilitySnapshot["footer"]);
+	});
+
+	it("responds to Hostrun pi.agents.spawn requests through configured handlers", async () => {
+		const requests: Array<{ method: string; params: unknown }> = [];
+		const harness = createHostrunHarness({
+			piRequestHandlers: [
+				(request) => {
+					requests.push(request);
+					return { agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" };
+				},
+			],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.spawn({ prompt: 'inspect X' })" });
+
+		expect(requests).toEqual([{ method: "agents.spawn", params: { prompt: "inspect X" } }]);
+		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
+	});
+
+	it("responds to Hostrun pi.agents.wait requests through configured handlers", async () => {
+		const harness = createHostrunHarness({
+			piRequestHandlers: [
+				(request) => {
+					if (request.method !== "agents.wait") return undefined;
+					return { agent: { id: "agent-1", lifecycle: "completed" }, terminal: true };
+				},
+			],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.wait('agent-1')" });
+
+		expect(result.details.value).toEqual({ agent: { id: "agent-1", lifecycle: "completed" }, terminal: true });
+	});
+
+	it("enqueues user messages from Hostrun pi.messages.enqueue", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({
+			code: "pi.messages.enqueue({ message: 'next', deliverAs: 'followUp' })",
+		});
+
+		expect(result.details.value).toEqual({ enqueued: true });
+		expect(harness.enqueuedMessages).toEqual([{ content: "next", options: { deliverAs: "followUp" } }]);
 	});
 });

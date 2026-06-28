@@ -9,7 +9,10 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
-import agentsCoreExtension, { createProductionChildAgentSessionFactory } from "../extensions/agents-core/src/index.ts";
+import agentsCoreExtension, {
+	createHostrunMultiAgentRequestHandler,
+	createProductionChildAgentSessionFactory,
+} from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
 import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
@@ -497,13 +500,18 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 }
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
+const firstPartyChildAgentSessionFactory = createProductionChildAgentSessionFactory({ agentDir: getAgentDir() });
+const firstPartyHostrunAgentHandler = createHostrunMultiAgentRequestHandler({
+	createChildSession: firstPartyChildAgentSessionFactory,
+	store: firstPartyMultiAgentStore,
+});
 
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 	firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
 	firstPartyExtensionFactory("agents-core", (pi) =>
 		agentsCoreExtension(pi, {
-			createChildSession: createProductionChildAgentSessionFactory({ agentDir: getAgentDir() }),
+			createChildSession: firstPartyChildAgentSessionFactory,
 			store: firstPartyMultiAgentStore,
 		}),
 	),
@@ -515,7 +523,9 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 		defaultFooterExtension(pi, { multiAgentStore: firstPartyMultiAgentStore }),
 	),
 	firstPartyExtensionFactory("goal", goalExtension),
-	firstPartyExtensionFactory("hostrun", hostrunExtension),
+	firstPartyExtensionFactory("hostrun", (pi) =>
+		hostrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
+	),
 	firstPartyExtensionFactory("loop", loopExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
 	firstPartyExtensionFactory("self-restart", selfRestartExtension),
