@@ -144,6 +144,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 interface InteractiveModeKeyHandlerInternals {
 	currentFooter(this: unknown): Component & { dispose?(): void };
 	registerAgentSlotKeyHandlers(this: unknown): void;
+	registerGlobalAgentSlotInputHandler(this: unknown): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
@@ -186,6 +187,7 @@ describe("InteractiveMode agent slot keybindings", () => {
 			multiAgentStore: store,
 			footer: { invalidate: vi.fn() },
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			registerGlobalAgentSlotInputHandler: vi.fn(),
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
@@ -219,6 +221,45 @@ describe("InteractiveMode agent slot keybindings", () => {
 		expect(store.getSelectedAgentId()).toBe(third.agent.id);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
+	});
+
+	test("switches selected agent before focused components receive slot input", () => {
+		const listeners: Array<(data: string) => { consume?: boolean } | undefined> = [];
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const first = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const second = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectAgentView(first.agent.id);
+		const fakeThis = {
+			keybindings: { matches: (data: string, action: string) => action === "app.agent.slot2" && data === "\x1b2" },
+			multiAgentStore: store,
+			footer: { invalidate: vi.fn() },
+			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			ui: {
+				addInputListener: (listener: (data: string) => { consume?: boolean } | undefined) => {
+					listeners.push(listener);
+					return () => {};
+				},
+				requestRender: vi.fn(),
+			},
+		};
+
+		interactiveModeKeyHandlers.registerGlobalAgentSlotInputHandler.call(fakeThis);
+		const result = listeners[0]?.("\x1b2");
+
+		expect(result).toEqual({ consume: true });
+		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
 	test("switches to the nth agent view when agents are not pinned to slots", () => {

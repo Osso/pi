@@ -411,6 +411,7 @@ export class InteractiveMode {
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
 	private multiAgentStore: MultiAgentStore | undefined;
+	private unregisterAgentSlotInputHandler: (() => void) | undefined;
 
 	// Convenience accessors
 	private get session(): AgentSession {
@@ -2524,14 +2525,27 @@ export class InteractiveMode {
 		}
 	}
 
-	private selectAgentSlot(slotIndex: number): void {
+	private registerGlobalAgentSlotInputHandler(): void {
+		this.unregisterAgentSlotInputHandler?.();
+		this.unregisterAgentSlotInputHandler = this.ui.addInputListener((data) => {
+			for (const [keybinding, slotIndex] of AGENT_SLOT_KEYBINDINGS) {
+				if (this.keybindings.matches(data, keybinding) && this.selectAgentSlot(slotIndex)) {
+					return { consume: true };
+				}
+			}
+			return undefined;
+		});
+	}
+
+	private selectAgentSlot(slotIndex: number): boolean {
 		const selected = this.multiAgentStore?.selectAgentSlot(slotIndex);
 		if (!selected) {
-			return;
+			return false;
 		}
 
 		this.footer.invalidate();
 		this.ui.requestRender();
+		return true;
 	}
 
 	private setupKeyHandlers(): void {
@@ -2586,6 +2600,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
 		this.registerAgentSlotKeyHandlers();
+		this.registerGlobalAgentSlotInputHandler();
 
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
