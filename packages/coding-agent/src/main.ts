@@ -16,6 +16,7 @@ import agentsCoreExtension, {
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
 import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
+import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
 import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
@@ -524,6 +525,7 @@ const firstPartyHostrunAgentHandler = createHostrunMultiAgentRequestHandler({
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 	firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
+	firstPartyExtensionFactory("codex-usage", codexUsageExtension),
 	firstPartyExtensionFactory("agents-core", (pi) =>
 		agentsCoreExtension(pi, {
 			createChildSession: firstPartyChildAgentSessionFactory,
