@@ -19,7 +19,8 @@ not yet written).
 - [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted.
 - [x] At most one active goal exists per project at a time; setting a new goal while one is active requires an explicit replacement path.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
-- [x] Corrupt `.pi/goal.json` is handled as "no active goal" without crashing the command or turn hook.
+- [x] Corrupt or malformed `.pi/goal.json` is handled as "no active goal" without crashing the command or turn hook.
+- [x] Completed goals are not treated as active by `/goal`, startup notifications, continuation, or context injection.
 - [x] `/goal` is delivered from a tracked first-party extension package, not from
   project-local `.pi/extensions/` code.
 - [x] A `set_goal` tool can establish the same active objective as `/goal <objective>` for tool-capability parity.
@@ -57,12 +58,12 @@ not yet written).
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `set_goal`/`goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, starts work when a goal is set while idle, and continues active goals from `agent_end`.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 - `.gitignore` — ignores `.pi/goal.json` as local goal state.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `set_goal`, `/goal` set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, immediate start-on-set behavior, resume/reload/fork notification, corrupt goal state handling, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `set_goal`, `/goal` set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
 
 ## Known gaps (current cycle)
 

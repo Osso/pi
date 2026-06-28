@@ -59,14 +59,50 @@ function goalPath(cwd: string): string {
 	return path.join(cwd, ".pi", "goal.json");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseGoal(value: unknown): Goal | null {
+	if (!isRecord(value)) return null;
+	const objective = optionalString(value.objective)?.trim();
+	const branch = optionalString(value.branch);
+	const createdAt = optionalString(value.createdAt);
+	if (!objective || !branch || !createdAt) return null;
+
+	return {
+		objective,
+		branch,
+		createdAt,
+		completedAt: optionalString(value.completedAt),
+		completionReason: optionalString(value.completionReason),
+		continuationTurns: optionalNumber(value.continuationTurns),
+		tokenBudget: optionalNumber(value.tokenBudget),
+		wallClockBudgetMs: optionalNumber(value.wallClockBudgetMs),
+	};
+}
+
 function loadGoal(cwd: string): Goal | null {
 	const file = goalPath(cwd);
 	if (!fs.existsSync(file)) return null;
 	try {
-		return JSON.parse(fs.readFileSync(file, "utf8")) as Goal;
+		return parseGoal(JSON.parse(fs.readFileSync(file, "utf8")));
 	} catch {
 		return null;
 	}
+}
+
+function loadActiveGoal(cwd: string): Goal | null {
+	const goal = loadGoal(cwd);
+	return goal && !goal.completedAt ? goal : null;
 }
 
 function saveGoal(cwd: string, goal: Goal): void {
@@ -199,8 +235,8 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 		};
 	}
 
-	const activeGoal = loadGoal(cwd);
-	if (activeGoal && !activeGoal.completedAt && !replace) {
+	const activeGoal = loadActiveGoal(cwd);
+	if (activeGoal && !replace) {
 		return {
 			ok: false,
 			message: "Active goal already set — use /goal --replace <objective> to replace it",
@@ -303,13 +339,13 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 	// Notify on session start if an objective is active.
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		const goal = loadGoal(ctx.cwd);
+		const goal = loadActiveGoal(ctx.cwd);
 		if (goal) ctx.ui.notify(`Active goal: ${goal.objective}`, "info");
 	});
 
 	pi.on("agent_end", async (_event, ctx: ExtensionContext) => {
-		const goal = loadGoal(ctx.cwd);
-		if (!goal || goal.completedAt || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+		const goal = loadActiveGoal(ctx.cwd);
+		if (!goal || !ctx.isIdle() || ctx.hasPendingMessages()) return;
 
 		const stopReason = budgetStopReason(goal, ctx);
 		if (stopReason) {
@@ -329,7 +365,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 	// Inject the active objective into the system prompt every turn.
 	pi.on("before_agent_start", async (event, ctx) => {
-		const goal = loadGoal(ctx.cwd);
+		const goal = loadActiveGoal(ctx.cwd);
 		if (!goal) return;
 		return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
 	});
@@ -347,7 +383,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 			// View
 			if (!objective) {
-				const goal = loadGoal(cwd);
+				const goal = loadActiveGoal(cwd);
 				ctx.ui.notify(goal ? `Goal: ${goal.objective}` : "No active goal — use /goal <objective>", "info");
 				return;
 			}

@@ -254,6 +254,37 @@ describe("goal extension", () => {
 		expect(result).toBeUndefined();
 	});
 
+	it("treats goal state without an objective as no active objective", async () => {
+		const harness = createGoalHarness(cwd);
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "goal.json"),
+			`${JSON.stringify({ description: "legacy goal", branch: "main", createdAt: "2026-01-01T00:00:00.000Z" })}\n`,
+			"utf8",
+		);
+
+		await harness.runSessionStart("startup");
+		await harness.runCommand("");
+		const result = await harness.runBeforeAgentStart();
+
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(harness.notify).not.toHaveBeenCalledWith("Active goal: undefined", "info");
+		expect(result).toBeUndefined();
+	});
+
+	it("treats completed goal state as no active objective", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("finish once");
+		await harness.runGoalComplete("done");
+		harness.notify.mockClear();
+		const result = await harness.runBeforeAgentStart();
+		await harness.runCommand("");
+
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(result).toBeUndefined();
+	});
+
 	it("continues an active goal after agent_end", async () => {
 		const harness = createGoalHarness(cwd);
 
