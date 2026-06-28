@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
 
-const CODEX_PROVIDER_ID = "openai-codex";
+const DEFAULT_CODEX_PROVIDER_ID = "openai-codex";
+const CODEX_API_ID = "openai-codex-responses";
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CODEX_RESET_CREDIT_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume";
 const ACCOUNT_ID_CLAIM = "https://api.openai.com/auth";
@@ -301,14 +302,21 @@ async function readCodexUsage(ctx: ExtensionCommandContext): Promise<CodexUsage>
 }
 
 function resolveStoredCodexEmail(ctx: ExtensionCommandContext): string | null {
-	const credential = ctx.modelRegistry.authStorage.get(CODEX_PROVIDER_ID);
+	const credential = ctx.modelRegistry.authStorage.get(resolveCodexProviderId(ctx));
 	const email = credential && "email" in credential ? credential.email : undefined;
 	return typeof email === "string" && email.length > 0 ? email : null;
 }
 
+function resolveCodexProviderId(ctx: ExtensionCommandContext): string {
+	const currentModel = ctx.model;
+	if (currentModel?.api === CODEX_API_ID) return currentModel.provider;
+	return DEFAULT_CODEX_PROVIDER_ID;
+}
+
 async function getCodexAccessToken(ctx: ExtensionCommandContext): Promise<string> {
-	const token = await ctx.modelRegistry.authStorage.getApiKey(CODEX_PROVIDER_ID, { includeFallback: false });
-	if (!token) throw new Error("OpenAI Codex is not logged in. Run /login and select OpenAI Codex.");
+	const providerId = resolveCodexProviderId(ctx);
+	const token = await ctx.modelRegistry.authStorage.getApiKey(providerId, { includeFallback: false });
+	if (!token) throw new Error(`OpenAI Codex provider ${providerId} is not logged in. Run /login ${providerId}.`);
 	return token;
 }
 

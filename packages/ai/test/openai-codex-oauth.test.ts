@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getOAuthProvider } from "../src/utils/oauth/index.ts";
 import {
 	loginOpenAICodexDeviceCode,
 	openaiCodexOAuthProvider,
@@ -56,6 +57,23 @@ describe("OpenAI Codex OAuth", () => {
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
+	});
+
+	it("registers OpenAI Codex and GlobalComix alias OAuth providers separately", () => {
+		const provider = getOAuthProvider("openai-codex");
+		const aliasProvider = getOAuthProvider("openai-codex-gc");
+
+		expect(provider).toBeDefined();
+		expect(aliasProvider).toBeDefined();
+		expect(aliasProvider).not.toBe(provider);
+		expect(aliasProvider).toMatchObject({
+			id: "openai-codex-gc",
+			name: "ChatGPT Plus/Pro (Codex Subscription, GlobalComix)",
+			usesCallbackServer: provider?.usesCallbackServer,
+		});
+		expect(aliasProvider?.login).toBe(provider?.login);
+		expect(aliasProvider?.refreshToken).toBe(provider?.refreshToken);
+		expect(aliasProvider?.getApiKey).toBe(provider?.getApiKey);
 	});
 
 	it("logs in with the OpenAI Codex device code flow", async () => {

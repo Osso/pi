@@ -31,6 +31,13 @@ describe("builtin providers", () => {
 		const anthropic = models.getModel("anthropic", "claude-haiku-4-5");
 		expect(anthropic?.api).toBe("anthropic-messages");
 
+		const codexModel = models.getModel("openai-codex", "gpt-5.5");
+		const codexAliasModel = models.getModel("openai-codex-gc", "gpt-5.5");
+		expect(codexAliasModel).toMatchObject({
+			...codexModel,
+			provider: "openai-codex-gc",
+		});
+
 		const all = models.getModels();
 		expect(all.length).toBeGreaterThan(500);
 

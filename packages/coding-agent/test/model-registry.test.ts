@@ -95,6 +95,23 @@ describe("ModelRegistry", () => {
 		messages: [],
 	};
 
+	describe("built-in providers", () => {
+		test("lists OpenAI Codex models for the GlobalComix alias", () => {
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const codexModels = getModelsForProvider(registry, "openai-codex");
+			const aliasModels = getModelsForProvider(registry, "openai-codex-gc");
+
+			expect(codexModels.length).toBeGreaterThan(0);
+			expect(aliasModels.length).toBeGreaterThan(0);
+			expect(aliasModels).toEqual(
+				codexModels.map((model) => ({
+					...model,
+					provider: "openai-codex-gc",
+				})),
+			);
+		});
+	});
+
 	describe("baseUrl override (no custom models)", () => {
 		test("overriding baseUrl keeps all built-in models", () => {
 			writeRawModelsJson({

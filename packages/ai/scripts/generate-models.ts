@@ -502,7 +502,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.provider === "groq" && model.id === "qwen/qwen3-32b") {
 		mergeThinkingLevelMap(model, { minimal: null, low: null, medium: null, high: "default" });
 	}
-	if (model.provider === "openai-codex" && supportsOpenAiXhigh(model.id)) {
+	if ((model.provider === "openai-codex" || model.provider === "openai-codex-gc") && supportsOpenAiXhigh(model.id)) {
 		mergeThinkingLevelMap(model, { minimal: "low" });
 	}
 	if (
@@ -2095,7 +2095,11 @@ async function generateModels() {
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 	];
-	allModels.push(...codexModels);
+	const codexGcModels: Model<"openai-codex-responses">[] = codexModels.map((model) => ({
+		...model,
+		provider: "openai-codex-gc",
+	}));
+	allModels.push(...codexModels, ...codexGcModels);
 
 	// Add missing Grok models
 	const missingGrokModels: Model<"openai-completions">[] = [

@@ -2740,6 +2740,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text.startsWith("/login ")) {
+				this.editor.setText("");
+				await this.handleLoginCommand(text.slice(7).trim());
+				return;
+			}
 			if (text === "/logout") {
 				this.showOAuthSelector("logout");
 				this.editor.setText("");
@@ -5118,6 +5123,17 @@ export class InteractiveMode {
 			this.ui.setFocus(selector);
 			this.ui.requestRender();
 		});
+	}
+
+	private async handleLoginCommand(providerId: string): Promise<void> {
+		const providerInfo = this.session.modelRegistry.authStorage
+			.getOAuthProviders()
+			.find((provider) => provider.id === providerId);
+		if (!providerInfo) {
+			this.showStatus(`Unknown OAuth provider: ${providerId}`);
+			return;
+		}
+		await this.showLoginDialog(providerInfo.id, providerInfo.name);
 	}
 
 	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {

@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added an `openai-codex-gc` provider alias for logging in to a second OpenAI Codex account separately.
 - Added an optional `reasoning` field to `Usage` reporting reasoning/thinking token counts as a subset of `output`. Populated for Anthropic (`output_tokens_details.thinking_tokens`), OpenAI Responses/Codex/Azure (`output_tokens_details.reasoning_tokens`), OpenAI Completions (`completion_tokens_details.reasoning_tokens`), and Google Generative AI / Vertex (`thoughtsTokenCount`). Bedrock Converse and Mistral are not populated because those APIs do not return a reasoning token breakdown ([#6057](https://github.com/earendil-works/pi/issues/6057)).
 
 ### Fixed
