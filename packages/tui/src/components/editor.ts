@@ -570,16 +570,27 @@ export class Editor implements Component, Focusable {
 		return false;
 	}
 
-	private renderHistorySearchLine(width: number): string {
+	private renderHistorySearchLines(width: number): string[] {
 		const matches = this.getHistorySearchMatches();
 		const matchPosition = matches.indexOf(this.historySearchIndex);
 		const matchCount = matches.length;
 		const counter = `${matchPosition < 0 ? 0 : matchPosition + 1}/${matchCount}`;
-		const selectedEntry = this.historySearchIndex >= 0 ? this.history[this.historySearchIndex] : "";
-		const preview = selectedEntry ? `> ${selectedEntry}` : "> ";
-		const availablePreviewWidth = Math.max(0, width - counter.length - 1);
-		const line = `${truncateToWidth(preview, availablePreviewWidth).padEnd(availablePreviewWidth)} ${counter}`;
-		return truncateToWidth(line, width);
+		if (matches.length === 0) {
+			const availablePreviewWidth = Math.max(0, width - counter.length - 1);
+			const line = `${"> ".padEnd(availablePreviewWidth)} ${counter}`;
+			return [truncateToWidth(line, width)];
+		}
+
+		return matches.map((historyIndex, index) => {
+			const marker = historyIndex === this.historySearchIndex ? ">" : " ";
+			const suffix = index === matchPosition ? counter : "";
+			const availablePreviewWidth = Math.max(0, width - suffix.length - (suffix ? 1 : 0));
+			const preview = `${marker} ${this.history[historyIndex] ?? ""}`;
+			const line = suffix
+				? `${truncateToWidth(preview, availablePreviewWidth).padEnd(availablePreviewWidth)} ${suffix}`
+				: truncateToWidth(preview.padEnd(width), width);
+			return truncateToWidth(line, width);
+		});
 	}
 
 	/** Internal setText that doesn't reset history state - used by navigateHistory */
@@ -649,7 +660,9 @@ export class Editor implements Component, Focusable {
 		const rightPadding = leftPadding;
 
 		if (this.historySearchDraft) {
-			result.push(this.borderColor(this.renderHistorySearchLine(width)));
+			for (const line of this.renderHistorySearchLines(width)) {
+				result.push(this.borderColor(line));
+			}
 		}
 
 		// Render top border (with scroll indicator if scrolled down)

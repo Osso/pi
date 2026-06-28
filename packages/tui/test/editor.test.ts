@@ -337,6 +337,23 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "co");
 		});
 
+		it("shows all reverse search matches with the selected row highlighted", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.addToHistory("older config note");
+			editor.addToHistory("newer config fix");
+			editor.addToHistory("unrelated prompt");
+
+			editor.handleInput("\x12");
+			editor.handleInput("c");
+			editor.handleInput("o");
+
+			const rendered = stripVTControlCharacters(editor.render(60).join("\n"));
+			assert.match(rendered, /> newer config fix/);
+			assert.match(rendered, / {2}older config note/);
+			assert.match(rendered, /1\/2/);
+		});
+
 		it("accepts the selected reverse search match on Enter", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
