@@ -301,6 +301,9 @@ export class Editor implements Component, Focusable {
 	private history: string[] = [];
 	private historyIndex: number = -1; // -1 = not browsing, 0 = most recent, 1 = older, etc.
 	private historyDraft: EditorState | null = null;
+	private historySearchQuery: string = "";
+	private historySearchIndex: number = -1;
+	private historySearchDraft: EditorState | null = null;
 
 	// Kill ring for Emacs-style kill/yank operations
 	private killRing = new KillRing();
@@ -424,6 +427,7 @@ export class Editor implements Component, Focusable {
 
 	private navigateHistory(direction: 1 | -1): void {
 		this.lastAction = null;
+		this.exitHistorySearch();
 		if (this.history.length === 0) return;
 
 		const newIndex = this.historyIndex - direction; // Up(-1) increases index, Down(1) decreases
@@ -457,6 +461,94 @@ export class Editor implements Component, Focusable {
 	private exitHistoryBrowsing(): void {
 		this.historyIndex = -1;
 		this.historyDraft = null;
+	}
+
+	private startOrStepHistorySearch(): void {
+		this.lastAction = null;
+		this.cancelAutocomplete();
+		this.exitHistoryBrowsing();
+		if (!this.historySearchDraft) {
+			this.historySearchDraft = structuredClone(this.state);
+			this.historySearchQuery = "";
+			this.historySearchIndex = -1;
+			this.tui.requestRender();
+			return;
+		}
+		this.applyHistorySearch(this.historySearchIndex + 1);
+	}
+
+	private applyHistorySearch(startIndex: number): void {
+		if (!this.historySearchDraft) return;
+		const query = this.historySearchQuery.toLocaleLowerCase();
+		for (let index = Math.max(0, startIndex); index < this.history.length; index++) {
+			const entry = this.history[index]!;
+			if (entry.toLocaleLowerCase().includes(query)) {
+				this.historySearchIndex = index;
+				this.setTextInternal(entry);
+				return;
+			}
+		}
+		this.historySearchIndex = -1;
+		this.state = structuredClone(this.historySearchDraft);
+		if (this.onChange) this.onChange(this.getText());
+		this.tui.requestRender();
+	}
+
+	private acceptHistorySearch(): void {
+		this.historySearchQuery = "";
+		this.historySearchIndex = -1;
+		this.historySearchDraft = null;
+		this.tui.requestRender();
+	}
+
+	private cancelHistorySearch(): void {
+		const draft = this.historySearchDraft;
+		this.acceptHistorySearch();
+		if (draft) {
+			this.state = draft;
+			this.preferredVisualCol = null;
+			this.snappedFromCursorCol = null;
+			this.scrollOffset = 0;
+			if (this.onChange) this.onChange(this.getText());
+		}
+	}
+
+	private exitHistorySearch(): void {
+		if (!this.historySearchDraft) return;
+		this.historySearchQuery = "";
+		this.historySearchIndex = -1;
+		this.historySearchDraft = null;
+	}
+
+	private handleHistorySearchInput(data: string, kb: ReturnType<typeof getKeybindings>): boolean {
+		if (kb.matches(data, "tui.editor.historySearch")) {
+			this.startOrStepHistorySearch();
+			return true;
+		}
+		if (!this.historySearchDraft) return false;
+		if (kb.matches(data, "tui.select.cancel")) {
+			this.cancelHistorySearch();
+			return true;
+		}
+		if (kb.matches(data, "tui.input.submit")) {
+			this.acceptHistorySearch();
+			return true;
+		}
+		if (kb.matches(data, "tui.editor.deleteCharBackward")) {
+			this.historySearchQuery = this.historySearchQuery.slice(0, -1);
+			this.applyHistorySearch(0);
+			return true;
+		}
+
+		const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
+		if (printable !== undefined) {
+			this.historySearchQuery += printable;
+			this.applyHistorySearch(0);
+			return true;
+		}
+
+		this.acceptHistorySearch();
+		return false;
 	}
 
 	/** Internal setText that doesn't reset history state - used by navigateHistory */
@@ -524,6 +616,11 @@ export class Editor implements Component, Focusable {
 		const result: string[] = [];
 		const leftPadding = " ".repeat(paddingX);
 		const rightPadding = leftPadding;
+
+		if (this.historySearchDraft) {
+			const label = `reverse-search: ${this.historySearchQuery}`;
+			result.push(this.borderColor(truncateToWidth(label.padEnd(width), width)));
+		}
 
 		// Render top border (with scroll indicator if scrolled down)
 		if (this.scrollOffset > 0) {
@@ -617,6 +714,10 @@ export class Editor implements Component, Focusable {
 
 	handleInput(data: string): void {
 		const kb = getKeybindings();
+
+		if (this.handleHistorySearchInput(data, kb)) {
+			return;
+		}
 
 		// Handle character jump mode (awaiting next character to jump to)
 		if (this.jumpMode !== null) {
@@ -1026,6 +1127,7 @@ export class Editor implements Component, Focusable {
 		this.cancelAutocomplete();
 		this.lastAction = null;
 		this.exitHistoryBrowsing();
+		this.exitHistorySearch();
 		const normalized = this.normalizeText(text);
 		// Push undo snapshot if content differs (makes programmatic changes undoable)
 		if (this.getText() !== normalized) {
@@ -1045,6 +1147,7 @@ export class Editor implements Component, Focusable {
 		this.pushUndoSnapshot();
 		this.lastAction = null;
 		this.exitHistoryBrowsing();
+		this.exitHistorySearch();
 		this.insertTextAtCursorInternal(text);
 	}
 

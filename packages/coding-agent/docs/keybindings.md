@@ -57,6 +57,7 @@ Modifier combinations: `ctrl+shift+x`, `alt+ctrl+x`, `ctrl+shift+alt+x`, `ctrl+1
 | `tui.input.newLine` | `shift+enter`, `ctrl+j` | Insert new line |
 | `tui.input.submit` | `enter` | Submit input |
 | `tui.input.tab` | `tab` | Tab / autocomplete |
+| `tui.editor.historySearch` | `ctrl+r` | Reverse search prompt history |
 
 ### TUI Kill Ring
 

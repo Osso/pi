@@ -294,6 +294,44 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "line1\nline2\nline3");
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
 		});
+
+		it("shows reverse history search on Ctrl+R", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.handleInput("\x12");
+
+			const rendered = stripVTControlCharacters(editor.render(40).join("\n"));
+			assert.match(rendered, /reverse-search/);
+		});
+
+		it("filters history while reverse searching", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.addToHistory("open config docs");
+			editor.addToHistory("fix ctrl r history");
+			editor.addToHistory("check tests");
+
+			editor.handleInput("\x12");
+			editor.handleInput("c");
+			editor.handleInput("o");
+
+			assert.strictEqual(editor.getText(), "open config docs");
+		});
+
+		it("steps through older reverse search matches on repeated Ctrl+R", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.addToHistory("older config note");
+			editor.addToHistory("newer config fix");
+
+			editor.handleInput("\x12");
+			editor.handleInput("c");
+			editor.handleInput("o");
+			assert.strictEqual(editor.getText(), "newer config fix");
+
+			editor.handleInput("\x12");
+			assert.strictEqual(editor.getText(), "older config note");
+		});
 	});
 
 	describe("public state accessors", () => {

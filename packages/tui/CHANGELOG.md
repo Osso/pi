@@ -10,6 +10,10 @@
 
 - Added `Ctrl+J` as a default newline keybinding alongside `Shift+Enter`.
 
+### Fixed
+
+- Fixed `Ctrl+R` in the editor to open reverse prompt history search.
+
 ## [0.79.10] - 2026-06-22
 
 ## [0.79.9] - 2026-06-20
