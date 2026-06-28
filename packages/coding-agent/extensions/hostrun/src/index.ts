@@ -18,7 +18,7 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Do not use MCP for Pi's built-in hostrun_eval path; use the adapter runner that links the Hostrun runtime.",
 	"Hostrun keeps globalThis.ctx across later hostrun_eval calls in the same Pi session.",
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Hostrun.",
-	"Use pi.agents.spawn(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
+	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
 ];

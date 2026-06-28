@@ -447,6 +447,12 @@ export function createHostrunMultiAgentRequestHandler(
 			return result.details;
 		}
 
+		if (request.method === "agents.list") {
+			const params = request.params === undefined ? {} : (request.params as ListAgentsParams);
+			const result = listAgents(store, params);
+			return result.details;
+		}
+
 		return undefined;
 	};
 }

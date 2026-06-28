@@ -215,6 +215,11 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.agents.list({ activeOnly: true })") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.list", params: { activeOnly: true } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   if (request.code === "pi.messages.enqueue({ message: 'next', deliverAs: 'followUp' })") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "messages.enqueue", params: { message: "next", deliverAs: "followUp" } }) + "\\n");
     const response = await readNextResponse();
@@ -541,6 +546,21 @@ describe("hostrun extension", () => {
 		const result = await harness.evaluate({ code: "pi.agents.wait('agent-1')" });
 
 		expect(result.details.value).toEqual({ agent: { id: "agent-1", lifecycle: "completed" }, terminal: true });
+	});
+
+	it("responds to Hostrun pi.agents.list requests through configured handlers", async () => {
+		const harness = createHostrunHarness({
+			piRequestHandlers: [
+				(request) => {
+					if (request.method !== "agents.list") return undefined;
+					return { activeCount: 1, agents: [{ id: "agent-1", lifecycle: "running" }] };
+				},
+			],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.list({ activeOnly: true })" });
+
+		expect(result.details.value).toEqual({ activeCount: 1, agents: [{ id: "agent-1", lifecycle: "running" }] });
 	});
 
 	it("enqueues user messages from Hostrun pi.messages.enqueue", async () => {
