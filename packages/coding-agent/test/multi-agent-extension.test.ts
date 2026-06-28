@@ -1084,6 +1084,7 @@ describe("multi-agent extension tools", () => {
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
 				sessionDir: childSessionDir,
+				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					sessionOptions = options;
 					childHarness = await createHarness();
@@ -1099,6 +1100,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			prompt: "Implement auth tests",
 		});
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(sessionOptions).toMatchObject({
 			cwd: "/repo",
@@ -1110,7 +1112,6 @@ describe("multi-agent extension tools", () => {
 			parentSession: parentHarness.sessionManager.getSessionId(),
 		});
 		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(childSessionDir);
-		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(childHarness).toBeDefined();
 		if (!childHarness) {
@@ -1140,6 +1141,7 @@ describe("multi-agent extension tools", () => {
 				sessionManager: parentSessionManager,
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					sessionOptions = options;
 					const childHarness = await createHarness();
@@ -1150,10 +1152,11 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			displayName: "Worker",
 			prompt: "Check default session dir",
 		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(parentSessionDir);
 	});

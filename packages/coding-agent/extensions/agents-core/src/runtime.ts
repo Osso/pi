@@ -22,8 +22,7 @@ import {
 	type SendMailboxMessageInput,
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
-import { type CreateAgentSessionOptions, createAgentSession } from "../../../src/core/sdk.ts";
-import { SessionManager } from "../../../src/core/session-manager.ts";
+import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 
 const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -154,7 +153,12 @@ export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promi
 
 export interface ProductionChildAgentSessionFactoryOptions {
 	agentDir?: string;
-	createSession?: (options: CreateAgentSessionOptions) => Promise<{ session: ChildAgentSession }>;
+	createSession: (options: CreateAgentSessionOptions) => Promise<{ session: ChildAgentSession }>;
+	createSessionManager: (
+		cwd: string,
+		sessionDir: string | undefined,
+		options: { parentSession: string },
+	) => CreateAgentSessionOptions["sessionManager"];
 	sessionDir?: string;
 }
 
@@ -369,15 +373,13 @@ function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void
 }
 
 export function createProductionChildAgentSessionFactory(
-	options: ProductionChildAgentSessionFactoryOptions = {},
+	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
-	const createSession = options.createSession ?? createAgentSession;
-
 	return async ({ agent, ctx }) => {
 		const parentSession = ctx.sessionManager.getSessionFile() ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
-		const sessionManager = SessionManager.create(agent.cwd, sessionDir, { parentSession });
-		const result = await createSession({
+		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, { parentSession });
+		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
 			model: ctx.model,

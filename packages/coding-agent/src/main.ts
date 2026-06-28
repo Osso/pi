@@ -49,7 +49,7 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-import type { CreateAgentSessionOptions } from "./core/sdk.ts";
+import { type CreateAgentSessionOptions, createAgentSession } from "./core/sdk.ts";
 import { applySelfRestartRequest } from "./core/self-restart.ts";
 import { claimLatestIncomingMessage, getControlDbPath } from "./core/session-control-db.ts";
 import {
@@ -500,7 +500,11 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 }
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
-const firstPartyChildAgentSessionFactory = createProductionChildAgentSessionFactory({ agentDir: getAgentDir() });
+const firstPartyChildAgentSessionFactory = createProductionChildAgentSessionFactory({
+	agentDir: getAgentDir(),
+	createSession: createAgentSession,
+	createSessionManager: SessionManager.create,
+});
 const firstPartyHostrunAgentHandler = createHostrunMultiAgentRequestHandler({
 	createChildSession: firstPartyChildAgentSessionFactory,
 	store: firstPartyMultiAgentStore,

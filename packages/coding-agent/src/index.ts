@@ -18,9 +18,7 @@ export {
 	type AgentSessionEvent,
 	type AgentSessionEventListener,
 	type ModelCycleResult,
-	type ParsedSkillBlock,
 	type PromptOptions,
-	parseSkillBlock,
 	type SessionStats,
 } from "./core/agent-session.ts";
 // Auth and model registry
@@ -235,6 +233,7 @@ export {
 	SettingsManager,
 	type SettingsManagerCreateOptions,
 } from "./core/settings-manager.ts";
+export { type ParsedSkillBlock, parseSkillBlock } from "./core/skill-block.ts";
 // Skills
 export {
 	formatSkillsForPrompt,

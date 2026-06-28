@@ -60,8 +60,8 @@ import {
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
-import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
-import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
+import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
+import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -91,12 +91,14 @@ import {
 	setNamedSession,
 } from "../../core/session-control-db.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
+import { SessionImportFileNotFoundError } from "../../core/session-errors.ts";
 import {
 	type SessionContext,
 	type SessionInfo,
 	type SessionListProgress,
 	SessionManager,
 } from "../../core/session-manager.ts";
+import { parseSkillBlock } from "../../core/skill-block.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
