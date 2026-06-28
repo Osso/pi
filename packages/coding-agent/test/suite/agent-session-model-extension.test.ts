@@ -35,7 +35,10 @@ describe("AgentSession model and extension characterization", () => {
 		}
 	});
 
-	function createConfirmUiContext(confirm: ExtensionUIContext["confirm"]): ExtensionUIContext {
+	function createConfirmUiContext(
+		confirm: ExtensionUIContext["confirm"],
+		select: ExtensionUIContext["select"] = async () => undefined,
+	): ExtensionUIContext {
 		return {
 			addAutocompleteProvider: () => {},
 			confirm,
@@ -50,7 +53,7 @@ describe("AgentSession model and extension characterization", () => {
 			notify: () => {},
 			onTerminalInput: () => () => {},
 			pasteToEditor: () => {},
-			select: async () => undefined,
+			select,
 			setEditorComponent: () => {},
 			setEditorText: () => {},
 			setFooter: () => {},
@@ -424,8 +427,9 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("Extension failed, blocking execution: non-error failure");
 	});
 
-	it("allows on-request tool calls when the human confirmation fallback approves", async () => {
-		const confirm = vi.fn(async () => true);
+	it("allows on-request tool calls when the human approval dialog allows once", async () => {
+		const confirm = vi.fn(async () => false);
+		const select = vi.fn(async () => "Allow once");
 		let toolExecutions = 0;
 		const echoTool: AgentTool = {
 			name: "echo",
@@ -441,7 +445,7 @@ describe("AgentSession model and extension characterization", () => {
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
-			uiContext: createConfirmUiContext(confirm),
+			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
 		harness.setResponses([
@@ -454,13 +458,68 @@ describe("AgentSession model and extension characterization", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(confirm).not.toHaveBeenCalled();
 		expect(toolExecutions).toBe(1);
 		expect(getAssistantTexts(harness)).toContain("hello");
 	});
 
-	it("blocks on-request tool calls when the human confirmation fallback rejects", async () => {
+	it("spawns a background permission agent when the human approval dialog allows always", async () => {
 		const confirm = vi.fn(async () => false);
+		const select = vi.fn(async () => "Allow always");
+		const spawnedPrompts: string[] = [];
+		let toolExecutions = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				toolExecutions++;
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const spawnAgentTool: AgentTool = {
+			name: "spawn_agent",
+			label: "Spawn Agent",
+			description: "Spawn a background agent",
+			parameters: Type.Object({ prompt: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const prompt =
+					typeof params === "object" && params !== null && "prompt" in params ? String(params.prompt) : "";
+				spawnedPrompts.push(prompt);
+				return { content: [{ type: "text", text: "spawned" }], details: { prompt } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
+			tools: [echoTool, spawnAgentTool],
+			uiContext: createConfirmUiContext(confirm, select),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(confirm).not.toHaveBeenCalled();
+		expect(toolExecutions).toBe(1);
+		expect(spawnedPrompts).toHaveLength(1);
+		expect(spawnedPrompts[0]).toContain("/syncthing/Sync/Projects/claude/claude-bash-hook");
+		expect(spawnedPrompts[0]).toContain('"text": "hello"');
+		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
+	it("blocks on-request tool calls when the human approval dialog rejects", async () => {
+		const confirm = vi.fn(async () => false);
+		const select = vi.fn(async () => "Deny");
 		let toolExecutions = 0;
 		const echoTool: AgentTool = {
 			name: "echo",
@@ -475,7 +534,7 @@ describe("AgentSession model and extension characterization", () => {
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
 			tools: [echoTool],
-			uiContext: createConfirmUiContext(confirm),
+			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
 		harness.setResponses([
@@ -488,7 +547,8 @@ describe("AgentSession model and extension characterization", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(confirm).not.toHaveBeenCalled();
 		expect(toolExecutions).toBe(0);
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
@@ -497,10 +557,11 @@ describe("AgentSession model and extension characterization", () => {
 
 	it("asks for wrapper approval before delegating hostrun_eval to the canonical adapter", async () => {
 		const confirm = vi.fn(async () => false);
+		const select = vi.fn(async () => "Deny");
 		const harness = await createHarness({
 			extensionFactories: [hostrunExtension],
 			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
-			uiContext: createConfirmUiContext(confirm),
+			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
 		harness.setResponses([
@@ -513,8 +574,13 @@ describe("AgentSession model and extension characterization", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(confirm).toHaveBeenCalledTimes(1);
-		expect(confirm).toHaveBeenCalledWith("Approve hostrun_eval?", expect.any(String));
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(select).toHaveBeenCalledWith(expect.stringContaining("Approve hostrun_eval?"), [
+			"Allow once",
+			"Allow always",
+			"Deny",
+		]);
+		expect(confirm).not.toHaveBeenCalled();
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();
@@ -696,10 +762,11 @@ describe("AgentSession model and extension characterization", () => {
 			permissionDecision: "ask",
 			permissionDecisionReason: "needs human review",
 		});
-		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(true);
+		const confirm = vi.fn<ExtensionUIContext["confirm"]>().mockResolvedValue(false);
+		const select = vi.fn<ExtensionUIContext["select"]>().mockResolvedValue("Allow once");
 		const harness = await createHarness({
 			extensionFactories: [claudeBashHookExtension],
-			uiContext: createConfirmUiContext(confirm),
+			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
 		harness.setResponses([
@@ -712,7 +779,8 @@ describe("AgentSession model and extension characterization", () => {
 
 		await harness.session.prompt("hi");
 
-		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(confirm).not.toHaveBeenCalled();
 		expect(getAssistantTexts(harness)).toContain("native-approved");
 	});
 
@@ -1018,7 +1086,10 @@ describe("AgentSession model and extension characterization", () => {
 				createApprovalTool("mcp__claude-bash-hook-approval__approval_prompt"),
 				createApprovalTool("mcp__other-approval__approval_prompt"),
 			],
-			uiContext: createConfirmUiContext(async () => true),
+			uiContext: createConfirmUiContext(
+				async () => false,
+				async () => "Allow once",
+			),
 		});
 		harnesses.push(harness);
 		harness.setResponses([

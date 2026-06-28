@@ -168,6 +168,25 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
 	return value as Record<string, unknown>;
 }
 
+function buildAllowAlwaysAgentPrompt(input: { cwd: string; input: Record<string, unknown>; toolName: string }): string {
+	return [
+		"Add a persistent allow rule for a command that was approved with Allow always in Pi.",
+		"",
+		"Target project: /syncthing/Sync/Projects/claude/claude-bash-hook",
+		`Original cwd: ${input.cwd}`,
+		`Tool name: ${input.toolName}`,
+		"Tool input:",
+		JSON.stringify(input.input, null, 2),
+		"",
+		"Requirements:",
+		"- Add the narrowest safe allow rule for this exact workflow.",
+		"- Do not broaden access beyond what the approved command requires.",
+		"- Preserve deny/protected-path precedence.",
+		"- Run the relevant claude-bash-hook tests/checks.",
+		"- Commit the verified config or code change if repository rules allow committing.",
+	].join("\n");
+}
+
 /** Session-specific events that extend the core AgentEvent */
 export type AgentSessionEvent =
 	| Exclude<AgentEvent, { type: "agent_end" }>
@@ -624,14 +643,43 @@ export class AgentSession {
 		}
 
 		return async () => {
-			const approved = await runner
+			const selection = await runner
 				.getUIContext()
-				.confirm(`Approve ${event.toolName}?`, JSON.stringify(event.input, null, 2));
-			if (approved) {
+				.select(`Approve ${event.toolName}?\n${JSON.stringify(event.input, null, 2)}`, [
+					"Allow once",
+					"Allow always",
+					"Deny",
+				]);
+			if (selection === "Allow once") {
+				return undefined;
+			}
+			if (selection === "Allow always") {
+				this._spawnAllowAlwaysAgent(event);
 				return undefined;
 			}
 			return { block: true, reason: "Tool call rejected by user" };
 		};
+	}
+
+	private _spawnAllowAlwaysAgent(event: ToolCallEvent): void {
+		const tool = this._toolRegistry.get("spawn_agent");
+		if (!tool) {
+			return;
+		}
+
+		void tool
+			.execute(`allow-always:${event.toolCallId}`, {
+				agentType: "permission-config",
+				displayName: "Allow command",
+				prompt: buildAllowAlwaysAgentPrompt({
+					cwd: this._cwd,
+					input: event.input,
+					toolName: event.toolName,
+				}),
+			})
+			.catch((error: unknown) => {
+				console.error("Failed to spawn allow-always agent:", error);
+			});
 	}
 
 	private _createToolApprovalLlmReviewer(event: ToolCallEvent): ApprovalReviewer | undefined {
