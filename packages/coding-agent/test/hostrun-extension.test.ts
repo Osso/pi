@@ -630,15 +630,18 @@ describe("hostrun extension", () => {
 		expect(harness.enqueuedMessages).toEqual([{ content: "next", options: { deliverAs: "followUp" } }]);
 	});
 
-	it("triggers Pi compaction from Hostrun pi.compact", async () => {
+	it("enqueues Pi compaction from Hostrun pi.compact after the active tool call", async () => {
 		const harness = createHostrunHarness();
 
 		const result = await harness.evaluate({
 			code: "pi.compact({ customInstructions: 'preserve IDs' })",
 		});
 
-		expect(result.details.value).toEqual({ started: true });
-		expect(harness.compactRequests).toEqual([{ customInstructions: "preserve IDs" }]);
+		expect(result.details.value).toEqual({ enqueued: true });
+		expect(harness.compactRequests).toEqual([]);
+		expect(harness.enqueuedMessages).toEqual([
+			{ content: "/compact preserve IDs", options: { deliverAs: "followUp" } },
+		]);
 	});
 
 	it("restarts Pi from Hostrun pi.restart", async () => {

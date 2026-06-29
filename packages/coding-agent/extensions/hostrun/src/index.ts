@@ -88,7 +88,7 @@ function normalizeCompactParams(params: unknown): { customInstructions?: string 
 
 function createHostrunPiDispatcher(pi: ExtensionAPI, options: HostrunExtensionOptions): HostrunPiRequestDispatcher {
 	return async (request, ctx, signal) => {
-		if (request.method === "compact") return triggerCompact(request.params, ctx);
+		if (request.method === "compact") return triggerCompact(request.params, pi);
 		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
 		if (request.method === "restart") return triggerRestart(request.params, ctx);
 		for (const handler of options.piRequestHandlers ?? []) {
@@ -99,9 +99,11 @@ function createHostrunPiDispatcher(pi: ExtensionAPI, options: HostrunExtensionOp
 	};
 }
 
-function triggerCompact(params: unknown, ctx: ExtensionContext): { started: true } {
-	ctx.compact(normalizeCompactParams(params));
-	return { started: true };
+function triggerCompact(params: unknown, pi: ExtensionAPI): { enqueued: true } {
+	const options = normalizeCompactParams(params);
+	const suffix = options.customInstructions ? ` ${options.customInstructions}` : "";
+	pi.sendUserMessage(`/compact${suffix}`, { deliverAs: "followUp" });
+	return { enqueued: true };
 }
 
 async function triggerRestart(params: unknown, ctx: ExtensionContext): Promise<{ started: true }> {
