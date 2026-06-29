@@ -249,6 +249,12 @@ describe("openai remote compact extension", () => {
 			firstKeptEntryId: "kept-1",
 			tokensBefore: 1234,
 			details: { type: "openai-remote-compaction" },
+			source: {
+				type: "openai_remote",
+				provider: "openai",
+				model: "gpt-4.1-mini",
+				endpoint: "https://api.openai.com/v1/responses/compact",
+			},
 		});
 		expect(result?.compaction?.durationMs).toEqual(expect.any(Number));
 	});

@@ -74,6 +74,7 @@ export async function handleSessionBeforeCompact(event: SessionBeforeCompactEven
 			firstKeptEntryId: event.preparation.firstKeptEntryId,
 			tokensBefore: event.preparation.tokensBefore,
 			durationMs,
+			source: { type: "openai_remote" as const, provider: model.provider, model: model.id, endpoint },
 			details,
 		},
 	};

@@ -1940,6 +1940,7 @@ export class AgentSession {
 			let firstKeptEntryId: string;
 			let tokensBefore: number;
 			let details: unknown;
+			let source: CompactionResult["source"];
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
@@ -1947,6 +1948,7 @@ export class AgentSession {
 				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
 				tokensBefore = extensionCompaction.tokensBefore;
 				details = extensionCompaction.details;
+				source = extensionCompaction.source;
 			} else {
 				// Generate compaction result
 				const result = await compact(
@@ -1964,6 +1966,7 @@ export class AgentSession {
 				firstKeptEntryId = result.firstKeptEntryId;
 				tokensBefore = result.tokensBefore;
 				details = result.details;
+				source = result.source;
 			}
 
 			if (this._compactionAbortController.signal.aborted) {
@@ -2005,6 +2008,7 @@ export class AgentSession {
 				tokensBefore,
 				durationMs,
 				estimatedTokensAfter,
+				source,
 				details,
 			};
 			this._emit({
@@ -2224,6 +2228,7 @@ export class AgentSession {
 			let firstKeptEntryId: string;
 			let tokensBefore: number;
 			let details: unknown;
+			let source: CompactionResult["source"];
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
@@ -2231,6 +2236,7 @@ export class AgentSession {
 				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
 				tokensBefore = extensionCompaction.tokensBefore;
 				details = extensionCompaction.details;
+				source = extensionCompaction.source;
 			} else {
 				// Generate compaction result
 				const compactResult = await compact(
@@ -2248,6 +2254,7 @@ export class AgentSession {
 				firstKeptEntryId = compactResult.firstKeptEntryId;
 				tokensBefore = compactResult.tokensBefore;
 				details = compactResult.details;
+				source = compactResult.source;
 			}
 
 			if (this._autoCompactionAbortController.signal.aborted) {
@@ -2296,6 +2303,7 @@ export class AgentSession {
 				tokensBefore,
 				durationMs,
 				estimatedTokensAfter,
+				source,
 				details,
 			};
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });

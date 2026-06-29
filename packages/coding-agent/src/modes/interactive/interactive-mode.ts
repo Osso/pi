@@ -62,6 +62,7 @@ import {
 } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import type { CompactionSourceInfo } from "../../core/compaction/index.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -81,7 +82,7 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import type { MultiAgentStore } from "../../core/multi-agent-store.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
-import { getRestartExitCode, spawnSelfRestart } from "../../core/self-restart.ts";
+import { getRestartExitCode, spawnSelfRestart, writeWrapperRestartRequest } from "../../core/self-restart.ts";
 import {
 	completeIncomingMessage,
 	failIncomingMessage,
@@ -3109,6 +3110,7 @@ export class InteractiveMode {
 						this.showStatus("Auto-compaction cancelled");
 					}
 				} else if (event.result) {
+					const sourceLogMessage = formatCompactionSourceLogMessage(event.result.source);
 					this.chatContainer.clear();
 					this.rebuildChatFromMessages();
 					this.addMessageToChat(
@@ -3120,6 +3122,7 @@ export class InteractiveMode {
 						),
 					);
 					this.footer.invalidate();
+					this.showStatus(sourceLogMessage);
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {
 						this.showError(event.errorMessage);
@@ -3537,6 +3540,7 @@ export class InteractiveMode {
 			if (options?.notice) {
 				this.sessionManager.appendCustomMessageEntry("self_restart", options.notice, true);
 			}
+			writeWrapperRestartRequest({ sessionFile, prompt: options?.notice });
 			await this.runtimeHost.dispose();
 			process.exit(wrapperExitCode);
 		}
@@ -5981,4 +5985,17 @@ export class InteractiveMode {
 		}
 		this.unregisterSignalHandlers();
 	}
+}
+
+function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefined): string {
+	if (source?.type === "openai_remote") {
+		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
+		return `Compaction completed via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
+	}
+
+	if (source?.type === "local") {
+		return `Compaction completed locally (${source.provider}/${source.model})`;
+	}
+
+	return "Compaction completed locally";
 }

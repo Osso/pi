@@ -99,6 +99,13 @@ function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | u
 	return getMessageFromEntry(entry);
 }
 
+export interface CompactionSourceInfo {
+	type: "local" | "openai_remote";
+	provider: string;
+	model: string;
+	endpoint?: string;
+}
+
 /** Result from compact() - SessionManager adds uuid/parentUuid when saving */
 export interface CompactionResult<T = unknown> {
 	summary: string;
@@ -106,6 +113,8 @@ export interface CompactionResult<T = unknown> {
 	tokensBefore: number;
 	durationMs?: number;
 	estimatedTokensAfter?: number;
+	/** Runtime source used for logging. Not persisted in session entries. */
+	source?: CompactionSourceInfo;
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
 	details?: T;
 }
@@ -839,6 +848,7 @@ export async function compact(
 		firstKeptEntryId,
 		tokensBefore,
 		durationMs: Date.now() - startedAt,
+		source: { type: "local", provider: model.provider, model: model.id },
 		details: { readFiles, modifiedFiles } as CompactionDetails,
 	};
 }
