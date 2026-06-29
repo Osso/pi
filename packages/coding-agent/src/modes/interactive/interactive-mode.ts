@@ -208,6 +208,8 @@ type CompactionQueuedMessage = {
 	mode: "steer" | "followUp";
 };
 
+const STREAMING_RENDER_THROTTLE_MS = 50;
+
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
 
 function isDeadTerminalError(error: unknown): boolean {
@@ -342,6 +344,7 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
+	private streamingRenderTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
@@ -1705,6 +1708,7 @@ export class InteractiveMode {
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
+		this.cancelStreamingUpdateRender();
 		this.applyRuntimeSettings();
 		if (options.renderBeforeBind) {
 			this.renderCurrentSessionState();
@@ -2857,6 +2861,26 @@ export class InteractiveMode {
 		});
 	}
 
+	private scheduleStreamingUpdateRender(): void {
+		if (this.streamingRenderTimeout) {
+			return;
+		}
+
+		this.streamingRenderTimeout = setTimeout(() => {
+			this.streamingRenderTimeout = undefined;
+			this.ui.requestRender();
+		}, STREAMING_RENDER_THROTTLE_MS);
+	}
+
+	private cancelStreamingUpdateRender(): void {
+		if (!this.streamingRenderTimeout) {
+			return;
+		}
+
+		clearTimeout(this.streamingRenderTimeout);
+		this.streamingRenderTimeout = undefined;
+	}
+
 	private async handleEvent(event: AgentSessionEvent): Promise<void> {
 		if (!this.isInitialized) {
 			await this.init();
@@ -2909,6 +2933,7 @@ export class InteractiveMode {
 				break;
 
 			case "message_start":
+				this.cancelStreamingUpdateRender();
 				if (event.message.role === "custom") {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
@@ -2961,11 +2986,12 @@ export class InteractiveMode {
 							}
 						}
 					}
-					this.ui.requestRender();
+					this.scheduleStreamingUpdateRender();
 				}
 				break;
 
 			case "message_end":
+				this.cancelStreamingUpdateRender();
 				if (event.message.role === "user") break;
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
@@ -6012,6 +6038,7 @@ export class InteractiveMode {
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
+		this.cancelStreamingUpdateRender();
 		if (this.isInitialized) {
 			this.ui.stop();
 			this.isInitialized = false;
