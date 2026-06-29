@@ -7,6 +7,7 @@ interface StdoutTakeoverState {
 let stdoutTakeoverState: StdoutTakeoverState | undefined;
 
 const RAW_STDOUT_RETRY_DELAY_MS = 10;
+const RAW_STDOUT_MAX_CHUNK_LENGTH = 1024;
 
 let rawStdoutWriteTail: Promise<void> = Promise.resolve();
 
@@ -82,11 +83,28 @@ export function isStdoutTakenOver(): boolean {
 	return stdoutTakeoverState !== undefined;
 }
 
+function splitRawStdoutText(text: string): string[] {
+	const chunks: string[] = [];
+	let offset = 0;
+
+	while (offset < text.length) {
+		const maxEnd = Math.min(offset + RAW_STDOUT_MAX_CHUNK_LENGTH, text.length);
+		const newlineIndex = text.indexOf("\n", offset);
+		const end = newlineIndex >= offset && newlineIndex < maxEnd ? newlineIndex + 1 : maxEnd;
+		chunks.push(text.slice(offset, end));
+		offset = end;
+	}
+
+	return chunks;
+}
+
 export function writeRawStdout(text: string): void {
 	if (text.length === 0) {
 		return;
 	}
-	rawStdoutWriteTail = rawStdoutWriteTail.then(() => writeRawStdoutChunk(text));
+	for (const chunk of splitRawStdoutText(text)) {
+		rawStdoutWriteTail = rawStdoutWriteTail.then(() => writeRawStdoutChunk(chunk));
+	}
 	void rawStdoutWriteTail.catch(() => {
 		process.exit(1);
 	});
