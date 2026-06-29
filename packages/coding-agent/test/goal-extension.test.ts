@@ -31,6 +31,7 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
+	const setStatus = vi.fn();
 
 	const pi = {
 		on(event: string, handler: ExtensionHandler<GoalEvent, GoalEventResult>) {
@@ -64,7 +65,7 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 
 	const ctx = {
 		cwd,
-		ui: { notify },
+		ui: { notify, setStatus },
 		isIdle: () => options?.idle ?? true,
 		hasPendingMessages: () => false,
 		getContextUsage: () => options?.contextUsage,
@@ -94,6 +95,7 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 		hasGoalCompleteTool: () => completeTool !== undefined,
 		hasSetGoalTool: () => setGoalTool !== undefined,
 		notify,
+		setStatus,
 		sendUserMessage,
 	};
 }
@@ -357,7 +359,20 @@ describe("goal extension", () => {
 		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at turn cap (8)", "warning");
 	});
 
-	it("persists token and wall-clock budgets when setting a goal", async () => {
+	it("persists a one-billion token budget by default", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("default budget objective");
+
+		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as {
+			objective: string;
+			tokenBudget: number;
+		};
+		expect(goal.objective).toBe("default budget objective");
+		expect(goal.tokenBudget).toBe(1_000_000_000);
+	});
+
+	it("persists explicit token and wall-clock budgets when setting a goal", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("--token-budget 100 --wall-clock-minutes 5 budgeted objective");
@@ -370,6 +385,16 @@ describe("goal extension", () => {
 		expect(goal.objective).toBe("budgeted objective");
 		expect(goal.tokenBudget).toBe(100);
 		expect(goal.wallClockBudgetMs).toBe(5 * 60 * 1000);
+	});
+
+	it("shows the active goal in the footer status", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("visible footer objective");
+		await harness.runCommand("clear");
+
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal: visible footer objective");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", undefined);
 	});
 
 	it("stops continuation when the token budget is reached", async () => {

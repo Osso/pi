@@ -24,7 +24,7 @@ The persisted record contains:
 - `completedAt` and `completionReason`: set when `goal_complete` marks the goal
   complete.
 - `continuationTurns`: number of automatic continuation turns already sent.
-- `tokenBudget`: optional token ceiling.
+- `tokenBudget`: token ceiling. New goals default to 1,000,000,000 unless an explicit budget is provided.
 - `wallClockBudgetMs`: optional wall-clock ceiling.
 
 Missing state means no active goal. Corrupt JSON is also treated as no active
@@ -56,7 +56,7 @@ before state is written.
 
 The command also accepts:
 
-- `--token-budget <positive integer>`
+- `--token-budget <positive integer>` (defaults to 1,000,000,000)
 - `--wall-clock-minutes <positive integer>`
 
 Invalid or missing budget values produce an error notification and do not write
@@ -72,11 +72,17 @@ budgets.
 The injected instructions tell the model to keep working until the goal is
 achieved and to report blockers instead of stopping silently.
 
+## Footer Status
+
+The extension shows the active objective in the footer status line as
+`goal: <objective>`. Setting, restoring, clearing, or completing a goal updates
+that status.
+
 ## Session Start
 
 The extension listens for `session_start`. If `.pi/goal.json` contains a goal,
-Pi notifies the user with the restored objective. The same restore behavior is
-covered for resume, reload, and fork reasons.
+Pi notifies the user with the restored objective and shows it in the footer. The
+same restore behavior is covered for resume, reload, and fork reasons.
 
 ## Automatic Continuation
 
@@ -114,6 +120,6 @@ Completed goals do not trigger automatic continuation.
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
 behavior: first-party registration, set/view/clear, explicit replacement,
 objective length rejection, prompt injection, continuation state and budgets,
-session-start restore notifications, corrupt state handling, automatic
-continuation, busy guard, `goal_complete`, turn cap, token budget, and
+footer status, session-start restore notifications, corrupt state handling,
+automatic continuation, busy guard, `goal_complete`, turn cap, token budget, and
 wall-clock budget.

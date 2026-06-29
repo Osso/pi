@@ -30,6 +30,7 @@ import { Type } from "typebox";
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
 const MAX_CONTINUATION_TURNS = 8;
+const DEFAULT_TOKEN_BUDGET = 1_000_000_000;
 
 interface Goal {
 	objective: string;
@@ -130,6 +131,15 @@ function clearGoal(cwd: string): boolean {
 	return true;
 }
 
+function goalFooterStatus(goal: Goal): string {
+	return `goal: ${goal.objective}`;
+}
+
+function updateGoalFooterStatus(ctx: ExtensionContext): void {
+	const goal = loadActiveGoal(ctx.cwd);
+	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
+}
+
 function parsePositiveInteger(value: string | undefined): number | null {
 	if (!value) return null;
 	const parsed = Number(value);
@@ -227,7 +237,7 @@ function goalSystemBlock(goal: Goal): string {
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
-	const { objective, replace, tokenBudget, wallClockBudgetMs, cwd, ctx, pi } = params;
+	const { objective, replace, tokenBudget = DEFAULT_TOKEN_BUDGET, wallClockBudgetMs, cwd, ctx, pi } = params;
 	if (objective.length > MAX_OBJECTIVE_CHARS) {
 		return {
 			ok: false,
@@ -254,6 +264,7 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 		wallClockBudgetMs,
 	};
 	saveGoal(cwd, goal);
+	updateGoalFooterStatus(ctx);
 
 	if (ctx.isIdle()) {
 		pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
@@ -339,6 +350,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 					details: {},
 				};
 			}
+			updateGoalFooterStatus(ctx);
 			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 			return {
 				content: [{ type: "text", text: `Goal marked complete: ${reason}` }],
@@ -350,6 +362,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 	// Notify on session start if an objective is active.
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		const goal = loadActiveGoal(ctx.cwd);
+		updateGoalFooterStatus(ctx);
 		if (goal) ctx.ui.notify(`Active goal: ${goal.objective}`, "info");
 	});
 
@@ -403,6 +416,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 			// Clear
 			if (objective === "clear") {
 				ctx.ui.notify(clearGoal(cwd) ? "Goal cleared" : "No active goal", "info");
+				updateGoalFooterStatus(ctx);
 				return;
 			}
 
