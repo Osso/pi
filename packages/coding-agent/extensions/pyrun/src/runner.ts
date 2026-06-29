@@ -1,0 +1,197 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { EOL } from "node:os";
+
+export interface CanonicalPyrunEvalParams {
+	code: string;
+	session_id?: string;
+}
+
+export interface CanonicalPyrunConsoleEntry {
+	level: string;
+	message: string;
+}
+
+export interface CanonicalPyrunApprovalRequest {
+	args: unknown;
+	id: string;
+	summary: string;
+	tool: string;
+}
+
+export interface CanonicalPyrunEvalResult {
+	approval?: CanonicalPyrunApprovalRequest;
+	console?: CanonicalPyrunConsoleEntry[];
+	error?: string;
+	executed?: string;
+	type: "completed" | "error" | "needs_approval";
+	value?: unknown;
+}
+
+export interface CanonicalPyrunProgressUpdate {
+	message?: string;
+	output?: string;
+	status?: string;
+	text?: string;
+	type: string;
+	value?: unknown;
+}
+
+export type CanonicalPyrunRunnerMessage = CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate;
+
+interface PendingRequest {
+	cleanup?: () => void;
+	onProgress?: (update: CanonicalPyrunProgressUpdate) => void;
+	reject: (error: Error) => void;
+	resolve: (result: CanonicalPyrunEvalResult) => void;
+}
+
+export interface PyrunRunnerOptions {
+	args?: string[];
+	command?: string;
+}
+
+export interface PyrunRunnerResolutionOptions {
+	env?: NodeJS.ProcessEnv;
+}
+
+function parseRunnerArgs(value: string | undefined): string[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const parsed = JSON.parse(value) as unknown;
+	if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+		throw new Error("PI_PYRUN_RUNNER_ARGS must be a JSON string array");
+	}
+	return parsed;
+}
+
+export function resolvePyrunRunnerOptions(resolution: PyrunRunnerResolutionOptions = {}): Required<PyrunRunnerOptions> {
+	const env = resolution.env ?? process.env;
+	const command = env.PI_PYRUN_RUNNER_COMMAND ?? env.PI_PYRUN_RUNNER ?? "pyrun-jsonl";
+	return {
+		args: parseRunnerArgs(env.PI_PYRUN_RUNNER_ARGS) ?? [],
+		command,
+	};
+}
+
+export class PyrunRunnerClient {
+	private buffer = "";
+	private readonly options: PyrunRunnerOptions;
+	private process: ChildProcessWithoutNullStreams | undefined;
+	private readonly pending: PendingRequest[] = [];
+	private readonly stderr: string[] = [];
+
+	constructor(options: PyrunRunnerOptions = {}) {
+		this.options = options;
+	}
+
+	evaluate(
+		params: CanonicalPyrunEvalParams,
+		onProgress?: (update: CanonicalPyrunProgressUpdate) => void,
+		signal?: AbortSignal,
+	): Promise<CanonicalPyrunEvalResult> {
+		if (signal?.aborted) {
+			return Promise.reject(new Error("Pyrun evaluation aborted"));
+		}
+		const child = this.ensureProcess();
+		const payload = JSON.stringify(params);
+		return new Promise((resolve, reject) => {
+			const pending: PendingRequest = { onProgress, reject, resolve };
+			if (signal) {
+				const onAbort = () => {
+					this.process?.kill();
+					this.process = undefined;
+					this.rejectAll(new Error("Pyrun evaluation aborted"));
+				};
+				signal.addEventListener("abort", onAbort, { once: true });
+				pending.cleanup = () => signal.removeEventListener("abort", onAbort);
+			}
+			this.pending.push(pending);
+			child.stdin.write(`${payload}\n`, (error) => {
+				if (error) {
+					this.rejectNext(error);
+				}
+			});
+		});
+	}
+
+	dispose(): void {
+		this.process?.kill();
+		this.process = undefined;
+	}
+
+	private ensureProcess(): ChildProcessWithoutNullStreams {
+		if (this.process) {
+			return this.process;
+		}
+		const options = { ...resolvePyrunRunnerOptions(), ...this.options };
+		const child = spawn(options.command, options.args, { stdio: ["pipe", "pipe", "pipe"] });
+		this.process = child;
+		child.stdout.setEncoding("utf8");
+		child.stderr.setEncoding("utf8");
+		child.stdout.on("data", (chunk: string) => this.handleStdout(chunk));
+		child.stderr.on("data", (chunk: string) => this.stderr.push(chunk));
+		child.on("error", (error) => this.rejectAll(error));
+		child.on("exit", (code, signal) => {
+			this.process = undefined;
+			if (this.pending.length === 0) {
+				return;
+			}
+			const stderr = this.stderr.join("").trim();
+			const reason = signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`;
+			this.rejectAll(new Error(`Pyrun runner exited with ${reason}${stderr ? `${EOL}${stderr}` : ""}`));
+		});
+		return child;
+	}
+
+	private handleStdout(chunk: string): void {
+		this.buffer += chunk;
+		const lines = this.buffer.split("\n");
+		this.buffer = lines.pop() ?? "";
+		for (const line of lines) {
+			if (line.trim().length === 0) {
+				continue;
+			}
+			this.resolveNext(line);
+		}
+	}
+
+	private resolveNext(line: string): void {
+		const pending = this.pending[0];
+		if (!pending) {
+			return;
+		}
+		try {
+			const message = JSON.parse(line) as CanonicalPyrunRunnerMessage;
+			if (isFinalEvalResult(message)) {
+				this.pending.shift();
+				pending.cleanup?.();
+				pending.resolve(message);
+				return;
+			}
+			pending.onProgress?.(message);
+		} catch (error) {
+			this.pending.shift();
+			pending.cleanup?.();
+			pending.reject(error instanceof Error ? error : new Error(String(error)));
+		}
+	}
+
+	private rejectNext(error: Error): void {
+		const pending = this.pending.shift();
+		if (pending) {
+			pending.cleanup?.();
+			pending.reject(error);
+		}
+	}
+
+	private rejectAll(error: Error): void {
+		while (this.pending.length > 0) {
+			this.rejectNext(error);
+		}
+	}
+}
+
+function isFinalEvalResult(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunEvalResult {
+	return message.type === "completed" || message.type === "error" || message.type === "needs_approval";
+}

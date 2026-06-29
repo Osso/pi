@@ -1,0 +1,14 @@
+{
+	"name": "@earendil-works/pi-pyrun-extension",
+	"version": "0.80.2",
+	"private": true,
+	"type": "module",
+	"description": "Pi adapter for the canonical Pyrun runtime",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"typebox": "1.1.38"
+	}
+}

@@ -23,6 +23,7 @@ import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
 import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/src/index.ts";
+import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
@@ -558,6 +559,7 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("hostrun", (pi) =>
 		hostrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
 	),
+	firstPartyExtensionFactory("pyrun", pyrunExtension),
 	firstPartyExtensionFactory("loop", loopExtension),
 	firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
