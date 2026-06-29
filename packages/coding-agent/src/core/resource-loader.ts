@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
@@ -33,6 +33,25 @@ export interface ResourceExtensionPaths {
 
 export interface ResourceLoaderReloadOptions {
 	resolveProjectTrust?: (input: { extensionsResult: LoadExtensionsResult }) => Promise<boolean>;
+}
+
+function firstPartyExtensionName(extensionPath: string): string | undefined {
+	const prefix = "<first-party:";
+	if (!extensionPath.startsWith(prefix) || !extensionPath.endsWith(">")) {
+		return undefined;
+	}
+	return extensionPath.slice(prefix.length, -1);
+}
+
+function inlineExtensionName(extensionPath: string): string | undefined {
+	const firstPartyName = firstPartyExtensionName(extensionPath);
+	if (firstPartyName) {
+		return firstPartyName;
+	}
+	if (extensionPath.startsWith("<") && extensionPath.endsWith(">")) {
+		return extensionPath.slice(1, -1);
+	}
+	return undefined;
 }
 
 export interface ResourceLoader {
@@ -456,9 +475,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliEnabledPrompts = getEnabledPaths(cliExtensionPaths.prompts);
 		const cliEnabledThemes = getEnabledPaths(cliExtensionPaths.themes);
 
-		const extensionPaths = this.noExtensions
-			? cliEnabledExtensions
-			: this.mergePaths(cliEnabledExtensions, enabledExtensions);
+		const extensionPaths = this.filterDisabledExtensionPaths(
+			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions),
+		);
 
 		const extensionsResult = await this.loadFinalExtensionSet(extensionPaths, preTrustExtensions);
 		for (const p of this.additionalExtensionPaths) {
@@ -561,9 +580,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		});
 		const enabledExtensions = resolvedPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
-		const extensionPaths = this.noExtensions
-			? cliEnabledExtensions
-			: this.mergePaths(cliEnabledExtensions, enabledExtensions);
+		const extensionPaths = this.filterDisabledExtensionPaths(
+			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions),
+		);
 		const extensionsResult = await loadExtensionsCached(extensionPaths, this.cwd, this.eventBus);
 		if (!options.includeInlineFactories) {
 			return extensionsResult;
@@ -615,7 +634,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 			loadedByPath.set(extension.resolvedPath, extension);
 		}
 
-		const inlineExtensions = preTrustExtensions.extensions.filter((extension) => extension.path.startsWith("<"));
+		const inlineExtensions = preTrustExtensions.extensions.filter(
+			(extension) => extension.path.startsWith("<") && !this.isExtensionFactoryDisabled(extension.path),
+		);
 		const orderedExtensions = extensionPaths
 			.map((path) => loadedByPath.get(this.resolveExtensionLoadPath(path)))
 			.filter((extension): extension is Extension => extension !== undefined);
@@ -949,6 +970,43 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
+	private getDisabledExtensionNames(): Set<string> {
+		return new Set(
+			this.settingsManager
+				.getDisabledExtensions()
+				.map((name) => name.trim())
+				.filter(Boolean),
+		);
+	}
+
+	private isExtensionPathDisabled(extensionPath: string): boolean {
+		const disabledExtensions = this.getDisabledExtensionNames();
+		if (disabledExtensions.size === 0) {
+			return false;
+		}
+
+		const resolvedPath = this.resolveResourcePath(extensionPath);
+		const candidates = [extensionPath, resolvedPath, basename(extensionPath), basename(resolvedPath)].filter(Boolean);
+		return candidates.some((candidate) => disabledExtensions.has(candidate));
+	}
+
+	private filterDisabledExtensionPaths(extensionPaths: string[]): string[] {
+		return extensionPaths.filter((extensionPath) => !this.isExtensionPathDisabled(extensionPath));
+	}
+
+	private isExtensionFactoryDisabled(extensionPath: string): boolean {
+		const disabledExtensions = this.getDisabledExtensionNames();
+		if (disabledExtensions.size === 0) {
+			return false;
+		}
+
+		const extensionName = inlineExtensionName(extensionPath);
+		const candidates = [extensionPath, extensionName].filter(
+			(candidate): candidate is string => candidate !== undefined,
+		);
+		return candidates.some((candidate) => disabledExtensions.has(candidate));
+	}
+
 	private async loadExtensionFactories(runtime: ExtensionRuntime): Promise<{
 		extensions: Extension[];
 		errors: Array<{ path: string; error: string }>;
@@ -959,6 +1017,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		for (const [index, factory] of this.extensionFactories.entries()) {
 			const extensionPath =
 				(factory as ExtensionFactory & { extensionPath?: string }).extensionPath ?? `<inline:${index + 1}>`;
+			if (this.isExtensionFactoryDisabled(extensionPath)) {
+				continue;
+			}
 			try {
 				const extension = await loadExtensionFromFactory(factory, this.cwd, this.eventBus, runtime, extensionPath);
 				extensions.push(extension);

@@ -115,6 +115,7 @@ export interface Settings {
 	trackingId?: string; // analytics tracking identifier, generated when analytics is enabled
 	packages?: PackageSource[]; // Array of npm/git package sources (string or object with filtering)
 	extensions?: string[]; // Array of local extension file paths or directories
+	disabledExtensions?: string[]; // Extension names or paths to skip when loading extensions
 	skills?: string[]; // Array of local skill file paths or directories
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
@@ -1051,6 +1052,10 @@ export class SettingsManager {
 
 	getExtensionPaths(): string[] {
 		return [...(this.settings.extensions ?? [])];
+	}
+
+	getDisabledExtensions(): string[] {
+		return [...(this.settings.disabledExtensions ?? [])];
 	}
 
 	setExtensionPaths(paths: string[]): void {

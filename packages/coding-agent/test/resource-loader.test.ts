@@ -8,7 +8,7 @@ import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { DefaultResourceLoader, loadRulesFromDir } from "../src/core/resource-loader.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { SettingsManager } from "../src/core/settings-manager.ts";
+import { InMemorySettingsStorage, SettingsManager } from "../src/core/settings-manager.ts";
 import type { Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 
@@ -298,6 +298,48 @@ export default function(pi) {
 				"deploy:2",
 				"user-only",
 			]);
+		});
+
+		it("should skip disabled inline extension factories", async () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ disabledExtensions: ["hostrun"] }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+			const hostrunFactory = () => {};
+			Object.defineProperty(hostrunFactory, "extensionPath", { value: "<first-party:hostrun>" });
+			const goalFactory = () => {};
+			Object.defineProperty(goalFactory, "extensionPath", { value: "<first-party:goal>" });
+
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager,
+				extensionFactories: [hostrunFactory, goalFactory],
+			});
+			await loader.reload();
+
+			const loadedExtensionPaths = loader.getExtensions().extensions.map((extension) => extension.path);
+			expect(loadedExtensionPaths).toEqual(["<first-party:goal>"]);
+		});
+
+		it("should skip disabled local extension paths", async () => {
+			const extensionsDir = join(agentDir, "extensions");
+			mkdirSync(extensionsDir, { recursive: true });
+			writeFileSync(join(extensionsDir, "enabled.ts"), "export default function() {}\n");
+			writeFileSync(join(extensionsDir, "disabled.ts"), "export default function() {}\n");
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () =>
+				JSON.stringify({
+					extensions: [join(extensionsDir, "enabled.ts"), join(extensionsDir, "disabled.ts")],
+					disabledExtensions: ["disabled.ts"],
+				}),
+			);
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
+			await loader.reload();
+
+			const loadedExtensionPaths = loader.getExtensions().extensions.map((extension) => extension.path);
+			expect(loadedExtensionPaths).toEqual([join(extensionsDir, "enabled.ts")]);
 		});
 
 		it("should honor overrides for auto-discovered resources", async () => {

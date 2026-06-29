@@ -235,12 +235,23 @@ Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in
 |---------|------|---------|-------------|
 | `packages` | array | `[]` | npm/git packages to load resources from |
 | `extensions` | string[] | `[]` | Local extension file paths or directories |
+| `disabledExtensions` | string[] | `[]` | Extension names or paths to skip, e.g. `["hostrun"]` |
 | `skills` | string[] | `[]` | Local skill file paths or directories |
 | `prompts` | string[] | `[]` | Local prompt template paths or directories |
 | `themes` | string[] | `[]` | Local theme file paths or directories |
 | `enableSkillCommands` | boolean | `true` | Register skills as `/skill:name` commands |
 
 Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+path` to force-include an exact path and `-path` to force-exclude an exact path.
+
+`disabledExtensions` applies after extension discovery and first-party extension registration. First-party extensions can be disabled by their inventory name:
+
+```json
+{
+  "disabledExtensions": ["hostrun"]
+}
+```
+
+Local extensions can be disabled by configured path, resolved absolute path, or file basename.
 
 #### packages
 

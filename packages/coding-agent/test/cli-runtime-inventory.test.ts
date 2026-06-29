@@ -23,13 +23,29 @@ function createTempDir(): string {
 
 async function runCli(
 	args: string[],
-	options?: { projectExtension?: boolean },
+	options?: {
+		projectExtension?: boolean;
+		globalSettings?: Record<string, unknown>;
+		projectSettings?: Record<string, unknown>;
+	},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
 	const tempRoot = createTempDir();
 	const agentDir = join(tempRoot, "agent");
 	const projectDir = join(tempRoot, "project");
 	mkdirSync(agentDir, { recursive: true });
 	mkdirSync(projectDir, { recursive: true });
+	if (options?.globalSettings) {
+		await writeFile(join(agentDir, "settings.json"), JSON.stringify(options.globalSettings, null, 2), "utf8");
+	}
+	if (options?.projectSettings) {
+		const projectConfigDir = join(projectDir, ".pi");
+		mkdirSync(projectConfigDir, { recursive: true });
+		await writeFile(
+			join(projectConfigDir, "settings.json"),
+			JSON.stringify(options.projectSettings, null, 2),
+			"utf8",
+		);
+	}
 	if (options?.projectExtension) {
 		const projectExtensionsDir = join(projectDir, ".pi", "extensions");
 		mkdirSync(projectExtensionsDir, { recursive: true });
@@ -80,6 +96,37 @@ describe("runtime inventory CLI", () => {
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
 		expect(result.stdout).toContain("run-plan");
+	});
+
+	it("skips first-party extensions disabled in settings", async () => {
+		const result = await runCli(["extensions"], { globalSettings: { disabledExtensions: ["hostrun"] } });
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).toContain("approval-controls");
+		expect(result.stdout).toContain("goal");
+		expect(result.stdout).not.toContain("hostrun");
+	});
+
+	it("skips first-party extensions disabled by trusted project settings", async () => {
+		const result = await runCli(["extensions", "--approve"], {
+			projectSettings: { disabledExtensions: ["hostrun"] },
+		});
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).toContain("approval-controls");
+		expect(result.stdout).toContain("goal");
+		expect(result.stdout).not.toContain("hostrun");
+	});
+
+	it("hides tools from first-party extensions disabled in settings", async () => {
+		const result = await runCli(["tools"], { globalSettings: { disabledExtensions: ["hostrun"] } });
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).not.toContain("hostrun_eval");
+		expect(result.stdout).toContain("set_goal");
 	});
 
 	it("keeps first-party extensions after project trust reload", async () => {
