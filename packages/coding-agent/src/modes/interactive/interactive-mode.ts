@@ -82,7 +82,7 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import type { MultiAgentStore } from "../../core/multi-agent-store.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
-import { getRestartExitCode, spawnSelfRestart, writeWrapperRestartRequest } from "../../core/self-restart.ts";
+import { restartCurrentProcess } from "../../core/self-restart.ts";
 import {
 	completeIncomingMessage,
 	failIncomingMessage,
@@ -3535,18 +3535,18 @@ export class InteractiveMode {
 			await this.ui.terminal.drainInput(1000);
 			this.stop();
 		}
-		const wrapperExitCode = getRestartExitCode();
-		if (wrapperExitCode !== undefined) {
-			if (options?.notice) {
-				this.sessionManager.appendCustomMessageEntry("self_restart", options.notice, true);
-			}
-			writeWrapperRestartRequest({ sessionFile, prompt: options?.notice });
-			await this.runtimeHost.dispose();
-			process.exit(wrapperExitCode);
-		}
-		await this.runtimeHost.dispose();
-		const exitCode = await spawnSelfRestart({ sessionFile, prompt: options?.notice });
-		process.exit(exitCode);
+		const notice = options?.notice;
+		await restartCurrentProcess(
+			{ sessionFile, prompt: notice },
+			{
+				appendNotice: notice
+					? () => {
+							this.sessionManager.appendCustomMessageEntry("self_restart", notice, true);
+						}
+					: undefined,
+				dispose: () => this.runtimeHost.dispose(),
+			},
+		);
 	}
 
 	private emergencyTerminalExit(): never {

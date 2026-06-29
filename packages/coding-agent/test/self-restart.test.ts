@@ -1,13 +1,19 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
 import {
 	applySelfRestartRequest,
 	ENV_RESTART_EXIT_CODE,
+	ENV_RESTART_REQUEST_FILE,
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 	getRestartExitCode,
+	restartCurrentProcess,
 	spawnSelfRestart,
+	writeWrapperRestartRequest,
 } from "../src/core/self-restart.ts";
 
 function createArgs(): Args {
@@ -64,6 +70,29 @@ describe("self restart request", () => {
 		expect(args.fork).toBeUndefined();
 		expect(args.noSession).toBe(false);
 		expect(args.sessionId).toBeUndefined();
+	});
+
+	it("writes restart requests for wrapper-managed process restarts", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-self-restart-"));
+		try {
+			const requestFile = join(dir, "restart.json");
+
+			writeWrapperRestartRequest(
+				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
+				{ [ENV_RESTART_REQUEST_FILE]: requestFile },
+			);
+
+			expect(JSON.parse(readFileSync(requestFile, "utf8"))).toEqual({
+				sessionFile: "/tmp/session.jsonl",
+				prompt: "Restarted.",
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("ignores wrapper restart requests when no request file is configured", () => {
+		expect(() => writeWrapperRestartRequest({ sessionFile: "/tmp/session.jsonl" }, {})).not.toThrow();
 	});
 
 	it("keeps the parent process alive until the restarted child exits", async () => {
@@ -124,5 +153,54 @@ describe("self restart request", () => {
 		);
 
 		await expect(exitPromise).resolves.toBe(0);
+	});
+
+	it("exits with the wrapper restart code after persisting the notice", async () => {
+		const calls: string[] = [];
+
+		await expect(
+			restartCurrentProcess(
+				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
+				{
+					env: { [ENV_RESTART_EXIT_CODE]: "75" },
+					appendNotice: () => {
+						calls.push("append");
+					},
+					dispose: async () => {
+						calls.push("dispose");
+					},
+					exit: (code) => {
+						throw new Error(`exit:${code}`);
+					},
+				},
+			),
+		).rejects.toThrow("exit:75");
+
+		expect(calls).toEqual(["append", "dispose"]);
+	});
+
+	it("spawns a replacement process when no wrapper restart code is available", async () => {
+		const calls: string[] = [];
+
+		await expect(
+			restartCurrentProcess(
+				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
+				{
+					env: {},
+					dispose: async () => {
+						calls.push("dispose");
+					},
+					spawnSelfRestart: async (request) => {
+						calls.push(`${request.sessionFile}:${request.prompt}`);
+						return 7;
+					},
+					exit: (code) => {
+						throw new Error(`exit:${code}`);
+					},
+				},
+			),
+		).rejects.toThrow("exit:7");
+
+		expect(calls).toEqual(["dispose", "/tmp/session.jsonl:Restarted."]);
 	});
 });

@@ -652,6 +652,6 @@ describe("hostrun extension", () => {
 		});
 
 		expect(result.details.value).toEqual({ started: true });
-		expect(harness.restartRequests).toEqual([{ notice: "from hostrun" }]);
+		expect(harness.restartRequests).toEqual([{ notice: "from hostrun", process: true }]);
 	});
 });

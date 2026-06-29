@@ -7,7 +7,7 @@ export default function selfRestartExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("restart", {
 		description: "Restart Pi and resume the current session",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
-			await ctx.restart({ notice: RESTART_NOTICE });
+			await ctx.restart({ notice: RESTART_NOTICE, process: true });
 		},
 	});
 
@@ -22,7 +22,7 @@ export default function selfRestartExtension(pi: ExtensionAPI): void {
 			"After the restart, continue from the same session using the restart notice as the newest context.",
 		],
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx): Promise<AgentToolResult<{ restarted: boolean }>> {
-			await ctx.restart({ notice: RESTART_NOTICE });
+			await ctx.restart({ notice: RESTART_NOTICE, process: true });
 			return {
 				content: [{ type: "text", text: "Restart requested. Current session was reloaded." }],
 				details: { restarted: true },

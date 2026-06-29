@@ -24,6 +24,7 @@
 - Fixed auto-retry for provider stream errors that explicitly tell callers to retry the request ([#6019](https://github.com/earendil-works/pi/issues/6019)).
 - Fixed compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
 - Fixed `pi-dev` restarts to exit through the development wrapper so `/restart` loads edited TypeScript modules.
+- Fixed `restart_self` and `pi.restart(...)` to request a process restart instead of only reloading the session in-process.
 - Fixed terminal `EIO` errors to use Pi's dead-terminal exit path instead of surfacing as uncaught exceptions.
 - Fixed OpenAI remote compaction payloads to omit orphaned tool calls or outputs that the compact endpoint rejects.
 - Fixed Codex remote compaction to accept `compaction_summary` items returned by ChatGPT's compact endpoint.

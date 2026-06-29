@@ -80,6 +80,7 @@ describe("self-restart extension", () => {
 
 		expect(harness.restart).toHaveBeenCalledWith({
 			notice: "The agent process was restarted by tool request. Continue from the current session.",
+			process: true,
 		});
 	});
 
@@ -98,6 +99,7 @@ describe("self-restart extension", () => {
 
 		expect(harness.restart).toHaveBeenCalledWith({
 			notice: "The agent process was restarted by tool request. Continue from the current session.",
+			process: true,
 		});
 		expect(result.details).toEqual({ restarted: true });
 		expect(result.content[0]).toEqual({ type: "text", text: "Restart requested. Current session was reloaded." });

@@ -52,12 +52,12 @@ function getArgsCode(args: unknown): string | undefined {
 	return typeof code === "string" ? code : undefined;
 }
 
-function normalizeRestartParams(params: unknown): { notice?: string } {
+function normalizeRestartParams(params: unknown): { notice?: string; process: true } {
 	if (params === undefined || params === null) {
-		return {};
+		return { process: true };
 	}
 	if (typeof params === "string") {
-		return { notice: params };
+		return { notice: params, process: true };
 	}
 	if (typeof params !== "object") {
 		throw new Error("pi.restart requires no argument, a notice string, or { notice } object");
@@ -66,7 +66,7 @@ function normalizeRestartParams(params: unknown): { notice?: string } {
 	if (notice !== undefined && typeof notice !== "string") {
 		throw new Error("pi.restart notice must be a string");
 	}
-	return { notice };
+	return { notice, process: true };
 }
 
 function normalizeCompactParams(params: unknown): { customInstructions?: string } {

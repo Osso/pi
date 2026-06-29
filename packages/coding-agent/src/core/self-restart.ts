@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
 import type { Args } from "../cli/args.ts";
 
 export const ENV_SELF_RESTART_SESSION = "PI_SELF_RESTART_SESSION";
 export const ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 export const ENV_RESTART_EXIT_CODE = "PI_RESTART_EXIT_CODE";
+export const ENV_RESTART_REQUEST_FILE = "PI_RESTART_REQUEST_FILE";
 
 export interface SelfRestartRequest {
 	sessionFile: string;
@@ -23,6 +25,19 @@ interface SelfRestartDependencies {
 	) => RestartChildProcess;
 	waitForExit?: boolean;
 }
+
+export interface RestartCurrentProcessDependencies {
+	appendNotice?: () => void;
+	dispose?: () => Promise<void>;
+	env?: NodeJS.ProcessEnv;
+	exit?: (code: number) => never;
+	spawnSelfRestart?: (request: SelfRestartRequest) => Promise<number>;
+}
+
+export type ProcessRestarter = (
+	request: SelfRestartRequest,
+	dependencies?: RestartCurrentProcessDependencies,
+) => Promise<never>;
 
 export function getRestartExitCode(env: NodeJS.ProcessEnv = process.env): number | undefined {
 	const rawExitCode = env[ENV_RESTART_EXIT_CODE];
@@ -51,6 +66,37 @@ export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = p
 	parsed.sessionId = undefined;
 	parsed.fileArgs = [];
 	parsed.messages = env[ENV_SELF_RESTART_PROMPT] ? [env[ENV_SELF_RESTART_PROMPT]] : [];
+}
+
+export function writeWrapperRestartRequest(request: SelfRestartRequest, env: NodeJS.ProcessEnv = process.env): void {
+	const requestFile = env[ENV_RESTART_REQUEST_FILE];
+	if (!requestFile) {
+		return;
+	}
+
+	writeFileSync(requestFile, `${JSON.stringify(request)}\n`, "utf8");
+}
+
+export async function restartCurrentProcess(
+	request: SelfRestartRequest,
+	dependencies: RestartCurrentProcessDependencies = {},
+): Promise<never> {
+	const env = dependencies.env ?? process.env;
+	const exit = dependencies.exit ?? process.exit;
+	const wrapperExitCode = getRestartExitCode(env);
+	if (wrapperExitCode !== undefined) {
+		writeWrapperRestartRequest(request, env);
+		dependencies.appendNotice?.();
+		await dependencies.dispose?.();
+		exit(wrapperExitCode);
+		throw new Error("process.exit returned after wrapper restart request");
+	}
+
+	await dependencies.dispose?.();
+	const spawnRestart = dependencies.spawnSelfRestart ?? spawnSelfRestart;
+	const exitCode = await spawnRestart(request);
+	exit(exitCode);
+	throw new Error("process.exit returned after spawning restart process");
 }
 
 export function spawnSelfRestart(

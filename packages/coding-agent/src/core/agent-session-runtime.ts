@@ -14,6 +14,7 @@ import type { CreateAgentSessionResult } from "./sdk.ts";
 
 export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
+import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
 import { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { SessionManager } from "./session-manager.ts";
@@ -70,6 +71,7 @@ export class AgentSessionRuntime {
 	private readonly createRuntime: CreateAgentSessionRuntimeFactory;
 	private _diagnostics: AgentSessionRuntimeDiagnostic[];
 	private _modelFallbackMessage?: string;
+	private processRestarter: ProcessRestarter = restartCurrentProcess;
 
 	constructor(
 		_session: AgentSession,
@@ -119,6 +121,10 @@ export class AgentSessionRuntime {
 	 */
 	setBeforeSessionInvalidate(beforeSessionInvalidate?: () => void): void {
 		this.beforeSessionInvalidate = beforeSessionInvalidate;
+	}
+
+	setProcessRestarter(processRestarter: ProcessRestarter): void {
+		this.processRestarter = processRestarter;
 	}
 
 	private async emitBeforeSwitch(
@@ -211,10 +217,29 @@ export class AgentSessionRuntime {
 		return { cancelled: false };
 	}
 
-	async restart(options?: { notice?: string }): Promise<void> {
+	async restart(options?: { notice?: string; process?: boolean }): Promise<void> {
 		const previousSessionFile = this.session.sessionFile;
 		const currentSessionManager = this.session.sessionManager;
 		const currentSessionFile = currentSessionManager.getSessionFile();
+
+		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
+			await this.processRestarter(
+				{
+					sessionFile: currentSessionFile,
+					prompt: options.notice,
+				},
+				{
+					appendNotice: options.notice
+						? () => currentSessionManager.appendCustomMessageEntry("self_restart", options.notice ?? "", true)
+						: undefined,
+					dispose: async () => {
+						await this.teardownCurrent("restart", currentSessionFile);
+					},
+				},
+			);
+			return;
+		}
+
 		const sessionManager =
 			currentSessionManager.isPersisted() && currentSessionFile
 				? SessionManager.open(

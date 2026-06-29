@@ -120,6 +120,21 @@ describe("AgentSessionRuntime characterization", () => {
 		return { runtime, faux, tempDir };
 	}
 
+	it("delegates process restart requests to the process restarter", async () => {
+		const { runtime } = await createRuntimeForTest(() => {});
+		const calls: Array<{ sessionFile: string; prompt?: string }> = [];
+		runtime.setProcessRestarter(async (request) => {
+			calls.push(request);
+			throw new Error("process restart requested");
+		});
+
+		await expect(runtime.restart({ notice: "Restarted.", process: true })).rejects.toThrow(
+			"process restart requested",
+		);
+
+		expect(calls).toEqual([{ sessionFile: runtime.session.sessionManager.getSessionFile(), prompt: "Restarted." }]);
+	});
+
 	it("persists message_end assistant replacements to the session manager", async () => {
 		const { runtime } = await createRuntimeForTest((pi: ExtensionAPI) => {
 			pi.on("message_end", (event) => {
