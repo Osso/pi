@@ -92,11 +92,23 @@ function shouldPollGitHead(repoDir: string): boolean {
 	return isWslEnvironment() && isWindowsMountedRepoPath(repoDir);
 }
 
+function normalizeFooterExecutableName(name: string | undefined): string | undefined {
+	if (!name || name === "pi") {
+		return undefined;
+	}
+	return /^pi(?:-|$)/.test(name) ? name : undefined;
+}
+
 export function resolveFooterExecutableName(paths = [process.argv[1], process.execPath]): string | undefined {
+	const configuredName = normalizeFooterExecutableName(process.env.PI_EXECUTABLE_NAME);
+	if (configuredName) {
+		return configuredName;
+	}
+
 	const executableNames = paths
 		.filter((path): path is string => typeof path === "string" && path.length > 0)
 		.map((path) => basename(path));
-	return executableNames.find((name) => name !== "pi" && /^pi(?:-|$)/.test(name));
+	return executableNames.find((name) => normalizeFooterExecutableName(name) !== undefined);
 }
 
 /**

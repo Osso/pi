@@ -33,24 +33,11 @@ describe("deploy.sh", () => {
 
 		expect(result).toMatchObject({ status: 0 });
 		expect(result.stdout).toContain("0.79.10");
-		expect(readFileSync(join(fixture.installDir, "pi"), "utf8")).toContain(
-			`exec "${fixture.repoDir}/pi-test.sh" "$@"`,
-		);
-		expect(readFileSync(join(fixture.repoDir, "npm-args.log"), "utf8")).toBe(
-			[
-				"run check",
-				"--prefix packages/tui run clean",
-				"--prefix packages/tui run build",
-				"--prefix packages/ai run clean",
-				"--prefix packages/ai exec -- tsgo -p packages/ai/tsconfig.build.json",
-				"--prefix packages/agent run clean",
-				"--prefix packages/agent run build",
-				"--prefix packages/coding-agent run clean",
-				"--prefix packages/coding-agent run build",
-				"",
-			].join("\n"),
-		);
-		expect(readlinkSync(join(fixture.binDir, "pi"))).toBe(join(fixture.installDir, "pi"));
+		const wrapper = readFileSync(join(fixture.installDir, "pi"), "utf8");
+		expect(wrapper).toContain(`"PI_EXECUTABLE_NAME=pi-dev"`);
+		expect(wrapper).toContain(`env "\${env_args[@]}" "${fixture.repoDir}/pi-test.sh" "$@"`);
+		expect(readFileSync(join(fixture.repoDir, "npm-args.log"), "utf8")).toBe("run check\n");
+		expect(readlinkSync(join(fixture.binDir, "pi-dev"))).toBe(join(fixture.installDir, "pi"));
 	});
 
 	it("replaces an existing install atomically", () => {
@@ -61,9 +48,7 @@ describe("deploy.sh", () => {
 		const result = runDeploy(fixture);
 
 		expect(result).toMatchObject({ status: 0 });
-		expect(readFileSync(join(fixture.installDir, "pi"), "utf8")).toContain(
-			`exec "${fixture.repoDir}/pi-test.sh" "$@"`,
-		);
+		expect(readFileSync(join(fixture.installDir, "pi"), "utf8")).toContain(`"PI_EXECUTABLE_NAME=pi-dev"`);
 		expect(existsSync(`${fixture.installDir}.old`)).toBe(false);
 		expect(existsSync(`${fixture.installDir}.tmp`)).toBe(false);
 	});
@@ -90,20 +75,20 @@ printf 'old install\\n'
 	it("rejects relative install directories before running checks", () => {
 		const fixture = createDeployFixture();
 
-		const result = runDeploy(fixture, { PI_DEPLOY_INSTALL_DIR: "relative/pi" });
+		const result = runDeploy(fixture, { PI_DEV_INSTALL_DIR: "relative/pi" });
 
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain("PI_DEPLOY_INSTALL_DIR must be an absolute path");
+		expect(result.stderr).toContain("PI_DEV_INSTALL_DIR must be an absolute path");
 		expect(existsSync(join(fixture.repoDir, "npm-args.log"))).toBe(false);
 	});
 
 	it("rejects broad absolute install directories before running checks", () => {
 		const fixture = createDeployFixture();
 
-		const result = runDeploy(fixture, { PI_DEPLOY_INSTALL_DIR: fixture.repoDir });
+		const result = runDeploy(fixture, { PI_DEV_INSTALL_DIR: fixture.repoDir });
 
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain("PI_DEPLOY_INSTALL_DIR is too broad to replace");
+		expect(result.stderr).toContain("PI_DEV_INSTALL_DIR is too broad to replace");
 		expect(existsSync(join(fixture.repoDir, "npm-args.log"))).toBe(false);
 	});
 
@@ -175,8 +160,8 @@ chmod +x "$out/$platform/pi"
 			env: {
 				...process.env,
 				PATH: `${fixture.fakeBinDir}${delimiter}${process.env.PATH ?? ""}`,
-				PI_DEPLOY_BIN_DIR: fixture.binDir,
-				PI_DEPLOY_INSTALL_DIR: fixture.installDir,
+				PI_DEV_BIN_DIR: fixture.binDir,
+				PI_DEV_INSTALL_DIR: fixture.installDir,
 				...envOverrides,
 			},
 		});

@@ -98,12 +98,22 @@ async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void
 }
 
 describe("resolveFooterExecutableName", () => {
+	afterEach(() => {
+		delete process.env.PI_EXECUTABLE_NAME;
+	});
+
 	it("omits the default pi executable", () => {
 		expect(resolveFooterExecutableName(["/usr/bin/pi"])).toBeUndefined();
 	});
 
 	it("returns non-default pi executable names", () => {
 		expect(resolveFooterExecutableName(["/usr/bin/pi-dev"])).toBe("pi-dev");
+	});
+
+	it("prefers the wrapper-provided executable name", () => {
+		process.env.PI_EXECUTABLE_NAME = "pi-dev";
+
+		expect(resolveFooterExecutableName(["/repo/pi-test.sh"])).toBe("pi-dev");
 	});
 });
 
