@@ -43,6 +43,7 @@ import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
 	type CompactionResult,
+	type CompactionSourceInfo,
 	calculateContextTokens,
 	collectEntriesForBranchSummary,
 	compact,
@@ -177,7 +178,7 @@ export type AgentSessionEvent =
 			steering: readonly string[];
 			followUp: readonly string[];
 	  }
-	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
+	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow"; sourceHint?: CompactionSourceInfo }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
@@ -461,6 +462,24 @@ export class AgentSession {
 
 		const result = await this._modelRegistry.getApiKeyAndHeaders(model);
 		return result.ok ? { apiKey: result.apiKey, headers: result.headers, env: result.env } : {};
+	}
+
+	private async getCompactionSourceHint(
+		reason: "manual" | "threshold" | "overflow",
+		willRetry: boolean,
+	): Promise<CompactionSourceInfo | undefined> {
+		if (!this.model) {
+			return undefined;
+		}
+
+		if (this._extensionRunner.hasHandlers("session_compaction_source")) {
+			const result = await this._extensionRunner.emit({ type: "session_compaction_source", reason, willRetry });
+			if (result?.source) {
+				return result.source;
+			}
+		}
+
+		return { type: "local", provider: this.model.provider, model: this.model.id };
 	}
 
 	/**
@@ -1889,7 +1908,8 @@ export class AgentSession {
 		this._disconnectFromAgent();
 		await this.abort();
 		this._compactionAbortController = new AbortController();
-		this._emit({ type: "compaction_start", reason: "manual" });
+		const sourceHint = await this.getCompactionSourceHint("manual", false);
+		this._emit({ type: "compaction_start", reason: "manual", sourceHint });
 		const startedAt = Date.now();
 
 		try {
@@ -2188,7 +2208,8 @@ export class AgentSession {
 				return false;
 			}
 
-			this._emit({ type: "compaction_start", reason });
+			const sourceHint = await this.getCompactionSourceHint(reason, willRetry);
+			this._emit({ type: "compaction_start", reason, sourceHint });
 			this._autoCompactionAbortController = new AbortController();
 			started = true;
 			const startedAt = Date.now();

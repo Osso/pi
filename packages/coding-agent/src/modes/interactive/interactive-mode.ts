@@ -3075,10 +3075,7 @@ export class InteractiveMode {
 				};
 				this.statusContainer.clear();
 				const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
-				const label =
-					event.reason === "manual"
-						? `Compacting context... ${cancelHint}`
-						: `${event.reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... ${cancelHint}`;
+				const label = formatCompactionStartLabel(event.reason, event.sourceHint, cancelHint);
 				this.autoCompactionLoader = new Loader(
 					this.ui,
 					(spinner) => theme.fg("accent", spinner),
@@ -5985,6 +5982,29 @@ export class InteractiveMode {
 		}
 		this.unregisterSignalHandlers();
 	}
+}
+
+export function formatCompactionStartLabel(
+	reason: "manual" | "threshold" | "overflow",
+	source: CompactionSourceInfo | undefined,
+	cancelHint: string,
+): string {
+	const prefix = reason === "manual" ? "Compacting context" : "Auto-compacting";
+	const overflowPrefix = reason === "overflow" ? "Context overflow detected, " : "";
+	return `${overflowPrefix}${prefix}${formatCompactionSourceProgressSuffix(source)}... ${cancelHint}`;
+}
+
+function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | undefined): string {
+	if (source?.type === "openai_remote") {
+		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
+		return ` via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
+	}
+
+	if (source?.type === "local") {
+		return " locally";
+	}
+
+	return "";
 }
 
 function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefined): string {

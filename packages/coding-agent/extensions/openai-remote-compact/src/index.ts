@@ -5,6 +5,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	SessionBeforeCompactEvent,
+	SessionCompactionSourceEvent,
 } from "../../../src/core/extensions/types.ts";
 import { convertToLlm } from "../../../src/core/messages.ts";
 import type { CompactionEntry, SessionEntry } from "../../../src/core/session-manager.ts";
@@ -45,8 +46,26 @@ interface OpenAITextPart extends Record<string, unknown> {
 }
 
 export default function openAIRemoteCompactExtension(pi: ExtensionAPI) {
+	pi.on("session_compaction_source", handleSessionCompactionSource);
 	pi.on("session_before_compact", handleSessionBeforeCompact);
 	pi.on("before_provider_request", handleBeforeProviderRequest);
+}
+
+export async function handleSessionCompactionSource(_event: SessionCompactionSourceEvent, ctx: ExtensionContext) {
+	const model = ctx.model;
+	if (!isOpenAIResponsesModel(model)) return undefined;
+
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+	if (!auth.ok) return undefined;
+
+	return {
+		source: {
+			type: "openai_remote" as const,
+			provider: model.provider,
+			model: model.id,
+			endpoint: buildCompactEndpoint(model),
+		},
+	};
 }
 
 export async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {

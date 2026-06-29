@@ -7,13 +7,18 @@ import {
 	buildOpenAIRequestHeaders,
 	extractOpenAICompactDetails,
 	handleSessionBeforeCompact,
+	handleSessionCompactionSource,
 	isOpenAIResponsesModel,
 	OPENAI_REMOTE_COMPACTION_SUMMARY,
 	type OpenAIRemoteCompactionDetails,
 	rewriteOpenAICompactionPayload,
 } from "../extensions/openai-remote-compact/src/index.ts";
 import type { CompactionPreparation } from "../src/core/compaction/index.ts";
-import type { ExtensionContext, SessionBeforeCompactEvent } from "../src/core/extensions/types.ts";
+import type {
+	ExtensionContext,
+	SessionBeforeCompactEvent,
+	SessionCompactionSourceEvent,
+} from "../src/core/extensions/types.ts";
 import type { CompactionEntry } from "../src/core/session-manager.ts";
 
 function createOpenAIResponsesModel(overrides: Partial<Model<"openai-responses">> = {}): Model<"openai-responses"> {
@@ -201,6 +206,30 @@ describe("openai remote compact extension", () => {
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 				{ type: "compaction", encrypted_content: "encrypted" },
 			],
+		});
+	});
+
+	it("reports remote source before starting eligible OpenAI compaction", async () => {
+		const model = createOpenAIResponsesModel();
+		const event = {
+			type: "session_compaction_source",
+			reason: "manual",
+			willRetry: false,
+		} satisfies SessionCompactionSourceEvent;
+		const ctx = {
+			model,
+			modelRegistry: {
+				getApiKeyAndHeaders: async () => ({ ok: true as const, apiKey: "key", headers: undefined }),
+			},
+		} as unknown as ExtensionContext;
+
+		const result = await handleSessionCompactionSource(event, ctx);
+
+		expect(result?.source).toEqual({
+			type: "openai_remote",
+			provider: "openai",
+			model: "gpt-4.1-mini",
+			endpoint: "https://api.openai.com/v1/responses/compact",
 		});
 	});
 
