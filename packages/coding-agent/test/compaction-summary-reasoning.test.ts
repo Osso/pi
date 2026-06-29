@@ -56,7 +56,7 @@ describe("generateSummary reasoning options", () => {
 		completeSimpleMock.mockResolvedValue(mockSummaryResponse);
 	});
 
-	it("uses the provided thinking level for reasoning-capable models", async () => {
+	it("omits reasoning for compaction even when thinking is enabled", async () => {
 		await generateSummary(
 			messages,
 			createModel(true),
@@ -71,9 +71,9 @@ describe("generateSummary reasoning options", () => {
 
 		expect(completeSimpleMock).toHaveBeenCalledTimes(1);
 		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
-			reasoning: "medium",
 			apiKey: "test-key",
 		});
+		expect(completeSimpleMock.mock.calls[0][2]).not.toHaveProperty("reasoning");
 	});
 
 	it("does not set reasoning when thinking is off", async () => {
@@ -108,6 +108,26 @@ describe("generateSummary reasoning options", () => {
 			undefined,
 			"medium",
 		);
+
+		expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
+			apiKey: "test-key",
+		});
+		expect(completeSimpleMock.mock.calls[0][2]).not.toHaveProperty("reasoning");
+	});
+
+	it("omits reasoning from turn-prefix summaries even when thinking is enabled", async () => {
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		};
+
+		await compact(preparation, createModel(true), "test-key", undefined, undefined, undefined, "high");
 
 		expect(completeSimpleMock).toHaveBeenCalledTimes(1);
 		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({

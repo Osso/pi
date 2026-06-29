@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed harness compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
+
 ## [0.80.2] - 2026-06-23
 
 ### Changed

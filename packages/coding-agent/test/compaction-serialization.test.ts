@@ -44,6 +44,37 @@ describe("serializeConversation", () => {
 		expect(result).not.toContain("truncated");
 	});
 
+	it("omits assistant thinking from serialized summaries", () => {
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "private chain of thought" },
+					{ type: "text", text: "visible answer" },
+				],
+				api: "anthropic",
+				provider: "anthropic",
+				model: "test",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain("[Assistant]: visible answer");
+		expect(result).not.toContain("private chain of thought");
+		expect(result).not.toContain("[Assistant thinking]");
+	});
+
 	it("should not truncate assistant or user messages", () => {
 		const longText = "y".repeat(5000);
 		const messages: Message[] = [

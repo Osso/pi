@@ -530,19 +530,13 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
 function createSummarizationOptions(
-	model: Model<any>,
 	maxTokens: number,
 	apiKey: string | undefined,
 	headers: Record<string, string> | undefined,
 	env: Record<string, string> | undefined,
 	signal: AbortSignal | undefined,
-	thinkingLevel: ThinkingLevel | undefined,
 ): SimpleStreamOptions {
-	const options: SimpleStreamOptions = { maxTokens, signal, apiKey, headers, env };
-	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
-		options.reasoning = thinkingLevel;
-	}
-	return options;
+	return { maxTokens, signal, apiKey, headers, env };
 }
 
 async function completeSummarization(
@@ -571,7 +565,7 @@ export async function generateSummary(
 	signal?: AbortSignal,
 	customInstructions?: string,
 	previousSummary?: string,
-	thinkingLevel?: ThinkingLevel,
+	_thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
 ): Promise<string> {
@@ -606,7 +600,7 @@ export async function generateSummary(
 		},
 	];
 
-	const completionOptions = createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel);
+	const completionOptions = createSummarizationOptions(maxTokens, apiKey, headers, env, signal);
 
 	const response = await completeSummarization(
 		model,
@@ -857,7 +851,7 @@ async function generateTurnPrefixSummary(
 	headers?: Record<string, string>,
 	env?: Record<string, string>,
 	signal?: AbortSignal,
-	thinkingLevel?: ThinkingLevel,
+	_thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 ): Promise<string> {
 	const maxTokens = Math.min(
@@ -878,7 +872,7 @@ async function generateTurnPrefixSummary(
 	const response = await completeSummarization(
 		model,
 		{ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
-		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel),
+		createSummarizationOptions(maxTokens, apiKey, headers, env, signal),
 		streamFn,
 	);
 

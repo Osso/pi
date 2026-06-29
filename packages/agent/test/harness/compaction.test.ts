@@ -429,6 +429,24 @@ describe("harness compaction", () => {
 		expect(getOrThrow(prepareCompaction([], DEFAULT_COMPACTION_SETTINGS))).toBeUndefined();
 	});
 
+	it("omits assistant thinking from serialized summaries", () => {
+		const messages = convertMessages([
+			{
+				...createAssistantMessage("visible answer"),
+				content: [
+					{ type: "thinking", thinking: "private chain of thought" },
+					{ type: "text", text: "visible answer" },
+				],
+			},
+		]);
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain("[Assistant]: visible answer");
+		expect(result).not.toContain("private chain of thought");
+		expect(result).not.toContain("[Assistant thinking]");
+	});
+
 	it("serializes conversation with truncated tool results", () => {
 		const longContent = "x".repeat(5000);
 		const messages = convertMessages([
@@ -446,7 +464,7 @@ describe("harness compaction", () => {
 		expect(result).toContain("[... 3000 more characters truncated]");
 	});
 
-	it("passes reasoning through generateSummary only for reasoning models with thinking enabled", async () => {
+	it("omits reasoning from generateSummary even for reasoning models with thinking enabled", async () => {
 		const messages: AgentMessage[] = [createUserMessage("Summarize this.")];
 		const seenOptions: Array<Record<string, unknown> | undefined> = [];
 		const { faux: fauxReasoning, model: reasoningModel } = createFauxModel(true);
@@ -459,7 +477,7 @@ describe("harness compaction", () => {
 		getOrThrow(
 			await generateSummary(messages, models, reasoningModel, 2000, undefined, undefined, undefined, "medium"),
 		);
-		expect(seenOptions[0]).toMatchObject({ reasoning: "medium" });
+		expect(seenOptions[0]).not.toHaveProperty("reasoning");
 
 		const { faux: fauxOff, model: offModel } = createFauxModel(true);
 		fauxOff.setResponses([
@@ -578,7 +596,7 @@ describe("harness compaction", () => {
 		expect(invalidResult).toMatchObject({ ok: false, error: { code: "invalid_session" } });
 	});
 
-	it("passes reasoning through turn-prefix summaries when enabled", async () => {
+	it("omits reasoning from turn-prefix summaries even when thinking is enabled", async () => {
 		const messages: AgentMessage[] = [createUserMessage("Summarize this.")];
 		const seenOptions: Array<Record<string, unknown> | undefined> = [];
 		const { faux, model } = createFauxModel(true);
@@ -600,7 +618,7 @@ describe("harness compaction", () => {
 
 		getOrThrow(await compact(preparation, models, model, undefined, undefined, "high"));
 
-		expect(seenOptions[0]).toMatchObject({ reasoning: "high" });
+		expect(seenOptions[0]).not.toHaveProperty("reasoning");
 	});
 
 	it("returns turn-prefix compaction errors without throwing", async () => {
