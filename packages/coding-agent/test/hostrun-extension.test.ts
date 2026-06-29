@@ -72,6 +72,7 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 	let hostrunDefinition: ToolDefinition | undefined;
 	const compactRequests: unknown[] = [];
 	const enqueuedMessages: Array<{ content: unknown; options: unknown }> = [];
+	const restartRequests: unknown[] = [];
 
 	const pi = {
 		registerTool(tool: ToolDefinition) {
@@ -115,6 +116,9 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 		hasUI: false,
 		mode: "tui",
 		model: { id: "faux/model" },
+		restart: async (options: unknown) => {
+			restartRequests.push(options);
+		},
 		sessionManager: {
 			getCwd: () => "/repo/project",
 			getSessionName: () => "hostrun work",
@@ -127,6 +131,7 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 	return {
 		compactRequests,
 		enqueuedMessages,
+		restartRequests,
 		toolDefinition: hostrunDefinition,
 		evaluate: (
 			params: HostrunEvalParams,
@@ -238,6 +243,11 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.restart({ notice: 'from hostrun' })") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "restart", params: { notice: "from hostrun" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   return { type: "completed", executed: request.code, value: null };
 }
 
@@ -299,6 +309,7 @@ describe("hostrun extension", () => {
 		expect(harness.toolDefinition?.description).toContain("canonical Hostrun runtime");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not use MCP");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.compact");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.restart");
 	});
 
 	it("renders only the Hostrun title before execution starts", () => {
@@ -628,5 +639,16 @@ describe("hostrun extension", () => {
 
 		expect(result.details.value).toEqual({ started: true });
 		expect(harness.compactRequests).toEqual([{ customInstructions: "preserve IDs" }]);
+	});
+
+	it("restarts Pi from Hostrun pi.restart", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({
+			code: "pi.restart({ notice: 'from hostrun' })",
+		});
+
+		expect(result.details.value).toEqual({ started: true });
+		expect(harness.restartRequests).toEqual([{ notice: "from hostrun" }]);
 	});
 });

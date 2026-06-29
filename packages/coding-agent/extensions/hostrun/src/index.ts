@@ -19,6 +19,7 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Hostrun keeps globalThis.ctx across later hostrun_eval calls in the same Pi session.",
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Hostrun.",
 	"Use pi.compact(...) to trigger Pi session compaction from Hostrun.",
+	"Use pi.restart(...) to restart Pi and resume the same session from Hostrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
@@ -51,6 +52,23 @@ function getArgsCode(args: unknown): string | undefined {
 	return typeof code === "string" ? code : undefined;
 }
 
+function normalizeRestartParams(params: unknown): { notice?: string } {
+	if (params === undefined || params === null) {
+		return {};
+	}
+	if (typeof params === "string") {
+		return { notice: params };
+	}
+	if (typeof params !== "object") {
+		throw new Error("pi.restart requires no argument, a notice string, or { notice } object");
+	}
+	const notice = (params as { notice?: unknown }).notice;
+	if (notice !== undefined && typeof notice !== "string") {
+		throw new Error("pi.restart notice must be a string");
+	}
+	return { notice };
+}
+
 function normalizeCompactParams(params: unknown): { customInstructions?: string } {
 	if (params === undefined || params === null) {
 		return {};
@@ -72,6 +90,7 @@ function createHostrunPiDispatcher(pi: ExtensionAPI, options: HostrunExtensionOp
 	return async (request, ctx, signal) => {
 		if (request.method === "compact") return triggerCompact(request.params, ctx);
 		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
+		if (request.method === "restart") return triggerRestart(request.params, ctx);
 		for (const handler of options.piRequestHandlers ?? []) {
 			const result = await handler(request, ctx, signal);
 			if (result !== undefined) return result;
@@ -82,6 +101,11 @@ function createHostrunPiDispatcher(pi: ExtensionAPI, options: HostrunExtensionOp
 
 function triggerCompact(params: unknown, ctx: ExtensionContext): { started: true } {
 	ctx.compact(normalizeCompactParams(params));
+	return { started: true };
+}
+
+async function triggerRestart(params: unknown, ctx: ExtensionContext): Promise<{ started: true }> {
+	await ctx.restart(normalizeRestartParams(params));
 	return { started: true };
 }
 

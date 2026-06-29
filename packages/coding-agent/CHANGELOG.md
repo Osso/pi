@@ -10,6 +10,7 @@
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
 - Added first-party OpenAI remote compaction through `/responses/compact` for OpenAI Responses models.
 - Added `pi.compact(...)` to Hostrun's Pi runtime bridge for triggering session compaction.
+- Added `pi.restart(...)` to Hostrun's Pi runtime bridge for restarting and resuming the current session.
 
 ### Fixed
 
