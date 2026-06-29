@@ -25,6 +25,43 @@ describe("serializeConversation", () => {
 		expect(result).toContain("x".repeat(2000));
 	});
 
+	it("should truncate long tool call arguments", () => {
+		const longContent = "x".repeat(5000);
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "tc1",
+						name: "write",
+						arguments: { path: "large.txt", content: longContent },
+					},
+				],
+				api: "anthropic",
+				provider: "anthropic",
+				model: "test",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain("[Assistant tool calls]: write(");
+		expect(result).toContain('path="large.txt"');
+		expect(result).toContain("[... 4002 more characters truncated]");
+		expect(result).not.toContain("x".repeat(3000));
+	});
+
 	it("should not truncate short tool results", () => {
 		const shortContent = "x".repeat(1500);
 		const messages: Message[] = [

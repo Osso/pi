@@ -85,6 +85,9 @@ export function formatFileOperations(readFiles: string[], modifiedFiles: string[
 // Message Serialization
 // ============================================================================
 
+/** Maximum characters for a tool call argument value in serialized summaries. */
+const TOOL_CALL_ARGUMENT_MAX_CHARS = 1000;
+
 /** Maximum characters for a tool result in serialized summaries. */
 const TOOL_RESULT_MAX_CHARS = 2000;
 
@@ -98,13 +101,19 @@ function truncateForSummary(text: string, maxChars: number): string {
 	return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`;
 }
 
+function serializeToolCallArgument(value: unknown): string {
+	const serialized = JSON.stringify(value);
+	if (serialized === undefined) return "undefined";
+	return truncateForSummary(serialized, TOOL_CALL_ARGUMENT_MAX_CHARS);
+}
+
 /**
  * Serialize LLM messages to text for summarization.
  * This prevents the model from treating it as a conversation to continue.
  * Call convertToLlm() first to handle custom message types.
  *
- * Tool results are truncated to keep the summarization request within
- * reasonable token budgets. Full content is not needed for summarization.
+ * Tool call arguments and tool results are truncated to keep the summarization
+ * request within reasonable token budgets. Full content is not needed for summarization.
  */
 export function serializeConversation(messages: Message[]): string {
 	const parts: string[] = [];
@@ -129,7 +138,7 @@ export function serializeConversation(messages: Message[]): string {
 				} else if (block.type === "toolCall") {
 					const args = block.arguments as Record<string, unknown>;
 					const argsStr = Object.entries(args)
-						.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+						.map(([k, v]) => `${k}=${serializeToolCallArgument(v)}`)
 						.join(", ");
 					toolCalls.push(`${block.name}(${argsStr})`);
 				}
