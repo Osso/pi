@@ -65,6 +65,7 @@ RESTART_EXIT_CODE=75
 RESTART_REQUEST_FILE="\$(mktemp -t pi-dev-restart.XXXXXX)"
 NEXT_SESSION=""
 NEXT_PROMPT=""
+NEXT_OLD_PID=""
 
 cleanup() {
 	rm -f "\$RESTART_REQUEST_FILE"
@@ -80,8 +81,10 @@ while true; do
 	if [[ -n "\$NEXT_SESSION" ]]; then
 		env_args+=("PI_SELF_RESTART_SESSION=\$NEXT_SESSION")
 		env_args+=("PI_SELF_RESTART_PROMPT=\$NEXT_PROMPT")
+		env_args+=("PI_SELF_RESTART_OLD_PID=\$NEXT_OLD_PID")
 		NEXT_SESSION=""
 		NEXT_PROMPT=""
+		NEXT_OLD_PID=""
 	fi
 
 	set +e
@@ -95,10 +98,11 @@ while true; do
 		continue
 	fi
 	readarray -d '' restart_values < <(
-		node -e 'const fs = require("node:fs"); const request = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(request.sessionFile ?? "")); process.stdout.write("\0"); process.stdout.write(String(request.prompt ?? "")); process.stdout.write("\0");' "\$RESTART_REQUEST_FILE"
+		node -e 'const fs = require("node:fs"); const request = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(String(request.sessionFile ?? "")); process.stdout.write("\0"); process.stdout.write(String(request.prompt ?? "")); process.stdout.write("\0"); process.stdout.write(String(request.oldPid ?? "")); process.stdout.write("\0");' "\$RESTART_REQUEST_FILE"
 	)
 	NEXT_SESSION="\${restart_values[0]}"
 	NEXT_PROMPT="\${restart_values[1]-}"
+	NEXT_OLD_PID="\${restart_values[2]-}"
 done
 EOF
 chmod +x "$TMP_INSTALL_DIR/pi"

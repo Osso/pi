@@ -5,17 +5,19 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
 import {
+	appendSelfRestartNotice,
 	applySelfRestartRequest,
 	ENV_RESTART_EXIT_CODE,
 	ENV_RESTART_REQUEST_FILE,
+	ENV_SELF_RESTART_OLD_PID,
+	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 	getRestartExitCode,
 	restartCurrentProcess,
 	spawnSelfRestart,
 	writeWrapperRestartRequest,
 } from "../src/core/self-restart.ts";
-
-const LEGACY_ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
+import type { SessionManager } from "../src/core/session-manager.ts";
 
 function createArgs(): Args {
 	return {
@@ -60,7 +62,7 @@ describe("self restart request", () => {
 
 		applySelfRestartRequest(args, {
 			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
-			[LEGACY_ENV_SELF_RESTART_PROMPT]: "Restarted.",
+			[ENV_SELF_RESTART_PROMPT]: "Restarted.",
 		});
 
 		expect(args.session).toBe("/tmp/session.jsonl");
@@ -79,13 +81,14 @@ describe("self restart request", () => {
 			const requestFile = join(dir, "restart.json");
 
 			writeWrapperRestartRequest(
-				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
+				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted.", oldPid: 1234 },
 				{ [ENV_RESTART_REQUEST_FILE]: requestFile },
 			);
 
 			expect(JSON.parse(readFileSync(requestFile, "utf8"))).toEqual({
 				sessionFile: "/tmp/session.jsonl",
 				prompt: "Restarted.",
+				oldPid: 1234,
 			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -122,7 +125,8 @@ describe("self restart request", () => {
 		expect(spawnArgs).toEqual(process.argv.slice(1));
 		expect(spawnOptions?.stdio).toBe("inherit");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_SESSION]).toBe("/tmp/session.jsonl");
-		expect(spawnOptions?.env?.[LEGACY_ENV_SELF_RESTART_PROMPT]).toBeUndefined();
+		expect(spawnOptions?.env?.[ENV_SELF_RESTART_PROMPT]).toBe("Restarted.");
+		expect(spawnOptions?.env?.[ENV_SELF_RESTART_OLD_PID]).toBe(process.pid.toString());
 	});
 
 	it("rejects when the restarted child fails to spawn", async () => {
@@ -143,7 +147,10 @@ describe("self restart request", () => {
 
 	it("can return immediately after spawning the restarted child", async () => {
 		const child = new EventEmitter() as EventEmitter & { unref: () => void };
-		child.unref = () => {};
+		let unrefCalled = false;
+		child.unref = () => {
+			unrefCalled = true;
+		};
 
 		const exitPromise = spawnSelfRestart(
 			{ sessionFile: "/tmp/session.jsonl" },
@@ -154,9 +161,26 @@ describe("self restart request", () => {
 		);
 
 		await expect(exitPromise).resolves.toBe(0);
+		expect(unrefCalled).toBe(true);
 	});
 
-	it("exits with the wrapper restart code after persisting the notice", async () => {
+	it("appends a restarted notice with the old and new PID", () => {
+		const notices: string[] = [];
+		const sessionManager = {
+			appendCustomMessageEntry: (_type: string, content: string) => {
+				notices.push(content);
+			},
+		} as unknown as SessionManager;
+
+		appendSelfRestartNotice(sessionManager, {
+			[ENV_SELF_RESTART_PROMPT]: "Restarted.",
+			[ENV_SELF_RESTART_OLD_PID]: "1234",
+		});
+
+		expect(notices).toEqual([`Restarted. PID 1234 -> ${process.pid}.`]);
+	});
+
+	it("exits with the wrapper restart code after writing the restart request", async () => {
 		const calls: string[] = [];
 
 		await expect(
@@ -177,10 +201,10 @@ describe("self restart request", () => {
 			),
 		).rejects.toThrow("exit:75");
 
-		expect(calls).toEqual(["append", "dispose"]);
+		expect(calls).toEqual([]);
 	});
 
-	it("spawns a replacement process after persisting the notice when no wrapper restart code is available", async () => {
+	it("spawns a replacement process and exits the original process when no wrapper restart code is available", async () => {
 		const calls: string[] = [];
 
 		await expect(
@@ -196,15 +220,15 @@ describe("self restart request", () => {
 					},
 					spawnSelfRestart: async (request) => {
 						calls.push(`${request.sessionFile}:${request.prompt}`);
-						return 7;
+						return 0;
 					},
 					exit: (code) => {
 						throw new Error(`exit:${code}`);
 					},
 				},
 			),
-		).rejects.toThrow("exit:7");
+		).rejects.toThrow("exit:0");
 
-		expect(calls).toEqual(["append", "dispose", "/tmp/session.jsonl:Restarted."]);
+		expect(calls).toEqual(["/tmp/session.jsonl:Restarted."]);
 	});
 });
