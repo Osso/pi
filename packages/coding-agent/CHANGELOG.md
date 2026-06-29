@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Changed the `pi -r` and `/resume` session selector default sort to recent sessions.
 - Changed context compaction to require a configured Ollama model for summary generation instead of using the active chat model.
 - Removed the first-party OpenAI remote compaction endpoint path.
 

@@ -4,6 +4,7 @@ import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { SessionInfo } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 async function flushPromises(): Promise<void> {
 	await new Promise<void>((resolve) => {
@@ -27,6 +28,7 @@ function makeSession(overrides: Partial<SessionInfo> & { id: string }): SessionI
 
 // Kitty keyboard protocol encoding for Ctrl+R
 const CTRL_R = "\x1b[114;5u";
+const CTRL_S = "\x13";
 
 describe("session selector rename", () => {
 	beforeAll(() => {
@@ -76,6 +78,34 @@ describe("session selector rename", () => {
 		expect(output).not.toContain("rename");
 	});
 
+	it("uses recent sort by default", async () => {
+		const namedSession = makeSession({
+			id: "named",
+			name: "pi",
+			modified: new Date("2024-01-01T00:00:00Z"),
+		});
+		const newerUnnamedSession = makeSession({
+			id: "unnamed",
+			firstMessage: "newer raw session",
+			modified: new Date("2026-01-01T00:00:00Z"),
+		});
+		const keybindings = new KeybindingsManager();
+		const selector = new SessionSelectorComponent(
+			async () => [newerUnnamedSession, namedSession],
+			async () => [],
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+		);
+		await flushPromises();
+
+		const output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("Sort: Recent");
+		expect(selector.getSessionList().getSelectedSessionPath()).toBe(newerUnnamedSession.path);
+	});
+
 	it("shows named sessions before newer unnamed sessions in threaded mode", async () => {
 		const namedSession = makeSession({
 			id: "named",
@@ -98,6 +128,9 @@ describe("session selector rename", () => {
 			{ keybindings },
 		);
 		await flushPromises();
+
+		selector.getSessionList().handleInput(CTRL_S);
+		selector.getSessionList().handleInput(CTRL_S);
 
 		expect(selector.getSessionList().getSelectedSessionPath()).toBe(namedSession.path);
 	});

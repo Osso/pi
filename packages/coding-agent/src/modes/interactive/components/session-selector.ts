@@ -297,7 +297,7 @@ class SessionList implements Component, Focusable {
 	private selectedIndex: number = 0;
 	private searchInput: Input;
 	private showCwd = false;
-	private sortMode: SortMode = "threaded";
+	private sortMode: SortMode = "recent";
 	private nameFilter: NameFilter = "all";
 	private keybindings: KeybindingsManager;
 	private showPath = false;
@@ -709,7 +709,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	private header: SessionSelectorHeader;
 	private keybindings: KeybindingsManager;
 	private scope: SessionScope = "current";
-	private sortMode: SortMode = "threaded";
+	private sortMode: SortMode = "recent";
 	private nameFilter: NameFilter = "all";
 	private currentSessions: SessionInfo[] | null = null;
 	private allSessions: SessionInfo[] | null = null;
@@ -991,8 +991,8 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	}
 
 	private toggleSortMode(): void {
-		// Cycle: threaded -> recent -> relevance -> threaded
-		this.sortMode = this.sortMode === "threaded" ? "recent" : this.sortMode === "recent" ? "relevance" : "threaded";
+		// Cycle: recent -> relevance -> threaded -> recent
+		this.sortMode = this.sortMode === "recent" ? "relevance" : this.sortMode === "relevance" ? "threaded" : "recent";
 		this.header.setSortMode(this.sortMode);
 		this.sessionList.setSortMode(this.sortMode);
 		this.requestRender();
