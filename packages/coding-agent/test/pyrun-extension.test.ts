@@ -1,4 +1,5 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -22,10 +23,7 @@ interface PyrunEvalDetails {
 		summary: string;
 		tool: string;
 	};
-	console?: Array<{
-		level: string;
-		message: string;
-	}>;
+	console?: Array<string | { level: string; message: string }>;
 	error?: string;
 	executed?: string;
 	type: "completed" | "error" | "needs_approval";
@@ -101,6 +99,11 @@ function createFakeTui(): TUI {
 	} as unknown as TUI;
 }
 
+const localPyrunCheckout = "/syncthing/Sync/Projects/claude/pyrun";
+const localPyrunJsonl = join(localPyrunCheckout, "pyrun", "jsonl.py");
+const hasLocalPyrunRunner = existsSync(localPyrunJsonl);
+const hasPython3 = spawnSync("python3", ["--version"], { encoding: "utf8" }).status === 0;
+
 function writeFakePyrunRunner(tempDir: string): string {
 	const runnerPath = join(tempDir, "fake-pyrun-runner.mjs");
 	writeFileSync(
@@ -139,7 +142,7 @@ async function resultFor(request) {
     return {
       type: "completed",
       executed: request.code,
-      console: [{ level: "stdout", message: "hello" }],
+      console: ["hello"],
       value: 2
     };
   }
@@ -246,13 +249,26 @@ describe("pyrun extension", () => {
 			},
 		});
 
-		expect(options).toEqual({ args: ["-m", "pyrun.jsonl"], command: "python" });
+		expect(options).toEqual({ args: ["-m", "pyrun.jsonl"], command: "python", env: {} });
 	});
 
-	it("uses pyrun-jsonl without args by default", () => {
-		const options = resolvePyrunRunnerOptions({ env: {} });
+	it("uses local Pyrun checkout by default when present", () => {
+		const options = resolvePyrunRunnerOptions({
+			env: {},
+			exists: (path) => path === localPyrunJsonl,
+		});
 
-		expect(options).toEqual({ args: [], command: "pyrun-jsonl" });
+		expect(options).toEqual({
+			args: ["-m", "pyrun.jsonl"],
+			command: "python3",
+			env: { PYTHONPATH: localPyrunCheckout },
+		});
+	});
+
+	it("uses pyrun-jsonl without args by default when no local checkout exists", () => {
+		const options = resolvePyrunRunnerOptions({ env: {}, exists: () => false });
+
+		expect(options).toEqual({ args: [], command: "pyrun-jsonl", env: {} });
 	});
 
 	it("renders only the Pyrun title before execution starts", () => {
@@ -304,7 +320,7 @@ describe("pyrun extension", () => {
 		const result = await harness.evaluate({ code: "print('hello')\n1 + 1" });
 
 		expect(result.details).toEqual({
-			console: [{ level: "stdout", message: "hello" }],
+			console: ["hello"],
 			executed: "print('hello')\n1 + 1",
 			type: "completed",
 			value: 2,
@@ -313,6 +329,26 @@ describe("pyrun extension", () => {
 		expect(text).toContain("print('hello')\n1 + 1");
 		expect(text).toContain("Result: 2");
 		expect(text).toContain("hello");
+	});
+
+	it.runIf(hasLocalPyrunRunner && hasPython3)("evaluates code through the real local Pyrun JSONL runner", async () => {
+		delete process.env.PI_PYRUN_RUNNER_COMMAND;
+		delete process.env.PI_PYRUN_RUNNER;
+		delete process.env.PI_PYRUN_RUNNER_ARGS;
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "print('hello')\n1+1" });
+
+		expect(result.details).toEqual({
+			console: ["hello"],
+			executed: "print('hello')\n1+1",
+			type: "completed",
+			value: 2,
+		});
+		expect(result.content[0]).toEqual({
+			type: "text",
+			text: "print('hello')\n1+1\n\nSession: default\nstdout: hello\nResult: 2",
+		});
 	});
 
 	it("keeps Pyrun session state in the runner", async () => {

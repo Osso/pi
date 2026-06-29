@@ -23,10 +23,17 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string {
 	return JSON.stringify(result.value);
 }
 
+function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console"]>[number]): string {
+	if (typeof entry === "string") {
+		return `stdout: ${entry}`;
+	}
+	return `${entry.level}: ${entry.message}`;
+}
+
 function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResult): string {
 	const lines = [params.code, "", `Session: ${params.session_id ?? "default"}`];
 	for (const entry of result.console ?? []) {
-		lines.push(`${entry.level}: ${entry.message}`);
+		lines.push(formatConsoleEntry(entry));
 	}
 	if (result.error) {
 		lines.push(`Error: ${result.error}`);

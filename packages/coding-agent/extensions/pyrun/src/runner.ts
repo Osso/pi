@@ -1,15 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
 import { EOL } from "node:os";
+import { join } from "node:path";
 
 export interface CanonicalPyrunEvalParams {
 	code: string;
 	session_id?: string;
 }
 
-export interface CanonicalPyrunConsoleEntry {
-	level: string;
-	message: string;
-}
+export type CanonicalPyrunConsoleEntry = string | { level: string; message: string };
 
 export interface CanonicalPyrunApprovalRequest {
 	args: unknown;
@@ -48,10 +47,12 @@ interface PendingRequest {
 export interface PyrunRunnerOptions {
 	args?: string[];
 	command?: string;
+	env?: NodeJS.ProcessEnv;
 }
 
 export interface PyrunRunnerResolutionOptions {
 	env?: NodeJS.ProcessEnv;
+	exists?: (path: string) => boolean;
 }
 
 function parseRunnerArgs(value: string | undefined): string[] | undefined {
@@ -65,13 +66,28 @@ function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	return parsed;
 }
 
+const localPyrunCheckout = "/syncthing/Sync/Projects/claude/pyrun";
+const localPyrunPackagePaths = [join(localPyrunCheckout, "pyrun", "jsonl.py"), join(localPyrunCheckout, "src", "pyrun", "jsonl.py")];
+
+function hasLocalPyrunCheckout(exists: (path: string) => boolean): boolean {
+	return localPyrunPackagePaths.some((path) => exists(path));
+}
+
 export function resolvePyrunRunnerOptions(resolution: PyrunRunnerResolutionOptions = {}): Required<PyrunRunnerOptions> {
 	const env = resolution.env ?? process.env;
-	const command = env.PI_PYRUN_RUNNER_COMMAND ?? env.PI_PYRUN_RUNNER ?? "pyrun-jsonl";
-	return {
-		args: parseRunnerArgs(env.PI_PYRUN_RUNNER_ARGS) ?? [],
-		command,
-	};
+	const args = parseRunnerArgs(env.PI_PYRUN_RUNNER_ARGS);
+	const commandOverride = env.PI_PYRUN_RUNNER_COMMAND ?? env.PI_PYRUN_RUNNER;
+	if (commandOverride) {
+		return { args: args ?? [], command: commandOverride, env: {} };
+	}
+	if (hasLocalPyrunCheckout(resolution.exists ?? existsSync)) {
+		return {
+			args: args ?? ["-m", "pyrun.jsonl"],
+			command: "python3",
+			env: { PYTHONPATH: localPyrunCheckout },
+		};
+	}
+	return { args: args ?? [], command: "pyrun-jsonl", env: {} };
 }
 
 export class PyrunRunnerClient {
@@ -124,8 +140,16 @@ export class PyrunRunnerClient {
 		if (this.process) {
 			return this.process;
 		}
-		const options = { ...resolvePyrunRunnerOptions(), ...this.options };
-		const child = spawn(options.command, options.args, { stdio: ["pipe", "pipe", "pipe"] });
+		const resolvedOptions = resolvePyrunRunnerOptions();
+		const options = {
+			...resolvedOptions,
+			...this.options,
+			env: { ...resolvedOptions.env, ...this.options.env },
+		};
+		const child = spawn(options.command, options.args, {
+			env: { ...process.env, ...options.env },
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 		this.process = child;
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
