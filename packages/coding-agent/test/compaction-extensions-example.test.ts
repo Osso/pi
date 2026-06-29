@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.ts";
 
 describe("Documentation example", () => {
-	it("custom compaction example should type-check correctly", () => {
+	it("compaction cancellation example should type-check correctly", () => {
 		// This is the example from extensions.md - verify it compiles
 		const exampleExtension = (pi: ExtensionAPI) => {
 			pi.on("session_before_compact", async (event: SessionBeforeCompactEvent, ctx) => {
@@ -27,19 +27,8 @@ describe("Documentation example", () => {
 				expect(typeof firstKeptEntryId).toBe("string");
 				expect(Array.isArray(branchEntries)).toBe(true);
 
-				const summary = messagesToSummarize
-					.filter((m) => m.role === "user")
-					.map((m) => `- ${typeof m.content === "string" ? m.content.slice(0, 100) : "[complex]"}`)
-					.join("\n");
-
-				// Extensions return compaction content - SessionManager adds id/parentId
-				return {
-					compaction: {
-						summary: `User requests:\n${summary}`,
-						firstKeptEntryId,
-						tokensBefore,
-					},
-				};
+				// Extensions can cancel compaction; summaries always use configured Ollama.
+				return { cancel: tokensBefore === 0 };
 			});
 		};
 

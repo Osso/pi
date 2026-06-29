@@ -171,43 +171,6 @@ describe.skipIf(!API_KEY || !process.env.PI_TEST_OLLAMA_COMPACTION)("Compaction 
 		expect(compactEvents.length).toBe(0);
 	}, 120000);
 
-	it("should allow extensions to provide custom compaction", async () => {
-		const customSummary = "Custom summary from extension";
-
-		const extension = createExtension((event) => {
-			if (event.type === "session_before_compact") {
-				return {
-					compaction: {
-						summary: customSummary,
-						firstKeptEntryId: event.preparation.firstKeptEntryId,
-						tokensBefore: event.preparation.tokensBefore,
-					},
-				};
-			}
-			return undefined;
-		});
-		createSession([extension]);
-
-		await session.prompt("What is 2+2? Reply with just the number.");
-		await session.agent.waitForIdle();
-
-		await session.prompt("What is 3+3? Reply with just the number.");
-		await session.agent.waitForIdle();
-
-		const result = await session.compact();
-
-		expect(result.summary).toBe(customSummary);
-
-		const compactEvents = capturedEvents.filter((e) => e.type === "session_compact");
-		expect(compactEvents.length).toBe(1);
-
-		const afterEvent = compactEvents[0];
-		if (afterEvent.type === "session_compact") {
-			expect(afterEvent.compactionEntry.summary).toBe(customSummary);
-			expect(afterEvent.fromExtension).toBe(true);
-		}
-	}, 120000);
-
 	it("should include entries in compact event after compaction is saved", async () => {
 		const extension = createExtension();
 		createSession([extension]);
@@ -391,31 +354,5 @@ describe.skipIf(!API_KEY || !process.env.PI_TEST_OLLAMA_COMPACTION)("Compaction 
 		const entries = session.sessionManager.getEntries();
 		expect(Array.isArray(entries)).toBe(true);
 		expect(entries.length).toBeGreaterThan(0);
-	}, 120000);
-
-	it("should use extension compaction even with different values", async () => {
-		const customSummary = "Custom summary with modified values";
-
-		const extension = createExtension((event) => {
-			if (event.type === "session_before_compact") {
-				return {
-					compaction: {
-						summary: customSummary,
-						firstKeptEntryId: event.preparation.firstKeptEntryId,
-						tokensBefore: 999,
-					},
-				};
-			}
-			return undefined;
-		});
-		createSession([extension]);
-
-		await session.prompt("What is 2+2? Reply with just the number.");
-		await session.agent.waitForIdle();
-
-		const result = await session.compact();
-
-		expect(result.summary).toBe(customSummary);
-		expect(result.tokensBefore).toBe(999);
 	}, 120000);
 });

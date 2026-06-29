@@ -14,7 +14,7 @@ Example extensions demonstrating:
 - Commands and keyboard shortcuts
 - Custom UI (footers, headers, editors, overlays)
 - Git integration (checkpoints, auto-commit)
-- System prompt modifications and custom compaction
+- System prompt modifications and compaction triggers
 - External integrations (SSH, file watchers, system theme sync)
 - Custom providers (Anthropic with custom streaming, GitLab Duo)
 
