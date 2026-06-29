@@ -2554,7 +2554,9 @@ export class InteractiveMode {
 		// so they work correctly regardless of which editor is active
 		this.defaultEditor.onEscape = () => {
 			if (this.session.isStreaming) {
-				this.restoreQueuedMessagesToEditor({ abort: true });
+				void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
+					this.showError(error instanceof Error ? error.message : String(error));
+				});
 			} else if (this.session.isBashRunning) {
 				this.session.abortBash();
 			} else if (this.isBashMode) {
@@ -3934,6 +3936,28 @@ export class InteractiveMode {
 			const dequeueHint = this.getAppKeyDisplay("app.message.dequeue");
 			const hintText = theme.fg("dim", `↳ ${dequeueHint} to edit all queued messages`);
 			this.pendingMessagesContainer.addChild(new TruncatedText(hintText, 1, 0));
+		}
+	}
+
+	private async cancelStreamingAndSubmitQueuedMessages(): Promise<void> {
+		const { steering, followUp } = this.clearAllQueues();
+		const allQueued = [...steering, ...followUp];
+		if (allQueued.length === 0) {
+			this.updatePendingMessagesDisplay();
+			await this.session.abort();
+			return;
+		}
+
+		const queuedText = allQueued.join("\n\n");
+		const currentText = this.editor.getText();
+		const combinedText = [queuedText, currentText].filter((text) => text.trim()).join("\n\n");
+		this.editor.setText("");
+		this.updatePendingMessagesDisplay();
+		await this.session.abort();
+		if (this.onInputCallback) {
+			this.onInputCallback(combinedText);
+		} else {
+			this.pendingUserInputs.push(combinedText);
 		}
 	}
 

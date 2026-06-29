@@ -148,12 +148,73 @@ interface InteractiveModeKeyHandlerInternals {
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
+	cancelStreamingAndSubmitQueuedMessages(this: unknown): Promise<void>;
 	setupKeyHandlers(this: unknown): void;
 }
 
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
 
-describe("InteractiveMode agent slot keybindings", () => {
+describe("InteractiveMode key handlers", () => {
+	test("escape while streaming cancels and submits queued messages", () => {
+		const actions = new Map<string, () => void>();
+		const fakeThis = {
+			defaultEditor: {
+				onEscape: undefined as (() => void) | undefined,
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			editor: { getText: () => "", setText: vi.fn() },
+			multiAgentStore: undefined,
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			registerGlobalAgentSlotInputHandler: vi.fn(),
+			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: true },
+			settingsManager: { getDoubleEscapeAction: () => "none" },
+			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
+			cycleModel: vi.fn(),
+			cycleThinkingLevel: vi.fn(),
+			handleClearCommand: vi.fn(),
+			handleCtrlC: vi.fn(),
+			handleCtrlD: vi.fn(),
+			handleCtrlZ: vi.fn(),
+			handleDebugCommand: vi.fn(),
+			handleDequeue: vi.fn(),
+			handleFollowUp: vi.fn(),
+			handleClipboardImagePaste: vi.fn(),
+			openExternalEditor: vi.fn(),
+			restoreQueuedMessagesToEditor: vi.fn(),
+			showModelSelector: vi.fn(),
+			showSessionSelector: vi.fn(),
+			showTreeSelector: vi.fn(),
+			showUserMessageSelector: vi.fn(),
+			toggleThinkingBlockVisibility: vi.fn(),
+			toggleToolOutputExpansion: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+		};
+
+		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
+		fakeThis.defaultEditor.onEscape?.();
+
+		expect(fakeThis.cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+		expect(fakeThis.restoreQueuedMessagesToEditor).not.toHaveBeenCalled();
+	});
+
+	test("escape cancellation submits queued and current text after abort", async () => {
+		const fakeThis = {
+			clearAllQueues: vi.fn(() => ({ steering: ["queued steering"], followUp: ["queued follow-up"] })),
+			editor: { getText: () => "current draft", setText: vi.fn() },
+			onInputCallback: undefined,
+			pendingUserInputs: [] as string[],
+			session: { abort: vi.fn().mockResolvedValue(undefined) },
+			updatePendingMessagesDisplay: vi.fn(),
+		};
+
+		await interactiveModeKeyHandlers.cancelStreamingAndSubmitQueuedMessages.call(fakeThis);
+
+		expect(fakeThis.editor.setText).toHaveBeenCalledWith("");
+		expect(fakeThis.session.abort).toHaveBeenCalledTimes(1);
+		expect(fakeThis.pendingUserInputs).toEqual(["queued steering\n\nqueued follow-up\n\ncurrent draft"]);
+	});
+
 	test("switches selected agent when an agent slot action fires", () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
