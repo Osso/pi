@@ -559,7 +559,9 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("hostrun", (pi) =>
 		hostrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
 	),
-	firstPartyExtensionFactory("pyrun", pyrunExtension),
+	firstPartyExtensionFactory("pyrun", (pi) =>
+		pyrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
+	),
 	firstPartyExtensionFactory("loop", loopExtension),
 	firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),

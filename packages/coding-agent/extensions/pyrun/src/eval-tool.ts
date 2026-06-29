@@ -3,12 +3,38 @@ import {
 	PyrunRunnerClient,
 	type CanonicalPyrunEvalResult,
 	type CanonicalPyrunProgressUpdate,
+	type PyrunPiRequestHandler,
 } from "./runner.ts";
 
 export interface PyrunEvalParams {
 	code: string;
 	session_id?: string;
 }
+
+export interface PyrunPiCapabilitySnapshot {
+	footer: {
+		availableProviderCount: number;
+		branch: string | null;
+		contextUsage: ReturnType<ExtensionContext["getContextUsage"]>;
+		cwd: string;
+		extensionStatuses: Record<string, string>;
+		model: string | null;
+		sessionName: string | null;
+	};
+}
+
+export interface PyrunEvalContext {
+	footerData?: ExtensionContext["footerData"];
+	getContextUsage: ExtensionContext["getContextUsage"];
+	model: ExtensionContext["model"];
+	sessionManager: Pick<ExtensionContext["sessionManager"], "getCwd" | "getSessionName">;
+}
+
+export type PyrunPiRequestDispatcher = (
+	request: { method: string; params: unknown },
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+) => Promise<unknown> | unknown;
 
 function formatResultValue(result: CanonicalPyrunEvalResult): string {
 	if (result.type === "needs_approval") {
@@ -44,6 +70,9 @@ function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResul
 }
 
 function formatProgressText(update: CanonicalPyrunProgressUpdate): string {
+	if (update.type === "pi_request" && typeof update.method === "string") {
+		return `Pi request: ${update.method}`;
+	}
 	if (typeof update.message === "string") {
 		return update.message;
 	}
@@ -62,15 +91,36 @@ function formatProgressText(update: CanonicalPyrunProgressUpdate): string {
 	return update.type;
 }
 
-export function createPyrunEvalExecutor(runner: PyrunRunnerClient) {
+function createPiCapabilitySnapshot(ctx: PyrunEvalContext): PyrunPiCapabilitySnapshot {
+	const footerData = ctx.footerData;
+	return {
+		footer: {
+			availableProviderCount: footerData?.getAvailableProviderCount() ?? 0,
+			branch: footerData?.getGitBranch() ?? null,
+			contextUsage: ctx.getContextUsage(),
+			cwd: ctx.sessionManager.getCwd(),
+			extensionStatuses: Object.fromEntries(footerData?.getExtensionStatuses() ?? []),
+			model: ctx.model?.id ?? null,
+			sessionName: ctx.sessionManager.getSessionName() ?? null,
+		},
+	};
+}
+
+export function createPyrunEvalExecutor(runner: PyrunRunnerClient, dispatchPiRequest?: PyrunPiRequestDispatcher) {
 	return async (
 		params: PyrunEvalParams,
-		_ctx: ExtensionContext,
+		ctx: ExtensionContext,
 		onUpdate?: (partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void,
 		signal?: AbortSignal,
 	): Promise<AgentToolResult<CanonicalPyrunEvalResult>> => {
+		const onPiRequest: PyrunPiRequestHandler = async (request) => {
+			if (!dispatchPiRequest) {
+				throw new Error(`Pi capability is unavailable: ${request.method}`);
+			}
+			return dispatchPiRequest(request, ctx, signal);
+		};
 		const result = await runner.evaluate(
-			params,
+			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true },
 			(update) => {
 				onUpdate?.({
 					content: [{ type: "text", text: formatProgressText(update) }],
@@ -78,6 +128,7 @@ export function createPyrunEvalExecutor(runner: PyrunRunnerClient) {
 				});
 			},
 			signal,
+			onPiRequest,
 		);
 		return {
 			content: [{ type: "text", text: formatToolText(params, result) }],

@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 export interface CanonicalPyrunEvalParams {
 	code: string;
+	pi?: unknown;
+	pi_bridge?: boolean;
 	session_id?: string;
 }
 
@@ -28,7 +30,9 @@ export interface CanonicalPyrunEvalResult {
 
 export interface CanonicalPyrunProgressUpdate {
 	message?: string;
+	method?: string;
 	output?: string;
+	params?: unknown;
 	status?: string;
 	text?: string;
 	type: string;
@@ -36,9 +40,11 @@ export interface CanonicalPyrunProgressUpdate {
 }
 
 export type CanonicalPyrunRunnerMessage = CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate;
+export type PyrunPiRequestHandler = (request: { method: string; params: unknown }) => Promise<unknown>;
 
 interface PendingRequest {
 	cleanup?: () => void;
+	onPiRequest?: PyrunPiRequestHandler;
 	onProgress?: (update: CanonicalPyrunProgressUpdate) => void;
 	reject: (error: Error) => void;
 	resolve: (result: CanonicalPyrunEvalResult) => void;
@@ -105,6 +111,7 @@ export class PyrunRunnerClient {
 		params: CanonicalPyrunEvalParams,
 		onProgress?: (update: CanonicalPyrunProgressUpdate) => void,
 		signal?: AbortSignal,
+		onPiRequest?: PyrunPiRequestHandler,
 	): Promise<CanonicalPyrunEvalResult> {
 		if (signal?.aborted) {
 			return Promise.reject(new Error("Pyrun evaluation aborted"));
@@ -112,7 +119,7 @@ export class PyrunRunnerClient {
 		const child = this.ensureProcess();
 		const payload = JSON.stringify(params);
 		return new Promise((resolve, reject) => {
-			const pending: PendingRequest = { onProgress, reject, resolve };
+			const pending: PendingRequest = { onPiRequest, onProgress, reject, resolve };
 			if (signal) {
 				const onAbort = () => {
 					this.process?.kill();
@@ -193,11 +200,27 @@ export class PyrunRunnerClient {
 				pending.resolve(message);
 				return;
 			}
+			if (isPiRequest(message)) {
+				void this.respondToPiRequest(message, pending);
+				return;
+			}
 			pending.onProgress?.(message);
 		} catch (error) {
 			this.pending.shift();
 			pending.cleanup?.();
 			pending.reject(error instanceof Error ? error : new Error(String(error)));
+		}
+	}
+
+	private async respondToPiRequest(message: CanonicalPyrunProgressUpdate, pending: PendingRequest): Promise<void> {
+		const child = this.process;
+		const method = typeof message.method === "string" ? message.method : "";
+		try {
+			const result = await pending.onPiRequest?.({ method, params: message.params });
+			child?.stdin.write(`${JSON.stringify({ result })}\n`);
+		} catch (error) {
+			const text = error instanceof Error ? error.message : String(error);
+			child?.stdin.write(`${JSON.stringify({ error: text })}\n`);
 		}
 	}
 
@@ -218,4 +241,8 @@ export class PyrunRunnerClient {
 
 function isFinalEvalResult(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunEvalResult {
 	return message.type === "completed" || message.type === "error" || message.type === "needs_approval";
+}
+
+function isPiRequest(message: CanonicalPyrunRunnerMessage): message is CanonicalPyrunProgressUpdate {
+	return message.type === "pi_request";
 }
