@@ -19,7 +19,7 @@ Extensions are TypeScript modules that extend pi's behavior. They can subscribe 
 - Permission gates (confirm before `rm -rf`, `sudo`, etc.)
 - Git checkpointing (stash at each turn, restore on branch)
 - Path protection (block writes to `.env`, `node_modules/`)
-- Custom compaction (summarize conversation your way)
+- Compaction (summarize conversation your way)
 - Conversation summaries (see `summarize.ts` example)
 - Interactive tools (questions, wizards, custom dialogs)
 - Stateful tools (todo lists, connection pools)
@@ -2633,7 +2633,6 @@ All examples in [examples/extensions/](../examples/extensions/).
 | `prompt-customizer.ts` | Add context-aware tool guidance using `systemPromptOptions` | `on("before_agent_start")`, `BuildSystemPromptOptions` |
 | `file-trigger.ts` | File watcher triggers messages | `sendMessage` |
 | **Compaction & Sessions** |||
-| `custom-compaction.ts` | Custom compaction summary | `on("session_before_compact")` |
 | `trigger-compact.ts` | Trigger compaction manually | `compact()` |
 | `git-checkpoint.ts` | Git stash on turns | `on("turn_start")`, `on("session_before_fork")`, `exec` |
 | `git-merge-and-resolve.ts` | Fetch, merge, and resolve conflicts | `on("agent_end")`, `exec`, `sendUserMessage` |
