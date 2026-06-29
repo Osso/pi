@@ -46,6 +46,23 @@ export function normalizeAppleTerminalInput(data: string, isAppleTerminal: boole
 	return data;
 }
 
+function formatRawModeErrorCause(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+
+export class TerminalRawModeError extends Error {
+	constructor(flag: boolean, cause: unknown) {
+		const action = flag ? "enable" : "restore";
+		super(`Failed to ${action} terminal raw mode: ${formatRawModeErrorCause(cause)}`);
+		this.name = "TerminalRawModeError";
+		this.cause = cause;
+	}
+}
+
+export function isTerminalRawModeFailure(error: Error): boolean {
+	return error instanceof TerminalRawModeError || /^setRawMode failed with errno:/i.test(error.message);
+}
+
 /**
  * Minimal terminal interface for TUI
  */
@@ -137,9 +154,7 @@ export class ProcessTerminal implements Terminal {
 
 		// Save previous state and enable raw mode
 		this.wasRaw = process.stdin.isRaw || false;
-		if (process.stdin.setRawMode) {
-			process.stdin.setRawMode(true);
-		}
+		this.setRawMode(true);
 		process.stdin.setEncoding("utf8");
 		process.stdin.resume();
 
@@ -446,8 +461,29 @@ export class ProcessTerminal implements Terminal {
 		process.stdin.pause();
 
 		// Restore raw mode state
-		if (process.stdin.setRawMode) {
-			process.stdin.setRawMode(this.wasRaw);
+		this.setRawMode(this.wasRaw);
+	}
+
+	private setRawMode(flag: boolean): void {
+		const setRawMode = process.stdin.setRawMode;
+		if (!setRawMode) return;
+
+		let emittedError: Error | undefined;
+		const captureRawModeError = (error: Error) => {
+			emittedError = error;
+		};
+
+		process.stdin.prependListener("error", captureRawModeError);
+		try {
+			setRawMode.call(process.stdin, flag);
+		} catch (error: unknown) {
+			throw new TerminalRawModeError(flag, error);
+		} finally {
+			process.stdin.off("error", captureRawModeError);
+		}
+
+		if (emittedError) {
+			throw new TerminalRawModeError(flag, emittedError);
 		}
 	}
 

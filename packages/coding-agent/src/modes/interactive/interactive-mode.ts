@@ -33,6 +33,7 @@ import {
 	type Component,
 	Container,
 	fuzzyFilter,
+	isTerminalRawModeFailure,
 	Loader,
 	type LoaderIndicatorOptions,
 	Markdown,
@@ -3635,6 +3636,9 @@ export class InteractiveMode {
 		const terminalErrorHandler = (error: Error) => {
 			if (isDeadTerminalError(error)) {
 				this.emergencyTerminalExit();
+			}
+			if (isTerminalRawModeFailure(error)) {
+				return;
 			}
 			throw error;
 		};

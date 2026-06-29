@@ -1,7 +1,12 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
 import { setKittyProtocolActive } from "../src/keys.ts";
-import { normalizeAppleTerminalInput, ProcessTerminal } from "../src/terminal.ts";
+import {
+	isTerminalRawModeFailure,
+	normalizeAppleTerminalInput,
+	ProcessTerminal,
+	TerminalRawModeError,
+} from "../src/terminal.ts";
 
 describe("normalizeAppleTerminalInput", () => {
 	it("rewrites Apple Terminal Return to CSI-u Shift+Enter when Shift is pressed", () => {
@@ -19,6 +24,38 @@ describe("normalizeAppleTerminalInput", () => {
 	it("leaves non-Return input unchanged", () => {
 		assert.equal(normalizeAppleTerminalInput("\x1b[13;2u", true, true), "\x1b[13;2u");
 		assert.equal(normalizeAppleTerminalInput("a", true, true), "a");
+	});
+});
+
+describe("ProcessTerminal raw mode", () => {
+	it("converts Bun-style setRawMode error events into typed errors", () => {
+		const terminal = new ProcessTerminal();
+		const previousSetRawMode = process.stdin.setRawMode;
+		const previousErrorListenerCount = process.stdin.listenerCount("error");
+
+		try {
+			process.stdin.setRawMode = (() => {
+				process.stdin.emit("error", new Error("setRawMode failed with errno: 5"));
+				return process.stdin;
+			}) as typeof process.stdin.setRawMode;
+
+			assert.throws(
+				() =>
+					terminal.start(
+						() => {},
+						() => {},
+					),
+				(error: unknown) => {
+					assert.equal(error instanceof TerminalRawModeError, true);
+					assert.match((error as Error).message, /Failed to enable terminal raw mode/);
+					assert.equal(isTerminalRawModeFailure(error as Error), true);
+					return true;
+				},
+			);
+			assert.equal(process.stdin.listenerCount("error"), previousErrorListenerCount);
+		} finally {
+			process.stdin.setRawMode = previousSetRawMode;
+		}
 	});
 });
 

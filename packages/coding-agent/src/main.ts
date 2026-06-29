@@ -8,6 +8,7 @@
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
+import { TerminalRawModeError } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, {
@@ -286,6 +287,21 @@ function validateSessionIdFlags(parsed: Args): void {
 		const message = error instanceof Error ? error.message : String(error);
 		console.error(chalk.red(`Error: ${message}`));
 		process.exit(1);
+	}
+}
+
+export async function runInteractiveActionOrReportTerminalError(action: () => Promise<void>): Promise<boolean> {
+	try {
+		await action();
+		return true;
+	} catch (error: unknown) {
+		stopThemeWatcher();
+		if (error instanceof TerminalRawModeError) {
+			console.error(chalk.red(`Error: ${error.message}`));
+			process.exitCode = 1;
+			return false;
+		}
+		throw error;
 	}
 }
 
@@ -967,7 +983,7 @@ export async function main(args: string[], options?: MainOptions) {
 			verbose: parsed.verbose,
 		});
 		if (startupBenchmark) {
-			await interactiveMode.init();
+			if (!(await runInteractiveActionOrReportTerminalError(() => interactiveMode.init()))) return;
 			time("interactiveMode.init");
 			// Give the TUI's stdin handler a brief chance to consume terminal query replies
 			// (Kitty keyboard protocol, device attributes, cell size) before restoring the terminal.
@@ -985,7 +1001,7 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 
 		printTimings();
-		await interactiveMode.run();
+		if (!(await runInteractiveActionOrReportTerminalError(() => interactiveMode.run()))) return;
 	} else {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
