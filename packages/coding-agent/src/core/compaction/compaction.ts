@@ -100,9 +100,10 @@ function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | u
 }
 
 export interface CompactionSourceInfo {
-	type: "local";
+	type: "local" | "openai_remote";
 	provider: string;
 	model: string;
+	endpoint?: string;
 }
 
 /** Result from compact() - SessionManager adds uuid/parentUuid when saving */
@@ -126,15 +127,12 @@ export interface CompactionSettings {
 	enabled: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
-	provider?: "ollama";
-	model?: string;
 }
 
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	enabled: true,
 	reserveTokens: 16384,
 	keepRecentTokens: 20000,
-	provider: "ollama",
 };
 
 // ============================================================================

@@ -22,6 +22,7 @@ import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
+import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
@@ -537,26 +538,6 @@ const firstPartyHostrunAgentHandler = createHostrunMultiAgentRequestHandler({
 	store: firstPartyMultiAgentStore,
 });
 
-const FIRST_PARTY_EXTENSION_NAMES = [
-	"approval-controls",
-	"claude-bash-hook",
-	"codex-usage",
-	"agents-core",
-	"agent-viewer",
-	"agents-mailbox",
-	"default-footer",
-	"goal",
-	"hostrun",
-	"pyrun",
-	"loop",
-	"run-plan",
-	"self-restart",
-] as const;
-
-export function getFirstPartyExtensionNames(): string[] {
-	return [...FIRST_PARTY_EXTENSION_NAMES];
-}
-
 const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 	firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
@@ -582,6 +563,7 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 		pyrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
 	),
 	firstPartyExtensionFactory("loop", loopExtension),
+	firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 	firstPartyExtensionFactory("run-plan", runPlanExtension),
 	firstPartyExtensionFactory("self-restart", selfRestartExtension),
 ];

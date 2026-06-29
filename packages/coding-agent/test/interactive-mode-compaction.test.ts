@@ -10,18 +10,34 @@ describe("InteractiveMode compaction events", () => {
 	beforeAll(() => {
 		initTheme("dark");
 	});
-
-	test("shows Ollama local source in the in-progress compaction label", () => {
+	test("shows OpenAI remote endpoint in the in-progress compaction label", () => {
 		expect(
 			formatCompactionStartLabel(
 				"manual",
-				{ type: "local", provider: "ollama", model: "gpt-oss:20b" },
+				{
+					type: "openai_remote",
+					provider: "openai-codex",
+					model: "gpt-5.5",
+					endpoint: "https://chatgpt.com/backend-api/codex/responses/compact",
+				},
 				"(escape to cancel)",
 			),
-		).toBe("Compacting context via Ollama model (ollama/gpt-oss:20b)... (escape to cancel)");
+		).toBe(
+			"Compacting context via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)... (escape to cancel)",
+		);
 	});
 
-	test("shows Ollama local source in the in-progress compaction loader", async () => {
+	test("shows local source in the in-progress compaction label", () => {
+		expect(
+			formatCompactionStartLabel(
+				"threshold",
+				{ type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
+				"(escape to cancel)",
+			),
+		).toBe("Auto-compacting locally... (escape to cancel)");
+	});
+
+	test("shows remote source in the in-progress compaction loader", async () => {
 		const addedChildren: Array<{ render: (width: number) => string[]; stop?: () => void }> = [];
 		const fakeThis = {
 			isInitialized: true,
@@ -45,18 +61,30 @@ describe("InteractiveMode compaction events", () => {
 			event: {
 				type: "compaction_start";
 				reason: "manual";
-				sourceHint: { type: "local"; provider: string; model: string };
+				sourceHint: {
+					type: "openai_remote";
+					provider: string;
+					model: string;
+					endpoint: string;
+				};
 			},
 		) => Promise<void>;
 
 		await handleEvent.call(fakeThis, {
 			type: "compaction_start",
 			reason: "manual",
-			sourceHint: { type: "local", provider: "ollama", model: "gpt-oss:20b" },
+			sourceHint: {
+				type: "openai_remote",
+				provider: "openai",
+				model: "gpt-4.1-mini",
+				endpoint: "https://api.openai.com/v1/responses/compact",
+			},
 		});
 
 		const renderedLoader = addedChildren[0]?.render(120).join("\n") ?? "";
-		expect(renderedLoader).toContain("Compacting context via Ollama model (ollama/gpt-oss:20b)...");
+		expect(renderedLoader).toContain(
+			"Compacting context via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)...",
+		);
 	});
 
 	test("rebuilds chat and appends a synthetic compaction summary at the bottom", async () => {
@@ -87,7 +115,12 @@ describe("InteractiveMode compaction events", () => {
 							tokensBefore: number;
 							summary: string;
 							durationMs?: number;
-							source?: { type: "local"; provider: string; model: string };
+							source?: {
+								type: "openai_remote";
+								provider: string;
+								model: string;
+								endpoint: string;
+							};
 					  }
 					| undefined;
 				aborted: boolean;
@@ -103,7 +136,12 @@ describe("InteractiveMode compaction events", () => {
 				tokensBefore: 123,
 				summary: "summary",
 				durationMs: 4567,
-				source: { type: "local", provider: "ollama", model: "gpt-oss:20b" },
+				source: {
+					type: "openai_remote",
+					provider: "openai",
+					model: "gpt-4.1-mini",
+					endpoint: "https://api.openai.com/v1/responses/compact",
+				},
 			},
 			aborted: false,
 			willRetry: false,
@@ -120,7 +158,9 @@ describe("InteractiveMode compaction events", () => {
 				durationMs: 4567,
 			}),
 		);
-		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed via Ollama model (ollama/gpt-oss:20b)");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(
+			"Compaction completed via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)",
+		);
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
 	});
 
@@ -149,7 +189,7 @@ describe("InteractiveMode compaction events", () => {
 		).toContain("Original error: Turn prefix summarization failed: Request timed out.");
 	});
 
-	test("logs Ollama compaction source", async () => {
+	test("logs local compaction source when no remote endpoint was used", async () => {
 		const fakeThis = {
 			isInitialized: true,
 			footer: { invalidate: vi.fn() },
@@ -187,12 +227,12 @@ describe("InteractiveMode compaction events", () => {
 			result: {
 				tokensBefore: 123,
 				summary: "summary",
-				source: { type: "local", provider: "ollama", model: "gpt-oss:20b" },
+				source: { type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
 			},
 			aborted: false,
 			willRetry: false,
 		});
 
-		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed via Ollama model (ollama/gpt-oss:20b)");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed locally (anthropic/claude-sonnet-4-5)");
 	});
 });

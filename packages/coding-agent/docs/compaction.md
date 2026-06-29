@@ -40,7 +40,7 @@ You can also trigger manually with `/compact [instructions]`, where optional ins
 
 1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached
 2. **Extract messages**: Collect messages from the previous kept boundary (or session start) up to the cut point
-3. **Generate summary**: Call a configured Ollama model to summarize with structured format, passing the previous summary as iterative context when present
+3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
 5. **Reload**: Session reloads, using summary + messages from `firstKeptEntryId` onwards
 
@@ -102,7 +102,7 @@ Split turn (one huge turn exceeds budget):
   turnPrefixMessages = [usr, ass, tool, ass, tool, tool]
 ```
 
-For split turns, pi generates two summaries with the configured Ollama model and merges them:
+For split turns, pi generates two summaries and merges them:
 1. **History summary**: Previous context (if any)
 2. **Turn prefix summary**: The early part of the split turn
 
@@ -268,11 +268,11 @@ Tool results are truncated to 2000 characters during serialization. Content beyo
 
 ## Custom Summarization via Extensions
 
-Extensions can intercept branch summarization. Compaction summaries always use the configured Ollama model; extensions may observe or cancel compaction but may not provide replacement summary content. See [`extensions/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts) for event type definitions.
+Extensions can intercept and customize both compaction and branch summarization. See [`extensions/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts) for event type definitions.
 
 ### session_before_compact
 
-Fired before auto-compaction or `/compact`. Can cancel compaction. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
+Fired before auto-compaction or `/compact`. Can cancel or provide custom summary. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
 
 ```typescript
 pi.on("session_before_compact", async (event, ctx) => {
@@ -289,11 +289,58 @@ pi.on("session_before_compact", async (event, ctx) => {
   // branchEntries - all entries on current branch (for custom state)
   // reason - "manual" (/compact), "threshold", or "overflow"
   // willRetry - whether the aborted turn is retried after compaction (overflow recovery)
-  // signal - AbortSignal for cancellation-aware cleanup
+  // signal - AbortSignal (pass to LLM calls)
 
+  // Cancel:
   return { cancel: true };
+
+  // Custom summary:
+  return {
+    compaction: {
+      summary: "Your summary...",
+      firstKeptEntryId: preparation.firstKeptEntryId,
+      tokensBefore: preparation.tokensBefore,
+      details: { /* custom data */ },
+    }
+  };
 });
 ```
+
+#### Converting Messages to Text
+
+To generate a summary with your own model, convert messages to text using `serializeConversation`:
+
+```typescript
+import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
+
+pi.on("session_before_compact", async (event, ctx) => {
+  const { preparation } = event;
+  
+  // Convert AgentMessage[] to Message[], then serialize to text
+  const conversationText = serializeConversation(
+    convertToLlm(preparation.messagesToSummarize)
+  );
+  // Returns:
+  // [User]: message text
+  // [Assistant thinking]: thinking content
+  // [Assistant]: response text
+  // [Assistant tool calls]: read(path="..."); bash(command="...")
+  // [Tool result]: output text
+
+  // Now send to your model for summarization
+  const summary = await myModel.summarize(conversationText);
+  
+  return {
+    compaction: {
+      summary,
+      firstKeptEntryId: preparation.firstKeptEntryId,
+      tokensBefore: preparation.tokensBefore,
+    }
+  };
+});
+```
+
+See [custom-compaction.ts](../examples/extensions/custom-compaction.ts) for a complete example using a different model.
 
 ### session_before_tree
 
@@ -335,19 +382,15 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000,
-    "model": "gpt-oss:20b"
+    "keepRecentTokens": 20000
   }
 }
 ```
-
-Default compaction summary generation always uses a configured Ollama model, regardless of the active chat provider. If `model` is omitted, pi uses the first available configured `ollama` model. If no configured Ollama model exists, default compaction fails with an actionable configuration error instead of falling back to the active chat model.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Enable auto-compaction |
 | `reserveTokens` | `16384` | Tokens to reserve for LLM response |
 | `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
-| `model` | first configured Ollama model | Ollama model id used for summary generation |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.

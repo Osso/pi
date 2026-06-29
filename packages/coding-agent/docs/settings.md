@@ -111,20 +111,16 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
 | `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
-| `compaction.model` | string | first configured Ollama model | Ollama model id used for compaction summaries |
 
 ```json
 {
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000,
-    "model": "gpt-oss:20b"
+    "keepRecentTokens": 20000
   }
 }
 ```
-
-Default compaction summaries always use a configured Ollama model, regardless of the active chat model. Configure an `ollama` provider in `models.json`; local Ollama can use an `apiKey` placeholder because Ollama ignores it.
 
 ### Branch Summary
 

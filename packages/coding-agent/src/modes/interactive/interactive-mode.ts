@@ -6027,11 +6027,16 @@ export function formatCompactionStartLabel(
 }
 
 function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | undefined): string {
-	if (source?.type === "local") {
-		return ` via Ollama model (${source.provider}/${source.model})`;
+	if (source?.type === "openai_remote") {
+		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
+		return ` via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
 	}
 
-	return " via Ollama model";
+	if (source?.type === "local") {
+		return " locally";
+	}
+
+	return "";
 }
 
 export function formatCompactionFailureMessage(input: {
@@ -6082,9 +6087,14 @@ function formatCompactionOriginalError(errorMessage: string, reason: "manual" | 
 }
 
 function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefined): string {
-	if (source?.type === "local") {
-		return `Compaction completed via Ollama model (${source.provider}/${source.model})`;
+	if (source?.type === "openai_remote") {
+		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
+		return `Compaction completed via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
 	}
 
-	return "Compaction completed via Ollama model";
+	if (source?.type === "local") {
+		return `Compaction completed locally (${source.provider}/${source.model})`;
+	}
+
+	return "Compaction completed locally";
 }

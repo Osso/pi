@@ -6,14 +6,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
-import {
-	type Api,
-	getModel,
-	type Model,
-	type OAuthCredentials,
-	type OAuthProvider,
-} from "@earendil-works/pi-ai/compat";
+import { getModel, type OAuthCredentials, type OAuthProvider } from "@earendil-works/pi-ai/compat";
 import { getOAuthApiKey } from "@earendil-works/pi-ai/oauth";
 import { getAgentDir } from "../src/config.ts";
 import { AgentSession } from "../src/core/agent-session.ts";
@@ -215,42 +208,6 @@ export interface CreateTestResourceLoaderOptions {
 	extensionsResult?: LoadExtensionsResult;
 }
 
-export function registerTestOllamaModel(modelRegistry: ModelRegistry): Model<Api> | undefined {
-	modelRegistry.registerProvider("ollama", {
-		baseUrl: "http://localhost:11434/v1",
-		api: "openai-completions",
-		apiKey: "ollama-test-key",
-		streamSimple: (model) => {
-			const stream = createAssistantMessageEventStream();
-			queueMicrotask(() => {
-				stream.push({
-					type: "done",
-					reason: "stop",
-					message: {
-						...fauxAssistantMessage("ollama summary"),
-						api: model.api,
-						provider: model.provider,
-						model: model.id,
-					},
-				});
-			});
-			return stream;
-		},
-		models: [
-			{
-				id: "gpt-oss:20b",
-				name: "Ollama GPT OSS 20B",
-				reasoning: false,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 4096,
-			},
-		],
-	});
-	return modelRegistry.find("ollama", "gpt-oss:20b");
-}
-
 export function createTestResourceLoader(options: CreateTestResourceLoaderOptions = {}): ResourceLoader {
 	const extensionsResult = options.extensionsResult ?? {
 		extensions: [],
@@ -300,7 +257,6 @@ export function createTestSession(options: TestSessionOptions = {}): TestSession
 
 	const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-	registerTestOllamaModel(modelRegistry);
 
 	const session = new AgentSession({
 		agent,
