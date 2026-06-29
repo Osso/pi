@@ -4,9 +4,10 @@ import { writeFileSync } from "node:fs";
 import type { Args } from "../cli/args.ts";
 
 export const ENV_SELF_RESTART_SESSION = "PI_SELF_RESTART_SESSION";
-export const ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 export const ENV_RESTART_EXIT_CODE = "PI_RESTART_EXIT_CODE";
 export const ENV_RESTART_REQUEST_FILE = "PI_RESTART_REQUEST_FILE";
+
+const LEGACY_ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 
 export interface SelfRestartRequest {
 	sessionFile: string;
@@ -65,7 +66,7 @@ export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = p
 	parsed.noSession = false;
 	parsed.sessionId = undefined;
 	parsed.fileArgs = [];
-	parsed.messages = env[ENV_SELF_RESTART_PROMPT] ? [env[ENV_SELF_RESTART_PROMPT]] : [];
+	parsed.messages = [];
 }
 
 export function writeWrapperRestartRequest(request: SelfRestartRequest, env: NodeJS.ProcessEnv = process.env): void {
@@ -92,6 +93,7 @@ export async function restartCurrentProcess(
 		throw new Error("process.exit returned after wrapper restart request");
 	}
 
+	dependencies.appendNotice?.();
 	await dependencies.dispose?.();
 	const spawnRestart = dependencies.spawnSelfRestart ?? spawnSelfRestart;
 	const exitCode = await spawnRestart(request);
@@ -109,7 +111,7 @@ export function spawnSelfRestart(
 		env: {
 			...process.env,
 			[ENV_SELF_RESTART_SESSION]: request.sessionFile,
-			[ENV_SELF_RESTART_PROMPT]: request.prompt ?? "",
+			[LEGACY_ENV_SELF_RESTART_PROMPT]: undefined,
 		},
 		stdio: "inherit",
 	});

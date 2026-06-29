@@ -8,13 +8,14 @@ import {
 	applySelfRestartRequest,
 	ENV_RESTART_EXIT_CODE,
 	ENV_RESTART_REQUEST_FILE,
-	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 	getRestartExitCode,
 	restartCurrentProcess,
 	spawnSelfRestart,
 	writeWrapperRestartRequest,
 } from "../src/core/self-restart.ts";
+
+const LEGACY_ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 
 function createArgs(): Args {
 	return {
@@ -54,16 +55,16 @@ describe("self restart request", () => {
 		expect(args.fileArgs).toEqual([]);
 	});
 
-	it("overrides startup args to resume the requested session with the restart prompt", () => {
+	it("overrides startup args to resume the requested session without injecting the restart prompt", () => {
 		const args = createArgs();
 
 		applySelfRestartRequest(args, {
 			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
-			[ENV_SELF_RESTART_PROMPT]: "Restarted.",
+			[LEGACY_ENV_SELF_RESTART_PROMPT]: "Restarted.",
 		});
 
 		expect(args.session).toBe("/tmp/session.jsonl");
-		expect(args.messages).toEqual(["Restarted."]);
+		expect(args.messages).toEqual([]);
 		expect(args.fileArgs).toEqual([]);
 		expect(args.continue).toBe(false);
 		expect(args.resume).toBe(false);
@@ -121,7 +122,7 @@ describe("self restart request", () => {
 		expect(spawnArgs).toEqual(process.argv.slice(1));
 		expect(spawnOptions?.stdio).toBe("inherit");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_SESSION]).toBe("/tmp/session.jsonl");
-		expect(spawnOptions?.env?.[ENV_SELF_RESTART_PROMPT]).toBe("Restarted.");
+		expect(spawnOptions?.env?.[LEGACY_ENV_SELF_RESTART_PROMPT]).toBeUndefined();
 	});
 
 	it("rejects when the restarted child fails to spawn", async () => {
@@ -179,7 +180,7 @@ describe("self restart request", () => {
 		expect(calls).toEqual(["append", "dispose"]);
 	});
 
-	it("spawns a replacement process when no wrapper restart code is available", async () => {
+	it("spawns a replacement process after persisting the notice when no wrapper restart code is available", async () => {
 		const calls: string[] = [];
 
 		await expect(
@@ -187,6 +188,9 @@ describe("self restart request", () => {
 				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
 				{
 					env: {},
+					appendNotice: () => {
+						calls.push("append");
+					},
 					dispose: async () => {
 						calls.push("dispose");
 					},
@@ -201,6 +205,6 @@ describe("self restart request", () => {
 			),
 		).rejects.toThrow("exit:7");
 
-		expect(calls).toEqual(["dispose", "/tmp/session.jsonl:Restarted."]);
+		expect(calls).toEqual(["append", "dispose", "/tmp/session.jsonl:Restarted."]);
 	});
 });
