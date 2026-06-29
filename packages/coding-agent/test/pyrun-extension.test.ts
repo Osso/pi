@@ -95,6 +95,7 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 		cwd: process.cwd(),
 		footerData: {
 			getAvailableProviderCount: () => 3,
+			getExecutableName: () => undefined,
 			getExtensionStatuses: () =>
 				new Map([
 					["pyrun", "ready"],

@@ -47,7 +47,7 @@ vi.mock("child_process", () => ({
 	}),
 }));
 
-import { FooterDataProvider } from "../src/core/footer-data-provider.ts";
+import { FooterDataProvider, resolveFooterExecutableName } from "../src/core/footer-data-provider.ts";
 
 type WorktreeFixture = {
 	worktreeDir: string;
@@ -96,6 +96,16 @@ async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
 }
+
+describe("resolveFooterExecutableName", () => {
+	it("omits the default pi executable", () => {
+		expect(resolveFooterExecutableName(["/usr/bin/pi"])).toBeUndefined();
+	});
+
+	it("returns non-default pi executable names", () => {
+		expect(resolveFooterExecutableName(["/usr/bin/pi-dev"])).toBe("pi-dev");
+	});
+});
 
 describe("FooterDataProvider reftable branch detection", () => {
 	let originalCwd: string;

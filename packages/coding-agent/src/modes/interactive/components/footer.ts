@@ -130,6 +130,8 @@ export class FooterComponent implements Component {
 
 		// Build stats line
 		const statsParts = [];
+		const executableName = this.footerData.getExecutableName();
+		if (executableName) statsParts.push(`[${executableName}]`);
 		if (totalInput) statsParts.push(`↑${formatTokens(totalInput)}`);
 		if (totalOutput) statsParts.push(`↓${formatTokens(totalOutput)}`);
 		if (totalCacheRead) statsParts.push(`R${formatTokens(totalCacheRead)}`);

@@ -128,7 +128,8 @@ function sessionUsage(ctx: ExtensionContext): { input: number; output: number; c
 
 function formatStats(input: DefaultFooterComponentInput): string {
 	const usage = sessionUsage(input.ctx);
-	const parts = [formatAgentCounts(input.getAgentCounts?.())];
+	const executableName = input.footerData.getExecutableName();
+	const parts = [executableName ? `[${executableName}]` : undefined, formatAgentCounts(input.getAgentCounts?.())];
 	if (usage.input > 0) parts.push(`in ${formatTokens(usage.input)}`);
 	if (usage.output > 0) parts.push(`out ${formatTokens(usage.output)}`);
 	parts.push(formatCost(usage.cost));

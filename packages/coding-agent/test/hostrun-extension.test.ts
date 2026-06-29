@@ -97,6 +97,7 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 		cwd: process.cwd(),
 		footerData: {
 			getAvailableProviderCount: () => 3,
+			getExecutableName: () => undefined,
 			getExtensionStatuses: () =>
 				new Map([
 					["hostrun", "ready"],

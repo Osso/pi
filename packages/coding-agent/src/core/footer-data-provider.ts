@@ -1,6 +1,6 @@
 import { type ExecFileException, execFile, spawnSync } from "child_process";
 import { existsSync, type FSWatcher, readFileSync, type Stats, statSync, unwatchFile, watchFile } from "fs";
-import { dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "../utils/fs-watch.ts";
 
 type GitPaths = {
@@ -92,6 +92,13 @@ function shouldPollGitHead(repoDir: string): boolean {
 	return isWslEnvironment() && isWindowsMountedRepoPath(repoDir);
 }
 
+export function resolveFooterExecutableName(paths = [process.argv[1], process.execPath]): string | undefined {
+	const executableNames = paths
+		.filter((path): path is string => typeof path === "string" && path.length > 0)
+		.map((path) => basename(path));
+	return executableNames.find((name) => name !== "pi" && /^pi(?:-|$)/.test(name));
+}
+
 /**
  * Provides git branch and extension statuses - data not otherwise accessible to extensions.
  * Token stats, model info available via ctx.sessionManager and ctx.model.
@@ -130,6 +137,11 @@ export class FooterDataProvider {
 			this.cachedBranch = this.resolveGitBranchSync();
 		}
 		return this.cachedBranch;
+	}
+
+	/** Executable name to show when running a non-default binary such as pi-dev. */
+	getExecutableName(): string | undefined {
+		return resolveFooterExecutableName();
 	}
 
 	/** Extension status texts set via ctx.ui.setStatus() */
@@ -393,5 +405,5 @@ export class FooterDataProvider {
 /** Read-only view for extensions - excludes setExtensionStatus, setAvailableProviderCount and dispose */
 export type ReadonlyFooterDataProvider = Pick<
 	FooterDataProvider,
-	"getGitBranch" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange"
+	"getGitBranch" | "getExecutableName" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange"
 >;

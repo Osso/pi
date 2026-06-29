@@ -40,16 +40,17 @@ function createContext(usage: AssistantUsage, usingOAuth = false): ExtensionCont
 	} as unknown as ExtensionContext;
 }
 
-function createFooterData(): ReadonlyFooterDataProvider {
+function createFooterData(executableName?: string): ReadonlyFooterDataProvider {
 	return {
 		getAvailableProviderCount: () => 1,
+		getExecutableName: () => executableName,
 		getExtensionStatuses: () => new Map<string, string>(),
 		getGitBranch: () => "main",
 		onBranchChange: () => () => {},
 	};
 }
 
-function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false): string {
+function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false, executableName?: string): string {
 	initTheme(undefined, false);
 	const footer = createDefaultFooterComponent({
 		ctx: createContext(
@@ -62,7 +63,7 @@ function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = fals
 			},
 			usingOAuth,
 		),
-		footerData: createFooterData(),
+		footerData: createFooterData(executableName),
 		getAgentCounts: () => counts,
 		theme,
 	});
@@ -91,6 +92,18 @@ describe("default footer extension", () => {
 		const line = statsLine({ running: 0, steeringPending: 0, waitingForInput: 0 });
 
 		expect(line).not.toContain("agents");
+	});
+
+	it("shows the non-default executable name when available", () => {
+		const line = statsLine(undefined, false, "pi-dev");
+
+		expect(line).toContain("[pi-dev]");
+	});
+
+	it("does not show the default pi executable name", () => {
+		const line = statsLine(undefined, false, undefined);
+
+		expect(line).not.toContain("[pi]");
 	});
 
 	it("counts only running waiting and steering agents", () => {
