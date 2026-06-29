@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
@@ -18,6 +18,7 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Do not use MCP for Pi's built-in hostrun_eval path; use the adapter runner that links the Hostrun runtime.",
 	"Hostrun keeps globalThis.ctx across later hostrun_eval calls in the same Pi session.",
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Hostrun.",
+	"Use pi.compact(...) to trigger Pi session compaction from Hostrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
@@ -50,6 +51,46 @@ function getArgsCode(args: unknown): string | undefined {
 	return typeof code === "string" ? code : undefined;
 }
 
+function normalizeCompactParams(params: unknown): { customInstructions?: string } {
+	if (params === undefined || params === null) {
+		return {};
+	}
+	if (typeof params === "string") {
+		return { customInstructions: params };
+	}
+	if (typeof params !== "object") {
+		throw new Error("pi.compact requires no argument, a custom instructions string, or { customInstructions } object");
+	}
+	const customInstructions = (params as { customInstructions?: unknown }).customInstructions;
+	if (customInstructions !== undefined && typeof customInstructions !== "string") {
+		throw new Error("pi.compact customInstructions must be a string");
+	}
+	return { customInstructions };
+}
+
+function createHostrunPiDispatcher(pi: ExtensionAPI, options: HostrunExtensionOptions): HostrunPiRequestDispatcher {
+	return async (request, ctx, signal) => {
+		if (request.method === "compact") return triggerCompact(request.params, ctx);
+		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
+		for (const handler of options.piRequestHandlers ?? []) {
+			const result = await handler(request, ctx, signal);
+			if (result !== undefined) return result;
+		}
+		throw new Error(`Pi capability is unavailable: ${request.method}`);
+	};
+}
+
+function triggerCompact(params: unknown, ctx: ExtensionContext): { started: true } {
+	ctx.compact(normalizeCompactParams(params));
+	return { started: true };
+}
+
+function enqueueMessage(params: unknown, pi: ExtensionAPI): { enqueued: true } {
+	const message = normalizeMessageParams(params);
+	pi.sendUserMessage(message.message, { deliverAs: message.deliverAs });
+	return { enqueued: true };
+}
+
 function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "followUp"; message: string } {
 	if (typeof params === "string") {
 		return { message: params };
@@ -67,20 +108,7 @@ function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "follo
 
 export default function hostrunExtension(pi: ExtensionAPI, options: HostrunExtensionOptions = {}) {
 	const runner = new HostrunRunnerClient();
-	const evaluate = createHostrunEvalExecutor(runner, async (request, ctx, signal) => {
-		if (request.method === "messages.enqueue") {
-			const message = normalizeMessageParams(request.params);
-			pi.sendUserMessage(message.message, { deliverAs: message.deliverAs });
-			return { enqueued: true };
-		}
-		for (const handler of options.piRequestHandlers ?? []) {
-			const result = await handler(request, ctx, signal);
-			if (result !== undefined) {
-				return result;
-			}
-		}
-		throw new Error(`Pi capability is unavailable: ${request.method}`);
-	});
+	const evaluate = createHostrunEvalExecutor(runner, createHostrunPiDispatcher(pi, options));
 
 	pi.registerTool({
 		name: "hostrun_eval",

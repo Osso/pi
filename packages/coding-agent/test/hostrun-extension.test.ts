@@ -70,6 +70,7 @@ type HostrunTool = {
 function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 	let hostrunTool: HostrunTool | undefined;
 	let hostrunDefinition: ToolDefinition | undefined;
+	const compactRequests: unknown[] = [];
 	const enqueuedMessages: Array<{ content: unknown; options: unknown }> = [];
 
 	const pi = {
@@ -103,6 +104,9 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 			getGitBranch: () => "feat/hostrun-pi",
 			onBranchChange: () => () => {},
 		},
+		compact: (options: unknown) => {
+			compactRequests.push(options);
+		},
 		getContextUsage: () => ({
 			contextWindow: 200000,
 			percent: 12.5,
@@ -121,6 +125,7 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 	} as unknown as ExtensionContext;
 
 	return {
+		compactRequests,
 		enqueuedMessages,
 		toolDefinition: hostrunDefinition,
 		evaluate: (
@@ -228,6 +233,11 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.compact({ customInstructions: 'preserve IDs' })") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "compact", params: { customInstructions: "preserve IDs" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   return { type: "completed", executed: request.code, value: null };
 }
 
@@ -288,6 +298,7 @@ describe("hostrun extension", () => {
 		expect(harness.toolDefinition?.approvalRequired).toBe(true);
 		expect(harness.toolDefinition?.description).toContain("canonical Hostrun runtime");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not use MCP");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.compact");
 	});
 
 	it("renders only the Hostrun title before execution starts", () => {
@@ -606,5 +617,16 @@ describe("hostrun extension", () => {
 
 		expect(result.details.value).toEqual({ enqueued: true });
 		expect(harness.enqueuedMessages).toEqual([{ content: "next", options: { deliverAs: "followUp" } }]);
+	});
+
+	it("triggers Pi compaction from Hostrun pi.compact", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({
+			code: "pi.compact({ customInstructions: 'preserve IDs' })",
+		});
+
+		expect(result.details.value).toEqual({ started: true });
+		expect(harness.compactRequests).toEqual([{ customInstructions: "preserve IDs" }]);
 	});
 });
