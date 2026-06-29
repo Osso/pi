@@ -60,7 +60,19 @@ mkdir -p "$(dirname "$INSTALL_DIR")" "$BIN_DIR" "$TMP_INSTALL_DIR"
 cat > "$TMP_INSTALL_DIR/pi" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-exec "$ROOT_DIR/pi-test.sh" "\$@"
+
+RESTART_EXIT_CODE=75
+
+while true; do
+	set +e
+	PI_RESTART_EXIT_CODE="\$RESTART_EXIT_CODE" "$ROOT_DIR/pi-test.sh" "\$@"
+	exit_code="\$?"
+	set -e
+	if [[ "\$exit_code" -ne "\$RESTART_EXIT_CODE" ]]; then
+		exit "\$exit_code"
+	fi
+	set -- -r
+done
 EOF
 chmod +x "$TMP_INSTALL_DIR/pi"
 

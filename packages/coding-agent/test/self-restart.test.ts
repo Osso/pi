@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
 import {
 	applySelfRestartRequest,
+	ENV_RESTART_EXIT_CODE,
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
+	getRestartExitCode,
 	spawnSelfRestart,
 } from "../src/core/self-restart.ts";
 
@@ -23,6 +25,17 @@ function createArgs(): Args {
 }
 
 describe("self restart request", () => {
+	it("reads a wrapper restart exit code from the environment", () => {
+		expect(getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "75" })).toBe(75);
+		expect(getRestartExitCode({})).toBeUndefined();
+	});
+
+	it("rejects invalid wrapper restart exit codes", () => {
+		expect(() => getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "0" })).toThrow("integer from 1 to 255");
+		expect(() => getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "300" })).toThrow("integer from 1 to 255");
+		expect(() => getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "nope" })).toThrow("integer from 1 to 255");
+	});
+
 	it("resumes the requested session without injecting a prompt when none is provided", () => {
 		const args = createArgs();
 

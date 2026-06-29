@@ -4,6 +4,7 @@ import type { Args } from "../cli/args.ts";
 
 export const ENV_SELF_RESTART_SESSION = "PI_SELF_RESTART_SESSION";
 export const ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
+export const ENV_RESTART_EXIT_CODE = "PI_RESTART_EXIT_CODE";
 
 export interface SelfRestartRequest {
 	sessionFile: string;
@@ -21,6 +22,19 @@ interface SelfRestartDependencies {
 		options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" },
 	) => RestartChildProcess;
 	waitForExit?: boolean;
+}
+
+export function getRestartExitCode(env: NodeJS.ProcessEnv = process.env): number | undefined {
+	const rawExitCode = env[ENV_RESTART_EXIT_CODE];
+	if (!rawExitCode) {
+		return undefined;
+	}
+
+	const exitCode = Number(rawExitCode);
+	if (!Number.isInteger(exitCode) || exitCode < 1 || exitCode > 255) {
+		throw new Error(`${ENV_RESTART_EXIT_CODE} must be an integer from 1 to 255`);
+	}
+	return exitCode;
 }
 
 export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = process.env): void {
