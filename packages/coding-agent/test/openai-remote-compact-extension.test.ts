@@ -119,6 +119,35 @@ describe("openai remote compact extension", () => {
 		]);
 	});
 
+	it("drops function calls that have no matching tool output from compact payloads", () => {
+		const messages: AgentMessage[] = [
+			{ role: "user", content: "use a tool", timestamp: 1 },
+			{
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "call-orphan|item-orphan", name: "read", arguments: { path: "missing" } },
+				],
+				api: "openai-codex-responses",
+				provider: "openai-codex",
+				model: "gpt-5.5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: 2,
+			},
+		];
+
+		const payload = buildOpenAICompactPayload(createOpenAICodexResponsesModel(), messages, "system prompt", []);
+
+		expect(payload.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "use a tool" }] }]);
+	});
+
 	it("builds the Codex /responses/compact endpoint from the ChatGPT backend base URL", () => {
 		expect(buildCompactEndpoint(createOpenAICodexResponsesModel())).toBe(
 			"https://chatgpt.com/backend-api/codex/responses/compact",

@@ -25,6 +25,7 @@
 - Fixed compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
 - Fixed `pi-dev` restarts to exit through the development wrapper so `/restart` loads edited TypeScript modules.
 - Fixed terminal `EIO` errors to use Pi's dead-terminal exit path instead of surfacing as uncaught exceptions.
+- Fixed OpenAI remote compaction payloads to omit orphaned tool calls or outputs that the compact endpoint rejects.
 
 ## [0.80.2] - 2026-06-23
 

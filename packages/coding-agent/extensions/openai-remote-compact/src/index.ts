@@ -100,9 +100,13 @@ export function buildOpenAICompactPayload(
 	instructions: string,
 	previousReplacementHistory: OpenAIResponseItem[],
 ): OpenAICompactPayload {
+	const input = reconcileOpenAIToolPairs([
+		...previousReplacementHistory,
+		...convertAgentMessagesToOpenAIResponseItems(model, messages),
+	]);
 	return {
 		model: model.id,
-		input: [...previousReplacementHistory, ...convertAgentMessagesToOpenAIResponseItems(model, messages)],
+		input,
 		instructions,
 		tools: [],
 		parallel_tool_calls: false,
@@ -272,6 +276,28 @@ function convertAgentMessagesToOpenAIResponseItems(
 		if (message.role === "toolResult") return [convertToolResultMessage(message.toolCallId, message.content, model)];
 		return [];
 	});
+}
+
+function reconcileOpenAIToolPairs(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
+	const callIds = new Set<string>();
+	const outputCallIds = new Set<string>();
+	for (const item of items) {
+		if (isFunctionCallItem(item)) callIds.add(item.call_id);
+		if (isFunctionCallOutputItem(item)) outputCallIds.add(item.call_id);
+	}
+	return items.filter((item) => {
+		if (isFunctionCallItem(item)) return outputCallIds.has(item.call_id);
+		if (isFunctionCallOutputItem(item)) return callIds.has(item.call_id);
+		return true;
+	});
+}
+
+function isFunctionCallItem(item: OpenAIResponseItem): item is OpenAIResponseItem & { call_id: string } {
+	return item.type === "function_call" && typeof item.call_id === "string";
+}
+
+function isFunctionCallOutputItem(item: OpenAIResponseItem): item is OpenAIResponseItem & { call_id: string } {
+	return item.type === "function_call_output" && typeof item.call_id === "string";
 }
 
 function convertUserMessage(content: string | Array<TextContent | ImageContent>): OpenAIResponseItem[] {
