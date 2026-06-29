@@ -1,0 +1,11 @@
+{
+	"name": "@earendil-works/pi-openai-remote-compact-extension",
+	"version": "0.80.2",
+	"private": true,
+	"type": "module",
+	"description": "First-party OpenAI remote compaction extension for Pi",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	}
+}
