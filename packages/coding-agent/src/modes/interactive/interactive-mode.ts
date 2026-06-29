@@ -3624,8 +3624,10 @@ export class InteractiveMode {
 			}
 			throw error;
 		};
+		process.stdin.on("error", terminalErrorHandler);
 		process.stdout.on("error", terminalErrorHandler);
 		process.stderr.on("error", terminalErrorHandler);
+		this.signalCleanupHandlers.push(() => process.stdin.off("error", terminalErrorHandler));
 		this.signalCleanupHandlers.push(() => process.stdout.off("error", terminalErrorHandler));
 		this.signalCleanupHandlers.push(() => process.stderr.off("error", terminalErrorHandler));
 
