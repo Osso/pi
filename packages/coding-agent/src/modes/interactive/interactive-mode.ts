@@ -6053,6 +6053,9 @@ export function formatCompactionFailureMessage(input: {
 	if (input.sourceHint?.type === "local") {
 		lines.push(`Model: ${input.sourceHint.provider}/${input.sourceHint.model}.`);
 	}
+	if (/timed out/i.test(input.errorMessage)) {
+		lines.push("The compaction request did not finish before the timeout.");
+	}
 	lines.push(formatCompactionSaveImpact(input.reason));
 	lines.push(`Original error: ${formatSentence(originalError)}`);
 	return lines.join("\n");

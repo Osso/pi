@@ -175,6 +175,7 @@ describe("InteractiveMode compaction events", () => {
 			[
 				"Context overflow recovery failed after compaction timeout.",
 				"Model: ollama/qwen3:4b-instruct-128k.",
+				"The compaction request did not finish before the timeout.",
 				"No compaction was saved; the previous context is still too large.",
 				"Original error: Turn prefix summarization failed: Request timed out.",
 			].join("\n"),
