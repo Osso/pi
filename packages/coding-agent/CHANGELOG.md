@@ -26,6 +26,7 @@
 - Fixed `pi-dev` restarts to exit through the development wrapper so `/restart` loads edited TypeScript modules.
 - Fixed terminal `EIO` errors to use Pi's dead-terminal exit path instead of surfacing as uncaught exceptions.
 - Fixed OpenAI remote compaction payloads to omit orphaned tool calls or outputs that the compact endpoint rejects.
+- Fixed Codex remote compaction to accept `compaction_summary` items returned by ChatGPT's compact endpoint.
 
 ## [0.80.2] - 2026-06-23
 

@@ -49,7 +49,7 @@ export default function openAIRemoteCompactExtension(pi: ExtensionAPI) {
 	pi.on("before_provider_request", handleBeforeProviderRequest);
 }
 
-async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {
+export async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {
 	const model = ctx.model;
 	if (!isOpenAIResponsesModel(model)) return;
 
@@ -63,7 +63,9 @@ async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx:
 	const previousReplacementHistory = findLatestOpenAIReplacementHistory(event.branchEntries);
 	const messages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
 	const payload = buildOpenAICompactPayload(model, messages, ctx.getSystemPrompt(), previousReplacementHistory);
+	const startedAt = Date.now();
 	const response = await postOpenAICompact(endpoint, payload, model, auth.apiKey, auth.headers, event.signal);
+	const durationMs = Date.now() - startedAt;
 	const details = extractOpenAICompactDetails(model, response, endpoint);
 
 	return {
@@ -71,6 +73,7 @@ async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx:
 			summary: OPENAI_REMOTE_COMPACTION_SUMMARY,
 			firstKeptEntryId: event.preparation.firstKeptEntryId,
 			tokensBefore: event.preparation.tokensBefore,
+			durationMs,
 			details,
 		},
 	};
@@ -263,7 +266,11 @@ function isSyntheticOpenAICompactionSummaryItem(value: unknown): boolean {
 }
 
 function isOpenAICompactionItem(value: unknown): boolean {
-	return isRecord(value) && value.type === "compaction" && typeof value.encrypted_content === "string";
+	return (
+		isRecord(value) &&
+		(value.type === "compaction" || value.type === "compaction_summary") &&
+		typeof value.encrypted_content === "string"
+	);
 }
 
 function convertAgentMessagesToOpenAIResponseItems(
