@@ -716,6 +716,7 @@ export class AgentHarness<
 				result.tokensBefore,
 				result.details,
 				provided !== undefined,
+				result.durationMs,
 			);
 			const entry = await this.session.getEntry(entryId);
 			if (entry?.type === "compaction") {

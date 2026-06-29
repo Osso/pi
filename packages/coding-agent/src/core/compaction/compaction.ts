@@ -87,7 +87,7 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 	}
 	if (entry.type === "compaction") {
-		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp);
+		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, entry.durationMs);
 	}
 	return undefined;
 }
@@ -104,6 +104,7 @@ export interface CompactionResult<T = unknown> {
 	summary: string;
 	firstKeptEntryId: string;
 	tokensBefore: number;
+	durationMs?: number;
 	estimatedTokensAfter?: number;
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
 	details?: T;
@@ -761,6 +762,7 @@ export async function compact(
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
 ): Promise<CompactionResult> {
+	const startedAt = Date.now();
 	const {
 		firstKeptEntryId,
 		messagesToSummarize,
@@ -836,6 +838,7 @@ export async function compact(
 		summary,
 		firstKeptEntryId,
 		tokensBefore,
+		durationMs: Date.now() - startedAt,
 		details: { readFiles, modifiedFiles } as CompactionDetails,
 	};
 }

@@ -149,8 +149,11 @@ describe("AgentSession compaction characterization", () => {
 		const getStreamCallCount = useSummaryStreamFn(harness, "summary from custom stream");
 
 		const result = await harness.session.compact();
+		const compactionEntry = harness.sessionManager.getEntries().find((entry) => entry.type === "compaction");
 
 		expect(result.summary).toContain("summary from custom stream");
+		expect(result.durationMs).toBeGreaterThanOrEqual(0);
+		expect(compactionEntry).toMatchObject({ durationMs: result.durationMs });
 		expect(getStreamCallCount()).toBe(1);
 	});
 
@@ -166,6 +169,8 @@ describe("AgentSession compaction characterization", () => {
 		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
 		const compactionEnd = harness.eventsOfType("compaction_end").at(-1);
 		expect(compactionEntries).toHaveLength(1);
+		expect(compactionEntries[0]?.durationMs).toBeGreaterThanOrEqual(0);
+		expect(compactionEnd?.result?.durationMs).toBe(compactionEntries[0]?.durationMs);
 		expect(compactionEnd?.result?.estimatedTokensAfter).toBeGreaterThan(0);
 		expect(getStreamCallCount()).toBe(1);
 	});

@@ -73,7 +73,7 @@ function getMessageFromEntry(entry: SessionTreeEntry): AgentMessage | undefined 
 		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 	}
 	if (entry.type === "compaction") {
-		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp);
+		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, entry.durationMs);
 	}
 	return undefined;
 }
@@ -93,6 +93,8 @@ export interface CompactionResult<T = unknown> {
 	firstKeptEntryId: string;
 	/** Estimated context tokens before compaction. */
 	tokensBefore: number;
+	/** Wall-clock time spent compacting, in milliseconds. */
+	durationMs?: number;
 	/** Optional implementation-specific details stored with the compaction entry. */
 	details?: T;
 }
@@ -632,6 +634,7 @@ export async function compact(
 	signal?: AbortSignal,
 	thinkingLevel?: ThinkingLevel,
 ): Promise<Result<CompactionResult, CompactionError>> {
+	const startedAt = Date.now();
 	const {
 		firstKeptEntryId,
 		messagesToSummarize,
@@ -690,6 +693,7 @@ export async function compact(
 		summary,
 		firstKeptEntryId,
 		tokensBefore,
+		durationMs: Date.now() - startedAt,
 		details: { readFiles, modifiedFiles } as CompactionDetails,
 	});
 }

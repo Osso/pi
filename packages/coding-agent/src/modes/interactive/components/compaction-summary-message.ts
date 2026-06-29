@@ -33,12 +33,14 @@ export class CompactionSummaryMessageComponent extends Box {
 		this.clear();
 
 		const tokenStr = this.message.tokensBefore.toLocaleString();
+		const durationText = formatCompactionDuration(this.message.durationMs);
+		const durationSuffix = durationText ? ` in ${durationText}` : "";
 		const label = theme.fg("customMessageLabel", `\x1b[1m[compaction]\x1b[22m`);
 		this.addChild(new Text(label, 0, 0));
 		this.addChild(new Spacer(1));
 
 		if (this.expanded) {
-			const header = `**Compacted from ${tokenStr} tokens**\n\n`;
+			const header = `**Compacted from ${tokenStr} tokens${durationSuffix}**\n\n`;
 			this.addChild(
 				new Markdown(header + this.message.summary, 0, 0, this.markdownTheme, {
 					color: (text: string) => theme.fg("customMessageText", text),
@@ -47,7 +49,7 @@ export class CompactionSummaryMessageComponent extends Box {
 		} else {
 			this.addChild(
 				new Text(
-					theme.fg("customMessageText", `Compacted from ${tokenStr} tokens (`) +
+					theme.fg("customMessageText", `Compacted from ${tokenStr} tokens${durationSuffix} (`) +
 						theme.fg("dim", keyText("app.tools.expand")) +
 						theme.fg("customMessageText", " to expand)"),
 					0,
@@ -56,4 +58,10 @@ export class CompactionSummaryMessageComponent extends Box {
 			);
 		}
 	}
+}
+
+function formatCompactionDuration(durationMs: number | undefined): string | undefined {
+	if (durationMs === undefined) return undefined;
+	if (durationMs < 1000) return `${durationMs}ms`;
+	return `${(durationMs / 1000).toFixed(1)}s`;
 }

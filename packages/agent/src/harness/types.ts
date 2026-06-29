@@ -364,6 +364,7 @@ export interface CompactionEntry<T = unknown> extends SessionTreeEntryBase {
 	summary: string;
 	firstKeptEntryId: string;
 	tokensBefore: number;
+	durationMs?: number;
 	details?: T;
 	fromHook?: boolean;
 }
@@ -736,6 +737,7 @@ export interface CompactResult {
 	summary: string;
 	firstKeptEntryId: string;
 	tokensBefore: number;
+	durationMs?: number;
 	details?: unknown;
 }
 

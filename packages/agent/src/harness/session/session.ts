@@ -59,7 +59,14 @@ export function buildSessionContext(pathEntries: SessionTreeEntry[]): SessionCon
 	};
 
 	if (compaction) {
-		messages.push(createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp));
+		messages.push(
+			createCompactionSummaryMessage(
+				compaction.summary,
+				compaction.tokensBefore,
+				compaction.timestamp,
+				compaction.durationMs,
+			),
+		);
 		const compactionIdx = pathEntries.findIndex((e) => e.type === "compaction" && e.id === compaction.id);
 		let foundFirstKept = false;
 		for (let i = 0; i < compactionIdx; i++) {
@@ -176,6 +183,7 @@ export class Session<TMetadata extends SessionMetadata = SessionMetadata> {
 		tokensBefore: number,
 		details?: T,
 		fromHook?: boolean,
+		durationMs?: number,
 	): Promise<string> {
 		return this.appendTypedEntry({
 			type: "compaction",
@@ -185,6 +193,7 @@ export class Session<TMetadata extends SessionMetadata = SessionMetadata> {
 			summary,
 			firstKeptEntryId,
 			tokensBefore,
+			durationMs,
 			details,
 			fromHook,
 		} satisfies CompactionEntry<T>);

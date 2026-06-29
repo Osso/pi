@@ -25,7 +25,7 @@ describe("InteractiveMode compaction events", () => {
 			event: {
 				type: "compaction_end";
 				reason: "manual" | "threshold" | "overflow";
-				result: { tokensBefore: number; summary: string } | undefined;
+				result: { tokensBefore: number; summary: string; durationMs?: number } | undefined;
 				aborted: boolean;
 				willRetry: boolean;
 				errorMessage?: string;
@@ -38,6 +38,7 @@ describe("InteractiveMode compaction events", () => {
 			result: {
 				tokensBefore: 123,
 				summary: "summary",
+				durationMs: 4567,
 			},
 			aborted: false,
 			willRetry: false,
@@ -51,6 +52,7 @@ describe("InteractiveMode compaction events", () => {
 				role: "compactionSummary",
 				tokensBefore: 123,
 				summary: "summary",
+				durationMs: 4567,
 			}),
 		);
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });

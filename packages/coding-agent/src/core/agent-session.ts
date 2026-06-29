@@ -1890,6 +1890,7 @@ export class AgentSession {
 		await this.abort();
 		this._compactionAbortController = new AbortController();
 		this._emit({ type: "compaction_start", reason: "manual" });
+		const startedAt = Date.now();
 
 		try {
 			if (!this.model) {
@@ -1969,7 +1970,15 @@ export class AgentSession {
 				throw new Error("Compaction cancelled");
 			}
 
-			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension);
+			const durationMs = Date.now() - startedAt;
+			this.sessionManager.appendCompaction(
+				summary,
+				firstKeptEntryId,
+				tokensBefore,
+				details,
+				fromExtension,
+				durationMs,
+			);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
@@ -1994,6 +2003,7 @@ export class AgentSession {
 				summary,
 				firstKeptEntryId,
 				tokensBefore,
+				durationMs,
 				estimatedTokensAfter,
 				details,
 			};
@@ -2177,6 +2187,7 @@ export class AgentSession {
 			this._emit({ type: "compaction_start", reason });
 			this._autoCompactionAbortController = new AbortController();
 			started = true;
+			const startedAt = Date.now();
 
 			let extensionCompaction: CompactionResult | undefined;
 			let fromExtension = false;
@@ -2250,7 +2261,15 @@ export class AgentSession {
 				return false;
 			}
 
-			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension);
+			const durationMs = Date.now() - startedAt;
+			this.sessionManager.appendCompaction(
+				summary,
+				firstKeptEntryId,
+				tokensBefore,
+				details,
+				fromExtension,
+				durationMs,
+			);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
@@ -2275,6 +2294,7 @@ export class AgentSession {
 				summary,
 				firstKeptEntryId,
 				tokensBefore,
+				durationMs,
 				estimatedTokensAfter,
 				details,
 			};
