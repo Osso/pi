@@ -85,6 +85,44 @@ describe("runLoginCommand", () => {
 		});
 	});
 
+	test("opens browser OAuth URLs with browser-cli when requested", async () => {
+		const providerId = `test-cli-login-browser-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		registeredProviders.push(providerId);
+		const openedUrls: string[] = [];
+
+		registerOAuthProvider({
+			id: providerId,
+			name: "Test Browser CLI Login",
+			async login(callbacks) {
+				callbacks.onAuth({ url: "https://example.invalid/browser-login" });
+				return { access: "browser-access", refresh: "browser-refresh", expires: Date.now() + 60_000 };
+			},
+			async refreshToken(credentials) {
+				return credentials;
+			},
+			getApiKey(credentials) {
+				return credentials.access;
+			},
+		});
+
+		const output = createTerminalOutput();
+		const exitCode = await runLoginCommand({
+			authStorage: AuthStorage.inMemory(),
+			providerId,
+			input: createTerminalInput([]),
+			output: output.stream,
+			error: output.stream,
+			useBrowserCli: true,
+			openBrowserCliUrl: async (url) => {
+				openedUrls.push(url);
+			},
+		});
+
+		expect(exitCode).toBe(0);
+		expect(openedUrls).toEqual(["https://example.invalid/browser-login"]);
+		expect(output.text()).toContain("Opened auth URL with browser-cli.");
+	});
+
 	test("returns nonzero and prints provider list guidance for unknown providers", async () => {
 		const output = createTerminalOutput();
 		const authStorage = AuthStorage.inMemory();

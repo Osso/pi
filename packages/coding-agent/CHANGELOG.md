@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added `pi login <provider>` for running OAuth login flows from the CLI.
+- Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).

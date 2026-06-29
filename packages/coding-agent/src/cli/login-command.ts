@@ -3,12 +3,15 @@ import type { Readable, Writable } from "node:stream";
 import { getOAuthProvider, getOAuthProviders } from "@earendil-works/pi-ai/oauth";
 import chalk from "chalk";
 import { AuthStorage } from "../core/auth-storage.ts";
+import { spawnProcess, waitForChildProcess } from "../utils/child-process.ts";
 
 export interface LoginCommandDependencies {
 	authStorage?: AuthStorage;
 	input?: Readable;
 	output?: Writable;
 	error?: Writable;
+	useBrowserCli?: boolean;
+	openBrowserCliUrl?: (url: string) => Promise<void>;
 }
 
 export interface RunLoginCommandOptions {
@@ -17,6 +20,8 @@ export interface RunLoginCommandOptions {
 	input?: Readable;
 	output?: Writable;
 	error?: Writable;
+	useBrowserCli?: boolean;
+	openBrowserCliUrl?: (url: string) => Promise<void>;
 }
 
 interface PromptReader {
@@ -28,6 +33,14 @@ function writeLine(stream: Writable, message = ""): void {
 	stream.write(`${message}\n`);
 }
 
+async function openUrlWithBrowserCli(url: string): Promise<void> {
+	const child = spawnProcess("browser-cli", ["open", url], { stdio: ["ignore", "pipe", "pipe"] });
+	const exitCode = await waitForChildProcess(child);
+	if (exitCode !== 0) {
+		throw new Error(`browser-cli open failed with exit code ${exitCode ?? "unknown"}`);
+	}
+}
+
 function formatProviderList(): string {
 	return getOAuthProviders()
 		.map((provider) => `  ${provider.id.padEnd(20)} ${provider.name}`)
@@ -35,7 +48,7 @@ function formatProviderList(): string {
 }
 
 function printLoginUsage(error: Writable): void {
-	writeLine(error, "Usage: pi login <provider>");
+	writeLine(error, "Usage: pi login <provider> [--browser-cli]");
 	writeLine(error, `Available OAuth providers:\n${formatProviderList()}`);
 }
 
@@ -102,13 +115,23 @@ async function runLoginWithPrompt(
 	providerId: string,
 	prompt: (message: string) => Promise<string>,
 	stdout: (message: string) => void,
+	browserCliOpener?: (url: string) => Promise<void>,
 ): Promise<void> {
+	const browserCliOpenTasks: Promise<void>[] = [];
 	await authStorage.login(providerId, {
 		onAuth: (info) => {
 			stdout("");
 			stdout("Open this URL in your browser:");
 			stdout(info.url);
 			if (info.instructions) stdout(info.instructions);
+			if (browserCliOpener) {
+				const openTask = browserCliOpener(info.url).then(
+					() => stdout("Opened auth URL with browser-cli."),
+					(error: unknown) =>
+						stdout(`browser-cli open failed: ${error instanceof Error ? error.message : String(error)}`),
+				);
+				browserCliOpenTasks.push(openTask);
+			}
 			stdout("");
 		},
 		onDeviceCode: (info) => {
@@ -125,6 +148,7 @@ async function runLoginWithPrompt(
 		onProgress: (message) => stdout(message),
 		onSelect: (oauthPrompt) => selectOption(oauthPrompt.message, oauthPrompt.options, prompt, stdout),
 	});
+	await Promise.all(browserCliOpenTasks);
 }
 
 export async function runLoginCommand(options: RunLoginCommandOptions): Promise<number> {
@@ -148,6 +172,7 @@ export async function runLoginCommand(options: RunLoginCommandOptions): Promise<
 			options.providerId,
 			(message) => promptReader.prompt(message),
 			stdout,
+			options.useBrowserCli ? (options.openBrowserCliUrl ?? openUrlWithBrowserCli) : undefined,
 		);
 		writeLine(output, chalk.green(`Credentials saved for ${options.providerId}.`));
 		return 0;
@@ -168,9 +193,14 @@ export async function handleLoginCommand(
 
 	const providerId = args[1];
 	const error = dependencies.error ?? process.stderr;
-	if (args.length !== 2 || !providerId || providerId === "--help" || providerId === "-h") {
+	const flagArgs = args.slice(2);
+	const hasHelpFlag =
+		providerId === "--help" || providerId === "-h" || flagArgs.includes("--help") || flagArgs.includes("-h");
+	const useBrowserCli = flagArgs.includes("--browser-cli");
+	const hasUnknownFlags = flagArgs.some((arg) => arg !== "--browser-cli" && arg !== "--help" && arg !== "-h");
+	if (!providerId || hasHelpFlag || hasUnknownFlags) {
 		printLoginUsage(error);
-		process.exitCode = providerId === "--help" || providerId === "-h" ? 0 : 1;
+		process.exitCode = hasHelpFlag ? 0 : 1;
 		return true;
 	}
 
@@ -180,6 +210,8 @@ export async function handleLoginCommand(
 		input: dependencies.input,
 		output: dependencies.output,
 		error,
+		useBrowserCli: dependencies.useBrowserCli ?? useBrowserCli,
+		openBrowserCliUrl: dependencies.openBrowserCliUrl,
 	});
 	return true;
 }
