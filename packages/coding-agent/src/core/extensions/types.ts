@@ -42,7 +42,7 @@ import type {
 import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { BashResult } from "../bash-executor.ts";
-import type { CompactionPreparation, CompactionResult, CompactionSourceInfo } from "../compaction/index.ts";
+import type { CompactionPreparation, CompactionResult } from "../compaction/index.ts";
 import type { EventBus } from "../event-bus.ts";
 import type { ExecOptions, ExecResult } from "../exec.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
@@ -584,7 +584,7 @@ export interface SessionBeforeForkEvent {
 	position: "before" | "at";
 }
 
-/** Fired before context compaction (can be cancelled or customized) */
+/** Fired before context compaction (can be cancelled) */
 export interface SessionBeforeCompactEvent {
 	type: "session_before_compact";
 	preparation: CompactionPreparation;
@@ -595,15 +595,6 @@ export interface SessionBeforeCompactEvent {
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 	signal: AbortSignal;
-}
-
-/** Fired before context compaction starts to describe the compaction implementation that will be used. */
-export interface SessionCompactionSourceEvent {
-	type: "session_compaction_source";
-	/** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
-	reason: "manual" | "threshold" | "overflow";
-	/** True when the aborted turn is retried after this compaction (overflow recovery) */
-	willRetry: boolean;
 }
 
 /** Fired after context compaction */
@@ -661,7 +652,6 @@ export type SessionEvent =
 	| SessionBeforeSwitchEvent
 	| SessionBeforeForkEvent
 	| SessionBeforeCompactEvent
-	| SessionCompactionSourceEvent
 	| SessionCompactEvent
 	| SessionShutdownEvent
 	| SessionBeforeTreeEvent
@@ -1111,10 +1101,6 @@ export interface SessionBeforeCompactResult {
 	compaction?: CompactionResult;
 }
 
-export interface SessionCompactionSourceResult {
-	source?: CompactionSourceInfo;
-}
-
 export interface SessionBeforeTreeResult {
 	cancel?: boolean;
 	summary?: {
@@ -1186,10 +1172,6 @@ export interface ExtensionAPI {
 	on(
 		event: "session_before_compact",
 		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
-	): void;
-	on(
-		event: "session_compaction_source",
-		handler: ExtensionHandler<SessionCompactionSourceEvent, SessionCompactionSourceResult>,
 	): void;
 	on(event: "session_compact", handler: ExtensionHandler<SessionCompactEvent>): void;
 	on(event: "session_shutdown", handler: ExtensionHandler<SessionShutdownEvent>): void;

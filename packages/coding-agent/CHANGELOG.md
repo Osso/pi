@@ -8,10 +8,14 @@
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
-- Added first-party OpenAI remote compaction through `/responses/compact` for OpenAI and OpenAI Codex Responses models.
 - Added `pi.compact(...)` to Hostrun's Pi runtime bridge for triggering session compaction.
 - Added `pi.restart(...)` to Hostrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
+
+### Changed
+
+- Changed context compaction to require a configured Ollama model for summary generation instead of using the active chat model.
+- Removed the first-party OpenAI remote compaction endpoint path.
 
 ### Fixed
 
@@ -27,8 +31,6 @@
 - Fixed `restart_self` and `pi.restart(...)` to request a process restart instead of only reloading the session in-process.
 - Fixed restart notices to persist as a single `self_restart` entry without being re-submitted as startup prompts.
 - Fixed terminal `EIO` errors to use Pi's dead-terminal exit path instead of surfacing as uncaught exceptions.
-- Fixed OpenAI remote compaction payloads to omit orphaned tool calls or outputs that the compact endpoint rejects.
-- Fixed Codex remote compaction to accept `compaction_summary` items returned by ChatGPT's compact endpoint.
 
 ## [0.80.2] - 2026-06-23
 

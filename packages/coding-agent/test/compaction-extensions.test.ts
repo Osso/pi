@@ -22,11 +22,11 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { createCodingTools } from "../src/index.ts";
-import { createTestResourceLoader } from "./utilities.ts";
+import { createTestResourceLoader, registerTestOllamaModel } from "./utilities.ts";
 
 const API_KEY = process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
 
-describe.skipIf(!API_KEY)("Compaction extensions", () => {
+describe.skipIf(!API_KEY || !process.env.PI_TEST_OLLAMA_COMPACTION)("Compaction extensions", () => {
 	let session: AgentSession;
 	let tempDir: string;
 	let capturedEvents: SessionEvent[];
@@ -102,6 +102,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = ModelRegistry.create(authStorage);
+		registerTestOllamaModel(modelRegistry);
 
 		const runtime = createExtensionRuntime();
 		const resourceLoader = {

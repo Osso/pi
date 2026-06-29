@@ -6019,27 +6019,17 @@ export function formatCompactionStartLabel(
 }
 
 function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | undefined): string {
-	if (source?.type === "openai_remote") {
-		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
-		return ` via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
-	}
-
 	if (source?.type === "local") {
-		return " locally";
+		return ` via Ollama model (${source.provider}/${source.model})`;
 	}
 
-	return "";
+	return " via Ollama model";
 }
 
 function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefined): string {
-	if (source?.type === "openai_remote") {
-		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
-		return `Compaction completed via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
-	}
-
 	if (source?.type === "local") {
-		return `Compaction completed locally (${source.provider}/${source.model})`;
+		return `Compaction completed via Ollama model (${source.provider}/${source.model})`;
 	}
 
-	return "Compaction completed locally";
+	return "Compaction completed via Ollama model";
 }

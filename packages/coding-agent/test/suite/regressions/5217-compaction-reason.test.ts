@@ -17,14 +17,7 @@ function recordingExtension(recorded: RecordedCompactionEvent[]): ExtensionFacto
 	return (pi) => {
 		pi.on("session_before_compact", async (event) => {
 			recorded.push({ type: event.type, reason: event.reason, willRetry: event.willRetry });
-			return {
-				compaction: {
-					summary: "summary from extension",
-					firstKeptEntryId: event.preparation.firstKeptEntryId,
-					tokensBefore: event.preparation.tokensBefore,
-					details: {},
-				},
-			};
+			return undefined;
 		});
 		pi.on("session_compact", async (event) => {
 			recorded.push({ type: event.type, reason: event.reason, willRetry: event.willRetry });
@@ -37,7 +30,12 @@ async function createCompactionHarness(recorded: RecordedCompactionEvent[]): Pro
 		settings: { compaction: { keepRecentTokens: 1 } },
 		extensionFactories: [recordingExtension(recorded)],
 	});
-	harness.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+	harness.setResponses([
+		fauxAssistantMessage("one"),
+		fauxAssistantMessage("two"),
+		fauxAssistantMessage("summary"),
+		fauxAssistantMessage("summary"),
+	]);
 	await harness.session.prompt("first");
 	await harness.session.prompt("second");
 	return harness;

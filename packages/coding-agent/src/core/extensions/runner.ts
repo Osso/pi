@@ -55,7 +55,6 @@ import type {
 	SessionBeforeForkResult,
 	SessionBeforeSwitchResult,
 	SessionBeforeTreeResult,
-	SessionCompactionSourceResult,
 	SessionShutdownEvent,
 	ToolCallEvent,
 	ToolCallEventResult,
@@ -153,9 +152,7 @@ type RunnerEmitResult<TEvent extends RunnerEmitEvent> = TEvent extends { type: "
 			? SessionBeforeCompactResult | undefined
 			: TEvent extends { type: "session_before_tree" }
 				? SessionBeforeTreeResult | undefined
-				: TEvent extends { type: "session_compaction_source" }
-					? SessionCompactionSourceResult | undefined
-					: undefined;
+				: undefined;
 
 export type ExtensionErrorListener = (error: ExtensionError) => void;
 
@@ -777,7 +774,7 @@ export class ExtensionRunner {
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
 		const ctx = this.createContext();
-		let result: SessionBeforeEventResult | SessionCompactionSourceResult | undefined;
+		let result: SessionBeforeEventResult | undefined;
 
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get(event.type);
@@ -793,10 +790,6 @@ export class ExtensionRunner {
 						if (beforeResult.cancel) {
 							return beforeResult as RunnerEmitResult<TEvent>;
 						}
-					}
-
-					if (event.type === "session_compaction_source" && handlerResult) {
-						result = handlerResult as SessionCompactionSourceResult;
 					}
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);

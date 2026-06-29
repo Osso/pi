@@ -72,6 +72,7 @@ export interface HarnessOptions {
 	extensionFactories?: Array<ExtensionFactory | CreateTestExtensionsResultInput>;
 	uiContext?: ExtensionUIContext;
 	withConfiguredAuth?: boolean;
+	withOllamaCompaction?: boolean;
 }
 
 export interface Harness {
@@ -107,6 +108,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const model = fauxProvider.getModel();
 	const toolMap = options.tools ? Object.fromEntries(options.tools.map((tool) => [tool.name, tool])) : undefined;
 	const withConfiguredAuth = options.withConfiguredAuth ?? true;
+	const withOllamaCompaction = options.withOllamaCompaction ?? true;
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
 	const sessionManager = SessionManager.inMemory();
@@ -117,22 +119,31 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		authStorage.setRuntimeApiKey(model.provider, "faux-key");
 	}
 	const modelRegistry = ModelRegistry.inMemory(authStorage);
+	const fauxModels = fauxProvider.models.map((registeredModel) => ({
+		id: registeredModel.id,
+		name: registeredModel.name,
+		api: registeredModel.api,
+		reasoning: registeredModel.reasoning,
+		input: registeredModel.input,
+		cost: registeredModel.cost,
+		contextWindow: registeredModel.contextWindow,
+		maxTokens: registeredModel.maxTokens,
+		baseUrl: registeredModel.baseUrl,
+	}));
 	if (withConfiguredAuth) {
 		modelRegistry.registerProvider(model.provider, {
 			baseUrl: model.baseUrl,
 			apiKey: "faux-key",
 			api: fauxProvider.api,
-			models: fauxProvider.models.map((registeredModel) => ({
-				id: registeredModel.id,
-				name: registeredModel.name,
-				api: registeredModel.api,
-				reasoning: registeredModel.reasoning,
-				input: registeredModel.input,
-				cost: registeredModel.cost,
-				contextWindow: registeredModel.contextWindow,
-				maxTokens: registeredModel.maxTokens,
-				baseUrl: registeredModel.baseUrl,
-			})),
+			models: fauxModels,
+		});
+	}
+	if (withOllamaCompaction) {
+		modelRegistry.registerProvider("ollama", {
+			baseUrl: model.baseUrl,
+			apiKey: "ollama-test-key",
+			api: fauxProvider.api,
+			models: fauxModels,
 		});
 	}
 

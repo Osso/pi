@@ -19,9 +19,9 @@ import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createCodingTools } from "../src/index.ts";
-import { API_KEY, createTestResourceLoader } from "./utilities.ts";
+import { API_KEY, createTestResourceLoader, registerTestOllamaModel } from "./utilities.ts";
 
-describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
+describe.skipIf(!API_KEY || !process.env.PI_TEST_OLLAMA_COMPACTION)("AgentSession compaction e2e", () => {
 	let session: AgentSession;
 	let tempDir: string;
 	let sessionManager: SessionManager;
@@ -62,6 +62,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = ModelRegistry.create(authStorage);
+		registerTestOllamaModel(modelRegistry);
 
 		session = new AgentSession({
 			agent,
@@ -196,7 +197,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 		expect(compactionEvents[0]).toEqual({
 			type: "compaction_start",
 			reason: "manual",
-			sourceHint: { type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
+			sourceHint: { type: "local", provider: "ollama", model: "gpt-oss:20b" },
 		});
 		expect(compactionEvents[1]).toMatchObject({
 			type: "compaction_end",

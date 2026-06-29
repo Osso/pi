@@ -10,7 +10,7 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { createTestResourceLoader } from "./utilities.ts";
+import { createTestResourceLoader, registerTestOllamaModel } from "./utilities.ts";
 
 describe("AgentSession auto-compaction queue resume", () => {
 	let session: AgentSession;
@@ -37,6 +37,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		authStorage.setRuntimeApiKey("anthropic", "test-key");
 		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		registerTestOllamaModel(modelRegistry);
 
 		session = new AgentSession({
 			agent,
