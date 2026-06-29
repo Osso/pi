@@ -458,6 +458,12 @@ function collectAncestorAgentsSkillDirs(startDir: string): string[] {
 	return skillDirs;
 }
 
+function collectRepoLocalToolSkillDirs(startDir: string): string[] {
+	const repoRoot = findGitRepoRoot(startDir);
+	if (!repoRoot) return [];
+	return [join(repoRoot, ".codex", "skills"), join(repoRoot, ".claude", "skills")];
+}
+
 function collectAutoPromptEntries(dir: string): string[] {
 	const entries: string[] = [];
 	if (!existsSync(dir)) return entries;
@@ -2288,6 +2294,7 @@ export class DefaultPackageManager implements PackageManager {
 		const projectAgentsSkillDirs = projectTrusted
 			? collectAncestorAgentsSkillDirs(this.cwd).filter((dir) => resolve(dir) !== resolve(userAgentsSkillsDir))
 			: [];
+		const projectToolSkillDirs = projectTrusted ? collectRepoLocalToolSkillDirs(this.cwd) : [];
 
 		const addResources = (
 			resourceType: ResourceType,
@@ -2336,6 +2343,22 @@ export class DefaultPackageManager implements PackageManager {
 				agentsMetadata,
 				projectOverrides.skills,
 				agentsBaseDir,
+			);
+		}
+
+		// Project skills from repo-local Codex and Claude skill directories.
+		for (const toolSkillsDir of projectToolSkillDirs) {
+			const toolBaseDir = dirname(toolSkillsDir);
+			const toolMetadata: PathMetadata = {
+				...projectMetadata,
+				baseDir: toolBaseDir,
+			};
+			addResources(
+				"skills",
+				collectAutoSkillEntries(toolSkillsDir, "pi"),
+				toolMetadata,
+				projectOverrides.skills,
+				toolBaseDir,
 			);
 		}
 

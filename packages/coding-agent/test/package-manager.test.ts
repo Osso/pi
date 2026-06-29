@@ -440,6 +440,102 @@ Content`,
 			expect(result.skills.some((r) => r.path === middleSkill && r.enabled)).toBe(true);
 		});
 
+		it("should scan repo-local .codex/skills and .claude/skills", async () => {
+			const repoRoot = join(tempDir, "repo");
+			const nestedCwd = join(repoRoot, "packages", "feature");
+			mkdirSync(nestedCwd, { recursive: true });
+			mkdirSync(join(repoRoot, ".git"), { recursive: true });
+
+			const codexSkill = join(repoRoot, ".codex", "skills", "codex-skill", "SKILL.md");
+			mkdirSync(join(repoRoot, ".codex", "skills", "codex-skill"), { recursive: true });
+			writeFileSync(codexSkill, "---\nname: codex-skill\ndescription: codex\n---\n");
+
+			const claudeSkill = join(repoRoot, ".claude", "skills", "claude-skill", "SKILL.md");
+			mkdirSync(join(repoRoot, ".claude", "skills", "claude-skill"), { recursive: true });
+			writeFileSync(claudeSkill, "---\nname: claude-skill\ndescription: claude\n---\n");
+
+			const pm = new DefaultPackageManager({
+				cwd: nestedCwd,
+				agentDir,
+				settingsManager,
+			});
+
+			const result = await pm.resolve();
+			expect(result.skills.some((r) => r.path === codexSkill && r.enabled)).toBe(true);
+			expect(result.skills.some((r) => r.path === claudeSkill && r.enabled)).toBe(true);
+		});
+
+		it("should scan root markdown files in repo-local .codex/skills and .claude/skills", async () => {
+			const repoRoot = join(tempDir, "repo");
+			mkdirSync(join(repoRoot, ".git"), { recursive: true });
+			const codexSkill = join(repoRoot, ".codex", "skills", "codex-root.md");
+			mkdirSync(join(repoRoot, ".codex", "skills"), { recursive: true });
+			writeFileSync(codexSkill, "---\nname: codex-root\ndescription: codex root\n---\n");
+
+			const pm = new DefaultPackageManager({
+				cwd: repoRoot,
+				agentDir,
+				settingsManager,
+			});
+
+			const result = await pm.resolve();
+			expect(result.skills.some((r) => r.path === codexSkill && r.enabled)).toBe(true);
+		});
+
+		it("should not scan repo-local .codex/skills or .claude/skills when the project is untrusted", async () => {
+			const repoRoot = join(tempDir, "repo");
+			mkdirSync(join(repoRoot, ".git"), { recursive: true });
+			const codexSkill = join(repoRoot, ".codex", "skills", "codex-skill", "SKILL.md");
+			mkdirSync(join(repoRoot, ".codex", "skills", "codex-skill"), { recursive: true });
+			writeFileSync(codexSkill, "---\nname: codex-skill\ndescription: codex\n---\n");
+
+			const pm = new DefaultPackageManager({
+				cwd: repoRoot,
+				agentDir,
+				settingsManager: SettingsManager.inMemory({}, { projectTrusted: false }),
+			});
+
+			const result = await pm.resolve();
+			expect(result.skills.some((r) => r.path === codexSkill)).toBe(false);
+		});
+
+		it("should not scan .codex/skills or .claude/skills outside a git repo", async () => {
+			const cwd = join(tempDir, "scratch");
+			mkdirSync(join(cwd, ".codex", "skills", "codex-skill"), { recursive: true });
+			const codexSkill = join(cwd, ".codex", "skills", "codex-skill", "SKILL.md");
+			writeFileSync(codexSkill, "---\nname: codex-skill\ndescription: codex\n---\n");
+
+			const pm = new DefaultPackageManager({
+				cwd,
+				agentDir,
+				settingsManager,
+			});
+
+			const result = await pm.resolve();
+			expect(result.skills.some((r) => r.path === codexSkill)).toBe(false);
+		});
+
+		it("should dedupe repo-local .codex/skills and .claude/skills by canonical path", async () => {
+			const repoRoot = join(tempDir, "repo");
+			mkdirSync(join(repoRoot, ".git"), { recursive: true });
+			const codexSkillDir = join(repoRoot, ".codex", "skills", "shared-skill");
+			mkdirSync(codexSkillDir, { recursive: true });
+			writeFileSync(join(codexSkillDir, "SKILL.md"), "---\nname: shared-skill\ndescription: shared\n---\n");
+			mkdirSync(join(repoRoot, ".claude", "skills"), { recursive: true });
+			const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
+			symlinkSync(codexSkillDir, join(repoRoot, ".claude", "skills", "shared-skill"), directoryLinkType);
+
+			const pm = new DefaultPackageManager({
+				cwd: repoRoot,
+				agentDir,
+				settingsManager,
+			});
+
+			const result = await pm.resolve();
+			const sharedSkills = result.skills.filter((r) => pathEndsWith(r.path, "shared-skill/SKILL.md"));
+			expect(sharedSkills).toHaveLength(1);
+		});
+
 		it("should ignore root markdown files in .agents/skills", async () => {
 			const agentsSkillsDir = join(tempDir, ".agents", "skills");
 			mkdirSync(join(agentsSkillsDir, "nested-skill"), { recursive: true });

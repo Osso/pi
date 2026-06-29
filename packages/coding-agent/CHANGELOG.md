@@ -11,6 +11,7 @@
 - Added `pi.compact(...)` to Hostrun's Pi runtime bridge for triggering session compaction.
 - Added `pi.restart(...)` to Hostrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
+- Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
 
 ### Changed
 

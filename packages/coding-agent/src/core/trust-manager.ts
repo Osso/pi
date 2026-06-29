@@ -182,6 +182,21 @@ function withTrustFileLock<T>(path: string, fn: () => T): T {
  * exist. The user/global ~/.agents/skills directory is always treated as a
  * trusted user resource and is ignored here, even when cwd is $HOME.
  */
+function findGitRepoRoot(startDir: string): string | null {
+	let currentDir = canonicalizePath(resolvePath(startDir));
+	while (true) {
+		if (existsSync(join(currentDir, ".git"))) {
+			return currentDir;
+		}
+
+		const parentDir = dirname(currentDir);
+		if (parentDir === currentDir) {
+			return null;
+		}
+		currentDir = parentDir;
+	}
+}
+
 export function hasTrustRequiringProjectResources(cwd: string): boolean {
 	const homeDir = canonicalizePath(resolvePath(process.env.HOME || homedir()));
 	const userAgentsSkillsDir = join(homeDir, ".agents", "skills");
@@ -189,6 +204,14 @@ export function hasTrustRequiringProjectResources(cwd: string): boolean {
 
 	const configDir = join(currentDir, CONFIG_DIR_NAME);
 	if (TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES.some((entry) => existsSync(join(configDir, entry)))) {
+		return true;
+	}
+
+	const repoRoot = findGitRepoRoot(currentDir);
+	if (
+		repoRoot &&
+		(existsSync(join(repoRoot, ".codex", "skills")) || existsSync(join(repoRoot, ".claude", "skills")))
+	) {
 		return true;
 	}
 

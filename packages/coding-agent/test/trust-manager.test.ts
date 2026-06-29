@@ -45,6 +45,9 @@ describe("ProjectTrustStore", () => {
 			expect(hasTrustRequiringProjectResources(tempDir)).toBe(false);
 			expect(hasTrustRequiringProjectResources(cwd)).toBe(false);
 
+			mkdirSync(join(tempDir, ".codex", "skills"), { recursive: true });
+			expect(hasTrustRequiringProjectResources(cwd)).toBe(false);
+
 			writeFileSync(join(tempDir, ".pi", "settings.json"), "{}");
 			expect(hasTrustRequiringProjectResources(tempDir)).toBe(true);
 			rmSync(join(tempDir, ".pi", "settings.json"), { force: true });
@@ -55,6 +58,15 @@ describe("ProjectTrustStore", () => {
 
 			rmSync(join(cwd, ".pi"), { recursive: true, force: true });
 			mkdirSync(join(cwd, ".agents", "skills"), { recursive: true });
+			expect(hasTrustRequiringProjectResources(cwd)).toBe(true);
+
+			rmSync(join(cwd, ".agents"), { recursive: true, force: true });
+			mkdirSync(join(cwd, ".git"), { recursive: true });
+			mkdirSync(join(cwd, ".codex", "skills"), { recursive: true });
+			expect(hasTrustRequiringProjectResources(cwd)).toBe(true);
+
+			rmSync(join(cwd, ".codex"), { recursive: true, force: true });
+			mkdirSync(join(cwd, ".claude", "skills"), { recursive: true });
 			expect(hasTrustRequiringProjectResources(cwd)).toBe(true);
 		} finally {
 			if (originalHome === undefined) {
