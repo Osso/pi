@@ -370,6 +370,7 @@ export class InteractiveMode {
 	// Auto-compaction state
 	private autoCompactionLoader: Loader | undefined = undefined;
 	private autoCompactionEscapeHandler?: () => void;
+	private autoCompactionSourceHint?: CompactionSourceInfo;
 
 	// Auto-retry state
 	private retryLoader: Loader | undefined = undefined;
@@ -3076,6 +3077,7 @@ export class InteractiveMode {
 					this.session.abortCompaction();
 				};
 				this.statusContainer.clear();
+				this.autoCompactionSourceHint = event.sourceHint;
 				const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
 				const label = formatCompactionStartLabel(event.reason, event.sourceHint, cancelHint);
 				this.autoCompactionLoader = new Loader(
@@ -3123,13 +3125,19 @@ export class InteractiveMode {
 					this.footer.invalidate();
 					this.showStatus(sourceLogMessage);
 				} else if (event.errorMessage) {
+					const failureMessage = formatCompactionFailureMessage({
+						errorMessage: event.errorMessage,
+						reason: event.reason,
+						sourceHint: this.autoCompactionSourceHint,
+					});
 					if (event.reason === "manual") {
-						this.showError(event.errorMessage);
+						this.showError(failureMessage);
 					} else {
 						this.chatContainer.addChild(new Spacer(1));
-						this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));
+						this.chatContainer.addChild(new Text(theme.fg("error", failureMessage), 1, 0));
 					}
 				}
+				this.autoCompactionSourceHint = undefined;
 				void this.flushCompactionQueue({ willRetry: event.willRetry });
 				this.ui.requestRender();
 				break;
@@ -6024,6 +6032,53 @@ function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | und
 	}
 
 	return " via Ollama model";
+}
+
+export function formatCompactionFailureMessage(input: {
+	errorMessage: string;
+	reason: "manual" | "threshold" | "overflow";
+	sourceHint?: CompactionSourceInfo;
+}): string {
+	const originalError = formatCompactionOriginalError(input.errorMessage, input.reason);
+	const lines = [formatCompactionFailureSummary(input.errorMessage, input.reason)];
+	if (input.sourceHint?.type === "local") {
+		lines.push(`Model: ${input.sourceHint.provider}/${input.sourceHint.model}.`);
+	}
+	lines.push(formatCompactionSaveImpact(input.reason));
+	lines.push(`Original error: ${formatSentence(originalError)}`);
+	return lines.join("\n");
+}
+
+function formatCompactionSaveImpact(reason: "manual" | "threshold" | "overflow"): string {
+	return reason === "manual"
+		? "No compaction was saved; context remains unchanged."
+		: "No compaction was saved; the previous context is still too large.";
+}
+
+function formatSentence(text: string): string {
+	return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function formatCompactionFailureSummary(errorMessage: string, reason: "manual" | "threshold" | "overflow"): string {
+	if (/timed out/i.test(errorMessage)) {
+		return reason === "overflow"
+			? "Context overflow recovery failed after compaction timeout."
+			: "Compaction failed after timeout.";
+	}
+	return reason === "overflow" ? "Context overflow recovery failed during compaction." : "Compaction failed.";
+}
+
+function formatCompactionOriginalError(errorMessage: string, reason: "manual" | "threshold" | "overflow"): string {
+	const prefixes =
+		reason === "overflow"
+			? ["Context overflow recovery failed: "]
+			: ["Compaction failed: ", "Auto-compaction failed: "];
+	for (const prefix of prefixes) {
+		if (errorMessage.startsWith(prefix)) {
+			return errorMessage.slice(prefix.length);
+		}
+	}
+	return errorMessage;
 }
 
 function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefined): string {

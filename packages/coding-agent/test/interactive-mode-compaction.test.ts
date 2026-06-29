@@ -1,5 +1,9 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
-import { formatCompactionStartLabel, InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import {
+	formatCompactionFailureMessage,
+	formatCompactionStartLabel,
+	InteractiveMode,
+} from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 describe("InteractiveMode compaction events", () => {
@@ -118,6 +122,31 @@ describe("InteractiveMode compaction events", () => {
 		);
 		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed via Ollama model (ollama/gpt-oss:20b)");
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
+	});
+
+	test("formats compaction timeout failures with actionable context", () => {
+		expect(
+			formatCompactionFailureMessage({
+				errorMessage: "Context overflow recovery failed: Turn prefix summarization failed: Request timed out.",
+				reason: "overflow",
+				sourceHint: { type: "local", provider: "ollama", model: "qwen3:4b-instruct-128k" },
+			}),
+		).toBe(
+			[
+				"Context overflow recovery failed after compaction timeout.",
+				"Model: ollama/qwen3:4b-instruct-128k.",
+				"No compaction was saved; the previous context is still too large.",
+				"Original error: Turn prefix summarization failed: Request timed out.",
+			].join("\n"),
+		);
+
+		expect(
+			formatCompactionFailureMessage({
+				errorMessage: "Compaction failed: Turn prefix summarization failed: Request timed out.",
+				reason: "manual",
+				sourceHint: { type: "local", provider: "ollama", model: "qwen3:4b-instruct-128k" },
+			}),
+		).toContain("Original error: Turn prefix summarization failed: Request timed out.");
 	});
 
 	test("logs Ollama compaction source", async () => {
