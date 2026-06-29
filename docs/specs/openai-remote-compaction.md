@@ -4,8 +4,8 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 
 ## What it must do
 
-- [x] Only first-party `openai` provider models using the `openai-responses` API are eligible for remote compaction.
-- [x] Remote compaction requests must serialize compacted Pi messages into OpenAI Responses input items and send them to `/responses/compact`.
+- [x] Only first-party `openai` provider models using `openai-responses` and first-party `openai-codex` / `openai-codex-gc` provider models using `openai-codex-responses` are eligible for remote compaction.
+- [x] Remote compaction requests must serialize compacted Pi messages into OpenAI Responses input items and send them to the provider's compact endpoint.
 - [x] Remote compaction results must keep OpenAI's native replacement history in compaction entry details.
 - [x] Later OpenAI provider payloads must replace Pi's synthetic compaction-summary text with the saved native replacement history.
 

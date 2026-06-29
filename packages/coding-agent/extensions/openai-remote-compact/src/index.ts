@@ -13,10 +13,13 @@ export const OPENAI_REMOTE_COMPACTION_SUMMARY = "OpenAI native compaction stored
 const DETAILS_TYPE = "openai-remote-compaction";
 const DETAILS_VERSION = 1;
 
+type OpenAINativeCompactApi = "openai-responses" | "openai-codex-responses";
+type OpenAINativeCompactModel = Model<OpenAINativeCompactApi>;
+
 export interface OpenAIRemoteCompactionDetails {
 	type: typeof DETAILS_TYPE;
 	version: typeof DETAILS_VERSION;
-	provider: "openai";
+	provider: string;
 	model: string;
 	endpoint: string;
 	replacementHistory: OpenAIResponseItem[];
@@ -60,7 +63,7 @@ async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx:
 	const previousReplacementHistory = findLatestOpenAIReplacementHistory(event.branchEntries);
 	const messages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
 	const payload = buildOpenAICompactPayload(model, messages, ctx.getSystemPrompt(), previousReplacementHistory);
-	const response = await postOpenAICompact(endpoint, payload, auth.apiKey, auth.headers, event.signal);
+	const response = await postOpenAICompact(endpoint, payload, model, auth.apiKey, auth.headers, event.signal);
 	const details = extractOpenAICompactDetails(model, response, endpoint);
 
 	return {
@@ -79,12 +82,20 @@ function handleBeforeProviderRequest(event: BeforeProviderRequestEvent, ctx: Ext
 	return rewriteOpenAICompactionPayload(event.payload, entries);
 }
 
-export function isOpenAIResponsesModel(model: Model<Api> | undefined): model is Model<"openai-responses"> {
-	return model?.provider === "openai" && model.api === "openai-responses";
+export function isOpenAIResponsesModel(model: Model<Api> | undefined): model is OpenAINativeCompactModel {
+	if (model?.provider === "openai" && model.api === "openai-responses") return true;
+	return isOpenAICodexResponsesModel(model);
+}
+
+function isOpenAICodexResponsesModel(model: Model<Api> | undefined): model is OpenAINativeCompactModel {
+	return (
+		(model?.provider === "openai-codex" || model?.provider === "openai-codex-gc") &&
+		model.api === "openai-codex-responses"
+	);
 }
 
 export function buildOpenAICompactPayload(
-	model: Model<"openai-responses">,
+	model: OpenAINativeCompactModel,
 	messages: AgentMessage[],
 	instructions: string,
 	previousReplacementHistory: OpenAIResponseItem[],
@@ -99,7 +110,7 @@ export function buildOpenAICompactPayload(
 }
 
 export function extractOpenAICompactDetails(
-	model: Model<"openai-responses">,
+	model: OpenAINativeCompactModel,
 	response: OpenAICompactResponse,
 	endpoint: string,
 ): OpenAIRemoteCompactionDetails {
@@ -113,7 +124,7 @@ export function extractOpenAICompactDetails(
 	return {
 		type: DETAILS_TYPE,
 		version: DETAILS_VERSION,
-		provider: "openai",
+		provider: model.provider,
 		model: model.id,
 		endpoint,
 		replacementHistory,
@@ -140,11 +151,12 @@ export function rewriteOpenAICompactionPayload(payload: unknown, entries: Sessio
 async function postOpenAICompact(
 	endpoint: string,
 	payload: OpenAICompactPayload,
+	model: OpenAINativeCompactModel,
 	apiKey: string | undefined,
 	headers: Record<string, string> | undefined,
 	signal: AbortSignal,
 ): Promise<OpenAICompactResponse> {
-	const requestHeaders = buildOpenAIRequestHeaders(apiKey, headers);
+	const requestHeaders = buildOpenAIRequestHeaders(model, apiKey, headers);
 	const response = await fetch(endpoint, {
 		method: "POST",
 		headers: requestHeaders,
@@ -158,15 +170,46 @@ async function postOpenAICompact(
 	return body;
 }
 
-function buildCompactEndpoint(model: Model<"openai-responses">): string {
+export function buildCompactEndpoint(model: OpenAINativeCompactModel): string {
+	if (model.api === "openai-codex-responses") return `${resolveCodexResponsesEndpoint(model.baseUrl)}/compact`;
 	return `${model.baseUrl.replace(/\/+$/, "")}/responses/compact`;
 }
 
-function buildOpenAIRequestHeaders(apiKey: string | undefined, headers: Record<string, string> | undefined) {
+export function buildOpenAIRequestHeaders(
+	model: OpenAINativeCompactModel,
+	apiKey: string | undefined,
+	headers: Record<string, string> | undefined,
+) {
 	const requestHeaders: Record<string, string> = { ...headers, "content-type": "application/json" };
 	const hasAuthorization = Object.keys(requestHeaders).some((name) => name.toLowerCase() === "authorization");
-	if (apiKey && !hasAuthorization) requestHeaders.authorization = `Bearer ${apiKey}`;
+	if (apiKey && !hasAuthorization) requestHeaders.Authorization = `Bearer ${apiKey}`;
+	if (apiKey && model.api === "openai-codex-responses") {
+		requestHeaders["chatgpt-account-id"] = extractCodexAccountId(apiKey);
+		requestHeaders.originator = "pi";
+		requestHeaders["OpenAI-Beta"] = "responses=experimental";
+	}
 	return requestHeaders;
+}
+
+function resolveCodexResponsesEndpoint(baseUrl: string): string {
+	const normalized = baseUrl.replace(/\/+$/, "");
+	if (normalized.endsWith("/codex/responses")) return normalized;
+	if (normalized.endsWith("/codex")) return `${normalized}/responses`;
+	return `${normalized}/codex/responses`;
+}
+
+function extractCodexAccountId(token: string): string {
+	try {
+		const parts = token.split(".");
+		if (parts.length !== 3) throw new Error("Invalid token");
+		const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as unknown;
+		const auth = isRecord(payload) ? payload["https://api.openai.com/auth"] : undefined;
+		const accountId = isRecord(auth) ? auth.chatgpt_account_id : undefined;
+		if (typeof accountId !== "string" || accountId.length === 0) throw new Error("No account ID in token");
+		return accountId;
+	} catch {
+		throw new Error("Failed to extract accountId from Codex token");
+	}
 }
 
 async function parseOpenAICompactResponse(response: Response): Promise<OpenAICompactResponse> {
@@ -202,7 +245,7 @@ function isOpenAIRemoteCompactionDetails(value: unknown): value is OpenAIRemoteC
 		isRecord(value) &&
 		value.type === DETAILS_TYPE &&
 		value.version === DETAILS_VERSION &&
-		value.provider === "openai" &&
+		typeof value.provider === "string" &&
 		typeof value.model === "string" &&
 		typeof value.endpoint === "string" &&
 		Array.isArray(value.replacementHistory) &&
@@ -220,7 +263,7 @@ function isOpenAICompactionItem(value: unknown): boolean {
 }
 
 function convertAgentMessagesToOpenAIResponseItems(
-	model: Model<"openai-responses">,
+	model: OpenAINativeCompactModel,
 	messages: AgentMessage[],
 ): OpenAIResponseItem[] {
 	return convertToLlm(messages).flatMap((message): OpenAIResponseItem[] => {
@@ -272,7 +315,7 @@ function convertAssistantMessage(content: AssistantMessage["content"]): OpenAIRe
 function convertToolResultMessage(
 	toolCallId: string,
 	content: Array<TextContent | ImageContent>,
-	model: Model<"openai-responses">,
+	model: OpenAINativeCompactModel,
 ): OpenAIResponseItem {
 	const [callId] = toolCallId.split("|");
 	const text = content
