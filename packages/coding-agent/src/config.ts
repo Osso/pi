@@ -567,7 +567,7 @@ export function getPromptsDir(): string {
 	return join(getAgentDir(), "prompts");
 }
 
-/** Get path to persistent prompt history */
+/** Get path to legacy persistent prompt history */
 export function getPromptHistoryPath(): string {
 	return join(getAgentDir(), "prompt-history.json");
 }

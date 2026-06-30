@@ -39,6 +39,10 @@ type IncomingRow = {
 	content: string;
 };
 
+type PromptHistoryRow = {
+	content: string;
+};
+
 type LastMessageRow = {
 	role: string;
 	content: string;
@@ -206,6 +210,61 @@ export function readLastMessage(controlDbPath: string): LastControlMessage | und
 			updatedAt: row.updated_at,
 		};
 	});
+}
+
+export function recordPromptHistoryEntry(controlDbPath: string, content: string): void {
+	withControlDb(controlDbPath, (db) => {
+		insertPromptHistoryEntry(db, content);
+	});
+}
+
+export function readPromptHistory(controlDbPath: string, limit = 100): string[] {
+	return withControlDb(controlDbPath, (db) => readPromptHistoryRows(db, limit));
+}
+
+export function readOrMigratePromptHistory(controlDbPath: string, legacyEntries: string[], limit = 100): string[] {
+	return withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const existingEntries = readPromptHistoryRows(db, limit);
+			if (existingEntries.length > 0) {
+				db.exec("COMMIT");
+				return existingEntries;
+			}
+
+			for (const entry of [...legacyEntries].reverse()) {
+				insertPromptHistoryEntry(db, entry);
+			}
+			db.exec("COMMIT");
+			return legacyEntries.slice(0, limit);
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+function readPromptHistoryRows(db: SqliteDatabase, limit: number): string[] {
+	const rows = db
+		.prepare(
+			`
+			SELECT content
+			FROM prompt_history
+			ORDER BY id DESC
+			LIMIT ?
+			`,
+		)
+		.all(limit) as PromptHistoryRow[];
+	return rows.map((row) => row.content);
+}
+
+function insertPromptHistoryEntry(db: SqliteDatabase, content: string): void {
+	db.prepare(
+		`
+		INSERT INTO prompt_history (content, created_at)
+		VALUES (?, ?)
+		`,
+	).run(content, new Date().toISOString());
 }
 
 export function setNamedSession(controlDbPath: string, sessionPath: string, name: string): void {
@@ -426,6 +485,15 @@ function initializeSchema(db: SqliteDatabase): void {
 			name TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
+
+		CREATE TABLE IF NOT EXISTS prompt_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			content TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS prompt_history_id_idx
+		ON prompt_history(id DESC);
 
 		CREATE TABLE IF NOT EXISTS session_metadata (
 			session_path TEXT PRIMARY KEY,

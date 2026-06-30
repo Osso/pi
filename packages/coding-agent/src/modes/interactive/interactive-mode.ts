@@ -459,9 +459,10 @@ export class InteractiveMode {
 		const editorPaddingX = this.settingsManager.getEditorPaddingX();
 		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
 		this.defaultEditor = new CustomEditor(this.ui, getEditorTheme(), this.keybindings, {
+			legacyPromptHistoryPath: getPromptHistoryPath(),
 			paddingX: editorPaddingX,
 			autocompleteMaxVisible,
-			promptHistoryPath: getPromptHistoryPath(),
+			promptHistoryControlDbPath: options.controlDbPath,
 		});
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
@@ -3264,6 +3265,15 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private addRenderedMessageToEditorHistory(text: string): void {
+		if (this.editor === this.defaultEditor) {
+			this.defaultEditor.addToHistoryWithoutPersistence(text);
+			return;
+		}
+
+		this.editor.addToHistory?.(text);
+	}
+
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
 		switch (message.role) {
 			case "bashExecution": {
@@ -3332,7 +3342,7 @@ export class InteractiveMode {
 						this.chatContainer.addChild(userComponent);
 					}
 					if (options?.populateHistory) {
-						this.editor.addToHistory?.(textContent);
+						this.addRenderedMessageToEditorHistory(textContent);
 					}
 				}
 				break;

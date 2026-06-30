@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.ts";
+import { readOrMigratePromptHistory, recordPromptHistoryEntry } from "../../../core/session-control-db.ts";
 
 export interface CustomEditorOptions extends EditorOptions {
-	promptHistoryPath?: string;
+	legacyPromptHistoryPath?: string;
+	promptHistoryControlDbPath?: string;
 }
 
 /**
@@ -12,7 +13,7 @@ export interface CustomEditorOptions extends EditorOptions {
  */
 export class CustomEditor extends Editor {
 	private keybindings: KeybindingsManager;
-	private readonly promptHistoryPath?: string;
+	private readonly promptHistoryControlDbPath?: string;
 	public actionHandlers: Map<AppKeybinding, () => void> = new Map();
 
 	// Special handlers that can be dynamically replaced
@@ -25,9 +26,9 @@ export class CustomEditor extends Editor {
 	constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: CustomEditorOptions) {
 		super(tui, theme, options);
 		this.keybindings = keybindings;
-		this.promptHistoryPath = options?.promptHistoryPath;
-		if (this.promptHistoryPath) {
-			this.setHistory(readPromptHistory(this.promptHistoryPath));
+		this.promptHistoryControlDbPath = options?.promptHistoryControlDbPath;
+		if (this.promptHistoryControlDbPath) {
+			this.setHistory(loadPromptHistory(this.promptHistoryControlDbPath, options?.legacyPromptHistoryPath));
 		}
 	}
 
@@ -41,9 +42,22 @@ export class CustomEditor extends Editor {
 	override addToHistory(text: string): void {
 		const before = this.getHistory();
 		super.addToHistory(text);
-		const after = this.getHistory();
-		if (this.promptHistoryPath && !sameHistory(before, after)) {
-			writePromptHistory(this.promptHistoryPath, after);
+		this.recordNewestHistoryEntry(before);
+	}
+
+	addToHistoryWithoutPersistence(text: string): void {
+		super.addToHistory(text);
+	}
+
+	private recordNewestHistoryEntry(previousHistory: string[]): void {
+		const history = this.getHistory();
+		const newestHistoryEntry = history[0];
+		if (
+			this.promptHistoryControlDbPath &&
+			newestHistoryEntry !== undefined &&
+			!sameHistory(previousHistory, history)
+		) {
+			recordPromptHistoryEntry(this.promptHistoryControlDbPath, newestHistoryEntry);
 		}
 	}
 
@@ -99,24 +113,21 @@ export class CustomEditor extends Editor {
 	}
 }
 
-function readPromptHistory(path: string): string[] {
-	if (!existsSync(path)) {
-		return [];
-	}
+function loadPromptHistory(controlDbPath: string, legacyPromptHistoryPath: string | undefined): string[] {
+	const legacyPromptHistory = readLegacyPromptHistory(legacyPromptHistoryPath);
+	return readOrMigratePromptHistory(controlDbPath, legacyPromptHistory);
+}
+
+function readLegacyPromptHistory(path: string | undefined): string[] {
+	if (!path || !existsSync(path)) return [];
+
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-		if (!Array.isArray(parsed)) {
-			return [];
-		}
+		if (!Array.isArray(parsed)) return [];
 		return parsed.filter((entry): entry is string => typeof entry === "string").slice(0, 100);
 	} catch {
 		return [];
 	}
-}
-
-function writePromptHistory(path: string, history: string[]): void {
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, JSON.stringify(history.slice(0, 100), null, 2));
 }
 
 function sameHistory(left: string[], right: string[]): boolean {

@@ -16,6 +16,10 @@ reply without changing the JSONL transcript format. How it works lives in
 - [x] Provide `pi control send`, `pi control last`, and `pi control path` so
   harnesses use the CLI instead of writing SQLite directly.
 - [x] Store named-session metadata in the control DB.
+- [x] Store prompt history in the control DB so concurrent Pi sessions append
+  without overwriting each other's prompt history entries.
+- [x] Migrate legacy JSON prompt history into the control DB when DB prompt
+  history is empty.
 - [x] `/name <name>` names the current session and `/unname` removes that name.
 - [x] Session restore lists show named sessions first, including threaded
   restore mode, and support clearing a selected session name from rename mode
@@ -30,7 +34,8 @@ reply without changing the JSONL transcript format. How it works lives in
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path,
-  schema, incoming-message claim/complete API, and last-message API.
+  schema, incoming-message claim/complete API, last-message API, prompt-history
+  API, and session metadata API.
 - `packages/coding-agent/src/cli/control-command.ts` — `pi control` command
   parser and output.
 - `packages/coding-agent/src/main.ts` — claims a pending incoming message before
@@ -44,6 +49,7 @@ reply without changing the JSONL transcript format. How it works lives in
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/control-command.test.ts`
+- `packages/coding-agent/test/custom-editor-history.test.ts`
 - `packages/coding-agent/test/session-selector-rename.test.ts`
 - `packages/coding-agent/test/self-restart.test.ts`
 - `packages/coding-agent/test/interactive-mode-startup-input.test.ts`

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TUI } from "@earendil-works/pi-tui";
@@ -6,21 +6,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultEditorTheme } from "../../tui/test/test-themes.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { recordPromptHistoryEntry } from "../src/core/session-control-db.ts";
 import { CustomEditor } from "../src/modes/interactive/components/custom-editor.ts";
 
-function createEditor(historyPath: string): CustomEditor {
+function createEditor(controlDbPath: string, legacyPromptHistoryPath?: string): CustomEditor {
 	return new CustomEditor(new TUI(new VirtualTerminal()), defaultEditorTheme, KeybindingsManager.create(), {
-		promptHistoryPath: historyPath,
+		legacyPromptHistoryPath,
+		promptHistoryControlDbPath: controlDbPath,
 	});
 }
 
 describe("CustomEditor prompt history persistence", () => {
 	let tempDir: string;
-	let historyPath: string;
+	let controlDbPath: string;
 
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-prompt-history-"));
-		historyPath = join(tempDir, "nested", "prompt-history.json");
+		controlDbPath = join(tempDir, "control.sqlite");
 	});
 
 	afterEach(() => {
@@ -28,9 +30,9 @@ describe("CustomEditor prompt history persistence", () => {
 	});
 
 	it("loads persisted prompt history for up-arrow navigation", () => {
-		mkdirSync(join(tempDir, "nested"), { recursive: true });
-		writeFileSync(historyPath, JSON.stringify(["recent prompt", "older prompt"]));
-		const editor = createEditor(historyPath);
+		recordPromptHistoryEntry(controlDbPath, "older prompt");
+		recordPromptHistoryEntry(controlDbPath, "recent prompt");
+		const editor = createEditor(controlDbPath);
 
 		editor.handleInput("\x1b[A");
 		expect(editor.getText()).toBe("recent prompt");
@@ -38,16 +40,56 @@ describe("CustomEditor prompt history persistence", () => {
 		expect(editor.getText()).toBe("older prompt");
 	});
 
-	it("writes the newest 100 submitted prompts to disk", () => {
-		const editor = createEditor(historyPath);
+	it("migrates existing JSON prompt history when SQLite history is empty", () => {
+		const legacyPromptHistoryPath = join(tempDir, "nested", "prompt-history.json");
+		mkdirSync(join(tempDir, "nested"), { recursive: true });
+		writeFileSync(legacyPromptHistoryPath, JSON.stringify(["recent prompt", "older prompt"]));
+		const editor = createEditor(controlDbPath, legacyPromptHistoryPath);
+
+		editor.handleInput("\x1b[A");
+		expect(editor.getText()).toBe("recent prompt");
+		editor.handleInput("\x1b[A");
+		expect(editor.getText()).toBe("older prompt");
+	});
+
+	it("does not persist history populated from rendered transcripts", () => {
+		const editor = createEditor(controlDbPath);
+
+		editor.addToHistoryWithoutPersistence("old transcript prompt");
+		const reloadedEditor = createEditor(controlDbPath);
+
+		reloadedEditor.handleInput("\x1b[A");
+		expect(reloadedEditor.getText()).toBe("");
+	});
+
+	it("merges prompt history written by concurrent editors", () => {
+		const firstEditor = createEditor(controlDbPath);
+		const secondEditor = createEditor(controlDbPath);
+
+		firstEditor.addToHistory("first prompt");
+		secondEditor.addToHistory("second prompt");
+		const reloadedEditor = createEditor(controlDbPath);
+
+		reloadedEditor.handleInput("\x1b[A");
+		expect(reloadedEditor.getText()).toBe("second prompt");
+		reloadedEditor.handleInput("\x1b[A");
+		expect(reloadedEditor.getText()).toBe("first prompt");
+	});
+
+	it("loads the newest 100 submitted prompts", () => {
+		const editor = createEditor(controlDbPath);
 
 		for (let index = 0; index < 105; index++) {
 			editor.addToHistory(`prompt ${index}`);
 		}
 
-		const history = JSON.parse(readFileSync(historyPath, "utf8")) as string[];
-		expect(history).toHaveLength(100);
-		expect(history[0]).toBe("prompt 104");
-		expect(history[99]).toBe("prompt 5");
+		const reloadedEditor = createEditor(controlDbPath);
+		reloadedEditor.handleInput("\x1b[A");
+		expect(reloadedEditor.getText()).toBe("prompt 104");
+
+		for (let index = 0; index < 99; index++) {
+			reloadedEditor.handleInput("\x1b[A");
+		}
+		expect(reloadedEditor.getText()).toBe("prompt 5");
 	});
 });
