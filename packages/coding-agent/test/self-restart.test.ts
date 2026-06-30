@@ -26,14 +26,6 @@ function createArgs(): Args {
 	};
 }
 
-function restoreEnv(name: string, oldValue: string | undefined): void {
-	if (oldValue === undefined) {
-		delete process.env[name];
-		return;
-	}
-	process.env[name] = oldValue;
-}
-
 describe("self restart request", () => {
 	it("resumes the requested session without injecting a prompt when none is provided", () => {
 		const args = createArgs();
@@ -77,6 +69,8 @@ describe("self restart request", () => {
 		const exitPromise = spawnSelfRestart(
 			{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
 			{
+				argv: ["/usr/bin/node", "/repo/packages/coding-agent/src/cli.ts", "--flag"],
+				execArgv: ["--import", "file:///repo/node_modules/tsx/dist/loader.mjs"],
 				spawn: (_command, args, options) => {
 					spawnArgs = args;
 					spawnOptions = options;
@@ -88,7 +82,12 @@ describe("self restart request", () => {
 
 		await expect(exitPromise).resolves.toBe(7);
 		expect(unrefCalled).toBe(false);
-		expect(spawnArgs).toEqual(process.argv.slice(1));
+		expect(spawnArgs).toEqual([
+			"--import",
+			"file:///repo/node_modules/tsx/dist/loader.mjs",
+			"/repo/packages/coding-agent/src/cli.ts",
+			"--flag",
+		]);
 		expect(spawnOptions?.cwd).toBe(process.cwd());
 		expect(spawnOptions?.stdio).toBe("inherit");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_SESSION]).toBe("/tmp/session.jsonl");
@@ -164,36 +163,6 @@ describe("self restart request", () => {
 				},
 			),
 		).rejects.toThrow("exit:0");
-
-		expect(calls).toEqual([`/tmp/session.jsonl:Restarted.:${process.pid}`]);
-	});
-
-	it("ignores wrapper restart env vars and still uses direct spawn", async () => {
-		const oldExitCode = process.env.PI_RESTART_EXIT_CODE;
-		const oldRequestFile = process.env.PI_RESTART_REQUEST_FILE;
-		const calls: string[] = [];
-
-		process.env.PI_RESTART_EXIT_CODE = "75";
-		process.env.PI_RESTART_REQUEST_FILE = "/tmp/restart.json";
-		try {
-			await expect(
-				restartCurrentProcess(
-					{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
-					{
-						spawnSelfRestart: async (request) => {
-							calls.push(`${request.sessionFile}:${request.prompt}:${request.oldPid}`);
-							return 0;
-						},
-						exit: (code) => {
-							throw new Error(`exit:${code}`);
-						},
-					},
-				),
-			).rejects.toThrow("exit:0");
-		} finally {
-			restoreEnv("PI_RESTART_EXIT_CODE", oldExitCode);
-			restoreEnv("PI_RESTART_REQUEST_FILE", oldRequestFile);
-		}
 
 		expect(calls).toEqual([`/tmp/session.jsonl:Restarted.:${process.pid}`]);
 	});

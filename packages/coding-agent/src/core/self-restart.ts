@@ -22,6 +22,8 @@ interface SelfRestartDependencies {
 		args: readonly string[],
 		options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" },
 	) => RestartChildProcess;
+	argv?: readonly string[];
+	execArgv?: readonly string[];
 	waitForExit?: boolean;
 }
 
@@ -88,7 +90,9 @@ export function spawnSelfRestart(
 	dependencies: SelfRestartDependencies = {},
 ): Promise<number> {
 	const spawnProcess = dependencies.spawn ?? spawn;
-	const child = spawnProcess(process.execPath, process.argv.slice(1), {
+	const argv = dependencies.argv ?? process.argv;
+	const execArgv = dependencies.execArgv ?? process.execArgv;
+	const child = spawnProcess(process.execPath, [...execArgv, ...argv.slice(1)], {
 		cwd: process.cwd(),
 		env: {
 			...process.env,
