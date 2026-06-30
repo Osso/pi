@@ -14,9 +14,9 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-const repoDeployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
+const repoDeployScript = fileURLToPath(new URL("../../../deploy-dev.sh", import.meta.url));
 
-describe("deploy.sh", () => {
+describe("deploy-dev.sh", () => {
 	let tempDir: string | undefined;
 
 	afterEach(() => {
@@ -199,7 +199,7 @@ EOF
 chmod +x "$out/$platform/pi"
 `,
 		);
-		writeFileSync(join(repoDir, "deploy.sh"), readFileSync(repoDeployScript));
+		writeFileSync(join(repoDir, "deploy-dev.sh"), readFileSync(repoDeployScript));
 
 		return { binDir, fakeBinDir, installDir, repoDir, runDir };
 	}
@@ -219,7 +219,7 @@ chmod +x "$out/$platform/pi"
 	}
 
 	function runDeploy(fixture: ReturnType<typeof createDeployFixture>, envOverrides: Record<string, string> = {}) {
-		return spawnSync("bash", [join(fixture.repoDir, "deploy.sh")], {
+		return spawnSync("bash", [join(fixture.repoDir, "deploy-dev.sh")], {
 			cwd: fixture.repoDir,
 			encoding: "utf8",
 			env: {

@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${PI_DEV_INSTALL_DIR:-$HOME/.local/share/pi-dev}"
-BIN_DIR="${PI_DEV_BIN_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${PI_DEPLOY_INSTALL_DIR:-$HOME/.local/share/pi}"
+BIN_DIR="${PI_DEPLOY_BIN_DIR:-$HOME/.local/bin}"
 TMP_INSTALL_DIR="${INSTALL_DIR}.tmp"
 OLD_INSTALL_DIR="${INSTALL_DIR}.old"
-BIN_NAME="${PI_DEV_BIN_NAME:-pi-dev}"
+BUILD_DIR="${PI_DEPLOY_BUILD_DIR:-$ROOT_DIR/packages/coding-agent/binaries}"
 
 require_safe_absolute_dir() {
 	local name="$1"
@@ -25,6 +25,16 @@ require_safe_absolute_dir() {
 	esac
 }
 
+cleanup_extension_build_outputs() {
+	shopt -s globstar nullglob
+	rm -f \
+		packages/coding-agent/extensions/**/src/*.js \
+		packages/coding-agent/extensions/**/src/*.js.map \
+		packages/coding-agent/extensions/**/src/*.d.ts \
+		packages/coding-agent/extensions/**/src/*.d.ts.map
+	shopt -u globstar nullglob
+}
+
 rollback_install_on_failure() {
 	local status="$1"
 
@@ -41,87 +51,53 @@ rollback_install_on_failure() {
 
 on_exit() {
 	local status="$?"
+	cleanup_extension_build_outputs
 	rollback_install_on_failure "$status"
 	exit "$status"
 }
 
-require_safe_absolute_dir "PI_DEV_INSTALL_DIR" "$INSTALL_DIR"
-require_safe_absolute_dir "PI_DEV_BIN_DIR" "$BIN_DIR"
+require_safe_absolute_dir "PI_DEPLOY_INSTALL_DIR" "$INSTALL_DIR"
+require_safe_absolute_dir "PI_DEPLOY_BIN_DIR" "$BIN_DIR"
 
 cd "$ROOT_DIR"
 DEPLOY_REPLACED_INSTALL=0
 trap on_exit EXIT
 
+case "$(uname -s)-$(uname -m)" in
+	Linux-x86_64)
+		PLATFORM="linux-x64"
+		;;
+	Linux-aarch64|Linux-arm64)
+		PLATFORM="linux-arm64"
+		;;
+	Darwin-arm64)
+		PLATFORM="darwin-arm64"
+		;;
+	Darwin-x86_64)
+		PLATFORM="darwin-x64"
+		;;
+	*)
+		echo "Unsupported deploy platform: $(uname -s)-$(uname -m)" >&2
+		exit 1
+		;;
+esac
+
 npm run check
 
 rm -rf "$TMP_INSTALL_DIR" "$OLD_INSTALL_DIR"
-mkdir -p "$(dirname "$INSTALL_DIR")" "$BIN_DIR" "$TMP_INSTALL_DIR"
+mkdir -p "$(dirname "$INSTALL_DIR")" "$BIN_DIR"
 
-cat > "$TMP_INSTALL_DIR/pi" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
+npm --prefix packages/tui run clean
+npm --prefix packages/tui run build
+npm --prefix packages/ai run clean
+npm --prefix packages/ai exec -- tsgo -p packages/ai/tsconfig.build.json
+npm --prefix packages/agent run clean
+npm --prefix packages/agent run build
+npm --prefix packages/coding-agent run clean
+npm --prefix packages/coding-agent run build
 
-SCRIPT_DIR="$ROOT_DIR"
-NO_ENV=false
-ARGS=()
-for arg in "\$@"; do
-	if [[ "\$arg" == "--no-env" ]]; then
-		NO_ENV=true
-	else
-		ARGS+=("\$arg")
-	fi
-done
-
-if [[ "\$NO_ENV" == "true" ]]; then
-	unset ANTHROPIC_API_KEY
-	unset ANTHROPIC_OAUTH_TOKEN
-	unset OPENAI_API_KEY
-	unset GEMINI_API_KEY
-	unset GROQ_API_KEY
-	unset CEREBRAS_API_KEY
-	unset XAI_API_KEY
-	unset OPENROUTER_API_KEY
-	unset ZAI_API_KEY
-	unset MISTRAL_API_KEY
-	unset MINIMAX_API_KEY
-	unset MINIMAX_CN_API_KEY
-	unset AI_GATEWAY_API_KEY
-	unset OPENCODE_API_KEY
-	unset COPILOT_GITHUB_TOKEN
-	unset GH_TOKEN
-	unset GITHUB_TOKEN
-	unset HF_TOKEN
-	unset GOOGLE_APPLICATION_CREDENTIALS
-	unset GOOGLE_CLOUD_PROJECT
-	unset GCLOUD_PROJECT
-	unset GOOGLE_CLOUD_LOCATION
-	unset AWS_PROFILE
-	unset AWS_ACCESS_KEY_ID
-	unset AWS_SECRET_ACCESS_KEY
-	unset AWS_SESSION_TOKEN
-	unset AWS_REGION
-	unset AWS_DEFAULT_REGION
-	unset AWS_BEARER_TOKEN_BEDROCK
-	unset AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
-	unset AWS_CONTAINER_CREDENTIALS_FULL_URI
-	unset AWS_WEB_IDENTITY_TOKEN_FILE
-	unset AZURE_OPENAI_API_KEY
-	unset AZURE_OPENAI_BASE_URL
-	unset AZURE_OPENAI_RESOURCE_NAME
-	echo "Running without API keys..."
-fi
-
-exec env \
-	-u PI_SELF_RESTART_SESSION \
-	-u PI_SELF_RESTART_PROMPT \
-	-u PI_SELF_RESTART_OLD_PID \
-	"PI_EXECUTABLE_NAME=$BIN_NAME" \
-	"\$SCRIPT_DIR/node_modules/.bin/tsx" \
-	--tsconfig "\$SCRIPT_DIR/tsconfig.json" \
-	"\$SCRIPT_DIR/packages/coding-agent/src/cli.ts" \
-	"\${ARGS[@]}"
-EOF
-chmod +x "$TMP_INSTALL_DIR/pi"
+"$ROOT_DIR/scripts/build-binaries.sh" --skip-install --skip-deps --skip-build --platform "$PLATFORM" --out "$BUILD_DIR"
+cp -R "$BUILD_DIR/$PLATFORM" "$TMP_INSTALL_DIR"
 
 if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
 	mv "$INSTALL_DIR" "$OLD_INSTALL_DIR"
@@ -129,7 +105,7 @@ fi
 mv "$TMP_INSTALL_DIR" "$INSTALL_DIR"
 DEPLOY_REPLACED_INSTALL=1
 
-ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/$BIN_NAME"
+ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
-"$BIN_DIR/$BIN_NAME" --version
+"$BIN_DIR/pi" --version
 rm -rf "$OLD_INSTALL_DIR"
