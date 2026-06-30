@@ -141,7 +141,7 @@ import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
-import { TreeSelectorComponent } from "./components/tree-selector.ts";
+import { type FilterMode, TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
@@ -2576,7 +2576,7 @@ export class InteractiveMode {
 					const now = Date.now();
 					if (now - this.lastEscapeTime < 500) {
 						if (action === "tree") {
-							this.showTreeSelector();
+							this.showTreeSelector(undefined, "user-only");
 						} else {
 							this.showUserMessageSelector();
 						}
@@ -4643,10 +4643,10 @@ export class InteractiveMode {
 		}
 	}
 
-	private showTreeSelector(initialSelectedId?: string): void {
+	private showTreeSelector(initialSelectedId?: string, filterMode?: FilterMode): void {
 		const tree = this.sessionManager.getTree();
 		const realLeafId = this.sessionManager.getLeafId();
-		const initialFilterMode = this.settingsManager.getTreeFilterMode();
+		const initialFilterMode = filterMode ?? this.settingsManager.getTreeFilterMode();
 
 		if (tree.length === 0) {
 			this.showStatus("No entries in session");
@@ -4684,7 +4684,7 @@ export class InteractiveMode {
 
 							if (summaryChoice === undefined) {
 								// User pressed escape - re-show tree selector with same selection
-								this.showTreeSelector(entryId);
+								this.showTreeSelector(entryId, initialFilterMode);
 								return;
 							}
 
@@ -4731,7 +4731,7 @@ export class InteractiveMode {
 						if (result.aborted) {
 							// Summarization aborted - re-show tree selector with same selection
 							this.showStatus("Branch summarization cancelled");
-							this.showTreeSelector(entryId);
+							this.showTreeSelector(entryId, initialFilterMode);
 							return;
 						}
 						if (result.cancelled) {

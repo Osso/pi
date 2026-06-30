@@ -187,6 +187,36 @@ describe("TreeSelectorComponent", () => {
 	});
 
 	describe("filter switching with parent traversal", () => {
+		test("starts on nearest user message when opened with user-only filter", () => {
+			const entries = [
+				userMessage("user-1", null, "hello"),
+				assistantMessage("asst-1", "user-1", "hi"),
+				userMessage("user-2", "asst-1", "active branch"),
+				assistantMessage("asst-2", "user-2", "response"),
+			];
+			const tree = buildTree(entries);
+
+			const selector = new TreeSelectorComponent(
+				tree,
+				"asst-2",
+				24,
+				() => {},
+				() => {},
+				undefined,
+				undefined,
+				"user-only",
+			);
+
+			const list = selector.getTreeList();
+			expect(list.getSelectedNode()?.entry.id).toBe("user-2");
+
+			const plain = list.render(200).map(stripVTControlCharacters).join("\n");
+			expect(plain).toContain("user: hello");
+			expect(plain).toContain("user: active branch");
+			expect(plain).not.toContain("assistant:");
+			expect(plain).toContain("[user]");
+		});
+
 		test("switches to nearest visible user message when changing to user-only filter", () => {
 			// In user-only filter: [user-1, user-2, user-3]
 			const entries = [
