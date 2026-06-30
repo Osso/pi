@@ -317,6 +317,60 @@ describe("findCutPoint", () => {
 		expect(result.firstKeptEntryIndex).toBe(1);
 	});
 
+	it("retains latest user verbatim when active assistant suffix exceeds ten thousand tokens", () => {
+		const hugeText = "x".repeat(40_000);
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"));
+		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"));
+		const assistant = createMessageEntry(createAssistantMessage(hugeText));
+		const entries: SessionEntry[] = [oldUser, oldAssistant, latestUser, assistant];
+
+		const result = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(result.firstKeptEntryIndex).toBe(2);
+		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
+		expect(result.isSplitTurn).toBe(false);
+	});
+
+	it("retains latest user verbatim when active tool suffix exceeds ten thousand tokens", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"));
+		const latestUser = createMessageEntry(createUserMessage("latest user before tool result"));
+		const assistant = createMessageEntry({
+			...createAssistantMessage("calling tool"),
+			content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "large.txt" } }],
+		});
+		const toolResult = createMessageEntry({
+			role: "toolResult",
+			toolCallId: "tool-1",
+			toolName: "read",
+			content: [{ type: "text", text: "x".repeat(40_000) }],
+			isError: false,
+			timestamp: Date.now(),
+		});
+		const entries: SessionEntry[] = [oldUser, oldAssistant, latestUser, assistant, toolResult];
+
+		const result = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(result.firstKeptEntryIndex).toBe(2);
+		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
+	});
+
+	it("prepares compaction without summarizing the latest active user turn start", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"));
+		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"));
+		const assistant = createMessageEntry(createAssistantMessage("x".repeat(40_000)));
+		const entries: SessionEntry[] = [oldUser, oldAssistant, latestUser, assistant];
+
+		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
+
+		expect(preparation).toBeDefined();
+		expect(preparation?.firstKeptEntryId).toBe(latestUser.id);
+		expect(extractText(preparation!.messagesToSummarize)).not.toContain("latest user must stay verbatim");
+		expect(preparation?.turnPrefixMessages).toEqual([]);
+	});
+
 	it("should indicate split turn when cutting at assistant message", () => {
 		// Create a scenario where we cut at an assistant message mid-turn
 		const entries: SessionEntry[] = [

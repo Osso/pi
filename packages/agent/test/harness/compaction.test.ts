@@ -211,6 +211,66 @@ describe("harness compaction", () => {
 		expect(result.firstKeptEntryIndex).toBe(4);
 	});
 
+	it("retains latest user verbatim when active assistant suffix exceeds ten thousand tokens", () => {
+		const hugeText = "x".repeat(40_000);
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
+		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"), oldAssistant.id);
+		const assistant = createMessageEntry(createAssistantMessage(hugeText), latestUser.id);
+		const entries = [oldUser, oldAssistant, latestUser, assistant];
+
+		const result = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(result.firstKeptEntryIndex).toBe(2);
+		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
+		expect(result.isSplitTurn).toBe(false);
+	});
+
+	it("retains latest user verbatim when active tool suffix exceeds ten thousand tokens", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
+		const latestUser = createMessageEntry(createUserMessage("latest user before tool result"), oldAssistant.id);
+		const assistant = createMessageEntry(
+			{
+				...createAssistantMessage("calling tool"),
+				content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "large.txt" } }],
+			},
+			latestUser.id,
+		);
+		const toolResult = createMessageEntry(
+			{
+				role: "toolResult",
+				toolCallId: "tool-1",
+				toolName: "read",
+				content: [{ type: "text", text: "x".repeat(40_000) }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+			assistant.id,
+		);
+		const entries = [oldUser, oldAssistant, latestUser, assistant, toolResult];
+
+		const result = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(result.firstKeptEntryIndex).toBe(2);
+		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
+	});
+
+	it("prepares compaction without summarizing the latest active user turn start", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user"));
+		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
+		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"), oldAssistant.id);
+		const assistant = createMessageEntry(createAssistantMessage("x".repeat(40_000)), latestUser.id);
+		const entries = [oldUser, oldAssistant, latestUser, assistant];
+
+		const preparation = getOrThrow(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS));
+
+		expect(preparation).toBeDefined();
+		expect(preparation?.firstKeptEntryId).toBe(latestUser.id);
+		expect(preparation?.messagesToSummarize).not.toContain(latestUser.message);
+		expect(preparation?.turnPrefixMessages).toEqual([]);
+	});
+
 	it("covers cut-point and turn-start edge cases", () => {
 		const thinking = createThinkingLevelEntry("high");
 		const modelChange = createModelChangeEntry("openai", "gpt-4", thinking.id);
@@ -394,7 +454,7 @@ describe("harness compaction", () => {
 		expect(preparation?.tokensBefore).toBe(estimateContextTokens(buildSessionContext(pathEntries).messages).tokens);
 	});
 
-	it("prepares split-turn compaction with prior file-operation details", () => {
+	it("keeps latest active turn whole while preserving prior file-operation details", () => {
 		const u1 = createMessageEntry(createUserMessage("user msg 1"));
 		const assistantMessage: AssistantMessage = {
 			...createAssistantMessage("assistant msg 1"),
@@ -427,8 +487,9 @@ describe("harness compaction", () => {
 			}),
 		);
 
-		expect(preparation).toMatchObject({ previousSummary: "First summary", isSplitTurn: true });
-		expect(preparation?.turnPrefixMessages.map((message) => message.role)).toEqual(["user"]);
+		expect(preparation).toMatchObject({ previousSummary: "First summary", isSplitTurn: false });
+		expect(preparation?.firstKeptEntryId).toBe(u2.id);
+		expect(preparation?.turnPrefixMessages).toEqual([]);
 		expect([...preparation!.fileOps.read]).toContain("old-read.ts");
 		expect([...preparation!.fileOps.edited]).toContain("old-edit.ts");
 		expect([...preparation!.fileOps.written]).toContain("written.ts");

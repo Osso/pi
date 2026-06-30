@@ -317,6 +317,42 @@ function findProtectedSuffixStartIndex(entries: SessionTreeEntry[], startIndex: 
 	return startIndex;
 }
 
+function isTurnStartEntry(entry: SessionTreeEntry): boolean {
+	if (entry.type === "branch_summary" || entry.type === "custom_message") {
+		return true;
+	}
+	if (entry.type !== "message") {
+		return false;
+	}
+	return entry.message.role === "user" || entry.message.role === "bashExecution" || entry.message.role === "custom";
+}
+
+function isActiveTurnContinuationEntry(entry: SessionTreeEntry): boolean {
+	if (entry.type === "message") {
+		const role = entry.message.role;
+		return role === "assistant" || role === "toolResult";
+	}
+	return false;
+}
+
+function findActiveTurnFloorIndex(
+	entries: SessionTreeEntry[],
+	startIndex: number,
+	endIndex: number,
+): number | undefined {
+	let hasContinuation = false;
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		const entry = entries[i];
+		if (isTurnStartEntry(entry)) {
+			return hasContinuation ? i : undefined;
+		}
+		if (isActiveTurnContinuationEntry(entry)) {
+			hasContinuation = true;
+		}
+	}
+	return undefined;
+}
+
 function findProtectedSuffixCutIndex(
 	entries: SessionTreeEntry[],
 	startIndex: number,
@@ -326,7 +362,11 @@ function findProtectedSuffixCutIndex(
 	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
 	const messageCountCutIndex = findContextMessageCountCutIndex(entries, protectedStartIndex, endIndex);
 	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
-	const shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	let shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	const activeTurnFloorIndex = findActiveTurnFloorIndex(entries, protectedStartIndex, endIndex);
+	if (activeTurnFloorIndex !== undefined) {
+		shorterSuffixCutIndex = Math.min(shorterSuffixCutIndex, activeTurnFloorIndex);
+	}
 	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
 }
 
@@ -374,14 +414,8 @@ function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, end
 export function findTurnStartIndex(entries: SessionTreeEntry[], entryIndex: number, startIndex: number): number {
 	for (let i = entryIndex; i >= startIndex; i--) {
 		const entry = entries[i];
-		if (entry.type === "branch_summary" || entry.type === "custom_message") {
+		if (isTurnStartEntry(entry)) {
 			return i;
-		}
-		if (entry.type === "message") {
-			const role = entry.message.role;
-			if (role === "user" || role === "bashExecution") {
-				return i;
-			}
 		}
 	}
 	return -1;

@@ -357,6 +357,38 @@ function findProtectedSuffixStartIndex(entries: SessionEntry[], startIndex: numb
 	return startIndex;
 }
 
+function isTurnStartEntry(entry: SessionEntry): boolean {
+	if (entry.type === "branch_summary" || entry.type === "custom_message") {
+		return true;
+	}
+	if (entry.type !== "message") {
+		return false;
+	}
+	return entry.message.role === "user" || entry.message.role === "bashExecution" || entry.message.role === "custom";
+}
+
+function isActiveTurnContinuationEntry(entry: SessionEntry): boolean {
+	if (entry.type === "message") {
+		const role = entry.message.role;
+		return role === "assistant" || role === "toolResult";
+	}
+	return false;
+}
+
+function findActiveTurnFloorIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number | undefined {
+	let hasContinuation = false;
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		const entry = entries[i];
+		if (isTurnStartEntry(entry)) {
+			return hasContinuation ? i : undefined;
+		}
+		if (isActiveTurnContinuationEntry(entry)) {
+			hasContinuation = true;
+		}
+	}
+	return undefined;
+}
+
 function findProtectedSuffixCutIndex(
 	entries: SessionEntry[],
 	startIndex: number,
@@ -366,7 +398,11 @@ function findProtectedSuffixCutIndex(
 	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
 	const messageCountCutIndex = findContextMessageCountCutIndex(entries, protectedStartIndex, endIndex);
 	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
-	const shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	let shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	const activeTurnFloorIndex = findActiveTurnFloorIndex(entries, protectedStartIndex, endIndex);
+	if (activeTurnFloorIndex !== undefined) {
+		shorterSuffixCutIndex = Math.min(shorterSuffixCutIndex, activeTurnFloorIndex);
+	}
 	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
 }
 
@@ -425,15 +461,8 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 export function findTurnStartIndex(entries: SessionEntry[], entryIndex: number, startIndex: number): number {
 	for (let i = entryIndex; i >= startIndex; i--) {
 		const entry = entries[i];
-		// branch_summary and custom_message are user-role messages, can start a turn
-		if (entry.type === "branch_summary" || entry.type === "custom_message") {
+		if (isTurnStartEntry(entry)) {
 			return i;
-		}
-		if (entry.type === "message") {
-			const role = entry.message.role;
-			if (role === "user" || role === "bashExecution") {
-				return i;
-			}
 		}
 	}
 	return -1;
