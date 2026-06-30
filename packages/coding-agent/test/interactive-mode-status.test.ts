@@ -158,6 +158,7 @@ interface InteractiveModeKeyHandlerInternals {
 	updateSelectedAgentSelectionWidgets(this: unknown): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
+	resetExtensionUI(this: unknown): void;
 	cancelStreamingAndSubmitQueuedMessages(this: unknown): Promise<void>;
 	setupKeyHandlers(this: unknown): void;
 }
@@ -643,6 +644,52 @@ describe("InteractiveMode footer ownership", () => {
 		expect(removed).toEqual([builtIn, defaultFooter, customFooter]);
 		expect(added).toEqual([defaultFooter, customFooter, defaultFooter]);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
+	});
+
+	test("reset disposes default extension footer before session invalidation", () => {
+		const added: Component[] = [];
+		const removed: Component[] = [];
+		const builtIn = { invalidate: vi.fn(), render: () => ["built-in"] };
+		const defaultFooter = { dispose: vi.fn(), invalidate() {}, render: () => ["default"] };
+		const fakeThis = {
+			autocompleteProviderWrappers: [],
+			clearExtensionTerminalInputListeners: vi.fn(),
+			clearExtensionWidgets: vi.fn(),
+			currentFooter: interactiveModeKeyHandlers.currentFooter,
+			customFooter: undefined,
+			defaultEditor: {},
+			defaultExtensionFooter: defaultFooter,
+			extensionEditor: undefined,
+			extensionInput: undefined,
+			extensionSelector: undefined,
+			footer: builtIn,
+			footerDataProvider: { clearExtensionStatuses: vi.fn() },
+			hideExtensionEditor: vi.fn(),
+			hideExtensionInput: vi.fn(),
+			hideExtensionSelector: vi.fn(),
+			loadingAnimation: undefined,
+			setCustomEditorComponent: vi.fn(),
+			setDefaultExtensionFooter: interactiveModeKeyHandlers.setDefaultExtensionFooter,
+			setExtensionFooter: interactiveModeKeyHandlers.setExtensionFooter,
+			setExtensionHeader: vi.fn(),
+			setHiddenThinkingLabel: vi.fn(),
+			setWorkingIndicator: vi.fn(),
+			setupAutocompleteProvider: vi.fn(),
+			ui: {
+				addChild: (component: Component) => added.push(component),
+				hideOverlay: vi.fn(),
+				removeChild: (component: Component) => removed.push(component),
+				requestRender: vi.fn(),
+			},
+			updateTerminalTitle: vi.fn(),
+			workingVisible: true,
+		};
+
+		interactiveModeKeyHandlers.resetExtensionUI.call(fakeThis);
+
+		expect(defaultFooter.dispose).toHaveBeenCalledTimes(1);
+		expect(fakeThis.defaultExtensionFooter).toBeUndefined();
+		expect(interactiveModeKeyHandlers.currentFooter.call(fakeThis)).toBe(builtIn);
 	});
 });
 
