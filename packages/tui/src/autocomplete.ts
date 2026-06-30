@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { readdirSync, statSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import { fuzzyFilter } from "./fuzzy.ts";
@@ -139,6 +139,7 @@ async function walkDirectoryWithFd(
 		"d",
 		"--follow",
 		"--hidden",
+		"--no-ignore-vcs",
 		"--exclude",
 		".git",
 		"--exclude",
@@ -146,6 +147,11 @@ async function walkDirectoryWithFd(
 		"--exclude",
 		".git/**",
 	];
+
+	const projectIgnoreFile = join(baseDir, ".gitignore");
+	if (existsSync(projectIgnoreFile)) {
+		args.push("--ignore-file", projectIgnoreFile);
+	}
 
 	if (toDisplayPath(query).includes("/")) {
 		args.push("--full-path");
@@ -716,7 +722,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		return score;
 	}
 
-	// Fuzzy file search using fd (fast, respects .gitignore)
+	// Fuzzy file search using fd (fast, respects the project .gitignore)
 	private async getFuzzyFileSuggestions(
 		query: string,
 		options: { isQuotedPrefix: boolean; signal: AbortSignal },
