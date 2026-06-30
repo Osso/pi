@@ -1056,6 +1056,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			promptGuidelines: [
 				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
+				'For scoped code changes, use agentType "implement"; for proof commands before completion, use agentType "verifier"; for final code review or second opinions, use agentType "reviewer".',
 			],
 			approvalRequired: false,
 			parameters: spawnAgentSchema,

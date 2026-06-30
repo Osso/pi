@@ -35,8 +35,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
-- [x] Agent-type profiles can select a child model/thinking level; the built-in `explore` profile
-      defaults to `openai/gpt-5-mini` with low thinking and configured profiles override it.
+- [x] Agent-type profiles can select a child model/thinking level; built-in `explore`, `verifier`,
+      `implement`, and `reviewer` profiles provide default model/thinking choices and configured
+      profiles override them.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log.
 
@@ -151,7 +152,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   tool surface is store-backed and does not start child model sessions by default. It also asserts
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
-  settings for `agentType: "explore"`, that `wait_agent` reports terminal store state without TUI
+  settings for `agentType: "explore"` and `agentType: "implement"`, that `wait_agent` reports terminal store state without TUI
   coupling, that `wait_agent` can include descendant snapshots and pending mailbox summaries, that
   `list_agents` can return descendants below a parent without TUI state, and that
   `contact_supervisor` routes child messages to the direct parent with artifact references by

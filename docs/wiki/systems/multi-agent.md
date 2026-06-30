@@ -37,9 +37,11 @@ and do not mutate agent lifecycle by themselves.
 `createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
 for higher-level workflow extensions without giving them a separate runtime state store.
 `spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
-Production child sessions also resolve agent-type profiles from settings. The built-in `explore`
-profile targets `openai/gpt-5-mini` with low thinking, and user settings can override it with
-`agents.<type>.model` and `agents.<type>.thinkingLevel`.
+Production child sessions also resolve agent-type profiles from settings. The built-in profiles are
+`explore` (`openai/gpt-5-mini`, low thinking), `verifier` (`openai/gpt-5-mini`, low thinking),
+`implement` (`openai/gpt-5.5`, medium thinking), and `reviewer` (`openai/gpt-5.5`, medium
+thinking). User settings can override them with `agents.<type>.model` and
+`agents.<type>.thinkingLevel`.
 
 Existing primitives worth reusing:
 

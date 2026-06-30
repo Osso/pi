@@ -112,12 +112,24 @@ describe("SettingsManager", () => {
 	});
 
 	describe("agent profiles", () => {
-		it("returns the built-in explore profile when not configured", () => {
+		it("returns built-in agent profiles when not configured", () => {
 			const settingsManager = SettingsManager.inMemory();
 
 			expect(settingsManager.getAgentProfile("explore")).toEqual({
 				model: "openai/gpt-5-mini",
 				thinkingLevel: "low",
+			});
+			expect(settingsManager.getAgentProfile("implement")).toEqual({
+				model: "openai/gpt-5.5",
+				thinkingLevel: "medium",
+			});
+			expect(settingsManager.getAgentProfile("verifier")).toEqual({
+				model: "openai/gpt-5-mini",
+				thinkingLevel: "low",
+			});
+			expect(settingsManager.getAgentProfile("reviewer")).toEqual({
+				model: "openai/gpt-5.5",
+				thinkingLevel: "medium",
 			});
 		});
 

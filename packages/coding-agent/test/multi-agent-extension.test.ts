@@ -1128,15 +1128,17 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("resolves explore agent child sessions from agent profile settings", async () => {
+	it("resolves agent profile child sessions from settings", async () => {
 		const parentHarness = await createHarness({
 			models: [
 				{ id: "parent-model", reasoning: true },
 				{ id: "explore-model", reasoning: true },
+				{ id: "implement-model", reasoning: true },
 			],
 			settings: {
 				agents: {
 					explore: { model: "faux/explore-model", thinkingLevel: "low" },
+					implement: { model: "faux/implement-model", thinkingLevel: "medium" },
 				},
 			},
 		});
@@ -1161,14 +1163,23 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const exploreAgent = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			agentType: "explore",
 			prompt: "Map the codebase",
 		});
-		await waitForTerminalAgent(harness, spawned.details.agent.id);
+		await waitForTerminalAgent(harness, exploreAgent.details.agent.id);
 
 		expect(sessionOptions?.model).toMatchObject({ provider: "faux", id: "explore-model" });
 		expect(sessionOptions?.thinkingLevel).toBe("low");
+
+		const implementAgent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "implement",
+			prompt: "Make the scoped change",
+		});
+		await waitForTerminalAgent(harness, implementAgent.details.agent.id);
+
+		expect(sessionOptions?.model).toMatchObject({ provider: "faux", id: "implement-model" });
+		expect(sessionOptions?.thinkingLevel).toBe("medium");
 	});
 
 	it("uses the parent session directory for production child sessions by default", async () => {
