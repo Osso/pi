@@ -7,6 +7,7 @@ import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
+import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -16,8 +17,8 @@ function renderLastLine(container: Container, width = 120): string {
 	return last.render(width).join("\n");
 }
 
-function renderAll(container: Container, width = 120): string {
-	return container.children.flatMap((child) => child.render(width)).join("\n");
+function renderAll(component: Component, width = 120): string {
+	return component.render(width).join("\n");
 }
 
 class TestFocusableComponent implements Component, Focusable {
@@ -55,14 +56,18 @@ async function flushTui(tui: TUI, terminal: VirtualTerminal): Promise<void> {
 	await terminal.waitForRender();
 }
 
-function normalizeRenderedOutput(container: Container, width = 220): string {
-	return renderAll(container, width)
+function normalizeRenderedOutput(component: Component, width = 220): string {
+	return renderAll(component, width)
 		.replace(/\u001b\[[0-9;]*m/g, "")
 		.replace(/\\/g, "/")
 		.split("\n")
 		.map((line) => line.replace(/\s+$/g, ""))
 		.join("\n")
 		.trim();
+}
+
+function hasHandleInput(component: Component): component is Component & { handleInput: (keyData: string) => void } {
+	return "handleInput" in component && typeof component.handleInput === "function";
 }
 
 type ExtensionFixture = {
@@ -145,7 +150,12 @@ interface InteractiveModeKeyHandlerInternals {
 	currentFooter(this: unknown): Component & { dispose?(): void };
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	registerGlobalAgentSlotInputHandler(this: unknown): void;
+	showAgentSwitcher(this: unknown): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
+	selectAgentView(this: unknown, agentId: string): boolean;
+	showInactiveAgentSelectionStatus(this: unknown, selected: unknown): void;
+	updateSelectedAgentBanner(this: unknown): void;
+	updateSelectedAgentSelectionWidgets(this: unknown): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	cancelStreamingAndSubmitQueuedMessages(this: unknown): Promise<void>;
@@ -155,6 +165,116 @@ interface InteractiveModeKeyHandlerInternals {
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
 
 describe("InteractiveMode key handlers", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("/agents action opens selector when the multi-agent store has no child agents", () => {
+		let renderedSelector: Component | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const fakeThis = {
+			multiAgentStore: store,
+			selectAgentView: vi.fn(),
+			showSelector: (create: (done: () => void) => { component: Component; focus: Component }) => {
+				renderedSelector = create(() => {}).component;
+			},
+			showStatus: vi.fn(),
+			ui: { requestRender: vi.fn() },
+		};
+
+		interactiveModeKeyHandlers.showAgentSwitcher.call(fakeThis);
+
+		expect(fakeThis.showStatus).not.toHaveBeenCalledWith("No agents to select");
+		if (!(renderedSelector instanceof Container)) {
+			throw new Error("Expected /agents to open a container selector");
+		}
+		expect(normalizeRenderedOutput(renderedSelector)).toContain("Main thread");
+	});
+
+	test("selected-agent banner is hidden before agents or selected view exist", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const banner = new AgentSelectionBannerComponent(store);
+
+		expect(normalizeRenderedOutput(banner)).toBe("");
+	});
+
+	test("selected-agent banner renders main thread when agents exist without an active selection", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Scout",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const banner = new AgentSelectionBannerComponent(store);
+
+		expect(normalizeRenderedOutput(banner)).toContain("Target: Main thread");
+	});
+
+	test("selected-agent banner targets main thread when selected view becomes inactive without clearing it", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		store.selectAgentView(spawned.agent.id);
+
+		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		const banner = new AgentSelectionBannerComponent(store);
+
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(normalizeRenderedOutput(banner)).toContain("Target: Main thread");
+	});
+
+	test("/agents selection updates the visible selected-agent banner", () => {
+		let renderedSelector: (Component & { handleInput: (keyData: string) => void }) | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const banner = new AgentSelectionBannerComponent(store);
+		const fakeThis = {
+			multiAgentStore: store,
+			selectedAgentBanner: banner,
+			footer: { invalidate: vi.fn() },
+			selectAgentView: interactiveModeKeyHandlers.selectAgentView,
+			showSelector: (create: (done: () => void) => { component: Component; focus: Component }) => {
+				const selector = create(() => {}).component;
+				if (hasHandleInput(selector)) {
+					renderedSelector = selector;
+				}
+			},
+			showStatus: vi.fn(),
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+			ui: { requestRender: vi.fn() },
+		};
+
+		interactiveModeKeyHandlers.showAgentSwitcher.call(fakeThis);
+		if (!renderedSelector) {
+			throw new Error("Expected /agents to open a selector");
+		}
+		renderedSelector.handleInput("\u001b[B");
+		renderedSelector.handleInput("\r");
+
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(normalizeRenderedOutput(banner)).toContain("Target: Scout");
+		expect(normalizeRenderedOutput(banner)).toContain(spawned.agent.id);
+		expect(normalizeRenderedOutput(banner)).toContain("starting");
+	});
+
 	test("escape while streaming cancels and submits queued messages", () => {
 		const actions = new Map<string, () => void>();
 		const fakeThis = {
@@ -199,12 +319,16 @@ describe("InteractiveMode key handlers", () => {
 	});
 
 	test("escape cancellation submits queued and current text after abort", async () => {
+		const releasePendingInput = vi.fn();
 		const fakeThis = {
 			clearAllQueues: vi.fn(() => ({ steering: ["queued steering"], followUp: ["queued follow-up"] })),
 			editor: { getText: () => "current draft", setText: vi.fn() },
 			onInputCallback: undefined,
 			pendingUserInputs: [] as string[],
-			session: { abort: vi.fn().mockResolvedValue(undefined) },
+			session: {
+				abort: vi.fn().mockResolvedValue(undefined),
+				reserveExternalUserInput: vi.fn(() => releasePendingInput),
+			},
 			updatePendingMessagesDisplay: vi.fn(),
 		};
 
@@ -212,7 +336,50 @@ describe("InteractiveMode key handlers", () => {
 
 		expect(fakeThis.editor.setText).toHaveBeenCalledWith("");
 		expect(fakeThis.session.abort).toHaveBeenCalledTimes(1);
+		expect(fakeThis.session.reserveExternalUserInput).toHaveBeenCalledTimes(1);
+		expect(releasePendingInput).toHaveBeenCalledTimes(1);
 		expect(fakeThis.pendingUserInputs).toEqual(["queued steering\n\nqueued follow-up\n\ncurrent draft"]);
+	});
+
+	test("opens the agent switcher when the agent select action fires", () => {
+		const actions = new Map<string, () => void>();
+		const fakeThis = {
+			defaultEditor: {
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			editor: { getText: () => "", setText: vi.fn() },
+			multiAgentStore: undefined,
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			registerGlobalAgentSlotInputHandler: vi.fn(),
+			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
+			settingsManager: { getDoubleEscapeAction: () => "none" },
+			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cycleModel: vi.fn(),
+			cycleThinkingLevel: vi.fn(),
+			handleClearCommand: vi.fn(),
+			handleCtrlC: vi.fn(),
+			handleCtrlD: vi.fn(),
+			handleCtrlZ: vi.fn(),
+			handleDebugCommand: vi.fn(),
+			handleDequeue: vi.fn(),
+			handleFollowUp: vi.fn(),
+			handleClipboardImagePaste: vi.fn(),
+			openExternalEditor: vi.fn(),
+			restoreQueuedMessagesToEditor: vi.fn(),
+			showAgentSwitcher: vi.fn(),
+			showModelSelector: vi.fn(),
+			showSessionSelector: vi.fn(),
+			showTreeSelector: vi.fn(),
+			showUserMessageSelector: vi.fn(),
+			toggleThinkingBlockVisibility: vi.fn(),
+			toggleToolOutputExpansion: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+		};
+
+		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
+		actions.get("app.agent.select")?.();
+
+		expect(fakeThis.showAgentSwitcher).toHaveBeenCalledTimes(1);
 	});
 
 	test("switches selected agent when an agent slot action fires", () => {
@@ -239,17 +406,21 @@ describe("InteractiveMode key handlers", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 3, pinned: true },
 		});
-		store.selectAgentView(first.agent.id);
+		store.selectActiveAgentTargetWithStatus(first.agent.id);
+		const banner = new AgentSelectionBannerComponent(store);
 		const fakeThis = {
 			defaultEditor: {
 				onAction: (action: string, handler: () => void) => actions.set(action, handler),
 			},
 			editor: { getText: () => "", setText: vi.fn() },
 			multiAgentStore: store,
+			selectedAgentBanner: banner,
 			footer: { invalidate: vi.fn() },
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
@@ -280,8 +451,84 @@ describe("InteractiveMode key handlers", () => {
 
 		actions.get("app.agent.slot3")?.();
 		expect(store.getSelectedAgentId()).toBe(third.agent.id);
+		expect(normalizeRenderedOutput(banner)).toContain("Target: Third");
+		expect(normalizeRenderedOutput(banner)).toContain(third.agent.id);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
+	});
+
+	test("selects an agent view without mutating lifecycle", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const fakeThis = {
+			multiAgentStore: store,
+			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			footer: { invalidate: vi.fn() },
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+			ui: { requestRender: vi.fn() },
+		};
+
+		const selected = interactiveModeKeyHandlers.selectAgentView.call(fakeThis, spawned.agent.id);
+
+		expect(selected).toBe(true);
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({
+			id: spawned.agent.id,
+			lifecycle: "starting",
+			revision: spawned.agent.revision,
+		});
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
+	test("rejects inactive agent view selection without changing the current agent", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const active = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Active",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const completed = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Done",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(completed.agent.id, completed.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		expect(store.transitionAgent(completed.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		store.selectActiveAgentTargetWithStatus(active.agent.id);
+		const fakeThis = {
+			multiAgentStore: store,
+			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			footer: { invalidate: vi.fn() },
+			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
+			showStatus: vi.fn(),
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+			ui: { requestRender: vi.fn() },
+		};
+
+		const selected = interactiveModeKeyHandlers.selectAgentView.call(fakeThis, completed.agent.id);
+
+		expect(selected).toBe(false);
+		expect(store.getSelectedAgentId()).toBe(active.agent.id);
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(`Agent is not active: Done (completed)`);
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
 	});
 
 	test("switches selected agent before focused components receive slot input", () => {
@@ -299,12 +546,17 @@ describe("InteractiveMode key handlers", () => {
 			displayName: "Second",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		store.selectAgentView(first.agent.id);
+		store.selectActiveAgentTargetWithStatus(first.agent.id);
 		const fakeThis = {
 			keybindings: { matches: (data: string, action: string) => action === "app.agent.slot2" && data === "\x1b2" },
 			multiAgentStore: store,
+			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
+			showStatus: vi.fn(),
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: {
 				addInputListener: (listener: (data: string) => { consume?: boolean } | undefined) => {
 					listeners.push(listener);
@@ -338,15 +590,20 @@ describe("InteractiveMode key handlers", () => {
 			displayName: "Second",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		store.selectAgentView(first.agent.id);
+		store.selectActiveAgentTargetWithStatus(first.agent.id);
 		const fakeThis = {
 			defaultEditor: {
 				onAction: (action: string, handler: () => void) => actions.set(action, handler),
 			},
 			multiAgentStore: store,
+			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
+			showStatus: vi.fn(),
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
 		};
 

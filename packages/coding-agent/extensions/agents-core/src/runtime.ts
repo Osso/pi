@@ -14,6 +14,7 @@ import {
 	type AgentResult,
 	type AgentSnapshot,
 	type ContactSupervisorInput,
+	formatInactiveAgentSelectionMessage,
 	isActiveLifecycle,
 	type MailboxMessageCommandResult,
 	type MultiAgentProjectionSnapshot,
@@ -23,6 +24,7 @@ import {
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
+import type { SessionEntry } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 
 const checkpointSchema = Type.Union([
@@ -133,6 +135,8 @@ type ResolvedAgentProfile = {
 };
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const MAIN_THREAD_AGENT_ID = "main";
+const MESSAGE_CONTENT_LIMIT = 2000;
 const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 
 export interface MultiAgentExtensionOptions {
@@ -207,6 +211,25 @@ export type HostrunMultiAgentRequestHandler = (
 	ctx: ExtensionContext,
 	signal: AbortSignal | undefined,
 ) => Promise<unknown> | unknown;
+
+interface MainThreadSnapshot extends Record<string, unknown> {
+	displayName: "Main thread";
+	id: "main";
+	lifecycle: "current";
+	selected: true;
+}
+
+interface AgentSelectionDetails extends Record<string, unknown> {
+	agent: AgentSnapshot | MainThreadSnapshot;
+}
+
+interface LastMessageDetails extends Record<string, unknown> {
+	content?: string;
+	entryId: string;
+	role: string;
+	text?: string;
+	truncated?: true;
+}
 
 interface AgentToolDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
@@ -494,13 +517,125 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.list") {
-			const params = request.params === undefined ? {} : (request.params as ListAgentsParams);
+			const params = request.params === undefined || request.params === null ? {} : (request.params as ListAgentsParams);
 			const result = listAgents(store, params);
 			return result.details;
 		}
 
+		if (request.method === "agents.current") {
+			return selectCurrentAgent(store);
+		}
+
+		if (request.method === "agents.select") {
+			return selectAgent(store, request.params);
+		}
+
+		if (request.method === "messages.last") {
+			return findLastSessionMessage(ctx.sessionManager.getBranch());
+		}
+
 		return undefined;
 	};
+}
+
+function selectCurrentAgent(store: MultiAgentStore): AgentSelectionDetails {
+	const selectedAgentId = store.getSelectedAgentId();
+	const selectedAgent = selectedAgentId ? store.getAgent(selectedAgentId) : undefined;
+	if (!selectedAgent || !isActiveLifecycle(selectedAgent.lifecycle)) {
+		return { agent: createMainThreadSnapshot() };
+	}
+	return { agent: selectedAgent };
+}
+
+function selectAgent(store: MultiAgentStore, params: unknown): AgentSelectionDetails {
+	const agentId = normalizeSelectAgentId(params);
+	if (agentId === MAIN_THREAD_AGENT_ID) {
+		store.clearSelectedAgentView();
+		return { agent: createMainThreadSnapshot() };
+	}
+
+	const result = store.selectActiveAgentTargetWithStatus(agentId);
+	if (result.ok) {
+		return { agent: result.agent };
+	}
+	if (result.error === "inactive") {
+		throw new Error(formatInactiveAgentSelectionMessage(result.agent));
+	}
+	throw new Error(`Agent not found: ${agentId}`);
+}
+
+function normalizeSelectAgentId(params: unknown): string {
+	if (typeof params === "string") {
+		return params;
+	}
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.agents.select requires an agent id string or { agentId } object");
+	}
+	const agentId = (params as { agentId?: unknown }).agentId;
+	if (typeof agentId !== "string" || !agentId.trim()) {
+		throw new Error("pi.agents.select requires a non-empty agentId");
+	}
+	return agentId;
+}
+
+function createMainThreadSnapshot(): MainThreadSnapshot {
+	return { displayName: "Main thread", id: MAIN_THREAD_AGENT_ID, lifecycle: "current", selected: true };
+}
+
+function findLastSessionMessage(entries: SessionEntry[]): LastMessageDetails | null {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index];
+		if (entry?.type === "message") {
+			return summarizeSessionMessage(entry);
+		}
+	}
+	return null;
+}
+
+function summarizeSessionMessage(entry: Extract<SessionEntry, { type: "message" }>): LastMessageDetails {
+	const message = entry.message as { content?: unknown; role?: unknown };
+	const text = summarizeMessageContent(message.content);
+	const details: LastMessageDetails = {
+		entryId: entry.id,
+		role: typeof message.role === "string" ? message.role : "unknown",
+	};
+	if (text !== undefined) {
+		details.content = text.value;
+		details.text = text.value;
+		if (text.truncated) {
+			details.truncated = true;
+		}
+	}
+	return details;
+}
+
+function summarizeMessageContent(content: unknown): { truncated: boolean; value: string } | undefined {
+	if (typeof content === "string") {
+		return truncateText(content);
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	const text = content
+		.map((item) => (isTextContent(item) ? item.text : undefined))
+		.filter((item): item is string => item !== undefined)
+		.join("\n");
+	return text ? truncateText(text) : undefined;
+}
+
+function isTextContent(item: unknown): item is { text: string; type: "text" } {
+	if (!item || typeof item !== "object") {
+		return false;
+	}
+	const content = item as { text?: unknown; type?: unknown };
+	return content.type === "text" && typeof content.text === "string";
+}
+
+function truncateText(text: string): { truncated: boolean; value: string } {
+	if (text.length <= MESSAGE_CONTENT_LIMIT) {
+		return { truncated: false, value: text };
+	}
+	return { truncated: true, value: text.slice(0, MESSAGE_CONTENT_LIMIT) };
 }
 
 async function spawnAgent(

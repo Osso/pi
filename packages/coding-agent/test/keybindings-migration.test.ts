@@ -86,9 +86,10 @@ describe("keybindings migration", () => {
 		expect(effective["app.interrupt"]).toBe("ctrl+x");
 	});
 
-	it("defaults Alt+1 through Alt+9 to visible agent slot actions", () => {
+	it("defaults Alt+0 through Alt+9 to visible agent actions", () => {
 		const keybindings = new KeybindingsManager();
 		const slotBindings = [
+			["app.agent.select", "alt+0"],
 			["app.agent.slot1", "alt+1"],
 			["app.agent.slot2", "alt+2"],
 			["app.agent.slot3", "alt+3"],

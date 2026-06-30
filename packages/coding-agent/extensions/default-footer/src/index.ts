@@ -3,7 +3,12 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../src/core/footer-data-provider.ts";
-import type { AgentLifecycleState, MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import {
+	type AgentLifecycleState,
+	type AgentSnapshot,
+	isActiveLifecycle,
+	type MultiAgentStore,
+} from "../../../src/core/multi-agent-store.ts";
 import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
 
 export interface DefaultFooterAgentLifecycleCounts {
@@ -20,7 +25,14 @@ export interface DefaultFooterComponentInput {
 	ctx: ExtensionContext;
 	footerData: ReadonlyFooterDataProvider;
 	getAgentCounts?: () => DefaultFooterAgentLifecycleCounts | undefined;
+	getSelectedAgent?: () => DefaultFooterSelectedAgent | undefined;
 	theme: Theme;
+}
+
+export interface DefaultFooterSelectedAgent {
+	displayName: string;
+	lifecycle: AgentLifecycleState;
+	slotIndex?: number;
 }
 
 function formatTokens(count: number): string {
@@ -59,6 +71,19 @@ function formatAgentCounts(counts: DefaultFooterAgentLifecycleCounts | undefined
 	if (counts.steeringPending > 0) parts.push(`${counts.steeringPending} steering`);
 
 	return parts.length > 0 ? `agents ${parts.join(" ")}` : undefined;
+}
+
+function formatAgentLifecycle(lifecycle: AgentLifecycleState): string {
+	return lifecycle.replace(/_/g, " ");
+}
+
+function formatSelectedAgent(agent: DefaultFooterSelectedAgent | undefined): string | undefined {
+	if (!agent) {
+		return undefined;
+	}
+
+	const slot = agent.slotIndex === undefined ? "" : ` #${agent.slotIndex}`;
+	return sanitizeStatusText(`selected${slot} ${agent.displayName} ${formatAgentLifecycle(agent.lifecycle)}`);
 }
 
 function formatCwd(cwd: string, home: string | undefined): string {
@@ -129,7 +154,11 @@ function sessionUsage(ctx: ExtensionContext): { input: number; output: number; c
 function formatStats(input: DefaultFooterComponentInput): string {
 	const usage = sessionUsage(input.ctx);
 	const executableName = input.footerData.getExecutableName();
-	const parts = [executableName ? `[${executableName}]` : undefined, formatAgentCounts(input.getAgentCounts?.())];
+	const parts = [
+		executableName ? `[${executableName}]` : undefined,
+		formatSelectedAgent(input.getSelectedAgent?.()),
+		formatAgentCounts(input.getAgentCounts?.()),
+	];
 	if (usage.input > 0) parts.push(`in ${formatTokens(usage.input)}`);
 	if (usage.output > 0) parts.push(`out ${formatTokens(usage.output)}`);
 	parts.push(formatCost(usage.cost));
@@ -169,6 +198,29 @@ function formatPwdLine(input: DefaultFooterComponentInput, width: number): strin
 	return truncateToWidth(input.theme.fg("dim", pwd), width, input.theme.fg("dim", "..."));
 }
 
+function selectedAgentForFooter(store: MultiAgentStore): DefaultFooterSelectedAgent | undefined {
+	const selectedAgentId = store.getSelectedAgentId();
+	const selectedAgent = selectedAgentId ? store.getAgent(selectedAgentId) : undefined;
+	if (!selectedAgent || !isActiveLifecycle(selectedAgent.lifecycle)) {
+		return undefined;
+	}
+
+	return {
+		displayName: selectedAgent.displayName,
+		lifecycle: selectedAgent.lifecycle,
+		slotIndex: selectedAgentSlotIndex(store, selectedAgent),
+	};
+}
+
+function selectedAgentSlotIndex(store: MultiAgentStore, selectedAgent: AgentSnapshot): number | undefined {
+	if (selectedAgent.slot?.index !== undefined) {
+		return selectedAgent.slot.index;
+	}
+
+	const agentIndex = store.listAgents().findIndex((agent) => agent.id === selectedAgent.id);
+	return agentIndex === -1 ? undefined : agentIndex + 1;
+}
+
 function extensionStatusLines(input: DefaultFooterComponentInput, width: number): string[] {
 	const statuses = input.footerData.getExtensionStatuses();
 	if (statuses.size === 0) {
@@ -192,15 +244,15 @@ export function createDefaultFooterComponent(input: DefaultFooterComponentInput)
 }
 
 export default function defaultFooterExtension(pi: ExtensionAPI, options: DefaultFooterExtensionOptions = {}) {
+	const store = options.multiAgentStore;
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setDefaultFooter((tui, thm, footerData) => {
 			const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
 			const component = createDefaultFooterComponent({
 				ctx,
 				footerData,
-				getAgentCounts: options.multiAgentStore
-					? () => countDefaultFooterAgents(options.multiAgentStore as MultiAgentStore)
-					: undefined,
+				getAgentCounts: store ? () => countDefaultFooterAgents(store) : undefined,
+				getSelectedAgent: store ? () => selectedAgentForFooter(store) : undefined,
 				theme: thm,
 			});
 			return {

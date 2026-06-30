@@ -45,6 +45,7 @@ export interface AppKeybindings {
 	"app.models.toggleProvider": true;
 	"app.models.reorderUp": true;
 	"app.models.reorderDown": true;
+	"app.agent.select": true;
 	"app.agent.slot1": true;
 	"app.agent.slot2": true;
 	"app.agent.slot3": true;
@@ -179,6 +180,10 @@ export const KEYBINDINGS = {
 	"app.models.reorderDown": {
 		defaultKeys: "alt+down",
 		description: "Move model down in order",
+	},
+	"app.agent.select": {
+		defaultKeys: "alt+0",
+		description: "Open agent switcher",
 	},
 	"app.agent.slot1": {
 		defaultKeys: "alt+1",

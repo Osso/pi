@@ -18,7 +18,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Pyrun.",
 	"Use pi.compact(...) to trigger Pi session compaction from Pyrun.",
 	"Use pi.restart(...) to restart Pi and resume the same session from Pyrun.",
-	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
+	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
 	"Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
 ];

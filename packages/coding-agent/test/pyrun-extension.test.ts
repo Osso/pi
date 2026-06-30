@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
 import { resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -119,6 +121,7 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 			restartRequests.push(request);
 		},
 		sessionManager: {
+			getBranch: () => [],
 			getCwd: () => "/repo/project",
 			getSessionName: () => "pyrun work",
 		},
@@ -136,7 +139,12 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 			params: PyrunEvalParams,
 			onUpdate?: (result: AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>) => void,
 			signal?: AbortSignal,
-		) => registeredPyrunTool.execute("pyrun-test-call", params, signal, onUpdate, ctx),
+			contextOverrides: Record<string, unknown> = {},
+		) =>
+			registeredPyrunTool.execute("pyrun-test-call", params, signal, onUpdate, {
+				...ctx,
+				...contextOverrides,
+			} as ExtensionContext),
 	};
 }
 
@@ -237,6 +245,34 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.agents.list()") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.list", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.agents.current()") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.current", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.agents.select('agent_1')") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.select", params: { agentId: "agent_1" } }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.agents.select('main')") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.select", params: { agentId: "main" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.messages.last()") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "messages.last", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   if (request.code === "pi.messages.enqueue({'message': 'next', 'deliverAs': 'followUp'})") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "messages.enqueue", params: { message: "next", deliverAs: "followUp" } }) + "\\n");
     const response = await readNextResponse();
@@ -324,6 +360,9 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not compose shell strings");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.compact");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.restart");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.current");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.select");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.messages.last");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
 			"host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr",
 		);
@@ -589,6 +628,146 @@ describe("pyrun extension", () => {
 		expect(result.details.value).toEqual({ agent: { id: "agent-1", lifecycle: "completed" }, terminal: true });
 	});
 
+	it("responds to Pyrun pi.agents.current requests through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo/project",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectAgentView(spawned.agent.id);
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.current()" });
+
+		expect(result.details.value).toMatchObject({ agent: { displayName: "Scout", id: spawned.agent.id } });
+	});
+
+	it("returns main thread from Pyrun pi.agents.current when selected view is inactive", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo/project",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		store.selectAgentView(spawned.agent.id);
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.current()" });
+
+		expect(result.details.value).toEqual({
+			agent: { displayName: "Main thread", id: "main", lifecycle: "current", selected: true },
+		});
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+	});
+
+	it("returns main thread from Pyrun pi.agents.current when no agent is selected", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.current()" });
+
+		expect(result.details.value).toEqual({
+			agent: { displayName: "Main thread", id: "main", lifecycle: "current", selected: true },
+		});
+	});
+
+	it("selects child and main thread from Pyrun pi.agents.select through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo/project",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
+		const main = await harness.evaluate({ code: "pi.agents.select('main')" });
+
+		expect(selected.details.value).toMatchObject({ agent: { id: spawned.agent.id, displayName: "Scout" } });
+		expect(main.details.value).toEqual({
+			agent: { displayName: "Main thread", id: "main", lifecycle: "current", selected: true },
+		});
+		expect(store.getSelectedAgentId()).toBeUndefined();
+	});
+
+	it("rejects inactive agents from Pyrun pi.agents.select", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo/project",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
+
+		expect(selected.details.error).toBe("Agent is not active: Scout (completed)");
+		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(store.selectAgentView(spawned.agent.id)).toMatchObject({ id: spawned.agent.id, lifecycle: "completed" });
+	});
+
+	it("returns bounded last session message from Pyrun pi.messages.last", async () => {
+		const longToolBlob = "x".repeat(6000);
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store: new MultiAgentStore() })],
+		});
+		const sessionManager = {
+			getBranch: () => [
+				{
+					id: "entry-1",
+					message: { content: longToolBlob, role: "assistant", timestamp: 1 },
+					parentId: null,
+					timestamp: "2026-06-30T00:00:00.000Z",
+					type: "message",
+				},
+			],
+			getCwd: () => "/repo/project",
+			getEntries: () => [],
+			getSessionName: () => "pyrun work",
+		};
+
+		const result = await harness.evaluate({ code: "pi.messages.last()" }, undefined, undefined, { sessionManager });
+
+		expect(result.details.value).toEqual({
+			content: "x".repeat(2000),
+			entryId: "entry-1",
+			role: "assistant",
+			text: "x".repeat(2000),
+			truncated: true,
+		});
+	});
+
 	it("responds to Pyrun pi.agents.list requests through configured handlers", async () => {
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
@@ -602,6 +781,27 @@ describe("pyrun extension", () => {
 		const result = await harness.evaluate({ code: "pi.agents.list({'activeOnly': True})" });
 
 		expect(result.details.value).toEqual({ activeCount: 1, agents: [{ id: "agent-1", lifecycle: "running" }] });
+	});
+
+	it("accepts no-arg Pyrun pi.agents.list requests with null params", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo/project",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.list()" });
+
+		expect(result.details.value).toMatchObject({
+			activeCount: 1,
+			agents: [{ id: spawned.agent.id, displayName: "Scout" }],
+		});
 	});
 
 	it("enqueues user messages from Pyrun pi.messages.enqueue", async () => {

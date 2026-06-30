@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import {
+import defaultFooterExtension, {
 	countDefaultFooterAgents,
 	createDefaultFooterComponent,
 	type DefaultFooterAgentLifecycleCounts,
 } from "../extensions/default-footer/src/index.ts";
-import type { ExtensionContext } from "../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
@@ -120,5 +120,56 @@ describe("default footer extension", () => {
 		expect(store.transitionAgent(running.agent.id, running.agent.revision, "running").ok).toBe(true);
 
 		expect(countDefaultFooterAgents(store)).toEqual({ running: 1, steeringPending: 0, waitingForInput: 0 });
+	});
+
+	it("shows the selected agent slot and state in the default footer", () => {
+		initTheme(undefined, false);
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "First",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 1, pinned: true },
+		});
+		const second = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Second",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+			slot: { index: 2, pinned: true },
+		}).agent;
+		const waiting = store.transitionAgent(second.id, second.revision, "running");
+		expect(waiting.ok).toBe(true);
+		if (!waiting.ok) throw new Error("expected running transition");
+		expect(store.transitionAgent(waiting.agent.id, waiting.agent.revision, "waiting_for_input").ok).toBe(true);
+		store.selectAgentSlot(2);
+
+		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;
+		const pi = {
+			on: (_eventName: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+				void handler(undefined, {
+					...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+					ui: {
+						setDefaultFooter: (factory: NonNullable<typeof footerFactory>) => {
+							footerFactory = factory;
+						},
+					},
+				} as ExtensionContext);
+			},
+		} as ExtensionAPI;
+
+		defaultFooterExtension(pi, { multiAgentStore: store });
+		expect(footerFactory).toBeDefined();
+		const component = footerFactory?.(
+			{ requestRender() {} } as Parameters<NonNullable<typeof footerFactory>>[0],
+			theme,
+			createFooterData(),
+		);
+		const line = stripAnsi(component?.render(160)[1] ?? "");
+
+		expect(line).toContain("selected #2 Second waiting for input");
 	});
 });

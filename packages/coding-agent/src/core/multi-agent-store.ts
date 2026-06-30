@@ -218,6 +218,14 @@ export type AgentMetadataCommandResult =
 			projection: MultiAgentProjectionSnapshot;
 	  };
 
+export type AgentViewSelectionResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "not_found"; agentId: string };
+
+export type ActiveAgentTargetSelectionResult =
+	| AgentViewSelectionResult
+	| { ok: false; error: "inactive"; agent: AgentSnapshot };
+
 export interface MultiAgentStoreOptions {
 	now?: () => string;
 }
@@ -362,29 +370,78 @@ export class MultiAgentStore {
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {
+		const result = this.selectAgentViewWithStatus(agentId);
+		return result.ok ? result.agent : undefined;
+	}
+
+	selectAgentViewWithStatus(agentId: string): AgentViewSelectionResult {
 		const agent = this.agents.get(agentId);
 		if (!agent) {
-			return undefined;
+			return { ok: false, error: "not_found", agentId };
 		}
 
 		this.selectedAgentId = agent.id;
 
-		return copyAgent(agent);
+		return { ok: true, agent: copyAgent(agent) };
+	}
+
+	selectActiveAgentTarget(agentId: string): AgentSnapshot | undefined {
+		const result = this.selectActiveAgentTargetWithStatus(agentId);
+		return result.ok ? result.agent : undefined;
+	}
+
+	selectActiveAgentTargetWithStatus(agentId: string): ActiveAgentTargetSelectionResult {
+		const agent = this.agents.get(agentId);
+		if (!agent) {
+			return { ok: false, error: "not_found", agentId };
+		}
+		if (!isActiveLifecycle(agent.lifecycle)) {
+			return { ok: false, error: "inactive", agent: copyAgent(agent) };
+		}
+
+		this.selectedAgentId = agent.id;
+		return { ok: true, agent: copyAgent(agent) };
 	}
 
 	selectAgentSlot(slotIndex: number): AgentSnapshot | undefined {
-		const pinnedAgent = this.findAgentByPinnedSlot(slotIndex);
-		const selectedAgent = pinnedAgent ?? Array.from(this.agents.values())[slotIndex - 1];
+		const result = this.selectAgentSlotWithStatus(slotIndex);
+		return result.ok ? result.agent : undefined;
+	}
+
+	selectAgentSlotWithStatus(slotIndex: number): AgentViewSelectionResult {
+		const selectedAgent = this.findAgentForSlotSelection(slotIndex);
 		if (!selectedAgent) {
-			return undefined;
+			return { ok: false, error: "not_found", agentId: String(slotIndex) };
 		}
 
 		this.selectedAgentId = selectedAgent.id;
-		return copyAgent(selectedAgent);
+		return { ok: true, agent: copyAgent(selectedAgent) };
+	}
+
+	selectActiveAgentSlotTarget(slotIndex: number): AgentSnapshot | undefined {
+		const result = this.selectActiveAgentSlotTargetWithStatus(slotIndex);
+		return result.ok ? result.agent : undefined;
+	}
+
+	selectActiveAgentSlotTargetWithStatus(slotIndex: number): ActiveAgentTargetSelectionResult {
+		const selectedAgent = this.findAgentForSlotSelection(slotIndex);
+		if (!selectedAgent) {
+			return { ok: false, error: "not_found", agentId: String(slotIndex) };
+		}
+		if (!isActiveLifecycle(selectedAgent.lifecycle)) {
+			return { ok: false, error: "inactive", agent: copyAgent(selectedAgent) };
+		}
+
+		this.selectedAgentId = selectedAgent.id;
+		return { ok: true, agent: copyAgent(selectedAgent) };
 	}
 
 	getSelectedAgentId(): string | undefined {
 		return this.selectedAgentId;
+	}
+
+	clearSelectedAgentView(): void {
+		this.selectedAgentId = undefined;
 	}
 
 	getAgent(agentId: string): AgentSnapshot | undefined {
@@ -732,10 +789,17 @@ export class MultiAgentStore {
 			this.mailboxMessages.set(message.id, copyMessage(message));
 		}
 
-		this.selectedAgentId = snapshot.selectedAgentId;
+		this.selectedAgentId = this.findRestoredSelectedAgentId(snapshot.selectedAgentId);
 		this.nextAgentNumber = snapshot.nextAgentNumber;
 		this.nextArtifactNumber = snapshot.nextArtifactNumber ?? 1;
 		this.nextMessageNumber = snapshot.nextMessageNumber;
+	}
+
+	private findRestoredSelectedAgentId(selectedAgentId: string | undefined): string | undefined {
+		if (!selectedAgentId) {
+			return undefined;
+		}
+		return this.agents.has(selectedAgentId) ? selectedAgentId : undefined;
 	}
 
 	private listSlotProjections(): AgentSlotProjection[] {
@@ -762,6 +826,11 @@ export class MultiAgentStore {
 			slotIndex: agent.slot?.index,
 			workerAdapter: agent.worker?.adapter,
 		}));
+	}
+
+	private findAgentForSlotSelection(slotIndex: number): AgentNode | undefined {
+		const pinnedAgent = this.findAgentByPinnedSlot(slotIndex);
+		return pinnedAgent ?? Array.from(this.agents.values())[slotIndex - 1];
 	}
 
 	private findAgentByPinnedSlot(slotIndex: number): AgentNode | undefined {
@@ -850,6 +919,10 @@ export class MultiAgentStore {
 
 export function isActiveLifecycle(lifecycle: AgentLifecycleState): boolean {
 	return !TERMINAL_STATES.has(lifecycle);
+}
+
+export function formatInactiveAgentSelectionMessage(agent: Pick<AgentSnapshot, "displayName" | "lifecycle">): string {
+	return `Agent is not active: ${agent.displayName} (${agent.lifecycle})`;
 }
 
 function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): boolean {

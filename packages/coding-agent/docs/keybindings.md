@@ -127,6 +127,7 @@ Modifier combinations: `ctrl+shift+x`, `alt+ctrl+x`, `ctrl+shift+alt+x`, `ctrl+1
 
 | Keybinding id | Default | Description |
 |--------|---------|-------------|
+| `app.agent.select` | `alt+0` | Open agent switcher |
 | `app.agent.slot1` | `alt+1` | Switch to agent slot 1 |
 | `app.agent.slot2` | `alt+2` | Switch to agent slot 2 |
 | `app.agent.slot3` | `alt+3` | Switch to agent slot 3 |

@@ -47,6 +47,71 @@ describe("MultiAgentStore", () => {
 		expect(afterView).toEqual(viewed);
 	});
 
+	it("clears view selection without mutating agent lifecycle", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+
+		store.selectAgentView(spawned.agent.id);
+		store.clearSelectedAgentView();
+
+		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ id: spawned.agent.id, lifecycle: "queued" });
+	});
+
+	it("selects inactive agents for read-only view", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const active = spawnScout(store);
+		const completed = spawnScout(store);
+		const started = store.transitionAgent(completed.agent.id, completed.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) {
+			throw new Error("expected start to succeed");
+		}
+		const running = store.transitionAgent(completed.agent.id, started.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		const terminal = store.transitionAgent(completed.agent.id, running.agent.revision, "completed");
+		expect(terminal.ok).toBe(true);
+		if (!terminal.ok) {
+			throw new Error("expected terminal transition");
+		}
+
+		store.selectAgentView(active.agent.id);
+		const selected = store.selectAgentView(completed.agent.id);
+
+		expect(selected).toMatchObject({ id: completed.agent.id, lifecycle: "completed" });
+		expect(store.getSelectedAgentId()).toBe(completed.agent.id);
+	});
+
+	it("rejects inactive agents for active targets without changing the selected view", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const active = spawnScout(store);
+		const completed = spawnScout(store);
+		const started = store.transitionAgent(completed.agent.id, completed.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) {
+			throw new Error("expected start to succeed");
+		}
+		const running = store.transitionAgent(completed.agent.id, started.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		const terminal = store.transitionAgent(completed.agent.id, running.agent.revision, "completed");
+		expect(terminal.ok).toBe(true);
+		if (!terminal.ok) {
+			throw new Error("expected terminal transition");
+		}
+
+		store.selectAgentView(active.agent.id);
+		const selected = store.selectActiveAgentTargetWithStatus(completed.agent.id);
+
+		expect(selected).toMatchObject({ ok: false, error: "inactive", agent: { id: completed.agent.id } });
+		expect(store.getSelectedAgentId()).toBe(active.agent.id);
+	});
+
 	it("tracks steering messages through pending, accepted, and delivered acknowledgements", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);
@@ -509,6 +574,28 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("keeps selected read-only view when the selected agent becomes terminal", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+		const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) {
+			throw new Error("expected start to succeed");
+		}
+		const running = store.transitionAgent(spawned.agent.id, started.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		store.selectAgentView(spawned.agent.id);
+
+		const completed = store.transitionAgent(spawned.agent.id, running.agent.revision, "completed");
+
+		expect(completed.ok).toBe(true);
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
+	});
+
 	it("switches pinned slots by index and falls back to agent row order", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const first = store.spawnAgent({
@@ -540,11 +627,11 @@ describe("MultiAgentStore", () => {
 			throw new Error("expected ninth start");
 		}
 
-		const selectedFirst = store.selectAgentSlot(1);
-		const selectedNinth = store.selectAgentSlot(9);
-		const selectedSecondRow = store.selectAgentSlot(2);
-		const selectedThirdRow = store.selectAgentSlot(3);
-		const missing = store.selectAgentSlot(4);
+		const selectedFirst = store.selectActiveAgentSlotTarget(1);
+		const selectedNinth = store.selectActiveAgentSlotTarget(9);
+		const selectedSecondRow = store.selectActiveAgentSlotTarget(2);
+		const selectedThirdRow = store.selectActiveAgentSlotTarget(3);
+		const missing = store.selectActiveAgentSlotTarget(4);
 
 		expect(selectedFirst).toMatchObject({
 			id: first.agent.id,
@@ -602,8 +689,14 @@ describe("MultiAgentStore", () => {
 				],
 			},
 		});
-		expect(store.selectAgentSlot(4)).toMatchObject({ id: first.agent.id, revision: startedFirst.agent.revision });
-		expect(store.selectAgentSlot(5)).toMatchObject({ id: second.agent.id, revision: second.agent.revision });
+		expect(store.selectActiveAgentSlotTarget(4)).toMatchObject({
+			id: first.agent.id,
+			revision: startedFirst.agent.revision,
+		});
+		expect(store.selectActiveAgentSlotTarget(5)).toMatchObject({
+			id: second.agent.id,
+			revision: second.agent.revision,
+		});
 	});
 
 	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
@@ -886,6 +979,17 @@ describe("MultiAgentStore", () => {
 				targetCheckpoint: "after_tool_result",
 			});
 			expect(steer.ok).toBe(true);
+			if (!steer.ok) {
+				throw new Error("expected steer to succeed");
+			}
+			const delivered = store.ackSteering(spawned.agent.id, steer.agent.revision, steer.message.id, "delivered");
+			expect(delivered.ok).toBe(true);
+			if (!delivered.ok) {
+				throw new Error("expected steering delivery");
+			}
+			const completed = store.transitionAgent(spawned.agent.id, delivered.agent.revision, "completed");
+			expect(completed.ok).toBe(true);
+			store.selectAgentView(spawned.agent.id);
 			store.persistSnapshot(session);
 
 			const sessionFile = session.getSessionFile();
@@ -899,14 +1003,15 @@ describe("MultiAgentStore", () => {
 
 			expect(rehydrated.getAgent(spawned.agent.id)).toMatchObject({
 				id: spawned.agent.id,
-				lifecycle: "steering_pending",
-				revision: 4,
+				lifecycle: "completed",
+				revision: 6,
 			});
-			expect(rehydrated.getActiveAgentCount()).toBe(1);
+			expect(rehydrated.getSelectedAgentId()).toBe(spawned.agent.id);
+			expect(rehydrated.getActiveAgentCount()).toBe(0);
 			expect(rehydrated.listMailboxMessages()).toHaveLength(1);
 			expect(rehydrated.listMailboxMessages()[0]).toMatchObject({
 				body: "Continue with tests",
-				status: "pending",
+				status: "delivered",
 				targetCheckpoint: "after_tool_result",
 			});
 		} finally {

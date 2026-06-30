@@ -80,7 +80,11 @@ import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/htt
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
-import type { MultiAgentStore } from "../../core/multi-agent-store.ts";
+import {
+	type ActiveAgentTargetSelectionResult,
+	formatInactiveAgentSelectionMessage,
+	type MultiAgentStore,
+} from "../../core/multi-agent-store.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { restartCurrentProcess } from "../../core/self-restart.ts";
@@ -114,6 +118,8 @@ import { getCwdRelativePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
+import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
+import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
@@ -400,6 +406,7 @@ export class InteractiveMode {
 	private extensionWidgetsBelow = new Map<string, Component & { dispose?(): void }>();
 	private widgetContainerAbove!: Container;
 	private widgetContainerBelow!: Container;
+	private selectedAgentBanner: AgentSelectionBannerComponent;
 
 	// Default footer from a first-party extension, overridden by custom user footers.
 	private defaultExtensionFooter: (Component & { dispose?(): void }) | undefined = undefined;
@@ -456,6 +463,7 @@ export class InteractiveMode {
 		this.statusContainer = new Container();
 		this.widgetContainerAbove = new Container();
 		this.widgetContainerBelow = new Container();
+		this.selectedAgentBanner = new AgentSelectionBannerComponent(this.multiAgentStore);
 		this.keybindings = KeybindingsManager.create();
 		setKeybindings(this.keybindings);
 		const editorPaddingX = this.settingsManager.getEditorPaddingX();
@@ -1990,6 +1998,7 @@ export class InteractiveMode {
 	private renderWidgets(): void {
 		if (!this.widgetContainerAbove || !this.widgetContainerBelow) return;
 		this.renderWidgetContainer(this.widgetContainerAbove, this.extensionWidgetsAbove, true, true);
+		this.widgetContainerAbove.addChild(this.selectedAgentBanner);
 		this.renderWidgetContainer(this.widgetContainerBelow, this.extensionWidgetsBelow, false, false);
 		this.ui.requestRender();
 	}
@@ -2566,14 +2575,53 @@ export class InteractiveMode {
 	}
 
 	private selectAgentSlot(slotIndex: number): boolean {
-		const selected = this.multiAgentStore?.selectAgentSlot(slotIndex);
+		const selected = this.multiAgentStore?.selectActiveAgentSlotTargetWithStatus(slotIndex);
 		if (!selected) {
 			return false;
 		}
+		if (!selected.ok) {
+			this.showInactiveAgentSelectionStatus(selected);
+			return selected.error === "inactive";
+		}
 
+		this.updateSelectedAgentSelectionWidgets();
+		return true;
+	}
+
+	private selectAgentView(agentId: string): boolean {
+		if (agentId === "main") {
+			this.multiAgentStore?.clearSelectedAgentView();
+			this.updateSelectedAgentSelectionWidgets();
+			return true;
+		}
+
+		const selected = this.multiAgentStore?.selectActiveAgentTargetWithStatus(agentId);
+		if (!selected) {
+			return false;
+		}
+		if (!selected.ok) {
+			this.showInactiveAgentSelectionStatus(selected);
+			return false;
+		}
+
+		this.updateSelectedAgentSelectionWidgets();
+		return true;
+	}
+
+	private updateSelectedAgentSelectionWidgets(): void {
+		this.updateSelectedAgentBanner();
 		this.footer.invalidate();
 		this.ui.requestRender();
-		return true;
+	}
+
+	private showInactiveAgentSelectionStatus(selected: ActiveAgentTargetSelectionResult): void {
+		if (!selected.ok && selected.error === "inactive") {
+			this.showStatus(formatInactiveAgentSelectionMessage(selected.agent));
+		}
+	}
+
+	private updateSelectedAgentBanner(): void {
+		this.selectedAgentBanner.invalidate();
 	}
 
 	private setupKeyHandlers(): void {
@@ -2629,6 +2677,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.session.tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
+		this.defaultEditor.onAction("app.agent.select", () => this.showAgentSwitcher());
 		this.registerAgentSlotKeyHandlers();
 		this.registerGlobalAgentSlotInputHandler();
 
@@ -2813,6 +2862,11 @@ export class InteractiveMode {
 			}
 			if (text === "/resume") {
 				this.showSessionSelector();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/agents") {
+				this.showAgentSwitcher();
 				this.editor.setText("");
 				return;
 			}
@@ -4792,6 +4846,34 @@ export class InteractiveMode {
 		});
 	}
 
+	private showAgentSwitcher(): void {
+		const store = this.multiAgentStore;
+		if (!store) {
+			this.showStatus("No agents to select");
+			return;
+		}
+		const agents = store.listAgents();
+
+		this.showSelector((done) => {
+			const selector = new AgentSwitcherComponent(
+				agents,
+				store.getSelectedAgentId(),
+				(agentId) => {
+					done();
+					if (this.selectAgentView(agentId)) {
+						this.showStatus("Selected agent");
+					}
+				},
+				() => {
+					done();
+					this.ui.requestRender();
+				},
+				(agent) => this.showStatus(formatInactiveAgentSelectionMessage(agent)),
+			);
+			return { component: selector, focus: selector };
+		});
+	}
+
 	private showSessionSelector(): void {
 		this.showSelector((done) => {
 			const loadWithNames = async (
@@ -5791,6 +5873,7 @@ export class InteractiveMode {
 		const followUp = this.getAppKeyDisplay("app.message.followUp");
 		const dequeue = this.getAppKeyDisplay("app.message.dequeue");
 		const pasteImage = this.getAppKeyDisplay("app.clipboard.pasteImage");
+		const selectAgent = this.getAppKeyDisplay("app.agent.select");
 
 		let hotkeys = `
 **Navigation**
@@ -5834,6 +5917,7 @@ export class InteractiveMode {
 | \`${followUp}\` | Queue follow-up message |
 | \`${dequeue}\` | Restore queued messages |
 | \`${pasteImage}\` | Paste image from clipboard |
+| \`${selectAgent}\` | Open agent switcher |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
 | \`!!\` | Run bash command (excluded from context) |
