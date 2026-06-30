@@ -15,6 +15,25 @@ function spawnScout(store: MultiAgentStore) {
 	});
 }
 
+function completeAgent(store: MultiAgentStore, agent: { id: string; revision: number }) {
+	const started = store.transitionAgent(agent.id, agent.revision, "starting");
+	expect(started.ok).toBe(true);
+	if (!started.ok) {
+		throw new Error("expected start to succeed");
+	}
+	const running = store.transitionAgent(agent.id, started.agent.revision, "running");
+	expect(running.ok).toBe(true);
+	if (!running.ok) {
+		throw new Error("expected run to succeed");
+	}
+	const completed = store.transitionAgent(agent.id, running.agent.revision, "completed");
+	expect(completed.ok).toBe(true);
+	if (!completed.ok) {
+		throw new Error("expected terminal transition");
+	}
+	return completed.agent;
+}
+
 describe("MultiAgentStore", () => {
 	it("rejects stale lifecycle mutations and returns the current snapshot", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -594,6 +613,18 @@ describe("MultiAgentStore", () => {
 		expect(completed.ok).toBe(true);
 		expect(store.getSelectedAgentId()).toBeUndefined();
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
+	});
+
+	it("maps slot fallback to active agent order", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const completed = spawnScout(store);
+		const active = spawnScout(store);
+		completeAgent(store, completed.agent);
+
+		const selected = store.selectActiveAgentSlotTarget(1);
+
+		expect(selected).toMatchObject({ id: active.agent.id, revision: active.agent.revision });
+		expect(store.getSelectedAgentId()).toBe(active.agent.id);
 	});
 
 	it("switches pinned slots by index and falls back to agent row order", () => {

@@ -848,18 +848,22 @@ export class MultiAgentStore {
 	}
 
 	private findAgentForSlotSelection(slotIndex: number): AgentNode | undefined {
-		const pinnedAgent = this.findAgentByPinnedSlot(slotIndex);
-		return pinnedAgent ?? Array.from(this.agents.values())[slotIndex - 1];
+		const pinnedAgent = this.findActiveAgentByPinnedSlot(slotIndex);
+		return pinnedAgent ?? this.listActiveAgentNodes()[slotIndex - 1];
 	}
 
-	private findAgentByPinnedSlot(slotIndex: number): AgentNode | undefined {
+	private findActiveAgentByPinnedSlot(slotIndex: number): AgentNode | undefined {
 		for (const agent of this.agents.values()) {
-			if (agent.slot?.index === slotIndex) {
+			if (agent.slot?.index === slotIndex && isActiveLifecycle(agent.lifecycle)) {
 				return agent;
 			}
 		}
 
 		return undefined;
+	}
+
+	private listActiveAgentNodes(): AgentNode[] {
+		return Array.from(this.agents.values()).filter((agent) => isActiveLifecycle(agent.lifecycle));
 	}
 
 	private findSlotOccupant(slotIndex: number, excludedAgentId: string): AgentNode | undefined {

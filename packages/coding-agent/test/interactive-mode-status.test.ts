@@ -854,6 +854,56 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
+	test("slot 2 skips terminal agents before the first active agent view", () => {
+		const actions = new Map<string, () => void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const completed = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Completed",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(completed.agent.id, completed.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		expect(store.transitionAgent(completed.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		const active = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Active",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const fakeThis = {
+			defaultEditor: {
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			multiAgentStore: store,
+			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			footer: { invalidate: vi.fn() },
+			openChildAgentView: vi.fn(() => true),
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
+			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
+			showStatus: vi.fn(),
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+			ui: { requestRender: vi.fn() },
+		};
+
+		interactiveModeKeyHandlers.registerAgentSlotKeyHandlers.call(fakeThis);
+		actions.get("app.agent.slot2")?.();
+
+		expect(store.getSelectedAgentId()).toBe(active.agent.id);
+		expect(fakeThis.openChildAgentView).toHaveBeenCalledWith(expect.objectContaining({ id: active.agent.id }));
+		expect(fakeThis.showStatus).not.toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
 	test("slot 2 switches to the first active agent view when agents are not pinned to slots", () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
