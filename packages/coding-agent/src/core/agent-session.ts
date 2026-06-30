@@ -328,6 +328,8 @@ export class AgentSession {
 	private _followUpMessages: string[] = [];
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
+	/** User prompts held outside Agent queues, such as TUI input replay after abort. */
+	private _externalUserInputReservations = 0;
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -1709,6 +1711,20 @@ export class AgentSession {
 		return this._steeringMessages.length + this._followUpMessages.length;
 	}
 
+	hasPendingMessages(): boolean {
+		return this.pendingMessageCount > 0 || this._externalUserInputReservations > 0;
+	}
+
+	reserveExternalUserInput(): () => void {
+		let released = false;
+		this._externalUserInputReservations++;
+		return () => {
+			if (released) return;
+			released = true;
+			this._externalUserInputReservations = Math.max(0, this._externalUserInputReservations - 1);
+		};
+	}
+
 	/** Get pending steering messages (read-only) */
 	getSteeringMessages(): readonly string[] {
 		return this._steeringMessages;
@@ -2621,7 +2637,7 @@ export class AgentSession {
 					}
 					void this.abort();
 				},
-				hasPendingMessages: () => this.pendingMessageCount > 0,
+				hasPendingMessages: () => this.hasPendingMessages(),
 				shutdown: () => {
 					this._extensionShutdownHandler?.();
 				},

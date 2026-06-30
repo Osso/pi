@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
@@ -71,6 +71,27 @@ describe("goal extension runtime", () => {
 		expect(getUserTexts(harness)).toContain(
 			"Continue working toward this objective until it is achieved: say hello twice in two different rounds",
 		);
+	});
+
+	it("does not continue a goal while an aborted turn has a queued interactive prompt", async () => {
+		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("queued user prompt"), fauxAssistantMessage("goal continuation")]);
+		mkdirSync(join(harness.tempDir, ".pi"), { recursive: true });
+		writeFileSync(
+			join(harness.tempDir, ".pi", "goal.json"),
+			JSON.stringify({ objective: "keep going", branch: "test", createdAt: new Date().toISOString() }),
+		);
+
+		const releaseQueuedInput = harness.session.reserveExternalUserInput();
+		try {
+			await harness.session.prompt("queued after escape");
+		} finally {
+			releaseQueuedInput();
+		}
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(getUserTexts(harness)).toEqual(["queued after escape"]);
 	});
 
 	it("does not let an agent reset an active goal through set_goal", async () => {
