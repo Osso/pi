@@ -123,6 +123,22 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const hasFind = tools.includes("find");
 	const hasLs = tools.includes("ls");
 	const hasRead = tools.includes("read");
+	const hasSpawnAgent = tools.includes("spawn_agent");
+
+	if (hasSpawnAgent) {
+		addGuideline(
+			'For codebase research, exploration, or file-reading investigation, you must use spawn_agent with agentType "explore" before direct file search, unless the user explicitly asks you not to delegate.',
+		);
+		addGuideline(
+			'For scoped code changes, use spawn_agent with agentType "implement" unless the change is trivial or the user explicitly asks you not to delegate.',
+		);
+		addGuideline(
+			'Before claiming work is fixed, tested, passing, or complete, you must use spawn_agent with agentType "verifier" to run proof commands, unless the user explicitly asks you not to delegate.',
+		);
+		addGuideline(
+			'For final code review or second opinions on non-trivial changes, use spawn_agent with agentType "reviewer".',
+		);
+	}
 
 	// File exploration guidelines
 	if (hasBash && !hasGrep && !hasFind && !hasLs) {

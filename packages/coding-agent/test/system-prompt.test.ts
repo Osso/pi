@@ -104,6 +104,34 @@ describe("buildSystemPrompt", () => {
 		});
 	});
 
+	describe("delegation guidelines", () => {
+		test("requires explore agents for codebase research", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["read", "grep", "find", "spawn_agent"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				'For codebase research, exploration, or file-reading investigation, you must use spawn_agent with agentType "explore" before direct file search, unless the user explicitly asks you not to delegate.',
+			);
+		});
+
+		test("requires verifier agents before completion claims", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["spawn_agent"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				'Before claiming work is fixed, tested, passing, or complete, you must use spawn_agent with agentType "verifier" to run proof commands, unless the user explicitly asks you not to delegate.',
+			);
+		});
+	});
+
 	describe("prompt guidelines", () => {
 		test("appends promptGuidelines to default guidelines", () => {
 			const prompt = buildSystemPrompt({

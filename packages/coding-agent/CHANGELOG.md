@@ -15,6 +15,7 @@
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
 - Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, and `reviewer` profiles.
+- Added core system-prompt delegation rules requiring `explore` agents for codebase research and `verifier` agents before completion claims when `spawn_agent` is available.
 
 ### Changed
 
