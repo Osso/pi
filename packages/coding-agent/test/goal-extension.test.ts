@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import goalExtension from "../extensions/goal/src/index.ts";
 import type {
@@ -21,6 +22,39 @@ type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
 type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | SessionStartEvent;
 type GoalEventResult = BeforeAgentStartEventResult | undefined;
+
+const model = getModel("anthropic", "claude-sonnet-4-5");
+if (!model) throw new Error("Test model not found");
+
+function createUsage(): Usage {
+	return {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: 0,
+		},
+	};
+}
+
+function createAssistantMessage(text: string): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text }],
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		usage: createUsage(),
+		stopReason: "stop",
+		timestamp: 1,
+	};
+}
 
 function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage?: ContextUsage }) {
 	let command: RegisteredGoalCommand | undefined;
@@ -86,7 +120,8 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 		runBeforeAgentStart: async () => beforeAgentStart?.(event, ctx as ExtensionContext),
 		runSessionStart: async (reason: SessionStartEvent["reason"]) =>
 			sessionStart?.({ type: "session_start", reason }, ctx as ExtensionContext),
-		runAgentEnd: async () => agentEnd?.({ type: "agent_end", messages: [] }, ctx as ExtensionContext),
+		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
+			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
 		runSetGoal: async (objective: string, replace = false) =>
@@ -223,7 +258,7 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 
 		const result = await harness.runBeforeAgentStart();
-		expect(result?.systemPrompt).toContain("Continuation turns used: 1/8");
+		expect(result?.systemPrompt).toContain("Continuation turns used: 1");
 		expect(result?.systemPrompt).toContain("Token budget: 100 tokens");
 		expect(result?.systemPrompt).toContain("Wall-clock budget: 5m");
 	});
@@ -346,17 +381,31 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("stops continuation at the turn cap", async () => {
+	it("continues without a numeric turn cap", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("bounded continuation");
+		await harness.runCommand("long running continuation");
 		harness.sendUserMessage.mockClear();
-		for (let i = 0; i < 9; i++) {
+		for (let i = 0; i < 100; i++) {
 			await harness.runAgentEnd();
 		}
 
-		expect(harness.sendUserMessage).toHaveBeenCalledTimes(8);
-		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at turn cap (8)", "warning");
+		expect(harness.sendUserMessage).toHaveBeenCalledTimes(100);
+		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("turn cap"), "warning");
+	});
+
+	it("stops continuation when the last assistant response is empty", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("empty response bounded");
+		harness.sendUserMessage.mockClear();
+		await harness.runAgentEnd([createAssistantMessage("   ")]);
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).toHaveBeenCalledWith(
+			"Goal continuation stopped because the last assistant response was empty",
+			"warning",
+		);
 	});
 
 	it("persists a one-billion token budget by default", async () => {

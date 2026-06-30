@@ -36,7 +36,7 @@ not yet written).
 - [x] Setting a goal while the session is idle immediately submits a user message that asks the agent to work toward the objective.
 - [x] When an `agent_end` event fires and a goal is active but not completed, Pi re-submits a continuation message.
 - [x] A `goal_complete` tool or equivalent completion signal marks the active goal complete and stops further continuation.
-- [x] Autonomous continuation stops on a configured turn cap even if the goal is still active.
+- [x] Autonomous continuation has no numeric turn cap; it may run for long-lived goals until completion, budget exhaustion, pending queued work, or an empty final assistant response stops it.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
 
 ### Budget bounds
@@ -58,12 +58,12 @@ not yet written).
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `set_goal`/`goal_complete`, persists `.pi/goal.json`, injects the active goal through `before_agent_start`, shows the active goal in the footer status, starts work when a goal is set while idle, and continues active goals from `agent_end`.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, and token/wall-clock budget bounds.
 - `.gitignore` — ignores `.pi/goal.json` as local goal state.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `set_goal`, `/goal` set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, turn cap, and token/wall-clock budget bounds.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `set_goal`, `/goal` set/view/clear, explicit replacement, objective length cap, context injection, continuation/budget prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, and token/wall-clock budget bounds.
 
 ## Known gaps (current cycle)
 
@@ -71,7 +71,7 @@ not yet written).
 - [x] Add an explicit replacement path for setting a new goal while one is already active.
 - [x] Implement autonomous continue-when-idle on `agent_end`.
 - [x] Add a `goal_complete` completion signal and stop continuation when it is called.
-- [x] Implement continuation turn-cap handling.
+- [x] Remove numeric continuation turn-cap handling and stop only on completion, budgets, pending queued work, or empty final assistant response.
 - [x] Implement token and wall-clock budget bounds.
 - [x] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
 - [x] Write `docs/wiki/systems/goal-system.md`.

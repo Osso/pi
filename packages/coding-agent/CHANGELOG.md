@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed goal continuation to remove the numeric turn cap and stop only on completion, budgets, pending queued work, or an empty final assistant response.
 - Fixed prompt history persistence to use the shared control SQLite database so concurrent Pi sessions append entries instead of overwriting each other.
 - Fixed `Alt+1` through `Alt+9` agent slot switching to work while non-editor UI components have focus.
 - Fixed `--session` and `SessionManager.open()` to reject non-empty invalid session files without overwriting them ([#6002](https://github.com/earendil-works/pi/issues/6002)).

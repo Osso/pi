@@ -24,12 +24,11 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentEndEvent, ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
-const MAX_CONTINUATION_TURNS = 8;
 const DEFAULT_TOKEN_BUDGET = 1_000_000_000;
 
 interface Goal {
@@ -198,7 +197,7 @@ function budgetStopReason(goal: Goal, ctx: ExtensionContext): string | null {
 }
 
 function goalStateLines(goal: Goal): string[] {
-	const lines = [`Continuation turns used: ${goal.continuationTurns ?? 0}/${MAX_CONTINUATION_TURNS}`];
+	const lines = [`Continuation turns used: ${goal.continuationTurns ?? 0}`];
 	if (goal.tokenBudget !== undefined) {
 		lines.push(`Token budget: ${goal.tokenBudget} tokens`);
 	}
@@ -221,6 +220,20 @@ function currentBranch(cwd: string): string {
 }
 
 /** The block injected into the system prompt each turn while a goal is active. */
+function didLastAssistantReturnEmpty(event: AgentEndEvent): boolean {
+	const assistantMessages = event.messages.filter((message) => message.role === "assistant");
+	const lastAssistantMessage = assistantMessages.at(-1);
+	if (!lastAssistantMessage) return false;
+
+	const text = lastAssistantMessage.content
+		.filter((part) => part.type === "text")
+		.map((part) => part.text)
+		.join("")
+		.trim();
+	const hasToolCall = lastAssistantMessage.content.some((part) => part.type === "toolCall");
+	return text.length === 0 && !hasToolCall;
+}
+
 function goalSystemBlock(goal: Goal): string {
 	return [
 		"<goal>",
@@ -366,7 +379,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		if (goal) ctx.ui.notify(`Active goal: ${goal.objective}`, "info");
 	});
 
-	pi.on("agent_end", async (_event, ctx: ExtensionContext) => {
+	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		const goal = loadActiveGoal(ctx.cwd);
 		if (!goal || ctx.hasPendingMessages()) return;
 
@@ -376,12 +389,12 @@ export default function goalExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		const continuationTurns = goal.continuationTurns ?? 0;
-		if (continuationTurns >= MAX_CONTINUATION_TURNS) {
-			ctx.ui.notify(`Goal continuation stopped at turn cap (${MAX_CONTINUATION_TURNS})`, "warning");
+		if (didLastAssistantReturnEmpty(event)) {
+			ctx.ui.notify("Goal continuation stopped because the last assistant response was empty", "warning");
 			return;
 		}
 
+		const continuationTurns = goal.continuationTurns ?? 0;
 		saveGoal(ctx.cwd, { ...goal, continuationTurns: continuationTurns + 1 });
 		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`, {
 			deliverAs: "followUp",
