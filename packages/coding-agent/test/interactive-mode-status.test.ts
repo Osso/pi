@@ -168,6 +168,7 @@ interface InteractiveModeKeyHandlerInternals {
 	restorePreviousAgentSelection(this: unknown, agentId: string | undefined): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	selectAgentView(this: unknown, agentId: string): boolean;
+	selectAgentViewFromBridge(this: unknown, agentId: string): boolean;
 	showInactiveAgentSelectionStatus(this: unknown, selected: unknown): void;
 	showStatus(this: unknown, message: string): void;
 	updateSelectedAgentBanner(this: unknown): void;
@@ -202,6 +203,7 @@ type TranscriptSwitchFixture = {
 		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
 		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
 		renderSessionContext: typeof interactiveModeKeyHandlers.renderSessionContext;
+		selectAgentView: typeof interactiveModeKeyHandlers.selectAgentView;
 		selectedAgentBanner: AgentSelectionBannerComponent;
 		sessionManager: SessionManager;
 		settingsManager: { getImageWidthCells: () => number; getShowImages: () => boolean };
@@ -256,6 +258,7 @@ function createTranscriptSwitchFixture(options: {
 		renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
 		restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 		renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
+		selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 		selectedAgentBanner: new AgentSelectionBannerComponent(store),
 		sessionManager: parent,
 		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
@@ -664,6 +667,25 @@ describe("InteractiveMode key handlers", () => {
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
 
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, "main")).toBe(true);
+
+			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
+			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("parent transcript only");
+			expect(output).not.toContain("child transcript only");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("bridge selection reports success when returning to main thread", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentViewFromBridge.call(fixture.fakeThis, fixture.childAgentId)).toBe(
+				true,
+			);
+
+			expect(interactiveModeKeyHandlers.selectAgentViewFromBridge.call(fixture.fakeThis, "main")).toBe(true);
 
 			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
 			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
