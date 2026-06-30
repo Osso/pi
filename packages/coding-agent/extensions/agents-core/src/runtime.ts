@@ -133,6 +133,7 @@ type ResolvedAgentProfile = {
 };
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
@@ -815,7 +816,7 @@ async function waitAgent(
 
 	const dispatch = dispatches.get(initialAgent.id);
 	if (dispatch && isActiveLifecycle(initialAgent.lifecycle)) {
-		const aborted = await waitForDispatch(dispatch, signal);
+		const aborted = await waitForDispatch(store, initialAgent.id, dispatch, signal);
 		if (aborted) {
 			const agent = store.getAgent(params.agentId) ?? initialAgent;
 			return errorResult(`Wait cancelled for ${agent.displayName}.`, createWaitAgentDetails(store, agent, params));
@@ -844,24 +845,46 @@ function createWaitAgentDetails(
 	return details;
 }
 
-async function waitForDispatch(dispatch: Promise<AgentSnapshot>, signal: AbortSignal | undefined): Promise<boolean> {
-	if (!signal) {
-		await dispatch;
-		return false;
-	}
-	if (signal.aborted) {
+async function waitForDispatch(
+	store: MultiAgentStore,
+	agentId: string,
+	dispatch: Promise<AgentSnapshot>,
+	signal: AbortSignal | undefined,
+): Promise<boolean> {
+	if (signal?.aborted) {
 		return true;
 	}
 
 	return new Promise((resolve) => {
-		const onAbort = () => {
-			resolve(true);
+		let settled = false;
+		let pollTimer: ReturnType<typeof setTimeout> | undefined;
+		const finish = (aborted: boolean) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			if (pollTimer) {
+				clearTimeout(pollTimer);
+			}
+			signal?.removeEventListener("abort", onAbort);
+			resolve(aborted);
 		};
-		signal.addEventListener("abort", onAbort, { once: true });
+		const onAbort = () => {
+			finish(true);
+		};
+		const pollStoreState = () => {
+			const agent = store.getAgent(agentId);
+			if (agent && !isActiveLifecycle(agent.lifecycle)) {
+				finish(false);
+				return;
+			}
+			pollTimer = setTimeout(pollStoreState, WAIT_AGENT_POLL_INTERVAL_MS);
+		};
+		signal?.addEventListener("abort", onAbort, { once: true });
 		void dispatch.finally(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve(false);
+			finish(false);
 		});
+		pollStoreState();
 	});
 }
 

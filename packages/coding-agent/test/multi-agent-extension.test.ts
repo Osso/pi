@@ -116,11 +116,12 @@ function createMultiAgentHarness(
 		createChildSession?: ChildAgentSessionFactory;
 		ctx?: Partial<ExtensionContext>;
 		dispatcher?: ChildAgentDispatcher;
+		store?: MultiAgentStore;
 	} = {},
 ) {
 	const commands = new Map<string, RegisteredCommand>();
 	const tools = new Map<string, RegisteredTool>();
-	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+	const store = options.store ?? new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
 		registerCommand(name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) {
 			commands.set(name, { ...command, name, sourceInfo: commandSourceInfo });
@@ -976,6 +977,40 @@ describe("multi-agent extension tools", () => {
 		expect(didResolveBeforeDispatch).toBe(false);
 		expect(waited.details).toMatchObject({
 			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
+			terminal: true,
+		});
+	});
+
+	it("wait_agent returns terminal store state even when a tracked dispatch is still settling", async () => {
+		const dispatchGate = deferred<void>();
+		const terminalGate = deferred<void>();
+		const terminalState = deferred<void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
+			await terminalGate.promise;
+			store.transitionAgent(agent.id, agent.revision, "completed", { result: { summary: "done" } });
+			terminalState.resolve(undefined);
+			await dispatchGate.promise;
+			return { lifecycle: "completed", result: { summary: "late" } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher, store });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Implement auth tests",
+		});
+
+		const waitPromise = harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+		const didResolveBeforeTerminal = await resolvesWithin(waitPromise, 20);
+		terminalGate.resolve(undefined);
+		await terminalState.promise;
+		const didResolveAfterTerminal = await resolvesWithin(waitPromise, 100);
+		dispatchGate.resolve(undefined);
+		const waited = await waitPromise;
+
+		expect(didResolveBeforeTerminal).toBe(false);
+		expect(didResolveAfterTerminal).toBe(true);
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "completed", result: { summary: "done" } },
 			terminal: true,
 		});
 	});
