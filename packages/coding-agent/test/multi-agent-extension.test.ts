@@ -1128,6 +1128,49 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("resolves explore agent child sessions from agent profile settings", async () => {
+		const parentHarness = await createHarness({
+			models: [
+				{ id: "parent-model", reasoning: true },
+				{ id: "explore-model", reasoning: true },
+			],
+			settings: {
+				agents: {
+					explore: { model: "faux/explore-model", thinkingLevel: "low" },
+				},
+			},
+		});
+		childHarnesses.push(parentHarness);
+		let sessionOptions: CreateAgentSessionOptions | undefined;
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel("parent-model"),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+				settingsManager: parentHarness.settingsManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					sessionOptions = options;
+					const childHarness = await createHarness();
+					childHarnesses.push(childHarness);
+					childHarness.setResponses([fauxAssistantMessage("explore child done")]);
+					return { session: childHarness.session };
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "explore",
+			prompt: "Map the codebase",
+		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(sessionOptions?.model).toMatchObject({ provider: "faux", id: "explore-model" });
+		expect(sessionOptions?.thinkingLevel).toBe("low");
+	});
+
 	it("uses the parent session directory for production child sessions by default", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);

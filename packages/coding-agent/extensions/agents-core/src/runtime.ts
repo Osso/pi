@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
 	type AgentToolResult,
@@ -22,6 +22,7 @@ import {
 	type SendMailboxMessageInput,
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
+import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 
 const checkpointSchema = Type.Union([
@@ -122,6 +123,16 @@ type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
 type AgentsMailboxParams = Static<typeof agentsMailboxSchema>;
 type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
 type AgentArtifactsParams = Static<typeof agentArtifactsSchema>;
+
+type ChildSessionModel = CreateAgentSessionOptions["model"];
+
+type ResolvedAgentProfile = {
+	model?: ChildSessionModel;
+	modelMetadata?: AgentSnapshot["model"];
+	thinkingLevel?: ThinkingLevel;
+};
+
+const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
@@ -379,16 +390,44 @@ export function createProductionChildAgentSessionFactory(
 		const parentSession = ctx.sessionManager.getSessionFile() ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
 		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, { parentSession });
+		const profile = resolveChildAgentProfile(agent, ctx);
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			model: ctx.model,
+			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
 			sessionManager,
+			thinkingLevel: profile.thinkingLevel,
 		});
 
 		return result.session;
 	};
+}
+
+function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): ResolvedAgentProfile {
+	const configuredModel = agent.model ? ctx.modelRegistry.find(agent.model.providerId, agent.model.modelId) : undefined;
+	return {
+		model: configuredModel,
+		thinkingLevel: toThinkingLevel(agent.model?.thinkingLevel),
+	};
+}
+
+function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext): ResolvedAgentProfile {
+	const profile = ctx.settingsManager?.getAgentProfile(agentType);
+	if (!profile) {
+		return {};
+	}
+
+	const model = profile.model ? findExactModelReferenceMatch(profile.model, ctx.modelRegistry.getAll()) : undefined;
+	return {
+		model,
+		modelMetadata: model ? { providerId: model.provider, modelId: model.id, thinkingLevel: profile.thinkingLevel } : undefined,
+		thinkingLevel: profile.thinkingLevel,
+	};
+}
+
+function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
+	return value && THINKING_LEVELS.has(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
 }
 
 export function createMultiAgentWorkflowOperations(store: MultiAgentStore): MultiAgentWorkflowOperations {
@@ -469,11 +508,13 @@ async function spawnAgent(
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
+	const profile = resolveConfiguredAgentProfile(agentType, ctx);
 	const spawned = store.spawnAgent({
 		agentType,
 		cwd: ctx.cwd,
 		displayName,
 		lifecycle: params.lifecycle,
+		model: profile.modelMetadata,
 		parentId: params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
@@ -1013,6 +1054,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "spawn_agent",
 			label: "Spawn Agent",
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
+			promptGuidelines: [
+				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
+			],
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>

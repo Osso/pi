@@ -37,6 +37,9 @@ and do not mutate agent lifecycle by themselves.
 `createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
 for higher-level workflow extensions without giving them a separate runtime state store.
 `spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
+Production child sessions also resolve agent-type profiles from settings. The built-in `explore`
+profile targets `openai/gpt-5-mini` with low thinking, and user settings can override it with
+`agents.<type>.model` and `agents.<type>.thinkingLevel`.
 
 Existing primitives worth reusing:
 
@@ -76,8 +79,9 @@ rejected, and delivered states. Children consume steering only at safe checkpoin
 model call, after a tool result, or while waiting for input.
 
 Accounts own resource policy only: model/account choice, provider fallback, token budgets,
-concurrency caps, and rate limits. Accounts do not own mailbox state, workflow state, or UI
-selection state. `MultiAgentStore` copies account metadata through a whitelist so snapshots cannot
+concurrency caps, and rate limits. Agent-type profiles are a lightweight local policy for selecting
+child session model/thinking defaults before account-level resource controls grow richer. Accounts do
+not own mailbox state, workflow state, or UI selection state. `MultiAgentStore` copies account metadata through a whitelist so snapshots cannot
 smuggle mailbox messages, workflow state, or selected-agent UI state into account records.
 
 Workflow extensions compile into core operations: spawn, message, wait, cancel, and artifact reads.

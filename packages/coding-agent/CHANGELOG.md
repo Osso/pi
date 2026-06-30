@@ -13,6 +13,7 @@
 - Added `pi.restart(...)` to Hostrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
+- Added agent-type profile settings for child agents, including a built-in `explore` profile using `openai/gpt-5-mini` with low thinking.
 
 ### Changed
 
@@ -21,6 +22,7 @@
 
 ### Fixed
 
+- Fixed prompt history persistence to use the shared control SQLite database so concurrent Pi sessions append entries instead of overwriting each other.
 - Fixed `Alt+1` through `Alt+9` agent slot switching to work while non-editor UI components have focus.
 - Fixed `--session` and `SessionManager.open()` to reject non-empty invalid session files without overwriting them ([#6002](https://github.com/earendil-works/pi/issues/6002)).
 - Fixed user-message transcript rendering to keep visible backslashes in Markdown escape sequences such as `\"` ([#6105](https://github.com/earendil-works/pi/issues/6105)).

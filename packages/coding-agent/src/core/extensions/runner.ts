@@ -11,6 +11,7 @@ import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
+import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import type {
 	ApprovalReviewerResult,
@@ -273,6 +274,7 @@ export class ExtensionRunner {
 	private cwd: string;
 	private sessionManager: SessionManager;
 	private modelRegistry: ModelRegistry;
+	private settingsManager: SettingsManager | undefined;
 	private errorListeners: Set<ExtensionErrorListener> = new Set();
 	private getModel: () => Model<any> | undefined = () => undefined;
 	private isIdleFn: () => boolean = () => true;
@@ -305,6 +307,7 @@ export class ExtensionRunner {
 		cwd: string,
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
+		settingsManager?: SettingsManager,
 	) {
 		this.extensions = extensions;
 		this.runtime = runtime;
@@ -312,6 +315,7 @@ export class ExtensionRunner {
 		this.cwd = cwd;
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
+		this.settingsManager = settingsManager;
 	}
 
 	bindCore(
@@ -667,6 +671,10 @@ export class ExtensionRunner {
 			get modelRegistry() {
 				runner.assertActive();
 				return runner.modelRegistry;
+			},
+			get settingsManager() {
+				runner.assertActive();
+				return runner.settingsManager;
 			},
 			get model() {
 				runner.assertActive();

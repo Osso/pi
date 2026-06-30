@@ -67,6 +67,13 @@ export interface WarningSettings {
 	anthropicExtraUsage?: boolean; // default: true
 }
 
+export type AgentProfileThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export interface AgentProfileSettings {
+	model?: string;
+	thinkingLevel?: AgentProfileThinkingLevel;
+}
+
 export interface PermissionRulesSettings {
 	allow?: Record<string, string[]>;
 }
@@ -131,6 +138,7 @@ export interface Settings {
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
+	agents?: Record<string, AgentProfileSettings>; // Per-agent-type defaults for child agent sessions
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
@@ -185,6 +193,10 @@ function parseTimeoutSetting(value: unknown, settingName: string): number | unde
 }
 
 export type SettingsScope = "global" | "project";
+
+const DEFAULT_AGENT_PROFILES: Record<string, AgentProfileSettings> = {
+	explore: { model: "openai/gpt-5-mini", thinkingLevel: "low" },
+};
 
 export interface SettingsManagerCreateOptions {
 	projectTrusted?: boolean;
@@ -463,6 +475,16 @@ export class SettingsManager {
 
 	getMergedSettings(): Settings {
 		return structuredClone(this.settings);
+	}
+
+	getAgentProfile(agentType: string): AgentProfileSettings | undefined {
+		const normalizedAgentType = agentType.trim();
+		if (!normalizedAgentType) {
+			return undefined;
+		}
+		return structuredClone(
+			this.settings.agents?.[normalizedAgentType] ?? DEFAULT_AGENT_PROFILES[normalizedAgentType],
+		);
 	}
 
 	getPermissionPromptTool(): string | undefined {

@@ -111,6 +111,28 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("agent profiles", () => {
+		it("returns the built-in explore profile when not configured", () => {
+			const settingsManager = SettingsManager.inMemory();
+
+			expect(settingsManager.getAgentProfile("explore")).toEqual({
+				model: "openai/gpt-5-mini",
+				thinkingLevel: "low",
+			});
+		});
+
+		it("lets configured profiles override built-in agent profiles", () => {
+			const settingsManager = SettingsManager.inMemory({
+				agents: { explore: { model: "faux/explore-model", thinkingLevel: "minimal" } },
+			});
+
+			expect(settingsManager.getAgentProfile("explore")).toEqual({
+				model: "faux/explore-model",
+				thinkingLevel: "minimal",
+			});
+		});
+	});
+
 	describe("permission prompt tool", () => {
 		it("loads permissionPromptTool from settings with project overriding global", () => {
 			const storage = new InMemorySettingsStorage();
