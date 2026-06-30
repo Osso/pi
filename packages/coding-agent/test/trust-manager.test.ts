@@ -68,6 +68,12 @@ describe("ProjectTrustStore", () => {
 			rmSync(join(cwd, ".codex"), { recursive: true, force: true });
 			mkdirSync(join(cwd, ".claude", "skills"), { recursive: true });
 			expect(hasTrustRequiringProjectResources(cwd)).toBe(true);
+
+			const workspace = join(tempDir, "workspace");
+			const nestedProject = join(workspace, "repo", "package");
+			mkdirSync(nestedProject, { recursive: true });
+			mkdirSync(join(workspace, ".codex", "skills"), { recursive: true });
+			expect(hasTrustRequiringProjectResources(nestedProject)).toBe(true);
 		} finally {
 			if (originalHome === undefined) {
 				delete process.env.HOME;

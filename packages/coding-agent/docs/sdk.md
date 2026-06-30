@@ -346,7 +346,8 @@ const { session } = await createAgentSession({
 - Project extensions (`.pi/extensions/`)
 - Project skills:
   - `.pi/skills/`
-  - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
+  - `.agents/skills/` in `cwd` and ancestor directories
+  - `.codex/skills/` and `.claude/skills/` in `cwd` and ancestor directories
 - Project prompts (`.pi/prompts/`)
 - Context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` walking up from cwd)
 - Session directory naming

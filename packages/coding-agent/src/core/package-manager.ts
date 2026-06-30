@@ -423,31 +423,12 @@ function collectAutoSkillEntries(dir: string, mode: SkillDiscoveryMode): string[
 	return collectSkillEntries(dir, mode);
 }
 
-function findGitRepoRoot(startDir: string): string | null {
-	let dir = resolve(startDir);
-	while (true) {
-		if (existsSync(join(dir, ".git"))) {
-			return dir;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) {
-			return null;
-		}
-		dir = parent;
-	}
-}
-
 function collectAncestorAgentsSkillDirs(startDir: string): string[] {
 	const skillDirs: string[] = [];
-	const resolvedStartDir = resolve(startDir);
-	const gitRepoRoot = findGitRepoRoot(resolvedStartDir);
+	let dir = resolve(startDir);
 
-	let dir = resolvedStartDir;
 	while (true) {
 		skillDirs.push(join(dir, ".agents", "skills"));
-		if (gitRepoRoot && dir === gitRepoRoot) {
-			break;
-		}
 		const parent = dirname(dir);
 		if (parent === dir) {
 			break;
@@ -458,10 +439,21 @@ function collectAncestorAgentsSkillDirs(startDir: string): string[] {
 	return skillDirs;
 }
 
-function collectRepoLocalToolSkillDirs(startDir: string): string[] {
-	const repoRoot = findGitRepoRoot(startDir);
-	if (!repoRoot) return [];
-	return [join(repoRoot, ".codex", "skills"), join(repoRoot, ".claude", "skills")];
+function collectAncestorToolSkillDirs(startDir: string): string[] {
+	const skillDirs: string[] = [];
+	let dir = resolve(startDir);
+
+	while (true) {
+		skillDirs.push(join(dir, ".codex", "skills"));
+		skillDirs.push(join(dir, ".claude", "skills"));
+		const parent = dirname(dir);
+		if (parent === dir) {
+			break;
+		}
+		dir = parent;
+	}
+
+	return skillDirs;
 }
 
 function collectAutoPromptEntries(dir: string): string[] {
@@ -2289,12 +2281,19 @@ export class DefaultPackageManager implements PackageManager {
 			prompts: join(projectBaseDir, "prompts"),
 			themes: join(projectBaseDir, "themes"),
 		};
-		const userAgentsSkillsDir = join(getHomeDir(), ".agents", "skills");
+		const homeDir = getHomeDir();
+		const userAgentsSkillsDir = join(homeDir, ".agents", "skills");
+		const userToolSkillDirs = new Set([
+			resolve(join(homeDir, ".codex", "skills")),
+			resolve(join(homeDir, ".claude", "skills")),
+		]);
 		const projectTrusted = this.settingsManager.isProjectTrusted();
 		const projectAgentsSkillDirs = projectTrusted
 			? collectAncestorAgentsSkillDirs(this.cwd).filter((dir) => resolve(dir) !== resolve(userAgentsSkillsDir))
 			: [];
-		const projectToolSkillDirs = projectTrusted ? collectRepoLocalToolSkillDirs(this.cwd) : [];
+		const projectToolSkillDirs = projectTrusted
+			? collectAncestorToolSkillDirs(this.cwd).filter((dir) => !userToolSkillDirs.has(resolve(dir)))
+			: [];
 
 		const addResources = (
 			resourceType: ResourceType,
@@ -2346,7 +2345,7 @@ export class DefaultPackageManager implements PackageManager {
 			);
 		}
 
-		// Project skills from repo-local Codex and Claude skill directories.
+		// Project skills from Codex and Claude skill directories in cwd and ancestor directories.
 		for (const toolSkillsDir of projectToolSkillDirs) {
 			const toolBaseDir = dirname(toolSkillsDir);
 			const toolMetadata: PathMetadata = {

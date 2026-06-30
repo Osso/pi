@@ -28,8 +28,8 @@ Pi loads skills from:
   - `~/.agents/skills/`
 - Project (only after the project is trusted):
   - `.pi/skills/`
-  - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
-  - `.codex/skills/` and `.claude/skills/` at the git repo root
+  - `.agents/skills/` in `cwd` and ancestor directories
+  - `.codex/skills/` and `.claude/skills/` in `cwd` and ancestor directories
 - Packages: `skills/` directories or `pi.skills` entries in `package.json`
 - Settings: `skills` array with files or directories
 - CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)

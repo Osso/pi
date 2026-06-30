@@ -386,7 +386,7 @@ Content`,
 	});
 
 	describe(".agents/skills auto-discovery", () => {
-		it("should scan .agents/skills from cwd up to git repo root", async () => {
+		it("should scan .agents/skills from cwd through ancestor directories above the git repo root", async () => {
 			const repoRoot = join(tempDir, "repo");
 			const nestedCwd = join(repoRoot, "packages", "feature");
 			mkdirSync(nestedCwd, { recursive: true });
@@ -411,9 +411,9 @@ Content`,
 			});
 
 			const result = await pm.resolve();
+			expect(result.skills.some((r) => r.path === aboveRepoSkill && r.enabled)).toBe(true);
 			expect(result.skills.some((r) => r.path === repoRootSkill && r.enabled)).toBe(true);
 			expect(result.skills.some((r) => r.path === nestedSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === aboveRepoSkill)).toBe(false);
 		});
 
 		it("should scan .agents/skills up to filesystem root when not in a git repo", async () => {
@@ -440,14 +440,14 @@ Content`,
 			expect(result.skills.some((r) => r.path === middleSkill && r.enabled)).toBe(true);
 		});
 
-		it("should scan repo-local .codex/skills and .claude/skills", async () => {
+		it("should scan .codex/skills and .claude/skills from ancestor directories", async () => {
 			const repoRoot = join(tempDir, "repo");
 			const nestedCwd = join(repoRoot, "packages", "feature");
 			mkdirSync(nestedCwd, { recursive: true });
 			mkdirSync(join(repoRoot, ".git"), { recursive: true });
 
-			const codexSkill = join(repoRoot, ".codex", "skills", "codex-skill", "SKILL.md");
-			mkdirSync(join(repoRoot, ".codex", "skills", "codex-skill"), { recursive: true });
+			const codexSkill = join(tempDir, ".codex", "skills", "codex-skill", "SKILL.md");
+			mkdirSync(join(tempDir, ".codex", "skills", "codex-skill"), { recursive: true });
 			writeFileSync(codexSkill, "---\nname: codex-skill\ndescription: codex\n---\n");
 
 			const claudeSkill = join(repoRoot, ".claude", "skills", "claude-skill", "SKILL.md");
@@ -493,22 +493,6 @@ Content`,
 				cwd: repoRoot,
 				agentDir,
 				settingsManager: SettingsManager.inMemory({}, { projectTrusted: false }),
-			});
-
-			const result = await pm.resolve();
-			expect(result.skills.some((r) => r.path === codexSkill)).toBe(false);
-		});
-
-		it("should not scan .codex/skills or .claude/skills outside a git repo", async () => {
-			const cwd = join(tempDir, "scratch");
-			mkdirSync(join(cwd, ".codex", "skills", "codex-skill"), { recursive: true });
-			const codexSkill = join(cwd, ".codex", "skills", "codex-skill", "SKILL.md");
-			writeFileSync(codexSkill, "---\nname: codex-skill\ndescription: codex\n---\n");
-
-			const pm = new DefaultPackageManager({
-				cwd,
-				agentDir,
-				settingsManager,
 			});
 
 			const result = await pm.resolve();
