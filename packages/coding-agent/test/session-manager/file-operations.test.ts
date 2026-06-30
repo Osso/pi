@@ -248,39 +248,39 @@ describe("SessionManager custom flat session directory", () => {
 		expect(continuedA.getSessionFile()).toBe(sessionA);
 	});
 
-	it("falls back to file scanning when sqlite metadata paths are incomplete", async () => {
+	it("lists from sqlite metadata even when metadata paths do not match session files", async () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const sessionA = createPersistedSession(projectA, "from A");
-		await new Promise((resolve) => setTimeout(resolve, 10));
-		const sessionB = createPersistedSession(projectA, "from B");
+		createPersistedSession(projectA, "from B");
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: sessionA,
-			id: "stale-a",
+			id: "metadata-a",
 			cwd: projectA,
 			name: undefined,
 			parentSessionPath: undefined,
 			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:00:00.000Z",
 			messageCount: 1,
-			firstMessage: "stale A",
-			allMessagesText: "stale A",
+			firstMessage: "metadata A",
+			allMessagesText: "metadata A",
 		});
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: join(tempDir, "missing.jsonl"),
-			id: "stale-missing",
+			id: "metadata-missing",
 			cwd: projectA,
 			name: undefined,
 			parentSessionPath: undefined,
 			createdAt: "2026-01-02T00:00:00.000Z",
 			modifiedAt: "2026-01-02T00:00:00.000Z",
 			messageCount: 1,
-			firstMessage: "stale missing",
-			allMessagesText: "stale missing",
+			firstMessage: "metadata missing",
+			allMessagesText: "metadata missing",
 		});
 
 		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
 
-		expect(new Set(currentA.map((entry) => entry.path))).toEqual(new Set([sessionA, sessionB]));
+		expect(currentA.map((entry) => entry.path)).toEqual([join(tempDir, "missing.jsonl"), sessionA]);
+		expect(currentA.map((entry) => entry.firstMessage)).toEqual(["metadata missing", "metadata A"]);
 	});
 
 	it("preserves persisted subagent metadata when a session is reopened with sqlite metadata", () => {

@@ -841,34 +841,6 @@ function excludeKnownSubagentSessions(controlDbPath: string | undefined, session
 	return sessions.filter((session) => !subagentSessionPaths.has(normalizePath(session.path)));
 }
 
-async function listSessionFilePathsInDir(dir: string): Promise<string[]> {
-	if (!existsSync(dir)) return [];
-	try {
-		const entries = await readdir(dir);
-		return entries.filter((entry) => entry.endsWith(".jsonl")).map((entry) => join(dir, entry));
-	} catch {
-		return [];
-	}
-}
-
-async function listSessionFilePathsInSessionRoot(sessionsDir: string): Promise<string[]> {
-	if (!existsSync(sessionsDir)) return [];
-	try {
-		const entries = await readdir(sessionsDir, { withFileTypes: true });
-		const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => join(sessionsDir, entry.name));
-		const pathsByDir = await Promise.all(dirs.map(listSessionFilePathsInDir));
-		return pathsByDir.flat();
-	} catch {
-		return [];
-	}
-}
-
-function metadataPathsMatchFiles(metadataSessions: SessionMetadata[], sessionFilePaths: string[]): boolean {
-	if (metadataSessions.length === 0 || metadataSessions.length !== sessionFilePaths.length) return false;
-	const metadataPaths = new Set(metadataSessions.map((session) => normalizePath(session.sessionPath)));
-	return sessionFilePaths.every((sessionFilePath) => metadataPaths.has(normalizePath(sessionFilePath)));
-}
-
 function cacheSessionMetadata(controlDbPath: string | undefined, sessions: SessionInfo[]): void {
 	if (!controlDbPath) return;
 	for (const session of sessions) {
@@ -887,19 +859,15 @@ function cacheSessionMetadata(controlDbPath: string | undefined, sessions: Sessi
 	}
 }
 
-async function listCompleteMetadataSessions(
+function listMetadataSessions(
 	controlDbPath: string | undefined,
-	options: { cwd?: string; dir?: string; sessionsRoot?: string },
-): Promise<SessionInfo[] | undefined> {
+	options: { cwd?: string; dir?: string },
+): SessionInfo[] | undefined {
 	if (!controlDbPath) return undefined;
 
 	const metadataSessions = listScopedSessionMetadata(controlDbPath, { cwd: options.cwd, dir: options.dir });
-	const sessionFilePaths = options.sessionsRoot
-		? await listSessionFilePathsInSessionRoot(options.sessionsRoot)
-		: await listSessionFilePathsInDir(options.dir ?? "");
-	return metadataPathsMatchFiles(metadataSessions, sessionFilePaths)
-		? listResumeSessionsFromMetadata(metadataSessions)
-		: undefined;
+	const resumeSessions = listResumeSessionsFromMetadata(metadataSessions);
+	return resumeSessions.length > 0 ? resumeSessions : undefined;
 }
 
 async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {
@@ -1812,7 +1780,7 @@ export class SessionManager {
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
-		const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { cwd, dir });
+		const metadataSessions = listMetadataSessions(controlDbPath, { cwd, dir });
 		if (metadataSessions) return metadataSessions;
 
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
@@ -1845,7 +1813,7 @@ export class SessionManager {
 			typeof sessionDirOrOnProgress === "string" ? normalizePath(sessionDirOrOnProgress) : undefined;
 		const progress = typeof sessionDirOrOnProgress === "function" ? sessionDirOrOnProgress : onProgress;
 		if (customSessionDir) {
-			const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { dir: customSessionDir });
+			const metadataSessions = listMetadataSessions(controlDbPath, { dir: customSessionDir });
 			if (metadataSessions) return metadataSessions;
 			const sessions = await listSessionsFromDir(customSessionDir, progress);
 			cacheSessionMetadata(controlDbPath, sessions);
@@ -1854,8 +1822,7 @@ export class SessionManager {
 			return resumeSessions;
 		}
 
-		const sessionsRoot = getSessionsDir();
-		const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { sessionsRoot });
+		const metadataSessions = listMetadataSessions(controlDbPath, {});
 		if (metadataSessions) return metadataSessions;
 
 		const sessions = await listDefaultSessionRoot(progress);
