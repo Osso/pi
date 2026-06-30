@@ -279,10 +279,10 @@ describe("session selector path/delete interactions", () => {
 
 		const output = stripAnsi(selector.render(120).join("\n"));
 		expect(output).toContain("Parent");
-		expect(output).toContain("└─ Child");
+		expect(output).toContain("Child");
 	});
 
-	it("sorts threaded sessions by latest activity in their subtree", async () => {
+	it("sorts sessions by latest direct activity", async () => {
 		const parentOne = makeSession({
 			id: "parent-one",
 			name: "Parent one",
@@ -313,12 +313,12 @@ describe("session selector path/delete interactions", () => {
 
 		const output = stripAnsi(selector.render(120).join("\n"));
 		const parentTwoIndex = output.indexOf("Parent two");
-		const childTwoIndex = output.indexOf("└─ Child two");
+		const childTwoIndex = output.indexOf("Child two");
 		const parentOneIndex = output.indexOf("Parent one");
 
-		expect(parentTwoIndex).toBeGreaterThanOrEqual(0);
+		expect(parentOneIndex).toBeGreaterThanOrEqual(0);
+		expect(parentTwoIndex).toBeGreaterThan(parentOneIndex);
 		expect(childTwoIndex).toBeGreaterThan(parentTwoIndex);
-		expect(parentOneIndex).toBeGreaterThan(childTwoIndex);
 	});
 
 	it("treats the current session as active across symlink aliases", async () => {
