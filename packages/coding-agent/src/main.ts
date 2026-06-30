@@ -548,49 +548,53 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 }
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
-const firstPartyChildAgentSessionFactory = createProductionChildAgentSessionFactory({
-	agentDir: getAgentDir(),
-	createSession: createAgentSession,
-	createSessionManager: SessionManager.create,
-});
-const firstPartyHostrunAgentHandler = createHostrunMultiAgentRequestHandler({
-	createChildSession: firstPartyChildAgentSessionFactory,
-	store: firstPartyMultiAgentStore,
-});
 
-const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
-	firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
-	firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
-	firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
-	firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
-	firstPartyExtensionFactory("codex-usage", codexUsageExtension),
-	firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
-	firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
-	firstPartyExtensionFactory("agents-core", (pi) =>
-		agentsCoreExtension(pi, {
-			createChildSession: firstPartyChildAgentSessionFactory,
-			store: firstPartyMultiAgentStore,
-		}),
-	),
-	firstPartyExtensionFactory("agent-viewer", (pi) => agentViewerExtension(pi, { store: firstPartyMultiAgentStore })),
-	firstPartyExtensionFactory("agents-mailbox", (pi) =>
-		agentsMailboxExtension(pi, { store: firstPartyMultiAgentStore }),
-	),
-	firstPartyExtensionFactory("default-footer", (pi) =>
-		defaultFooterExtension(pi, { multiAgentStore: firstPartyMultiAgentStore }),
-	),
-	firstPartyExtensionFactory("goal", goalExtension),
-	firstPartyExtensionFactory("hostrun", (pi) =>
-		hostrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
-	),
-	firstPartyExtensionFactory("pyrun", (pi) =>
-		pyrunExtension(pi, { piRequestHandlers: [firstPartyHostrunAgentHandler] }),
-	),
-	firstPartyExtensionFactory("loop", loopExtension),
-	firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
-	firstPartyExtensionFactory("run-plan", runPlanExtension),
-	firstPartyExtensionFactory("self-restart", selfRestartExtension),
-];
+function createFirstPartyExtensionFactories(
+	getRuntimeExtensionFactories: () => ExtensionFactory[],
+): ExtensionFactory[] {
+	const childAgentSessionFactory = createProductionChildAgentSessionFactory({
+		agentDir: getAgentDir(),
+		createSession: createAgentSession,
+		createSessionManager: SessionManager.create,
+		extensionFactories: getRuntimeExtensionFactories,
+	});
+	const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
+		createChildSession: childAgentSessionFactory,
+		store: firstPartyMultiAgentStore,
+	});
+
+	return [
+		firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
+		firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
+		firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
+		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
+		firstPartyExtensionFactory("codex-usage", codexUsageExtension),
+		firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
+		firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
+		firstPartyExtensionFactory("agents-core", (pi) =>
+			agentsCoreExtension(pi, {
+				createChildSession: childAgentSessionFactory,
+				store: firstPartyMultiAgentStore,
+			}),
+		),
+		firstPartyExtensionFactory("agent-viewer", (pi) =>
+			agentViewerExtension(pi, { store: firstPartyMultiAgentStore }),
+		),
+		firstPartyExtensionFactory("agents-mailbox", (pi) =>
+			agentsMailboxExtension(pi, { store: firstPartyMultiAgentStore }),
+		),
+		firstPartyExtensionFactory("default-footer", (pi) =>
+			defaultFooterExtension(pi, { multiAgentStore: firstPartyMultiAgentStore }),
+		),
+		firstPartyExtensionFactory("goal", goalExtension),
+		firstPartyExtensionFactory("hostrun", (pi) => hostrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
+		firstPartyExtensionFactory("pyrun", (pi) => pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
+		firstPartyExtensionFactory("loop", loopExtension),
+		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
+		firstPartyExtensionFactory("run-plan", runPlanExtension),
+		firstPartyExtensionFactory("self-restart", selfRestartExtension),
+	];
+}
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
@@ -637,9 +641,11 @@ export async function main(args: string[], options?: MainOptions) {
 
 	const parsed = parseArgs(args);
 	applySelfRestartRequest(parsed);
-	const extensionFactories = parsed.noExtensions
+	let extensionFactories: ExtensionFactory[] = [];
+	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(() => extensionFactories);
+	extensionFactories = parsed.noExtensions
 		? (options?.extensionFactories ?? [])
-		: [...FIRST_PARTY_EXTENSION_FACTORIES, ...(options?.extensionFactories ?? [])];
+		: [...firstPartyExtensionFactories, ...(options?.extensionFactories ?? [])];
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {
 			const color = d.type === "error" ? chalk.red : chalk.yellow;

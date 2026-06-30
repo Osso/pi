@@ -4,6 +4,7 @@ import {
 	type AgentToolResult,
 	defineTool,
 	type ExtensionAPI,
+	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
@@ -174,7 +175,8 @@ export interface ProductionChildAgentSessionFactoryOptions {
 		cwd: string,
 		sessionDir: string | undefined,
 		options: { parentSession: string; isSubagent?: boolean; subagentName?: string },
-	) => CreateAgentSessionOptions["sessionManager"];
+	) => NonNullable<CreateAgentSessionOptions["sessionManager"]>;
+	extensionFactories?: ExtensionFactory[] | (() => ExtensionFactory[]);
 	sessionDir?: string;
 }
 
@@ -397,6 +399,12 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs or wait_agent to inspect it.`, "info");
 }
 
+function resolveChildExtensionFactories(
+	extensionFactories: ProductionChildAgentSessionFactoryOptions["extensionFactories"],
+): ExtensionFactory[] | undefined {
+	return typeof extensionFactories === "function" ? extensionFactories() : extensionFactories;
+}
+
 function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void {
 	const agents = store.listAgents().filter((agent) => agent.agentType === "background");
 	if (agents.length === 0) {
@@ -411,7 +419,8 @@ export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
 	return async ({ agent, ctx }) => {
-		const parentSession = ctx.sessionManager.getSessionFile() ?? ctx.sessionManager.getSessionId();
+		const parentSessionFile = ctx.sessionManager.getSessionFile();
+		const parentSession = parentSessionFile ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
 		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, {
 			parentSession,
@@ -419,12 +428,17 @@ export function createProductionChildAgentSessionFactory(
 			subagentName: agent.displayName,
 		});
 		const profile = resolveChildAgentProfile(agent, ctx);
+		const sessionStartEvent = parentSessionFile
+			? { type: "session_start" as const, reason: "fork" as const, previousSessionFile: parentSessionFile }
+			: { type: "session_start" as const, reason: "fork" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
+			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
 			sessionManager,
+			sessionStartEvent,
 			thinkingLevel: profile.thinkingLevel,
 		});
 

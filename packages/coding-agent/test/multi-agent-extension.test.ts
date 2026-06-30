@@ -1,20 +1,27 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
+import goalExtension from "../extensions/goal/src/index.ts";
+import { ENV_AGENT_DIR } from "../src/config.ts";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
+	ExtensionFactory,
 	ExtensionUIContext,
 	RegisteredCommand,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
 import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import type { CreateAgentSessionOptions } from "../src/core/sdk.ts";
+import { type CreateAgentSessionOptions, createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import multiAgentExtension, {
 	type ChildAgentDispatcher,
@@ -22,6 +29,7 @@ import multiAgentExtension, {
 	createMultiAgentWorkflowOperations,
 	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
+import { main } from "../src/main.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
 
 function delay(ms: number): Promise<void> {
@@ -103,6 +111,8 @@ interface AgentArtifactsDetails extends Record<string, unknown> {
 type TestCommandContext = Omit<Partial<ExtensionCommandContext>, "ui"> & {
 	ui?: Partial<ExtensionUIContext>;
 };
+
+type TtyTarget = typeof process.stdin | typeof process.stdout;
 
 const commandSourceInfo = {
 	origin: "top-level",
@@ -242,6 +252,20 @@ function deferred<T>() {
 		resolve = promiseResolve;
 	});
 	return { promise, resolve };
+}
+
+function setIsTty(target: TtyTarget, value: boolean): PropertyDescriptor | undefined {
+	const original = Object.getOwnPropertyDescriptor(target, "isTTY");
+	Object.defineProperty(target, "isTTY", { configurable: true, value });
+	return original;
+}
+
+function restoreIsTty(target: TtyTarget, original: PropertyDescriptor | undefined): void {
+	if (original) {
+		Object.defineProperty(target, "isTTY", original);
+		return;
+	}
+	Reflect.deleteProperty(target, "isTTY");
 }
 
 describe("multi-agent extension tools", () => {
@@ -1147,6 +1171,7 @@ describe("multi-agent extension tools", () => {
 			parentSession: parentHarness.sessionManager.getSessionId(),
 		});
 		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(childSessionDir);
+		expect(sessionOptions?.sessionStartEvent).toEqual({ type: "session_start", reason: "fork" });
 
 		expect(childHarness).toBeDefined();
 		if (!childHarness) {
@@ -1161,6 +1186,114 @@ describe("multi-agent extension tools", () => {
 			agent: { id: spawned.details.agent.id, lifecycle: "completed", result: { summary: "factory child done" } },
 			terminal: true,
 		});
+	});
+
+	it("propagates custom main extension factories into production child sessions", async () => {
+		const tempDir = join(tmpdir(), `pi-main-child-factories-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const agentDir = join(tempDir, "agent");
+		const projectDir = join(tempDir, "project");
+		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(projectDir, { recursive: true });
+		const originalCwd = process.cwd();
+		const originalAgentDir = process.env[ENV_AGENT_DIR];
+		const originalStdinIsTty = setIsTty(process.stdin, true);
+		const originalStdoutIsTty = setIsTty(process.stdout, true);
+		const faux = registerFauxProvider();
+		const model = faux.getModel();
+		let customExtensionLoads = 0;
+		const customExtension: ExtensionFactory = (pi) => {
+			customExtensionLoads += 1;
+			pi.registerProvider(model.provider, {
+				api: faux.api,
+				apiKey: "faux-key",
+				baseUrl: model.baseUrl,
+				models: faux.models.map((registeredModel) => ({
+					api: registeredModel.api,
+					baseUrl: registeredModel.baseUrl,
+					contextWindow: registeredModel.contextWindow,
+					cost: registeredModel.cost,
+					id: registeredModel.id,
+					input: registeredModel.input,
+					maxTokens: registeredModel.maxTokens,
+					name: registeredModel.name,
+					reasoning: registeredModel.reasoning,
+				})),
+			});
+		};
+		faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Child", prompt: "child prompt" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("child done"),
+			fauxAssistantMessage("parent done"),
+		]);
+
+		try {
+			process.env[ENV_AGENT_DIR] = agentDir;
+			process.chdir(projectDir);
+			await main(["-p", "spawn a child", "--model", `${model.provider}/${model.id}`], {
+				extensionFactories: [customExtension],
+			});
+			for (let attempt = 0; attempt < 50 && customExtensionLoads < 2; attempt += 1) {
+				await delay(1);
+			}
+
+			expect(customExtensionLoads).toBe(2);
+		} finally {
+			faux.unregister();
+			restoreIsTty(process.stdin, originalStdinIsTty);
+			restoreIsTty(process.stdout, originalStdoutIsTty);
+			process.chdir(originalCwd);
+			if (originalAgentDir === undefined) {
+				delete process.env[ENV_AGENT_DIR];
+			} else {
+				process.env[ENV_AGENT_DIR] = originalAgentDir;
+			}
+			rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("loads goal tools into production child sessions without mutating the parent goal", async () => {
+		const parentHarness = await createHarness({ extensionFactories: [goalExtension] });
+		childHarnesses.push(parentHarness);
+		parentHarness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "parent objective", branch: "test", createdAt: "2026-01-01T00:00:00.000Z" }),
+		);
+		parentHarness.setResponses([
+			fauxAssistantMessage(fauxToolCall("set_goal", { objective: "child objective" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("child done"),
+		]);
+		let childSessionManager: SessionManager | undefined;
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				extensionFactories: [goalExtension],
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					const result = await createAgentSession({
+						...options,
+						authStorage: parentHarness.authStorage,
+					});
+					childSessionManager = result.session.sessionManager;
+					return { session: result.session };
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Set your own goal",
+		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		const parentGoal = JSON.parse(parentHarness.sessionManager.getSessionGoalJson() ?? "{}");
+		const childGoal = JSON.parse(childSessionManager?.getSessionGoalJson() ?? "{}");
+		expect(parentGoal.objective).toBe("parent objective");
+		expect(childGoal.objective).toBe("child objective");
 	});
 
 	it("resolves agent profile child sessions from settings", async () => {
