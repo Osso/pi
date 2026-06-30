@@ -305,7 +305,7 @@ describe("findCutPoint", () => {
 		expect(result.firstKeptEntryIndex).toBe(0);
 	});
 
-	it("should keep everything if all messages fit within budget", () => {
+	it("should retain the shorter protected suffix even when all messages fit the old budget", () => {
 		const entries: SessionEntry[] = [
 			createMessageEntry(createUserMessage("1")),
 			createMessageEntry(createAssistantMessage("a", createMockUsage(0, 50, 500, 0))),
@@ -314,7 +314,7 @@ describe("findCutPoint", () => {
 		];
 
 		const result = findCutPoint(entries, 0, entries.length, 50000);
-		expect(result.firstKeptEntryIndex).toBe(0);
+		expect(result.firstKeptEntryIndex).toBe(1);
 	});
 
 	it("should indicate split turn when cutting at assistant message", () => {
@@ -427,7 +427,7 @@ describe("buildSessionContext", () => {
 });
 
 describe("prepareCompaction with previous compaction", () => {
-	it("should skip repeated compactions when kept messages still fit", () => {
+	it("should prepare repeated compactions when the active suffix moves past previously kept messages", () => {
 		const u1 = createMessageEntry(createUserMessage("user msg 1 (summarized by compaction1)"));
 		const a1 = createMessageEntry(createAssistantMessage("assistant msg 1"));
 		const u2 = createMessageEntry(createUserMessage("user msg 2 - kept by compaction1"));
@@ -441,7 +441,9 @@ describe("prepareCompaction with previous compaction", () => {
 		const pathEntries = [u1, a1, u2, a2, u3, a3, compaction1, u4, a4];
 		const preparation = prepareCompaction(pathEntries, DEFAULT_COMPACTION_SETTINGS);
 
-		expect(preparation).toBeUndefined();
+		expect(preparation).toBeDefined();
+		expect(preparation?.previousSummary).toBe("First summary");
+		expect(extractText(preparation!.messagesToSummarize)).toContain("user msg 2 - kept by compaction1");
 	});
 
 	it("should re-summarize previously kept messages when the recent window moves past them", () => {

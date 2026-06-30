@@ -242,6 +242,8 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 // ============================================================================
 
 const ESTIMATED_IMAGE_CHARS = 4800;
+const MAX_PROTECTED_RECENT_CONTEXT_MESSAGES = 3;
+const MAX_PROTECTED_RECENT_CONTEXT_TOKENS = 10_000;
 
 function estimateTextAndImageContentChars(content: string | Array<{ type: string; text?: string }>): number {
 	if (typeof content === "string") {
@@ -303,6 +305,69 @@ export function estimateTokens(message: AgentMessage): number {
 	}
 
 	return 0;
+}
+
+function estimateEntryTokens(entry: SessionEntry): number | undefined {
+	const message = getMessageFromEntry(entry);
+	return message ? estimateTokens(message) : undefined;
+}
+
+function findContextMessageCountCutIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
+	let messageCount = 0;
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		if (estimateEntryTokens(entries[i]) === undefined) continue;
+		messageCount++;
+		if (messageCount === MAX_PROTECTED_RECENT_CONTEXT_MESSAGES) {
+			return i;
+		}
+	}
+	return startIndex;
+}
+
+function findTokenBoundedCutIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
+	let accumulatedTokens = 0;
+	let suffixStartIndex = startIndex;
+	let hasContextMessage = false;
+
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		const tokens = estimateEntryTokens(entries[i]);
+		if (tokens === undefined) continue;
+		if (hasContextMessage && accumulatedTokens + tokens > MAX_PROTECTED_RECENT_CONTEXT_TOKENS) {
+			break;
+		}
+		hasContextMessage = true;
+		accumulatedTokens += tokens;
+		suffixStartIndex = i;
+	}
+
+	return suffixStartIndex;
+}
+
+function findNearestCutPointAtOrAfter(cutPoints: number[], index: number): number {
+	for (const cutPoint of cutPoints) {
+		if (cutPoint >= index) return cutPoint;
+	}
+	return cutPoints[cutPoints.length - 1] ?? index;
+}
+
+function findProtectedSuffixStartIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		if (entries[i].type === "compaction") return i + 1;
+	}
+	return startIndex;
+}
+
+function findProtectedSuffixCutIndex(
+	entries: SessionEntry[],
+	startIndex: number,
+	endIndex: number,
+	cutPoints: number[],
+): number {
+	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
+	const messageCountCutIndex = findContextMessageCountCutIndex(entries, protectedStartIndex, endIndex);
+	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
+	const shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
 }
 
 /**
@@ -403,7 +468,7 @@ export function findCutPoint(
 	entries: SessionEntry[],
 	startIndex: number,
 	endIndex: number,
-	keepRecentTokens: number,
+	_keepRecentTokens: number,
 ): CutPointResult {
 	const cutPoints = findValidCutPoints(entries, startIndex, endIndex);
 
@@ -411,30 +476,7 @@ export function findCutPoint(
 		return { firstKeptEntryIndex: startIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
 
-	// Walk backwards from newest, accumulating estimated message sizes
-	let accumulatedTokens = 0;
-	let cutIndex = cutPoints[0]; // Default: keep from first message (not header)
-
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		const entry = entries[i];
-		if (entry.type !== "message") continue;
-
-		// Estimate this message's size
-		const messageTokens = estimateTokens(entry.message);
-		accumulatedTokens += messageTokens;
-
-		// Check if we've exceeded the budget
-		if (accumulatedTokens >= keepRecentTokens) {
-			// Find the closest valid cut point at or after this entry
-			for (let c = 0; c < cutPoints.length; c++) {
-				if (cutPoints[c] >= i) {
-					cutIndex = cutPoints[c];
-					break;
-				}
-			}
-			break;
-		}
-	}
+	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints);
 
 	// Scan backwards from cutIndex to include any non-message entries (bash, settings, etc.)
 	while (cutIndex > startIndex) {
@@ -443,8 +485,8 @@ export function findCutPoint(
 		if (prevEntry.type === "compaction") {
 			break;
 		}
-		if (prevEntry.type === "message") {
-			// Stop if we hit any message
+		if (prevEntry.type === "message" || prevEntry.type === "branch_summary" || prevEntry.type === "custom_message") {
+			// Stop if we hit any context-producing entry
 			break;
 		}
 		// Include this non-message entry (bash, settings change, etc.)

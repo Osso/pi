@@ -843,6 +843,59 @@ export class AgentSession {
 		return undefined;
 	}
 
+	private _shouldContinueAfterManualCompaction(messages: AgentMessage[]): boolean {
+		let latestUserIndex = -1;
+		let latestAssistantIndex = -1;
+		let latestCompletedAssistantIndex = -1;
+
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (latestUserIndex === -1 && message.role === "user") {
+				latestUserIndex = i;
+			}
+			if (latestAssistantIndex === -1 && message.role === "assistant") {
+				latestAssistantIndex = i;
+				const assistant = message as AssistantMessage;
+				if (assistant.stopReason === "aborted" || assistant.stopReason === "error") {
+					return true;
+				}
+			}
+			if (latestCompletedAssistantIndex === -1 && message.role === "assistant") {
+				const assistant = message as AssistantMessage;
+				if (assistant.stopReason !== "aborted" && assistant.stopReason !== "error") {
+					latestCompletedAssistantIndex = i;
+				}
+			}
+			if (latestUserIndex !== -1 && latestAssistantIndex !== -1 && latestCompletedAssistantIndex !== -1) {
+				break;
+			}
+		}
+
+		return latestUserIndex !== -1 && latestCompletedAssistantIndex < latestUserIndex;
+	}
+
+	private _removeTrailingAbortedOrErrorAssistant(): void {
+		const messages = this.agent.state.messages;
+		const lastMessage = messages[messages.length - 1];
+		if (lastMessage?.role !== "assistant") return;
+		const assistant = lastMessage as AssistantMessage;
+		if (assistant.stopReason === "aborted" || assistant.stopReason === "error") {
+			this.agent.state.messages = messages.slice(0, -1);
+		}
+	}
+
+	private async _continueAfterManualCompaction(): Promise<void> {
+		this._removeTrailingAbortedOrErrorAssistant();
+		try {
+			await this.agent.continue();
+			while (await this._handlePostAgentRun()) {
+				await this.agent.continue();
+			}
+		} finally {
+			this._flushPendingBashMessages();
+		}
+	}
+
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
 		// Agent-core stores the finalized message object in its state before emitting message_end.
 		// SessionManager persistence happens later in _handleAgentEvent() with event.message.
@@ -2031,13 +2084,18 @@ export class AgentSession {
 				source,
 				details,
 			};
+			const willRetry = this._shouldContinueAfterManualCompaction(sessionContext.messages);
 			this._emit({
 				type: "compaction_end",
 				reason: "manual",
 				result: compactionResult,
 				aborted: false,
-				willRetry: false,
+				willRetry,
 			});
+			if (willRetry) {
+				this._reconnectToAgent();
+				await this._continueAfterManualCompaction();
+			}
 			return compactionResult;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

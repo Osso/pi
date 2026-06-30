@@ -205,6 +205,8 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 }
 
 const ESTIMATED_IMAGE_CHARS = 4800;
+const MAX_PROTECTED_RECENT_CONTEXT_MESSAGES = 3;
+const MAX_PROTECTED_RECENT_CONTEXT_TOKENS = 10_000;
 
 function estimateTextAndImageContentChars(content: string | Array<{ type: string; text?: string }>): number {
 	if (typeof content === "string") {
@@ -264,6 +266,70 @@ export function estimateTokens(message: AgentMessage): number {
 
 	return 0;
 }
+
+function estimateEntryTokens(entry: SessionTreeEntry): number | undefined {
+	const message = getMessageFromEntry(entry);
+	return message ? estimateTokens(message) : undefined;
+}
+
+function findContextMessageCountCutIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
+	let messageCount = 0;
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		if (estimateEntryTokens(entries[i]) === undefined) continue;
+		messageCount++;
+		if (messageCount === MAX_PROTECTED_RECENT_CONTEXT_MESSAGES) {
+			return i;
+		}
+	}
+	return startIndex;
+}
+
+function findTokenBoundedCutIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
+	let accumulatedTokens = 0;
+	let suffixStartIndex = startIndex;
+	let hasContextMessage = false;
+
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		const tokens = estimateEntryTokens(entries[i]);
+		if (tokens === undefined) continue;
+		if (hasContextMessage && accumulatedTokens + tokens > MAX_PROTECTED_RECENT_CONTEXT_TOKENS) {
+			break;
+		}
+		hasContextMessage = true;
+		accumulatedTokens += tokens;
+		suffixStartIndex = i;
+	}
+
+	return suffixStartIndex;
+}
+
+function findNearestCutPointAtOrAfter(cutPoints: number[], index: number): number {
+	for (const cutPoint of cutPoints) {
+		if (cutPoint >= index) return cutPoint;
+	}
+	return cutPoints[cutPoints.length - 1] ?? index;
+}
+
+function findProtectedSuffixStartIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
+	for (let i = endIndex - 1; i >= startIndex; i--) {
+		if (entries[i].type === "compaction") return i + 1;
+	}
+	return startIndex;
+}
+
+function findProtectedSuffixCutIndex(
+	entries: SessionTreeEntry[],
+	startIndex: number,
+	endIndex: number,
+	cutPoints: number[],
+): number {
+	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
+	const messageCountCutIndex = findContextMessageCountCutIndex(entries, protectedStartIndex, endIndex);
+	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
+	const shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
+}
+
 function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number[] {
 	const cutPoints: number[] = [];
 	for (let i = startIndex; i < endIndex; i++) {
@@ -336,37 +402,20 @@ export function findCutPoint(
 	entries: SessionTreeEntry[],
 	startIndex: number,
 	endIndex: number,
-	keepRecentTokens: number,
+	_keepRecentTokens: number,
 ): CutPointResult {
 	const cutPoints = findValidCutPoints(entries, startIndex, endIndex);
 
 	if (cutPoints.length === 0) {
 		return { firstKeptEntryIndex: startIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
-	let accumulatedTokens = 0;
-	let cutIndex = cutPoints[0];
-
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		const entry = entries[i];
-		if (entry.type !== "message") continue;
-		const messageTokens = estimateTokens(entry.message as AgentMessage);
-		accumulatedTokens += messageTokens;
-		if (accumulatedTokens >= keepRecentTokens) {
-			for (let c = 0; c < cutPoints.length; c++) {
-				if (cutPoints[c] >= i) {
-					cutIndex = cutPoints[c];
-					break;
-				}
-			}
-			break;
-		}
-	}
+	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints);
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
 		if (prevEntry.type === "compaction") {
 			break;
 		}
-		if (prevEntry.type === "message") {
+		if (prevEntry.type === "message" || prevEntry.type === "branch_summary" || prevEntry.type === "custom_message") {
 			break;
 		}
 		cutIndex--;

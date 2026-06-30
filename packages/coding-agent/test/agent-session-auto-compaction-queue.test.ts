@@ -63,6 +63,28 @@ describe("AgentSession auto-compaction queue resume", () => {
 		const now = Date.now();
 		sessionManager.appendMessage({
 			role: "user",
+			content: [{ type: "text", text: "older message to compact" }],
+			timestamp: now - 3000,
+		});
+		sessionManager.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "older assistant response to compact" }],
+			api: model.api,
+			provider: model.provider,
+			model: model.id,
+			usage: {
+				input: 100,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 100,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: now - 2500,
+		});
+		sessionManager.appendMessage({
+			role: "user",
 			content: [{ type: "text", text: "message to compact" }],
 			timestamp: now - 1000,
 		});

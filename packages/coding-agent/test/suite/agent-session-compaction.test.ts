@@ -5,7 +5,7 @@ import {
 	type Model,
 } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { estimateTokens } from "../../src/core/compaction/index.ts";
+import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
@@ -67,9 +67,37 @@ function useSummaryStreamFn(harness: Harness, summary: string): () => number {
 	return () => callCount;
 }
 
+function createUserEntry(text: string) {
+	return {
+		type: "message" as const,
+		id: `entry-${Math.random().toString(36).slice(2)}`,
+		parentId: null,
+		timestamp: new Date().toISOString(),
+		message: { role: "user" as const, content: [{ type: "text" as const, text }], timestamp: Date.now() },
+	};
+}
+
+function createAssistantEntry(text: string) {
+	return {
+		type: "message" as const,
+		id: `entry-${Math.random().toString(36).slice(2)}`,
+		parentId: null,
+		timestamp: new Date().toISOString(),
+		message: fauxAssistantMessage(text),
+	};
+}
+
 function seedCompactableSession(harness: Harness): void {
 	harness.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
 	const now = Date.now();
+	harness.sessionManager.appendMessage({
+		role: "user",
+		content: [{ type: "text", text: "older message to compact" }],
+		timestamp: now - 3000,
+	});
+	harness.sessionManager.appendMessage(
+		createAssistant(harness, { stopReason: "stop", totalTokens: 100, timestamp: now - 2500 }),
+	);
 	harness.sessionManager.appendMessage({
 		role: "user",
 		content: [{ type: "text", text: "message to compact" }],
@@ -94,6 +122,36 @@ describe("AgentSession compaction characterization", () => {
 		while (harnesses.length > 0) {
 			harnesses.pop()?.cleanup();
 		}
+	});
+
+	it("keeps no more than the last three context messages when the token suffix is larger", () => {
+		const entries = [
+			createUserEntry("old user"),
+			createAssistantEntry("old assistant"),
+			createUserEntry("recent user 1"),
+			createAssistantEntry("recent assistant 1"),
+			createUserEntry("recent user 2"),
+			createAssistantEntry("recent assistant 2"),
+		];
+
+		const cutPoint = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(cutPoint.firstKeptEntryIndex).toBe(3);
+	});
+
+	it("keeps the token-bounded suffix when the last three context messages exceed ten thousand tokens", () => {
+		const hugeText = "x".repeat(40_000);
+		const entries = [
+			createUserEntry("old user"),
+			createAssistantEntry("old assistant"),
+			createUserEntry(hugeText),
+			createAssistantEntry(hugeText),
+			createUserEntry("latest user"),
+		];
+
+		const cutPoint = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(cutPoint.firstKeptEntryIndex).toBe(4);
 	});
 
 	it("manually compacts using an extension-provided summary", async () => {
@@ -235,6 +293,82 @@ describe("AgentSession compaction characterization", () => {
 		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(true);
 	});
 
+	it("continues after manual compaction aborts an unanswered user turn", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "manual compacted",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		const now = Date.now();
+		harness.sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "old request" }],
+			timestamp: now - 4000,
+		});
+		harness.sessionManager.appendMessage(
+			createAssistant(harness, { stopReason: "stop", totalTokens: 100, timestamp: now - 3000 }),
+		);
+		harness.sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "middle request" }],
+			timestamp: now - 2000,
+		});
+		harness.sessionManager.appendMessage(
+			createAssistant(harness, { stopReason: "stop", totalTokens: 100, timestamp: now - 1000 }),
+		);
+		const latestUser = {
+			role: "user" as const,
+			content: [{ type: "text" as const, text: "keep working" }],
+			timestamp: now,
+		};
+		harness.sessionManager.appendMessage(latestUser);
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+		harness.setResponses([fauxAssistantMessage("continued after compact")]);
+
+		await harness.session.compact();
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "manual", willRetry: true });
+	});
+
+	it("does not continue after manual compaction when latest assistant completed", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "manual compacted complete turn",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("first complete"), fauxAssistantMessage("complete")]);
+
+		await harness.session.prompt("first done turn");
+		await harness.session.prompt("done turn");
+		await harness.session.compact();
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "manual", willRetry: false });
+	});
+
 	it("does not retry overflow recovery more than once", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -279,6 +413,7 @@ describe("AgentSession compaction characterization", () => {
 			],
 		});
 		harnesses.push(harness);
+		seedCompactableSession(harness);
 		harness.setResponses([fauxAssistantMessage("completed answer")]);
 
 		await expect(harness.session.prompt("hello")).resolves.toBeUndefined();

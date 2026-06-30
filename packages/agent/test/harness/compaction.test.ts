@@ -181,6 +181,36 @@ describe("harness compaction", () => {
 		expect(entries[result.firstKeptEntryIndex]?.type).toBe("message");
 	});
 
+	it("limits the retained suffix to the last three context messages", () => {
+		const entries = [
+			createMessageEntry(createUserMessage("old user")),
+			createMessageEntry(createAssistantMessage("old assistant")),
+			createMessageEntry(createUserMessage("recent user 1")),
+			createMessageEntry(createAssistantMessage("recent assistant 1")),
+			createMessageEntry(createUserMessage("recent user 2")),
+			createMessageEntry(createAssistantMessage("recent assistant 2")),
+		];
+
+		const result = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(result.firstKeptEntryIndex).toBe(3);
+	});
+
+	it("uses the ten thousand token suffix when the last three context messages are larger", () => {
+		const hugeText = "x".repeat(40_000);
+		const entries = [
+			createMessageEntry(createUserMessage("old user")),
+			createMessageEntry(createAssistantMessage("old assistant")),
+			createMessageEntry(createUserMessage(hugeText)),
+			createMessageEntry(createAssistantMessage(hugeText)),
+			createMessageEntry(createUserMessage("latest user")),
+		];
+
+		const result = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(result.firstKeptEntryIndex).toBe(4);
+	});
+
 	it("covers cut-point and turn-start edge cases", () => {
 		const thinking = createThinkingLevelEntry("high");
 		const modelChange = createModelChangeEntry("openai", "gpt-4", thinking.id);
@@ -376,9 +406,21 @@ describe("harness compaction", () => {
 			details: { readFiles: ["old-read.ts"], modifiedFiles: ["old-edit.ts"] },
 		};
 		const u2 = createMessageEntry(createUserMessage("large turn"), compaction1.id);
-		const a2 = createMessageEntry(createAssistantMessage("large assistant message"), u2.id);
+		const prefixAssistant = createMessageEntry(createAssistantMessage("early assistant work"), u2.id);
+		const toolResult = createMessageEntry(
+			{
+				role: "toolResult",
+				toolCallId: "tool-1",
+				toolName: "write",
+				content: [{ type: "text", text: "tool result" }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+			prefixAssistant.id,
+		);
+		const suffixAssistant = createMessageEntry(createAssistantMessage("recent assistant work"), toolResult.id);
 		const preparation = getOrThrow(
-			prepareCompaction([u1, a1, compaction1, u2, a2], {
+			prepareCompaction([u1, a1, compaction1, u2, prefixAssistant, toolResult, suffixAssistant], {
 				enabled: true,
 				reserveTokens: 100,
 				keepRecentTokens: 1,
@@ -412,8 +454,9 @@ describe("harness compaction", () => {
 		};
 		const user = createMessageEntry(createUserMessage("keep"), customMessage.id);
 		const assistant = createMessageEntry(createAssistantMessage("assistant"), user.id);
+		const latestUser = createMessageEntry(createUserMessage("latest"), assistant.id);
 		const preparation = getOrThrow(
-			prepareCompaction([branchSummary, customMessage, user, assistant], {
+			prepareCompaction([branchSummary, customMessage, user, assistant, latestUser], {
 				enabled: true,
 				reserveTokens: 100,
 				keepRecentTokens: 1,
