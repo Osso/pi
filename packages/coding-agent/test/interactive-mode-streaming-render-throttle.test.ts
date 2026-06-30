@@ -22,11 +22,15 @@ const EMPTY_USAGE: Usage = {
 
 type HandleEventThis = {
 	chatContainer: Container;
+	currentWorkingDefaultMessage: string;
+	defaultWorkingMessage: string;
+	executingToolNames: Map<string, string>;
 	footer: { invalidate(): void };
 	getMarkdownThemeWithSettings(): MarkdownTheme;
 	hiddenThinkingLabel: string;
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
+	loadingAnimation: { setMessage(message: string): void } | undefined;
 	pendingTools: Map<string, unknown>;
 	runtimeHost: {
 		session: {
@@ -38,9 +42,24 @@ type HandleEventThis = {
 	streamingComponent: unknown;
 	streamingMessage: AssistantMessage | undefined;
 	toolOutputExpanded: boolean;
+	workingMessage: string | undefined;
 	ui: Pick<TUI, "requestRender">;
 	getRegisteredToolDefinition(): undefined;
 };
+
+type ToolExecutionStub = {
+	markExecutionStarted(): void;
+	updateArgs(args: unknown): void;
+	updateResult(result: unknown, isPartial?: boolean): void;
+};
+
+function createToolExecutionStub(): ToolExecutionStub {
+	return {
+		markExecutionStarted: vi.fn(),
+		updateArgs: vi.fn(),
+		updateResult: vi.fn(),
+	};
+}
 
 type HandleEvent = (this: HandleEventThis, event: AgentSessionEvent) => Promise<void>;
 
@@ -77,11 +96,15 @@ function createMessageUpdate(message: AssistantMessage): AgentSessionEvent {
 function createFakeInteractiveModeThis(): HandleEventThis {
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
+		currentWorkingDefaultMessage: "Thinking...",
+		defaultWorkingMessage: "Thinking...",
+		executingToolNames: new Map<string, string>(),
 		footer: { invalidate: vi.fn() },
 		getMarkdownThemeWithSettings: getMarkdownTheme,
 		hiddenThinkingLabel: "Thinking...",
 		hideThinkingBlock: false,
 		isInitialized: true,
+		loadingAnimation: undefined,
 		pendingTools: new Map<string, unknown>(),
 		runtimeHost: {
 			session: {
@@ -93,6 +116,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		streamingComponent: undefined,
 		streamingMessage: undefined,
 		toolOutputExpanded: false,
+		workingMessage: undefined,
 		ui: { requestRender: vi.fn() },
 		getRegisteredToolDefinition: () => undefined,
 	});
@@ -163,5 +187,64 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		expect(fakeThis.chatContainer.render(120).join("\n")).toContain("git diff --");
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(4);
+	});
+
+	test("uses clearer waiting labels while tools execute", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const setMessage = vi.fn();
+		fakeThis.loadingAnimation = { setMessage };
+		fakeThis.pendingTools.set("bash-1", createToolExecutionStub());
+		fakeThis.pendingTools.set("read-1", createToolExecutionStub());
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolName: "bash",
+			toolCallId: "bash-1",
+			args: { command: "echo hi" },
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolName: "read",
+			toolCallId: "read-1",
+			args: { path: "README.md" },
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: "bash-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "hi" }] },
+			isError: false,
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: read...");
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: "read-1",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "contents" }] },
+			isError: false,
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
+	});
+
+	test("keeps extension working message override during tool execution", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const setMessage = vi.fn();
+		fakeThis.loadingAnimation = { setMessage };
+		fakeThis.workingMessage = "Custom extension label";
+		fakeThis.pendingTools.set("tool-1", createToolExecutionStub());
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolName: "read",
+			toolCallId: "tool-1",
+			args: { path: "README.md" },
+		});
+
+		expect(setMessage).not.toHaveBeenCalled();
 	});
 });

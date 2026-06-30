@@ -63,12 +63,13 @@ export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = p
 
 	parsed.session = sessionFile;
 	parsed.resume = false;
-	parsed.continue = false;
+	parsed.continue = true;
 	parsed.fork = undefined;
 	parsed.noSession = false;
 	parsed.sessionId = undefined;
 	parsed.fileArgs = [];
-	parsed.messages = [];
+	const prompt = env[ENV_SELF_RESTART_PROMPT];
+	parsed.messages = prompt ? [prompt] : [];
 }
 
 export function appendSelfRestartNotice(sessionManager: SessionManager, env: NodeJS.ProcessEnv = process.env): void {

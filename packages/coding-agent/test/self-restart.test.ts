@@ -57,7 +57,7 @@ describe("self restart request", () => {
 		expect(args.fileArgs).toEqual([]);
 	});
 
-	it("overrides startup args to resume the requested session without injecting the restart prompt", () => {
+	it("overrides startup args to continue the requested session and injects the restart prompt", () => {
 		const args = createArgs();
 
 		applySelfRestartRequest(args, {
@@ -66,9 +66,9 @@ describe("self restart request", () => {
 		});
 
 		expect(args.session).toBe("/tmp/session.jsonl");
-		expect(args.messages).toEqual([]);
+		expect(args.messages).toEqual(["Restarted."]);
 		expect(args.fileArgs).toEqual([]);
-		expect(args.continue).toBe(false);
+		expect(args.continue).toBe(true);
 		expect(args.resume).toBe(false);
 		expect(args.fork).toBeUndefined();
 		expect(args.noSession).toBe(false);

@@ -327,7 +327,8 @@ export class InteractiveMode {
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
-	private readonly defaultWorkingMessage = "Working...";
+	private readonly defaultWorkingMessage = "Thinking...";
+	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
 
@@ -348,6 +349,7 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
+	private executingToolNames = new Map<string, string>();
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -1818,7 +1820,25 @@ export class InteractiveMode {
 	}
 
 	private getWorkingLoaderMessage(): string {
-		return this.workingMessage ?? this.defaultWorkingMessage;
+		return this.workingMessage ?? this.currentWorkingDefaultMessage;
+	}
+
+	private getToolWaitingMessage(toolName: string): string {
+		return toolName === "bash" ? "Waiting for command..." : `Waiting for tool: ${toolName}...`;
+	}
+
+	private setDefaultWorkingMessage(message: string): void {
+		this.currentWorkingDefaultMessage = message;
+		if (this.loadingAnimation && this.workingMessage === undefined) {
+			this.loadingAnimation.setMessage(message);
+		}
+	}
+
+	private setWorkingMessageForActiveTools(): void {
+		const nextToolName = this.executingToolNames.values().next().value;
+		this.setDefaultWorkingMessage(
+			nextToolName ? this.getToolWaitingMessage(nextToolName) : this.defaultWorkingMessage,
+		);
 	}
 
 	private createWorkingLoader(): Loader {
@@ -2126,7 +2146,7 @@ export class InteractiveMode {
 			setWorkingMessage: (message) => {
 				this.workingMessage = message;
 				if (this.loadingAnimation) {
-					this.loadingAnimation.setMessage(message ?? this.defaultWorkingMessage);
+					this.loadingAnimation.setMessage(this.getWorkingLoaderMessage());
 				}
 			},
 			setWorkingVisible: (visible) => this.setWorkingVisible(visible),
@@ -2917,6 +2937,8 @@ export class InteractiveMode {
 		switch (event.type) {
 			case "agent_start":
 				this.pendingTools.clear();
+				this.executingToolNames.clear();
+				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -2968,6 +2990,7 @@ export class InteractiveMode {
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
 				} else if (event.message.role === "assistant") {
+					this.setWorkingMessageForActiveTools();
 					this.streamingComponent = new AssistantMessageComponent(
 						undefined,
 						this.hideThinkingBlock,
@@ -3035,6 +3058,8 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
+				this.executingToolNames.set(event.toolCallId, event.toolName);
+				this.setWorkingMessageForActiveTools();
 				const component = this.ensureToolExecutionComponent(event.toolName, event.toolCallId, event.args);
 				component.markExecutionStarted();
 				this.ui.requestRender();
@@ -3055,6 +3080,10 @@ export class InteractiveMode {
 				if (component) {
 					component.updateResult({ ...event.result, isError: event.isError });
 					this.pendingTools.delete(event.toolCallId);
+				}
+				this.executingToolNames.delete(event.toolCallId);
+				this.setWorkingMessageForActiveTools();
+				if (component) {
 					this.ui.requestRender();
 				}
 				break;
