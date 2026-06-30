@@ -194,8 +194,20 @@ describe("SessionManager custom flat session directory", () => {
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	function createPersistedSession(cwd: string, label: string): string {
-		const session = SessionManager.create(cwd, tempDir);
+	function createPersistedSession(
+		cwd: string,
+		label: string,
+		options?: { controlDbPath?: string; isSubagent?: boolean; subagentName?: string },
+	): string {
+		const subagentOptions = options?.subagentName
+			? { isSubagent: true, subagentName: options.subagentName }
+			: { isSubagent: true };
+		const session = options?.isSubagent
+			? SessionManager.create(cwd, tempDir, subagentOptions)
+			: SessionManager.create(cwd, tempDir);
+		if (options?.controlDbPath) {
+			session.setMetadataControlDbPath(options.controlDbPath);
+		}
 		session.appendMessage({ role: "user", content: label, timestamp: Date.now() });
 		session.appendMessage({
 			role: "assistant",
@@ -307,6 +319,83 @@ describe("SessionManager custom flat session directory", () => {
 		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
 			isSubagent: true,
 			subagentName: "researcher",
+		});
+	});
+
+	it("excludes subagent sessions from current-folder resume lists backed by sqlite metadata", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const mainSession = createPersistedSession(projectA, "main prompt", { controlDbPath });
+		const subagentSessionFile = createPersistedSession(projectA, "subagent prompt", {
+			controlDbPath,
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+
+		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
+
+		expect(currentA.map((entry) => entry.path)).toEqual([mainSession]);
+		expect(currentA.map((entry) => entry.path)).not.toContain(subagentSessionFile);
+	});
+
+	it("excludes subagent sessions from all-project resume lists backed by sqlite metadata", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const mainSession = createPersistedSession(projectA, "main prompt", { controlDbPath });
+		const otherProjectSession = createPersistedSession(projectB, "other project prompt", { controlDbPath });
+		const subagentSessionFile = createPersistedSession(projectB, "subagent prompt", {
+			controlDbPath,
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+
+		const all = await SessionManager.listAll(tempDir, undefined, controlDbPath);
+		const listedPaths = new Set(all.map((entry) => entry.path));
+
+		expect(listedPaths).toEqual(new Set([mainSession, otherProjectSession]));
+		expect(listedPaths.has(subagentSessionFile)).toBe(false);
+	});
+
+	it("excludes known subagent sessions when incomplete sqlite metadata falls back to file scanning", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const mainSession = createPersistedSession(projectA, "main prompt");
+		const subagentSessionFile = createPersistedSession(projectA, "subagent prompt", {
+			controlDbPath,
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+
+		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
+
+		expect(currentA.map((entry) => entry.path)).toEqual([mainSession]);
+		expect(currentA.map((entry) => entry.path)).not.toContain(subagentSessionFile);
+	});
+
+	it("refreshes known subagent metadata when fallback scanning hides it from resume lists", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		createPersistedSession(projectA, "main prompt");
+		const subagentSessionFile = createPersistedSession(projectA, "subagent prompt", {
+			controlDbPath,
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+		const subagentMetadata = readSessionMetadata(controlDbPath, subagentSessionFile);
+		if (!subagentMetadata) throw new Error("Expected subagent metadata");
+		writeSessionMetadata(controlDbPath, {
+			...subagentMetadata,
+			messageCount: 0,
+			firstMessage: "stale prompt",
+			allMessagesText: "stale prompt",
+		});
+
+		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
+		const refreshedSubagentMetadata = readSessionMetadata(controlDbPath, subagentSessionFile);
+
+		expect(currentA.map((entry) => entry.path)).not.toContain(subagentSessionFile);
+		expect(refreshedSubagentMetadata).toMatchObject({
+			isSubagent: true,
+			subagentName: "researcher",
+			messageCount: 2,
+			firstMessage: "subagent prompt",
+			allMessagesText: "subagent prompt reply to subagent prompt",
 		});
 	});
 

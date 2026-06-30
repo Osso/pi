@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import type { SessionInfo } from "../src/core/session-manager.ts";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
+import { type SessionInfo, SessionManager } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -47,6 +48,44 @@ function makeSession(overrides: Partial<SessionInfo> & { id: string }): SessionI
 		firstMessage: overrides.firstMessage ?? "hello",
 		allMessagesText: overrides.allMessagesText ?? "hello",
 	};
+}
+
+function createMetadataBackedSession(
+	cwd: string,
+	sessionDir: string,
+	controlDbPath: string,
+	prompt: string,
+	options?: { isSubagent?: boolean; subagentName?: string; timestamp?: number },
+): string {
+	const subagentOptions = options?.subagentName
+		? { isSubagent: true, subagentName: options.subagentName }
+		: { isSubagent: true };
+	const session = options?.isSubagent
+		? SessionManager.create(cwd, sessionDir, subagentOptions)
+		: SessionManager.create(cwd, sessionDir);
+	session.setMetadataControlDbPath(controlDbPath);
+	const timestamp = options?.timestamp ?? 1;
+	session.appendMessage({ role: "user", content: prompt, timestamp });
+	session.appendMessage({
+		role: "assistant",
+		content: [{ type: "text", text: `reply to ${prompt}` }],
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "test",
+		usage: {
+			input: 1,
+			output: 1,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 2,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: timestamp + 1,
+	});
+	const sessionFile = session.getSessionFile();
+	if (!sessionFile) throw new Error("Expected persisted session file");
+	return sessionFile;
 }
 
 function createSymlinkedSessionPaths(): {
@@ -182,6 +221,42 @@ describe("session selector path/delete interactions", () => {
 		list.handleInput("\r");
 		expect(confirmationChanges).toEqual([sessions[0]!.path, null]);
 		expect(deletedPath).toBe(sessions[0]!.path);
+	});
+
+	it("does not render subagent sessions from metadata-backed resume loaders", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-subagent-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+
+		createMetadataBackedSession(projectDir, baseDir, controlDbPath, "main resume prompt");
+		createMetadataBackedSession(projectDir, baseDir, controlDbPath, "subagent resume prompt", {
+			isSubagent: true,
+			subagentName: "researcher",
+			timestamp: 3,
+		});
+
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+		);
+		await flushPromises();
+
+		let output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("main resume prompt");
+		expect(output).not.toContain("subagent resume prompt");
+
+		selector.getSessionList().handleInput("\t");
+		await flushPromises();
+		output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("main resume prompt");
+		expect(output).not.toContain("subagent resume prompt");
 	});
 
 	it("does not switch scope back to All when All load resolves after toggling back to Current", async () => {

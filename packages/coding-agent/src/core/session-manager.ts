@@ -819,12 +819,26 @@ function metadataMatchesSessionDir(metadata: SessionMetadata, dir: string): bool
 	return normalizePath(metadata.sessionPath).startsWith(`${normalizePath(dir)}/`);
 }
 
-function listSessionsFromMetadata(controlDbPath: string, options?: { cwd?: string; dir?: string }): SessionInfo[] {
+function listScopedSessionMetadata(controlDbPath: string, options?: { cwd?: string; dir?: string }): SessionMetadata[] {
 	const resolvedCwd = options?.cwd ? resolvePath(options.cwd) : undefined;
 	return listSessionMetadata(controlDbPath)
 		.filter((metadata) => !options?.dir || metadataMatchesSessionDir(metadata, options.dir))
-		.map(sessionInfoFromMetadata)
-		.filter((session) => !resolvedCwd || sessionCwdMatches(session.cwd, resolvedCwd));
+		.filter((metadata) => !resolvedCwd || sessionCwdMatches(metadata.cwd, resolvedCwd));
+}
+
+function listResumeSessionsFromMetadata(metadataSessions: SessionMetadata[]): SessionInfo[] {
+	return metadataSessions.filter((metadata) => !metadata.isSubagent).map(sessionInfoFromMetadata);
+}
+
+function excludeKnownSubagentSessions(controlDbPath: string | undefined, sessions: SessionInfo[]): SessionInfo[] {
+	if (!controlDbPath) return sessions;
+	const subagentSessionPaths = new Set(
+		listSessionMetadata(controlDbPath)
+			.filter((metadata) => metadata.isSubagent)
+			.map((metadata) => normalizePath(metadata.sessionPath)),
+	);
+	if (subagentSessionPaths.size === 0) return sessions;
+	return sessions.filter((session) => !subagentSessionPaths.has(normalizePath(session.path)));
 }
 
 async function listSessionFilePathsInDir(dir: string): Promise<string[]> {
@@ -849,9 +863,9 @@ async function listSessionFilePathsInSessionRoot(sessionsDir: string): Promise<s
 	}
 }
 
-function metadataPathsMatchFiles(metadataSessions: SessionInfo[], sessionFilePaths: string[]): boolean {
+function metadataPathsMatchFiles(metadataSessions: SessionMetadata[], sessionFilePaths: string[]): boolean {
 	if (metadataSessions.length === 0 || metadataSessions.length !== sessionFilePaths.length) return false;
-	const metadataPaths = new Set(metadataSessions.map((session) => normalizePath(session.path)));
+	const metadataPaths = new Set(metadataSessions.map((session) => normalizePath(session.sessionPath)));
 	return sessionFilePaths.every((sessionFilePath) => metadataPaths.has(normalizePath(sessionFilePath)));
 }
 
@@ -879,11 +893,13 @@ async function listCompleteMetadataSessions(
 ): Promise<SessionInfo[] | undefined> {
 	if (!controlDbPath) return undefined;
 
-	const metadataSessions = listSessionsFromMetadata(controlDbPath, { cwd: options.cwd, dir: options.dir });
+	const metadataSessions = listScopedSessionMetadata(controlDbPath, { cwd: options.cwd, dir: options.dir });
 	const sessionFilePaths = options.sessionsRoot
 		? await listSessionFilePathsInSessionRoot(options.sessionsRoot)
 		: await listSessionFilePathsInDir(options.dir ?? "");
-	return metadataPathsMatchFiles(metadataSessions, sessionFilePaths) ? metadataSessions : undefined;
+	return metadataPathsMatchFiles(metadataSessions, sessionFilePaths)
+		? listResumeSessionsFromMetadata(metadataSessions)
+		: undefined;
 }
 
 async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {
@@ -1804,9 +1820,10 @@ export class SessionManager {
 		const sessions = (await listSessionsFromDir(dir, onProgress)).filter(
 			(session) => !filterCwd || sessionCwdMatches(session.cwd, resolvedCwd),
 		);
-		sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
 		cacheSessionMetadata(controlDbPath, sessions);
-		return sessions;
+		const resumeSessions = excludeKnownSubagentSessions(controlDbPath, sessions);
+		resumeSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+		return resumeSessions;
 	}
 
 	/**
@@ -1831,9 +1848,10 @@ export class SessionManager {
 			const metadataSessions = await listCompleteMetadataSessions(controlDbPath, { dir: customSessionDir });
 			if (metadataSessions) return metadataSessions;
 			const sessions = await listSessionsFromDir(customSessionDir, progress);
-			sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
 			cacheSessionMetadata(controlDbPath, sessions);
-			return sessions;
+			const resumeSessions = excludeKnownSubagentSessions(controlDbPath, sessions);
+			resumeSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+			return resumeSessions;
 		}
 
 		const sessionsRoot = getSessionsDir();
@@ -1842,6 +1860,6 @@ export class SessionManager {
 
 		const sessions = await listDefaultSessionRoot(progress);
 		cacheSessionMetadata(controlDbPath, sessions);
-		return sessions;
+		return excludeKnownSubagentSessions(controlDbPath, sessions);
 	}
 }
