@@ -21,8 +21,11 @@ export type AutoReviewerModelCall = (prompt: string) => Promise<unknown>;
 export function buildAutoReviewerPrompt(input: AutoReviewerPromptInput): string {
 	return [
 		"You are reviewing whether a coding agent may execute one tool call.",
-		"Approve only when the request is safe, expected, and consistent with the user's task.",
-		"Deny destructive, unrelated, credential-exposing, or unclear actions.",
+		"Approve ordinary bounded-risk coding-agent work that is related to the user's task.",
+		"Be permissive for routine code edits, builds, tests, package-manager reads, local inspection, and cleanup with bounded scope.",
+		"Allow temporary workspace or cache cleanup, including deleting files under /tmp.",
+		"Deny only actions likely to trash the laptop, cause irreversible user-data or system damage, expose credentials, or perform unrelated external side effects.",
+		"When risk is ordinary, local, reversible, or limited to temporary/cache/workspace files, approve.",
 		"Respond with exactly one JSON object and no markdown.",
 		'Allowed responses: {"behavior":"allow"} or {"behavior":"deny","message":"short reason"}.',
 		"",

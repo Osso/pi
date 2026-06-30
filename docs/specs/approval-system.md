@@ -35,7 +35,10 @@ Implementation details belong in
 - [x] Support human-reviewed approvals for `on-request` via the native
   `tool_call` hook and `ui.confirm`.
 - [x] Support LLM-approved approvals as `on-request` with the reviewer set to
-  the auto-reviewer path (a guardian LLM call that pre-approves the tool call).
+  the auto-reviewer path (a permissive guardian LLM call that pre-approves
+  ordinary bounded-risk coding-agent work and denies only catastrophic,
+  credential-exposing, irreversible data-loss, system-damaging, or unrelated
+  external-side-effect actions).
 - [x] Expose LLM-approved mode as an explicit choice in the `/approvals` preset
   selector, distinct from `never` and `auto-approve`.
 - [x] Skip the LLM-approved reviewer when the action has already been approved
@@ -99,7 +102,8 @@ Implementation details belong in
   `approvalPolicy`, and scoped sandbox profile serialization.
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
-  allow/deny.
+  allow/deny. The prompt explicitly allows bounded local coding work and
+  temporary workspace/cache cleanup such as deleting files under `/tmp`.
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
   approval flow: check policy and route `on-request` calls to the configured
   reviewer.
