@@ -511,6 +511,16 @@ describe("ExtensionRunner", () => {
 			expect(ctx.isProjectTrusted()).toBe(false);
 		});
 
+		it("throws when ExtensionContext switchSession is used without a command binding", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			runner.bindCore(extensionActions, extensionContextActions);
+
+			await expect(runner.createContext().switchSession?.("/tmp/session.jsonl")).rejects.toThrow(
+				"Session resume is not available in this session mode",
+			);
+		});
+
 		it("exposes rpc mode with hasUI true when an RPC UI context is provided", async () => {
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);

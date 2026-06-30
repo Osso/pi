@@ -73,6 +73,7 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 	const compactRequests: unknown[] = [];
 	const enqueuedMessages: Array<{ content: unknown; options: unknown }> = [];
 	const restartRequests: unknown[] = [];
+	const switchedSessions: string[] = [];
 
 	const pi = {
 		registerTool(tool: ToolDefinition) {
@@ -120,6 +121,10 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 		restart: async (request: unknown) => {
 			restartRequests.push(request);
 		},
+		switchSession: async (sessionPath: string) => {
+			switchedSessions.push(sessionPath);
+			return { cancelled: false };
+		},
 		sessionManager: {
 			getBranch: () => [],
 			getCwd: () => "/repo/project",
@@ -134,6 +139,7 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 		compactRequests,
 		enqueuedMessages,
 		restartRequests,
+		switchedSessions,
 		toolDefinition: pyrunDefinition,
 		evaluate: (
 			params: PyrunEvalParams,
@@ -286,6 +292,23 @@ async function resultFor(request) {
   if (request.code === "pi.restart({'notice': 'from pyrun'})") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "restart", params: { notice: "from pyrun" } }) + "\\n");
     const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code.startsWith("pi.sessions.resume({'path': '") && request.code.endsWith("'})")) {
+    const path = request.code.slice("pi.sessions.resume({'path': '".length, -"'})".length);
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "sessions.resume", params: { path } }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.sessions.resume({})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "sessions.resume", params: {} }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
     return { type: "completed", executed: request.code, value: response.result };
   }
   return { type: "completed", executed: request.code, value: null };
@@ -838,6 +861,48 @@ describe("pyrun extension", () => {
 
 		expect(result.details.value).toEqual({ started: true });
 		expect(harness.restartRequests).toEqual([{ notice: "from pyrun", process: true }]);
+	});
+
+	it("resumes a target Pi session in-process from Pyrun pi.sessions.resume", async () => {
+		const targetSessionFile = join(tempDir, "target-session.jsonl");
+		writeFileSync(targetSessionFile, "");
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({
+			code: `pi.sessions.resume({'path': '${targetSessionFile}'})`,
+		});
+
+		expect(result.details.value).toEqual({ cancelled: false, resumed: true });
+		expect(harness.restartRequests).toEqual([]);
+		expect(harness.switchedSessions).toEqual([targetSessionFile]);
+	});
+
+	it("rejects empty Pyrun pi.sessions.resume targets", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "pi.sessions.resume({})" });
+
+		expect(result.isError).toBe(true);
+		expect(result.details.error).toBe("pi.sessions.resume requires exactly one of path, id, or name");
+		expect(harness.restartRequests).toEqual([]);
+		expect(harness.switchedSessions).toEqual([]);
+	});
+
+	it("rejects Pyrun pi.sessions.resume when session switching is unavailable", async () => {
+		const targetSessionFile = join(tempDir, "target-session.jsonl");
+		writeFileSync(targetSessionFile, "");
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate(
+			{ code: `pi.sessions.resume({'path': '${targetSessionFile}'})` },
+			undefined,
+			undefined,
+			{ switchSession: undefined },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.details.error).toBe("pi.sessions.resume is not available in this session mode");
+		expect(harness.switchedSessions).toEqual([]);
 	});
 
 	it("aborts an in-progress Pyrun evaluation when the agent signal is aborted", async () => {

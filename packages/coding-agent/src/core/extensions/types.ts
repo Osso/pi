@@ -322,6 +322,8 @@ export interface ExtensionContext {
 	modelRegistry: ModelRegistry;
 	/** Current merged settings and config helpers */
 	settingsManager?: SettingsManager;
+	/** Global control DB path for session metadata, when available. */
+	controlDbPath?: string;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
 	/** Whether the agent is idle (not streaming) */
@@ -338,6 +340,8 @@ export interface ExtensionContext {
 	shutdown(): void;
 	/** Restart the current session runtime and resume the same session file. */
 	restart(options?: { notice?: string; process?: boolean }): Promise<void>;
+	/** Switch to a different session file using the same path as /resume when available. */
+	switchSession?(sessionPath: string): Promise<{ cancelled: boolean }>;
 	/** Get current context usage for the active model. */
 	getContextUsage(): ContextUsage | undefined;
 	/** Trigger compaction without awaiting completion. */
@@ -1604,6 +1608,7 @@ export interface ExtensionContextActions {
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;
 	restart: (options?: { notice?: string; process?: boolean }) => Promise<void>;
+	getControlDbPath?: () => string | undefined;
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (options?: CompactOptions) => void;
 	getSystemPrompt: () => string;

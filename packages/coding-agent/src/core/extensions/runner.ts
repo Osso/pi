@@ -289,13 +289,16 @@ export class ExtensionRunner {
 	private compactFn: (options?: CompactOptions) => void = () => {};
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
-	private restartFn: (options?: { notice?: string }) => Promise<void> = async () => {};
+	private restartFn: (options?: { notice?: string; process?: boolean }) => Promise<void> = async () => {};
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
-	private switchSessionHandler: SwitchSessionHandler = async () => ({ cancelled: false });
+	private switchSessionHandler: SwitchSessionHandler = async () => {
+		throw new Error("Session resume is not available in this session mode");
+	};
 	private reloadHandler: ReloadHandler = async () => {};
 	private shutdownHandler: ShutdownHandler = () => {};
+	private getControlDbPathFn: () => string | undefined = () => undefined;
 	private shortcutDiagnostics: ResourceDiagnostic[] = [];
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
@@ -352,6 +355,7 @@ export class ExtensionRunner {
 		this.hasPendingMessagesFn = contextActions.hasPendingMessages;
 		this.shutdownHandler = contextActions.shutdown;
 		this.restartFn = contextActions.restart;
+		this.getControlDbPathFn = contextActions.getControlDbPath ?? (() => undefined);
 		this.getContextUsageFn = contextActions.getContextUsage;
 		this.compactFn = contextActions.compact;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
@@ -414,7 +418,9 @@ export class ExtensionRunner {
 		this.newSessionHandler = async () => ({ cancelled: false });
 		this.forkHandler = async () => ({ cancelled: false });
 		this.navigateTreeHandler = async () => ({ cancelled: false });
-		this.switchSessionHandler = async () => ({ cancelled: false });
+		this.switchSessionHandler = async () => {
+			throw new Error("Session resume is not available in this session mode");
+		};
 		this.reloadHandler = async () => {};
 		this.restartFn = async () => {};
 	}
@@ -676,6 +682,10 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.settingsManager;
 			},
+			get controlDbPath() {
+				runner.assertActive();
+				return runner.getControlDbPathFn();
+			},
 			get model() {
 				runner.assertActive();
 				return getModel();
@@ -719,6 +729,10 @@ export class ExtensionRunner {
 			getSystemPrompt: () => {
 				runner.assertActive();
 				return runner.getSystemPromptFn();
+			},
+			switchSession: (sessionPath) => {
+				runner.assertActive();
+				return runner.switchSessionHandler(sessionPath);
 			},
 		};
 	}

@@ -1619,6 +1619,7 @@ export class InteractiveMode {
 			uiContext,
 			footerData: this.footerDataProvider,
 			mode: "tui",
+			controlDbPath: this.options.controlDbPath,
 			abortHandler: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},

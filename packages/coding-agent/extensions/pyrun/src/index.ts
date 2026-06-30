@@ -1,7 +1,10 @@
+import { existsSync, statSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
+import { resolvePath } from "../../../src/utils/paths.ts";
 import { createPyrunEvalExecutor, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
 import { PyrunRunnerClient } from "./runner.ts";
 
@@ -18,6 +21,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Pyrun.",
 	"Use pi.compact(...) to trigger Pi session compaction from Pyrun.",
 	"Use pi.restart(...) to restart Pi and resume the same session from Pyrun.",
+	"Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
 	"Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
@@ -84,11 +88,101 @@ function normalizeCompactParams(params: unknown): { customInstructions?: string 
 	return { customInstructions };
 }
 
+interface ResumeSessionParams {
+	id?: string;
+	name?: string;
+	path?: string;
+}
+
+function readNonEmptyString(record: Record<string, unknown>, key: keyof ResumeSessionParams): string | undefined {
+	const value = record[key];
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || value.trim() === "") {
+		throw new Error(`pi.sessions.resume ${key} must be a non-empty string`);
+	}
+	return value.trim();
+}
+
+function normalizeResumeSessionParams(params: unknown): ResumeSessionParams {
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.sessions.resume requires { path }, { id }, or { name }");
+	}
+	const record = params as Record<string, unknown>;
+	const target = {
+		id: readNonEmptyString(record, "id"),
+		name: readNonEmptyString(record, "name"),
+		path: readNonEmptyString(record, "path"),
+	};
+	const targetCount = Object.values(target).filter((value) => value !== undefined).length;
+	if (targetCount !== 1) {
+		throw new Error("pi.sessions.resume requires exactly one of path, id, or name");
+	}
+	return target;
+}
+
+function assertResumeSessionPath(path: string): string {
+	if (!existsSync(path) || !statSync(path).isFile()) {
+		throw new Error(`Session file does not exist: ${path}`);
+	}
+	if (!path.endsWith(".jsonl")) {
+		throw new Error(`Session file must be a .jsonl file: ${path}`);
+	}
+	return path;
+}
+
+function findUniqueSessionMatch(sessions: SessionInfo[], label: string, matches: (session: SessionInfo) => boolean): SessionInfo {
+	const matched = sessions.filter(matches);
+	if (matched.length === 0) {
+		throw new Error(`No session found matching ${label}`);
+	}
+	if (matched.length > 1) {
+		throw new Error(`Ambiguous session match for ${label}`);
+	}
+	const matchedSession = matched[0];
+	if (!matchedSession) {
+		throw new Error(`No session found matching ${label}`);
+	}
+	return matchedSession;
+}
+
+async function listResolvableSessions(ctx: ExtensionContext): Promise<SessionInfo[]> {
+	const localSessions = await SessionManager.list(
+		ctx.sessionManager.getCwd(),
+		ctx.sessionManager.getSessionDir(),
+		undefined,
+		ctx.controlDbPath,
+	);
+	const allSessions = await SessionManager.listAll(undefined, undefined, ctx.controlDbPath);
+	return [...new Map([...localSessions, ...allSessions].map((session) => [session.path, session])).values()];
+}
+
+async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: ExtensionContext): Promise<string> {
+	if (params.path) {
+		return assertResumeSessionPath(resolvePath(params.path, ctx.cwd));
+	}
+
+	const sessions = await listResolvableSessions(ctx);
+	if (params.name) {
+		return findUniqueSessionMatch(sessions, `name '${params.name}'`, (session) => session.name === params.name).path;
+	}
+
+	if (!params.id) {
+		throw new Error("pi.sessions.resume requires { path }, { id }, or { name }");
+	}
+	const id = params.id;
+	const exactMatches = sessions.filter((session) => session.id === id);
+	const exactMatch = exactMatches[0];
+	if (exactMatches.length === 1 && exactMatch) return exactMatch.path;
+	if (exactMatches.length > 1) throw new Error(`Ambiguous session match for id '${id}'`);
+	return findUniqueSessionMatch(sessions, `id '${id}'`, (session) => session.id.startsWith(id)).path;
+}
+
 function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal) => {
 		if (request.method === "compact") return triggerCompact(request.params, pi);
 		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
 		if (request.method === "restart") return triggerRestart(request.params, ctx);
+		if (request.method === "sessions.resume") return triggerSessionResume(request.params, ctx);
 		for (const handler of options.piRequestHandlers ?? []) {
 			const result = await handler(request, ctx, signal);
 			if (result !== undefined) return result;
@@ -107,6 +201,16 @@ function triggerCompact(params: unknown, pi: ExtensionAPI): { enqueued: true } {
 async function triggerRestart(params: unknown, ctx: ExtensionContext): Promise<{ started: true }> {
 	await ctx.restart(normalizeRestartParams(params));
 	return { started: true };
+}
+
+async function triggerSessionResume(params: unknown, ctx: ExtensionContext): Promise<{ cancelled: boolean; resumed: boolean }> {
+	if (!ctx.switchSession) {
+		throw new Error("pi.sessions.resume is not available in this session mode");
+	}
+	const resumeParams = normalizeResumeSessionParams(params);
+	const sessionFile = await resolveResumeSessionFile(resumeParams, ctx);
+	const result = await ctx.switchSession(sessionFile);
+	return { cancelled: result.cancelled, resumed: !result.cancelled };
 }
 
 function enqueueMessage(params: unknown, pi: ExtensionAPI): { enqueued: true } {

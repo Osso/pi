@@ -239,6 +239,7 @@ export interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
 	footerData?: ReadonlyFooterDataProvider;
 	mode?: ExtensionMode;
+	controlDbPath?: string;
 	commandContextActions?: ExtensionCommandContextActions;
 	abortHandler?: () => void;
 	shutdownHandler?: ShutdownHandler;
@@ -367,6 +368,7 @@ export class AgentSession {
 	private _extensionUIContext?: ExtensionUIContext;
 	private _extensionFooterData?: ReadonlyFooterDataProvider;
 	private _extensionMode: ExtensionMode = "print";
+	private _extensionControlDbPath?: string;
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
 	private _extensionAbortHandler?: () => void;
 	private _extensionShutdownHandler?: ShutdownHandler;
@@ -2458,6 +2460,9 @@ export class AgentSession {
 		if (bindings.mode !== undefined) {
 			this._extensionMode = bindings.mode;
 		}
+		if (bindings.controlDbPath !== undefined) {
+			this._extensionControlDbPath = bindings.controlDbPath;
+		}
 		if (bindings.commandContextActions !== undefined) {
 			this._extensionCommandContextActions = bindings.commandContextActions;
 		}
@@ -2647,6 +2652,7 @@ export class AgentSession {
 					}
 					return this._extensionCommandContextActions.restart(options);
 				},
+				getControlDbPath: () => this._extensionControlDbPath,
 				getContextUsage: () => this.getContextUsage(),
 				compact: (options) => {
 					void (async () => {
