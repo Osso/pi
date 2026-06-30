@@ -35,7 +35,13 @@ describe("deploy.sh", () => {
 		expect(result.stdout).toContain("0.79.10");
 		const wrapper = readFileSync(join(fixture.installDir, "pi"), "utf8");
 		expect(wrapper).toContain(`"PI_EXECUTABLE_NAME=pi-dev"`);
-		expect(wrapper).toContain(`env "\${env_args[@]}" "${fixture.repoDir}/pi-test.sh" "$@"`);
+		expect(wrapper).toContain(`-u PI_RESTART_EXIT_CODE`);
+		expect(wrapper).toContain(`-u PI_RESTART_REQUEST_FILE`);
+		expect(wrapper).toContain(`-u PI_SELF_RESTART_SESSION`);
+		expect(wrapper).toContain(`-u PI_SELF_RESTART_PROMPT`);
+		expect(wrapper).toContain(`-u PI_SELF_RESTART_OLD_PID`);
+		expect(wrapper).toContain(`"PI_EXECUTABLE_NAME=pi-dev"`);
+		expect(wrapper).toContain(`"${fixture.repoDir}/pi-test.sh" "$@"`);
 		expect(readFileSync(join(fixture.repoDir, "npm-args.log"), "utf8")).toBe("run check\n");
 		expect(readlinkSync(join(fixture.binDir, "pi-dev"))).toBe(join(fixture.installDir, "pi"));
 	});

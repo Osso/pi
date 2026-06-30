@@ -102,7 +102,7 @@ describe("self restart request", () => {
 	it("keeps the parent process alive until the restarted child exits", async () => {
 		const child = new EventEmitter() as EventEmitter & { unref: () => void };
 		let spawnArgs: readonly string[] | undefined;
-		let spawnOptions: { env?: NodeJS.ProcessEnv; stdio?: unknown } | undefined;
+		let spawnOptions: { cwd?: string; env?: NodeJS.ProcessEnv; stdio?: unknown } | undefined;
 		let unrefCalled = false;
 		child.unref = () => {
 			unrefCalled = true;
@@ -123,6 +123,7 @@ describe("self restart request", () => {
 		await expect(exitPromise).resolves.toBe(7);
 		expect(unrefCalled).toBe(false);
 		expect(spawnArgs).toEqual(process.argv.slice(1));
+		expect(spawnOptions?.cwd).toBe(process.cwd());
 		expect(spawnOptions?.stdio).toBe("inherit");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_SESSION]).toBe("/tmp/session.jsonl");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_PROMPT]).toBe("Restarted.");
