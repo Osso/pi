@@ -7,7 +7,7 @@
  * into the system prompt every turn so it stays anchored across the run and
  * across resume.
  *
- * State is persisted to an inspectable, hand-editable `.pi/goal.json`.
+ * State is persisted as JSON in the control SQLite `session_metadata` row for the session.
  *
  * Commands:
  *   /goal <objective>             set the objective and start working toward it
@@ -24,7 +24,13 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AgentEndEvent, ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentEndEvent,
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 /** codex caps the objective at 4000 characters. */
@@ -50,13 +56,24 @@ interface ParsedGoalArgs {
 }
 
 interface SetGoalParams extends ParsedGoalArgs {
-	cwd: string;
 	ctx: ExtensionContext;
 	pi: ExtensionAPI;
 }
 
-function goalPath(cwd: string): string {
+function goalPathForSessionId(cwd: string, sessionId: string): string {
+	return path.join(cwd, ".pi", "goals", `${encodeURIComponent(sessionId)}.json`);
+}
+
+function goalPath(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): string {
+	return goalPathForSessionId(ctx.cwd, ctx.sessionManager.getSessionId());
+}
+
+function oldProjectGoalPath(cwd: string): string {
 	return path.join(cwd, ".pi", "goal.json");
+}
+
+function saveGoalJson(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal): void {
+	ctx.sessionManager.setSessionGoalJson(`${JSON.stringify(goal)}\n`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,8 +107,7 @@ function parseGoal(value: unknown): Goal | null {
 	};
 }
 
-function loadGoal(cwd: string): Goal | null {
-	const file = goalPath(cwd);
+function loadGoalFile(file: string): Goal | null {
 	if (!fs.existsSync(file)) return null;
 	try {
 		return parseGoal(JSON.parse(fs.readFileSync(file, "utf8")));
@@ -100,34 +116,61 @@ function loadGoal(cwd: string): Goal | null {
 	}
 }
 
-function loadActiveGoal(cwd: string): Goal | null {
-	const goal = loadGoal(cwd);
+function loadGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	const storedGoal = ctx.sessionManager.getSessionGoalJson();
+	if (storedGoal) return parseGoalJson(storedGoal);
+	return migrateLegacyGoal(ctx);
+}
+
+function loadActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	const goal = loadGoal(ctx);
 	return goal && !goal.completedAt ? goal : null;
 }
 
-function saveGoal(cwd: string, goal: Goal): void {
-	const file = goalPath(cwd);
-	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, `${JSON.stringify(goal, null, 2)}\n`, "utf8");
+function parseGoalJson(value: string): Goal | null {
+	try {
+		return parseGoal(JSON.parse(value));
+	} catch {
+		return null;
+	}
 }
 
-function markGoalComplete(cwd: string, reason: string): Goal | null {
-	const goal = loadGoal(cwd);
+function migrateLegacyGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	for (const file of [goalPath(ctx), oldProjectGoalPath(ctx.cwd)]) {
+		const goal = loadGoalFile(file);
+		if (!goal) continue;
+		saveGoalJson(ctx, goal);
+		fs.rmSync(file);
+		return goal;
+	}
+	return null;
+}
+
+function saveGoal(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal): void {
+	saveGoalJson(ctx, goal);
+}
+
+function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
+	const goal = loadGoal(ctx);
 	if (!goal) return null;
 	const completedGoal: Goal = {
 		...goal,
 		completedAt: new Date().toISOString(),
 		completionReason: reason,
 	};
-	saveGoal(cwd, completedGoal);
+	saveGoal(ctx, completedGoal);
 	return completedGoal;
 }
 
-function clearGoal(cwd: string): boolean {
-	const file = goalPath(cwd);
-	if (!fs.existsSync(file)) return false;
-	fs.rmSync(file);
-	return true;
+function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boolean {
+	const hasStoredGoal = ctx.sessionManager.getSessionGoalJson() !== undefined;
+	const legacyFile = goalPath(ctx);
+	const hasLegacyGoal = fs.existsSync(legacyFile);
+	ctx.sessionManager.clearSessionGoalJson();
+	if (hasLegacyGoal) {
+		fs.rmSync(legacyFile);
+	}
+	return hasStoredGoal || hasLegacyGoal;
 }
 
 function goalFooterStatus(goal: Goal): string {
@@ -135,7 +178,7 @@ function goalFooterStatus(goal: Goal): string {
 }
 
 function updateGoalFooterStatus(ctx: ExtensionContext): void {
-	const goal = loadActiveGoal(ctx.cwd);
+	const goal = loadActiveGoal(ctx);
 	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
 }
 
@@ -219,6 +262,34 @@ function currentBranch(cwd: string): string {
 	}
 }
 
+function sessionIdFromSessionFile(sessionFile: string): string | null {
+	try {
+		const [firstLine] = fs.readFileSync(sessionFile, "utf8").split("\n", 1);
+		const entry = JSON.parse(firstLine ?? "");
+		return isRecord(entry) ? optionalString(entry.id) ?? null : null;
+	} catch {
+		return null;
+	}
+}
+
+function inheritPreviousSessionGoal(event: SessionStartEvent, ctx: ExtensionContext): void {
+	if (event.reason !== "fork" || !event.previousSessionFile) return;
+	if (ctx.sessionManager.isSubagentSession()) return;
+	if (loadGoal(ctx)) return;
+
+	const previousGoalJson = ctx.sessionManager.getSessionGoalJsonForSession(event.previousSessionFile);
+	const previousGoal = previousGoalJson ? parseGoalJson(previousGoalJson) : loadLegacyPreviousGoal(event, ctx);
+	if (previousGoal && !previousGoal.completedAt) {
+		saveGoal(ctx, previousGoal);
+	}
+}
+
+function loadLegacyPreviousGoal(event: SessionStartEvent, ctx: ExtensionContext): Goal | null {
+	if (!event.previousSessionFile) return null;
+	const previousSessionId = sessionIdFromSessionFile(event.previousSessionFile);
+	return previousSessionId ? loadGoalFile(goalPathForSessionId(ctx.cwd, previousSessionId)) : null;
+}
+
 /** The block injected into the system prompt each turn while a goal is active. */
 function didLastAssistantReturnEmpty(event: AgentEndEvent): boolean {
 	const assistantMessages = event.messages.filter((message) => message.role === "assistant");
@@ -250,7 +321,7 @@ function goalSystemBlock(goal: Goal): string {
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
-	const { objective, replace, tokenBudget = DEFAULT_TOKEN_BUDGET, wallClockBudgetMs, cwd, ctx, pi } = params;
+	const { objective, replace, tokenBudget = DEFAULT_TOKEN_BUDGET, wallClockBudgetMs, ctx, pi } = params;
 	if (objective.length > MAX_OBJECTIVE_CHARS) {
 		return {
 			ok: false,
@@ -259,7 +330,7 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 		};
 	}
 
-	const activeGoal = loadActiveGoal(cwd);
+	const activeGoal = loadActiveGoal(ctx);
 	if (activeGoal && !replace) {
 		return {
 			ok: false,
@@ -270,13 +341,13 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 
 	const goal: Goal = {
 		objective,
-		branch: currentBranch(cwd),
+		branch: currentBranch(ctx.cwd),
 		createdAt: new Date().toISOString(),
 		continuationTurns: 0,
 		tokenBudget,
 		wallClockBudgetMs,
 	};
-	saveGoal(cwd, goal);
+	saveGoal(ctx, goal);
 	updateGoalFooterStatus(ctx);
 
 	if (ctx.isIdle()) {
@@ -313,7 +384,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			const activeGoal = loadActiveGoal(ctx.cwd);
+			const activeGoal = loadActiveGoal(ctx);
 			if (activeGoal) {
 				const message = "Active goal already set — use /goal --replace <objective> to replace it";
 				ctx.ui.notify(message, "warning");
@@ -329,7 +400,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 				replace: false,
 				tokenBudget: params.tokenBudget,
 				wallClockBudgetMs,
-				cwd: ctx.cwd,
 				ctx,
 				pi,
 			});
@@ -356,7 +426,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const reason = params.reason?.trim() || "complete";
-			const goal = markGoalComplete(ctx.cwd, reason);
+			const goal = markGoalComplete(ctx, reason);
 			if (!goal) {
 				return {
 					content: [{ type: "text", text: "No active goal to complete." }],
@@ -373,14 +443,15 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 
 	// Notify on session start if an objective is active.
-	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		const goal = loadActiveGoal(ctx.cwd);
+	pi.on("session_start", async (event, ctx: ExtensionContext) => {
+		inheritPreviousSessionGoal(event, ctx);
+		const goal = loadActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
 		if (goal) ctx.ui.notify(`Active goal: ${goal.objective}`, "info");
 	});
 
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
-		const goal = loadActiveGoal(ctx.cwd);
+		const goal = loadActiveGoal(ctx);
 		if (!goal || ctx.hasPendingMessages()) return;
 
 		const stopReason = budgetStopReason(goal, ctx);
@@ -395,7 +466,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		}
 
 		const continuationTurns = goal.continuationTurns ?? 0;
-		saveGoal(ctx.cwd, { ...goal, continuationTurns: continuationTurns + 1 });
+		saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
 		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`, {
 			deliverAs: "followUp",
 		});
@@ -403,7 +474,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 	// Inject the active objective into the system prompt every turn.
 	pi.on("before_agent_start", async (event, ctx) => {
-		const goal = loadActiveGoal(ctx.cwd);
+		const goal = loadActiveGoal(ctx);
 		if (!goal) return;
 		return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
 	});
@@ -411,7 +482,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.registerCommand("goal", {
 		description: "Set or view the objective for a long-running task (/goal <objective> | /goal | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const cwd = ctx.cwd;
 			const parsedArgs = parseGoalArgs(args);
 			if ("error" in parsedArgs) {
 				ctx.ui.notify(parsedArgs.error, "error");
@@ -421,19 +491,19 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 			// View
 			if (!objective) {
-				const goal = loadActiveGoal(cwd);
+				const goal = loadActiveGoal(ctx);
 				ctx.ui.notify(goal ? `Goal: ${goal.objective}` : "No active goal — use /goal <objective>", "info");
 				return;
 			}
 
 			// Clear
 			if (objective === "clear") {
-				ctx.ui.notify(clearGoal(cwd) ? "Goal cleared" : "No active goal", "info");
+				ctx.ui.notify(clearGoal(ctx) ? "Goal cleared" : "No active goal", "info");
 				updateGoalFooterStatus(ctx);
 				return;
 			}
 
-			const result = setGoal({ objective, replace, tokenBudget, wallClockBudgetMs, cwd, ctx, pi });
+			const result = setGoal({ objective, replace, tokenBudget, wallClockBudgetMs, ctx, pi });
 			ctx.ui.notify(result.message, result.severity);
 		},
 	});

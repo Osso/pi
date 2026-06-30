@@ -1,11 +1,15 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import goalExtension from "../../extensions/goal/src/index.ts";
 import type { ExtensionUIContext } from "../../src/core/extensions/index.ts";
 import { type Theme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { createHarness, getUserTexts, type Harness } from "./harness.ts";
+
+function readStoredGoal(harness: Harness): { objective: string } {
+	const goalJson = harness.sessionManager.getSessionGoalJson();
+	if (!goalJson) throw new Error("No stored goal");
+	return JSON.parse(goalJson) as { objective: string };
+}
 
 function createUiContext(): ExtensionUIContext {
 	return {
@@ -62,7 +66,10 @@ describe("goal extension runtime", () => {
 	it("continues a goal from agent_end without another user prompt", async () => {
 		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
-		harness.setResponses(Array.from({ length: 9 }, (_, index) => fauxAssistantMessage(`round ${index + 1}`)));
+		harness.setResponses([
+			...Array.from({ length: 8 }, (_, index) => fauxAssistantMessage(`round ${index + 1}`)),
+			fauxAssistantMessage("   "),
+		]);
 
 		await harness.session.prompt("/goal say hello twice in two different rounds");
 		await waitForProviderCalls(harness, 9);
@@ -77,9 +84,7 @@ describe("goal extension runtime", () => {
 		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("queued user prompt"), fauxAssistantMessage("goal continuation")]);
-		mkdirSync(join(harness.tempDir, ".pi"), { recursive: true });
-		writeFileSync(
-			join(harness.tempDir, ".pi", "goal.json"),
+		harness.sessionManager.setSessionGoalJson(
 			JSON.stringify({ objective: "keep going", branch: "test", createdAt: new Date().toISOString() }),
 		);
 
@@ -107,7 +112,7 @@ describe("goal extension runtime", () => {
 		await harness.session.prompt("/goal first objective");
 		await waitForProviderCalls(harness, 2);
 
-		const goal = JSON.parse(readFileSync(join(harness.tempDir, ".pi", "goal.json"), "utf8")) as { objective: string };
+		const goal = readStoredGoal(harness);
 		expect(goal.objective).toBe("first objective");
 	});
 });

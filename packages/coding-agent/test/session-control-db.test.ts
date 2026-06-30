@@ -11,12 +11,15 @@ import {
 	listSessionMetadata,
 	readIncomingMessageStatus,
 	readLastMessage,
+	readSessionGoal,
 	readSessionMetadata,
 	removeNamedSession,
 	setNamedSession,
 	writeLastMessage,
+	writeSessionGoal,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
+import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
 describe("session control DB", () => {
 	let tempDir: string;
@@ -181,6 +184,78 @@ describe("session control DB", () => {
 			firstMessage: "updated first",
 			allMessagesText: "updated first more text",
 		});
+	});
+
+	it("adds goal and subagent columns to existing session metadata tables", () => {
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE session_metadata (
+					session_path TEXT PRIMARY KEY,
+					id TEXT NOT NULL,
+					cwd TEXT NOT NULL,
+					name TEXT,
+					parent_session_path TEXT,
+					created_at TEXT NOT NULL,
+					modified_at TEXT NOT NULL,
+					message_count INTEGER NOT NULL,
+					first_message TEXT NOT NULL,
+					all_messages_text TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)
+			`);
+		} finally {
+			db.close();
+		}
+
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: "/tmp/session-a.jsonl",
+			id: "session-a",
+			cwd: "/repo/a",
+			name: undefined,
+			parentSessionPath: undefined,
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+		writeSessionGoal(controlDbPath, "/tmp/session-a.jsonl", '{"objective":"migrated"}');
+
+		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")).toMatchObject({
+			goalJson: '{"objective":"migrated"}',
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+	});
+
+	it("stores goal and subagent metadata in the session metadata row", () => {
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: "/tmp/session-a.jsonl",
+			id: "session-a",
+			cwd: "/repo/a",
+			name: "Alpha",
+			parentSessionPath: "/tmp/parent.jsonl",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+
+		writeSessionGoal(controlDbPath, "/tmp/session-a.jsonl", '{"objective":"child objective"}');
+
+		const metadata = readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl");
+		expect(metadata).toMatchObject({
+			goalJson: '{"objective":"child objective"}',
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+		expect(readSessionGoal(controlDbPath, "/tmp/session-a.jsonl")).toBe('{"objective":"child objective"}');
 	});
 
 	it("keeps named session APIs compatible while mirroring names into metadata", () => {

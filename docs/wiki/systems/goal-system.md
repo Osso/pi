@@ -2,18 +2,18 @@
 
 The goal system is implemented as a first-party coding-agent extension in
 `packages/coding-agent/extensions/goal/`. It provides `/goal` plus a
-`goal_complete` tool, persists one active objective per working directory, and
-keeps that objective in the system prompt until it is completed or continuation
-is stopped by configured bounds.
+`goal_complete` tool, persists one active objective per session in a working
+directory, and keeps that objective in the system prompt until it is completed
+or continuation is stopped by configured bounds.
 
 The contract lives in `docs/specs/goal-system.md`.
 
 ## State
 
-Goal state is stored in `.pi/goal.json` under the command context working
-directory. The file is JSON, formatted with two-space indentation and a trailing
-newline, so it can be inspected or edited directly. Local goal state is ignored
-by git.
+Goal state is stored as JSON in the current session's `session_metadata.goal_json`
+row in the control SQLite database. The same `session_metadata` row stores
+`is_subagent` and `subagent_name` so parent sessions and subagents can keep
+separate objectives.
 
 The persisted record contains:
 
@@ -46,7 +46,7 @@ starting a second turn.
 
 `/goal` with no arguments displays the current objective or a no-goal notice.
 
-`/goal clear` removes `.pi/goal.json` and reports whether anything was cleared.
+`/goal clear` clears the current session's `goal_json` metadata and reports whether anything was cleared.
 
 `/goal --replace <objective>` replaces an active, incomplete goal. Without
 `--replace`, a second objective is rejected while an incomplete goal exists.
@@ -80,9 +80,16 @@ that status.
 
 ## Session Start
 
-The extension listens for `session_start`. If `.pi/goal.json` contains a goal,
-Pi notifies the user with the restored objective and shows it in the footer. The
-same restore behavior is covered for resume, reload, and fork reasons.
+The extension listens for `session_start`. If the current session's `goal_json`
+contains a goal, Pi notifies the user with the restored objective and shows it in
+the footer. Resume restores only the resumed session's own goal state; it does not
+inherit from `previousSessionFile`.
+
+Fork is the only start reason that inherits from `previousSessionFile`. When a
+normal fork starts with a new session id and no current goal, the extension reads
+the parent's `goal_json` and copies the parent's active goal into the fork's
+metadata row. Subagent sessions are marked with `is_subagent` and do not inherit
+parent goals.
 
 ## Automatic Continuation
 
@@ -97,14 +104,13 @@ Continue working toward this objective until it is achieved: <objective>
 Continuation stops without sending a message when:
 
 - the goal has `completedAt`;
-- the agent is not idle;
 - pending messages exist;
-- `continuationTurns` has reached the cap of 8;
+- the last assistant response was empty;
 - current context usage reaches `tokenBudget`;
 - elapsed wall-clock time reaches `wallClockBudgetMs`.
 
-When a budget or turn cap stops continuation, Pi shows a warning explaining the
-stop reason.
+When a budget or empty response stops continuation, Pi shows a warning explaining
+the stop reason.
 
 ## Completion Tool
 
@@ -120,6 +126,6 @@ Completed goals do not trigger automatic continuation.
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
 behavior: first-party registration, set/view/clear, explicit replacement,
 objective length rejection, prompt injection, continuation state and budgets,
-footer status, session-start restore notifications, corrupt state handling,
-automatic continuation, busy guard, `goal_complete`, turn cap, token budget, and
-wall-clock budget.
+footer status, session-start restore notifications, fork-only goal inheritance,
+corrupt state handling, automatic continuation, busy guard, `goal_complete`,
+per-session isolation, token budget, and wall-clock budget.

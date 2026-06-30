@@ -169,7 +169,7 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	createSessionManager: (
 		cwd: string,
 		sessionDir: string | undefined,
-		options: { parentSession: string },
+		options: { parentSession: string; isSubagent?: boolean; subagentName?: string },
 	) => CreateAgentSessionOptions["sessionManager"];
 	sessionDir?: string;
 }
@@ -390,7 +390,11 @@ export function createProductionChildAgentSessionFactory(
 	return async ({ agent, ctx }) => {
 		const parentSession = ctx.sessionManager.getSessionFile() ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
-		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, { parentSession });
+		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, {
+			parentSession,
+			isSubagent: true,
+			subagentName: agent.displayName,
+		});
 		const profile = resolveChildAgentProfile(agent, ctx);
 		const result = await options.createSession({
 			agentDir: options.agentDir,

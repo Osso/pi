@@ -271,6 +271,45 @@ describe("SessionManager custom flat session directory", () => {
 		expect(new Set(currentA.map((entry) => entry.path))).toEqual(new Set([sessionA, sessionB]));
 	});
 
+	it("preserves persisted subagent metadata when a session is reopened with sqlite metadata", () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const session = SessionManager.create(projectA, tempDir, {
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+		session.setMetadataControlDbPath(controlDbPath);
+		session.appendMessage({ role: "user", content: "subagent prompt", timestamp: 1 });
+		session.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "subagent reply" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: 2,
+		});
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persisted session file");
+
+		const reopened = SessionManager.open(sessionFile, tempDir);
+		reopened.setMetadataControlDbPath(controlDbPath);
+
+		expect(reopened.isSubagentSession()).toBe(true);
+		expect(reopened.getSubagentName()).toBe("researcher");
+		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+	});
+
 	it("writes session metadata to sqlite and lists from it", async () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const session = SessionManager.create(projectA, tempDir);

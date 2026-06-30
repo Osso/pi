@@ -28,8 +28,11 @@ import {
 } from "./messages.ts";
 import {
 	listSessionMetadata,
+	readSessionGoal,
+	readSessionMetadata,
 	type SessionMetadata,
 	type WritableSessionMetadata,
+	writeSessionGoal,
 	writeSessionMetadata,
 } from "./session-control-db.ts";
 
@@ -47,6 +50,8 @@ export interface SessionHeader {
 export interface NewSessionOptions {
 	id?: string;
 	parentSession?: string;
+	isSubagent?: boolean;
+	subagentName?: string;
 }
 
 export interface SessionEntryBase {
@@ -206,6 +211,12 @@ export type ReadonlySessionManager = Pick<
 	| "getEntries"
 	| "getTree"
 	| "getSessionName"
+	| "getSessionGoalJson"
+	| "getSessionGoalJsonForSession"
+	| "setSessionGoalJson"
+	| "clearSessionGoalJson"
+	| "isSubagentSession"
+	| "getSubagentName"
 >;
 
 function createSessionId(): string {
@@ -722,7 +733,11 @@ function buildSessionInfoFromEntries(
 	return finishSessionInfo(filePath, header, accumulator, fallbackModified);
 }
 
-function buildWritableSessionMetadata(filePath: string, entries: FileEntry[]): WritableSessionMetadata | null {
+function buildWritableSessionMetadata(
+	filePath: string,
+	entries: FileEntry[],
+	options: { isSubagent?: boolean; subagentName?: string } = {},
+): WritableSessionMetadata | null {
 	const info = buildSessionInfoFromEntries(filePath, entries);
 	if (!info) return null;
 	return {
@@ -731,6 +746,8 @@ function buildWritableSessionMetadata(filePath: string, entries: FileEntry[]): W
 		cwd: info.cwd,
 		name: info.name,
 		parentSessionPath: info.parentSessionPath,
+		isSubagent: options.isSubagent,
+		subagentName: options.subagentName,
 		createdAt: info.created.toISOString(),
 		modifiedAt: info.modified.toISOString(),
 		messageCount: info.messageCount,
@@ -967,6 +984,9 @@ export class SessionManager {
 	private labelTimestampsById: Map<string, string> = new Map();
 	private leafId: string | null = null;
 	private metadataControlDbPath: string | undefined;
+	private isSubagent: boolean = false;
+	private subagentName: string | undefined;
+	private inMemoryGoalJson: string | undefined;
 
 	private constructor(
 		cwd: string,
@@ -1030,6 +1050,8 @@ export class SessionManager {
 			assertValidSessionId(options.id);
 		}
 		this.sessionId = options?.id ?? createSessionId();
+		this.isSubagent = options?.isSubagent ?? false;
+		this.subagentName = options?.subagentName?.trim() || undefined;
 		const timestamp = new Date().toISOString();
 		const header: SessionHeader = {
 			type: "session",
@@ -1109,14 +1131,62 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
+	isSubagentSession(): boolean {
+		return this.isSubagent;
+	}
+
+	getSubagentName(): string | undefined {
+		return this.subagentName;
+	}
+
+	getSessionGoalJson(): string | undefined {
+		if (!this.metadataControlDbPath || !this.sessionFile) return this.inMemoryGoalJson;
+		return readSessionGoal(this.metadataControlDbPath, this.sessionFile);
+	}
+
+	getSessionGoalJsonForSession(sessionFile: string): string | undefined {
+		if (!this.metadataControlDbPath) return undefined;
+		return readSessionGoal(this.metadataControlDbPath, resolvePath(sessionFile));
+	}
+
+	setSessionGoalJson(goalJson: string): void {
+		if (!this.metadataControlDbPath || !this.sessionFile) {
+			this.inMemoryGoalJson = goalJson;
+			return;
+		}
+		this.writeMetadataSnapshot();
+		writeSessionGoal(this.metadataControlDbPath, this.sessionFile, goalJson);
+	}
+
+	clearSessionGoalJson(): void {
+		if (!this.metadataControlDbPath || !this.sessionFile) {
+			this.inMemoryGoalJson = undefined;
+			return;
+		}
+		this.writeMetadataSnapshot();
+		writeSessionGoal(this.metadataControlDbPath, this.sessionFile, undefined);
+	}
+
 	setMetadataControlDbPath(controlDbPath: string | undefined): void {
 		this.metadataControlDbPath = controlDbPath;
+		this.restorePersistedSubagentMetadata();
 		this.writeMetadataSnapshot();
+	}
+
+	private restorePersistedSubagentMetadata(): void {
+		if (!this.metadataControlDbPath || !this.sessionFile) return;
+		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
+		if (!metadata?.isSubagent) return;
+		this.isSubagent = true;
+		this.subagentName = metadata.subagentName;
 	}
 
 	private writeMetadataSnapshot(): void {
 		if (!this.metadataControlDbPath || !this.persist || !this.sessionFile) return;
-		const metadata = buildWritableSessionMetadata(this.sessionFile, this.fileEntries);
+		const metadata = buildWritableSessionMetadata(this.sessionFile, this.fileEntries, {
+			isSubagent: this.isSubagent,
+			subagentName: this.subagentName,
+		});
 		if (!metadata) return;
 		writeSessionMetadata(this.metadataControlDbPath, metadata);
 	}

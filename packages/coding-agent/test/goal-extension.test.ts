@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
@@ -43,6 +43,32 @@ function createUsage(): Usage {
 	};
 }
 
+const storedGoalJsonBySession = new Map<string, string>();
+
+function storedGoalKey(cwd: string, sessionId = "test-session"): string {
+	return `${cwd}\0${sessionId}`;
+}
+
+function readStoredGoal<T>(cwd: string, sessionId = "test-session"): T {
+	const goalJson = storedGoalJsonBySession.get(storedGoalKey(cwd, sessionId));
+	if (!goalJson) throw new Error(`No stored goal for ${sessionId}`);
+	return JSON.parse(goalJson) as T;
+}
+
+function writeStoredGoal(cwd: string, sessionId: string, goal: unknown): void {
+	storedGoalJsonBySession.set(storedGoalKey(cwd, sessionId), `${JSON.stringify(goal)}\n`);
+}
+
+function sessionIdFromFile(file: string): string | undefined {
+	try {
+		const [firstLine] = readFileSync(file, "utf8").split("\n", 1);
+		const parsed = JSON.parse(firstLine ?? "") as { id?: unknown };
+		return typeof parsed.id === "string" ? parsed.id : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function createAssistantMessage(text: string): AssistantMessage {
 	return {
 		role: "assistant",
@@ -56,7 +82,16 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
-function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage?: ContextUsage }) {
+function createGoalHarness(
+	cwd: string,
+	options?: {
+		idle?: boolean;
+		contextUsage?: ContextUsage;
+		sessionId?: string;
+		isSubagent?: boolean;
+		subagentName?: string;
+	},
+) {
 	let command: RegisteredGoalCommand | undefined;
 	let completeTool: GoalTool | undefined;
 	let setGoalTool: GoalTool | undefined;
@@ -100,6 +135,23 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 	const ctx = {
 		cwd,
 		ui: { notify, setStatus },
+		sessionManager: {
+			getSessionId: () => options?.sessionId ?? "test-session",
+			getSessionGoalJson: () =>
+				storedGoalJsonBySession.get(storedGoalKey(cwd, options?.sessionId ?? "test-session")),
+			getSessionGoalJsonForSession: (sessionFile: string) => {
+				const sessionId = sessionIdFromFile(sessionFile);
+				return sessionId ? storedGoalJsonBySession.get(storedGoalKey(cwd, sessionId)) : undefined;
+			},
+			setSessionGoalJson: (goalJson: string) => {
+				storedGoalJsonBySession.set(storedGoalKey(cwd, options?.sessionId ?? "test-session"), goalJson);
+			},
+			clearSessionGoalJson: () => {
+				storedGoalJsonBySession.delete(storedGoalKey(cwd, options?.sessionId ?? "test-session"));
+			},
+			isSubagentSession: () => options?.isSubagent ?? false,
+			getSubagentName: () => options?.subagentName,
+		},
 		isIdle: () => options?.idle ?? true,
 		hasPendingMessages: () => false,
 		getContextUsage: () => options?.contextUsage,
@@ -118,8 +170,8 @@ function createGoalHarness(cwd: string, options?: { idle?: boolean; contextUsage
 			await command?.handler(args, ctx);
 		},
 		runBeforeAgentStart: async () => beforeAgentStart?.(event, ctx as ExtensionContext),
-		runSessionStart: async (reason: SessionStartEvent["reason"]) =>
-			sessionStart?.({ type: "session_start", reason }, ctx as ExtensionContext),
+		runSessionStart: async (reason: SessionStartEvent["reason"], previousSessionFile?: string) =>
+			sessionStart?.({ type: "session_start", reason, previousSessionFile }, ctx as ExtensionContext),
 		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
@@ -144,6 +196,9 @@ describe("goal extension", () => {
 	});
 
 	afterEach(() => {
+		for (const key of storedGoalJsonBySession.keys()) {
+			if (key.startsWith(`${cwd}\0`)) storedGoalJsonBySession.delete(key);
+		}
 		rmSync(cwd, { recursive: true, force: true });
 	});
 
@@ -160,7 +215,7 @@ describe("goal extension", () => {
 
 		const result = await harness.runSetGoal("ship tool parity");
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship tool parity");
 		expect(result?.content).toEqual([{ type: "text", text: "Goal set: ship tool parity" }]);
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
@@ -176,7 +231,7 @@ describe("goal extension", () => {
 		harness.sendUserMessage.mockClear();
 		const result = await harness.runSetGoal("agent-chosen objective", true);
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("first objective");
 		expect(result?.content).toEqual([
 			{ type: "text", text: "Active goal already set — use /goal --replace <objective> to replace it" },
@@ -193,12 +248,49 @@ describe("goal extension", () => {
 
 		await harness.runCommand("ship the goal feature");
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship the goal feature");
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
 			"Work toward this objective until it is achieved: ship the goal feature",
 		);
+	});
+
+	it("migrates old project goal file into session storage", async () => {
+		const legacyGoalFile = join(cwd, ".pi", "goal.json");
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			legacyGoalFile,
+			JSON.stringify({
+				objective: "migrate old project objective",
+				branch: "main",
+				createdAt: "2026-01-01T00:00:00.000Z",
+			}),
+			"utf8",
+		);
+		const harness = createGoalHarness(cwd);
+
+		await harness.runSessionStart("startup");
+
+		const goal = readStoredGoal<{ objective: string }>(cwd);
+		expect(goal.objective).toBe("migrate old project objective");
+		expect(existsSync(legacyGoalFile)).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("Active goal: migrate old project objective", "info");
+	});
+
+	it("keeps active goals separate for two sessions in the same project", async () => {
+		const firstHarness = createGoalHarness(cwd, { sessionId: "agent-one" });
+		const secondHarness = createGoalHarness(cwd, { sessionId: "agent-two" });
+
+		await firstHarness.runCommand("first session objective");
+		await secondHarness.runCommand("second session objective");
+
+		const firstPrompt = await firstHarness.runBeforeAgentStart();
+		const secondPrompt = await secondHarness.runBeforeAgentStart();
+		expect(firstPrompt?.systemPrompt).toContain("Long-running objective: first session objective");
+		expect(firstPrompt?.systemPrompt).not.toContain("second session objective");
+		expect(secondPrompt?.systemPrompt).toContain("Long-running objective: second session objective");
+		expect(secondPrompt?.systemPrompt).not.toContain("first session objective");
 	});
 
 	it("requires an explicit replace flag before overwriting an active goal", async () => {
@@ -209,7 +301,7 @@ describe("goal extension", () => {
 		harness.sendUserMessage.mockClear();
 		await harness.runCommand("second objective");
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as { objective: string };
+		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("first objective");
 		expect(harness.notify).toHaveBeenCalledWith(
 			"Active goal already set — use /goal --replace <objective> to replace it",
@@ -226,10 +318,7 @@ describe("goal extension", () => {
 		harness.sendUserMessage.mockClear();
 		await harness.runCommand("--replace second objective");
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as {
-			objective: string;
-			continuationTurns: number;
-		};
+		const goal = readStoredGoal<{ objective: string; continuationTurns: number }>(cwd);
 		expect(goal.objective).toBe("second objective");
 		expect(goal.continuationTurns).toBe(0);
 		expect(harness.notify).toHaveBeenCalledWith("Goal replaced — starting work", "info");
@@ -300,10 +389,86 @@ describe("goal extension", () => {
 		expect(harness.notify).toHaveBeenNthCalledWith(3, "Active goal: resume this objective", "info");
 	});
 
+	it("keeps a subagent goal independent from the parent goal", async () => {
+		const parentSessionId = "parent-session";
+		const childSessionId = "child-session";
+		const parentHarness = createGoalHarness(cwd, { sessionId: parentSessionId });
+		await parentHarness.runCommand("parent objective");
+		const previousSessionFile = join(cwd, "parent-session.jsonl");
+		const parentSessionHeader = {
+			type: "session",
+			id: parentSessionId,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			cwd,
+		};
+		writeFileSync(previousSessionFile, `${JSON.stringify(parentSessionHeader)}\n`, "utf8");
+
+		const childHarness = createGoalHarness(cwd, {
+			sessionId: childSessionId,
+			isSubagent: true,
+			subagentName: "researcher",
+		});
+		await childHarness.runSessionStart("fork", previousSessionFile);
+		await childHarness.runSetGoal("child objective");
+
+		const parentPrompt = await parentHarness.runBeforeAgentStart();
+		const childPrompt = await childHarness.runBeforeAgentStart();
+		expect(parentPrompt?.systemPrompt).toContain("Long-running objective: parent objective");
+		expect(parentPrompt?.systemPrompt).not.toContain("child objective");
+		expect(childPrompt?.systemPrompt).toContain("Long-running objective: child objective");
+		expect(childPrompt?.systemPrompt).not.toContain("parent objective");
+	});
+
+	it("inherits the parent goal when a fork starts with a new session id", async () => {
+		const parentSessionId = "parent-session";
+		const childSessionId = "child-session";
+		const parentHarness = createGoalHarness(cwd, { sessionId: parentSessionId });
+		await parentHarness.runCommand("carry goal into fork");
+		const previousSessionFile = join(cwd, "parent-session.jsonl");
+		const parentSessionHeader = {
+			type: "session",
+			id: parentSessionId,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			cwd,
+		};
+		writeFileSync(previousSessionFile, `${JSON.stringify(parentSessionHeader)}\n`, "utf8");
+
+		const childHarness = createGoalHarness(cwd, { sessionId: childSessionId });
+		await childHarness.runSessionStart("fork", previousSessionFile);
+
+		const inheritedGoal = readStoredGoal<{ objective: string }>(cwd, childSessionId);
+		const childPrompt = await childHarness.runBeforeAgentStart();
+		expect(inheritedGoal.objective).toBe("carry goal into fork");
+		expect(childPrompt?.systemPrompt).toContain("Long-running objective: carry goal into fork");
+		expect(childHarness.notify).toHaveBeenCalledWith("Active goal: carry goal into fork", "info");
+	});
+
+	it("does not inherit a previous session goal when resuming a different session", async () => {
+		const previousSessionId = "session-a";
+		const resumedSessionId = "session-b";
+		const previousHarness = createGoalHarness(cwd, { sessionId: previousSessionId });
+		await previousHarness.runCommand("do not leak into resume");
+		const previousSessionFile = join(cwd, "session-a.jsonl");
+		const previousSessionHeader = {
+			type: "session",
+			id: previousSessionId,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			cwd,
+		};
+		writeFileSync(previousSessionFile, `${JSON.stringify(previousSessionHeader)}\n`, "utf8");
+
+		const resumedHarness = createGoalHarness(cwd, { sessionId: resumedSessionId });
+		await resumedHarness.runSessionStart("resume", previousSessionFile);
+
+		const resumedPrompt = await resumedHarness.runBeforeAgentStart();
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd, resumedSessionId))).toBe(false);
+		expect(resumedPrompt).toBeUndefined();
+		expect(resumedHarness.notify).not.toHaveBeenCalledWith("Active goal: do not leak into resume", "info");
+	});
+
 	it("treats corrupt goal state as no active objective", async () => {
 		const harness = createGoalHarness(cwd);
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		writeFileSync(join(cwd, ".pi", "goal.json"), "{not json", "utf8");
+		storedGoalJsonBySession.set(storedGoalKey(cwd), "{not json");
 
 		await harness.runCommand("");
 		const result = await harness.runBeforeAgentStart();
@@ -314,12 +479,11 @@ describe("goal extension", () => {
 
 	it("treats goal state without an objective as no active objective", async () => {
 		const harness = createGoalHarness(cwd);
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		writeFileSync(
-			join(cwd, ".pi", "goal.json"),
-			`${JSON.stringify({ description: "legacy goal", branch: "main", createdAt: "2026-01-01T00:00:00.000Z" })}\n`,
-			"utf8",
-		);
+		writeStoredGoal(cwd, "test-session", {
+			description: "legacy goal",
+			branch: "main",
+			createdAt: "2026-01-01T00:00:00.000Z",
+		});
 
 		await harness.runSessionStart("startup");
 		await harness.runCommand("");
@@ -413,10 +577,7 @@ describe("goal extension", () => {
 
 		await harness.runCommand("default budget objective");
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as {
-			objective: string;
-			tokenBudget: number;
-		};
+		const goal = readStoredGoal<{ objective: string; tokenBudget: number }>(cwd);
 		expect(goal.objective).toBe("default budget objective");
 		expect(goal.tokenBudget).toBe(1_000_000_000);
 	});
@@ -426,11 +587,7 @@ describe("goal extension", () => {
 
 		await harness.runCommand("--token-budget 100 --wall-clock-minutes 5 budgeted objective");
 
-		const goal = JSON.parse(readFileSync(join(cwd, ".pi", "goal.json"), "utf8")) as {
-			objective: string;
-			tokenBudget: number;
-			wallClockBudgetMs: number;
-		};
+		const goal = readStoredGoal<{ objective: string; tokenBudget: number; wallClockBudgetMs: number }>(cwd);
 		expect(goal.objective).toBe("budgeted objective");
 		expect(goal.tokenBudget).toBe(100);
 		expect(goal.wallClockBudgetMs).toBe(5 * 60 * 1000);
@@ -461,9 +618,8 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("--wall-clock-minutes 1 time bounded");
-		const goalPath = join(cwd, ".pi", "goal.json");
-		const goal = JSON.parse(readFileSync(goalPath, "utf8")) as Record<string, unknown>;
-		writeFileSync(goalPath, `${JSON.stringify({ ...goal, createdAt: "2000-01-01T00:00:00.000Z" })}\n`, "utf8");
+		const goal = readStoredGoal<Record<string, unknown>>(cwd);
+		writeStoredGoal(cwd, "test-session", { ...goal, createdAt: "2000-01-01T00:00:00.000Z" });
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
