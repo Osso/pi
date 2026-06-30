@@ -62,8 +62,6 @@ cat > "$TMP_INSTALL_DIR/pi" <<EOF
 set -euo pipefail
 
 exec env \
-	-u PI_RESTART_EXIT_CODE \
-	-u PI_RESTART_REQUEST_FILE \
 	-u PI_SELF_RESTART_SESSION \
 	-u PI_SELF_RESTART_PROMPT \
 	-u PI_SELF_RESTART_OLD_PID \

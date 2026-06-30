@@ -1,21 +1,14 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
 import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
-	ENV_RESTART_EXIT_CODE,
-	ENV_RESTART_REQUEST_FILE,
 	ENV_SELF_RESTART_OLD_PID,
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
-	getRestartExitCode,
 	restartCurrentProcess,
 	spawnSelfRestart,
-	writeWrapperRestartRequest,
 } from "../src/core/self-restart.ts";
 import type { SessionManager } from "../src/core/session-manager.ts";
 
@@ -33,18 +26,15 @@ function createArgs(): Args {
 	};
 }
 
+function restoreEnv(name: string, oldValue: string | undefined): void {
+	if (oldValue === undefined) {
+		delete process.env[name];
+		return;
+	}
+	process.env[name] = oldValue;
+}
+
 describe("self restart request", () => {
-	it("reads a wrapper restart exit code from the environment", () => {
-		expect(getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "75" })).toBe(75);
-		expect(getRestartExitCode({})).toBeUndefined();
-	});
-
-	it("rejects invalid wrapper restart exit codes", () => {
-		expect(() => getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "0" })).toThrow("integer from 1 to 255");
-		expect(() => getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "300" })).toThrow("integer from 1 to 255");
-		expect(() => getRestartExitCode({ [ENV_RESTART_EXIT_CODE]: "nope" })).toThrow("integer from 1 to 255");
-	});
-
 	it("resumes the requested session without injecting a prompt when none is provided", () => {
 		const args = createArgs();
 
@@ -73,30 +63,6 @@ describe("self restart request", () => {
 		expect(args.fork).toBeUndefined();
 		expect(args.noSession).toBe(false);
 		expect(args.sessionId).toBeUndefined();
-	});
-
-	it("writes restart requests for wrapper-managed process restarts", () => {
-		const dir = mkdtempSync(join(tmpdir(), "pi-self-restart-"));
-		try {
-			const requestFile = join(dir, "restart.json");
-
-			writeWrapperRestartRequest(
-				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted.", oldPid: 1234 },
-				{ [ENV_RESTART_REQUEST_FILE]: requestFile },
-			);
-
-			expect(JSON.parse(readFileSync(requestFile, "utf8"))).toEqual({
-				sessionFile: "/tmp/session.jsonl",
-				prompt: "Restarted.",
-				oldPid: 1234,
-			});
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("ignores wrapper restart requests when no request file is configured", () => {
-		expect(() => writeWrapperRestartRequest({ sessionFile: "/tmp/session.jsonl" }, {})).not.toThrow();
 	});
 
 	it("keeps the parent process alive until the restarted child exits", async () => {
@@ -181,46 +147,15 @@ describe("self restart request", () => {
 		expect(notices).toEqual([`Restarted. PID 1234 -> ${process.pid}.`]);
 	});
 
-	it("exits with the wrapper restart code after writing the restart request", async () => {
+	it("spawns a replacement process and exits the original process", async () => {
 		const calls: string[] = [];
 
 		await expect(
 			restartCurrentProcess(
 				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
 				{
-					env: { [ENV_RESTART_EXIT_CODE]: "75" },
-					appendNotice: () => {
-						calls.push("append");
-					},
-					dispose: async () => {
-						calls.push("dispose");
-					},
-					exit: (code) => {
-						throw new Error(`exit:${code}`);
-					},
-				},
-			),
-		).rejects.toThrow("exit:75");
-
-		expect(calls).toEqual([]);
-	});
-
-	it("spawns a replacement process and exits the original process when no wrapper restart code is available", async () => {
-		const calls: string[] = [];
-
-		await expect(
-			restartCurrentProcess(
-				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
-				{
-					env: {},
-					appendNotice: () => {
-						calls.push("append");
-					},
-					dispose: async () => {
-						calls.push("dispose");
-					},
 					spawnSelfRestart: async (request) => {
-						calls.push(`${request.sessionFile}:${request.prompt}`);
+						calls.push(`${request.sessionFile}:${request.prompt}:${request.oldPid}`);
 						return 0;
 					},
 					exit: (code) => {
@@ -230,6 +165,36 @@ describe("self restart request", () => {
 			),
 		).rejects.toThrow("exit:0");
 
-		expect(calls).toEqual(["/tmp/session.jsonl:Restarted."]);
+		expect(calls).toEqual([`/tmp/session.jsonl:Restarted.:${process.pid}`]);
+	});
+
+	it("ignores wrapper restart env vars and still uses direct spawn", async () => {
+		const oldExitCode = process.env.PI_RESTART_EXIT_CODE;
+		const oldRequestFile = process.env.PI_RESTART_REQUEST_FILE;
+		const calls: string[] = [];
+
+		process.env.PI_RESTART_EXIT_CODE = "75";
+		process.env.PI_RESTART_REQUEST_FILE = "/tmp/restart.json";
+		try {
+			await expect(
+				restartCurrentProcess(
+					{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
+					{
+						spawnSelfRestart: async (request) => {
+							calls.push(`${request.sessionFile}:${request.prompt}:${request.oldPid}`);
+							return 0;
+						},
+						exit: (code) => {
+							throw new Error(`exit:${code}`);
+						},
+					},
+				),
+			).rejects.toThrow("exit:0");
+		} finally {
+			restoreEnv("PI_RESTART_EXIT_CODE", oldExitCode);
+			restoreEnv("PI_RESTART_REQUEST_FILE", oldRequestFile);
+		}
+
+		expect(calls).toEqual([`/tmp/session.jsonl:Restarted.:${process.pid}`]);
 	});
 });

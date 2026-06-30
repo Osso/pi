@@ -223,20 +223,10 @@ export class AgentSessionRuntime {
 		const currentSessionFile = currentSessionManager.getSessionFile();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
-			await this.processRestarter(
-				{
-					sessionFile: currentSessionFile,
-					prompt: options.notice,
-				},
-				{
-					appendNotice: options.notice
-						? () => currentSessionManager.appendCustomMessageEntry("self_restart", options.notice ?? "", true)
-						: undefined,
-					dispose: async () => {
-						await this.teardownCurrent("restart", currentSessionFile);
-					},
-				},
-			);
+			await this.processRestarter({
+				sessionFile: currentSessionFile,
+				prompt: options.notice,
+			});
 			return;
 		}
 

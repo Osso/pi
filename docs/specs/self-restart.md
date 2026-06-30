@@ -12,8 +12,10 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Expose a command-context `restart()` action to extensions.
 - [x] Emit `session_shutdown` and `session_start` lifecycle events with reason
   `restart` while preserving the same session file.
-- [x] Let interactive mode spawn a fresh Pi process with the same argv and an
-  environment restart request that resumes the current session.
+- [x] Let interactive mode spawn a fresh Pi process directly with the same argv
+  and an environment restart request that resumes the current session.
+- [x] Do not provide wrapper request-file or restart-exit-code fallback paths;
+  process self restart always uses direct child process spawn.
 - [x] Let an external supervisor restart interactive mode by sending `SIGHUP`, using the same
   persisted-session process handoff as `restart_self`.
 

@@ -3595,17 +3595,7 @@ export class InteractiveMode {
 			this.stop();
 		}
 		const notice = options?.notice;
-		await restartCurrentProcess(
-			{ sessionFile, prompt: notice },
-			{
-				appendNotice: notice
-					? () => {
-							this.sessionManager.appendCustomMessageEntry("self_restart", notice, true);
-						}
-					: undefined,
-				dispose: () => this.runtimeHost.dispose(),
-			},
-		);
+		await restartCurrentProcess({ sessionFile, prompt: notice });
 	}
 
 	private emergencyTerminalExit(): never {
