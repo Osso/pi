@@ -21,6 +21,7 @@ import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
 import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
+import codexWebSearchExtension from "../extensions/codex-web-search/src/index.ts";
 import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import docsTreeContextExtension from "../extensions/docs-tree-context/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
@@ -563,6 +564,7 @@ const FIRST_PARTY_EXTENSION_FACTORIES: ExtensionFactory[] = [
 	firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
 	firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
 	firstPartyExtensionFactory("codex-usage", codexUsageExtension),
+	firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
 	firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
 	firstPartyExtensionFactory("agents-core", (pi) =>
 		agentsCoreExtension(pi, {
