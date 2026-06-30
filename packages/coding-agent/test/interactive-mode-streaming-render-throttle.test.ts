@@ -28,10 +28,18 @@ type HandleEventThis = {
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
 	pendingTools: Map<string, unknown>;
-	runtimeHost: { session: { retryAttempt: number } };
+	runtimeHost: {
+		session: {
+			retryAttempt: number;
+			sessionManager: { getCwd(): string };
+			settingsManager: { getImageWidthCells(): number; getShowImages(): boolean };
+		};
+	};
 	streamingComponent: unknown;
 	streamingMessage: AssistantMessage | undefined;
+	toolOutputExpanded: boolean;
 	ui: Pick<TUI, "requestRender">;
+	getRegisteredToolDefinition(): undefined;
 };
 
 type HandleEvent = (this: HandleEventThis, event: AgentSessionEvent) => Promise<void>;
@@ -48,6 +56,13 @@ function createAssistantMessage(text: string): AssistantMessage {
 		usage: EMPTY_USAGE,
 		stopReason: "stop",
 		timestamp: Date.now(),
+	};
+}
+
+function createToolCallMessage(command: string): AssistantMessage {
+	return {
+		...createAssistantMessage(""),
+		content: [{ type: "toolCall", id: "tool-1", name: "bash", arguments: { command } }],
 	};
 }
 
@@ -68,10 +83,18 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		hideThinkingBlock: false,
 		isInitialized: true,
 		pendingTools: new Map<string, unknown>(),
-		runtimeHost: { session: { retryAttempt: 0 } },
+		runtimeHost: {
+			session: {
+				retryAttempt: 0,
+				sessionManager: { getCwd: () => process.cwd() },
+				settingsManager: { getImageWidthCells: () => 40, getShowImages: () => false },
+			},
+		},
 		streamingComponent: undefined,
 		streamingMessage: undefined,
+		toolOutputExpanded: false,
 		ui: { requestRender: vi.fn() },
+		getRegisteredToolDefinition: () => undefined,
 	});
 }
 
@@ -119,5 +142,26 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await vi.advanceTimersByTimeAsync(50);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+	});
+
+	test("renders final tool call arguments without streaming partial arguments", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		const initialMessage = createAssistantMessage("");
+		const finalToolCallMessage = createToolCallMessage(
+			"git diff -- packages/coding-agent/src/modes/interactive/interactive-mode.ts",
+		);
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
+		await handleEvent.call(fakeThis, createMessageUpdate(createToolCallMessage("git di")));
+		await vi.advanceTimersByTimeAsync(50);
+
+		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("git di");
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+
+		await handleEvent.call(fakeThis, { type: "message_end", message: finalToolCallMessage });
+
+		expect(fakeThis.chatContainer.render(120).join("\n")).toContain("git diff --");
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(4);
 	});
 });

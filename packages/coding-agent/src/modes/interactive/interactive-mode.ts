@@ -2882,6 +2882,31 @@ export class InteractiveMode {
 		this.streamingRenderTimeout = undefined;
 	}
 
+	private ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent {
+		const existingComponent = this.pendingTools.get(toolCallId);
+		if (existingComponent) {
+			existingComponent.updateArgs(args);
+			return existingComponent;
+		}
+
+		const component = new ToolExecutionComponent(
+			toolName,
+			toolCallId,
+			args,
+			{
+				showImages: this.settingsManager.getShowImages(),
+				imageWidthCells: this.settingsManager.getImageWidthCells(),
+			},
+			this.getRegisteredToolDefinition(toolName),
+			this.ui,
+			this.sessionManager.getCwd(),
+		);
+		component.setExpanded(this.toolOutputExpanded);
+		this.chatContainer.addChild(component);
+		this.pendingTools.set(toolCallId, component);
+		return component;
+	}
+
 	private async handleEvent(event: AgentSessionEvent): Promise<void> {
 		if (!this.isInitialized) {
 			await this.init();
@@ -2960,33 +2985,6 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
-
-					for (const content of this.streamingMessage.content) {
-						if (content.type === "toolCall") {
-							if (!this.pendingTools.has(content.id)) {
-								const component = new ToolExecutionComponent(
-									content.name,
-									content.id,
-									content.arguments,
-									{
-										showImages: this.settingsManager.getShowImages(),
-										imageWidthCells: this.settingsManager.getImageWidthCells(),
-									},
-									this.getRegisteredToolDefinition(content.name),
-									this.ui,
-									this.sessionManager.getCwd(),
-								);
-								component.setExpanded(this.toolOutputExpanded);
-								this.chatContainer.addChild(component);
-								this.pendingTools.set(content.id, component);
-							} else {
-								const component = this.pendingTools.get(content.id);
-								if (component) {
-									component.updateArgs(content.arguments);
-								}
-							}
-						}
-					}
 					this.scheduleStreamingUpdateRender();
 				}
 				break;
@@ -3019,6 +3017,11 @@ export class InteractiveMode {
 						}
 						this.pendingTools.clear();
 					} else {
+						for (const content of this.streamingMessage.content) {
+							if (content.type === "toolCall") {
+								this.ensureToolExecutionComponent(content.name, content.id, content.arguments);
+							}
+						}
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
 							component.setArgsComplete();
@@ -3032,24 +3035,7 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
-				let component = this.pendingTools.get(event.toolCallId);
-				if (!component) {
-					component = new ToolExecutionComponent(
-						event.toolName,
-						event.toolCallId,
-						event.args,
-						{
-							showImages: this.settingsManager.getShowImages(),
-							imageWidthCells: this.settingsManager.getImageWidthCells(),
-						},
-						this.getRegisteredToolDefinition(event.toolName),
-						this.ui,
-						this.sessionManager.getCwd(),
-					);
-					component.setExpanded(this.toolOutputExpanded);
-					this.chatContainer.addChild(component);
-					this.pendingTools.set(event.toolCallId, component);
-				}
+				const component = this.ensureToolExecutionComponent(event.toolName, event.toolCallId, event.args);
 				component.markExecutionStarted();
 				this.ui.requestRender();
 				break;
