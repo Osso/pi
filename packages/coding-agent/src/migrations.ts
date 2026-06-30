@@ -2,6 +2,7 @@
  * One-time migrations that run on startup.
  */
 
+import { isTerminalRawModeFailure } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -271,6 +272,46 @@ function migrateExtensionSystem(cwd: string): string[] {
 	return warnings;
 }
 
+function logSkippedRawModeWait(error: Error): void {
+	console.error(chalk.yellow(`Warning: Skipping keypress wait: ${error.message}`));
+}
+
+function handleRawModeWaitError(error: unknown, resolve: () => void, reject: (error: unknown) => void): void {
+	process.stdin.pause();
+	if (error instanceof Error && isTerminalRawModeFailure(error)) {
+		logSkippedRawModeWait(error);
+		resolve();
+		return;
+	}
+	reject(error);
+}
+
+async function waitForDeprecationKeypress(): Promise<void> {
+	const setRawMode = process.stdin.setRawMode;
+	if (!process.stdin.isTTY || !setRawMode) return;
+
+	console.log(chalk.dim(`\nPress any key to continue...`));
+	await new Promise<void>((resolve, reject) => {
+		try {
+			setRawMode.call(process.stdin, true);
+		} catch (error: unknown) {
+			handleRawModeWaitError(error, resolve, reject);
+			return;
+		}
+
+		process.stdin.resume();
+		process.stdin.once("data", () => {
+			try {
+				setRawMode.call(process.stdin, false);
+				process.stdin.pause();
+				resolve();
+			} catch (error: unknown) {
+				handleRawModeWaitError(error, resolve, reject);
+			}
+		});
+	});
+}
+
 /**
  * Print deprecation warnings and wait for keypress.
  */
@@ -283,17 +324,8 @@ export async function showDeprecationWarnings(warnings: string[]): Promise<void>
 	console.log(chalk.yellow(`\nMove your extensions to the extensions/ directory.`));
 	console.log(chalk.yellow(`Migration guide: ${MIGRATION_GUIDE_URL}`));
 	console.log(chalk.yellow(`Documentation: ${EXTENSIONS_DOC_URL}`));
-	console.log(chalk.dim(`\nPress any key to continue...`));
 
-	await new Promise<void>((resolve) => {
-		process.stdin.setRawMode?.(true);
-		process.stdin.resume();
-		process.stdin.once("data", () => {
-			process.stdin.setRawMode?.(false);
-			process.stdin.pause();
-			resolve();
-		});
-	});
+	await waitForDeprecationKeypress();
 	console.log();
 }
 

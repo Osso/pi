@@ -46,6 +46,7 @@ export interface AppKeybindings {
 	"app.models.reorderUp": true;
 	"app.models.reorderDown": true;
 	"app.agent.select": true;
+	"app.agent.toggleClosed": true;
 	"app.agent.slot1": true;
 	"app.agent.slot2": true;
 	"app.agent.slot3": true;
@@ -185,41 +186,45 @@ export const KEYBINDINGS = {
 		defaultKeys: "alt+0",
 		description: "Open agent switcher",
 	},
+	"app.agent.toggleClosed": {
+		defaultKeys: "ctrl+h",
+		description: "Toggle closed agents in the agent switcher",
+	},
 	"app.agent.slot1": {
 		defaultKeys: "alt+1",
-		description: "Switch to agent slot 1",
+		description: "Switch to main thread",
 	},
 	"app.agent.slot2": {
 		defaultKeys: "alt+2",
-		description: "Switch to agent slot 2",
+		description: "Switch to active agent slot 1",
 	},
 	"app.agent.slot3": {
 		defaultKeys: "alt+3",
-		description: "Switch to agent slot 3",
+		description: "Switch to active agent slot 2",
 	},
 	"app.agent.slot4": {
 		defaultKeys: "alt+4",
-		description: "Switch to agent slot 4",
+		description: "Switch to active agent slot 3",
 	},
 	"app.agent.slot5": {
 		defaultKeys: "alt+5",
-		description: "Switch to agent slot 5",
+		description: "Switch to active agent slot 4",
 	},
 	"app.agent.slot6": {
 		defaultKeys: "alt+6",
-		description: "Switch to agent slot 6",
+		description: "Switch to active agent slot 5",
 	},
 	"app.agent.slot7": {
 		defaultKeys: "alt+7",
-		description: "Switch to agent slot 7",
+		description: "Switch to active agent slot 6",
 	},
 	"app.agent.slot8": {
 		defaultKeys: "alt+8",
-		description: "Switch to agent slot 8",
+		description: "Switch to active agent slot 7",
 	},
 	"app.agent.slot9": {
 		defaultKeys: "alt+9",
-		description: "Switch to agent slot 9",
+		description: "Switch to active agent slot 8",
 	},
 	"app.tree.filter.default": {
 		defaultKeys: "ctrl+d",

@@ -24,12 +24,13 @@ function formatAgentId(agentId: string): string {
 }
 
 class AgentSwitcherList implements Component {
-	private readonly agents: AgentSnapshot[];
+	private readonly allAgents: AgentSnapshot[];
 	private readonly onCancel: () => void;
 	private readonly onInactiveSelect: (agent: AgentSnapshot) => void;
 	private readonly onSelect: (agentId: string) => void;
 	private readonly selectedAgentId: string | undefined;
 	private selectedIndex: number;
+	private showClosedAgents = false;
 
 	constructor(
 		agents: AgentSnapshot[],
@@ -38,13 +39,13 @@ class AgentSwitcherList implements Component {
 		onCancel: () => void,
 		onInactiveSelect: (agent: AgentSnapshot) => void = () => {},
 	) {
-		this.agents = agents;
+		this.allAgents = agents;
 		this.onCancel = onCancel;
 		this.onInactiveSelect = onInactiveSelect;
 		this.onSelect = onSelect;
 		this.selectedAgentId = selectedAgentId;
 
-		const selectedAgentIndex = agents.findIndex(
+		const selectedAgentIndex = this.agents.findIndex(
 			(agent) => agent.id === selectedAgentId && isActiveLifecycle(agent.lifecycle),
 		);
 		this.selectedIndex = selectedAgentIndex === -1 ? 0 : selectedAgentIndex + 1;
@@ -52,12 +53,25 @@ class AgentSwitcherList implements Component {
 
 	invalidate(): void {}
 
+	private get agents(): AgentSnapshot[] {
+		return this.showClosedAgents
+			? this.allAgents
+			: this.allAgents.filter((agent) => isActiveLifecycle(agent.lifecycle));
+	}
+
 	render(width: number): string[] {
 		const lines = this.renderVisibleRows(width);
 		const rowCount = this.agents.length + 1;
 		if (rowCount > MAX_VISIBLE_AGENTS) {
 			const scrollText = `  (${this.selectedIndex + 1}/${rowCount})`;
 			lines.push(theme.fg("muted", truncateToWidth(scrollText, width, "")));
+		}
+		const hiddenCount = this.allAgents.filter((agent) => !isActiveLifecycle(agent.lifecycle)).length;
+		if (hiddenCount > 0) {
+			const status = this.showClosedAgents
+				? `  Showing ${hiddenCount} closed agent${hiddenCount === 1 ? "" : "s"}`
+				: `  ${hiddenCount} closed agent${hiddenCount === 1 ? "" : "s"} hidden`;
+			lines.push(theme.fg("dim", truncateToWidth(status, width, "")));
 		}
 		return lines;
 	}
@@ -139,6 +153,11 @@ class AgentSwitcherList implements Component {
 			this.selectedIndex = Math.min(this.agents.length, this.selectedIndex + MAX_VISIBLE_AGENTS);
 			return;
 		}
+		if (kb.matches(keyData, "app.agent.toggleClosed")) {
+			this.showClosedAgents = !this.showClosedAgents;
+			this.selectedIndex = Math.min(this.selectedIndex, this.agents.length);
+			return;
+		}
 		if (kb.matches(keyData, "tui.select.confirm")) {
 			this.confirmSelection();
 			return;
@@ -186,6 +205,8 @@ export class AgentSwitcherComponent extends Container {
 				rawKeyHint("↑↓", "navigate") +
 					"  " +
 					keyHint("tui.select.confirm", "select") +
+					"  " +
+					keyHint("app.agent.toggleClosed", "closed") +
 					"  " +
 					keyHint("tui.select.cancel", "cancel"),
 				1,

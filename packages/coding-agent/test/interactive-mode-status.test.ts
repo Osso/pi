@@ -1,11 +1,14 @@
-import { homedir } from "node:os";
+import { mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
-import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
-import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
+import type { AutocompleteProviderFactory, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -147,13 +150,26 @@ describe("InteractiveMode.setToolsExpanded", () => {
 });
 
 interface InteractiveModeKeyHandlerInternals {
+	addMessageToChat(this: unknown, message: unknown, options?: { populateHistory?: boolean }): void;
 	currentFooter(this: unknown): Component & { dispose?(): void };
+	getUserMessageText(this: unknown, message: unknown): string;
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	registerGlobalAgentSlotInputHandler(this: unknown): void;
 	showAgentSwitcher(this: unknown): void;
+	openChildAgentView(this: unknown, agent: unknown): boolean;
+	renderInitialMessages(this: unknown): void;
+	renderLiveAgentPlaceholder(this: unknown, agent: unknown, transcriptPath: string | undefined): void;
+	renderSelectedAgentView(this: unknown): boolean;
+	renderSessionContext(
+		this: unknown,
+		sessionContext: ReturnType<SessionManager["buildSessionContext"]>,
+		options?: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean },
+	): void;
+	restorePreviousAgentSelection(this: unknown, agentId: string | undefined): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	selectAgentView(this: unknown, agentId: string): boolean;
 	showInactiveAgentSelectionStatus(this: unknown, selected: unknown): void;
+	showStatus(this: unknown, message: string): void;
 	updateSelectedAgentBanner(this: unknown): void;
 	updateSelectedAgentSelectionWidgets(this: unknown): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
@@ -164,6 +180,99 @@ interface InteractiveModeKeyHandlerInternals {
 }
 
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
+
+type TranscriptSwitchFixture = {
+	childAgentId: string;
+	cleanup: () => void;
+	fakeThis: {
+		addMessageToChat: typeof interactiveModeKeyHandlers.addMessageToChat;
+		addRenderedMessageToEditorHistory: () => void;
+		chatContainer: Container;
+		childViewSessionManager?: SessionManager;
+		footer: { invalidate: ReturnType<typeof vi.fn> };
+		getMarkdownThemeWithSettings: () => undefined;
+		getRegisteredToolDefinition: (name: string) => ToolDefinition | undefined;
+		getUserMessageText: typeof interactiveModeKeyHandlers.getUserMessageText;
+		multiAgentStore: MultiAgentStore;
+		pendingTools: Map<string, unknown>;
+		renderInitialMessages: typeof interactiveModeKeyHandlers.renderInitialMessages;
+		renderProjectTrustWarningIfNeeded: () => void;
+		openChildAgentView: typeof interactiveModeKeyHandlers.openChildAgentView;
+		renderLiveAgentPlaceholder: typeof interactiveModeKeyHandlers.renderLiveAgentPlaceholder;
+		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
+		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
+		renderSessionContext: typeof interactiveModeKeyHandlers.renderSessionContext;
+		selectedAgentBanner: AgentSelectionBannerComponent;
+		sessionManager: SessionManager;
+		settingsManager: { getImageWidthCells: () => number; getShowImages: () => boolean };
+		showStatus: ReturnType<typeof vi.fn>;
+		toolOutputExpanded: boolean;
+		ui: { requestRender: ReturnType<typeof vi.fn> };
+		updateEditorBorderColor: ReturnType<typeof vi.fn>;
+		updateSelectedAgentBanner: typeof interactiveModeKeyHandlers.updateSelectedAgentBanner;
+		updateSelectedAgentSelectionWidgets: typeof interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets;
+	};
+	store: MultiAgentStore;
+};
+
+function createTranscriptSwitchFixture(options: {
+	childCwd?: string;
+	withChildPath: boolean;
+}): TranscriptSwitchFixture {
+	const tmp = mkdtempSync(path.join(tmpdir(), "pi-transcript-switch-"));
+	const parent = SessionManager.create("/repo", tmp);
+	parent.appendMessage({ role: "user", content: "parent transcript only", timestamp: 1 });
+	parent.appendMessage(fauxAssistantMessage("parent reply"));
+	const child = SessionManager.create(options.childCwd ?? "/repo", tmp);
+	child.appendMessage({ role: "user", content: "child transcript only", timestamp: 2 });
+	child.appendMessage(fauxAssistantMessage("child reply"));
+	const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+	const spawned = store.spawnAgent({
+		agentType: "worker",
+		cwd: "/repo",
+		displayName: "Scout",
+		lifecycle: "starting",
+		permission: { narrowed: true, policy: "on-request" },
+		transcript: {
+			path: options.withChildPath ? child.getSessionFile() : undefined,
+			sessionId: child.getSessionId(),
+		},
+	});
+	const fakeThis = {
+		addMessageToChat: interactiveModeKeyHandlers.addMessageToChat,
+		addRenderedMessageToEditorHistory: () => {},
+		chatContainer: new Container(),
+		childViewSessionManager: undefined,
+		footer: { invalidate: vi.fn() },
+		getMarkdownThemeWithSettings: () => undefined,
+		getRegisteredToolDefinition: () => undefined,
+		getUserMessageText: interactiveModeKeyHandlers.getUserMessageText,
+		multiAgentStore: store,
+		pendingTools: new Map<string, unknown>(),
+		renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
+		renderProjectTrustWarningIfNeeded: () => {},
+		openChildAgentView: interactiveModeKeyHandlers.openChildAgentView,
+		renderLiveAgentPlaceholder: interactiveModeKeyHandlers.renderLiveAgentPlaceholder,
+		renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
+		restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
+		renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
+		selectedAgentBanner: new AgentSelectionBannerComponent(store),
+		sessionManager: parent,
+		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
+		showStatus: vi.fn(),
+		toolOutputExpanded: false,
+		ui: { requestRender: vi.fn() },
+		updateEditorBorderColor: vi.fn(),
+		updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+		updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+	};
+	return {
+		childAgentId: spawned.agent.id,
+		cleanup: () => rmSync(tmp, { force: true, recursive: true }),
+		fakeThis,
+		store,
+	};
+}
 
 describe("InteractiveMode key handlers", () => {
 	beforeAll(() => {
@@ -212,7 +321,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(normalizeRenderedOutput(banner)).toContain("Target: Main thread");
 	});
 
-	test("selected-agent banner targets main thread when selected view becomes inactive without clearing it", () => {
+	test("selected-agent banner returns to main thread when selected view becomes inactive", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const spawned = store.spawnAgent({
 			agentType: "worker",
@@ -231,8 +340,9 @@ describe("InteractiveMode key handlers", () => {
 		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
 		const banner = new AgentSelectionBannerComponent(store);
 
-		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(store.getSelectedAgentId()).toBeUndefined();
 		expect(normalizeRenderedOutput(banner)).toContain("Target: Main thread");
+		expect(normalizeRenderedOutput(banner)).not.toContain("View: Scout");
 	});
 
 	test("/agents selection updates the visible selected-agent banner", () => {
@@ -250,6 +360,8 @@ describe("InteractiveMode key handlers", () => {
 			multiAgentStore: store,
 			selectedAgentBanner: banner,
 			footer: { invalidate: vi.fn() },
+			openChildAgentView: vi.fn(() => true),
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 			selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 			showSelector: (create: (done: () => void) => { component: Component; focus: Component }) => {
 				const selector = create(() => {}).component;
@@ -417,8 +529,10 @@ describe("InteractiveMode key handlers", () => {
 			multiAgentStore: store,
 			selectedAgentBanner: banner,
 			footer: { invalidate: vi.fn() },
+			openChildAgentView: vi.fn(() => true),
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
@@ -448,14 +562,17 @@ describe("InteractiveMode key handlers", () => {
 
 		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
 		actions.get("app.agent.slot2")?.();
-		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+		expect(store.getSelectedAgentId()).toBe(first.agent.id);
 
 		actions.get("app.agent.slot3")?.();
+		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+
+		actions.get("app.agent.slot4")?.();
 		expect(store.getSelectedAgentId()).toBe(third.agent.id);
 		expect(normalizeRenderedOutput(banner)).toContain("Target: Third");
 		expect(normalizeRenderedOutput(banner)).toContain(third.agent.id);
-		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
-		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(2);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(3);
 	});
 
 	test("selects an agent view without mutating lifecycle", () => {
@@ -471,6 +588,8 @@ describe("InteractiveMode key handlers", () => {
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
+			openChildAgentView: vi.fn(() => true),
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
@@ -487,6 +606,166 @@ describe("InteractiveMode key handlers", () => {
 		});
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
+	test("selecting an active child view renders the child transcript instead of the parent transcript", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		try {
+			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
+
+			expect(selected).toBe(true);
+			expect(fixture.store.getSelectedAgentId()).toBe(fixture.childAgentId);
+			expect(fixture.fakeThis.childViewSessionManager?.getSessionId()).toBe(
+				fixture.store.getAgent(fixture.childAgentId)?.transcript?.sessionId,
+			);
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("child transcript only");
+			expect(output).not.toContain("parent transcript only");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("child transcript tool components render with the child session cwd", () => {
+		const fixture = createTranscriptSwitchFixture({ childCwd: "/child-repo", withChildPath: true });
+		let renderedToolCwd: string | undefined;
+		const cwdProbeTool: ToolDefinition = {
+			name: "cwd_probe",
+			label: "cwd probe",
+			description: "Render cwd probe",
+			parameters: {},
+			execute: async () => ({ content: [{ type: "text", text: "ok" }], details: undefined }),
+			renderCall: (_args, _theme, context) => {
+				renderedToolCwd = context.cwd;
+				return new Text("cwd probe", 0, 0);
+			},
+		};
+		fixture.fakeThis.getRegisteredToolDefinition = (name) => (name === "cwd_probe" ? cwdProbeTool : undefined);
+		const transcriptPath = fixture.store.getAgent(fixture.childAgentId)?.transcript?.path;
+		if (!transcriptPath) {
+			throw new Error("expected child transcript path");
+		}
+		SessionManager.open(transcriptPath).appendMessage(
+			fauxAssistantMessage(fauxToolCall("cwd_probe", {}), { stopReason: "toolUse" }),
+		);
+		try {
+			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
+
+			expect(selected).toBe(true);
+			expect(renderedToolCwd).toBe("/child-repo");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("selecting main restores the parent transcript after viewing a child transcript", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, "main")).toBe(true);
+
+			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
+			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("parent transcript only");
+			expect(output).not.toContain("child transcript only");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("selecting an active child without a transcript path renders a live placeholder", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: false });
+		try {
+			fixture.fakeThis.chatContainer.addChild({ invalidate: () => {}, render: () => ["parent transcript only"] });
+
+			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
+
+			expect(selected).toBe(true);
+			expect(fixture.store.getSelectedAgentId()).toBe(fixture.childAgentId);
+			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("Viewing live agent: Scout");
+			expect(output).toContain("Transcript file has not been assigned yet.");
+			expect(output).not.toContain("parent transcript only");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("selecting an active child with an unwritten transcript file renders a live placeholder", () => {
+		const tmp = mkdtempSync(path.join(tmpdir(), "pi-transcript-rollback-"));
+		try {
+			const parent = SessionManager.create("/repo", tmp);
+			parent.appendMessage({ role: "user", content: "parent transcript only", timestamp: 1 });
+			const previousSession = SessionManager.create("/repo", tmp);
+			previousSession.appendMessage({ role: "user", content: "previous completed transcript", timestamp: 2 });
+			const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+			const previous = store.spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Previous",
+				lifecycle: "starting",
+				permission: { narrowed: true, policy: "on-request" },
+				transcript: { path: previousSession.getSessionFile(), sessionId: previousSession.getSessionId() },
+			});
+			const previousRunning = store.transitionAgent(previous.agent.id, previous.agent.revision, "running");
+			expect(previousRunning.ok).toBe(true);
+			if (!previousRunning.ok) {
+				throw new Error("expected previous running transition");
+			}
+			expect(store.transitionAgent(previous.agent.id, previousRunning.agent.revision, "completed").ok).toBe(true);
+			const next = store.spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Next",
+				lifecycle: "starting",
+				permission: { narrowed: true, policy: "on-request" },
+				transcript: { path: path.join(tmp, "missing.jsonl"), sessionId: "missing-session" },
+			});
+			store.selectAgentView(previous.agent.id);
+			const fakeThis = {
+				addMessageToChat: interactiveModeKeyHandlers.addMessageToChat,
+				addRenderedMessageToEditorHistory: () => {},
+				chatContainer: new Container(),
+				childViewSessionManager: previousSession,
+				footer: { invalidate: vi.fn() },
+				getMarkdownThemeWithSettings: () => undefined,
+				getRegisteredToolDefinition: () => undefined,
+				getUserMessageText: interactiveModeKeyHandlers.getUserMessageText,
+				multiAgentStore: store,
+				openChildAgentView: interactiveModeKeyHandlers.openChildAgentView,
+				pendingTools: new Map<string, unknown>(),
+				renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
+				renderProjectTrustWarningIfNeeded: () => {},
+				renderLiveAgentPlaceholder: interactiveModeKeyHandlers.renderLiveAgentPlaceholder,
+				renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
+				renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
+				restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
+				selectedAgentBanner: new AgentSelectionBannerComponent(store),
+				sessionManager: parent,
+				settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
+				showStatus: vi.fn(),
+				toolOutputExpanded: false,
+				ui: { requestRender: vi.fn() },
+				updateEditorBorderColor: vi.fn(),
+				updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+				updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+			};
+			interactiveModeKeyHandlers.renderSelectedAgentView.call(fakeThis);
+
+			const selected = interactiveModeKeyHandlers.selectAgentView.call(fakeThis, next.agent.id);
+
+			expect(selected).toBe(true);
+			expect(store.getSelectedAgentId()).toBe(next.agent.id);
+			const output = normalizeRenderedOutput(fakeThis.chatContainer);
+			expect(output).toContain("Viewing live agent: Next");
+			expect(output).toContain("Transcript file has not been written yet:");
+			expect(output).not.toContain("previous completed transcript");
+		} finally {
+			rmSync(tmp, { force: true, recursive: true });
+		}
 	});
 
 	test("rejects inactive agent view selection without changing the current agent", () => {
@@ -532,7 +811,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
 	});
 
-	test("switches selected agent before focused components receive slot input", () => {
+	test("switches to main thread from slot 1 before focused components receive input", () => {
 		const listeners: Array<(data: string) => { consume?: boolean } | undefined> = [];
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const first = store.spawnAgent({
@@ -541,19 +820,18 @@ describe("InteractiveMode key handlers", () => {
 			displayName: "First",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const second = store.spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Second",
-			permission: { narrowed: true, policy: "on-request" },
-		});
 		store.selectActiveAgentTargetWithStatus(first.agent.id);
 		const fakeThis = {
-			keybindings: { matches: (data: string, action: string) => action === "app.agent.slot2" && data === "\x1b2" },
+			chatContainer: { clear: vi.fn() },
+			keybindings: { matches: (data: string, action: string) => action === "app.agent.slot1" && data === "\x1b1" },
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
+			openChildAgentView: vi.fn(() => true),
+			renderInitialMessages: vi.fn(),
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
+			selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
 			showStatus: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
@@ -568,15 +846,15 @@ describe("InteractiveMode key handlers", () => {
 		};
 
 		interactiveModeKeyHandlers.registerGlobalAgentSlotInputHandler.call(fakeThis);
-		const result = listeners[0]?.("\x1b2");
+		const result = listeners[0]?.("\x1b1");
 
 		expect(result).toEqual({ consume: true });
-		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+		expect(store.getSelectedAgentId()).toBeUndefined();
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
-	test("switches to the nth agent view when agents are not pinned to slots", () => {
+	test("slot 2 switches to the first active agent view when agents are not pinned to slots", () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const first = store.spawnAgent({
@@ -591,7 +869,7 @@ describe("InteractiveMode key handlers", () => {
 			displayName: "Second",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		store.selectActiveAgentTargetWithStatus(first.agent.id);
+		store.selectActiveAgentTargetWithStatus(second.agent.id);
 		const fakeThis = {
 			defaultEditor: {
 				onAction: (action: string, handler: () => void) => actions.set(action, handler),
@@ -599,7 +877,9 @@ describe("InteractiveMode key handlers", () => {
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
+			openChildAgentView: vi.fn(() => true),
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
 			showStatus: vi.fn(),
@@ -611,7 +891,7 @@ describe("InteractiveMode key handlers", () => {
 		interactiveModeKeyHandlers.registerAgentSlotKeyHandlers.call(fakeThis);
 		actions.get("app.agent.slot2")?.();
 
-		expect(store.getSelectedAgentId()).toBe(second.agent.id);
+		expect(store.getSelectedAgentId()).toBe(first.agent.id);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});

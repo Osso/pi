@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
-import { TerminalRawModeError } from "@earendil-works/pi-tui";
+import { isTerminalRawModeFailure } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, {
@@ -297,7 +297,7 @@ export async function runInteractiveActionOrReportTerminalError(action: () => Pr
 		return true;
 	} catch (error: unknown) {
 		stopThemeWatcher();
-		if (error instanceof TerminalRawModeError) {
+		if (error instanceof Error && isTerminalRawModeFailure(error)) {
 			console.error(chalk.red(`Error: ${error.message}`));
 			process.exitCode = 1;
 			return false;
@@ -548,6 +548,7 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 }
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
+let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
 	getRuntimeExtensionFactories: () => ExtensionFactory[],
@@ -560,6 +561,7 @@ function createFirstPartyExtensionFactories(
 	});
 	const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
 		createChildSession: childAgentSessionFactory,
+		selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
 		store: firstPartyMultiAgentStore,
 	});
 
@@ -990,6 +992,7 @@ export async function main(args: string[], options?: MainOptions) {
 			multiAgentStore: firstPartyMultiAgentStore,
 			verbose: parsed.verbose,
 		});
+		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);
 		if (startupBenchmark) {
 			if (!(await runInteractiveActionOrReportTerminalError(() => interactiveMode.init()))) return;
 			time("interactiveMode.init");

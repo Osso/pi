@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -6,6 +6,7 @@ import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
+import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
@@ -418,6 +419,105 @@ describe("multi-agent extension tools", () => {
 
 		expect(abort).toHaveBeenCalledTimes(1);
 		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
+	});
+
+	it("aborts a running spawn_agent child session when the agent is cancelled", async () => {
+		const abort = vi.fn();
+		const childPrompt = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort,
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "sleep 100",
+		});
+		await Promise.resolve();
+		const current = harness.store.getAgent(spawned.details.agent.id);
+		if (!current) {
+			throw new Error("expected spawned agent");
+		}
+		await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: current.id,
+			expectedRevision: current.revision,
+			reason: "user requested",
+		});
+
+		expect(abort).toHaveBeenCalledTimes(1);
+		expect(harness.store.getAgent(current.id)).toMatchObject({ lifecycle: "aborted" });
+	});
+
+	it("routes Hostrun agents.select through the interactive view callback when available", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const selectAgentView = vi.fn((agentId: string) => store.selectActiveAgentTarget(agentId) !== undefined);
+		const handler = createHostrunMultiAgentRequestHandler({ selectAgentView, store });
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
+
+		const result = await handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined);
+
+		expect(selectAgentView).toHaveBeenCalledWith(spawned.agent.id);
+		expect(result).toMatchObject({ agent: { id: spawned.agent.id, displayName: "Worker" } });
+	});
+
+	it("rejects Hostrun agents.select when the interactive view callback fails", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const handler = createHostrunMultiAgentRequestHandler({ selectAgentView: () => false, store });
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
+
+		await expect(
+			handler({ method: "agents.select", params: { agentId: "agent_1" } }, ctx, undefined),
+		).rejects.toThrow("Agent view selection failed: agent_1");
+	});
+
+	it("rejects Hostrun agents.wait requests without an agent id", async () => {
+		const handler = createHostrunMultiAgentRequestHandler({ store: new MultiAgentStore() });
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
+
+		await expect(handler({ method: "agents.wait", params: {} }, ctx, undefined)).rejects.toThrow(
+			"pi.agents.wait requires a non-empty agentId",
+		);
+	});
+
+	it("keeps spawn_agent returned revision usable after child transcript metadata attaches", async () => {
+		const childPrompt = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			messages: [],
+			prompt: async () => childPrompt.promise,
+			transcript: { path: "sessions/child.jsonl", sessionId: "child-session" },
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "sleep 100",
+		});
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			if (harness.store.getAgent(spawned.details.agent.id)?.transcript) {
+				break;
+			}
+			await delay(1);
+		}
+		expect(harness.store.getAgent(spawned.details.agent.id)?.transcript).toBeDefined();
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: spawned.details.agent.id,
+			expectedRevision: spawned.details.agent.revision,
+			reason: "user requested",
+		});
+
+		expect(cancelled.details.agent).toMatchObject({
+			id: spawned.details.agent.id,
+			lifecycle: "aborted",
+		});
 	});
 
 	it("does not abort a /bg child session when cancel uses a stale revision", async () => {
@@ -1163,6 +1263,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(sessionOptions).toMatchObject({
 			cwd: "/repo",
+			excludeTools: ["spawn_agent"],
 			model: parentHarness.getModel(),
 			modelRegistry: parentHarness.session.modelRegistry,
 		});
@@ -1249,7 +1350,56 @@ describe("multi-agent extension tools", () => {
 			} else {
 				process.env[ENV_AGENT_DIR] = originalAgentDir;
 			}
-			rmSync(tempDir, { recursive: true, force: true });
+			if (existsSync(tempDir)) {
+				rmSync(tempDir, { recursive: true, force: true });
+			}
+		}
+	});
+
+	it("records production child transcript metadata when the child session is created", async () => {
+		const tmp = mkdtempSync(join(tmpdir(), "pi-child-transcript-"));
+		try {
+			const parentSessionManager = SessionManager.create("/repo", tmp);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const harness = createMultiAgentHarness({
+				ctx: { sessionManager: parentSessionManager },
+				store,
+				createChildSession: createProductionChildAgentSessionFactory({
+					createSessionManager: SessionManager.create,
+					createSession: async (options) => {
+						const sessionManager = options.sessionManager;
+						if (!sessionManager) {
+							throw new Error("expected child session manager");
+						}
+						sessionManager.appendMessage({
+							role: "user",
+							content: "child prompt persisted",
+							timestamp: 1,
+						});
+						sessionManager.appendMessage(fauxAssistantMessage("child response persisted"));
+						return {
+							session: {
+								messages: [fauxAssistantMessage("child transcript ready")],
+								prompt: async () => {},
+							},
+						};
+					},
+				}),
+			});
+
+			const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Worker",
+				prompt: "Work",
+			});
+
+			await waitForTerminalAgent(harness, spawned.details.agent.id);
+			const agent = store.getAgent(spawned.details.agent.id);
+			expect(agent?.transcript?.sessionId).toMatch(/^[0-9a-f-]+$/);
+			expect(agent?.transcript?.path).toContain(tmp);
+			expect(agent?.transcript?.path).toContain(agent?.transcript?.sessionId);
+			expect(existsSync(agent?.transcript?.path ?? "")).toBe(true);
+		} finally {
+			rmSync(tmp, { force: true, recursive: true });
 		}
 	});
 

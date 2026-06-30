@@ -82,6 +82,7 @@ import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import {
 	type ActiveAgentTargetSelectionResult,
+	type AgentSnapshot,
 	formatInactiveAgentSelectionMessage,
 	type MultiAgentStore,
 } from "../../core/multi-agent-store.ts";
@@ -169,15 +170,15 @@ import { InteractiveThemeController } from "./theme/theme-controller.ts";
 
 /** Interface for components that can be expanded/collapsed */
 const AGENT_SLOT_KEYBINDINGS = [
-	["app.agent.slot1", 1],
-	["app.agent.slot2", 2],
-	["app.agent.slot3", 3],
-	["app.agent.slot4", 4],
-	["app.agent.slot5", 5],
-	["app.agent.slot6", 6],
-	["app.agent.slot7", 7],
-	["app.agent.slot8", 8],
-	["app.agent.slot9", 9],
+	["app.agent.slot1", 0],
+	["app.agent.slot2", 1],
+	["app.agent.slot3", 2],
+	["app.agent.slot4", 3],
+	["app.agent.slot5", 4],
+	["app.agent.slot6", 5],
+	["app.agent.slot7", 6],
+	["app.agent.slot8", 7],
+	["app.agent.slot9", 8],
 ] as const satisfies ReadonlyArray<readonly [AppKeybinding, number]>;
 
 interface Expandable {
@@ -426,6 +427,7 @@ export class InteractiveMode {
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
 	private multiAgentStore: MultiAgentStore | undefined;
+	private childViewSessionManager: SessionManager | undefined;
 	private unregisterAgentSlotInputHandler: (() => void) | undefined;
 
 	// Convenience accessors
@@ -2576,6 +2578,11 @@ export class InteractiveMode {
 	}
 
 	private selectAgentSlot(slotIndex: number): boolean {
+		if (slotIndex === 0) {
+			return this.selectAgentView("main");
+		}
+
+		const previousSelectedAgentId = this.multiAgentStore?.getSelectedAgentId();
 		const selected = this.multiAgentStore?.selectActiveAgentSlotTargetWithStatus(slotIndex);
 		if (!selected) {
 			return false;
@@ -2584,14 +2591,26 @@ export class InteractiveMode {
 			this.showInactiveAgentSelectionStatus(selected);
 			return selected.error === "inactive";
 		}
+		if (!this.openChildAgentView(selected.agent)) {
+			this.restorePreviousAgentSelection(previousSelectedAgentId);
+			return false;
+		}
 
 		this.updateSelectedAgentSelectionWidgets();
 		return true;
 	}
 
+	selectAgentViewFromBridge(agentId: string): boolean {
+		return this.selectAgentView(agentId);
+	}
+
 	private selectAgentView(agentId: string): boolean {
+		const previousSelectedAgentId = this.multiAgentStore?.getSelectedAgentId();
 		if (agentId === "main") {
 			this.multiAgentStore?.clearSelectedAgentView();
+			this.childViewSessionManager = undefined;
+			this.chatContainer.clear();
+			this.renderInitialMessages();
 			this.updateSelectedAgentSelectionWidgets();
 			return true;
 		}
@@ -2604,8 +2623,61 @@ export class InteractiveMode {
 			this.showInactiveAgentSelectionStatus(selected);
 			return false;
 		}
+		if (!this.openChildAgentView(selected.agent)) {
+			this.restorePreviousAgentSelection(previousSelectedAgentId);
+			return false;
+		}
 
 		this.updateSelectedAgentSelectionWidgets();
+		return true;
+	}
+
+	private restorePreviousAgentSelection(agentId: string | undefined): void {
+		if (!agentId) {
+			this.multiAgentStore?.clearSelectedAgentView();
+			return;
+		}
+
+		const restored = this.multiAgentStore?.selectAgentViewWithStatus(agentId);
+		if (!restored?.ok) {
+			this.multiAgentStore?.clearSelectedAgentView();
+		}
+	}
+
+	private openChildAgentView(agent: AgentSnapshot): boolean {
+		const transcriptPath = agent.transcript?.path;
+		if (!transcriptPath || !fs.existsSync(transcriptPath)) {
+			this.childViewSessionManager = undefined;
+			this.renderLiveAgentPlaceholder(agent, transcriptPath);
+			return true;
+		}
+
+		this.childViewSessionManager = SessionManager.open(transcriptPath, this.sessionManager.getSessionDir());
+		return this.renderSelectedAgentView();
+	}
+
+	private renderLiveAgentPlaceholder(agent: AgentSnapshot, transcriptPath: string | undefined): void {
+		const transcriptStatus = transcriptPath
+			? `Transcript file has not been written yet: ${transcriptPath}`
+			: "Transcript file has not been assigned yet.";
+		this.chatContainer.clear();
+		this.chatContainer.addChild(
+			new Text(theme.bold(theme.fg("accent", `Viewing live agent: ${agent.displayName}`)), 1, 0),
+		);
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(theme.fg("dim", `${agent.id} ${agent.lifecycle}`), 1, 0));
+		this.chatContainer.addChild(new Text(theme.fg("dim", transcriptStatus), 1, 0));
+	}
+
+	private renderSelectedAgentView(): boolean {
+		if (!this.childViewSessionManager) {
+			return false;
+		}
+
+		this.chatContainer.clear();
+		this.renderSessionContext(this.childViewSessionManager.buildSessionContext(), {
+			sourceCwd: this.childViewSessionManager.getCwd(),
+		});
 		return true;
 	}
 
@@ -3442,13 +3514,15 @@ export class InteractiveMode {
 	 * @param sessionContext Session context to render
 	 * @param options.updateFooter Update footer state
 	 * @param options.populateHistory Add user messages to editor history
+	 * @param options.sourceCwd Working directory to use when rendering tool components
 	 */
 	private renderSessionContext(
 		sessionContext: SessionContext,
-		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
+		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
+		const toolRenderCwd = options.sourceCwd ?? this.sessionManager.getCwd();
 
 		if (options.updateFooter) {
 			this.footer.invalidate();
@@ -3472,7 +3546,7 @@ export class InteractiveMode {
 							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
-							this.sessionManager.getCwd(),
+							toolRenderCwd,
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);

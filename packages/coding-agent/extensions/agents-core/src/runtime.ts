@@ -143,6 +143,7 @@ const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
 	dispatcher?: ChildAgentDispatcher;
+	selectAgentView?: (agentId: string) => boolean | undefined;
 	store?: MultiAgentStore;
 }
 
@@ -164,6 +165,7 @@ export interface ChildAgentSession {
 	abort?(): void;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
+	transcript?: AgentSnapshot["transcript"];
 }
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
@@ -399,12 +401,6 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs or wait_agent to inspect it.`, "info");
 }
 
-function resolveChildExtensionFactories(
-	extensionFactories: ProductionChildAgentSessionFactoryOptions["extensionFactories"],
-): ExtensionFactory[] | undefined {
-	return typeof extensionFactories === "function" ? extensionFactories() : extensionFactories;
-}
-
 function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void {
 	const agents = store.listAgents().filter((agent) => agent.agentType === "background");
 	if (agents.length === 0) {
@@ -413,6 +409,21 @@ function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void
 	}
 
 	ctx.ui.notify(agents.map((agent) => `${agent.id} ${formatAgentStatus(agent)}`).join("\n"), "info");
+}
+
+function resolveChildExtensionFactories(
+	extensionFactories: ProductionChildAgentSessionFactoryOptions["extensionFactories"],
+): ExtensionFactory[] | undefined {
+	return typeof extensionFactories === "function" ? extensionFactories() : extensionFactories;
+}
+
+function getSessionTranscriptMetadata(
+	sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]>,
+): AgentSnapshot["transcript"] {
+	return {
+		path: sessionManager.getSessionFile(),
+		sessionId: sessionManager.getSessionId(),
+	};
 }
 
 export function createProductionChildAgentSessionFactory(
@@ -434,6 +445,7 @@ export function createProductionChildAgentSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
+			excludeTools: ["spawn_agent"],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -442,6 +454,7 @@ export function createProductionChildAgentSessionFactory(
 			thinkingLevel: profile.thinkingLevel,
 		});
 
+		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
 		return result.session;
 	};
 }
@@ -524,9 +537,7 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.wait") {
-			const params =
-				typeof request.params === "string" ? { agentId: request.params } : (request.params as WaitAgentParams);
-			const result = await waitAgent(store, activeDispatches, params, signal);
+			const result = await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal);
 			return result.details;
 		}
 
@@ -541,7 +552,7 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.select") {
-			return selectAgent(store, request.params);
+			return selectAgent(store, request.params, options.selectAgentView);
 		}
 
 		if (request.method === "messages.last") {
@@ -561,8 +572,20 @@ function selectCurrentAgent(store: MultiAgentStore): AgentSelectionDetails {
 	return { agent: selectedAgent };
 }
 
-function selectAgent(store: MultiAgentStore, params: unknown): AgentSelectionDetails {
+function selectAgent(
+	store: MultiAgentStore,
+	params: unknown,
+	selectAgentView: MultiAgentExtensionOptions["selectAgentView"],
+): AgentSelectionDetails {
 	const agentId = normalizeSelectAgentId(params);
+	const rendered = selectAgentView?.(agentId);
+	if (rendered === true) {
+		return selectCurrentAgent(store);
+	}
+	if (rendered === false) {
+		throw new Error(`Agent view selection failed: ${agentId}`);
+	}
+
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();
 		return { agent: createMainThreadSnapshot() };
@@ -590,6 +613,27 @@ function normalizeSelectAgentId(params: unknown): string {
 		throw new Error("pi.agents.select requires a non-empty agentId");
 	}
 	return agentId;
+}
+
+function normalizeWaitAgentParams(params: unknown): WaitAgentParams {
+	if (typeof params === "string") {
+		if (!params.trim()) {
+			throw new Error("pi.agents.wait requires a non-empty agentId");
+		}
+		return { agentId: params };
+	}
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.agents.wait requires an agent id string or { agentId } object");
+	}
+	const agentId = (params as { agentId?: unknown }).agentId;
+	if (typeof agentId !== "string" || !agentId.trim()) {
+		throw new Error("pi.agents.wait requires a non-empty agentId");
+	}
+	return {
+		agentId,
+		includeDescendants: (params as { includeDescendants?: boolean }).includeDescendants,
+		includePendingMessages: (params as { includePendingMessages?: boolean }).includePendingMessages,
+	};
 }
 
 function createMainThreadSnapshot(): MainThreadSnapshot {
@@ -659,6 +703,7 @@ async function spawnAgent(
 	dispatches: ActiveAgentDispatches,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
+	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
@@ -678,7 +723,10 @@ async function spawnAgent(
 			store,
 			dispatches,
 			spawned.agent,
-			dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx),
+			dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, (childSession) => {
+				handles?.set(spawned.agent.id, childSession);
+			}),
+			handles,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
 			agent,
@@ -713,8 +761,12 @@ function startToolDispatch(
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: Promise<AgentSnapshot>,
+	handles?: BackgroundSessionHandles,
 ): AgentSnapshot {
-	trackAgentDispatch(store, dispatches, agent, dispatch);
+	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch);
+	if (handles) {
+		void trackedDispatch.finally(() => handles.delete(agent.id));
+	}
 
 	return store.getAgent(agent.id) ?? agent;
 }
@@ -754,6 +806,9 @@ async function dispatchAgentSession(
 
 	try {
 		const childSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		if (childSession.transcript) {
+			store.updateAgentTranscript(running.agent.id, childSession.transcript);
+		}
 		onChildSession?.(childSession);
 		await childSession.prompt(prompt);
 		const summary = lastAssistantText(childSession.messages);
@@ -1067,7 +1122,9 @@ function cancelAgent(
 			reason: params.reason,
 		});
 	}
-	handles?.get(params.agentId)?.abort?.();
+	const childSession = handles?.get(params.agentId);
+	childSession?.abort?.();
+	handles?.delete(params.agentId);
 
 	return result(`Cancelled ${cancelled.agent.displayName}.`, {
 		agent: cancelled.agent,
@@ -1237,7 +1294,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				spawnAgent(store, createChildSession, dispatcher, activeDispatches, params, ctx),
+				spawnAgent(store, createChildSession, dispatcher, activeDispatches, params, ctx, backgroundSessions),
 		}),
 	);
 

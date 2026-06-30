@@ -218,6 +218,10 @@ export type AgentMetadataCommandResult =
 			projection: MultiAgentProjectionSnapshot;
 	  };
 
+export type AgentTranscriptCommandResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "not_found"; agentId: string };
+
 export type AgentViewSelectionResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "not_found"; agentId: string };
@@ -366,6 +370,9 @@ export class MultiAgentStore {
 		}
 
 		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
+		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
+			this.selectedAgentId = undefined;
+		}
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
@@ -557,6 +564,18 @@ export class MultiAgentStore {
 
 		const updated = this.updateAgent(current, {
 			slot: { index: slotIndex, pinned: true },
+		});
+		return { ok: true, agent: copyAgent(updated) };
+	}
+
+	updateAgentTranscript(agentId: string, transcript: AgentTranscriptMetadata): AgentTranscriptCommandResult {
+		const current = this.agents.get(agentId);
+		if (!current) {
+			return { ok: false, error: "not_found", agentId };
+		}
+
+		const updated = this.updateAgentMetadata(current, {
+			transcript: copyTranscript(transcript),
 		});
 		return { ok: true, agent: copyAgent(updated) };
 	}
@@ -888,6 +907,17 @@ export class MultiAgentStore {
 			...current,
 			...updates,
 			revision: current.revision + 1,
+			updatedAt: this.now(),
+		};
+		this.agents.set(updated.id, updated);
+
+		return updated;
+	}
+
+	private updateAgentMetadata(current: AgentNode, updates: Partial<Pick<AgentNode, "transcript">>): AgentNode {
+		const updated = {
+			...current,
+			...updates,
 			updatedAt: this.now(),
 		};
 		this.agents.set(updated.id, updated);

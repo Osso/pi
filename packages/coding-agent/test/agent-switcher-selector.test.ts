@@ -82,7 +82,27 @@ describe("AgentSwitcherComponent", () => {
 		expect(onSelect).toHaveBeenCalledWith("agent-2");
 	});
 
-	it("marks inactive agents and refuses to select them", () => {
+	it("hides inactive agents by default", () => {
+		const component = new AgentSwitcherComponent(
+			[
+				agent({ id: "agent-1", displayName: "Scout" }),
+				agent({ id: "agent-2", displayName: "Done", lifecycle: "completed" }),
+			],
+			"agent-1",
+			() => {},
+			() => {},
+		);
+
+		const text = renderedText(component);
+
+		expect(text).toContain("Scout");
+		expect(text).toContain("1 closed agent hidden");
+		expect(text).not.toContain("Done");
+		expect(text).not.toContain("completed inactive");
+	});
+
+	it("toggles inactive agents and refuses to select them", () => {
+		setKeybindings(new KeybindingsManager({ "app.agent.toggleClosed": "ctrl+x" }));
 		const onSelect = vi.fn();
 		const component = new AgentSwitcherComponent(
 			[
@@ -94,11 +114,14 @@ describe("AgentSwitcherComponent", () => {
 			() => {},
 		);
 
+		component.handleInput("\u0018");
 		component.handleInput("\u001b[B");
 		component.handleInput("\r");
 
 		const text = renderedText(component);
+		expect(text).toContain("Done");
 		expect(text).toContain("completed inactive");
+		expect(text).toContain("Showing 1 closed agent");
 		expect(onSelect).not.toHaveBeenCalled();
 	});
 

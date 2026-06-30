@@ -574,7 +574,7 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
-	it("keeps selected read-only view when the selected agent becomes terminal", () => {
+	it("clears selected view when the selected agent becomes terminal", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);
 		const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
@@ -592,7 +592,7 @@ describe("MultiAgentStore", () => {
 		const completed = store.transitionAgent(spawned.agent.id, running.agent.revision, "completed");
 
 		expect(completed.ok).toBe(true);
-		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(store.getSelectedAgentId()).toBeUndefined();
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
 	});
 
