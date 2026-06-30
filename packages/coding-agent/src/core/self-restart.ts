@@ -77,11 +77,9 @@ export async function restartCurrentProcess(
 ): Promise<never> {
 	const restartRequest = { ...request, oldPid: process.pid };
 	const exit = dependencies.exit ?? process.exit;
-	const spawnRestart =
-		dependencies.spawnSelfRestart ??
-		((childRequest: SelfRestartRequest) => spawnSelfRestart(childRequest, { waitForExit: false }));
-	await spawnRestart(restartRequest);
-	exit(0);
+	const spawnRestart = dependencies.spawnSelfRestart ?? spawnSelfRestart;
+	const exitCode = await spawnRestart(restartRequest);
+	exit(exitCode);
 	throw new Error("process.exit returned after spawning restart process");
 }
 
