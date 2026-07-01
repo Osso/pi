@@ -274,6 +274,7 @@ export interface MultiAgentProjectionSnapshot {
 	slots: AgentSlotProjection[];
 }
 
+const IDLE_NOTIFICATION_THREAD_PREFIX = "agent-idle";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
 const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
@@ -369,7 +370,11 @@ export class MultiAgentStore {
 			return { ok: false, error: "invalid_transition", current: copyAgent(current), requested };
 		}
 
+		const shouldNotifyIdle = requested === "waiting_for_input" && current.lifecycle !== "waiting_for_input";
 		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
+		if (shouldNotifyIdle) {
+			this.recordIdleNotification(updated);
+		}
 		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
 			this.selectedAgentId = undefined;
 		}
@@ -481,6 +486,16 @@ export class MultiAgentStore {
 
 	listMailboxMessages(): AgentMailboxMessage[] {
 		return Array.from(this.mailboxMessages.values(), copyMessage);
+	}
+
+	consumeIdleNotificationsForAgent(agentId: string): void {
+		for (const message of this.mailboxMessages.values()) {
+			if (!isPendingIdleNotification(message, agentId)) {
+				continue;
+			}
+			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
+			this.mailboxMessages.set(updated.id, updated);
+		}
 	}
 
 	recordArtifact(input: RecordAgentArtifactInput): AgentArtifact {
@@ -929,6 +944,26 @@ export class MultiAgentStore {
 		return updated;
 	}
 
+	private recordIdleNotification(agent: AgentNode): void {
+		if (!agent.parentId) {
+			return;
+		}
+
+		const timestamp = this.now();
+		const message: AgentMailboxMessage = {
+			body: `${agent.displayName} is waiting for input.`,
+			createdAt: timestamp,
+			fromAgentId: agent.id,
+			id: this.createMessageId(),
+			kind: "system",
+			status: "pending",
+			threadId: idleNotificationThreadId(agent.id),
+			toAgentId: agent.parentId,
+			updatedAt: timestamp,
+		};
+		this.mailboxMessages.set(message.id, message);
+	}
+
 	private createAgentId(): string {
 		const id = `agent_${this.nextAgentNumber}`;
 		this.nextAgentNumber += 1;
@@ -965,6 +1000,16 @@ function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): bool
 	}
 
 	return ALLOWED_TRANSITIONS.get(from)?.has(to) ?? false;
+}
+
+function idleNotificationThreadId(agentId: string): string {
+	return `${IDLE_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
+}
+
+function isPendingIdleNotification(message: AgentMailboxMessage, agentId: string): boolean {
+	const isFromAgent = message.fromAgentId === agentId;
+	const isIdleNotice = message.kind === "system" && message.threadId === idleNotificationThreadId(agentId);
+	return isFromAgent && isIdleNotice && message.status === "pending";
 }
 
 function wouldBroadenPermission(parent: AgentNode["permission"], requested: AgentNode["permission"]): boolean {

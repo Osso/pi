@@ -1105,6 +1105,57 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("wait_agent waits for a dispatched agent to reach idle and consumes the parent idle mailbox message", async () => {
+		const idleGate = deferred<void>();
+		const finishGate = deferred<void>();
+		const idleState = deferred<void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const parent = store.spawnAgent({
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Lead",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
+			await idleGate.promise;
+			const waiting = store.transitionAgent(agent.id, agent.revision, "waiting_for_input");
+			expect(waiting.ok).toBe(true);
+			idleState.resolve(undefined);
+			await finishGate.promise;
+			return { lifecycle: "completed", result: { summary: "done" } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher, store });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			parentId: parent.agent.id,
+			prompt: "Need input before finishing",
+		});
+
+		const waitPromise = harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+		const didResolveBeforeIdle = await resolvesWithin(waitPromise, 20);
+		idleGate.resolve(undefined);
+		await idleState.promise;
+		const didResolveAfterIdle = await resolvesWithin(waitPromise, 100);
+		finishGate.resolve(undefined);
+		const waited = await waitPromise;
+
+		expect(didResolveBeforeIdle).toBe(false);
+		expect(didResolveAfterIdle).toBe(true);
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "waiting_for_input" },
+			terminal: false,
+		});
+		expect(store.listMailboxMessages()).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				fromAgentId: spawned.details.agent.id,
+				kind: "system",
+				status: "delivered",
+				toAgentId: parent.agent.id,
+			},
+		]);
+	});
+
 	it("wait_agent returns terminal store state even when a tracked dispatch is still settling", async () => {
 		const dispatchGate = deferred<void>();
 		const terminalGate = deferred<void>();
