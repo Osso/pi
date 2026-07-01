@@ -13,6 +13,20 @@ type SessionWithCompactionInternals = {
 	_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
 };
 
+type SessionWithCompactionAbortInternals = SessionWithCompactionInternals & {
+	_compactionAbortController?: AbortController;
+	_autoCompactionAbortController?: AbortController;
+};
+
+function requireSessionInternals(ref: {
+	current?: SessionWithCompactionAbortInternals;
+}): SessionWithCompactionAbortInternals {
+	if (!ref.current) {
+		throw new Error("Session internals were not assigned");
+	}
+	return ref.current;
+}
+
 function createUsage(totalTokens: number) {
 	return {
 		input: totalTokens,
@@ -231,6 +245,72 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionEnd?.result?.durationMs).toBe(compactionEntries[0]?.durationMs);
 		expect(compactionEnd?.result?.estimatedTokensAfter).toBeGreaterThan(0);
 		expect(getStreamCallCount()).toBe(1);
+	});
+
+	it("manually compacts when a hook clears the externally visible abort controller", async () => {
+		const sessionInternalsRef: { current?: SessionWithCompactionAbortInternals } = {};
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						requireSessionInternals(sessionInternalsRef)._compactionAbortController = undefined;
+						return {
+							compaction: {
+								summary: "manual compacted after controller clear",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		sessionInternalsRef.current = harness.session as unknown as SessionWithCompactionAbortInternals;
+		seedCompactableSession(harness);
+
+		await expect(harness.session.compact()).resolves.toMatchObject({
+			summary: "manual compacted after controller clear",
+		});
+	});
+
+	it("auto-compacts with the original abort signal when a hook replaces the visible controller", async () => {
+		const sessionInternalsRef: { current?: SessionWithCompactionAbortInternals } = {};
+		const replacementController = new AbortController();
+		replacementController.abort();
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						requireSessionInternals(sessionInternalsRef)._autoCompactionAbortController = replacementController;
+						return {
+							compaction: {
+								summary: "auto compacted after controller replacement",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		sessionInternalsRef.current = harness.session as unknown as SessionWithCompactionAbortInternals;
+		seedCompactableSession(harness);
+		const sessionInternals = requireSessionInternals(sessionInternalsRef);
+
+		await sessionInternals._runAutoCompaction("threshold", false);
+
+		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
+		const compactionEnd = harness.eventsOfType("compaction_end").at(-1);
+		expect(compactionEntries).toHaveLength(1);
+		expect(compactionEnd).toMatchObject({ aborted: false, reason: "threshold" });
+		expect(sessionInternals._autoCompactionAbortController).toBe(replacementController);
+		sessionInternals._autoCompactionAbortController = undefined;
 	});
 
 	it("cancels in-progress manual compaction when abortCompaction is called", async () => {
