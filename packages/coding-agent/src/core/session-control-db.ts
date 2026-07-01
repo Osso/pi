@@ -109,6 +109,10 @@ type LastMessageRow = {
 	updated_at: string;
 };
 
+type RuntimeMailboxListenerRow = {
+	pid: number;
+};
+
 type IncomingStatusRow = {
 	status: string;
 };
@@ -253,7 +257,7 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 }
 
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
-	return withControlDb(controlDbPath, (db) => {
+	const result = withControlDb(controlDbPath, (db) => {
 		const now = new Date().toISOString();
 		const result = db
 			.prepare(
@@ -286,8 +290,11 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 				now,
 				now,
 			);
-		return Number(result.lastInsertRowid);
+		const listener = readRuntimeMailboxListenerRow(db, input.recipient);
+		return { id: Number(result.lastInsertRowid), listener };
 	});
+	notifyRuntimeMailboxListener(result.listener);
+	return result.id;
 }
 
 export function claimRuntimeMailboxMessages(
@@ -336,6 +343,55 @@ export function claimRuntimeMailboxMessages(
 			throw error;
 		}
 	});
+}
+
+export function registerRuntimeMailboxListener(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	pid: number,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		db.prepare(
+			`
+			INSERT INTO runtime_mailbox_listeners (recipient_session_id, recipient_agent_id_key, pid, updated_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(recipient_session_id, recipient_agent_id_key) DO UPDATE SET
+				pid = excluded.pid,
+				updated_at = excluded.updated_at
+			`,
+		).run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), pid, now);
+	});
+}
+
+function readRuntimeMailboxListenerRow(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+): RuntimeMailboxListenerRow | undefined {
+	return db
+		.prepare(
+			`
+			SELECT pid
+			FROM runtime_mailbox_listeners
+			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
+			`,
+		)
+		.get(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId)) as RuntimeMailboxListenerRow | undefined;
+}
+
+function runtimeMailboxAgentIdKey(agentId: string | null): string {
+	return agentId ?? "";
+}
+
+function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | undefined): void {
+	if (!listener || process.platform === "win32") {
+		return;
+	}
+	try {
+		process.kill(listener.pid, "SIGUSR2");
+	} catch {
+		// Stale listener rows are harmless; polling and later registration will recover.
+	}
 }
 
 export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: number): void {
@@ -856,6 +912,14 @@ function initializeSchema(db: SqliteDatabase): void {
 
 		CREATE INDEX IF NOT EXISTS runtime_mailbox_created_at_idx
 		ON runtime_mailbox_messages(created_at);
+
+		CREATE TABLE IF NOT EXISTS runtime_mailbox_listeners (
+			recipient_session_id TEXT NOT NULL,
+			recipient_agent_id_key TEXT NOT NULL,
+			pid INTEGER NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
+		);
 
 		CREATE TABLE IF NOT EXISTS named_sessions (
 			session_path TEXT PRIMARY KEY,

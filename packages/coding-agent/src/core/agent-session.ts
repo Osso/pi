@@ -103,6 +103,7 @@ import {
 	getControlDbPath,
 	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxMessage,
+	registerRuntimeMailboxListener,
 	removeNamedSession,
 	setNamedSession,
 	writeLastMessage,
@@ -419,6 +420,7 @@ export class AgentSession {
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
 	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
+	private _runtimeMailboxSignalHandler?: () => void;
 	private _runtimeMailboxDrainInProgress = false;
 
 	// Model registry for API key resolution
@@ -468,6 +470,7 @@ export class AgentSession {
 			includeAllExtensionTools: true,
 		});
 		this._startRuntimeMailboxPolling();
+		this._startRuntimeMailboxSignalWake();
 	}
 
 	/** Model registry for API key resolution and model discovery */
@@ -1094,6 +1097,7 @@ export class AgentSession {
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
 		);
 		this._stopRuntimeMailboxPolling();
+		this._stopRuntimeMailboxSignalWake();
 		this._disconnectFromAgent();
 		this._eventListeners = [];
 		cleanupSessionResources(this.sessionId);
@@ -1710,6 +1714,33 @@ export class AgentSession {
 		}
 		clearInterval(this._runtimeMailboxPollTimer);
 		this._runtimeMailboxPollTimer = undefined;
+	}
+
+	private _startRuntimeMailboxSignalWake(): void {
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!controlDbPath) {
+			return;
+		}
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
+		if (process.platform === "win32" || this._runtimeMailboxSignalHandler) {
+			return;
+		}
+		this._runtimeMailboxSignalHandler = () => {
+			if (this.isStreaming || this.pendingMessageCount > 0) {
+				return;
+			}
+			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+		};
+		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);
+	}
+
+	private _stopRuntimeMailboxSignalWake(): void {
+		if (!this._runtimeMailboxSignalHandler || process.platform === "win32") {
+			this._runtimeMailboxSignalHandler = undefined;
+			return;
+		}
+		process.off("SIGUSR2", this._runtimeMailboxSignalHandler);
+		this._runtimeMailboxSignalHandler = undefined;
 	}
 
 	/**
@@ -2592,6 +2623,7 @@ export class AgentSession {
 			this._extensionControlDbPath = bindings.controlDbPath;
 		}
 		this._startRuntimeMailboxPolling();
+		this._startRuntimeMailboxSignalWake();
 		if (bindings.commandContextActions !== undefined) {
 			this._extensionCommandContextActions = bindings.commandContextActions;
 		}
