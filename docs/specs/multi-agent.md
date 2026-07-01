@@ -52,6 +52,28 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Child agents can contact the supervisor without direct access to sibling internals.
 - [x] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
       findings are not copied into every coordination event.
+- [ ] Cross-session mailbox transport is runtime coordination state and must not be persisted in
+      session JSONL transcripts or `MultiAgentStore` session snapshots.
+- [ ] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
+      is absent/null for the main thread and present for a subagent in that session.
+- [ ] Separate agent sessions can send completion and coordination messages to another session's
+      main thread without requiring the receiver to call `wait_agent`.
+- [ ] Same-session subagents may address the main thread or another subagent by agent ID, but the
+      default common path is child/separate-session to main-thread delivery.
+- [ ] Messages addressed to terminal agents are allowed and must either wake/resume that agent when
+      possible or remain pending/failed with an explicit reason; they must not be silently dropped.
+- [ ] Idle sessions poll the runtime mailbox for pending messages at least every 3 seconds, and
+      every agent turn also drains pending recipient messages before going idle.
+- [ ] Pending runtime mailbox messages are claimed atomically before enqueue so concurrent Pi
+      processes do not deliver the same message twice.
+- [ ] Claimed messages are marked delivered only after the recipient successfully enqueues the
+      follow-up input; failed enqueue leaves an inspectable pending/failed message state.
+- [ ] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
+      messages are no longer actionable.
+- [ ] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the
+      content is fed back to the model.
+- [ ] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
+      with control-DB write access can inject messages, so the feature must not hide message origin.
 
 ### Extension boundaries
 
@@ -111,7 +133,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/src/core/multi-agent-store.ts`](../../packages/coding-agent/src/core/multi-agent-store.ts)
   defines the first pure in-memory store, lifecycle transitions, revision checks, active-count
   derivation, steering mailbox acknowledgement behavior, and SessionManager-backed snapshot
-  persistence/reload.
+  persistence/reload. Its current mailbox storage is local-process state and is not the target
+  cross-session transport.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
@@ -126,6 +149,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   registers the read-only tree/status/transcript projection tool against the shared store.
 - [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
   registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
+- [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
+  owns the existing SQLite control database boundary that the planned runtime mailbox should reuse
+  or extend for cross-session/process delivery.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -232,6 +258,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `agents-mailbox` first-party extension package.
 - [x] Keep compatibility tests proving the split modules share the same `MultiAgentStore` snapshot
       and do not create independent TUI/core state.
+- [ ] Move mailbox transport out of JSONL-backed `MultiAgentStore` snapshots and into a runtime
+      SQLite mailbox keyed by `(session_id, agent_id)`.
+- [ ] Add idle polling and end-of-turn draining for the SQLite runtime mailbox so receivers wake
+      without requiring `wait_agent`.
+- [ ] Add atomic claim/deliver/fail transitions for runtime mailbox rows and regression tests for
+      duplicate delivery prevention across concurrent receivers.
+- [ ] Add 30-day cleanup for stale runtime mailbox rows.
 - [ ] Add true mid-flight detach for the currently running foreground turn; the current `/bg`
       command starts a new background child-agent prompt instead of transferring an active
       in-progress `AgentSession` run.
