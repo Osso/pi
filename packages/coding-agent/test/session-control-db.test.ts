@@ -128,6 +128,30 @@ describe("session control DB", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "claimed" });
 	});
 
+	it("claims runtime mailbox rows even when artifact JSON is malformed", () => {
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			artifactIds: ["artifact_1"],
+			body: "bad artifact metadata",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("UPDATE runtime_mailbox_messages SET artifact_ids_json = ? WHERE id = ?").run(
+				"not json",
+				messageId,
+			);
+		} finally {
+			db.close();
+		}
+
+		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+
+		expect(claimed).toMatchObject([{ artifactIds: undefined, body: "bad artifact metadata", id: messageId }]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "claimed" });
+	});
+
 	it("marks runtime mailbox rows delivered only after enqueue and failed on enqueue failure", () => {
 		const deliveredId = enqueueRuntimeMailboxMessage(controlDbPath, {
 			body: "delivered",

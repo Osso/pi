@@ -427,22 +427,13 @@ function toRuntimeMailboxMessageStatus(value: string): RuntimeMailboxMessageStat
 }
 
 function parseStringArray(value: string | null): string[] | undefined {
-	if (!value) {
-		return undefined;
-	}
-	const parsed = JSON.parse(value) as unknown;
-	if (!Array.isArray(parsed)) {
-		return undefined;
-	}
-	return parsed.filter((item): item is string => typeof item === "string");
+	const parsed = parseJsonArray(value);
+	return parsed?.filter((item): item is string => typeof item === "string");
 }
 
 function parseArtifactReferences(value: string | null): RuntimeMailboxArtifactReference[] | undefined {
-	if (!value) {
-		return undefined;
-	}
-	const parsed = JSON.parse(value) as unknown;
-	if (!Array.isArray(parsed)) {
+	const parsed = parseJsonArray(value);
+	if (!parsed) {
 		return undefined;
 	}
 	return parsed.flatMap((item): RuntimeMailboxArtifactReference[] => {
@@ -458,6 +449,18 @@ function parseArtifactReferences(value: string | null): RuntimeMailboxArtifactRe
 			},
 		];
 	});
+}
+
+function parseJsonArray(value: string | null): unknown[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		return Array.isArray(parsed) ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export function writeLastMessage(controlDbPath: string, message: { role: "assistant"; content: string }): void {

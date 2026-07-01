@@ -134,6 +134,55 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("mirrors steering into the runtime mailbox for a child session", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
+			id: "child-session",
+			isSubagent: true,
+			parentSession: parentSession.getSessionFile(),
+			subagentName: "Worker",
+		});
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { sessionId: childSession.getSessionId() },
+		});
+		const starting = store.transitionAgent(child.agent.id, child.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) throw new Error("expected starting transition");
+		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+		const tools = collectMultiAgentTools(store);
+		const steerAgent = tools.get("steer_agent");
+		if (!steerAgent) {
+			throw new Error("expected steer_agent tool");
+		}
+
+		await steerAgent.execute(
+			"steer",
+			{ agentId: child.agent.id, expectedRevision: running.agent.revision, message: "Check permissions" },
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Check permissions",
+				recipient: { agentId: null, sessionId: "child-session" },
+				sender: { agentId: "supervisor", sessionId: "parent-session" },
+				status: "pending",
+			},
+		]);
+	});
+
 	it("mirrors dispatched child completion into the runtime mailbox for the parent main session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

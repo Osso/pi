@@ -1249,7 +1249,11 @@ function contactSupervisor(
 	});
 }
 
-function steerAgent(store: MultiAgentStore, params: SteerAgentParams): AgentToolResult<AgentSteerToolDetails> {
+function steerAgent(
+	store: MultiAgentStore,
+	params: SteerAgentParams,
+	ctx?: ExtensionContext,
+): AgentToolResult<AgentSteerToolDetails> {
 	const steered = store.sendSteering(params.agentId, params.expectedRevision, {
 		artifactRefs: params.artifactRefs,
 		body: params.message,
@@ -1262,6 +1266,8 @@ function steerAgent(store: MultiAgentStore, params: SteerAgentParams): AgentTool
 			message: emptyMessage(params.agentId, params.message),
 		});
 	}
+
+	mirrorRuntimeMailboxMessage(store, steered.message, ctx);
 
 	return result(`Queued steering for ${steered.agent.displayName}.`, {
 		agent: steered.agent,
@@ -1325,7 +1331,7 @@ function resolveRuntimeRecipient(
 ): RuntimeMailboxAddress | undefined {
 	const target = store.getAgent(message.toAgentId);
 	if (target?.transcript?.sessionId) {
-		return { agentId: target.id, sessionId: target.transcript.sessionId };
+		return { agentId: null, sessionId: target.transcript.sessionId };
 	}
 	if (message.toAgentId !== MAIN_THREAD_AGENT_ID && message.toAgentId !== "supervisor") {
 		return { agentId: message.toAgentId, sessionId: ctx.sessionManager.getSessionId() };
@@ -1522,7 +1528,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Queue a steering message through the multi-agent mailbox.",
 			approvalRequired: false,
 			parameters: steerAgentSchema,
-			execute: async (_toolCallId, params) => steerAgent(store, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => steerAgent(store, params, ctx),
 		}),
 	);
 }
