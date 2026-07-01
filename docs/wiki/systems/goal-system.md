@@ -4,7 +4,7 @@ The goal system is implemented as a first-party coding-agent extension in
 `packages/coding-agent/extensions/goal/`. It provides `/goal` plus a
 `goal_complete` tool, persists one active objective per session in a working
 directory, and keeps that objective in the system prompt until it is completed
-or continuation is stopped by configured bounds.
+or another continuation stop condition is reached.
 
 The contract lives in `docs/specs/goal-system.md`.
 
@@ -24,8 +24,6 @@ The persisted record contains:
 - `completedAt` and `completionReason`: set when `goal_complete` marks the goal
   complete.
 - `continuationTurns`: number of automatic continuation turns already sent.
-- `tokenBudget`: token ceiling. New goals default to 1,000,000,000 unless an explicit budget is provided.
-- `wallClockBudgetMs`: optional wall-clock ceiling.
 
 Missing state means no active goal. Corrupt JSON is also treated as no active
 goal; the command and prompt hook do not throw.
@@ -54,22 +52,15 @@ starting a second turn.
 Objective text is limited to 4000 characters. Longer objectives are rejected
 before state is written.
 
-The command also accepts:
+The command rejects the removed `--token-budget` and `--wall-clock-minutes` flags with a visible error and does not write state.
 
-- `--token-budget <positive integer>` (defaults to 1,000,000,000)
-- `--wall-clock-minutes <positive integer>`
-
-Invalid or missing budget values produce an error notification and do not write
-state.
-
-The `set_goal` tool exposes equivalent budget parameters for explicit user-requested limits only. Its model-facing description and prompt guideline instruct the model to omit `tokenBudget` and `wallClockMinutes` unless the user asked for a token budget, time limit, or deadline.
+The `set_goal` tool exposes only `objective` and `replace` parameters.
 
 ## Prompt Injection
 
 The extension listens for `before_agent_start`. When an active goal exists, it
 appends a `<goal>` block to the assembled system prompt. The block includes the
-objective, branch, creation timestamp, continuation turns, and any configured
-budgets.
+objective, branch, creation timestamp, and continuation turns.
 
 The injected instructions tell the model to keep working until the goal is
 achieved and to report blockers instead of stopping silently.
@@ -107,12 +98,9 @@ Continuation stops without sending a message when:
 
 - the goal has `completedAt`;
 - pending messages exist;
-- the last assistant response was empty;
-- current context usage reaches `tokenBudget`;
-- elapsed wall-clock time reaches `wallClockBudgetMs`.
+- the last assistant response was empty.
 
-When a budget or empty response stops continuation, Pi shows a warning explaining
-the stop reason.
+When an empty response stops continuation, Pi shows a warning explaining the stop reason.
 
 ## Completion Tool
 
@@ -127,7 +115,8 @@ Completed goals do not trigger automatic continuation.
 
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
 behavior: first-party registration, set/view/clear, explicit replacement,
-objective length rejection, prompt injection, continuation state and budgets,
-footer status, session-start restore notifications, fork-only goal inheritance,
-corrupt state handling, automatic continuation, busy guard, `goal_complete`,
-per-session isolation, token budget, and wall-clock budget.
+objective length rejection, prompt injection, continuation state without budget
+lines, footer status, session-start restore notifications, fork-only goal
+inheritance, corrupt state handling, automatic continuation, busy guard,
+`goal_complete`, per-session isolation, budget flag rejection, and legacy budget
+field ignorance.

@@ -17,8 +17,8 @@
  *
  * See docs/specs/goal-system.md for the contract.
  *
- * Continuation and budget bounds are implemented below; remaining delivery
- * work is tracked in docs/specs/goal-system.md.
+ * Continuation is implemented below; remaining delivery work is tracked in
+ * docs/specs/goal-system.md.
  */
 
 import { execFileSync } from "node:child_process";
@@ -35,7 +35,6 @@ import { Type } from "typebox";
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
-const DEFAULT_TOKEN_BUDGET = 1_000_000_000;
 
 interface Goal {
 	objective: string;
@@ -44,15 +43,11 @@ interface Goal {
 	completedAt?: string;
 	completionReason?: string;
 	continuationTurns?: number;
-	tokenBudget?: number;
-	wallClockBudgetMs?: number;
 }
 
 interface ParsedGoalArgs {
 	objective: string;
 	replace: boolean;
-	tokenBudget?: number;
-	wallClockBudgetMs?: number;
 }
 
 interface SetGoalParams extends ParsedGoalArgs {
@@ -102,8 +97,6 @@ function parseGoal(value: unknown): Goal | null {
 		completedAt: optionalString(value.completedAt),
 		completionReason: optionalString(value.completionReason),
 		continuationTurns: optionalNumber(value.continuationTurns),
-		tokenBudget: optionalNumber(value.tokenBudget),
-		wallClockBudgetMs: optionalNumber(value.wallClockBudgetMs),
 	};
 }
 
@@ -182,72 +175,30 @@ function updateGoalFooterStatus(ctx: ExtensionContext): void {
 	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
 }
 
-function parsePositiveInteger(value: string | undefined): number | null {
-	if (!value) return null;
-	const parsed = Number(value);
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
 function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
 	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
-	let tokenBudget: number | undefined;
-	let wallClockBudgetMs: number | undefined;
 	let replace = false;
 	const objectiveParts: string[] = [];
 
-	for (let index = 0; index < parts.length; index++) {
-		const part = parts[index];
+	for (const part of parts) {
 		if (part === "--replace") {
 			replace = true;
 			continue;
 		}
-		if (part === "--token-budget") {
-			const parsed = parsePositiveInteger(parts[++index]);
-			if (parsed === null) return { error: "--token-budget requires a positive integer" };
-			tokenBudget = parsed;
-			continue;
+		if (part === "--token-budget" || part.startsWith("--token-budget=")) {
+			return { error: "/goal --token-budget is no longer supported" };
 		}
-		if (part === "--wall-clock-minutes") {
-			const parsed = parsePositiveInteger(parts[++index]);
-			if (parsed === null) return { error: "--wall-clock-minutes requires a positive integer" };
-			wallClockBudgetMs = parsed * 60 * 1000;
-			continue;
+		if (part === "--wall-clock-minutes" || part.startsWith("--wall-clock-minutes=")) {
+			return { error: "/goal --wall-clock-minutes is no longer supported" };
 		}
 		objectiveParts.push(part);
 	}
 
-	return { objective: objectiveParts.join(" "), replace, tokenBudget, wallClockBudgetMs };
-}
-
-function wallClockBudgetMinutes(goal: Goal): number {
-	return Math.max(1, Math.round((goal.wallClockBudgetMs ?? 0) / (60 * 1000)));
-}
-
-function budgetStopReason(goal: Goal, ctx: ExtensionContext): string | null {
-	const contextUsage = ctx.getContextUsage();
-	if (goal.tokenBudget !== undefined && contextUsage?.tokens !== null && (contextUsage?.tokens ?? 0) >= goal.tokenBudget) {
-		return `token budget (${goal.tokenBudget})`;
-	}
-
-	if (goal.wallClockBudgetMs !== undefined) {
-		const createdAtMs = Date.parse(goal.createdAt);
-		if (!Number.isNaN(createdAtMs) && Date.now() - createdAtMs >= goal.wallClockBudgetMs) {
-			return `wall-clock budget (${wallClockBudgetMinutes(goal)}m)`;
-		}
-	}
-
-	return null;
+	return { objective: objectiveParts.join(" "), replace };
 }
 
 function goalStateLines(goal: Goal): string[] {
-	const lines = [`Continuation turns used: ${goal.continuationTurns ?? 0}`];
-	if (goal.tokenBudget !== undefined) {
-		lines.push(`Token budget: ${goal.tokenBudget} tokens`);
-	}
-	if (goal.wallClockBudgetMs !== undefined) {
-		lines.push(`Wall-clock budget: ${wallClockBudgetMinutes(goal)}m`);
-	}
-	return lines;
+	return [`Continuation turns used: ${goal.continuationTurns ?? 0}`];
 }
 
 function currentBranch(cwd: string): string {
@@ -321,7 +272,7 @@ function goalSystemBlock(goal: Goal): string {
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
-	const { objective, replace, tokenBudget = DEFAULT_TOKEN_BUDGET, wallClockBudgetMs, ctx, pi } = params;
+	const { objective, replace, ctx, pi } = params;
 	if (objective.length > MAX_OBJECTIVE_CHARS) {
 		return {
 			ok: false,
@@ -344,8 +295,6 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 		branch: currentBranch(ctx.cwd),
 		createdAt: new Date().toISOString(),
 		continuationTurns: 0,
-		tokenBudget,
-		wallClockBudgetMs,
 	};
 	saveGoal(ctx, goal);
 	updateGoalFooterStatus(ctx);
@@ -368,20 +317,11 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "set_goal",
 		label: "Set Goal",
-		description:
-			"Set the active long-running /goal objective. Do not set tokenBudget or wallClockMinutes unless the user explicitly requested a budget or deadline.",
-		promptGuidelines: [
-			"When calling set_goal, omit tokenBudget and wallClockMinutes unless the user explicitly requested a token budget, time limit, or deadline.",
-		],
+		description: "Set the active long-running /goal objective.",
+		promptGuidelines: [],
 		parameters: Type.Object({
 			objective: Type.String(),
 			replace: Type.Optional(Type.Boolean()),
-			tokenBudget: Type.Optional(
-				Type.Number({ description: "Optional token ceiling. Omit unless the user explicitly requested a token budget." }),
-			),
-			wallClockMinutes: Type.Optional(
-				Type.Number({ description: "Optional wall-clock ceiling in minutes. Omit unless the user explicitly requested a time limit or deadline." }),
-			),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const objective = params.objective.trim();
@@ -402,12 +342,9 @@ export default function goalExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			const wallClockBudgetMs = params.wallClockMinutes !== undefined ? params.wallClockMinutes * 60 * 1000 : undefined;
 			const result = setGoal({
 				objective,
 				replace: false,
-				tokenBudget: params.tokenBudget,
-				wallClockBudgetMs,
 				ctx,
 				pi,
 			});
@@ -462,12 +399,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 		const goal = loadActiveGoal(ctx);
 		if (!goal || ctx.hasPendingMessages()) return;
 
-		const stopReason = budgetStopReason(goal, ctx);
-		if (stopReason) {
-			ctx.ui.notify(`Goal continuation stopped at ${stopReason}`, "warning");
-			return;
-		}
-
 		if (didLastAssistantReturnEmpty(event)) {
 			ctx.ui.notify("Goal continuation stopped because the last assistant response was empty", "warning");
 			return;
@@ -495,7 +426,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(parsedArgs.error, "error");
 				return;
 			}
-			const { objective, replace, tokenBudget, wallClockBudgetMs } = parsedArgs;
+			const { objective, replace } = parsedArgs;
 
 			// View
 			if (!objective) {
@@ -511,7 +442,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			const result = setGoal({ objective, replace, tokenBudget, wallClockBudgetMs, ctx, pi });
+			const result = setGoal({ objective, replace, ctx, pi });
 			ctx.ui.notify(result.message, result.severity);
 		},
 	});

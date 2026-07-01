@@ -82,14 +82,10 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
-function schemaPropertyDescription(schema: unknown, property: string): string | undefined {
-	if (typeof schema !== "object" || schema === null || !("properties" in schema)) return undefined;
+function schemaHasProperty(schema: unknown, property: string): boolean {
+	if (typeof schema !== "object" || schema === null || !("properties" in schema)) return false;
 	const properties = schema.properties;
-	if (typeof properties !== "object" || properties === null || !(property in properties)) return undefined;
-	const propertySchema = (properties as Record<string, unknown>)[property];
-	if (typeof propertySchema !== "object" || propertySchema === null || !("description" in propertySchema))
-		return undefined;
-	return typeof propertySchema.description === "string" ? propertySchema.description : undefined;
+	return typeof properties === "object" && properties !== null && property in properties;
 }
 
 function createGoalHarness(
@@ -221,22 +217,16 @@ describe("goal extension", () => {
 		expect(harness.hasSetGoalTool()).toBe(true);
 	});
 
-	it("guides the set_goal tool to omit budgets unless explicitly requested", () => {
+	it("exposes set_goal without budget parameters or guidance", () => {
 		const harness = createGoalHarness(cwd);
 		const setGoalTool = harness.getSetGoalTool();
 
-		expect(setGoalTool?.description).toContain(
-			"Do not set tokenBudget or wallClockMinutes unless the user explicitly requested",
-		);
-		expect(setGoalTool?.promptGuidelines).toContain(
-			"When calling set_goal, omit tokenBudget and wallClockMinutes unless the user explicitly requested a token budget, time limit, or deadline.",
-		);
-		expect(schemaPropertyDescription(setGoalTool?.parameters, "tokenBudget")).toContain(
-			"Omit unless the user explicitly requested",
-		);
-		expect(schemaPropertyDescription(setGoalTool?.parameters, "wallClockMinutes")).toContain(
-			"Omit unless the user explicitly requested",
-		);
+		expect(setGoalTool?.description).not.toContain("budget");
+		expect(setGoalTool?.description).not.toContain("tokenBudget");
+		expect(setGoalTool?.description).not.toContain("wallClockMinutes");
+		expect(setGoalTool?.promptGuidelines).toEqual([]);
+		expect(schemaHasProperty(setGoalTool?.parameters, "tokenBudget")).toBe(false);
+		expect(schemaHasProperty(setGoalTool?.parameters, "wallClockMinutes")).toBe(false);
 	});
 
 	it("sets an objective through the set_goal tool", async () => {
@@ -368,17 +358,17 @@ describe("goal extension", () => {
 		expect(result?.systemPrompt).toContain("base prompt");
 	});
 
-	it("injects continuation and budget state into the system prompt", async () => {
+	it("injects continuation state without budget lines into the system prompt", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("--token-budget 100 --wall-clock-minutes 5 budgeted context");
+		await harness.runCommand("continuation context");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
 		const result = await harness.runBeforeAgentStart();
 		expect(result?.systemPrompt).toContain("Continuation turns used: 1");
-		expect(result?.systemPrompt).toContain("Token budget: 100 tokens");
-		expect(result?.systemPrompt).toContain("Wall-clock budget: 5m");
+		expect(result?.systemPrompt).not.toContain("Token budget:");
+		expect(result?.systemPrompt).not.toContain("Wall-clock budget:");
 	});
 
 	it("shows and clears the active objective", async () => {
@@ -601,25 +591,35 @@ describe("goal extension", () => {
 		);
 	});
 
-	it("persists a one-billion token budget by default", async () => {
+	it("persists new goals without budget fields", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("default budget objective");
+		await harness.runCommand("plain objective");
 
-		const goal = readStoredGoal<{ objective: string; tokenBudget: number }>(cwd);
-		expect(goal.objective).toBe("default budget objective");
-		expect(goal.tokenBudget).toBe(1_000_000_000);
+		const goal = readStoredGoal<Record<string, unknown>>(cwd);
+		expect(goal.objective).toBe("plain objective");
+		expect(goal).not.toHaveProperty("tokenBudget");
+		expect(goal).not.toHaveProperty("wallClockBudgetMs");
 	});
 
-	it("persists explicit token and wall-clock budgets when setting a goal", async () => {
+	it("rejects the token budget flag", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("--token-budget 100 --wall-clock-minutes 5 budgeted objective");
+		await harness.runCommand("--token-budget 100 rejected objective");
 
-		const goal = readStoredGoal<{ objective: string; tokenBudget: number; wallClockBudgetMs: number }>(cwd);
-		expect(goal.objective).toBe("budgeted objective");
-		expect(goal.tokenBudget).toBe(100);
-		expect(goal.wallClockBudgetMs).toBe(5 * 60 * 1000);
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("/goal --token-budget is no longer supported", "error");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("rejects the wall-clock budget flag", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("--wall-clock-minutes 5 rejected objective");
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("/goal --wall-clock-minutes is no longer supported", "error");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("shows the active goal in the footer status", async () => {
@@ -632,27 +632,23 @@ describe("goal extension", () => {
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", undefined);
 	});
 
-	it("stops continuation when the token budget is reached", async () => {
+	it("ignores legacy budget fields when continuing", async () => {
 		const harness = createGoalHarness(cwd, { contextUsage: { tokens: 101, contextWindow: 1000, percent: 10.1 } });
+		writeStoredGoal(cwd, "test-session", {
+			objective: "legacy budget objective",
+			branch: "main",
+			createdAt: "2000-01-01T00:00:00.000Z",
+			continuationTurns: 0,
+			tokenBudget: 100,
+			wallClockBudgetMs: 60 * 1000,
+		});
 
-		await harness.runCommand("--token-budget 100 token bounded");
-		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at token budget (100)", "warning");
-	});
-
-	it("stops continuation when the wall-clock budget is reached", async () => {
-		const harness = createGoalHarness(cwd);
-
-		await harness.runCommand("--wall-clock-minutes 1 time bounded");
-		const goal = readStoredGoal<Record<string, unknown>>(cwd);
-		writeStoredGoal(cwd, "test-session", { ...goal, createdAt: "2000-01-01T00:00:00.000Z" });
-		harness.sendUserMessage.mockClear();
-		await harness.runAgentEnd();
-
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith("Goal continuation stopped at wall-clock budget (1m)", "warning");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Continue working toward this objective until it is achieved: legacy budget objective",
+			{ deliverAs: "followUp" },
+		);
+		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("budget"), "warning");
 	});
 });

@@ -21,7 +21,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 
 | Feature | Spec | Status | Notes |
 |---|---|---|---|
-| Goal system (`/goal`) | [`goal-system.md`](goal-system.md) | **BUILD** (primary) | Codex-style long-running objective with set/view/clear, persistence, context injection, autonomous continuation, and budget bounds. |
+| Goal system (`/goal`) | [`goal-system.md`](goal-system.md) | **BUILD** (primary) | Codex-style long-running objective with set/view/clear, persistence, context injection, and autonomous continuation. |
 | `/run-plan` command | [`run-plan-command.md`](run-plan-command.md) | **BUILD** | Trivial via `pi.registerCommand`; walks `PLAN.md`. |
 | User rules loader (`rules/*.md`) | [`user-rules-loader.md`](user-rules-loader.md) | **BUILD** (additive) | Pi already loads AGENTS.md/CLAUDE.md hierarchy; adds global agent `rules/` + project `.pi/rules/`. |
 | Worktree startup (`-w/--worktree`) | [`worktree-startup-option.md`](worktree-startup-option.md) | **BUILD** | New CLI flag; create/reuse sibling git worktree. |
