@@ -368,12 +368,20 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "set_goal",
 		label: "Set Goal",
-		description: "Set the active long-running /goal objective.",
+		description:
+			"Set the active long-running /goal objective. Do not set tokenBudget or wallClockMinutes unless the user explicitly requested a budget or deadline.",
+		promptGuidelines: [
+			"When calling set_goal, omit tokenBudget and wallClockMinutes unless the user explicitly requested a token budget, time limit, or deadline.",
+		],
 		parameters: Type.Object({
 			objective: Type.String(),
 			replace: Type.Optional(Type.Boolean()),
-			tokenBudget: Type.Optional(Type.Number()),
-			wallClockMinutes: Type.Optional(Type.Number()),
+			tokenBudget: Type.Optional(
+				Type.Number({ description: "Optional token ceiling. Omit unless the user explicitly requested a token budget." }),
+			),
+			wallClockMinutes: Type.Optional(
+				Type.Number({ description: "Optional wall-clock ceiling in minutes. Omit unless the user explicitly requested a time limit or deadline." }),
+			),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const objective = params.objective.trim();

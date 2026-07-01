@@ -82,6 +82,16 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
+function schemaPropertyDescription(schema: unknown, property: string): string | undefined {
+	if (typeof schema !== "object" || schema === null || !("properties" in schema)) return undefined;
+	const properties = schema.properties;
+	if (typeof properties !== "object" || properties === null || !(property in properties)) return undefined;
+	const propertySchema = (properties as Record<string, unknown>)[property];
+	if (typeof propertySchema !== "object" || propertySchema === null || !("description" in propertySchema))
+		return undefined;
+	return typeof propertySchema.description === "string" ? propertySchema.description : undefined;
+}
+
 function createGoalHarness(
 	cwd: string,
 	options?: {
@@ -178,6 +188,7 @@ function createGoalHarness(
 			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
 		runSetGoal: async (objective: string, replace = false) =>
 			setGoalTool?.execute("set-goal-1", { objective, replace }, undefined, undefined, ctx as ExtensionContext),
+		getSetGoalTool: () => setGoalTool,
 		hasGoalCommand: () => command !== undefined,
 		hasGoalCompleteTool: () => completeTool !== undefined,
 		hasSetGoalTool: () => setGoalTool !== undefined,
@@ -208,6 +219,24 @@ describe("goal extension", () => {
 		expect(harness.hasGoalCommand()).toBe(true);
 		expect(harness.hasGoalCompleteTool()).toBe(true);
 		expect(harness.hasSetGoalTool()).toBe(true);
+	});
+
+	it("guides the set_goal tool to omit budgets unless explicitly requested", () => {
+		const harness = createGoalHarness(cwd);
+		const setGoalTool = harness.getSetGoalTool();
+
+		expect(setGoalTool?.description).toContain(
+			"Do not set tokenBudget or wallClockMinutes unless the user explicitly requested",
+		);
+		expect(setGoalTool?.promptGuidelines).toContain(
+			"When calling set_goal, omit tokenBudget and wallClockMinutes unless the user explicitly requested a token budget, time limit, or deadline.",
+		);
+		expect(schemaPropertyDescription(setGoalTool?.parameters, "tokenBudget")).toContain(
+			"Omit unless the user explicitly requested",
+		);
+		expect(schemaPropertyDescription(setGoalTool?.parameters, "wallClockMinutes")).toContain(
+			"Omit unless the user explicitly requested",
+		);
 	});
 
 	it("sets an objective through the set_goal tool", async () => {

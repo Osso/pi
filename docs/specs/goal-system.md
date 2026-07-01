@@ -25,6 +25,7 @@ not yet written).
 - [x] `/goal` is delivered from a tracked first-party extension package, not from
   project-local `.pi/extensions/` code.
 - [x] A `set_goal` tool can establish the same active objective as `/goal <objective>` for tool-capability parity.
+- [x] The `set_goal` tool guidance tells models to omit token and wall-clock budgets unless the user explicitly requested a budget, time limit, or deadline.
 
 ### Context anchoring
 

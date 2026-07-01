@@ -62,6 +62,8 @@ The command also accepts:
 Invalid or missing budget values produce an error notification and do not write
 state.
 
+The `set_goal` tool exposes equivalent budget parameters for explicit user-requested limits only. Its model-facing description and prompt guideline instruct the model to omit `tokenBudget` and `wallClockMinutes` unless the user asked for a token budget, time limit, or deadline.
+
 ## Prompt Injection
 
 The extension listens for `before_agent_start`. When an active goal exists, it
