@@ -14,6 +14,7 @@ import { AgentSession } from "../src/core/agent-session.ts";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { runRpcMode } from "../src/modes/rpc/rpc-mode.ts";
@@ -97,10 +98,13 @@ function sleep(ms: number): Promise<void> {
 
 function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number; model?: Model<any> }): {
 	runtimeHost: AgentSessionRuntime;
+	bindExtensionsSpy: ReturnType<typeof vi.fn>;
+	agentDir: string;
 	cleanup: () => Promise<void>;
 } {
 	const tempDir = join(tmpdir(), `pi-rpc-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-	mkdirSync(tempDir, { recursive: true });
+	const agentDir = join(tempDir, "agent");
+	mkdirSync(agentDir, { recursive: true });
 
 	const model = options.model ?? getModel("anthropic", "claude-sonnet-4-5");
 	if (!model) {
@@ -127,9 +131,9 @@ function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number
 	});
 
 	const sessionManager = SessionManager.inMemory();
-	const settingsManager = SettingsManager.create(tempDir, tempDir);
-	const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-	const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+	const settingsManager = SettingsManager.create(tempDir, agentDir);
+	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
 	if (options.withAuth) {
 		authStorage.setRuntimeApiKey("anthropic", "test-key");
 	}
@@ -143,8 +147,11 @@ function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number
 		resourceLoader: createTestResourceLoader(),
 	});
 
+	const bindExtensionsSpy = vi.spyOn(session, "bindExtensions");
+
 	const runtimeHost = {
 		session,
+		services: { cwd: tempDir, agentDir },
 		newSession: vi.fn(async () => ({ cancelled: true })),
 		switchSession: vi.fn(async () => ({ cancelled: true })),
 		fork: vi.fn(async () => ({ cancelled: true, selectedText: "" })),
@@ -154,6 +161,8 @@ function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number
 
 	return {
 		runtimeHost,
+		bindExtensionsSpy,
+		agentDir,
 		cleanup: async () => {
 			try {
 				if (session.isStreaming) {
@@ -172,22 +181,38 @@ function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number
 
 async function startRpcMode(options: { withAuth: boolean; responseDelayMs: number; model?: Model<any> }): Promise<{
 	lineHandler: (line: string) => void;
+	bindExtensionsSpy: ReturnType<typeof vi.fn>;
+	agentDir: string;
 	cleanup: () => Promise<void>;
 }> {
 	rpcIo.outputLines = [];
 	rpcIo.lineHandler = undefined;
 
-	const { runtimeHost, cleanup } = createRuntimeHost(options);
+	const { runtimeHost, bindExtensionsSpy, agentDir, cleanup } = createRuntimeHost(options);
 	void runRpcMode(runtimeHost);
 	await vi.waitFor(() => expect(rpcIo.lineHandler).toBeDefined());
 
-	return { lineHandler: rpcIo.lineHandler!, cleanup };
+	return { lineHandler: rpcIo.lineHandler!, bindExtensionsSpy, agentDir, cleanup };
 }
 
 describe("RPC prompt response semantics", () => {
 	afterEach(() => {
 		rpcIo.outputLines = [];
 		rpcIo.lineHandler = undefined;
+	});
+
+	it("binds the control database path for runtime mailbox draining", async () => {
+		const { bindExtensionsSpy, agentDir, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 0 });
+
+		try {
+			expect(bindExtensionsSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					controlDbPath: getControlDbPath(agentDir),
+				}),
+			);
+		} finally {
+			await cleanup();
+		}
 	});
 
 	it("emits one failure response when prompt preflight rejects", async () => {

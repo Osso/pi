@@ -1,5 +1,7 @@
+import { join } from "node:path";
 import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
 import type { SessionShutdownEvent } from "../src/index.ts";
 import { runPrintMode } from "../src/modes/print-mode.ts";
 
@@ -23,6 +25,7 @@ type FakeSession = {
 
 type FakeRuntimeHost = {
 	session: FakeSession;
+	services: { agentDir: string };
 	newSession: ReturnType<typeof vi.fn>;
 	fork: ReturnType<typeof vi.fn>;
 	switchSession: ReturnType<typeof vi.fn>;
@@ -76,6 +79,7 @@ function createRuntimeHost(assistantMessage: AssistantMessage): FakeRuntimeHost 
 
 	return {
 		session,
+		services: { agentDir: join("/tmp", "pi-print-mode-agent") },
 		newSession: vi.fn(async () => undefined),
 		fork: vi.fn(async () => ({ selectedText: "" })),
 		switchSession: vi.fn(async () => undefined),
@@ -91,6 +95,22 @@ afterEach(() => {
 });
 
 describe("runPrintMode", () => {
+	it("binds the control database path for runtime mailbox draining", async () => {
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "done" }));
+		const { session } = runtimeHost;
+
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+		});
+
+		expect(exitCode).toBe(0);
+		expect(session.bindExtensions).toHaveBeenCalledWith(
+			expect.objectContaining({
+				controlDbPath: getControlDbPath(runtimeHost.services.agentDir),
+			}),
+		);
+	});
+
 	it("emits session_shutdown in text mode", async () => {
 		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "done" }));
 		const { session } = runtimeHost;

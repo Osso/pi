@@ -25,6 +25,7 @@ import {
 	waitForRawStdoutBackpressure,
 	writeRawStdout,
 } from "../../core/output-guard.ts";
+import { getControlDbPath } from "../../core/session-control-db.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
@@ -322,6 +323,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		await session.bindExtensions({
 			uiContext: createExtensionUIContext(),
 			mode: "rpc",
+			controlDbPath: getControlDbPath(runtimeHost.services.agentDir),
 			commandContextActions: {
 				showApprovalSelector: () => {},
 				showSandboxSelector: () => {},

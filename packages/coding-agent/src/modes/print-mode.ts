@@ -9,6 +9,7 @@
 import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
+import { getControlDbPath } from "../core/session-control-db.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";
 
 /**
@@ -72,6 +73,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		session = runtimeHost.session;
 		await session.bindExtensions({
 			mode: mode === "json" ? "json" : "print",
+			controlDbPath: getControlDbPath(runtimeHost.services.agentDir),
 			commandContextActions: {
 				showApprovalSelector: () => {},
 				showSandboxSelector: () => {},
