@@ -4148,13 +4148,14 @@ export class InteractiveMode {
 		const releasePendingInput = this.session.reserveExternalUserInput();
 		this.editor.setText("");
 		this.updatePendingMessagesDisplay();
+		const abortPromise = this.session.abort();
+		if (this.onInputCallback) {
+			this.onInputCallback(combinedText);
+		} else {
+			this.pendingUserInputs.push(combinedText);
+		}
 		try {
-			await this.session.abort();
-			if (this.onInputCallback) {
-				this.onInputCallback(combinedText);
-			} else {
-				this.pendingUserInputs.push(combinedText);
-			}
+			await abortPromise;
 		} finally {
 			releasePendingInput();
 		}
