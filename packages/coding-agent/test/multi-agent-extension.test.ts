@@ -269,6 +269,25 @@ function restoreIsTty(target: TtyTarget, original: PropertyDescriptor | undefine
 	Reflect.deleteProperty(target, "isTTY");
 }
 
+function createStoreWithParentMailboxMessage(body: string): {
+	message: AgentMailboxMessage;
+	store: MultiAgentStore;
+} {
+	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+	const child = store.spawnAgent({
+		agentType: "worker",
+		cwd: "/repo",
+		displayName: "Worker",
+		parentId: "main",
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, { body });
+	if (!contacted.ok) {
+		throw new Error("expected supervisor contact");
+	}
+	return { message: contacted.message, store };
+}
+
 describe("multi-agent extension tools", () => {
 	const childHarnesses: Harness[] = [];
 
@@ -1103,6 +1122,47 @@ describe("multi-agent extension tools", () => {
 			agent: { id: spawned.details.agent.id, lifecycle: "completed" },
 			terminal: true,
 		});
+	});
+
+	it("drains parent mailbox messages at agent_end and continues automatically", async () => {
+		const { message, store } = createStoreWithParentMailboxMessage("Need parent review");
+		const harness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
+		});
+		childHarnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual(["hello", "Mailbox message from Worker (agent_1): Need parent review"]);
+		expect(getAssistantTexts(harness)).toEqual(["initial reply", "mailbox reply"]);
+		expect(store.listMailboxMessages()).toMatchObject([{ id: message.id, status: "delivered" }]);
+	});
+
+	it("does not deliver mailbox messages again after they are marked delivered", async () => {
+		const { message, store } = createStoreWithParentMailboxMessage("Need parent review once");
+		const harness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
+		});
+		childHarnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("initial reply"),
+			fauxAssistantMessage("mailbox reply"),
+			fauxAssistantMessage("second reply"),
+		]);
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+		await harness.session.prompt("second prompt");
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			"hello",
+			"Mailbox message from Worker (agent_1): Need parent review once",
+			"second prompt",
+		]);
+		expect(store.listMailboxMessages()).toMatchObject([{ id: message.id, status: "delivered" }]);
 	});
 
 	it("wait_agent waits for a dispatched agent to reach idle and consumes the parent idle mailbox message", async () => {

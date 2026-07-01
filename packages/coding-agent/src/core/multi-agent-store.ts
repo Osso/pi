@@ -488,6 +488,23 @@ export class MultiAgentStore {
 		return Array.from(this.mailboxMessages.values(), copyMessage);
 	}
 
+	listPendingMailboxMessagesForAgent(agentId: string): AgentMailboxMessage[] {
+		return Array.from(this.mailboxMessages.values())
+			.filter((message) => message.toAgentId === agentId && message.status === "pending")
+			.map(copyMessage);
+	}
+
+	markMailboxMessageDelivered(messageId: string): AgentMailboxMessage | undefined {
+		const message = this.mailboxMessages.get(messageId);
+		if (!message || message.status !== "pending") {
+			return undefined;
+		}
+
+		const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
+		this.mailboxMessages.set(updated.id, updated);
+		return copyMessage(updated);
+	}
+
 	consumeIdleNotificationsForAgent(agentId: string): void {
 		for (const message of this.mailboxMessages.values()) {
 			if (!isPendingIdleNotification(message, agentId)) {

@@ -946,6 +946,37 @@ function listViewerCommands(agents: AgentSnapshot[]): AgentViewerCommand[] {
 	]);
 }
 
+function drainParentMailboxAtAgentEnd(store: MultiAgentStore, pi: ExtensionAPI, ctx: ExtensionContext): void {
+	const agentId = resolveCurrentMailboxAgentId(store, ctx);
+	if (!agentId) {
+		return;
+	}
+
+	for (const message of store.listPendingMailboxMessagesForAgent(agentId)) {
+		if (message.kind === "steer") {
+			continue;
+		}
+		pi.sendUserMessage(formatParentMailboxMessage(store, message), { deliverAs: "followUp" });
+		store.markMailboxMessageDelivered(message.id);
+	}
+}
+
+function resolveCurrentMailboxAgentId(store: MultiAgentStore, ctx: ExtensionContext): string | undefined {
+	if (!ctx.sessionManager.isSubagentSession()) {
+		return MAIN_THREAD_AGENT_ID;
+	}
+
+	const sessionId = ctx.sessionManager.getSessionId();
+	return store.listAgents().find((agent) => agent.transcript?.sessionId === sessionId)?.id;
+}
+
+function formatParentMailboxMessage(store: MultiAgentStore, message: AgentMailboxMessage): string {
+	const sender = store.getAgent(message.fromAgentId);
+	const senderLabel = sender ? `${sender.displayName} (${sender.id})` : message.fromAgentId;
+	const body = message.body?.trim() || "No message body.";
+	return `Mailbox message from ${senderLabel}: ${body}`;
+}
+
 function agentsMailbox(store: MultiAgentStore, params: AgentsMailboxParams): AgentToolResult<AgentsMailboxToolDetails> {
 	const messages = store.listMailboxMessages();
 	const scopedMessages = params.agentId
@@ -1377,6 +1408,10 @@ export function registerAgentViewerTools(pi: ExtensionAPI, options: MultiAgentEx
 
 export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
+
+	pi.on?.("agent_end", async (_event, ctx) => {
+		drainParentMailboxAtAgentEnd(store, pi, ctx);
+	});
 
 	pi.registerTool(
 		defineTool({
