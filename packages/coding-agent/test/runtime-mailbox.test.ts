@@ -244,6 +244,33 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("starts runtime mailbox polling before extension binding", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		harness.setResponses([fauxAssistantMessage("mailbox reply")]);
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "Constructor poll wake",
+			kind: "message",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+
+		await vi.advanceTimersByTimeAsync(3_000);
+		for (let attempt = 0; attempt < 10 && getUserTexts(harness).length === 0; attempt += 1) {
+			await delay(0);
+		}
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			"Mailbox message from session child-session agent agent_1: Constructor poll wake",
+		]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
 	it("drains runtime mailbox using session metadata control DB fallback", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

@@ -467,6 +467,7 @@ export class AgentSession {
 			activeToolNames: this._initialActiveToolNames,
 			includeAllExtensionTools: true,
 		});
+		this._startRuntimeMailboxPolling();
 	}
 
 	/** Model registry for API key resolution and model discovery */

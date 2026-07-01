@@ -179,6 +179,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		sessionManager,
 		settingsManager,
 		cwd: tempDir,
+		agentDir: tempDir,
 		modelRegistry,
 		resourceLoader,
 		baseToolsOverride: toolMap,
