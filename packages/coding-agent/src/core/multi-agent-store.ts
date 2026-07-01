@@ -239,7 +239,7 @@ export interface PersistedMultiAgentSnapshot {
 	kind: "snapshot";
 	agents: AgentSnapshot[];
 	artifacts: AgentArtifact[];
-	mailboxMessages: AgentMailboxMessage[];
+	mailboxMessages?: AgentMailboxMessage[];
 	selectedAgentId?: string;
 	nextAgentNumber: number;
 	nextArtifactNumber: number;
@@ -800,7 +800,6 @@ export class MultiAgentStore {
 			kind: "snapshot",
 			agents: this.listAgents(),
 			artifacts: this.listArtifacts(),
-			mailboxMessages: this.listMailboxMessages(),
 			selectedAgentId: this.selectedAgentId,
 			nextAgentNumber: this.nextAgentNumber,
 			nextArtifactNumber: this.nextArtifactNumber,
@@ -837,7 +836,7 @@ export class MultiAgentStore {
 			this.artifacts.set(artifact.id, copyArtifact(artifact));
 		}
 
-		for (const message of snapshot.mailboxMessages) {
+		for (const message of snapshot.mailboxMessages ?? []) {
 			this.mailboxMessages.set(message.id, copyMessage(message));
 		}
 
@@ -1195,7 +1194,7 @@ function isSnapshotData(data: unknown): data is PersistedMultiAgentSnapshot {
 		snapshot.kind === "snapshot" &&
 		Array.isArray(snapshot.agents) &&
 		(snapshot.artifacts === undefined || Array.isArray(snapshot.artifacts)) &&
-		Array.isArray(snapshot.mailboxMessages) &&
+		(snapshot.mailboxMessages === undefined || Array.isArray(snapshot.mailboxMessages)) &&
 		typeof snapshot.nextAgentNumber === "number" &&
 		(snapshot.nextArtifactNumber === undefined || typeof snapshot.nextArtifactNumber === "number") &&
 		typeof snapshot.nextMessageNumber === "number"

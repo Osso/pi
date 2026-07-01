@@ -967,6 +967,7 @@ describe("MultiAgentStore", () => {
 				version: 1,
 			},
 		});
+		expect(JSON.stringify(entry?.data)).not.toContain("mailboxMessages");
 	});
 
 	it("rehydrates the latest persisted snapshot after reopening a session", () => {
@@ -1039,19 +1040,7 @@ describe("MultiAgentStore", () => {
 			});
 			expect(rehydrated.getSelectedAgentId()).toBe(spawned.agent.id);
 			expect(rehydrated.getActiveAgentCount()).toBe(0);
-			expect(rehydrated.listMailboxMessages()).toMatchObject([
-				{
-					body: "Continue with tests",
-					status: "delivered",
-					targetCheckpoint: "after_tool_result",
-				},
-				{
-					body: "Scout completed.",
-					kind: "system",
-					status: "pending",
-					toAgentId: "root",
-				},
-			]);
+			expect(rehydrated.listMailboxMessages()).toEqual([]);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
