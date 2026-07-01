@@ -315,10 +315,23 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 
 function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage): string {
 	const senderSession = message.sender.sessionId || "unknown-session";
-	const senderAgent = message.sender.agentId ? ` agent ${message.sender.agentId}` : " main";
+	const senderAgent = message.sender.agentId || "main";
 	const body = message.body.trim() || "No message body.";
-	const originLine = `Mailbox message from session ${senderSession}${senderAgent}: ${body}`;
-	return [originLine, ...formatRuntimeMailboxArtifacts(message)].join("\n");
+	const sections = [
+		"Runtime mailbox message received.",
+		"",
+		"From:",
+		`- session: ${senderSession}`,
+		`- agent: ${senderAgent}`,
+		"",
+		"Message:",
+		body,
+		"",
+		"To reply, use send_agent_message with:",
+		`- toSessionId: ${senderSession}`,
+		'- toAgentId: "main"',
+	];
+	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
 }
 
 function formatRuntimeMailboxArtifacts(message: RuntimeMailboxMessage): string[] {

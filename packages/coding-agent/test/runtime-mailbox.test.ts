@@ -36,6 +36,23 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function runtimeMailboxPrompt(body: string): string {
+	return [
+		"Runtime mailbox message received.",
+		"",
+		"From:",
+		"- session: child-session",
+		"- agent: agent_1",
+		"",
+		"Message:",
+		body,
+		"",
+		"To reply, use send_agent_message with:",
+		"- toSessionId: child-session",
+		'- toAgentId: "main"',
+	].join("\n");
+}
+
 function collectMultiAgentTools(
 	store: MultiAgentStore,
 	options: { dispatcher?: ChildAgentDispatcher } = {},
@@ -374,10 +391,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.prompt("hello");
 		await harness.session.agent.waitForIdle();
 
-		expect(getUserTexts(harness)).toEqual([
-			"hello",
-			"Mailbox message from session child-session agent agent_1: Child finished tests",
-		]);
+		expect(getUserTexts(harness)).toEqual(["hello", runtimeMailboxPrompt("Child finished tests")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
@@ -402,9 +416,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		await harness.session.agent.waitForIdle();
 
-		expect(getUserTexts(harness)).toEqual([
-			"Mailbox message from session child-session agent agent_1: Constructor poll wake",
-		]);
+		expect(getUserTexts(harness)).toEqual([runtimeMailboxPrompt("Constructor poll wake")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
@@ -426,10 +438,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.prompt("hello");
 		await harness.session.agent.waitForIdle();
 
-		expect(getUserTexts(harness)).toEqual([
-			"hello",
-			"Mailbox message from session child-session agent agent_1: Fallback path notice",
-		]);
+		expect(getUserTexts(harness)).toEqual(["hello", runtimeMailboxPrompt("Fallback path notice")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
@@ -459,9 +468,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			releaseReservation();
 		}
 
-		expect(getUserTexts(harness)).toEqual([
-			"Mailbox message from session child-session agent agent_1: Reserved input wake",
-		]);
+		expect(getUserTexts(harness)).toEqual([runtimeMailboxPrompt("Reserved input wake")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
@@ -486,9 +493,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		await harness.session.agent.waitForIdle();
 
-		expect(getUserTexts(harness)).toEqual([
-			"Mailbox message from session child-session agent agent_1: Need parent review",
-		]);
+		expect(getUserTexts(harness)).toEqual([runtimeMailboxPrompt("Need parent review")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 });
