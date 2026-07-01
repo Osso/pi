@@ -170,6 +170,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			parentId: parent.agent.id,
 			permission: { narrowed: true, policy: "on-request" },
 		});
+		const parentTranscript = store.updateAgentTranscript(parent.agent.id, { sessionId: "sender-session" });
+		expect(parentTranscript.ok).toBe(true);
 		const transcript = store.updateAgentTranscript(child.agent.id, { sessionId: "target-session" });
 		expect(transcript.ok).toBe(true);
 		const tools = collectMultiAgentTools(store);
@@ -181,8 +183,6 @@ describe("runtime SQLite mailbox delivery", () => {
 		await sendAgentMessage.execute(
 			"send",
 			{
-				expectedRevision: parent.agent.revision,
-				fromAgentId: parent.agent.id,
 				message: "Hello other session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
@@ -207,13 +207,6 @@ describe("runtime SQLite mailbox delivery", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		const sender = store.spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Sender",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-		});
 		const tools = collectMultiAgentTools(store);
 		const sendAgentMessage = tools.get("send_agent_message");
 		if (!sendAgentMessage) {
@@ -223,8 +216,6 @@ describe("runtime SQLite mailbox delivery", () => {
 		await sendAgentMessage.execute(
 			"send-main",
 			{
-				expectedRevision: sender.agent.revision,
-				fromAgentId: sender.agent.id,
 				message: "Hello main session",
 				toAgentId: "main",
 				toSessionId: "target-session",
@@ -238,7 +229,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			{
 				body: "Hello main session",
 				recipient: { agentId: null, sessionId: "target-session" },
-				sender: { agentId: sender.agent.id, sessionId: "sender-session" },
+				sender: { agentId: null, sessionId: "sender-session" },
 				status: "pending",
 			},
 		]);
@@ -263,6 +254,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			parentId: parent.agent.id,
 			permission: { narrowed: true, policy: "on-request" },
 		});
+		const parentTranscript = store.updateAgentTranscript(parent.agent.id, { sessionId: "sender-session" });
+		expect(parentTranscript.ok).toBe(true);
 		const tools = collectMultiAgentTools(store);
 		const sendAgentMessage = tools.get("send_agent_message");
 		if (!sendAgentMessage) {
@@ -272,8 +265,6 @@ describe("runtime SQLite mailbox delivery", () => {
 		const sent = await sendAgentMessage.execute(
 			"send-mismatch",
 			{
-				expectedRevision: parent.agent.revision,
-				fromAgentId: parent.agent.id,
 				message: "Hello wrong session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",

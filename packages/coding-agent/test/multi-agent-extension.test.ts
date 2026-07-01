@@ -804,49 +804,95 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("sends direct parent-child mailbox messages and rejects sibling targets", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-send-agent-message-"));
+		try {
+			const parentSession = SessionManager.create("/repo", tempDir, { id: "parent-session" });
+			const childSession = SessionManager.create("/repo", tempDir, { id: "child-session" });
+			const harness = createMultiAgentHarness();
+			const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Parent",
+				prompt: "Parent task",
+			});
+			const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Child",
+				parentId: parent.details.agent.id,
+				prompt: "Child task",
+			});
+			const sibling = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Sibling",
+				prompt: "Sibling task",
+			});
+			const parentTranscript = harness.store.updateAgentTranscript(parent.details.agent.id, {
+				sessionId: parentSession.getSessionId(),
+			});
+			expect(parentTranscript.ok).toBe(true);
+			const childTranscript = harness.store.updateAgentTranscript(child.details.agent.id, {
+				sessionId: childSession.getSessionId(),
+			});
+			expect(childTranscript.ok).toBe(true);
+			const sendAgentMessage = harness.tools.get("send_agent_message");
+			if (!sendAgentMessage) {
+				throw new Error("expected send_agent_message tool");
+			}
+
+			const sent = (await sendAgentMessage.execute(
+				"send-parent",
+				{ message: "Please inspect auth", toAgentId: child.details.agent.id },
+				undefined,
+				undefined,
+				{ cwd: "/repo", hasUI: false, mode: "print", sessionManager: parentSession } as unknown as ExtensionContext,
+			)) as AgentToolResult<SendAgentMessageDetails>;
+			const rejected = (await sendAgentMessage.execute(
+				"send-child",
+				{ message: "Can I read your state?", toAgentId: sibling.details.agent.id },
+				undefined,
+				undefined,
+				{ cwd: "/repo", hasUI: false, mode: "print", sessionManager: childSession } as unknown as ExtensionContext,
+			)) as AgentToolResult<SendAgentMessageDetails>;
+			const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
+				agentId: child.details.agent.id,
+			});
+
+			expect(sent.details.message).toMatchObject({
+				body: "Please inspect auth",
+				fromAgentId: parent.details.agent.id,
+				kind: "message",
+				status: "pending",
+				toAgentId: child.details.agent.id,
+			});
+			expect(childMailbox.details.inbox).toMatchObject([{ id: sent.details.message.id }]);
+			expect(rejected.details).toMatchObject({
+				agent: { id: child.details.agent.id, revision: child.details.agent.revision },
+				message: { status: "failed", toAgentId: sibling.details.agent.id },
+			});
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("derives the main thread as sender for top-level agent messages", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Parent",
-			prompt: "Parent task",
-		});
 		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Child",
-			parentId: parent.details.agent.id,
+			displayName: "Top-level child",
 			prompt: "Child task",
-		});
-		const sibling = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Sibling",
-			prompt: "Sibling task",
 		});
 
 		const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-			expectedRevision: parent.details.agent.revision,
-			fromAgentId: parent.details.agent.id,
-			message: "Please inspect auth",
+			message: "Main thread request",
 			toAgentId: child.details.agent.id,
-		});
-		const rejected = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-			expectedRevision: child.details.agent.revision,
-			fromAgentId: child.details.agent.id,
-			message: "Can I read your state?",
-			toAgentId: sibling.details.agent.id,
 		});
 		const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
 			agentId: child.details.agent.id,
 		});
 
 		expect(sent.details.message).toMatchObject({
-			body: "Please inspect auth",
-			fromAgentId: parent.details.agent.id,
+			body: "Main thread request",
+			fromAgentId: "main",
 			kind: "message",
 			status: "pending",
 			toAgentId: child.details.agent.id,
 		});
 		expect(childMailbox.details.inbox).toMatchObject([{ id: sent.details.message.id }]);
-		expect(rejected.details).toMatchObject({
-			agent: { id: child.details.agent.id, revision: child.details.agent.revision },
-			message: { status: "failed", toAgentId: sibling.details.agent.id },
-		});
 	});
 
 	it("records and lists shared artifacts outside mailbox events", async () => {

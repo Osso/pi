@@ -185,9 +185,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   ID/path rather than copied content. It verifies `agent_viewer` returns read-only projection,
   tree, status, transcript, and command descriptor details without advancing lifecycle state and
   `agents_mailbox` returns inbox/outbox plus acknowledgement summaries from core mailbox state. It
-  also verifies `send_agent_message` allows direct parent-child mailbox messages while rejecting
-  sibling targets and `agent_artifacts` records/list shared artifact pointers outside mailbox
-  events. It verifies
+  also verifies `send_agent_message` derives the sender from the current session instead of
+  accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
+  while rejecting sibling targets, and `agent_artifacts` records/list shared artifact pointers
+  outside mailbox events. It verifies
   `createMultiAgentWorkflowOperations()` composes spawn/message/wait/artifact operations through
   `MultiAgentStore` without owning separate runtime state. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and

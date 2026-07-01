@@ -147,7 +147,9 @@ inline child output is excluded from core snapshots and UI projections.
 ### Revisions
 
 Every state mutation increments the target agent revision. Commands that mutate a specific agent
-must include `expectedRevision`. If it does not match, the store returns:
+and accept caller-supplied concurrency guards must include `expectedRevision`. `send_agent_message`
+derives its sender from the current session instead of accepting caller-supplied sender/revision
+fields. If an `expectedRevision` guard does not match, the store returns:
 
 ```ts
 {

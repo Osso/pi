@@ -106,8 +106,6 @@ const agentsMailboxSchema = Type.Object({
 const sendAgentMessageSchema = Type.Object({
 	artifactIds: Type.Optional(Type.Array(Type.String())),
 	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
-	expectedRevision: Type.Number(),
-	fromAgentId: Type.String(),
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
 	toAgentId: Type.String(),
@@ -1085,24 +1083,29 @@ function sendAgentMessage(
 			return errorResult(
 				`Could not send agent message to ${params.toAgentId}: target session does not match ${params.toSessionId}.`,
 				{
-					agent: store.getAgent(params.fromAgentId) ?? emptyAgent(params.fromAgentId),
-					message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
+					agent: currentMessageSenderAgent(store, ctx),
+					message: emptyDirectMessage(currentMessageSenderId(store, ctx), params.toAgentId, params.message),
 				},
 			);
 		}
 	}
 
-	const sent = store.sendMailboxMessage(params.fromAgentId, params.expectedRevision, {
+	const senderId = currentMessageSenderId(store, ctx);
+	const sender = store.getAgent(senderId);
+	const messageInput = {
 		artifactIds: params.artifactIds,
 		artifactRefs: params.artifactRefs,
 		body: params.message,
 		threadId: params.threadId,
 		toAgentId: params.toAgentId,
-	});
+	};
+	const sent = sender
+		? store.sendMailboxMessage(sender.id, sender.revision, messageInput)
+		: store.sendMainThreadMailboxMessage(messageInput);
 	if (!sent.ok) {
-		return errorResult(`Could not send agent message from ${params.fromAgentId}: ${sent.error}`, {
-			agent: "current" in sent ? sent.current : emptyAgent(params.fromAgentId),
-			message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
+		return errorResult(`Could not send agent message from ${senderId}: ${sent.error}`, {
+			agent: "current" in sent ? sent.current : emptyAgent(senderId),
+			message: emptyDirectMessage(senderId, params.toAgentId, params.message),
 		});
 	}
 
@@ -1123,26 +1126,14 @@ function sendMainRuntimeSessionMessage(
 	params: SendAgentMessageParams,
 	ctx: ExtensionContext | undefined,
 ): AgentToolResult<SendAgentMessageToolDetails> {
-	const sender = store.getAgent(params.fromAgentId);
-	if (!sender) {
-		return errorResult(`Could not send agent message from ${params.fromAgentId}: current_not_found`, {
-			agent: emptyAgent(params.fromAgentId),
-			message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
-		});
-	}
-	if (sender.revision !== params.expectedRevision) {
-		return errorResult(`Could not send agent message from ${params.fromAgentId}: stale_revision`, {
-			agent: sender,
-			message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
-		});
-	}
+	const sender = currentMessageSenderAgent(store, ctx);
 	if (!params.toSessionId) {
 		return errorResult("Could not send runtime session message: target session unavailable.", {
 			agent: sender,
-			message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
+			message: emptyDirectMessage(currentMessageSenderId(store, ctx), params.toAgentId, params.message),
 		});
 	}
-	const message = createRuntimeSessionMessage(params);
+	const message = createRuntimeSessionMessage(params, currentMessageSenderId(store, ctx));
 	mirrorRuntimeSessionMessage(message, params.toSessionId, ctx);
 	return result(`Sent message to session ${params.toSessionId}.`, {
 		agent: sender,
@@ -1150,14 +1141,14 @@ function sendMainRuntimeSessionMessage(
 	});
 }
 
-function createRuntimeSessionMessage(params: SendAgentMessageParams): AgentMailboxMessage {
+function createRuntimeSessionMessage(params: SendAgentMessageParams, senderId: string): AgentMailboxMessage {
 	const timestamp = new Date().toISOString();
 	return {
 		artifactIds: params.artifactIds,
 		artifactRefs: params.artifactRefs,
 		body: params.message,
 		createdAt: timestamp,
-		fromAgentId: params.fromAgentId,
+		fromAgentId: senderId,
 		id: "",
 		kind: "message",
 		status: "pending",
@@ -1182,10 +1173,23 @@ function mirrorRuntimeSessionMessage(
 		kind: message.kind,
 		recipient: { agentId: null, sessionId: toSessionId },
 		sender: {
-			agentId: message.fromAgentId,
+			agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
 	});
+}
+
+function currentMessageSenderId(store: MultiAgentStore, ctx: ExtensionContext | undefined): string {
+	if (!ctx?.sessionManager) {
+		return MAIN_THREAD_AGENT_ID;
+	}
+	const sessionId = ctx.sessionManager.getSessionId();
+	return store.listAgents().find((agent) => agent.transcript?.sessionId === sessionId)?.id ?? MAIN_THREAD_AGENT_ID;
+}
+
+function currentMessageSenderAgent(store: MultiAgentStore, ctx: ExtensionContext | undefined): AgentSnapshot {
+	const senderId = currentMessageSenderId(store, ctx);
+	return store.getAgent(senderId) ?? emptyAgent(senderId);
 }
 
 function resolveAgentRuntimeSessionId(store: MultiAgentStore, toAgentId: string): string | null | undefined {

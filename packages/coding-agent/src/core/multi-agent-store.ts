@@ -672,6 +672,40 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
 
+	sendMainThreadMailboxMessage(input: SendMailboxMessageInput): MailboxMessageCommandResult {
+		const target = this.agents.get(input.toAgentId);
+		const mainThread = this.createMainThreadSnapshot();
+		if (!target) {
+			return { ok: false, error: "target_not_found", current: mainThread, targetId: input.toAgentId };
+		}
+
+		if (!this.isMainThreadChild(target)) {
+			return { ok: false, error: "forbidden_target", current: mainThread, target: copyAgent(target) };
+		}
+
+		const timestamp = this.now();
+		const message: AgentMailboxMessage = {
+			id: this.createMessageId(),
+			threadId: input.threadId,
+			fromAgentId: MAIN_THREAD_AGENT_ID,
+			toAgentId: target.id,
+			kind: "message",
+			status: "pending",
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			body: input.body,
+			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
+			artifactRefs: copyArtifactRefs(input.artifactRefs),
+		};
+		this.mailboxMessages.set(message.id, message);
+
+		const updated = this.updateAgent(target, {
+			lastActivity: { description: "Received mailbox message" },
+		});
+
+		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
+	}
+
 	sendMailboxMessage(
 		agentId: string,
 		expectedRevision: number,
@@ -910,6 +944,26 @@ export class MultiAgentStore {
 
 	private canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {
 		return this.isAncestor(fromAgentId, toAgentId) || this.isAncestor(toAgentId, fromAgentId);
+	}
+
+	private isMainThreadChild(agent: AgentNode): boolean {
+		return (agent.parentId ?? MAIN_THREAD_AGENT_ID) === MAIN_THREAD_AGENT_ID;
+	}
+
+	private createMainThreadSnapshot(): AgentSnapshot {
+		const timestamp = this.now();
+		return {
+			agentType: "main",
+			createdAt: timestamp,
+			cwd: "",
+			displayName: "Main thread",
+			id: MAIN_THREAD_AGENT_ID,
+			lifecycle: "running",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 0,
+			updatedAt: timestamp,
+		};
 	}
 
 	private isAncestor(ancestorId: string, descendantId: string): boolean {
