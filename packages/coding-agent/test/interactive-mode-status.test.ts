@@ -311,7 +311,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
-	test("selected-agent banner renders main thread when agents exist without an active selection", () => {
+	test("selected-agent banner is hidden when agents exist without an active selection", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		store.spawnAgent({
 			agentType: "worker",
@@ -321,7 +321,7 @@ describe("InteractiveMode key handlers", () => {
 		});
 		const banner = new AgentSelectionBannerComponent(store);
 
-		expect(normalizeRenderedOutput(banner)).toContain("Target: Main thread");
+		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
 	test("selected-agent banner returns to main thread when selected view becomes inactive", () => {
@@ -344,8 +344,7 @@ describe("InteractiveMode key handlers", () => {
 		const banner = new AgentSelectionBannerComponent(store);
 
 		expect(store.getSelectedAgentId()).toBeUndefined();
-		expect(normalizeRenderedOutput(banner)).toContain("Target: Main thread");
-		expect(normalizeRenderedOutput(banner)).not.toContain("View: Scout");
+		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
 	test("/agents selection updates the visible selected-agent banner", () => {

@@ -13,10 +13,7 @@ function selectedAgentText(store: MultiAgentStore | undefined): string | undefin
 		return `Target: ${selectedAgent.displayName} ${selectedAgent.id} ${formatLifecycle(selectedAgent.lifecycle)}; View: ${selectedAgent.displayName}`;
 	}
 	if (selectedAgent) {
-		return `Target: Main thread; View: ${selectedAgent.displayName}`;
-	}
-	if (selectedAgentId || (store?.listAgents().length ?? 0) > 0) {
-		return "Target: Main thread";
+		return `View: ${selectedAgent.displayName}`;
 	}
 
 	return undefined;
