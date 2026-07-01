@@ -6,6 +6,45 @@ export interface IncomingControlMessage {
 	content: string;
 }
 
+export type RuntimeMailboxMessageKind = "message" | "ask" | "reply" | "steer" | "supervisor_request" | "system";
+export type RuntimeMailboxMessageStatus = "pending" | "claimed" | "delivered" | "failed";
+
+export interface RuntimeMailboxAddress {
+	sessionId: string;
+	agentId: string | null;
+}
+
+export interface RuntimeMailboxMessage {
+	id: number;
+	recipient: RuntimeMailboxAddress;
+	sender: RuntimeMailboxAddress;
+	kind: RuntimeMailboxMessageKind;
+	body: string;
+	artifactIds?: string[];
+	artifactRefs?: RuntimeMailboxArtifactReference[];
+	status: RuntimeMailboxMessageStatus;
+	createdAt: string;
+	updatedAt: string;
+	claimedAt?: string;
+	deliveredAt?: string;
+	error?: string;
+}
+
+export interface RuntimeMailboxArtifactReference {
+	id?: string;
+	path?: string;
+	label?: string;
+}
+
+export interface EnqueueRuntimeMailboxMessageInput {
+	recipient: RuntimeMailboxAddress;
+	sender: RuntimeMailboxAddress;
+	kind: RuntimeMailboxMessageKind;
+	body: string;
+	artifactIds?: string[];
+	artifactRefs?: RuntimeMailboxArtifactReference[];
+}
+
 export interface LastControlMessage {
 	role: "assistant";
 	content: string;
@@ -40,6 +79,24 @@ export type WritableSessionMetadata = Omit<SessionMetadata, "updatedAt">;
 type IncomingRow = {
 	id: number;
 	content: string;
+};
+
+type RuntimeMailboxRow = {
+	id: number;
+	recipient_session_id: string;
+	recipient_agent_id: string | null;
+	sender_session_id: string | null;
+	sender_agent_id: string | null;
+	kind: string;
+	body: string;
+	artifact_ids_json: string | null;
+	artifact_refs_json: string | null;
+	status: string;
+	created_at: string;
+	updated_at: string;
+	claimed_at: string | null;
+	delivered_at: string | null;
+	error: string | null;
 };
 
 type PromptHistoryRow = {
@@ -192,6 +249,214 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 			)
 			.get(id) as IncomingStatusRow | undefined;
 		return row?.status;
+	});
+}
+
+export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
+	return withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		const result = db
+			.prepare(
+				`
+				INSERT INTO runtime_mailbox_messages (
+					recipient_session_id,
+					recipient_agent_id,
+					sender_session_id,
+					sender_agent_id,
+					kind,
+					body,
+					artifact_ids_json,
+					artifact_refs_json,
+					status,
+					created_at,
+					updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+				`,
+			)
+			.run(
+				input.recipient.sessionId,
+				input.recipient.agentId,
+				input.sender.sessionId,
+				input.sender.agentId,
+				input.kind,
+				input.body,
+				input.artifactIds ? JSON.stringify(input.artifactIds) : null,
+				input.artifactRefs ? JSON.stringify(input.artifactRefs) : null,
+				now,
+				now,
+			);
+		return Number(result.lastInsertRowid);
+	});
+}
+
+export function claimRuntimeMailboxMessages(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	limit = 20,
+): RuntimeMailboxMessage[] {
+	return withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const rows = db
+				.prepare(
+					`
+					SELECT *
+					FROM runtime_mailbox_messages
+					WHERE status = 'pending'
+						AND recipient_session_id = ?
+						AND ((? IS NULL AND recipient_agent_id IS NULL) OR recipient_agent_id = ?)
+					ORDER BY id ASC
+					LIMIT ?
+					`,
+				)
+				.all(recipient.sessionId, recipient.agentId, recipient.agentId, limit) as RuntimeMailboxRow[];
+
+			if (rows.length === 0) {
+				db.exec("COMMIT");
+				return [];
+			}
+
+			const now = new Date().toISOString();
+			for (const row of rows) {
+				db.prepare(
+					`
+					UPDATE runtime_mailbox_messages
+					SET status = 'claimed', claimed_at = ?, updated_at = ?
+					WHERE id = ? AND status = 'pending'
+					`,
+				).run(now, now, row.id);
+			}
+			db.exec("COMMIT");
+			return rows.map((row) =>
+				runtimeMailboxMessageFromRow({ ...row, status: "claimed", claimed_at: now, updated_at: now }),
+			);
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: number): void {
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		db.prepare(
+			`
+			UPDATE runtime_mailbox_messages
+			SET status = 'delivered', delivered_at = ?, updated_at = ?
+			WHERE id = ?
+			`,
+		).run(now, now, id);
+	});
+}
+
+export function failRuntimeMailboxMessage(controlDbPath: string, id: number, errorMessage: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`
+			UPDATE runtime_mailbox_messages
+			SET status = 'failed', error = ?, updated_at = ?
+			WHERE id = ?
+			`,
+		).run(errorMessage, new Date().toISOString(), id);
+	});
+}
+
+export function readRuntimeMailboxMessage(controlDbPath: string, id: number): RuntimeMailboxMessage | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db.prepare("SELECT * FROM runtime_mailbox_messages WHERE id = ?").get(id) as
+			| RuntimeMailboxRow
+			| undefined;
+		return row ? runtimeMailboxMessageFromRow(row) : undefined;
+	});
+}
+
+export function listRuntimeMailboxMessages(controlDbPath: string): RuntimeMailboxMessage[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db.prepare("SELECT * FROM runtime_mailbox_messages ORDER BY id ASC").all() as RuntimeMailboxRow[];
+		return rows.map(runtimeMailboxMessageFromRow);
+	});
+}
+
+export function cleanupRuntimeMailboxMessages(controlDbPath: string, nowIso = new Date().toISOString()): number {
+	const cutoff = new Date(new Date(nowIso).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+	return withControlDb(controlDbPath, (db) => {
+		const result = db.prepare("DELETE FROM runtime_mailbox_messages WHERE created_at < ?").run(cutoff);
+		return result.changes;
+	});
+}
+
+function runtimeMailboxMessageFromRow(row: RuntimeMailboxRow): RuntimeMailboxMessage {
+	return {
+		id: row.id,
+		recipient: { agentId: row.recipient_agent_id, sessionId: row.recipient_session_id },
+		sender: { agentId: row.sender_agent_id, sessionId: row.sender_session_id ?? "" },
+		kind: toRuntimeMailboxMessageKind(row.kind),
+		body: row.body,
+		artifactIds: parseStringArray(row.artifact_ids_json),
+		artifactRefs: parseArtifactReferences(row.artifact_refs_json),
+		status: toRuntimeMailboxMessageStatus(row.status),
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+		claimedAt: row.claimed_at ?? undefined,
+		deliveredAt: row.delivered_at ?? undefined,
+		error: row.error ?? undefined,
+	};
+}
+
+function toRuntimeMailboxMessageKind(value: string): RuntimeMailboxMessageKind {
+	if (
+		value === "message" ||
+		value === "ask" ||
+		value === "reply" ||
+		value === "steer" ||
+		value === "supervisor_request" ||
+		value === "system"
+	) {
+		return value;
+	}
+	return "message";
+}
+
+function toRuntimeMailboxMessageStatus(value: string): RuntimeMailboxMessageStatus {
+	if (value === "pending" || value === "claimed" || value === "delivered" || value === "failed") {
+		return value;
+	}
+	return "failed";
+}
+
+function parseStringArray(value: string | null): string[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const parsed = JSON.parse(value) as unknown;
+	if (!Array.isArray(parsed)) {
+		return undefined;
+	}
+	return parsed.filter((item): item is string => typeof item === "string");
+}
+
+function parseArtifactReferences(value: string | null): RuntimeMailboxArtifactReference[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const parsed = JSON.parse(value) as unknown;
+	if (!Array.isArray(parsed)) {
+		return undefined;
+	}
+	return parsed.flatMap((item): RuntimeMailboxArtifactReference[] => {
+		if (!item || typeof item !== "object" || Array.isArray(item)) {
+			return [];
+		}
+		const ref = item as Record<string, unknown>;
+		return [
+			{
+				id: typeof ref.id === "string" ? ref.id : undefined,
+				label: typeof ref.label === "string" ? ref.label : undefined,
+				path: typeof ref.path === "string" ? ref.path : undefined,
+			},
+		];
 	});
 }
 
@@ -564,6 +829,30 @@ function initializeSchema(db: SqliteDatabase): void {
 			content TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
+
+		CREATE TABLE IF NOT EXISTS runtime_mailbox_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			recipient_session_id TEXT NOT NULL,
+			recipient_agent_id TEXT,
+			sender_session_id TEXT,
+			sender_agent_id TEXT,
+			kind TEXT NOT NULL,
+			body TEXT NOT NULL,
+			artifact_ids_json TEXT,
+			artifact_refs_json TEXT,
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			claimed_at TEXT,
+			delivered_at TEXT,
+			error TEXT
+		);
+
+		CREATE INDEX IF NOT EXISTS runtime_mailbox_recipient_status_idx
+		ON runtime_mailbox_messages(recipient_session_id, recipient_agent_id, status, id);
+
+		CREATE INDEX IF NOT EXISTS runtime_mailbox_created_at_idx
+		ON runtime_mailbox_messages(created_at);
 
 		CREATE TABLE IF NOT EXISTS named_sessions (
 			session_path TEXT PRIMARY KEY,

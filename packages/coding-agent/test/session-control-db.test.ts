@@ -4,13 +4,20 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	claimLatestIncomingMessage,
+	claimRuntimeMailboxMessages,
+	cleanupRuntimeMailboxMessages,
 	completeIncomingMessage,
 	enqueueIncomingMessage,
+	enqueueRuntimeMailboxMessage,
+	failRuntimeMailboxMessage,
 	getControlDbPath,
 	listNamedSessions,
+	listRuntimeMailboxMessages,
 	listSessionMetadata,
+	markRuntimeMailboxMessageDelivered,
 	readIncomingMessageStatus,
 	readLastMessage,
+	readRuntimeMailboxMessage,
 	readSessionGoal,
 	readSessionMetadata,
 	removeNamedSession,
@@ -67,6 +74,121 @@ describe("session control DB", () => {
 			role: "assistant",
 			content: "second answer",
 		});
+	});
+
+	it("stores runtime mailbox messages by recipient session and nullable agent id", () => {
+		const mainMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "main thread notice",
+			kind: "system",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const agentMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "subagent notice",
+			kind: "message",
+			recipient: { agentId: "agent_2", sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+
+		expect(readRuntimeMailboxMessage(controlDbPath, mainMessageId)).toMatchObject({
+			body: "main thread notice",
+			kind: "system",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+			status: "pending",
+		});
+		expect(
+			claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
+				(message) => message.id,
+			),
+		).toEqual([mainMessageId]);
+		expect(readRuntimeMailboxMessage(controlDbPath, agentMessageId)).toMatchObject({ status: "pending" });
+	});
+
+	it("claims runtime mailbox rows atomically before delivery", () => {
+		const firstId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "first",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const secondId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "second",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_2", sessionId: "child-session" },
+		});
+
+		const firstClaim = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		const secondClaim = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+
+		expect(firstClaim.map((message) => message.id)).toEqual([firstId, secondId]);
+		expect(secondClaim).toEqual([]);
+		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toMatchObject({ status: "claimed" });
+		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "claimed" });
+	});
+
+	it("marks runtime mailbox rows delivered only after enqueue and failed on enqueue failure", () => {
+		const deliveredId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "delivered",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const failedId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "failed",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_2", sessionId: "child-session" },
+		});
+		claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+
+		markRuntimeMailboxMessageDelivered(controlDbPath, deliveredId);
+		failRuntimeMailboxMessage(controlDbPath, failedId, "enqueue failed");
+
+		expect(readRuntimeMailboxMessage(controlDbPath, deliveredId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, failedId)).toMatchObject({
+			error: "enqueue failed",
+			status: "failed",
+		});
+	});
+
+	it("cleans runtime mailbox rows older than thirty days", () => {
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE runtime_mailbox_messages (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					recipient_session_id TEXT NOT NULL,
+					recipient_agent_id TEXT,
+					sender_session_id TEXT,
+					sender_agent_id TEXT,
+					kind TEXT NOT NULL,
+					body TEXT NOT NULL,
+					artifact_ids_json TEXT,
+					artifact_refs_json TEXT,
+					status TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					claimed_at TEXT,
+					delivered_at TEXT,
+					error TEXT
+				);
+			`);
+			db.prepare(
+				`INSERT INTO runtime_mailbox_messages (recipient_session_id, kind, body, status, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+			).run("parent-session", "message", "old", "pending", "2026-05-01T00:00:00.000Z", "2026-05-01T00:00:00.000Z");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_messages (recipient_session_id, kind, body, status, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+			).run("parent-session", "message", "new", "pending", "2026-06-15T00:00:00.000Z", "2026-06-15T00:00:00.000Z");
+		} finally {
+			db.close();
+		}
+
+		expect(cleanupRuntimeMailboxMessages(controlDbPath, "2026-07-01T00:00:00.000Z")).toBe(1);
+		expect(listRuntimeMailboxMessages(controlDbPath).map((message) => message.body)).toEqual(["new"]);
 	});
 
 	it("stores and removes named sessions", () => {

@@ -25,6 +25,11 @@ import {
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
+import {
+	enqueueRuntimeMailboxMessage,
+	readSessionMetadata,
+	type RuntimeMailboxAddress,
+} from "../../../src/core/session-control-db.ts";
 import type { SessionEntry } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 
@@ -775,12 +780,22 @@ function startToolDispatch(
 	if (handles) {
 		void trackedDispatch.finally(() => handles.delete(agent.id));
 	}
+	void trackedDispatch.then((agent) => {
+		try {
+			mirrorAgentCompletionRuntimeMailbox(store, agent, ctx);
+		} catch (error) {
+			console.error("Failed to mirror agent completion into runtime mailbox:", error);
+		}
+	});
 	void trackedDispatch.finally(() => wakeIdleParentMailbox(store, pi, ctx));
 
 	return store.getAgent(agent.id) ?? agent;
 }
 
 function wakeIdleParentMailbox(store: MultiAgentStore, pi: ExtensionAPI | undefined, ctx: ExtensionContext): void {
+	if (ctx.controlDbPath) {
+		return;
+	}
 	const canReadIdleState = typeof ctx.isIdle === "function";
 	if (!pi || !canReadIdleState || !ctx.isIdle()) {
 		return;
@@ -1058,6 +1073,7 @@ function agentArtifacts(
 function sendAgentMessage(
 	store: MultiAgentStore,
 	params: SendAgentMessageParams,
+	ctx?: ExtensionContext,
 ): AgentToolResult<SendAgentMessageToolDetails> {
 	const sent = store.sendMailboxMessage(params.fromAgentId, params.expectedRevision, {
 		artifactIds: params.artifactIds,
@@ -1072,6 +1088,8 @@ function sendAgentMessage(
 			message: emptyDirectMessage(params.fromAgentId, params.toAgentId, params.message),
 		});
 	}
+
+	mirrorRuntimeMailboxMessage(store, sent.message, ctx);
 
 	return result(`Sent message to ${sent.message.toAgentId}.`, {
 		agent: sent.agent,
@@ -1208,6 +1226,7 @@ function cancelAgent(
 function contactSupervisor(
 	store: MultiAgentStore,
 	params: ContactSupervisorParams,
+	ctx?: ExtensionContext,
 ): AgentToolResult<ContactSupervisorToolDetails> {
 	const contacted = store.contactSupervisor(params.agentId, params.expectedRevision, {
 		artifactIds: params.artifactIds,
@@ -1221,6 +1240,8 @@ function contactSupervisor(
 			message: emptySupervisorRequest(params.agentId, params.message),
 		});
 	}
+
+	mirrorRuntimeMailboxMessage(store, contacted.message, ctx);
 
 	return result(`Contacted supervisor for ${contacted.agent.displayName}.`, {
 		agent: contacted.agent,
@@ -1246,6 +1267,85 @@ function steerAgent(store: MultiAgentStore, params: SteerAgentParams): AgentTool
 		agent: steered.agent,
 		message: steered.message,
 	});
+}
+
+function mirrorAgentCompletionRuntimeMailbox(store: MultiAgentStore, agent: AgentSnapshot, ctx: ExtensionContext): void {
+	if (!ctx.controlDbPath || agent.lifecycle !== "completed") {
+		return;
+	}
+	const completion = store
+		.listMailboxMessages()
+		.find((message) => message.fromAgentId === agent.id && message.kind === "system" && message.status === "pending");
+	if (!completion) {
+		return;
+	}
+	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
+		artifactIds: completion.artifactIds,
+		artifactRefs: completion.artifactRefs,
+		body: completion.body ?? "",
+		kind: completion.kind,
+		recipient: { agentId: null, sessionId: ctx.sessionManager.getSessionId() },
+		sender: {
+			agentId: agent.id,
+			sessionId: agent.transcript?.sessionId ?? ctx.sessionManager.getSessionId(),
+		},
+	});
+	store.markMailboxMessageDelivered(completion.id);
+}
+
+function mirrorRuntimeMailboxMessage(
+	store: MultiAgentStore,
+	message: AgentMailboxMessage,
+	ctx: ExtensionContext | undefined,
+): void {
+	if (!ctx?.controlDbPath) {
+		return;
+	}
+	const recipient = resolveRuntimeRecipient(store, message, ctx);
+	if (!recipient) {
+		return;
+	}
+	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
+		artifactIds: message.artifactIds,
+		artifactRefs: message.artifactRefs,
+		body: message.body ?? "",
+		kind: message.kind,
+		recipient,
+		sender: {
+			agentId: message.fromAgentId,
+			sessionId: ctx.sessionManager.getSessionId(),
+		},
+	});
+}
+
+function resolveRuntimeRecipient(
+	store: MultiAgentStore,
+	message: AgentMailboxMessage,
+	ctx: ExtensionContext,
+): RuntimeMailboxAddress | undefined {
+	const target = store.getAgent(message.toAgentId);
+	if (target?.transcript?.sessionId) {
+		return { agentId: target.id, sessionId: target.transcript.sessionId };
+	}
+	if (message.toAgentId !== MAIN_THREAD_AGENT_ID && message.toAgentId !== "supervisor") {
+		return { agentId: message.toAgentId, sessionId: ctx.sessionManager.getSessionId() };
+	}
+	const currentSessionId = ctx.sessionManager.getSessionId();
+	return { agentId: null, sessionId: resolveParentRuntimeSessionId(ctx) ?? currentSessionId };
+}
+
+function resolveParentRuntimeSessionId(ctx: ExtensionContext): string | undefined {
+	if (!ctx.sessionManager.isSubagentSession()) {
+		return undefined;
+	}
+	const parentSession = ctx.sessionManager.getHeader()?.parentSession;
+	if (!parentSession) {
+		return undefined;
+	}
+	if (!ctx.controlDbPath) {
+		return parentSession;
+	}
+	return readSessionMetadata(ctx.controlDbPath, parentSession)?.id ?? parentSession;
 }
 
 function emptyAgent(agentId: string): AgentSnapshot {
@@ -1467,7 +1567,7 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 			description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.",
 			approvalRequired: false,
 			parameters: sendAgentMessageSchema,
-			execute: async (_toolCallId, params) => sendAgentMessage(store, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => sendAgentMessage(store, params, ctx),
 		}),
 	);
 
@@ -1478,7 +1578,7 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 			description: "Send a child-agent mailbox request to its direct supervisor.",
 			approvalRequired: false,
 			parameters: contactSupervisorSchema,
-			execute: async (_toolCallId, params) => contactSupervisor(store, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => contactSupervisor(store, params, ctx),
 		}),
 	);
 }

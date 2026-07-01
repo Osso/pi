@@ -96,7 +96,17 @@ import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
-import { getControlDbPath, removeNamedSession, setNamedSession, writeLastMessage } from "./session-control-db.ts";
+import {
+	claimRuntimeMailboxMessages,
+	cleanupRuntimeMailboxMessages,
+	failRuntimeMailboxMessage,
+	getControlDbPath,
+	markRuntimeMailboxMessageDelivered,
+	type RuntimeMailboxMessage,
+	removeNamedSession,
+	setNamedSession,
+	writeLastMessage,
+} from "./session-control-db.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -113,6 +123,7 @@ import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapp
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
 const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
+const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 3_000;
 
 export function getAssistantMessageText(message: AssistantMessage): string {
 	const content = message.content;
@@ -301,6 +312,39 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 	return tokens;
 }
 
+function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage): string {
+	const senderSession = message.sender.sessionId || "unknown-session";
+	const senderAgent = message.sender.agentId ? ` agent ${message.sender.agentId}` : " main";
+	const body = message.body.trim() || "No message body.";
+	const originLine = `Mailbox message from session ${senderSession}${senderAgent}: ${body}`;
+	return [originLine, ...formatRuntimeMailboxArtifacts(message)].join("\n");
+}
+
+function formatRuntimeMailboxArtifacts(message: RuntimeMailboxMessage): string[] {
+	const artifactIds = message.artifactIds?.map((artifactId) => `- ${artifactId}`) ?? [];
+	const artifactRefs = message.artifactRefs?.map(formatRuntimeMailboxArtifactReference) ?? [];
+	const sections: string[] = [];
+	if (artifactIds.length > 0) {
+		sections.push(["Artifact IDs:", ...artifactIds].join("\n"));
+	}
+	if (artifactRefs.length > 0) {
+		sections.push(["Artifact references:", ...artifactRefs].join("\n"));
+	}
+	return sections;
+}
+
+function formatRuntimeMailboxArtifactReference(
+	ref: NonNullable<RuntimeMailboxMessage["artifactRefs"]>[number],
+): string {
+	const label = ref.label ?? ref.id ?? ref.path ?? "artifact";
+	const parts = [label, ref.id, ref.path].filter((part): part is string => Boolean(part));
+	return `- ${parts.join(" — ")}`;
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -374,6 +418,8 @@ export class AgentSession {
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
+	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
+	private _runtimeMailboxDrainInProgress = false;
 
 	// Model registry for API key resolution
 	private _modelRegistry: ModelRegistry;
@@ -1046,6 +1092,7 @@ export class AgentSession {
 		this._extensionRunner.invalidate(
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
 		);
+		this._stopRuntimeMailboxPolling();
 		this._disconnectFromAgent();
 		this._eventListeners = [];
 		cleanupSessionResources(this.sessionId);
@@ -1291,7 +1338,11 @@ export class AgentSession {
 
 		// The agent loop drains both queues before emitting agent_end. Any messages
 		// here were queued by agent_end extension handlers and need a continuation.
-		return this.agent.hasQueuedMessages();
+		if (this.agent.hasQueuedMessages()) {
+			return true;
+		}
+
+		return this._drainRuntimeMailboxMessages({ triggerIfIdle: false });
 	}
 
 	/**
@@ -1589,6 +1640,67 @@ export class AgentSession {
 			content,
 			timestamp: Date.now(),
 		});
+	}
+
+	private async _drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+		if (!this._extensionControlDbPath || this._runtimeMailboxDrainInProgress) {
+			return false;
+		}
+		if (options.triggerIfIdle && this.isStreaming) {
+			return false;
+		}
+
+		this._runtimeMailboxDrainInProgress = true;
+		try {
+			const claimed = claimRuntimeMailboxMessages(this._extensionControlDbPath, {
+				agentId: null,
+				sessionId: this.sessionId,
+			});
+			if (claimed.length === 0) {
+				return false;
+			}
+
+			let queued = false;
+			for (const message of claimed) {
+				const prompt = formatRuntimeMailboxPrompt(message);
+				try {
+					if (options.triggerIfIdle && !this.isStreaming) {
+						await this.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
+					} else {
+						await this._queueFollowUp(prompt);
+						queued = true;
+					}
+					markRuntimeMailboxMessageDelivered(this._extensionControlDbPath, message.id);
+				} catch (error) {
+					failRuntimeMailboxMessage(this._extensionControlDbPath, message.id, errorMessage(error));
+				}
+			}
+			return queued;
+		} finally {
+			this._runtimeMailboxDrainInProgress = false;
+		}
+	}
+
+	private _startRuntimeMailboxPolling(): void {
+		if (!this._extensionControlDbPath || this._runtimeMailboxPollTimer) {
+			return;
+		}
+		cleanupRuntimeMailboxMessages(this._extensionControlDbPath);
+		this._runtimeMailboxPollTimer = setInterval(() => {
+			if (this.isStreaming || this.hasPendingMessages()) {
+				return;
+			}
+			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+		}, RUNTIME_MAILBOX_POLL_INTERVAL_MS);
+		this._runtimeMailboxPollTimer.unref?.();
+	}
+
+	private _stopRuntimeMailboxPolling(): void {
+		if (!this._runtimeMailboxPollTimer) {
+			return;
+		}
+		clearInterval(this._runtimeMailboxPollTimer);
+		this._runtimeMailboxPollTimer = undefined;
 	}
 
 	/**
@@ -1978,7 +2090,8 @@ export class AgentSession {
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		this._disconnectFromAgent();
 		await this.abort();
-		this._compactionAbortController = new AbortController();
+		const compactionAbortController = new AbortController();
+		this._compactionAbortController = compactionAbortController;
 		const sourceHint = await this.getCompactionSourceHint("manual", false);
 		this._emit({ type: "compaction_start", reason: "manual", sourceHint });
 		const startedAt = Date.now();
@@ -2014,7 +2127,7 @@ export class AgentSession {
 					customInstructions,
 					reason: "manual",
 					willRetry: false,
-					signal: this._compactionAbortController.signal,
+					signal: compactionAbortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (result?.cancel) {
@@ -2048,7 +2161,7 @@ export class AgentSession {
 					apiKey,
 					headers,
 					customInstructions,
-					this._compactionAbortController.signal,
+					compactionAbortController.signal,
 					this.thinkingLevel,
 					this.agent.streamFn,
 					env,
@@ -2060,7 +2173,7 @@ export class AgentSession {
 				source = result.source;
 			}
 
-			if (this._compactionAbortController.signal.aborted) {
+			if (compactionAbortController.signal.aborted) {
 				throw new Error("Compaction cancelled");
 			}
 
@@ -2128,7 +2241,9 @@ export class AgentSession {
 			});
 			throw error;
 		} finally {
-			this._compactionAbortController = undefined;
+			if (this._compactionAbortController === compactionAbortController) {
+				this._compactionAbortController = undefined;
+			}
 			this._reconnectToAgent();
 		}
 	}
@@ -2256,6 +2371,7 @@ export class AgentSession {
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
 		let started = false;
+		let autoCompactionAbortController: AbortController | undefined;
 
 		try {
 			if (!this.model) {
@@ -2286,7 +2402,8 @@ export class AgentSession {
 
 			const sourceHint = await this.getCompactionSourceHint(reason, willRetry);
 			this._emit({ type: "compaction_start", reason, sourceHint });
-			this._autoCompactionAbortController = new AbortController();
+			autoCompactionAbortController = new AbortController();
+			this._autoCompactionAbortController = autoCompactionAbortController;
 			started = true;
 			const startedAt = Date.now();
 
@@ -2301,7 +2418,7 @@ export class AgentSession {
 					customInstructions: undefined,
 					reason,
 					willRetry,
-					signal: this._autoCompactionAbortController.signal,
+					signal: autoCompactionAbortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (extensionResult?.cancel) {
@@ -2342,7 +2459,7 @@ export class AgentSession {
 					apiKey,
 					headers,
 					undefined,
-					this._autoCompactionAbortController.signal,
+					autoCompactionAbortController.signal,
 					this.thinkingLevel,
 					this.agent.streamFn,
 					env,
@@ -2354,7 +2471,7 @@ export class AgentSession {
 				source = compactResult.source;
 			}
 
-			if (this._autoCompactionAbortController.signal.aborted) {
+			if (autoCompactionAbortController.signal.aborted) {
 				this._emit({
 					type: "compaction_end",
 					reason,
@@ -2434,7 +2551,9 @@ export class AgentSession {
 			}
 			return false;
 		} finally {
-			this._autoCompactionAbortController = undefined;
+			if (this._autoCompactionAbortController === autoCompactionAbortController) {
+				this._autoCompactionAbortController = undefined;
+			}
 		}
 	}
 
@@ -2462,6 +2581,7 @@ export class AgentSession {
 		}
 		if (bindings.controlDbPath !== undefined) {
 			this._extensionControlDbPath = bindings.controlDbPath;
+			this._startRuntimeMailboxPolling();
 		}
 		if (bindings.commandContextActions !== undefined) {
 			this._extensionCommandContextActions = bindings.commandContextActions;

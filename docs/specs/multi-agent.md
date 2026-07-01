@@ -52,27 +52,27 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Child agents can contact the supervisor without direct access to sibling internals.
 - [x] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
       findings are not copied into every coordination event.
-- [ ] Cross-session mailbox transport is runtime coordination state and must not be persisted in
+- [x] Cross-session mailbox transport is runtime coordination state and must not be persisted in
       session JSONL transcripts or `MultiAgentStore` session snapshots.
-- [ ] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
+- [x] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
       is absent/null for the main thread and present for a subagent in that session.
-- [ ] Separate agent sessions can send completion and coordination messages to another session's
+- [x] Separate agent sessions can send completion and coordination messages to another session's
       main thread without requiring the receiver to call `wait_agent`.
 - [ ] Same-session subagents may address the main thread or another subagent by agent ID, but the
       default common path is child/separate-session to main-thread delivery.
 - [ ] Messages addressed to terminal agents are allowed and must either wake/resume that agent when
       possible or remain pending/failed with an explicit reason; they must not be silently dropped.
-- [ ] Idle sessions poll the runtime mailbox for pending messages at least every 3 seconds, and
+- [x] Idle sessions poll the runtime mailbox for pending messages at least every 3 seconds, and
       every agent turn also drains pending recipient messages before going idle.
-- [ ] Pending runtime mailbox messages are claimed atomically before enqueue so concurrent Pi
+- [x] Pending runtime mailbox messages are claimed atomically before enqueue so concurrent Pi
       processes do not deliver the same message twice.
-- [ ] Claimed messages are marked delivered only after the recipient successfully enqueues the
+- [x] Claimed messages are marked delivered only after the recipient successfully enqueues the
       follow-up input; failed enqueue leaves an inspectable pending/failed message state.
-- [ ] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
+- [x] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
       messages are no longer actionable.
-- [ ] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the
+- [x] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the
       content is fed back to the model.
-- [ ] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
+- [x] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
       with control-DB write access can inject messages, so the feature must not hide message origin.
 
 ### Extension boundaries
@@ -258,13 +258,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `agents-mailbox` first-party extension package.
 - [x] Keep compatibility tests proving the split modules share the same `MultiAgentStore` snapshot
       and do not create independent TUI/core state.
-- [ ] Move mailbox transport out of JSONL-backed `MultiAgentStore` snapshots and into a runtime
+- [x] Move mailbox transport out of JSONL-backed `MultiAgentStore` snapshots and into a runtime
       SQLite mailbox keyed by `(session_id, agent_id)`.
-- [ ] Add idle polling and end-of-turn draining for the SQLite runtime mailbox so receivers wake
+- [x] Add idle polling and end-of-turn draining for the SQLite runtime mailbox so receivers wake
       without requiring `wait_agent`.
-- [ ] Add atomic claim/deliver/fail transitions for runtime mailbox rows and regression tests for
+- [x] Add atomic claim/deliver/fail transitions for runtime mailbox rows and regression tests for
       duplicate delivery prevention across concurrent receivers.
-- [ ] Add 30-day cleanup for stale runtime mailbox rows.
+- [x] Add 30-day cleanup for stale runtime mailbox rows.
 - [ ] Add true mid-flight detach for the currently running foreground turn; the current `/bg`
       command starts a new background child-agent prompt instead of transferring an active
       in-progress `AgentSession` run.
