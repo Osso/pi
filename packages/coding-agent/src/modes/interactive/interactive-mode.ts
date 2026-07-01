@@ -118,6 +118,7 @@ import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-current-directory.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
@@ -429,6 +430,7 @@ export class InteractiveMode {
 	private multiAgentStore: MultiAgentStore | undefined;
 	private childViewSessionManager: SessionManager | undefined;
 	private unregisterAgentSlotInputHandler: (() => void) | undefined;
+	private terminalCurrentDirectory: string | undefined;
 
 	// Convenience accessors
 	private get session(): AgentSession {
@@ -719,6 +721,7 @@ export class InteractiveMode {
 		// Start the UI before initializing extensions so session_start handlers can use interactive dialogs
 		this.ui.start();
 		this.isInitialized = true;
+		this.updateTerminalCurrentDirectory();
 
 		await this.themeController.applyFromSettings();
 
@@ -809,6 +812,13 @@ export class InteractiveMode {
 	/**
 	 * Update terminal title with session name and cwd.
 	 */
+	private updateTerminalCurrentDirectory(): void {
+		const cwd = this.sessionManager.getCwd();
+		if (this.terminalCurrentDirectory === cwd) return;
+		this.terminalCurrentDirectory = cwd;
+		this.ui.terminal.write(formatTerminalCurrentDirectorySequence(cwd));
+	}
+
 	private updateTerminalTitle(): void {
 		const cwdBasename = path.basename(this.sessionManager.getCwd());
 		const sessionName = this.sessionManager.getSessionName();
@@ -1735,6 +1745,7 @@ export class InteractiveMode {
 		await this.updateAvailableProviderCount();
 		this.updateEditorBorderColor();
 		this.updateTerminalTitle();
+		this.updateTerminalCurrentDirectory();
 	}
 
 	private async handleFatalRuntimeError(prefix: string, error: unknown): Promise<never> {
