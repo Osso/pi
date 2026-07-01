@@ -1642,8 +1642,16 @@ export class AgentSession {
 		});
 	}
 
+	private _getRuntimeMailboxControlDbPath(): string | undefined {
+		return this._extensionControlDbPath ?? this.sessionManager.getMetadataControlDbPath();
+	}
+
 	private async _drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
-		if (!this._extensionControlDbPath || this._runtimeMailboxDrainInProgress) {
+		if (this._runtimeMailboxDrainInProgress) {
+			return false;
+		}
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!controlDbPath) {
 			return false;
 		}
 		if (options.triggerIfIdle && this.isStreaming) {
@@ -1652,7 +1660,7 @@ export class AgentSession {
 
 		this._runtimeMailboxDrainInProgress = true;
 		try {
-			const claimed = claimRuntimeMailboxMessages(this._extensionControlDbPath, {
+			const claimed = claimRuntimeMailboxMessages(controlDbPath, {
 				agentId: null,
 				sessionId: this.sessionId,
 			});
@@ -1670,9 +1678,9 @@ export class AgentSession {
 						await this._queueFollowUp(prompt);
 						queued = true;
 					}
-					markRuntimeMailboxMessageDelivered(this._extensionControlDbPath, message.id);
+					markRuntimeMailboxMessageDelivered(controlDbPath, message.id);
 				} catch (error) {
-					failRuntimeMailboxMessage(this._extensionControlDbPath, message.id, errorMessage(error));
+					failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
 				}
 			}
 			return queued;
@@ -1682,10 +1690,11 @@ export class AgentSession {
 	}
 
 	private _startRuntimeMailboxPolling(): void {
-		if (!this._extensionControlDbPath || this._runtimeMailboxPollTimer) {
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!controlDbPath || this._runtimeMailboxPollTimer) {
 			return;
 		}
-		cleanupRuntimeMailboxMessages(this._extensionControlDbPath);
+		cleanupRuntimeMailboxMessages(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
 			if (this.isStreaming || this.hasPendingMessages()) {
 				return;
@@ -2581,8 +2590,8 @@ export class AgentSession {
 		}
 		if (bindings.controlDbPath !== undefined) {
 			this._extensionControlDbPath = bindings.controlDbPath;
-			this._startRuntimeMailboxPolling();
 		}
+		this._startRuntimeMailboxPolling();
 		if (bindings.commandContextActions !== undefined) {
 			this._extensionCommandContextActions = bindings.commandContextActions;
 		}

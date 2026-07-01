@@ -244,6 +244,31 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("drains runtime mailbox using session metadata control DB fallback", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		await harness.session.bindExtensions({});
+		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "Fallback path notice",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			"hello",
+			"Mailbox message from session child-session agent agent_1: Fallback path notice",
+		]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
 	it("polls the runtime mailbox while idle and wakes the main session", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));

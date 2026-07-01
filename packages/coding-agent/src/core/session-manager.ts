@@ -1115,6 +1115,10 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
+	getMetadataControlDbPath(): string | undefined {
+		return this.metadataControlDbPath;
+	}
+
 	isSubagentSession(): boolean {
 		return this.isSubagent;
 	}
