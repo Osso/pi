@@ -1701,7 +1701,7 @@ export class AgentSession {
 		}
 		cleanupRuntimeMailboxMessages(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
-			if (this.isStreaming || this.pendingMessageCount > 0) {
+			if (this.isStreaming) {
 				return;
 			}
 			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
@@ -1726,7 +1726,7 @@ export class AgentSession {
 			return;
 		}
 		this._runtimeMailboxSignalHandler = () => {
-			if (this.isStreaming || this.pendingMessageCount > 0) {
+			if (this.isStreaming) {
 				return;
 			}
 			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
