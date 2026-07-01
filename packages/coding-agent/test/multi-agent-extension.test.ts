@@ -23,6 +23,11 @@ import type {
 import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { type CreateAgentSessionOptions, createAgentSession } from "../src/core/sdk.ts";
+import {
+	ENV_SELF_RESTART_OLD_PID,
+	ENV_SELF_RESTART_PROMPT,
+	ENV_SELF_RESTART_SESSION,
+} from "../src/core/self-restart.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import multiAgentExtension, {
 	type ChildAgentDispatcher,
@@ -267,6 +272,14 @@ function restoreIsTty(target: TtyTarget, original: PropertyDescriptor | undefine
 		return;
 	}
 	Reflect.deleteProperty(target, "isTTY");
+}
+
+function restoreOptionalEnv(name: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete process.env[name];
+		return;
+	}
+	process.env[name] = value;
 }
 
 function createStoreWithParentMailboxMessage(
@@ -1514,6 +1527,9 @@ describe("multi-agent extension tools", () => {
 		mkdirSync(projectDir, { recursive: true });
 		const originalCwd = process.cwd();
 		const originalAgentDir = process.env[ENV_AGENT_DIR];
+		const originalSelfRestartSession = process.env[ENV_SELF_RESTART_SESSION];
+		const originalSelfRestartPrompt = process.env[ENV_SELF_RESTART_PROMPT];
+		const originalSelfRestartOldPid = process.env[ENV_SELF_RESTART_OLD_PID];
 		const originalStdinIsTty = setIsTty(process.stdin, true);
 		const originalStdoutIsTty = setIsTty(process.stdout, true);
 		const faux = registerFauxProvider();
@@ -1548,8 +1564,11 @@ describe("multi-agent extension tools", () => {
 
 		try {
 			process.env[ENV_AGENT_DIR] = agentDir;
+			delete process.env[ENV_SELF_RESTART_SESSION];
+			delete process.env[ENV_SELF_RESTART_PROMPT];
+			delete process.env[ENV_SELF_RESTART_OLD_PID];
 			process.chdir(projectDir);
-			await main(["-p", "spawn a child", "--model", `${model.provider}/${model.id}`], {
+			await main(["-p", "spawn a child", "--model", `${model.provider}/${model.id}`, "--no-session"], {
 				extensionFactories: [customExtension],
 			});
 			for (let attempt = 0; attempt < 50 && customExtensionLoads < 2; attempt += 1) {
@@ -1567,6 +1586,9 @@ describe("multi-agent extension tools", () => {
 			} else {
 				process.env[ENV_AGENT_DIR] = originalAgentDir;
 			}
+			restoreOptionalEnv(ENV_SELF_RESTART_SESSION, originalSelfRestartSession);
+			restoreOptionalEnv(ENV_SELF_RESTART_PROMPT, originalSelfRestartPrompt);
+			restoreOptionalEnv(ENV_SELF_RESTART_OLD_PID, originalSelfRestartOldPid);
 			if (existsSync(tempDir)) {
 				rmSync(tempDir, { recursive: true, force: true });
 			}
