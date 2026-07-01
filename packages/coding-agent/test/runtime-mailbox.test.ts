@@ -134,6 +134,143 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("sends direct messages to an explicit runtime session", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const parent = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Parent",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Child",
+			parentId: parent.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const transcript = store.updateAgentTranscript(child.agent.id, { sessionId: "target-session" });
+		expect(transcript.ok).toBe(true);
+		const tools = collectMultiAgentTools(store);
+		const sendAgentMessage = tools.get("send_agent_message");
+		if (!sendAgentMessage) {
+			throw new Error("expected send_agent_message tool");
+		}
+
+		await sendAgentMessage.execute(
+			"send",
+			{
+				expectedRevision: parent.agent.revision,
+				fromAgentId: parent.agent.id,
+				message: "Hello other session",
+				toAgentId: child.agent.id,
+				toSessionId: "target-session",
+			},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: senderSession }),
+		);
+
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Hello other session",
+				recipient: { agentId: null, sessionId: "target-session" },
+				sender: { agentId: parent.agent.id, sessionId: "sender-session" },
+				status: "pending",
+			},
+		]);
+	});
+
+	it("sends direct messages to an explicit main runtime session", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const sender = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Sender",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const tools = collectMultiAgentTools(store);
+		const sendAgentMessage = tools.get("send_agent_message");
+		if (!sendAgentMessage) {
+			throw new Error("expected send_agent_message tool");
+		}
+
+		await sendAgentMessage.execute(
+			"send-main",
+			{
+				expectedRevision: sender.agent.revision,
+				fromAgentId: sender.agent.id,
+				message: "Hello main session",
+				toAgentId: "main",
+				toSessionId: "target-session",
+			},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: senderSession }),
+		);
+
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Hello main session",
+				recipient: { agentId: null, sessionId: "target-session" },
+				sender: { agentId: sender.agent.id, sessionId: "sender-session" },
+				status: "pending",
+			},
+		]);
+	});
+
+	it("rejects explicit runtime sessions that do not match the target agent transcript", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const parent = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Parent",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Child",
+			parentId: parent.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const tools = collectMultiAgentTools(store);
+		const sendAgentMessage = tools.get("send_agent_message");
+		if (!sendAgentMessage) {
+			throw new Error("expected send_agent_message tool");
+		}
+
+		const sent = await sendAgentMessage.execute(
+			"send-mismatch",
+			{
+				expectedRevision: parent.agent.revision,
+				fromAgentId: parent.agent.id,
+				message: "Hello wrong session",
+				toAgentId: child.agent.id,
+				toSessionId: "target-session",
+			},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: senderSession }),
+		);
+
+		expect(sent.details.message).toMatchObject({ status: "failed", toAgentId: child.agent.id });
+		expect(store.listMailboxMessages()).toEqual([]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+	});
+
 	it("mirrors steering into the runtime mailbox for a child session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
