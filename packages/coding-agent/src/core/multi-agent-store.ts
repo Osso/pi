@@ -275,6 +275,7 @@ export interface MultiAgentProjectionSnapshot {
 }
 
 const IDLE_NOTIFICATION_THREAD_PREFIX = "agent-idle";
+const MAIN_THREAD_AGENT_ID = "main";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
 const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
@@ -962,7 +963,7 @@ export class MultiAgentStore {
 	}
 
 	private recordIdleNotification(agent: AgentNode): void {
-		if (!agent.parentId) {
+		if (this.hasPendingIdleNotification(agent.id)) {
 			return;
 		}
 
@@ -975,10 +976,20 @@ export class MultiAgentStore {
 			kind: "system",
 			status: "pending",
 			threadId: idleNotificationThreadId(agent.id),
-			toAgentId: agent.parentId,
+			toAgentId: agent.parentId ?? MAIN_THREAD_AGENT_ID,
 			updatedAt: timestamp,
 		};
 		this.mailboxMessages.set(message.id, message);
+	}
+
+	private hasPendingIdleNotification(agentId: string): boolean {
+		for (const message of this.mailboxMessages.values()) {
+			if (isPendingIdleNotification(message, agentId)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private createAgentId(): string {

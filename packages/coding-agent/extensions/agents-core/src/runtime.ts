@@ -974,7 +974,27 @@ function formatParentMailboxMessage(store: MultiAgentStore, message: AgentMailbo
 	const sender = store.getAgent(message.fromAgentId);
 	const senderLabel = sender ? `${sender.displayName} (${sender.id})` : message.fromAgentId;
 	const body = message.body?.trim() || "No message body.";
-	return `Mailbox message from ${senderLabel}: ${body}`;
+	const artifactDetails = formatMailboxArtifactDetails(message);
+	return [`Mailbox message from ${senderLabel}: ${body}`, ...artifactDetails].join("\n");
+}
+
+function formatMailboxArtifactDetails(message: AgentMailboxMessage): string[] {
+	const artifactIds = message.artifactIds?.map((artifactId) => `- ${artifactId}`) ?? [];
+	const artifactRefs = message.artifactRefs?.map(formatMailboxArtifactReference) ?? [];
+	const sections: string[] = [];
+	if (artifactIds.length > 0) {
+		sections.push(["Artifact IDs:", ...artifactIds].join("\n"));
+	}
+	if (artifactRefs.length > 0) {
+		sections.push(["Artifact references:", ...artifactRefs].join("\n"));
+	}
+	return sections;
+}
+
+function formatMailboxArtifactReference(ref: NonNullable<AgentMailboxMessage["artifactRefs"]>[number]): string {
+	const label = ref.label ?? ref.id ?? ref.path ?? "artifact";
+	const parts = [label, ref.id, ref.path].filter((part): part is string => Boolean(part));
+	return `- ${parts.join(" — ")}`;
 }
 
 function agentsMailbox(store: MultiAgentStore, params: AgentsMailboxParams): AgentToolResult<AgentsMailboxToolDetails> {

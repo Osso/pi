@@ -269,7 +269,10 @@ function restoreIsTty(target: TtyTarget, original: PropertyDescriptor | undefine
 	Reflect.deleteProperty(target, "isTTY");
 }
 
-function createStoreWithParentMailboxMessage(body: string): {
+function createStoreWithParentMailboxMessage(
+	body: string,
+	input: { artifactIds?: string[]; artifactRefs?: Array<{ id?: string; label?: string; path?: string }> } = {},
+): {
 	message: AgentMailboxMessage;
 	store: MultiAgentStore;
 } {
@@ -281,7 +284,7 @@ function createStoreWithParentMailboxMessage(body: string): {
 		parentId: "main",
 		permission: { narrowed: true, policy: "on-request" },
 	});
-	const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, { body });
+	const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, { body, ...input });
 	if (!contacted.ok) {
 		throw new Error("expected supervisor contact");
 	}
@@ -1165,6 +1168,32 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ id: message.id, status: "delivered" }]);
 	});
 
+	it("includes mailbox artifact references in the automatic follow-up", async () => {
+		const { store } = createStoreWithParentMailboxMessage("Review log", {
+			artifactIds: ["artifact_1"],
+			artifactRefs: [{ id: "artifact_2", label: "Test log", path: "artifacts/test.log" }],
+		});
+		const harness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
+		});
+		childHarnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			"hello",
+			[
+				"Mailbox message from Worker (agent_1): Review log",
+				"Artifact IDs:",
+				"- artifact_1",
+				"Artifact references:",
+				"- Test log — artifact_2 — artifacts/test.log",
+			].join("\n"),
+		]);
+	});
+
 	it("wait_agent waits for a dispatched agent to reach idle and consumes the parent idle mailbox message", async () => {
 		const idleGate = deferred<void>();
 		const finishGate = deferred<void>();
@@ -1212,6 +1241,40 @@ describe("multi-agent extension tools", () => {
 				kind: "system",
 				status: "delivered",
 				toAgentId: parent.agent.id,
+			},
+		]);
+	});
+
+	it("routes idle notices for main-thread children to the main mailbox without duplicates", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) throw new Error("expected starting transition");
+		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+		const firstIdle = store.transitionAgent(running.agent.id, running.agent.revision, "waiting_for_input");
+		expect(firstIdle.ok).toBe(true);
+		if (!firstIdle.ok) throw new Error("expected waiting transition");
+		const resumed = store.transitionAgent(firstIdle.agent.id, firstIdle.agent.revision, "running");
+		expect(resumed.ok).toBe(true);
+		if (!resumed.ok) throw new Error("expected resumed transition");
+		const secondIdle = store.transitionAgent(resumed.agent.id, resumed.agent.revision, "waiting_for_input");
+		expect(secondIdle.ok).toBe(true);
+
+		expect(store.listMailboxMessages()).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				fromAgentId: spawned.agent.id,
+				kind: "system",
+				status: "pending",
+				toAgentId: "main",
 			},
 		]);
 	});
