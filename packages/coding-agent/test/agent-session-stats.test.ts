@@ -48,6 +48,17 @@ function createUserMessage(text: string, timestamp: number) {
 	};
 }
 
+function createImageUserMessage(text: string, timestamp: number) {
+	return {
+		role: "user" as const,
+		content: [
+			{ type: "text" as const, text },
+			{ type: "image" as const, mimeType: "image/png", data: "ZmFrZQ==" },
+		],
+		timestamp,
+	};
+}
+
 function createSession() {
 	const settingsManager = SettingsManager.inMemory();
 	const sessionManager = SessionManager.inMemory();
@@ -96,7 +107,7 @@ describe("AgentSession.getSessionStats", () => {
 		}
 	});
 
-	it("reports unknown current context usage immediately after compaction", () => {
+	it("estimates current context usage immediately after compaction", () => {
 		const { session, sessionManager } = createSession();
 
 		try {
@@ -105,14 +116,16 @@ describe("AgentSession.getSessionStats", () => {
 			const keptUserId = sessionManager.appendMessage(createUserMessage("second", 3));
 			sessionManager.appendMessage(createAssistantMessage("response2", 195_000, 4));
 			sessionManager.appendCompaction("summary", keptUserId, 195_000);
-			sessionManager.appendMessage(createUserMessage("third", 5));
+			sessionManager.appendMessage(createImageUserMessage("third", 5));
 			syncAgentMessages(session, sessionManager);
 
 			const stats = session.getSessionStats();
 			expect(stats.tokens.input).toBe(195_000);
 			expect(stats.contextUsage).toBeDefined();
-			expect(stats.contextUsage?.tokens).toBeNull();
-			expect(stats.contextUsage?.percent).toBeNull();
+			expect(stats.contextUsage?.tokens).not.toBeNull();
+			expect(stats.contextUsage?.tokens ?? 0).toBeGreaterThan(1200);
+			expect(stats.contextUsage?.tokens ?? 0).toBeLessThan(5000);
+			expect(stats.contextUsage?.percent).not.toBeNull();
 		} finally {
 			session.dispose();
 		}
