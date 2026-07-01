@@ -1702,7 +1702,6 @@ export class AgentSession {
 			}
 			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
 		}, RUNTIME_MAILBOX_POLL_INTERVAL_MS);
-		this._runtimeMailboxPollTimer.unref?.();
 	}
 
 	private _stopRuntimeMailboxPolling(): void {
