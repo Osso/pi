@@ -28,6 +28,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
 | Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | Core `on-request`/`never`/`auto-approve` enforcement plus first-party `approval-controls` extension for `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
 | Hostrun (`hostrun_eval`) | [`hostrun.md`](hostrun.md) | **BUILD** | Stateful QuickJS host tool ported as a Pi extension; approval-gated; optional stdio MCP server. |
+| Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox/artifact extensions, account-governed budgets/permissions. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
@@ -43,6 +44,8 @@ codex's hook-style features, so each transposed feature falls into one of three 
 3. **permission-prompt-tool** + **approval-system** — needed to reuse the existing
    `claude-bash-hook-approval` MCP approval flow; build together (shared `core/permissions/`).
 4. **hostrun** — larger; port once the extension/tool surface is comfortable.
+
+`loop` is already native and specced; remaining work is test coverage for unverified contract bullets.
 
 ## Dropped codex features (recorded, not specced)
 
