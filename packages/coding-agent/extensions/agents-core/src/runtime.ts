@@ -704,6 +704,7 @@ async function spawnAgent(
 	dispatches: ActiveAgentDispatches,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
+	pi?: ExtensionAPI,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
@@ -727,6 +728,8 @@ async function spawnAgent(
 			dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, (childSession) => {
 				handles?.set(spawned.agent.id, childSession);
 			}),
+			ctx,
+			pi,
 			handles,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -742,6 +745,8 @@ async function spawnAgent(
 			dispatches,
 			spawned.agent,
 			dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx),
+			ctx,
+			pi,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
 			agent,
@@ -762,14 +767,25 @@ function startToolDispatch(
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: Promise<AgentSnapshot>,
+	ctx: ExtensionContext,
+	pi: ExtensionAPI | undefined,
 	handles?: BackgroundSessionHandles,
 ): AgentSnapshot {
 	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch);
 	if (handles) {
 		void trackedDispatch.finally(() => handles.delete(agent.id));
 	}
+	void trackedDispatch.finally(() => wakeIdleParentMailbox(store, pi, ctx));
 
 	return store.getAgent(agent.id) ?? agent;
+}
+
+function wakeIdleParentMailbox(store: MultiAgentStore, pi: ExtensionAPI | undefined, ctx: ExtensionContext): void {
+	const canReadIdleState = typeof ctx.isIdle === "function";
+	if (!pi || !canReadIdleState || !ctx.isIdle()) {
+		return;
+	}
+	drainParentMailboxAtAgentEnd(store, pi, ctx);
 }
 
 function trackAgentDispatch(
@@ -1351,7 +1367,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				spawnAgent(store, createChildSession, dispatcher, activeDispatches, params, ctx, backgroundSessions),
+				spawnAgent(store, createChildSession, dispatcher, activeDispatches, params, ctx, pi, backgroundSessions),
 		}),
 	);
 

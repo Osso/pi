@@ -1143,6 +1143,44 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ id: message.id, status: "delivered" }]);
 	});
 
+	it("wakes an idle main parent when a child completion notification arrives", async () => {
+		const childPrompt = deferred<void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			messages: [fauxAssistantMessage("child done")],
+			prompt: async () => childPrompt.promise,
+		});
+		const harness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { createChildSession, store })],
+		});
+		childHarnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Worker", prompt: "child work" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("parent idle"),
+			fauxAssistantMessage("parent woke"),
+		]);
+
+		await harness.session.prompt("start child");
+		await harness.session.agent.waitForIdle();
+		expect(getUserTexts(harness)).toEqual(["start child"]);
+
+		childPrompt.resolve(undefined);
+		for (let attempt = 0; attempt < 50 && !getAssistantTexts(harness).includes("parent woke"); attempt += 1) {
+			await delay(1);
+		}
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			"start child",
+			"Mailbox message from Worker (agent_1): Worker completed: child done",
+		]);
+		expect(getAssistantTexts(harness)).toContain("parent idle");
+		expect(getAssistantTexts(harness)).toContain("parent woke");
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
+	});
+
 	it("does not deliver mailbox messages again after they are marked delivered", async () => {
 		const { message, store } = createStoreWithParentMailboxMessage("Need parent review once");
 		const harness = await createHarness({

@@ -26,6 +26,7 @@
 
 ### Fixed
 
+- Fixed child-agent completion notifications to wake an idle parent session without waiting for another user prompt.
 - Fixed child-agent completion notifications to use completed lifecycle mailbox messages instead of `waiting_for_input` idle notices.
 - Fixed default extension footers to detach before session replacement invalidates their extension context.
 - Fixed goal continuation to remove the numeric turn cap and stop only on completion, budgets, pending queued work, or an empty final assistant response.
