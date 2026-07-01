@@ -284,6 +284,16 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.messages.send({'toAgentId': 'agent_1', 'message': 'review this'})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "messages.send", params: { toAgentId: "agent_1", message: "review this" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.messages.send({'toAgentId': 'main', 'toSessionId': 'target-session', 'message': 'hello session'})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "messages.send", params: { toAgentId: "main", toSessionId: "target-session", message: "hello session" } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   if (request.code === "pi.compact({'customInstructions': 'preserve IDs'})") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "compact", params: { customInstructions: "preserve IDs" } }) + "\\n");
     const response = await readNextResponse();
@@ -386,6 +396,7 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.current");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.select");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.messages.last");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.messages.send");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
 			"host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr",
 		);
@@ -836,6 +847,46 @@ describe("pyrun extension", () => {
 
 		expect(result.details.value).toEqual({ enqueued: true });
 		expect(harness.enqueuedMessages).toEqual([{ content: "next", options: { deliverAs: "followUp" } }]);
+	});
+
+	it("sends agent messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo/project",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const result = await harness.evaluate({
+			code: "pi.messages.send({'toAgentId': 'agent_1', 'message': 'review this'})",
+		});
+
+		expect(result.details.value).toMatchObject({
+			message: { body: "review this", fromAgentId: "main", toAgentId: spawned.agent.id },
+		});
+		expect(store.listPendingMailboxMessagesForAgent(spawned.agent.id)).toMatchObject([
+			{ body: "review this", fromAgentId: "main" },
+		]);
+	});
+
+	it("sends runtime session messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const harness = createPyrunHarness({
+			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+		});
+
+		const result = await harness.evaluate({
+			code: "pi.messages.send({'toAgentId': 'main', 'toSessionId': 'target-session', 'message': 'hello session'})",
+		});
+
+		expect(result.details.value).toMatchObject({
+			message: { body: "hello session", fromAgentId: "main", toAgentId: "main" },
+		});
 	});
 
 	it("enqueues Pi compaction from Pyrun pi.compact after the active tool call", async () => {

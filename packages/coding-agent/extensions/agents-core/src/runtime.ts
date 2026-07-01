@@ -564,6 +564,11 @@ export function createHostrunMultiAgentRequestHandler(
 			return findLastSessionMessage(ctx.sessionManager.getBranch());
 		}
 
+		if (request.method === "messages.send") {
+			const result = sendAgentMessage(store, request.params as SendAgentMessageParams, ctx);
+			return result.details;
+		}
+
 		return undefined;
 	};
 }
@@ -1180,7 +1185,7 @@ function mirrorRuntimeSessionMessage(
 }
 
 function currentMessageSenderId(store: MultiAgentStore, ctx: ExtensionContext | undefined): string {
-	if (!ctx?.sessionManager) {
+	if (!ctx?.sessionManager || typeof ctx.sessionManager.getSessionId !== "function") {
 		return MAIN_THREAD_AGENT_ID;
 	}
 	const sessionId = ctx.sessionManager.getSessionId();
