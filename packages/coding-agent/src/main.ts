@@ -31,6 +31,7 @@ import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/sr
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
+import sessionIdExtension from "../extensions/session-id/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -595,6 +596,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("self-restart", selfRestartExtension),
+		firstPartyExtensionFactory("session-id", sessionIdExtension),
 	];
 }
 
