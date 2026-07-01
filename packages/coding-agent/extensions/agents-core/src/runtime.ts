@@ -498,7 +498,7 @@ export function createMultiAgentWorkflowOperations(store: MultiAgentStore): Mult
 			if (!agent) {
 				return undefined;
 			}
-			store.consumeIdleNotificationsForAgent(agent.id);
+			store.consumeCompletionNotificationsForAgent(agent.id);
 
 			const result: WorkflowWaitResult = {
 				agent,
@@ -1084,7 +1084,7 @@ async function waitAgent(
 	}
 
 	const agent = store.getAgent(params.agentId) ?? initialAgent;
-	store.consumeIdleNotificationsForAgent(agent.id);
+	store.consumeCompletionNotificationsForAgent(agent.id);
 	return result(formatAgentStatus(agent), createWaitAgentDetails(store, agent, params));
 }
 
@@ -1107,7 +1107,7 @@ function createWaitAgentDetails(
 }
 
 function isWaitAgentReady(agent: AgentSnapshot): boolean {
-	return agent.lifecycle === "waiting_for_input" || !isActiveLifecycle(agent.lifecycle);
+	return !isActiveLifecycle(agent.lifecycle);
 }
 
 async function waitForDispatch(

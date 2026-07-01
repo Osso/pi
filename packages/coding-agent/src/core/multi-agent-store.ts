@@ -274,7 +274,7 @@ export interface MultiAgentProjectionSnapshot {
 	slots: AgentSlotProjection[];
 }
 
-const IDLE_NOTIFICATION_THREAD_PREFIX = "agent-idle";
+const COMPLETION_NOTIFICATION_THREAD_PREFIX = "agent-completed";
 const MAIN_THREAD_AGENT_ID = "main";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
@@ -371,10 +371,10 @@ export class MultiAgentStore {
 			return { ok: false, error: "invalid_transition", current: copyAgent(current), requested };
 		}
 
-		const shouldNotifyIdle = requested === "waiting_for_input" && current.lifecycle !== "waiting_for_input";
+		const shouldNotifyCompletion = requested === "completed" && current.lifecycle !== "completed";
 		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
-		if (shouldNotifyIdle) {
-			this.recordIdleNotification(updated);
+		if (shouldNotifyCompletion) {
+			this.recordCompletionNotification(updated);
 		}
 		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
 			this.selectedAgentId = undefined;
@@ -506,9 +506,9 @@ export class MultiAgentStore {
 		return copyMessage(updated);
 	}
 
-	consumeIdleNotificationsForAgent(agentId: string): void {
+	consumeCompletionNotificationsForAgent(agentId: string): void {
 		for (const message of this.mailboxMessages.values()) {
-			if (!isPendingIdleNotification(message, agentId)) {
+			if (!isPendingCompletionNotification(message, agentId)) {
 				continue;
 			}
 			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
@@ -962,29 +962,31 @@ export class MultiAgentStore {
 		return updated;
 	}
 
-	private recordIdleNotification(agent: AgentNode): void {
-		if (this.hasPendingIdleNotification(agent.id)) {
+	private recordCompletionNotification(agent: AgentNode): void {
+		if (this.hasPendingCompletionNotification(agent.id)) {
 			return;
 		}
 
+		const artifactIds = agent.result?.artifactIds;
 		const timestamp = this.now();
 		const message: AgentMailboxMessage = {
-			body: `${agent.displayName} is waiting for input.`,
+			artifactIds: artifactIds ? [...artifactIds] : undefined,
+			body: formatCompletionNotificationBody(agent),
 			createdAt: timestamp,
 			fromAgentId: agent.id,
 			id: this.createMessageId(),
 			kind: "system",
 			status: "pending",
-			threadId: idleNotificationThreadId(agent.id),
+			threadId: completionNotificationThreadId(agent.id),
 			toAgentId: agent.parentId ?? MAIN_THREAD_AGENT_ID,
 			updatedAt: timestamp,
 		};
 		this.mailboxMessages.set(message.id, message);
 	}
 
-	private hasPendingIdleNotification(agentId: string): boolean {
+	private hasPendingCompletionNotification(agentId: string): boolean {
 		for (const message of this.mailboxMessages.values()) {
-			if (isPendingIdleNotification(message, agentId)) {
+			if (isPendingCompletionNotification(message, agentId)) {
 				return true;
 			}
 		}
@@ -1030,14 +1032,19 @@ function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): bool
 	return ALLOWED_TRANSITIONS.get(from)?.has(to) ?? false;
 }
 
-function idleNotificationThreadId(agentId: string): string {
-	return `${IDLE_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
+function completionNotificationThreadId(agentId: string): string {
+	return `${COMPLETION_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
 }
 
-function isPendingIdleNotification(message: AgentMailboxMessage, agentId: string): boolean {
+function isPendingCompletionNotification(message: AgentMailboxMessage, agentId: string): boolean {
 	const isFromAgent = message.fromAgentId === agentId;
-	const isIdleNotice = message.kind === "system" && message.threadId === idleNotificationThreadId(agentId);
-	return isFromAgent && isIdleNotice && message.status === "pending";
+	const isCompletionNotice = message.kind === "system" && message.threadId === completionNotificationThreadId(agentId);
+	return isFromAgent && isCompletionNotice && message.status === "pending";
+}
+
+function formatCompletionNotificationBody(agent: AgentNode): string {
+	const summary = agent.result?.summary?.trim();
+	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
 }
 
 function wouldBroadenPermission(parent: AgentNode["permission"], requested: AgentNode["permission"]): boolean {

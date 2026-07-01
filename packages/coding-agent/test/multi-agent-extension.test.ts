@@ -1194,7 +1194,7 @@ describe("multi-agent extension tools", () => {
 		]);
 	});
 
-	it("wait_agent waits for a dispatched agent to reach idle and consumes the parent idle mailbox message", async () => {
+	it("wait_agent waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
 		const idleGate = deferred<void>();
 		const finishGate = deferred<void>();
 		const idleState = deferred<void>();
@@ -1211,7 +1211,7 @@ describe("multi-agent extension tools", () => {
 			expect(waiting.ok).toBe(true);
 			idleState.resolve(undefined);
 			await finishGate.promise;
-			return { lifecycle: "completed", result: { summary: "done" } };
+			return { lifecycle: "completed", result: { artifactIds: ["artifact_1"], summary: "done" } };
 		};
 		const harness = createMultiAgentHarness({ dispatcher, store });
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
@@ -1229,14 +1229,19 @@ describe("multi-agent extension tools", () => {
 		const waited = await waitPromise;
 
 		expect(didResolveBeforeIdle).toBe(false);
-		expect(didResolveAfterIdle).toBe(true);
+		expect(didResolveAfterIdle).toBe(false);
 		expect(waited.details).toMatchObject({
-			agent: { id: spawned.details.agent.id, lifecycle: "waiting_for_input" },
-			terminal: false,
+			agent: {
+				id: spawned.details.agent.id,
+				lifecycle: "completed",
+				result: { artifactIds: ["artifact_1"], summary: "done" },
+			},
+			terminal: true,
 		});
 		expect(store.listMailboxMessages()).toMatchObject([
 			{
-				body: "Worker is waiting for input.",
+				artifactIds: ["artifact_1"],
+				body: "Worker completed: done",
 				fromAgentId: spawned.details.agent.id,
 				kind: "system",
 				status: "delivered",
@@ -1245,7 +1250,7 @@ describe("multi-agent extension tools", () => {
 		]);
 	});
 
-	it("routes idle notices for main-thread children to the main mailbox without duplicates", () => {
+	it("routes completed notices for main-thread children to the main mailbox", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = store.spawnAgent({
 			agentType: "worker",
@@ -1259,18 +1264,18 @@ describe("multi-agent extension tools", () => {
 		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running transition");
-		const firstIdle = store.transitionAgent(running.agent.id, running.agent.revision, "waiting_for_input");
-		expect(firstIdle.ok).toBe(true);
-		if (!firstIdle.ok) throw new Error("expected waiting transition");
-		const resumed = store.transitionAgent(firstIdle.agent.id, firstIdle.agent.revision, "running");
-		expect(resumed.ok).toBe(true);
-		if (!resumed.ok) throw new Error("expected resumed transition");
-		const secondIdle = store.transitionAgent(resumed.agent.id, resumed.agent.revision, "waiting_for_input");
-		expect(secondIdle.ok).toBe(true);
+		const waiting = store.transitionAgent(running.agent.id, running.agent.revision, "waiting_for_input");
+		expect(waiting.ok).toBe(true);
+		if (!waiting.ok) throw new Error("expected waiting transition");
+		expect(store.listMailboxMessages()).toEqual([]);
+		const completed = store.transitionAgent(waiting.agent.id, waiting.agent.revision, "completed", {
+			result: { summary: "done" },
+		});
+		expect(completed.ok).toBe(true);
 
 		expect(store.listMailboxMessages()).toMatchObject([
 			{
-				body: "Worker is waiting for input.",
+				body: "Worker completed: done",
 				fromAgentId: spawned.agent.id,
 				kind: "system",
 				status: "pending",

@@ -1039,12 +1039,19 @@ describe("MultiAgentStore", () => {
 			});
 			expect(rehydrated.getSelectedAgentId()).toBe(spawned.agent.id);
 			expect(rehydrated.getActiveAgentCount()).toBe(0);
-			expect(rehydrated.listMailboxMessages()).toHaveLength(1);
-			expect(rehydrated.listMailboxMessages()[0]).toMatchObject({
-				body: "Continue with tests",
-				status: "delivered",
-				targetCheckpoint: "after_tool_result",
-			});
+			expect(rehydrated.listMailboxMessages()).toMatchObject([
+				{
+					body: "Continue with tests",
+					status: "delivered",
+					targetCheckpoint: "after_tool_result",
+				},
+				{
+					body: "Scout completed.",
+					kind: "system",
+					status: "pending",
+					toAgentId: "root",
+				},
+			]);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
