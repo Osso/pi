@@ -269,6 +269,38 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("polls the runtime mailbox while external input is reserved", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("mailbox reply")]);
+		const releaseReservation = harness.session.reserveExternalUserInput();
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "Reserved input wake",
+			kind: "message",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+
+		try {
+			await vi.advanceTimersByTimeAsync(3_000);
+			for (let attempt = 0; attempt < 10 && getUserTexts(harness).length === 0; attempt += 1) {
+				await delay(0);
+			}
+			await harness.session.agent.waitForIdle();
+		} finally {
+			releaseReservation();
+		}
+
+		expect(getUserTexts(harness)).toEqual([
+			"Mailbox message from session child-session agent agent_1: Reserved input wake",
+		]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
 	it("polls the runtime mailbox while idle and wakes the main session", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
