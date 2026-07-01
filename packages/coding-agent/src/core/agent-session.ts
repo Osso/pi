@@ -1659,10 +1659,6 @@ export class AgentSession {
 		if (!controlDbPath) {
 			return false;
 		}
-		if (options.triggerIfIdle && this.isStreaming) {
-			return false;
-		}
-
 		this._runtimeMailboxDrainInProgress = true;
 		try {
 			const claimed = claimRuntimeMailboxMessages(controlDbPath, {
@@ -1701,9 +1697,6 @@ export class AgentSession {
 		}
 		cleanupRuntimeMailboxMessages(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
-			if (this.isStreaming) {
-				return;
-			}
 			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
 		}, RUNTIME_MAILBOX_POLL_INTERVAL_MS);
 	}
@@ -1726,9 +1719,6 @@ export class AgentSession {
 			return;
 		}
 		this._runtimeMailboxSignalHandler = () => {
-			if (this.isStreaming) {
-				return;
-			}
 			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
 		};
 		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);
