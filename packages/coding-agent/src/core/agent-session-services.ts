@@ -6,6 +6,7 @@ import { resolvePath } from "../utils/paths.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { ModelRegistry } from "./model-registry.ts";
+import type { MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	DefaultResourceLoader,
 	type DefaultResourceLoaderOptions,
@@ -63,6 +64,7 @@ export interface CreateAgentSessionFromServicesOptions {
 	excludeTools?: CreateAgentSessionOptions["excludeTools"];
 	noTools?: CreateAgentSessionOptions["noTools"];
 	permissionPromptTool?: CreateAgentSessionOptions["permissionPromptTool"];
+	multiAgentStore?: MultiAgentStore;
 	customTools?: ToolDefinition[];
 }
 
@@ -203,6 +205,7 @@ export async function createAgentSessionFromServices(
 		excludeTools: options.excludeTools,
 		noTools: options.noTools,
 		permissionPromptTool: options.permissionPromptTool,
+		multiAgentStore: options.multiAgentStore,
 		customTools: options.customTools,
 		sessionStartEvent: options.sessionStartEvent,
 	});

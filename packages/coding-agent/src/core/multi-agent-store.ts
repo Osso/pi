@@ -304,6 +304,7 @@ export class MultiAgentStore {
 	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
+	private readonly abortHandlers = new Map<string, () => void>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
 	private nextArtifactNumber = 1;
@@ -317,6 +318,25 @@ export class MultiAgentStore {
 	subscribeLifecycleNotifications(listener: AgentLifecycleNotificationListener): () => void {
 		this.lifecycleNotificationListeners.add(listener);
 		return () => this.lifecycleNotificationListeners.delete(listener);
+	}
+
+	registerAgentAbortHandler(agentId: string, handler: () => void): () => void {
+		this.abortHandlers.set(agentId, handler);
+		return () => {
+			if (this.abortHandlers.get(agentId) === handler) {
+				this.abortHandlers.delete(agentId);
+			}
+		};
+	}
+
+	abortAgentHandle(agentId: string): boolean {
+		const handler = this.abortHandlers.get(agentId);
+		if (!handler) {
+			return false;
+		}
+		this.abortHandlers.delete(agentId);
+		handler();
+		return true;
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
@@ -891,6 +911,7 @@ export class MultiAgentStore {
 		this.agents.clear();
 		this.artifacts.clear();
 		this.mailboxMessages.clear();
+		this.abortHandlers.clear();
 
 		for (const agent of snapshot.agents) {
 			this.agents.set(agent.id, copyAgent(agent));

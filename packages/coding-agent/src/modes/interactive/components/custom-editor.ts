@@ -14,7 +14,7 @@ export interface CustomEditorOptions extends EditorOptions {
 export class CustomEditor extends Editor {
 	private keybindings: KeybindingsManager;
 	private readonly promptHistoryControlDbPath?: string;
-	public actionHandlers: Map<AppKeybinding, () => void> = new Map();
+	public actionHandlers: Map<AppKeybinding, () => unknown> = new Map();
 
 	// Special handlers that can be dynamically replaced
 	public onEscape?: () => void;
@@ -35,7 +35,7 @@ export class CustomEditor extends Editor {
 	/**
 	 * Register a handler for an app action.
 	 */
-	onAction(action: AppKeybinding, handler: () => void): void {
+	onAction(action: AppKeybinding, handler: () => unknown): void {
 		this.actionHandlers.set(action, handler);
 	}
 
@@ -103,8 +103,9 @@ export class CustomEditor extends Editor {
 		// Check all other app actions
 		for (const [action, handler] of this.actionHandlers) {
 			if (action !== "app.interrupt" && action !== "app.exit" && this.keybindings.matches(data, action)) {
-				handler();
-				return;
+				if (handler() !== false) {
+					return;
+				}
 			}
 		}
 

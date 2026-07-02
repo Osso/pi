@@ -90,6 +90,7 @@ import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
+import type { MultiAgentStore } from "./multi-agent-store.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
@@ -118,7 +119,7 @@ import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
-import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
+import { type BashOperations, BashToolDetachRegistry, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
@@ -233,6 +234,8 @@ export interface AgentSessionConfig {
 	excludedToolNames?: string[];
 	/** Optional MCP tool name used to approve or deny tool calls before native handlers. */
 	permissionPromptTool?: string;
+	/** Shared multi-agent store used for detached tool background jobs. */
+	multiAgentStore?: MultiAgentStore;
 	/** Global settings directory used for persistent permission rule writes. */
 	agentDir?: string;
 	/**
@@ -405,6 +408,7 @@ export class AgentSession {
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
+	private readonly _bashToolDetachRegistry = new BashToolDetachRegistry();
 	private _pendingBashMessages: BashExecutionMessage[] = [];
 
 	// Extension system
@@ -449,6 +453,7 @@ export class AgentSession {
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
+	private _multiAgentStore: MultiAgentStore | undefined;
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -464,6 +469,7 @@ export class AgentSession {
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._permissionPromptTool = config.permissionPromptTool ?? this.settingsManager.getPermissionPromptTool();
+		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
 		this._permissionRuleStore = new PermissionRuleStore({
 			agentDir: this._agentDir,
@@ -2957,7 +2963,12 @@ export class AgentSession {
 				)
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					bash: {
+						backgroundJobs: this._multiAgentStore ? { store: this._multiAgentStore } : undefined,
+						commandPrefix: shellCommandPrefix,
+						detachRegistry: this._bashToolDetachRegistry,
+						shellPath,
+					},
 				});
 
 		this._baseToolDefinitions = new Map(
@@ -3193,9 +3204,17 @@ export class AgentSession {
 		this._bashAbortController?.abort();
 	}
 
+	detachBashTool(): boolean {
+		return this._bashToolDetachRegistry.detachRunning();
+	}
+
 	/** Whether a bash command is currently running */
 	get isBashRunning(): boolean {
 		return this._bashAbortController !== undefined;
+	}
+
+	get hasDetachableBashTool(): boolean {
+		return this._bashToolDetachRegistry.hasRunning();
 	}
 
 	/** Whether there are pending bash messages waiting to be flushed */

@@ -171,6 +171,39 @@ describe("ToolExecutionComponent parity", () => {
 		await promise;
 	});
 
+	test("bash execute returns a background job result when detached", async () => {
+		const detachController = new AbortController();
+		const operations: BashOperations = {
+			exec: async (_command, _cwd, { onData, detach }) => {
+				onData(Buffer.from("before detach\n"));
+				if (!detach) throw new Error("detach options missing");
+				detach.signal.dispatchEvent(new Event("abort"));
+				return { exitCode: null, detached: { jobId: "agent_7", message: "Background job agent_7 started" } };
+			},
+		};
+		const tool = createBashToolDefinition(process.cwd(), {
+			operations,
+			detach: {
+				signal: detachController.signal,
+			},
+		});
+
+		const result = await tool.execute(
+			"tool-bash-detach",
+			{ command: "sleep 100" },
+			undefined,
+			undefined,
+			{} as never,
+		);
+
+		const firstContent = result.content[0];
+		expect(firstContent?.type).toBe("text");
+		expect(firstContent?.type === "text" ? firstContent.text : undefined).toBe(
+			"before detach\n\nCommand moved to background as job agent_7. Background job agent_7 started",
+		);
+		expect(result.details).toEqual({ backgroundJobId: "agent_7" });
+	});
+
 	test("bash renderer does not duplicate final full output truncation details", async () => {
 		const operations: BashOperations = {
 			exec: async (_command, _cwd, { onData }) => {

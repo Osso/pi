@@ -1357,6 +1357,7 @@ function cancelAgent(
 	const childSession = handles?.get(params.agentId);
 	childSession?.abort?.();
 	handles?.delete(params.agentId);
+	store.abortAgentHandle(params.agentId);
 
 	return result(`Cancelled ${cancelled.agent.displayName}.`, {
 		agent: cancelled.agent,

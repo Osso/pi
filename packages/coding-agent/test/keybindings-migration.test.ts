@@ -86,6 +86,12 @@ describe("keybindings migration", () => {
 		expect(effective["app.interrupt"]).toBe("ctrl+x");
 	});
 
+	it("defaults bash tool backgrounding to Ctrl+B", () => {
+		const keybindings = new KeybindingsManager();
+
+		expect(keybindings.getKeys("app.tool.background")).toEqual(["ctrl+b"]);
+	});
+
 	it("defaults Alt+0 through Alt+9 to visible agent actions", () => {
 		const keybindings = new KeybindingsManager();
 		const slotBindings = [

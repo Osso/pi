@@ -17,6 +17,7 @@ import type {
 import { convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import { findInitialModel } from "./model-resolver.ts";
+import type { MultiAgentStore } from "./multi-agent-store.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
@@ -75,6 +76,8 @@ export interface CreateAgentSessionOptions {
 	excludeTools?: string[];
 	/** Optional MCP tool name used to approve or deny tool calls. Defaults to settings. */
 	permissionPromptTool?: string;
+	/** Shared multi-agent store used for detached tool background jobs. */
+	multiAgentStore?: MultiAgentStore;
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
 
@@ -402,6 +405,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		allowedToolNames,
 		excludedToolNames,
 		permissionPromptTool: options.permissionPromptTool,
+		multiAgentStore: options.multiAgentStore,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});

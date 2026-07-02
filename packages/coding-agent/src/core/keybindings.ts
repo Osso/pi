@@ -20,6 +20,7 @@ export interface AppKeybindings {
 	"app.model.cycleBackward": true;
 	"app.model.select": true;
 	"app.tools.expand": true;
+	"app.tool.background": true;
 	"app.thinking.toggle": true;
 	"app.session.toggleNamedFilter": true;
 	"app.editor.external": true;
@@ -94,6 +95,7 @@ export const KEYBINDINGS = {
 	},
 	"app.model.select": { defaultKeys: "ctrl+l", description: "Open model selector" },
 	"app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
+	"app.tool.background": { defaultKeys: "ctrl+b", description: "Detach running bash tool to background" },
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",
 		description: "Toggle thinking blocks",
@@ -297,6 +299,7 @@ const KEYBINDING_NAME_MIGRATIONS = {
 	cycleModelBackward: "app.model.cycleBackward",
 	selectModel: "app.model.select",
 	expandTools: "app.tools.expand",
+	backgroundTool: "app.tool.background",
 	toggleThinking: "app.thinking.toggle",
 	toggleSessionNamedFilter: "app.session.toggleNamedFilter",
 	externalEditor: "app.editor.external",

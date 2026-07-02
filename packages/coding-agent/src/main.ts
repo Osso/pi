@@ -884,6 +884,7 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			permissionPromptTool: sessionOptions.permissionPromptTool,
+			multiAgentStore: firstPartyMultiAgentStore,
 			customTools: sessionOptions.customTools,
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
