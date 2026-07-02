@@ -398,6 +398,7 @@ export class AgentSession {
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
+	private _lengthRecoveryAttempted = false;
 
 	// Branch summarization state
 	private _branchSummaryAbortController: AbortController | undefined = undefined;
@@ -806,6 +807,7 @@ export class AgentSession {
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
+			this._lengthRecoveryAttempted = false;
 			const messageText = this._getUserMessageText(event.message);
 			if (messageText) {
 				// Check steering queue first
@@ -859,6 +861,9 @@ export class AgentSession {
 				const assistantMsg = event.message as AssistantMessage;
 				if (assistantMsg.stopReason !== "error") {
 					this._overflowRecoveryAttempted = false;
+				}
+				if (assistantMsg.stopReason !== "length") {
+					this._lengthRecoveryAttempted = false;
 				}
 
 				// Reset retry counter immediately on successful assistant response
@@ -2320,17 +2325,19 @@ export class AgentSession {
 	 *
 	 * Two cases:
 	 * 1. Overflow: LLM returned context overflow error, remove error message from agent state, compact, auto-retry
-	 * 2. Threshold: Context over threshold, compact, NO auto-retry (user continues manually)
+	 * 2. Threshold: Context over threshold, compact. Auto-resumes once when the turn was
+	 *    "length"-truncated (unfinished work); otherwise NO auto-retry (user continues manually)
 	 *
 	 * @param assistantMessage The assistant message to check
-	 * @param skipAbortedCheck If false, include aborted messages (for pre-prompt check). Default: true
+	 * @param postRunCheck True when called after agent_end; false for the pre-prompt check.
+	 *   Pre-prompt checks include aborted messages and never resume a truncated turn. Default: true
 	 */
-	private async _checkCompaction(assistantMessage: AssistantMessage, skipAbortedCheck = true): Promise<boolean> {
+	private async _checkCompaction(assistantMessage: AssistantMessage, postRunCheck = true): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
 		if (!settings.enabled) return false;
 
-		// Skip if message was aborted (user cancelled) - unless skipAbortedCheck is false
-		if (skipAbortedCheck && assistantMessage.stopReason === "aborted") return false;
+		// Skip if message was aborted (user cancelled) - unless this is the pre-prompt check
+		if (postRunCheck && assistantMessage.stopReason === "aborted") return false;
 
 		const contextWindow = this.model?.contextWindow ?? 0;
 
@@ -2411,7 +2418,15 @@ export class AgentSession {
 			contextTokens = directContextTokens;
 		}
 		if (shouldCompact(contextTokens, contextWindow, settings)) {
-			return await this._runAutoCompaction("threshold", false);
+			// A "length"-stopped turn was truncated mid-work: compact and resume it once.
+			// Pre-prompt checks must not resume - the incoming user prompt supersedes the
+			// truncated turn.
+			const turnWasTruncated = assistantMessage.stopReason === "length";
+			const willRetry = postRunCheck && turnWasTruncated && !this._lengthRecoveryAttempted;
+			if (willRetry) {
+				this._lengthRecoveryAttempted = true;
+			}
+			return await this._runAutoCompaction("threshold", willRetry);
 		}
 		return false;
 	}
@@ -2574,10 +2589,15 @@ export class AgentSession {
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
 
 			if (willRetry) {
+				// Drop the failed/truncated assistant message from agent state (it stays in
+				// session history) so agent.continue() can resume from the preceding message.
 				const messages = this.agent.state.messages;
 				const lastMsg = messages[messages.length - 1];
-				if (lastMsg?.role === "assistant" && (lastMsg as AssistantMessage).stopReason === "error") {
-					this.agent.state.messages = messages.slice(0, -1);
+				if (lastMsg?.role === "assistant") {
+					const stopReason = (lastMsg as AssistantMessage).stopReason;
+					if (stopReason === "error" || stopReason === "length") {
+						this.agent.state.messages = messages.slice(0, -1);
+					}
 				}
 				return true;
 			}

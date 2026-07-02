@@ -27,6 +27,7 @@
 
 ### Fixed
 
+- Fixed threshold auto-compaction to resume a `"length"`-truncated turn once instead of leaving the session idle with unfinished work.
 - Fixed permission approval prompts to send non-expiring desktop notifications without exposing raw tool input.
 - Fixed child agents waiting for input to create persistent parent notifications and non-expiring desktop notifications for Quickshell-compatible notification daemons.
 - Fixed interactive terminal cwd tracking to emit OSC 7 for the active Pi session cwd, so new Ghostty tabs inherit restored or switched session directories.

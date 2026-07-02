@@ -6,11 +6,12 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
-	_checkCompaction: (assistantMessage: AssistantMessage, skipAbortedCheck?: boolean) => Promise<boolean>;
+	_checkCompaction: (assistantMessage: AssistantMessage, postRunCheck?: boolean) => Promise<boolean>;
 	_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+	_lengthRecoveryAttempted?: boolean;
 };
 
 type SessionWithCompactionAbortInternals = SessionWithCompactionInternals & {
@@ -98,6 +99,21 @@ function createAssistantEntry(text: string) {
 		parentId: null,
 		timestamp: new Date().toISOString(),
 		message: fauxAssistantMessage(text),
+	};
+}
+
+/**
+ * Response factory that stamps the message at stream time, a few ms after any preceding
+ * compaction entry. Preset messages would carry setup-time timestamps (skipped as stale
+ * pre-compaction messages), and same-millisecond timestamps trip the stale guard too.
+ */
+function delayedResponse(
+	text: string,
+	options: { stopReason?: AssistantMessage["stopReason"] } = {},
+): () => Promise<AssistantMessage> {
+	return async () => {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		return fauxAssistantMessage(text, options);
 	};
 }
 
@@ -637,6 +653,138 @@ describe("AgentSession compaction characterization", () => {
 		await sessionInternals._checkCompaction(errorAssistant);
 
 		expect(runAutoCompactionSpy).not.toHaveBeenCalled();
+	});
+
+	it("requests retry when threshold compaction follows a length-truncated turn", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		const lengthAssistant = createAssistant(harness, {
+			stopReason: "length",
+			totalTokens: 120_000,
+			timestamp: Date.now(),
+		});
+		// Truncated turns still produced output; output 0 would classify as overflow instead.
+		lengthAssistant.usage.output = 500;
+
+		const runAutoCompactionSpy = vi.spyOn(sessionInternals, "_runAutoCompaction").mockResolvedValue(true);
+
+		await sessionInternals._checkCompaction(lengthAssistant);
+
+		expect(runAutoCompactionSpy).toHaveBeenCalledWith("threshold", true);
+	});
+
+	it("does not retry a length-truncated turn on pre-prompt compaction checks", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		const lengthAssistant = createAssistant(harness, {
+			stopReason: "length",
+			totalTokens: 120_000,
+			timestamp: Date.now(),
+		});
+		lengthAssistant.usage.output = 500;
+
+		const runAutoCompactionSpy = vi.spyOn(sessionInternals, "_runAutoCompaction").mockResolvedValue(true);
+
+		await sessionInternals._checkCompaction(lengthAssistant, false);
+
+		expect(runAutoCompactionSpy).toHaveBeenCalledWith("threshold", false);
+	});
+
+	it("compacts and resumes a length-truncated turn", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
+			models: [{ id: "faux-1", contextWindow: 400, maxTokens: 100 }],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "length recovery compacted",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.setResponses([
+			delayedResponse("truncated output", { stopReason: "length" }),
+			delayedResponse("resumed output"),
+		]);
+
+		await harness.session.prompt("x".repeat(4000));
+
+		const compactionEnds = harness.eventsOfType("compaction_end");
+		expect(compactionEnds.some((event) => event.reason === "threshold" && event.willRetry === true)).toBe(true);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(getAssistantTexts(harness)).toContain("resumed output");
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		expect(sessionInternals._lengthRecoveryAttempted).toBe(false);
+		// The truncated message is stripped from agent state but stays in session history.
+		const truncatedInAgentState = harness.session.agent.state.messages.filter(
+			(message) => message.role === "assistant" && (message as AssistantMessage).stopReason === "length",
+		);
+		expect(truncatedInAgentState).toHaveLength(0);
+		const truncatedInHistory = harness.sessionManager
+			.getEntries()
+			.filter(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					(entry.message as AssistantMessage).stopReason === "length",
+			);
+		expect(truncatedInHistory).toHaveLength(1);
+	});
+
+	it("resets the length-recovery guard on the next user prompt", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		sessionInternals._lengthRecoveryAttempted = true;
+		// A "length"-stopped reply cannot reset the guard itself, so a cleared flag
+		// proves the reset came from the user message starting the turn.
+		harness.setResponses([fauxAssistantMessage("still truncated", { stopReason: "length" })]);
+
+		await harness.session.prompt("new work");
+
+		expect(sessionInternals._lengthRecoveryAttempted).toBe(false);
+	});
+
+	it("does not resume a second consecutive length-truncated turn", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
+			models: [{ id: "faux-1", contextWindow: 400, maxTokens: 100 }],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "length recovery compacted again",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.setResponses([
+			delayedResponse("first truncated", { stopReason: "length" }),
+			delayedResponse("second truncated", { stopReason: "length" }),
+			delayedResponse("never reached"),
+		]);
+
+		await harness.session.prompt("x".repeat(4000));
+
+		const compactionEnds = harness.eventsOfType("compaction_end");
+		expect(compactionEnds.at(-1)).toMatchObject({ reason: "threshold", willRetry: false });
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
 	it("does not trigger threshold compaction below the threshold or when disabled", async () => {
