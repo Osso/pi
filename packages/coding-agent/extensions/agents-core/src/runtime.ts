@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -144,8 +145,16 @@ const MAIN_THREAD_AGENT_ID = "main";
 const MESSAGE_CONTENT_LIMIT = 2000;
 const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 
+export interface AgentDesktopNotification {
+	body: string;
+	title: string;
+}
+
+export type AgentDesktopNotifier = (notification: AgentDesktopNotification) => void;
+
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
+	desktopNotifier?: AgentDesktopNotifier;
 	dispatcher?: ChildAgentDispatcher;
 	selectAgentView?: (agentId: string) => boolean | undefined;
 	store?: MultiAgentStore;
@@ -158,7 +167,7 @@ export interface ChildAgentDispatchInput {
 }
 
 export interface ChildAgentDispatchResult {
-	lifecycle: "completed" | "failed" | "aborted";
+	lifecycle: "completed" | "failed" | "aborted" | "waiting_for_input";
 	error?: { message: string; code?: string };
 	result?: AgentResult;
 }
@@ -527,6 +536,7 @@ export function createHostrunMultiAgentRequestHandler(
 ): HostrunMultiAgentRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const activeDispatches: ActiveAgentDispatches = new Map();
+	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 
 	return async (request, ctx, signal) => {
 		if (request.method === "agents.spawn") {
@@ -537,6 +547,7 @@ export function createHostrunMultiAgentRequestHandler(
 				activeDispatches,
 				request.params as SpawnAgentParams,
 				ctx,
+				desktopNotifier,
 			);
 			return result.details;
 		}
@@ -713,6 +724,7 @@ async function spawnAgent(
 	dispatches: ActiveAgentDispatches,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
+	desktopNotifier: AgentDesktopNotifier,
 	pi?: ExtensionAPI,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
@@ -734,11 +746,13 @@ async function spawnAgent(
 			store,
 			dispatches,
 			spawned.agent,
-			dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, (childSession) => {
-				handles?.set(spawned.agent.id, childSession);
-			}),
+			() =>
+				dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, (childSession) => {
+					handles?.set(spawned.agent.id, childSession);
+				}),
 			ctx,
 			pi,
+			desktopNotifier,
 			handles,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -753,9 +767,10 @@ async function spawnAgent(
 			store,
 			dispatches,
 			spawned.agent,
-			dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx),
+			() => dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx),
 			ctx,
 			pi,
+			desktopNotifier,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
 			agent,
@@ -775,23 +790,39 @@ function startToolDispatch(
 	store: MultiAgentStore,
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
-	dispatch: Promise<AgentSnapshot>,
+	dispatch: () => Promise<AgentSnapshot>,
 	ctx: ExtensionContext,
 	pi: ExtensionAPI | undefined,
+	desktopNotifier: AgentDesktopNotifier,
 	handles?: BackgroundSessionHandles,
 ): AgentSnapshot {
-	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch);
+	const unsubscribeLifecycleNotifications = store.subscribeLifecycleNotifications((message) => {
+		if (message.fromAgentId !== agent.id) {
+			return;
+		}
+		notifyWaitingAgent(message, desktopNotifier);
+		try {
+			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
+			wakeIdleParentMailbox(store, pi, ctx);
+		} catch (error) {
+			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
+		}
+	});
+	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch());
 	if (handles) {
 		void trackedDispatch.finally(() => handles.delete(agent.id));
 	}
 	void trackedDispatch.then((agent) => {
 		try {
-			mirrorAgentCompletionRuntimeMailbox(store, agent, ctx);
+			mirrorAgentLifecycleRuntimeMailbox(store, agent, ctx);
 		} catch (error) {
-			console.error("Failed to mirror agent completion into runtime mailbox:", error);
+			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
 		}
 	});
-	void trackedDispatch.finally(() => wakeIdleParentMailbox(store, pi, ctx));
+	void trackedDispatch.finally(() => {
+		unsubscribeLifecycleNotifications();
+		wakeIdleParentMailbox(store, pi, ctx);
+	});
 
 	return store.getAgent(agent.id) ?? agent;
 }
@@ -887,7 +918,7 @@ async function dispatchAgent(
 function transitionRunningAgent(
 	store: MultiAgentStore,
 	running: AgentSnapshot,
-	lifecycle: "completed" | "failed" | "aborted",
+	lifecycle: ChildAgentDispatchResult["lifecycle"],
 	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
 ): AgentSnapshot {
 	return transitionActiveAgent(store, running, lifecycle, metadata);
@@ -896,7 +927,7 @@ function transitionRunningAgent(
 function transitionActiveAgent(
 	store: MultiAgentStore,
 	agent: AgentSnapshot,
-	lifecycle: "completed" | "failed" | "aborted",
+	lifecycle: ChildAgentDispatchResult["lifecycle"],
 	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
 ): AgentSnapshot {
 	const current = store.getAgent(agent.id);
@@ -1388,28 +1419,77 @@ function steerAgent(
 	});
 }
 
-function mirrorAgentCompletionRuntimeMailbox(store: MultiAgentStore, agent: AgentSnapshot, ctx: ExtensionContext): void {
-	if (!ctx.controlDbPath || agent.lifecycle !== "completed") {
+function notifyWaitingAgent(message: AgentMailboxMessage, desktopNotifier: AgentDesktopNotifier): void {
+	if (!isWaitingForInputNotification(message)) {
 		return;
 	}
-	const completion = store
-		.listMailboxMessages()
-		.find((message) => message.fromAgentId === agent.id && message.kind === "system" && message.status === "pending");
-	if (!completion) {
+	try {
+		desktopNotifier({
+			body: message.body ?? `${message.fromAgentId} is waiting for input.`,
+			title: "Pi agent needs input",
+		});
+	} catch (error) {
+		console.error("Failed to send agent input-needed desktop notification:", error);
+	}
+}
+
+function isWaitingForInputNotification(message: AgentMailboxMessage): boolean {
+	return (
+		message.kind === "system" &&
+		message.status === "pending" &&
+		(message.threadId?.startsWith("agent-waiting-for-input:") ?? false)
+	);
+}
+
+function sendDesktopNotification(notification: AgentDesktopNotification): void {
+	if (process.platform !== "linux") {
 		return;
 	}
+	const child = spawn(
+		"notify-send",
+		["--app-name=Pi", "--expire-time=0", notification.title, notification.body],
+		{ detached: true, stdio: "ignore" },
+	);
+	child.on("error", () => undefined);
+	child.unref();
+}
+
+function mirrorAgentLifecycleRuntimeMailbox(store: MultiAgentStore, agent: AgentSnapshot, ctx: ExtensionContext): void {
+	if (!isRuntimeMirroredLifecycle(agent.lifecycle)) {
+		return;
+	}
+	const notification = store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle)[0];
+	if (!notification) {
+		return;
+	}
+	mirrorLifecycleRuntimeMailboxMessage(store, notification, ctx);
+}
+
+function mirrorLifecycleRuntimeMailboxMessage(
+	store: MultiAgentStore,
+	notification: AgentMailboxMessage,
+	ctx: ExtensionContext,
+): void {
+	if (!ctx.controlDbPath) {
+		return;
+	}
+	const agent = store.getAgent(notification.fromAgentId);
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
-		artifactIds: completion.artifactIds,
-		artifactRefs: completion.artifactRefs,
-		body: completion.body ?? "",
-		kind: completion.kind,
+		artifactIds: notification.artifactIds,
+		artifactRefs: notification.artifactRefs,
+		body: notification.body ?? "",
+		kind: notification.kind,
 		recipient: { agentId: null, sessionId: ctx.sessionManager.getSessionId() },
 		sender: {
-			agentId: agent.id,
-			sessionId: agent.transcript?.sessionId ?? ctx.sessionManager.getSessionId(),
+			agentId: notification.fromAgentId,
+			sessionId: agent?.transcript?.sessionId ?? ctx.sessionManager.getSessionId(),
 		},
 	});
-	store.markMailboxMessageDelivered(completion.id);
+	store.markMailboxMessageDelivered(notification.id);
+}
+
+function isRuntimeMirroredLifecycle(lifecycle: AgentLifecycleState): lifecycle is "completed" | "waiting_for_input" {
+	return lifecycle === "completed" || lifecycle === "waiting_for_input";
 }
 
 function mirrorRuntimeMailboxMessage(
@@ -1559,6 +1639,7 @@ export function resolveMultiAgentStore(options: MultiAgentExtensionOptions = {})
 export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
 	const createChildSession = options.createChildSession;
+	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const dispatcher = options.dispatcher;
 	const backgroundSessions: BackgroundSessionHandles = new Map();
 	const activeDispatches: ActiveAgentDispatches = new Map();
@@ -1586,7 +1667,17 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				spawnAgent(store, createChildSession, dispatcher, activeDispatches, params, ctx, pi, backgroundSessions),
+				spawnAgent(
+					store,
+					createChildSession,
+					dispatcher,
+					activeDispatches,
+					params,
+					ctx,
+					desktopNotifier,
+					pi,
+					backgroundSessions,
+				),
 		}),
 	);
 

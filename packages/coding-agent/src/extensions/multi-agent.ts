@@ -1,4 +1,6 @@
 export type {
+	AgentDesktopNotification,
+	AgentDesktopNotifier,
 	ChildAgentDispatcher,
 	ChildAgentSessionFactory,
 	MultiAgentExtensionOptions,

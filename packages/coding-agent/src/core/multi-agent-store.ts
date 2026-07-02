@@ -176,6 +176,12 @@ export interface TransitionAgentDetails {
 	result?: AgentResult;
 }
 
+interface AgentLifecycleNotificationInput {
+	artifactIds?: string[];
+	body: string;
+	threadId: string;
+}
+
 export type AgentCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "not_found"; agentId: string }
@@ -234,6 +240,8 @@ export interface MultiAgentStoreOptions {
 	now?: () => string;
 }
 
+export type AgentLifecycleNotificationListener = (message: AgentMailboxMessage) => void;
+
 export interface PersistedMultiAgentSnapshot {
 	version: 1;
 	kind: "snapshot";
@@ -275,6 +283,7 @@ export interface MultiAgentProjectionSnapshot {
 }
 
 const COMPLETION_NOTIFICATION_THREAD_PREFIX = "agent-completed";
+const WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX = "agent-waiting-for-input";
 const MAIN_THREAD_AGENT_ID = "main";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
@@ -294,6 +303,7 @@ export class MultiAgentStore {
 	private readonly agents = new Map<string, AgentNode>();
 	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
+	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
 	private nextArtifactNumber = 1;
@@ -302,6 +312,11 @@ export class MultiAgentStore {
 
 	constructor(options: MultiAgentStoreOptions = {}) {
 		this.now = options.now ?? (() => new Date().toISOString());
+	}
+
+	subscribeLifecycleNotifications(listener: AgentLifecycleNotificationListener): () => void {
+		this.lifecycleNotificationListeners.add(listener);
+		return () => this.lifecycleNotificationListeners.delete(listener);
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
@@ -372,9 +387,14 @@ export class MultiAgentStore {
 		}
 
 		const shouldNotifyCompletion = requested === "completed" && current.lifecycle !== "completed";
+		const shouldNotifyWaitingForInput =
+			requested === "waiting_for_input" && current.lifecycle !== "waiting_for_input";
 		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
 		if (shouldNotifyCompletion) {
 			this.recordCompletionNotification(updated);
+		}
+		if (shouldNotifyWaitingForInput) {
+			this.recordWaitingForInputNotification(updated);
 		}
 		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
 			this.selectedAgentId = undefined;
@@ -514,6 +534,15 @@ export class MultiAgentStore {
 			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
 			this.mailboxMessages.set(updated.id, updated);
 		}
+	}
+
+	listPendingLifecycleNotificationsForAgent(
+		agentId: string,
+		lifecycle: "completed" | "waiting_for_input",
+	): AgentMailboxMessage[] {
+		return Array.from(this.mailboxMessages.values())
+			.filter((message) => isPendingLifecycleNotification(message, agentId, lifecycle))
+			.map(copyMessage);
 	}
 
 	recordArtifact(input: RecordAgentArtifactInput): AgentArtifact {
@@ -834,6 +863,7 @@ export class MultiAgentStore {
 			kind: "snapshot",
 			agents: this.listAgents(),
 			artifacts: this.listArtifacts(),
+			mailboxMessages: this.listMailboxMessages(),
 			selectedAgentId: this.selectedAgentId,
 			nextAgentNumber: this.nextAgentNumber,
 			nextArtifactNumber: this.nextArtifactNumber,
@@ -1016,30 +1046,57 @@ export class MultiAgentStore {
 	}
 
 	private recordCompletionNotification(agent: AgentNode): void {
-		if (this.hasPendingCompletionNotification(agent.id)) {
+		if (this.hasPendingLifecycleNotification(agent.id, "completed")) {
 			return;
 		}
 
 		const artifactIds = agent.result?.artifactIds;
-		const timestamp = this.now();
-		const message: AgentMailboxMessage = {
+		this.recordLifecycleNotification(agent, {
 			artifactIds: artifactIds ? [...artifactIds] : undefined,
 			body: formatCompletionNotificationBody(agent),
+			threadId: completionNotificationThreadId(agent.id),
+		});
+	}
+
+	private recordWaitingForInputNotification(agent: AgentNode): void {
+		if (this.hasPendingLifecycleNotification(agent.id, "waiting_for_input")) {
+			return;
+		}
+
+		this.recordLifecycleNotification(agent, {
+			body: formatWaitingForInputNotificationBody(agent),
+			threadId: waitingForInputNotificationThreadId(agent.id),
+		});
+	}
+
+	private recordLifecycleNotification(agent: AgentNode, input: AgentLifecycleNotificationInput): void {
+		const timestamp = this.now();
+		const message: AgentMailboxMessage = {
+			artifactIds: input.artifactIds,
+			body: input.body,
 			createdAt: timestamp,
 			fromAgentId: agent.id,
 			id: this.createMessageId(),
 			kind: "system",
 			status: "pending",
-			threadId: completionNotificationThreadId(agent.id),
+			threadId: input.threadId,
 			toAgentId: agent.parentId ?? MAIN_THREAD_AGENT_ID,
 			updatedAt: timestamp,
 		};
 		this.mailboxMessages.set(message.id, message);
+		this.notifyLifecycleNotificationListeners(message);
 	}
 
-	private hasPendingCompletionNotification(agentId: string): boolean {
+	private notifyLifecycleNotificationListeners(message: AgentMailboxMessage): void {
+		const snapshot = copyMessage(message);
+		for (const listener of this.lifecycleNotificationListeners) {
+			listener(snapshot);
+		}
+	}
+
+	private hasPendingLifecycleNotification(agentId: string, lifecycle: "completed" | "waiting_for_input"): boolean {
 		for (const message of this.mailboxMessages.values()) {
-			if (isPendingCompletionNotification(message, agentId)) {
+			if (isPendingLifecycleNotification(message, agentId, lifecycle)) {
 				return true;
 			}
 		}
@@ -1089,15 +1146,38 @@ function completionNotificationThreadId(agentId: string): string {
 	return `${COMPLETION_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
 }
 
+function waitingForInputNotificationThreadId(agentId: string): string {
+	return `${WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
+}
+
 function isPendingCompletionNotification(message: AgentMailboxMessage, agentId: string): boolean {
+	return isPendingLifecycleNotification(message, agentId, "completed");
+}
+
+function isPendingLifecycleNotification(
+	message: AgentMailboxMessage,
+	agentId: string,
+	lifecycle: "completed" | "waiting_for_input",
+): boolean {
 	const isFromAgent = message.fromAgentId === agentId;
-	const isCompletionNotice = message.kind === "system" && message.threadId === completionNotificationThreadId(agentId);
-	return isFromAgent && isCompletionNotice && message.status === "pending";
+	const isLifecycleNotice =
+		message.kind === "system" && message.threadId === lifecycleNotificationThreadId(agentId, lifecycle);
+	return isFromAgent && isLifecycleNotice && message.status === "pending";
+}
+
+function lifecycleNotificationThreadId(agentId: string, lifecycle: "completed" | "waiting_for_input"): string {
+	return lifecycle === "completed"
+		? completionNotificationThreadId(agentId)
+		: waitingForInputNotificationThreadId(agentId);
 }
 
 function formatCompletionNotificationBody(agent: AgentNode): string {
 	const summary = agent.result?.summary?.trim();
 	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
+}
+
+function formatWaitingForInputNotificationBody(agent: AgentNode): string {
+	return `${agent.displayName} is waiting for input.`;
 }
 
 function wouldBroadenPermission(parent: AgentNode["permission"], requested: AgentNode["permission"]): boolean {

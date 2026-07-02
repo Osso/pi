@@ -1337,6 +1337,13 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(store.listMailboxMessages()).toMatchObject([
 			{
+				body: "Worker is waiting for input.",
+				fromAgentId: spawned.details.agent.id,
+				kind: "system",
+				status: "pending",
+				toAgentId: parent.agent.id,
+			},
+			{
 				artifactIds: ["artifact_1"],
 				body: "Worker completed: done",
 				fromAgentId: spawned.details.agent.id,
@@ -1364,13 +1371,28 @@ describe("multi-agent extension tools", () => {
 		const waiting = store.transitionAgent(running.agent.id, running.agent.revision, "waiting_for_input");
 		expect(waiting.ok).toBe(true);
 		if (!waiting.ok) throw new Error("expected waiting transition");
-		expect(store.listMailboxMessages()).toEqual([]);
+		expect(store.listMailboxMessages()).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				fromAgentId: spawned.agent.id,
+				kind: "system",
+				status: "pending",
+				toAgentId: "main",
+			},
+		]);
 		const completed = store.transitionAgent(waiting.agent.id, waiting.agent.revision, "completed", {
 			result: { summary: "done" },
 		});
 		expect(completed.ok).toBe(true);
 
 		expect(store.listMailboxMessages()).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				fromAgentId: spawned.agent.id,
+				kind: "system",
+				status: "pending",
+				toAgentId: "main",
+			},
 			{
 				body: "Worker completed: done",
 				fromAgentId: spawned.agent.id,

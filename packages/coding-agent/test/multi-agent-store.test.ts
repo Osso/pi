@@ -730,6 +730,73 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("records a pending parent notification when an agent waits for input", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const parent = spawnScout(store);
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: parent.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const starting = store.transitionAgent(child.agent.id, child.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) {
+			throw new Error("expected starting transition");
+		}
+		const running = store.transitionAgent(child.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected running transition");
+		}
+
+		const waiting = store.transitionAgent(child.agent.id, running.agent.revision, "waiting_for_input");
+
+		expect(waiting.ok).toBe(true);
+		expect(store.listMailboxMessages()).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				fromAgentId: child.agent.id,
+				kind: "system",
+				status: "pending",
+				threadId: `agent-waiting-for-input:${child.agent.id}`,
+				toAgentId: parent.agent.id,
+			},
+		]);
+		expect(store.listPendingMailboxMessagesForAgent(parent.agent.id)).toHaveLength(1);
+	});
+
+	it("does not duplicate pending waiting-for-input notifications for the same agent", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) {
+			throw new Error("expected starting transition");
+		}
+		const running = store.transitionAgent(spawned.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected running transition");
+		}
+		const firstWaiting = store.transitionAgent(spawned.agent.id, running.agent.revision, "waiting_for_input");
+		expect(firstWaiting.ok).toBe(true);
+		if (!firstWaiting.ok) {
+			throw new Error("expected first waiting transition");
+		}
+		const rerun = store.transitionAgent(spawned.agent.id, firstWaiting.agent.revision, "running");
+		expect(rerun.ok).toBe(true);
+		if (!rerun.ok) {
+			throw new Error("expected rerun transition");
+		}
+
+		const secondWaiting = store.transitionAgent(spawned.agent.id, rerun.agent.revision, "waiting_for_input");
+
+		expect(secondWaiting.ok).toBe(true);
+		expect(store.listMailboxMessages()).toHaveLength(1);
+	});
+
 	it("covers explicit non-terminal lifecycle transitions through cancellation", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);
@@ -967,7 +1034,41 @@ describe("MultiAgentStore", () => {
 				version: 1,
 			},
 		});
-		expect(JSON.stringify(entry?.data)).not.toContain("mailboxMessages");
+		expect(entry?.data).toMatchObject({ mailboxMessages: [] });
+	});
+
+	it("persists waiting-for-input notifications across session restore", () => {
+		const session = SessionManager.inMemory("/repo");
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+		const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) {
+			throw new Error("expected start to succeed");
+		}
+		const running = store.transitionAgent(spawned.agent.id, started.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected run to succeed");
+		}
+		const waiting = store.transitionAgent(spawned.agent.id, running.agent.revision, "waiting_for_input");
+		expect(waiting.ok).toBe(true);
+
+		store.persistSnapshot(session);
+		const rehydrated = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+		});
+
+		expect(rehydrated.listMailboxMessages()).toMatchObject([
+			{
+				body: "Scout is waiting for input.",
+				fromAgentId: spawned.agent.id,
+				kind: "system",
+				status: "pending",
+				threadId: `agent-waiting-for-input:${spawned.agent.id}`,
+				toAgentId: "root",
+			},
+		]);
 	});
 
 	it("rehydrates the latest persisted snapshot after reopening a session", () => {
@@ -1040,7 +1141,18 @@ describe("MultiAgentStore", () => {
 			});
 			expect(rehydrated.getSelectedAgentId()).toBe(spawned.agent.id);
 			expect(rehydrated.getActiveAgentCount()).toBe(0);
-			expect(rehydrated.listMailboxMessages()).toEqual([]);
+			expect(rehydrated.listMailboxMessages()).toMatchObject([
+				{
+					body: "Continue with tests",
+					kind: "steer",
+					status: "delivered",
+				},
+				{
+					body: "Scout completed.",
+					kind: "system",
+					status: "pending",
+				},
+			]);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}

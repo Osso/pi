@@ -12,7 +12,10 @@ import {
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import multiAgentExtension, { type ChildAgentDispatcher } from "../src/extensions/multi-agent.ts";
+import multiAgentExtension, {
+	type AgentDesktopNotification,
+	type ChildAgentDispatcher,
+} from "../src/extensions/multi-agent.ts";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -55,7 +58,10 @@ function runtimeMailboxPrompt(body: string): string {
 
 function collectMultiAgentTools(
 	store: MultiAgentStore,
-	options: { dispatcher?: ChildAgentDispatcher } = {},
+	options: {
+		desktopNotifier?: (notification: AgentDesktopNotification) => void;
+		dispatcher?: ChildAgentDispatcher;
+	} = {},
 ): Map<string, RegisteredTool> {
 	const tools = new Map<string, RegisteredTool>();
 	const pi = {
@@ -64,7 +70,7 @@ function collectMultiAgentTools(
 			tools.set(tool.name, tool as RegisteredTool);
 		},
 	} as ExtensionAPI;
-	multiAgentExtension(pi, { dispatcher: options.dispatcher, store });
+	multiAgentExtension(pi, { desktopNotifier: options.desktopNotifier, dispatcher: options.dispatcher, store });
 	return tools;
 }
 
@@ -326,6 +332,161 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
+	});
+
+	it("mirrors dispatched child waiting-for-input notification into the runtime mailbox for the parent main session", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const waitingAgents: AgentSnapshot[] = [];
+		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
+			waitingAgents.push(agent);
+			return { lifecycle: "waiting_for_input" };
+		};
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const tools = collectMultiAgentTools(store, { dispatcher });
+		const spawnAgent = tools.get("spawn_agent");
+		if (!spawnAgent) {
+			throw new Error("expected spawn_agent tool");
+		}
+
+		await spawnAgent.execute(
+			"spawn",
+			{ displayName: "Worker", prompt: "ask user" },
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+		for (let attempt = 0; attempt < 20 && waitingAgents.length === 0; attempt += 1) {
+			await delay(1);
+		}
+
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				recipient: { agentId: null, sessionId: "parent-session" },
+				sender: { agentId: "agent_1", sessionId: "parent-session" },
+				status: "pending",
+			},
+		]);
+	});
+
+	it("mirrors child waiting-for-input notification before the dispatch resolves", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		let transitionedToWaiting = false;
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const dispatcher: ChildAgentDispatcher = ({ agent }) => {
+			const waiting = store.transitionAgent(agent.id, agent.revision, "waiting_for_input");
+			expect(waiting.ok).toBe(true);
+			transitionedToWaiting = true;
+			return new Promise(() => undefined);
+		};
+		const tools = collectMultiAgentTools(store, { dispatcher });
+		const spawnAgent = tools.get("spawn_agent");
+		if (!spawnAgent) {
+			throw new Error("expected spawn_agent tool");
+		}
+
+		await spawnAgent.execute(
+			"spawn",
+			{ displayName: "Worker", prompt: "ask user" },
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+		for (let attempt = 0; attempt < 20 && !transitionedToWaiting; attempt += 1) {
+			await delay(1);
+		}
+
+		expect(transitionedToWaiting).toBe(true);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				recipient: { agentId: null, sessionId: "parent-session" },
+				sender: { agentId: "agent_1", sessionId: "parent-session" },
+				status: "pending",
+			},
+		]);
+	});
+
+	it("sends a non-expiring desktop notification when a dispatched child waits for input", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const desktopNotifications: AgentDesktopNotification[] = [];
+		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const tools = collectMultiAgentTools(store, {
+			desktopNotifier: (notification) => desktopNotifications.push(notification),
+			dispatcher,
+		});
+		const spawnAgent = tools.get("spawn_agent");
+		if (!spawnAgent) {
+			throw new Error("expected spawn_agent tool");
+		}
+
+		await spawnAgent.execute(
+			"spawn",
+			{ displayName: "Worker", prompt: "ask user" },
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+		for (let attempt = 0; attempt < 20 && desktopNotifications.length === 0; attempt += 1) {
+			await delay(1);
+		}
+
+		expect(desktopNotifications).toEqual([
+			{
+				body: "Worker is waiting for input.",
+				title: "Pi agent needs input",
+			},
+		]);
+	});
+
+	it("mirrors waiting-for-input notification even when desktop notification fails", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const tools = collectMultiAgentTools(store, {
+			desktopNotifier: () => {
+				throw new Error("notification failed");
+			},
+			dispatcher,
+		});
+		const spawnAgent = tools.get("spawn_agent");
+		if (!spawnAgent) {
+			throw new Error("expected spawn_agent tool");
+		}
+
+		await spawnAgent.execute(
+			"spawn",
+			{ displayName: "Worker", prompt: "ask user" },
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+		for (let attempt = 0; attempt < 20 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
+			await delay(1);
+		}
+
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				recipient: { agentId: null, sessionId: "parent-session" },
+				status: "pending",
+			},
+		]);
+		expect(consoleError).toHaveBeenCalledWith(
+			"Failed to send agent input-needed desktop notification:",
+			expect.any(Error),
+		);
+		consoleError.mockRestore();
 	});
 
 	it("mirrors dispatched child completion into the runtime mailbox for the parent main session", async () => {
