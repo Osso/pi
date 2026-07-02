@@ -1,3 +1,4 @@
+import type { DesktopNotifier } from "../desktop-notification.ts";
 import type { ToolCallEvent, ToolCallEventResult } from "../extensions/types.ts";
 import { buildPermissionRuleContent, type PermissionRuleStore, type PermissionRuleUpdate } from "./rule-store.ts";
 
@@ -25,6 +26,7 @@ export type PermissionPromptHandlerOptions = {
 	permissionPromptTool: string | undefined;
 	cwd: string;
 	callTool: PermissionPromptCaller;
+	desktopNotifier?: DesktopNotifier;
 	ruleStore?: PermissionRuleStore;
 };
 
@@ -79,6 +81,8 @@ export function createPermissionPromptHandler(
 			return undefined;
 		}
 
+		notifyPermissionPrompt(event, options.cwd, options.desktopNotifier);
+
 		let decision: PermissionPromptDecision | undefined;
 		try {
 			const response = await options.callTool(permissionPromptTool, {
@@ -107,6 +111,20 @@ export function createPermissionPromptHandler(
 
 		return undefined;
 	};
+}
+
+function notifyPermissionPrompt(event: ToolCallEvent, cwd: string, desktopNotifier: DesktopNotifier | undefined): void {
+	if (!desktopNotifier) {
+		return;
+	}
+	try {
+		desktopNotifier({
+			body: `Permission approval needed for ${event.toolName} in ${cwd}.`,
+			title: "Pi permission approval needed",
+		});
+	} catch (error) {
+		console.error("Failed to send permission prompt desktop notification:", error);
+	}
 }
 
 function parseUpdatedPermissions(value: unknown): PermissionRuleUpdate[] | undefined {

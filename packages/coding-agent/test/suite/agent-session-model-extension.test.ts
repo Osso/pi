@@ -5,6 +5,13 @@ import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const desktopNotifier = vi.hoisted(() => vi.fn());
+
+vi.mock("../../src/core/desktop-notification.ts", () => ({
+	sendDesktopNotification: desktopNotifier,
+}));
+
 import claudeBashHookExtension from "../../extensions/claude-bash-hook/src/index.ts";
 import hostrunExtension from "../../extensions/hostrun/src/index.ts";
 import {
@@ -28,6 +35,7 @@ describe("AgentSession model and extension characterization", () => {
 		while (hookScriptDirs.length > 0) {
 			rmSync(hookScriptDirs.pop()!, { force: true, recursive: true });
 		}
+		desktopNotifier.mockReset();
 		if (originalClaudeBashHook === undefined) {
 			delete process.env.PI_CLAUDE_BASH_HOOK;
 		} else {
@@ -985,6 +993,10 @@ describe("AgentSession model and extension characterization", () => {
 				tool_name: "echo",
 			},
 		]);
+		expect(desktopNotifier).toHaveBeenCalledWith({
+			body: expect.stringMatching(/^Permission approval needed for echo in .*\.$/),
+			title: "Pi permission approval needed",
+		});
 		expect(getAssistantTexts(harness)).toContain("approved");
 	});
 

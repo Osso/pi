@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -9,6 +8,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
+import { sendDesktopNotification, type DesktopNotification, type DesktopNotifier } from "../../../src/core/desktop-notification.ts";
 import {
 	type AgentArtifact,
 	type AgentLifecycleState,
@@ -145,12 +145,9 @@ const MAIN_THREAD_AGENT_ID = "main";
 const MESSAGE_CONTENT_LIMIT = 2000;
 const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 
-export interface AgentDesktopNotification {
-	body: string;
-	title: string;
-}
+export type AgentDesktopNotification = DesktopNotification;
 
-export type AgentDesktopNotifier = (notification: AgentDesktopNotification) => void;
+export type AgentDesktopNotifier = DesktopNotifier;
 
 export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
@@ -1439,19 +1436,6 @@ function isWaitingForInputNotification(message: AgentMailboxMessage): boolean {
 		message.status === "pending" &&
 		(message.threadId?.startsWith("agent-waiting-for-input:") ?? false)
 	);
-}
-
-function sendDesktopNotification(notification: AgentDesktopNotification): void {
-	if (process.platform !== "linux") {
-		return;
-	}
-	const child = spawn(
-		"notify-send",
-		["--app-name=Pi", "--expire-time=0", "--urgency=critical", notification.title, notification.body],
-		{ detached: true, stdio: "ignore" },
-	);
-	child.on("error", () => undefined);
-	child.unref();
 }
 
 function mirrorAgentLifecycleRuntimeMailbox(store: MultiAgentStore, agent: AgentSnapshot, ctx: ExtensionContext): void {

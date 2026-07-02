@@ -54,6 +54,7 @@ import {
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+import { sendDesktopNotification } from "./desktop-notification.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
@@ -658,6 +659,7 @@ export class AgentSession {
 			const permissionPromptResult = await createPermissionPromptHandler({
 				permissionPromptTool,
 				cwd: this._cwd,
+				desktopNotifier: sendDesktopNotification,
 				ruleStore: this._permissionRuleStore,
 				callTool: async (permissionPromptTool, input) => {
 					const tool = this._toolRegistry.get(permissionPromptTool);

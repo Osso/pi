@@ -19,13 +19,18 @@ function createToolCallEvent(input: Record<string, unknown> = { command: "git st
 
 function createHandler(
 	callTool: PermissionPromptCaller,
-	options: { permissionPromptTool?: string; ruleStore?: PermissionRuleStore } = {},
+	options: {
+		desktopNotifier?: (notification: { body: string; title: string }) => void;
+		permissionPromptTool?: string;
+		ruleStore?: PermissionRuleStore;
+	} = {},
 ) {
 	const configuredTool = "permissionPromptTool" in options ? options.permissionPromptTool : "mcp__approval__prompt";
 
 	return createPermissionPromptHandler({
 		callTool,
 		cwd: "/repo",
+		desktopNotifier: options.desktopNotifier,
 		permissionPromptTool: configuredTool,
 		ruleStore: options.ruleStore,
 	});
@@ -93,6 +98,48 @@ describe("createPermissionPromptHandler", () => {
 			tool_name: "bash",
 			tool_use_id: "toolu_01",
 		});
+	});
+
+	it("sends a desktop notification before calling the permission prompt tool", async () => {
+		const desktopNotifier = vi.fn();
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
+		const handler = createHandler(callTool, { desktopNotifier });
+
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+
+		expect(desktopNotifier).toHaveBeenCalledWith({
+			body: "Permission approval needed for bash in /repo.",
+			title: "Pi permission approval needed",
+		});
+		expect(callTool).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not expose permission prompt input in desktop notifications", async () => {
+		const desktopNotifier = vi.fn();
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
+		const handler = createHandler(callTool, { desktopNotifier });
+
+		await expect(
+			handler(createToolCallEvent({ command: "curl -H 'Authorization: Bearer secret-token'" })),
+		).resolves.toBeUndefined();
+
+		expect(desktopNotifier.mock.calls[0]?.[0].body).not.toContain("secret-token");
+		expect(desktopNotifier.mock.calls[0]?.[0].body).not.toContain("Authorization");
+	});
+
+	it("continues permission prompts when desktop notification fails", async () => {
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const desktopNotifier = vi.fn(() => {
+			throw new Error("notify-send missing");
+		});
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
+		const handler = createHandler(callTool, { desktopNotifier });
+
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+
+		expect(callTool).toHaveBeenCalledTimes(1);
+		expect(consoleError).toHaveBeenCalledOnce();
+		consoleError.mockRestore();
 	});
 
 	it("allows tool calls with updated input", async () => {
