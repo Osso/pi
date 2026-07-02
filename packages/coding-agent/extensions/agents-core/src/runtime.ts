@@ -1447,7 +1447,7 @@ function sendDesktopNotification(notification: AgentDesktopNotification): void {
 	}
 	const child = spawn(
 		"notify-send",
-		["--app-name=Pi", "--expire-time=0", notification.title, notification.body],
+		["--app-name=Pi", "--expire-time=0", "--urgency=critical", notification.title, notification.body],
 		{ detached: true, stdio: "ignore" },
 	);
 	child.on("error", () => undefined);
