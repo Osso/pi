@@ -20,7 +20,7 @@ function createToolCallEvent(input: Record<string, unknown> = { command: "git st
 function createHandler(
 	callTool: PermissionPromptCaller,
 	options: {
-		desktopNotifier?: (notification: { body: string; title: string }) => void;
+		desktopNotifier?: (notification: { body: string; title: string }) => undefined | { close(): void };
 		permissionPromptTool?: string;
 		ruleStore?: PermissionRuleStore;
 	} = {},
@@ -139,6 +139,37 @@ describe("createPermissionPromptHandler", () => {
 
 		expect(callTool).toHaveBeenCalledTimes(1);
 		expect(consoleError).toHaveBeenCalledOnce();
+		consoleError.mockRestore();
+	});
+
+	it("closes the desktop notification after the permission prompt resolves", async () => {
+		const close = vi.fn();
+		const desktopNotifier = vi.fn(() => ({ close }));
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"deny","message":"blocked"}');
+		const handler = createHandler(callTool, { desktopNotifier });
+
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: true, reason: "blocked" });
+
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("continues permission prompts when desktop notification close fails", async () => {
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		const close = vi.fn(() => {
+			throw new Error("close failed");
+		});
+		const desktopNotifier = vi.fn(() => ({ close }));
+		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
+		const handler = createHandler(callTool, { desktopNotifier });
+
+		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+
+		expect(callTool).toHaveBeenCalledTimes(1);
+		expect(close).toHaveBeenCalledOnce();
+		expect(consoleError).toHaveBeenCalledWith(
+			"Failed to close permission prompt desktop notification:",
+			expect.any(Error),
+		);
 		consoleError.mockRestore();
 	});
 

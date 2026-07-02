@@ -8,7 +8,13 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
-import { sendDesktopNotification, type DesktopNotification, type DesktopNotifier } from "../../../src/core/desktop-notification.ts";
+import {
+	sendDesktopNotification,
+	toDesktopNotificationHandle,
+	type DesktopNotification,
+	type DesktopNotificationHandle,
+	type DesktopNotifier,
+} from "../../../src/core/desktop-notification.ts";
 import {
 	type AgentArtifact,
 	type AgentLifecycleState,
@@ -322,6 +328,12 @@ interface AgentArtifactsToolDetails {
 
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
 type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
+interface WaitingDesktopNotificationRegistration {
+	handle: DesktopNotificationHandle;
+	unsubscribeTransition: () => void;
+}
+
+type WaitingDesktopNotificationHandles = Map<string, WaitingDesktopNotificationRegistration>;
 
 interface BackgroundDispatchContext {
 	createChildSession: ChildAgentSessionFactory | undefined;
@@ -534,6 +546,7 @@ export function createHostrunMultiAgentRequestHandler(
 	const store = resolveMultiAgentStore(options);
 	const activeDispatches: ActiveAgentDispatches = new Map();
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
+	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 
 	return async (request, ctx, signal) => {
 		if (request.method === "agents.spawn") {
@@ -545,6 +558,7 @@ export function createHostrunMultiAgentRequestHandler(
 				request.params as SpawnAgentParams,
 				ctx,
 				desktopNotifier,
+				waitingDesktopNotifications,
 			);
 			return result.details;
 		}
@@ -722,6 +736,7 @@ async function spawnAgent(
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	pi?: ExtensionAPI,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
@@ -750,6 +765,7 @@ async function spawnAgent(
 			ctx,
 			pi,
 			desktopNotifier,
+			waitingDesktopNotifications,
 			handles,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -768,6 +784,7 @@ async function spawnAgent(
 			ctx,
 			pi,
 			desktopNotifier,
+			waitingDesktopNotifications,
 		);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
 			agent,
@@ -791,13 +808,19 @@ function startToolDispatch(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI | undefined,
 	desktopNotifier: AgentDesktopNotifier,
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	handles?: BackgroundSessionHandles,
 ): AgentSnapshot {
 	const unsubscribeLifecycleNotifications = store.subscribeLifecycleNotifications((message) => {
 		if (message.fromAgentId !== agent.id) {
 			return;
 		}
-		notifyWaitingAgent(message, desktopNotifier);
+		const notificationHandle = notifyWaitingAgent(message, desktopNotifier);
+		if (isWaitingForInputNotification(message)) {
+			rememberWaitingDesktopNotification(store, message, notificationHandle, waitingDesktopNotifications);
+		} else {
+			closeWaitingDesktopNotification(message.fromAgentId, waitingDesktopNotifications);
+		}
 		try {
 			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
 			wakeIdleParentMailbox(store, pi, ctx);
@@ -818,6 +841,7 @@ function startToolDispatch(
 	});
 	void trackedDispatch.finally(() => {
 		unsubscribeLifecycleNotifications();
+		closeWaitingDesktopNotificationWhenNotWaiting(store, agent.id, waitingDesktopNotifications);
 		wakeIdleParentMailbox(store, pi, ctx);
 	});
 
@@ -1417,17 +1441,73 @@ function steerAgent(
 	});
 }
 
-function notifyWaitingAgent(message: AgentMailboxMessage, desktopNotifier: AgentDesktopNotifier): void {
+function notifyWaitingAgent(
+	message: AgentMailboxMessage,
+	desktopNotifier: AgentDesktopNotifier,
+): DesktopNotificationHandle | undefined {
 	if (!isWaitingForInputNotification(message)) {
-		return;
+		return undefined;
 	}
 	try {
-		desktopNotifier({
-			body: message.body ?? `${message.fromAgentId} is waiting for input.`,
-			title: "Pi agent needs input",
-		});
+		return toDesktopNotificationHandle(
+			desktopNotifier({
+				body: message.body ?? `${message.fromAgentId} is waiting for input.`,
+				title: "Pi agent needs input",
+			}),
+		);
 	} catch (error) {
 		console.error("Failed to send agent input-needed desktop notification:", error);
+		return undefined;
+	}
+}
+
+function rememberWaitingDesktopNotification(
+	store: MultiAgentStore,
+	message: AgentMailboxMessage,
+	notificationHandle: DesktopNotificationHandle | undefined,
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
+): void {
+	if (!notificationHandle) {
+		return;
+	}
+	closeWaitingDesktopNotification(message.fromAgentId, waitingDesktopNotifications);
+	const unsubscribeTransition = store.subscribeAgentTransitions((previous, current) => {
+		if (current.id !== message.fromAgentId || previous.lifecycle !== "waiting_for_input") {
+			return;
+		}
+		if (current.lifecycle !== "waiting_for_input") {
+			closeWaitingDesktopNotification(current.id, waitingDesktopNotifications);
+		}
+	});
+	waitingDesktopNotifications.set(message.fromAgentId, { handle: notificationHandle, unsubscribeTransition });
+}
+
+function closeWaitingDesktopNotificationWhenNotWaiting(
+	store: MultiAgentStore,
+	agentId: string,
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
+): void {
+	const current = store.getAgent(agentId);
+	if (current?.lifecycle === "waiting_for_input") {
+		return;
+	}
+	closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
+}
+
+function closeWaitingDesktopNotification(
+	agentId: string,
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
+): void {
+	const notificationRegistration = waitingDesktopNotifications.get(agentId);
+	if (!notificationRegistration) {
+		return;
+	}
+	waitingDesktopNotifications.delete(agentId);
+	notificationRegistration.unsubscribeTransition();
+	try {
+		notificationRegistration.handle.close();
+	} catch (error) {
+		console.error("Failed to close agent input-needed desktop notification:", error);
 	}
 }
 
@@ -1628,6 +1708,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const dispatcher = options.dispatcher;
 	const backgroundSessions: BackgroundSessionHandles = new Map();
 	const activeDispatches: ActiveAgentDispatches = new Map();
+	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
 
 	pi.registerCommand("bg", {
@@ -1660,6 +1741,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					params,
 					ctx,
 					desktopNotifier,
+					waitingDesktopNotifications,
 					pi,
 					backgroundSessions,
 				),

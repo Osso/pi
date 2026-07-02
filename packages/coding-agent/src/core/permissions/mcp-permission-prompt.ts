@@ -1,4 +1,8 @@
-import type { DesktopNotifier } from "../desktop-notification.ts";
+import {
+	type DesktopNotificationHandle,
+	type DesktopNotifier,
+	toDesktopNotificationHandle,
+} from "../desktop-notification.ts";
 import type { ToolCallEvent, ToolCallEventResult } from "../extensions/types.ts";
 import { buildPermissionRuleContent, type PermissionRuleStore, type PermissionRuleUpdate } from "./rule-store.ts";
 
@@ -81,7 +85,7 @@ export function createPermissionPromptHandler(
 			return undefined;
 		}
 
-		notifyPermissionPrompt(event, options.cwd, options.desktopNotifier);
+		const notificationHandle = notifyPermissionPrompt(event, options.cwd, options.desktopNotifier);
 
 		let decision: PermissionPromptDecision | undefined;
 		try {
@@ -94,6 +98,8 @@ export function createPermissionPromptHandler(
 			decision = parsePermissionPromptDecision(response);
 		} catch {
 			return undefined;
+		} finally {
+			closePermissionPromptNotification(notificationHandle);
 		}
 
 		if (!decision) {
@@ -113,17 +119,35 @@ export function createPermissionPromptHandler(
 	};
 }
 
-function notifyPermissionPrompt(event: ToolCallEvent, cwd: string, desktopNotifier: DesktopNotifier | undefined): void {
+function notifyPermissionPrompt(
+	event: ToolCallEvent,
+	cwd: string,
+	desktopNotifier: DesktopNotifier | undefined,
+): DesktopNotificationHandle | undefined {
 	if (!desktopNotifier) {
+		return undefined;
+	}
+	try {
+		return toDesktopNotificationHandle(
+			desktopNotifier({
+				body: `Permission approval needed for ${event.toolName} in ${cwd}.`,
+				title: "Pi permission approval needed",
+			}),
+		);
+	} catch (error) {
+		console.error("Failed to send permission prompt desktop notification:", error);
+		return undefined;
+	}
+}
+
+function closePermissionPromptNotification(notificationHandle: DesktopNotificationHandle | undefined): void {
+	if (!notificationHandle) {
 		return;
 	}
 	try {
-		desktopNotifier({
-			body: `Permission approval needed for ${event.toolName} in ${cwd}.`,
-			title: "Pi permission approval needed",
-		});
+		notificationHandle.close();
 	} catch (error) {
-		console.error("Failed to send permission prompt desktop notification:", error);
+		console.error("Failed to close permission prompt desktop notification:", error);
 	}
 }
 

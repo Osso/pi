@@ -241,6 +241,7 @@ export interface MultiAgentStoreOptions {
 }
 
 export type AgentLifecycleNotificationListener = (message: AgentMailboxMessage) => void;
+export type AgentTransitionListener = (previous: AgentSnapshot, current: AgentSnapshot) => void;
 
 export interface PersistedMultiAgentSnapshot {
 	version: 1;
@@ -304,6 +305,7 @@ export class MultiAgentStore {
 	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
+	private readonly transitionListeners = new Set<AgentTransitionListener>();
 	private readonly abortHandlers = new Map<string, () => void>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
@@ -318,6 +320,11 @@ export class MultiAgentStore {
 	subscribeLifecycleNotifications(listener: AgentLifecycleNotificationListener): () => void {
 		this.lifecycleNotificationListeners.add(listener);
 		return () => this.lifecycleNotificationListeners.delete(listener);
+	}
+
+	subscribeAgentTransitions(listener: AgentTransitionListener): () => void {
+		this.transitionListeners.add(listener);
+		return () => this.transitionListeners.delete(listener);
 	}
 
 	registerAgentAbortHandler(agentId: string, handler: () => void): () => void {
@@ -416,6 +423,7 @@ export class MultiAgentStore {
 		if (shouldNotifyWaitingForInput) {
 			this.recordWaitingForInputNotification(updated);
 		}
+		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
 		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
 			this.selectedAgentId = undefined;
 		}
@@ -835,6 +843,7 @@ export class MultiAgentStore {
 		this.mailboxMessages.set(message.id, message);
 
 		const updated = this.updateAgent(current, { lifecycle: "steering_pending" });
+		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
@@ -873,6 +882,7 @@ export class MultiAgentStore {
 		}
 
 		const updated = this.updateAgent(current, { lifecycle: nextLifecycle });
+		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(updatedMessage) };
 	}
@@ -1112,6 +1122,20 @@ export class MultiAgentStore {
 		const snapshot = copyMessage(message);
 		for (const listener of this.lifecycleNotificationListeners) {
 			listener(snapshot);
+		}
+	}
+
+	private notifyTransitionListenersIfLifecycleChanged(previous: AgentNode, current: AgentNode): void {
+		if (previous.lifecycle !== current.lifecycle) {
+			this.notifyTransitionListeners(previous, current);
+		}
+	}
+
+	private notifyTransitionListeners(previous: AgentNode, current: AgentNode): void {
+		const previousSnapshot = copyAgent(previous);
+		const currentSnapshot = copyAgent(current);
+		for (const listener of this.transitionListeners) {
+			listener(previousSnapshot, currentSnapshot);
 		}
 	}
 
