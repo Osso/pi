@@ -127,6 +127,31 @@ describe("bash tool background detach", () => {
 		expect(readFileSync(artifact.path!, "utf8")).toContain("after-detach");
 	});
 
+	it("keeps bash timeout active after detaching", async () => {
+		const cwd = await createTempDir();
+		const scriptPath = join(cwd, "timeout-running.mjs");
+		writeFileSync(scriptPath, "setInterval(() => console.log('tick'), 20);\n");
+		const store = new MultiAgentStore();
+		const detachRegistry = new BashToolDetachRegistry();
+		const updates: string[] = [];
+		const tool = createBashToolDefinition(cwd, { backgroundJobs: { store }, detachRegistry });
+
+		const resultPromise = tool.execute(
+			"tool-bash-timeout",
+			{ command: `${quotePath(process.execPath)} ${quotePath(scriptPath)}`, timeout: 0.5 },
+			undefined,
+			(partial) => updates.push(textFrom(partial)),
+			{} as never,
+		);
+		await waitFor(() => updates.some((update) => update.includes("tick")), "pre-timeout output");
+		expect(detachRegistry.detachRunning()).toBe(true);
+		await resultPromise;
+
+		const [job] = store.listAgents();
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "failed", "detached timeout failure");
+		expect(store.getAgent(job.id)?.result?.summary).toContain("exit code null");
+	});
+
 	it("lets cancel_agent kill a detached bash process tree", async () => {
 		const cwd = await createTempDir();
 		const markerPath = join(cwd, "still-running");
@@ -169,5 +194,9 @@ describe("bash tool background detach", () => {
 		);
 		expect((cancelled as AgentToolResult<CancelAgentDetails>).details.agent.lifecycle).toBe("aborted");
 		await waitFor(() => !isProcessAlive(pid), "detached process termination");
+		await waitFor(() => store.listArtifacts(job.id).length === 1, "cancelled process log artifact");
+		const [artifact] = store.listArtifacts(job.id);
+		expect(artifact).toMatchObject({ kind: "log", title: "Bash output" });
+		expect(artifact.path && existsSync(artifact.path)).toBe(true);
 	});
 });
