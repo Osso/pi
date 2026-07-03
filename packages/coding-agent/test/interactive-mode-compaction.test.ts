@@ -164,6 +164,89 @@ describe("InteractiveMode compaction events", () => {
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
 	});
 
+	test("flushCompactionQueue delivers queued messages even when a turn resumed after compaction", async () => {
+		// Reproduces the race: compaction ends, the mailbox drain resumes a streaming
+		// turn (e.g. wait_agent) before the deferred flush runs. The flush must queue
+		// via streamingBehavior instead of hitting the "already processing" guard.
+		const delivered: Array<{ text: string; behavior?: "steer" | "followUp" }> = [];
+		const fakeSession = {
+			isStreaming: true,
+			clearQueue: vi.fn(),
+			steer: vi.fn().mockResolvedValue(undefined),
+			followUp: vi.fn().mockResolvedValue(undefined),
+			prompt: vi.fn(async (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => {
+				if (fakeSession.isStreaming && !options?.streamingBehavior) {
+					throw new Error(
+						"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+					);
+				}
+				delivered.push({ text, behavior: options?.streamingBehavior });
+			}),
+		};
+		const fakeThis = {
+			compactionQueuedMessages: [{ text: "after pushing, review the PR", mode: "steer" as const }],
+			updatePendingMessagesDisplay: vi.fn(),
+			showError: vi.fn(),
+			isExtensionCommand: () => false,
+			deliverCompactionMessage: Reflect.get(InteractiveMode.prototype, "deliverCompactionMessage"),
+			session: fakeSession,
+		};
+
+		const flushCompactionQueue = Reflect.get(InteractiveMode.prototype, "flushCompactionQueue") as (
+			this: typeof fakeThis,
+			options?: { willRetry?: boolean },
+		) => Promise<void>;
+
+		await flushCompactionQueue.call(fakeThis, { willRetry: false });
+		// The first prompt is sent fire-and-forget; let its rejection handler (if any) run.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(delivered).toEqual([{ text: "after pushing, review the PR", behavior: "steer" }]);
+		expect(fakeThis.showError).not.toHaveBeenCalled();
+		expect(fakeThis.compactionQueuedMessages).toEqual([]);
+	});
+
+	test("flushCompactionQueue queues followUp messages with followUp behavior", async () => {
+		const delivered: Array<{ text: string; behavior?: "steer" | "followUp" }> = [];
+		const fakeSession = {
+			isStreaming: true,
+			clearQueue: vi.fn(),
+			steer: vi.fn().mockResolvedValue(undefined),
+			followUp: vi.fn().mockResolvedValue(undefined),
+			prompt: vi.fn(async (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => {
+				if (fakeSession.isStreaming && !options?.streamingBehavior) {
+					throw new Error(
+						"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+					);
+				}
+				delivered.push({ text, behavior: options?.streamingBehavior });
+			}),
+		};
+		const fakeThis = {
+			compactionQueuedMessages: [
+				{ text: "first follow-up", mode: "followUp" as const },
+				{ text: "second follow-up", mode: "followUp" as const },
+			],
+			updatePendingMessagesDisplay: vi.fn(),
+			showError: vi.fn(),
+			isExtensionCommand: () => false,
+			deliverCompactionMessage: Reflect.get(InteractiveMode.prototype, "deliverCompactionMessage"),
+			session: fakeSession,
+		};
+
+		const flushCompactionQueue = Reflect.get(InteractiveMode.prototype, "flushCompactionQueue") as (
+			this: typeof fakeThis,
+			options?: { willRetry?: boolean },
+		) => Promise<void>;
+
+		await flushCompactionQueue.call(fakeThis, { willRetry: false });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(delivered).toEqual([{ text: "first follow-up", behavior: "followUp" }]);
+		expect(fakeSession.followUp).toHaveBeenCalledWith("second follow-up");
+		expect(fakeThis.showError).not.toHaveBeenCalled();
+	});
+
 	test("formats compaction timeout failures with actionable context", () => {
 		expect(
 			formatCompactionFailureMessage({

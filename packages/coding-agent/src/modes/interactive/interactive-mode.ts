@@ -4214,6 +4214,16 @@ export class InteractiveMode {
 		return !!extensionRunner.getCommand(commandName);
 	}
 
+	private async deliverCompactionMessage(message: CompactionQueuedMessage): Promise<void> {
+		if (this.isExtensionCommand(message.text)) {
+			await this.session.prompt(message.text);
+		} else if (message.mode === "followUp") {
+			await this.session.followUp(message.text);
+		} else {
+			await this.session.steer(message.text);
+		}
+	}
+
 	private async flushCompactionQueue(options?: { willRetry?: boolean }): Promise<void> {
 		if (this.compactionQueuedMessages.length === 0) {
 			return;
@@ -4238,13 +4248,7 @@ export class InteractiveMode {
 			if (options?.willRetry) {
 				// When retry is pending, queue messages for the retry turn
 				for (const message of queuedMessages) {
-					if (this.isExtensionCommand(message.text)) {
-						await this.session.prompt(message.text);
-					} else if (message.mode === "followUp") {
-						await this.session.followUp(message.text);
-					} else {
-						await this.session.steer(message.text);
-					}
+					await this.deliverCompactionMessage(message);
 				}
 				this.updatePendingMessagesDisplay();
 				return;
@@ -4269,20 +4273,19 @@ export class InteractiveMode {
 				await this.session.prompt(message.text);
 			}
 
-			// Send first prompt (starts streaming)
-			const promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
-				restoreQueue(error);
-			});
+			// Send first prompt. streamingBehavior keeps this race-safe: the post-run
+			// loop (mailbox drain, length-retry resume) can start a new turn between
+			// compaction_end and this deferred flush, so the agent may already be
+			// streaming again — queue via steer/followUp instead of failing.
+			const promptPromise = this.session
+				.prompt(firstPrompt.text, { streamingBehavior: firstPrompt.mode })
+				.catch((error) => {
+					restoreQueue(error);
+				});
 
 			// Queue remaining messages
 			for (const message of rest) {
-				if (this.isExtensionCommand(message.text)) {
-					await this.session.prompt(message.text);
-				} else if (message.mode === "followUp") {
-					await this.session.followUp(message.text);
-				} else {
-					await this.session.steer(message.text);
-				}
+				await this.deliverCompactionMessage(message);
 			}
 			this.updatePendingMessagesDisplay();
 			void promptPromise;
