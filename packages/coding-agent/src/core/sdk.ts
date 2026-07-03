@@ -78,6 +78,12 @@ export interface CreateAgentSessionOptions {
 	permissionPromptTool?: string;
 	/** Shared multi-agent store used for detached tool background jobs. */
 	multiAgentStore?: MultiAgentStore;
+	/** Current multi-agent runtime agent identity, when resuming or running as a child agent. */
+	multiAgentAgentId?: string;
+	/** Parent runtime session ID for supervisor-directed messages from attached agents. */
+	multiAgentParentSessionId?: string;
+	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
+	multiAgentRequiresAgentId?: boolean;
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
 
@@ -405,6 +411,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		allowedToolNames,
 		excludedToolNames,
 		permissionPromptTool: options.permissionPromptTool,
+		multiAgentAgentId: options.multiAgentAgentId,
+		multiAgentParentSessionId: options.multiAgentParentSessionId,
+		multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
 		multiAgentStore: options.multiAgentStore,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,

@@ -38,7 +38,7 @@ import {
 	readSessionMetadata,
 	type RuntimeMailboxAddress,
 } from "../../../src/core/session-control-db.ts";
-import type { SessionEntry } from "../../../src/core/session-manager.ts";
+import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 
 const checkpointSchema = Type.Union([
@@ -73,6 +73,16 @@ const spawnAgentSchema = Type.Object({
 const listAgentsSchema = Type.Object({
 	activeOnly: Type.Optional(Type.Boolean()),
 	parentId: Type.Optional(Type.String()),
+});
+
+const attachSessionAgentSchema = Type.Object({
+	agentType: Type.Optional(Type.String()),
+	displayName: Type.Optional(Type.String()),
+	name: Type.Optional(Type.String()),
+	parentId: Type.Optional(Type.String()),
+	path: Type.Optional(Type.String()),
+	prompt: Type.Optional(Type.String()),
+	sessionId: Type.Optional(Type.String()),
 });
 
 const waitAgentSchema = Type.Object({
@@ -130,6 +140,7 @@ const agentArtifactsSchema = Type.Object({
 });
 
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
+type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type WaitAgentParams = Static<typeof waitAgentSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
@@ -157,6 +168,7 @@ export type AgentDesktopNotification = DesktopNotification;
 export type AgentDesktopNotifier = DesktopNotifier;
 
 export interface MultiAgentExtensionOptions {
+	createAttachedSession?: AttachedSessionFactory;
 	createChildSession?: ChildAgentSessionFactory;
 	desktopNotifier?: AgentDesktopNotifier;
 	dispatcher?: ChildAgentDispatcher;
@@ -186,6 +198,12 @@ export interface ChildAgentSession {
 }
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
+
+export interface AttachedSessionDispatchInput extends ChildAgentDispatchInput {
+	sessionPath: string;
+}
+
+export type AttachedSessionFactory = (input: AttachedSessionDispatchInput) => Promise<ChildAgentSession>;
 
 export interface ProductionChildAgentSessionFactoryOptions {
 	agentDir?: string;
@@ -472,6 +490,42 @@ export function createProductionChildAgentSessionFactory(
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
+			multiAgentAgentId: agent.id,
+			sessionManager,
+			sessionStartEvent,
+			thinkingLevel: profile.thinkingLevel,
+		});
+
+		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
+		return result.session;
+	};
+}
+
+export function createProductionAttachedSessionFactory(
+	options: Omit<ProductionChildAgentSessionFactoryOptions, "createSessionManager">,
+): AttachedSessionFactory {
+	return async ({ agent, ctx, sessionPath }) => {
+		if (!sessionPath) {
+			throw new Error("Cannot resume attached session without a session path");
+		}
+		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
+		const sessionManager = SessionManager.open(sessionPath, sessionDir, agent.cwd);
+		sessionManager.setMetadataControlDbPath(ctx.controlDbPath);
+		const profile = resolveChildAgentProfile(agent, ctx);
+		const parentSessionFile = ctx.sessionManager.getSessionFile();
+		const sessionStartEvent = parentSessionFile
+			? { type: "session_start" as const, reason: "resume" as const, previousSessionFile: parentSessionFile }
+			: { type: "session_start" as const, reason: "resume" as const };
+		const result = await options.createSession({
+			agentDir: options.agentDir,
+			cwd: agent.cwd,
+			excludeTools: ["spawn_agent"],
+			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
+			model: profile.model ?? ctx.model,
+			modelRegistry: ctx.modelRegistry,
+			multiAgentAgentId: agent.id,
+			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
+			multiAgentRequiresAgentId: true,
 			sessionManager,
 			sessionStartEvent,
 			thinkingLevel: profile.thinkingLevel,
@@ -546,6 +600,7 @@ export function createHostrunMultiAgentRequestHandler(
 ): HostrunMultiAgentRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const activeDispatches: ActiveAgentDispatches = new Map();
+	const backgroundSessions: BackgroundSessionHandles = new Map();
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 
@@ -566,6 +621,21 @@ export function createHostrunMultiAgentRequestHandler(
 
 		if (request.method === "agents.wait") {
 			const result = await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal);
+			return result.details;
+		}
+
+		if (request.method === "agents.attachSession") {
+			const result = await attachSessionAgent({
+				createAttachedSession: options.createAttachedSession,
+				ctx,
+				desktopNotifier,
+				dispatcher: options.dispatcher,
+				dispatches: activeDispatches,
+				handles: backgroundSessions,
+				params: request.params as AttachSessionAgentParams,
+				store,
+				waitingDesktopNotifications,
+			});
 			return result.details;
 		}
 
@@ -799,6 +869,278 @@ async function spawnAgent(
 		dispatched: false,
 		prompt: params.prompt,
 	});
+}
+
+interface AttachSessionAgentRuntimeInput {
+	createAttachedSession: AttachedSessionFactory | undefined;
+	ctx: ExtensionContext;
+	desktopNotifier: AgentDesktopNotifier;
+	dispatcher: ChildAgentDispatcher | undefined;
+	dispatches: ActiveAgentDispatches;
+	handles?: BackgroundSessionHandles;
+	params: AttachSessionAgentParams;
+	pi?: ExtensionAPI;
+	store: MultiAgentStore;
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
+}
+
+async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promise<AgentToolResult<AgentToolDetails>> {
+	const { ctx, params, store } = input;
+	const resolution = await resolveAttachSessionTarget(params, ctx);
+	if (!resolution.ok) {
+		return errorResult(resolution.message, {
+			agent: emptyAgent("attach_session_agent"),
+			dispatched: false,
+		});
+	}
+	const resolved = resolution.target;
+
+	const prompt = params.prompt?.trim();
+	if (prompt && !input.createAttachedSession && !input.dispatcher) {
+		return errorResult(`Could not resume session ${resolved.sessionId}: no attached session runtime is configured.`, {
+			agent: emptyAgent("attach_session_agent"),
+			dispatched: false,
+			prompt,
+		});
+	}
+
+	const attached = spawnAttachedSessionAgent(store, params, resolved, ctx);
+	if (!attached.ok) {
+		return errorResult(`Could not attach session ${resolved.sessionId}: ${attached.error}`, {
+			agent: attached.parent ?? emptyAgent(params.parentId ?? "attach_session_agent"),
+			dispatched: false,
+		});
+	}
+
+	const dispatched = prompt
+		? dispatchAttachedSessionAgent({
+				createAttachedSession: input.createAttachedSession,
+				ctx,
+				desktopNotifier: input.desktopNotifier,
+				dispatcher: input.dispatcher,
+				dispatches: input.dispatches,
+				handles: input.handles,
+				pi: input.pi,
+				prompt,
+				store,
+				target: attached.agent,
+				waitingDesktopNotifications: input.waitingDesktopNotifications,
+			})
+		: undefined;
+	if (dispatched) {
+		return result(`Attached and resumed ${dispatched.displayName} (${dispatched.id})`, {
+			agent: dispatched,
+			dispatched: true,
+			prompt,
+		});
+	}
+
+	return result(`Attached ${attached.agent.displayName} (${attached.agent.id})`, {
+		agent: attached.agent,
+		dispatched: false,
+	});
+}
+
+interface AttachSessionTarget {
+	cwd: string;
+	name?: string;
+	path: string;
+	sessionId: string;
+}
+
+type AttachSessionTargetResolution =
+	| { ok: true; target: AttachSessionTarget }
+	| { ok: false; message: string };
+
+interface AttachSessionDispatchInput {
+	createAttachedSession: AttachedSessionFactory | undefined;
+	ctx: ExtensionContext;
+	desktopNotifier: AgentDesktopNotifier;
+	dispatcher: ChildAgentDispatcher | undefined;
+	dispatches: ActiveAgentDispatches;
+	handles?: BackgroundSessionHandles;
+	pi?: ExtensionAPI;
+	prompt: string;
+	store: MultiAgentStore;
+	target: AgentSnapshot;
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
+}
+
+type AttachSessionResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: string; parent?: AgentSnapshot };
+
+function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentSnapshot | undefined {
+	const createAttachedSession = input.createAttachedSession;
+	if (createAttachedSession) {
+		return startToolDispatch(
+			input.store,
+			input.dispatches,
+			input.target,
+			() => dispatchAttachedChildSession(input, createAttachedSession),
+			input.ctx,
+			input.pi,
+			input.desktopNotifier,
+			input.waitingDesktopNotifications,
+			input.handles,
+		);
+	}
+	const dispatcher = input.dispatcher;
+	if (!dispatcher) {
+		return undefined;
+	}
+	return startToolDispatch(
+		input.store,
+		input.dispatches,
+		input.target,
+		() => dispatchAgent(input.store, dispatcher, input.target, input.prompt, input.ctx),
+		input.ctx,
+		input.pi,
+		input.desktopNotifier,
+		input.waitingDesktopNotifications,
+	);
+}
+
+function dispatchAttachedChildSession(
+	input: AttachSessionDispatchInput,
+	createAttachedSession: AttachedSessionFactory,
+): Promise<AgentSnapshot> {
+	return dispatchAgentSession(
+		input.store,
+		(dispatchInput) =>
+			createAttachedSession({ ...dispatchInput, sessionPath: input.target.transcript?.path ?? "" }),
+		input.target,
+		input.prompt,
+		input.ctx,
+		(childSession) => {
+			input.handles?.set(input.target.id, childSession);
+		},
+	);
+}
+
+function spawnAttachedSessionAgent(
+	store: MultiAgentStore,
+	params: AttachSessionAgentParams,
+	resolved: AttachSessionTarget,
+	ctx: ExtensionContext,
+): AttachSessionResult {
+	const agentType = params.agentType?.trim() || "resumed-session";
+	const displayName = params.displayName?.trim() || resolved.name || `Session ${resolved.sessionId}`;
+	const profile = resolveConfiguredAgentProfile(agentType, ctx);
+	const permission = buildAttachedSessionPermission(store, params.parentId);
+	const input = {
+		agentType,
+		cwd: resolved.cwd || ctx.cwd,
+		displayName,
+		lifecycle: "waiting_for_input" as const,
+		model: profile.modelMetadata,
+		permission,
+		transcript: { path: resolved.path, sessionId: resolved.sessionId },
+	};
+	if (!params.parentId) {
+		return { ok: true, agent: store.spawnAgent(input).agent };
+	}
+	const attached = store.attachSessionAgent(params.parentId, input);
+	if (attached.ok) {
+		return attached;
+	}
+	return "parent" in attached
+		? { ok: false, error: attached.error, parent: attached.parent }
+		: { ok: false, error: attached.error };
+}
+
+function buildAttachedSessionPermission(store: MultiAgentStore, parentId: string | undefined): AgentSnapshot["permission"] {
+	if (!parentId) {
+		return { narrowed: true, policy: "on-request" };
+	}
+	const parent = store.getAgent(parentId);
+	return { inheritedFrom: parentId, narrowed: true, policy: parent?.permission.policy ?? "on-request" };
+}
+
+async function resolveAttachSessionTarget(
+	params: AttachSessionAgentParams,
+	ctx: ExtensionContext,
+): Promise<AttachSessionTargetResolution> {
+	const path = params.path?.trim();
+	const sessionId = params.sessionId?.trim();
+	const name = params.name?.trim();
+	if (countAttachSessionSelectors({ name, path, sessionId }) !== 1) {
+		return { ok: false, message: "Could not attach session: provide exactly one of path, sessionId, or name." };
+	}
+	if (path) {
+		const session = SessionManager.open(path, ctx.sessionManager?.getSessionDir());
+		return {
+			ok: true,
+			target: {
+				cwd: session.getCwd(),
+				name: session.getSessionName(),
+				path: session.getSessionFile() ?? path,
+				sessionId: session.getSessionId(),
+			},
+		};
+	}
+	const match = await findAttachSessionMatch(ctx, { name, sessionId });
+	if (match.status === "ambiguous") {
+		return { ok: false, message: `Could not attach session: ${match.selector} matches multiple sessions.` };
+	}
+	if (match.status === "not_found") {
+		return { ok: false, message: "Could not attach session: session not found." };
+	}
+	return { ok: true, target: { cwd: match.session.cwd, name: match.session.name, path: match.session.path, sessionId: match.session.id } };
+}
+
+function countAttachSessionSelectors(target: { name?: string; path?: string; sessionId?: string }): number {
+	const selectors = [target.name, target.path, target.sessionId];
+	return selectors.filter((value) => value !== undefined && value !== "").length;
+}
+
+type AttachSessionMatchResult =
+	| { status: "found"; session: SessionInfo }
+	| { status: "ambiguous"; selector: string }
+	| { status: "not_found" };
+
+async function findAttachSessionMatch(
+	ctx: ExtensionContext,
+	target: { name?: string; sessionId?: string },
+): Promise<AttachSessionMatchResult> {
+	const sessionDir = ctx.sessionManager?.getSessionDir();
+	const localSessions = await SessionManager.list(ctx.cwd, sessionDir, undefined, ctx.controlDbPath);
+	const allSessions = await SessionManager.listAll(sessionDir, undefined, ctx.controlDbPath);
+	return findMatchingSession(dedupeSessionsByPath([...localSessions, ...allSessions]), target);
+}
+
+function dedupeSessionsByPath(sessions: SessionInfo[]): SessionInfo[] {
+	const deduped = new Map<string, SessionInfo>();
+	for (const session of sessions) {
+		deduped.set(session.path, session);
+	}
+	return [...deduped.values()];
+}
+
+function findMatchingSession(
+	sessions: SessionInfo[],
+	target: { name?: string; sessionId?: string },
+): AttachSessionMatchResult {
+	const sessionId = target.sessionId;
+	if (sessionId) {
+		const exactMatches = sessions.filter((session) => session.id === sessionId);
+		if (exactMatches.length > 1) {
+			return { status: "ambiguous", selector: sessionId };
+		}
+		if (exactMatches[0]) {
+			return { status: "found", session: exactMatches[0] };
+		}
+		const prefixMatches = sessions.filter((session) => session.id.startsWith(sessionId));
+		if (prefixMatches.length > 1) {
+			return { status: "ambiguous", selector: sessionId };
+		}
+		return prefixMatches[0] ? { status: "found", session: prefixMatches[0] } : { status: "not_found" };
+	}
+	const nameMatches = sessions.filter((session) => session.name === target.name);
+	if (nameMatches.length > 1) {
+		return { status: "ambiguous", selector: target.name ?? "name" };
+	}
+	return nameMatches[0] ? { status: "found", session: nameMatches[0] } : { status: "not_found" };
 }
 
 function startToolDispatch(
@@ -1049,13 +1391,11 @@ function drainParentMailboxAtAgentEnd(store: MultiAgentStore, pi: ExtensionAPI, 
 	}
 }
 
-function resolveCurrentMailboxAgentId(store: MultiAgentStore, ctx: ExtensionContext): string | undefined {
-	if (!ctx.sessionManager.isSubagentSession()) {
-		return MAIN_THREAD_AGENT_ID;
+function resolveCurrentMailboxAgentId(_store: MultiAgentStore, ctx: ExtensionContext): string | undefined {
+	if (ctx.multiAgentAgentId) {
+		return ctx.multiAgentAgentId;
 	}
-
-	const sessionId = ctx.sessionManager.getSessionId();
-	return store.listAgents().find((agent) => agent.transcript?.sessionId === sessionId)?.id;
+	return ctx.sessionManager.isSubagentSession() ? undefined : MAIN_THREAD_AGENT_ID;
 }
 
 function formatParentMailboxMessage(store: MultiAgentStore, message: AgentMailboxMessage): string {
@@ -1142,13 +1482,23 @@ function sendAgentMessage(
 				`Could not send agent message to ${params.toAgentId}: target session does not match ${params.toSessionId}.`,
 				{
 					agent: currentMessageSenderAgent(store, ctx),
-					message: emptyDirectMessage(currentMessageSenderId(store, ctx), params.toAgentId, params.message),
+					message: emptyDirectMessage(
+						currentMessageSenderId(store, ctx) ?? "unknown_subagent",
+						params.toAgentId,
+						params.message,
+					),
 				},
 			);
 		}
 	}
 
 	const senderId = currentMessageSenderId(store, ctx);
+	if (!senderId) {
+		return errorResult("Could not send agent message: subagent runtime identity is unavailable.", {
+			agent: emptyAgent("unknown_subagent"),
+			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
+		});
+	}
 	const sender = store.getAgent(senderId);
 	const messageInput = {
 		artifactIds: params.artifactIds,
@@ -1168,7 +1518,8 @@ function sendAgentMessage(
 	}
 
 	if (params.toSessionId) {
-		if (mirrorRuntimeSessionMessage(sent.message, params.toSessionId, ctx)) {
+		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
+		if (mirrorRuntimeSessionMessage(sent.message, params.toSessionId, ctx, recipientAgentId)) {
 			markMirroredMailboxMessageDelivered(store, sent.message);
 		}
 	} else {
@@ -1187,14 +1538,21 @@ function sendMainRuntimeSessionMessage(
 	ctx: ExtensionContext | undefined,
 ): AgentToolResult<SendAgentMessageToolDetails> {
 	const sender = currentMessageSenderAgent(store, ctx);
+	const senderId = currentMessageSenderId(store, ctx);
 	if (!params.toSessionId) {
 		return errorResult("Could not send runtime session message: target session unavailable.", {
 			agent: sender,
-			message: emptyDirectMessage(currentMessageSenderId(store, ctx), params.toAgentId, params.message),
+			message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
 		});
 	}
-	const message = createRuntimeSessionMessage(params, currentMessageSenderId(store, ctx));
-	mirrorRuntimeSessionMessage(message, params.toSessionId, ctx);
+	if (!senderId) {
+		return errorResult("Could not send runtime session message: subagent runtime identity is unavailable.", {
+			agent: sender,
+			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
+		});
+	}
+	const message = createRuntimeSessionMessage(params, senderId);
+	mirrorRuntimeSessionMessage(message, params.toSessionId, ctx, null);
 	return result(`Sent message to session ${params.toSessionId}.`, {
 		agent: sender,
 		message,
@@ -1222,6 +1580,7 @@ function mirrorRuntimeSessionMessage(
 	message: AgentMailboxMessage,
 	toSessionId: string,
 	ctx: ExtensionContext | undefined,
+	recipientAgentId: string | null,
 ): boolean {
 	if (!ctx?.controlDbPath) {
 		return false;
@@ -1231,7 +1590,7 @@ function mirrorRuntimeSessionMessage(
 		artifactRefs: message.artifactRefs,
 		body: message.body ?? "",
 		kind: message.kind,
-		recipient: { agentId: null, sessionId: toSessionId },
+		recipient: { agentId: recipientAgentId, sessionId: toSessionId },
 		sender: {
 			agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
 			sessionId: ctx.sessionManager.getSessionId(),
@@ -1240,16 +1599,18 @@ function mirrorRuntimeSessionMessage(
 	return true;
 }
 
-function currentMessageSenderId(store: MultiAgentStore, ctx: ExtensionContext | undefined): string {
-	if (!ctx?.sessionManager || typeof ctx.sessionManager.getSessionId !== "function") {
-		return MAIN_THREAD_AGENT_ID;
+function currentMessageSenderId(_store: MultiAgentStore, ctx: ExtensionContext | undefined): string | undefined {
+	if (ctx?.multiAgentAgentId) {
+		return ctx.multiAgentAgentId;
 	}
-	const sessionId = ctx.sessionManager.getSessionId();
-	return store.listAgents().find((agent) => agent.transcript?.sessionId === sessionId)?.id ?? MAIN_THREAD_AGENT_ID;
+	if (ctx?.multiAgentRequiresAgentId) {
+		return undefined;
+	}
+	return ctx?.sessionManager?.isSubagentSession() ? undefined : MAIN_THREAD_AGENT_ID;
 }
 
 function currentMessageSenderAgent(store: MultiAgentStore, ctx: ExtensionContext | undefined): AgentSnapshot {
-	const senderId = currentMessageSenderId(store, ctx);
+	const senderId = currentMessageSenderId(store, ctx) ?? "unknown_subagent";
 	return store.getAgent(senderId) ?? emptyAgent(senderId);
 }
 
@@ -1415,6 +1776,20 @@ function contactSupervisor(
 	params: ContactSupervisorParams,
 	ctx?: ExtensionContext,
 ): AgentToolResult<ContactSupervisorToolDetails> {
+	const currentAgentId = ctx?.multiAgentAgentId;
+	const requiresRuntimeIdentity = ctx?.multiAgentRequiresAgentId || ctx?.sessionManager?.isSubagentSession();
+	if (requiresRuntimeIdentity && !currentAgentId) {
+		return errorResult("Could not contact supervisor: subagent runtime identity is unavailable.", {
+			agent: emptyAgent(params.agentId),
+			message: emptySupervisorRequest(params.agentId, params.message),
+		});
+	}
+	if (currentAgentId && currentAgentId !== params.agentId) {
+		return errorResult(`Could not contact supervisor for ${params.agentId}: sender identity mismatch.`, {
+			agent: emptyAgent(params.agentId),
+			message: emptySupervisorRequest(params.agentId, params.message),
+		});
+	}
 	const contacted = store.contactSupervisor(params.agentId, params.expectedRevision, {
 		artifactIds: params.artifactIds,
 		artifactRefs: params.artifactRefs,
@@ -1441,10 +1816,17 @@ function steerAgent(
 	params: SteerAgentParams,
 	ctx?: ExtensionContext,
 ): AgentToolResult<AgentSteerToolDetails> {
+	const senderId = currentSteeringSenderId(store, ctx);
+	if (!senderId) {
+		return errorResult("Could not steer agent: subagent runtime identity is unavailable.", {
+			agent: emptyAgent(params.agentId),
+			message: emptyMessage(params.agentId, params.message),
+		});
+	}
 	const steered = store.sendSteering(params.agentId, params.expectedRevision, {
 		artifactRefs: params.artifactRefs,
 		body: params.message,
-		fromAgentId: params.fromAgentId?.trim() || "supervisor",
+		fromAgentId: senderId,
 		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
 	});
 	if (!steered.ok) {
@@ -1460,6 +1842,14 @@ function steerAgent(
 		agent: steered.agent,
 		message: steered.message,
 	});
+}
+
+function currentSteeringSenderId(store: MultiAgentStore, ctx: ExtensionContext | undefined): string | undefined {
+	const senderId = currentMessageSenderId(store, ctx);
+	if (!senderId) {
+		return undefined;
+	}
+	return senderId === MAIN_THREAD_AGENT_ID ? "supervisor" : senderId;
 }
 
 function notifyWaitingAgent(
@@ -1624,7 +2014,7 @@ function resolveRuntimeRecipient(
 ): RuntimeMailboxAddress | undefined {
 	const target = store.getAgent(message.toAgentId);
 	if (target?.transcript?.sessionId) {
-		return { agentId: null, sessionId: target.transcript.sessionId };
+		return { agentId: target.id, sessionId: target.transcript.sessionId };
 	}
 	if (message.toAgentId !== MAIN_THREAD_AGENT_ID && message.toAgentId !== "supervisor") {
 		return { agentId: message.toAgentId, sessionId: ctx.sessionManager.getSessionId() };
@@ -1634,6 +2024,9 @@ function resolveRuntimeRecipient(
 }
 
 function resolveParentRuntimeSessionId(ctx: ExtensionContext): string | undefined {
+	if (ctx.multiAgentParentSessionId) {
+		return ctx.multiAgentParentSessionId;
+	}
 	if (!ctx.sessionManager.isSubagentSession()) {
 		return undefined;
 	}
@@ -1738,6 +2131,7 @@ export function resolveMultiAgentStore(options: MultiAgentExtensionOptions = {})
 
 export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
+	const createAttachedSession = options.createAttachedSession;
 	const createChildSession = options.createChildSession;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const dispatcher = options.dispatcher;
@@ -1791,6 +2185,29 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			approvalRequired: false,
 			parameters: listAgentsSchema,
 			execute: async (_toolCallId, params) => listAgents(store, params),
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "attach_session_agent",
+			label: "Attach Session Agent",
+			description: "Attach or resume an existing saved session as an agent without changing its session ID.",
+			approvalRequired: false,
+			parameters: attachSessionAgentSchema,
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				attachSessionAgent({
+					createAttachedSession,
+					ctx,
+					desktopNotifier,
+					dispatcher,
+					dispatches: activeDispatches,
+					handles: backgroundSessions,
+					params,
+					pi,
+					store,
+					waitingDesktopNotifications,
+				}),
 		}),
 	);
 

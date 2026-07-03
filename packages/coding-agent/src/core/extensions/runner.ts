@@ -286,6 +286,9 @@ export class ExtensionRunner {
 	private abortFn: () => void = () => {};
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
+	private getMultiAgentAgentIdFn: () => string | undefined = () => undefined;
+	private getMultiAgentParentSessionIdFn: () => string | undefined = () => undefined;
+	private getMultiAgentRequiresAgentIdFn: () => boolean = () => false;
 	private compactFn: (options?: CompactOptions) => void = () => {};
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
@@ -357,6 +360,9 @@ export class ExtensionRunner {
 		this.restartFn = contextActions.restart;
 		this.getControlDbPathFn = contextActions.getControlDbPath ?? (() => undefined);
 		this.getContextUsageFn = contextActions.getContextUsage;
+		this.getMultiAgentAgentIdFn = contextActions.getMultiAgentAgentId ?? (() => undefined);
+		this.getMultiAgentParentSessionIdFn = contextActions.getMultiAgentParentSessionId ?? (() => undefined);
+		this.getMultiAgentRequiresAgentIdFn = contextActions.getMultiAgentRequiresAgentId ?? (() => false);
 		this.compactFn = contextActions.compact;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
 		this.getSystemPromptOptionsFn = contextActions.getSystemPromptOptions ?? (() => ({ cwd: this.cwd }));
@@ -685,6 +691,18 @@ export class ExtensionRunner {
 			get controlDbPath() {
 				runner.assertActive();
 				return runner.getControlDbPathFn();
+			},
+			get multiAgentAgentId() {
+				runner.assertActive();
+				return runner.getMultiAgentAgentIdFn();
+			},
+			get multiAgentParentSessionId() {
+				runner.assertActive();
+				return runner.getMultiAgentParentSessionIdFn();
+			},
+			get multiAgentRequiresAgentId() {
+				runner.assertActive();
+				return runner.getMultiAgentRequiresAgentIdFn();
 			},
 			get model() {
 				runner.assertActive();

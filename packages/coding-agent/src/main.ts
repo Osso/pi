@@ -13,6 +13,7 @@ import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, {
 	createHostrunMultiAgentRequestHandler,
+	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
@@ -560,7 +561,13 @@ function createFirstPartyExtensionFactories(
 		createSessionManager: SessionManager.create,
 		extensionFactories: getRuntimeExtensionFactories,
 	});
+	const attachedSessionFactory = createProductionAttachedSessionFactory({
+		agentDir: getAgentDir(),
+		createSession: createAgentSession,
+		extensionFactories: getRuntimeExtensionFactories,
+	});
 	const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
+		createAttachedSession: attachedSessionFactory,
 		createChildSession: childAgentSessionFactory,
 		selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
 		store: firstPartyMultiAgentStore,
@@ -576,6 +583,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
 		firstPartyExtensionFactory("agents-core", (pi) =>
 			agentsCoreExtension(pi, {
+				createAttachedSession: attachedSessionFactory,
 				createChildSession: childAgentSessionFactory,
 				store: firstPartyMultiAgentStore,
 			}),

@@ -1,6 +1,8 @@
 export type {
 	AgentDesktopNotification,
 	AgentDesktopNotifier,
+	AttachedSessionDispatchInput,
+	AttachedSessionFactory,
 	ChildAgentDispatcher,
 	ChildAgentSessionFactory,
 	MultiAgentExtensionOptions,
@@ -9,6 +11,7 @@ export type {
 } from "../../extensions/agents-core/src/runtime.ts";
 export {
 	createMultiAgentWorkflowOperations,
+	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	default,
 	registerAgentsCoreTools,

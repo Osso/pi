@@ -28,8 +28,10 @@ import {
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
+import { listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import multiAgentExtension, {
+	type AttachedSessionFactory,
 	type ChildAgentDispatcher,
 	type ChildAgentSessionFactory,
 	createMultiAgentWorkflowOperations,
@@ -60,6 +62,12 @@ interface SpawnAgentDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	dispatched: boolean;
 	prompt: string;
+}
+
+interface AttachSessionAgentDetails extends Record<string, unknown> {
+	agent: AgentSnapshot;
+	dispatched: boolean;
+	prompt?: string;
 }
 
 interface ListAgentsDetails extends Record<string, unknown> {
@@ -129,6 +137,7 @@ const commandSourceInfo = {
 
 function createMultiAgentHarness(
 	options: {
+		createAttachedSession?: AttachedSessionFactory;
 		createChildSession?: ChildAgentSessionFactory;
 		ctx?: Partial<ExtensionContext>;
 		dispatcher?: ChildAgentDispatcher;
@@ -147,7 +156,12 @@ function createMultiAgentHarness(
 		},
 	} as unknown as ExtensionAPI;
 
-	multiAgentExtension(pi, { createChildSession: options.createChildSession, dispatcher: options.dispatcher, store });
+	multiAgentExtension(pi, {
+		createAttachedSession: options.createAttachedSession,
+		createChildSession: options.createChildSession,
+		dispatcher: options.dispatcher,
+		store,
+	});
 
 	const ctx = {
 		cwd: "/repo",
@@ -320,6 +334,7 @@ describe("multi-agent extension tools", () => {
 			"agent_artifacts",
 			"agent_viewer",
 			"agents_mailbox",
+			"attach_session_agent",
 			"cancel_agent",
 			"contact_supervisor",
 			"list_agents",
@@ -337,6 +352,7 @@ describe("multi-agent extension tools", () => {
 			["agent_artifacts", false],
 			["agent_viewer", false],
 			["agents_mailbox", false],
+			["attach_session_agent", false],
 			["cancel_agent", false],
 			["contact_supervisor", false],
 			["list_agents", false],
@@ -354,6 +370,7 @@ describe("multi-agent extension tools", () => {
 			"agent_artifacts",
 			"agent_viewer",
 			"agents_mailbox",
+			"attach_session_agent",
 			"cancel_agent",
 			"contact_supervisor",
 			"list_agents",
@@ -379,11 +396,210 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("attaches an existing saved session as an agent with preserved session identity", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-session-agent-"));
+		try {
+			const savedSessionId = "019f29f4-0000-7000-8000-000000000001";
+			const supervisorSessionId = "019f29f4-0000-7000-8000-000000000002";
+			const savedSession = SessionManager.create("/repo", tempDir, { id: savedSessionId });
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
+			const controlDbPath = join(tempDir, "control.sqlite");
+			const harness = createMultiAgentHarness({
+				ctx: { controlDbPath, sessionManager: supervisorSession },
+			});
+
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				displayName: "Saved Work",
+				sessionId: savedSessionId,
+			});
+			const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+			const steered = await harness.call<SteerAgentDetails>("steer_agent", {
+				agentId: attached.details.agent.id,
+				expectedRevision: attached.details.agent.revision,
+				message: "Continue from saved work",
+				targetCheckpoint: "when_waiting",
+			});
+			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+				message: "Mailbox request",
+				toAgentId: attached.details.agent.id,
+			});
+			const waited = await harness.call<WaitAgentDetails>("wait_agent", {
+				agentId: attached.details.agent.id,
+				includePendingMessages: true,
+			});
+			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+				agentId: attached.details.agent.id,
+				expectedRevision: waited.details.agent.revision,
+				reason: "stop saved work",
+			});
+
+			expect(attached.details).toMatchObject({
+				agent: {
+					agentType: "resumed-session",
+					displayName: "Saved Work",
+					lifecycle: "waiting_for_input",
+					transcript: { path: savedSession.getSessionFile(), sessionId: savedSessionId },
+				},
+				dispatched: false,
+			});
+			expect(attached.details.agent.id).not.toBe(savedSessionId);
+			expect(viewed.details.transcripts).toEqual([
+				{ agentId: attached.details.agent.id, path: savedSession.getSessionFile(), sessionId: savedSessionId },
+			]);
+			expect(steered.details.message).toMatchObject({
+				fromAgentId: "supervisor",
+				kind: "steer",
+				status: "pending",
+				targetCheckpoint: "when_waiting",
+				toAgentId: attached.details.agent.id,
+			});
+			expect(sent.details.message).toMatchObject({
+				fromAgentId: "main",
+				status: "pending",
+				toAgentId: attached.details.agent.id,
+			});
+			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+				{
+					body: "Continue from saved work",
+					recipient: { agentId: attached.details.agent.id, sessionId: savedSessionId },
+				},
+				{
+					body: "Mailbox request",
+					recipient: { agentId: attached.details.agent.id, sessionId: savedSessionId },
+				},
+			]);
+			expect(waited.details.pendingMessages).toMatchObject([{ id: steered.details.message.id }]);
+			expect(cancelled.details.agent).toMatchObject({ id: attached.details.agent.id, lifecycle: "aborted" });
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("dispatches and aborts a prompted attached session through the normal agent lifecycle", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-dispatch-attached-session-"));
+		try {
+			const savedSessionId = "019f29f4-0000-7000-8000-000000000003";
+			const savedSession = SessionManager.create("/repo", tempDir, { id: savedSessionId });
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const childPrompt = deferred<void>();
+			const abort = vi.fn();
+			const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
+				expect(agent.transcript).toEqual({ path: savedSession.getSessionFile(), sessionId: savedSessionId });
+				expect(sessionPath).toBe(savedSession.getSessionFile());
+				return {
+					abort,
+					messages: [],
+					prompt: async () => childPrompt.promise,
+					transcript: agent.transcript,
+				};
+			};
+			const harness = createMultiAgentHarness({ createAttachedSession });
+
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			await Promise.resolve();
+			const running = harness.store.getAgent(attached.details.agent.id);
+			if (!running) {
+				throw new Error("expected attached agent");
+			}
+			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+				agentId: running.id,
+				expectedRevision: running.revision,
+				reason: "user requested",
+			});
+
+			expect(attached.details).toMatchObject({ dispatched: true, prompt: "Continue saved work" });
+			expect(running).toMatchObject({ lifecycle: "running", transcript: { sessionId: savedSessionId } });
+			expect(abort).toHaveBeenCalledTimes(1);
+			expect(cancelled.details.agent).toMatchObject({ id: running.id, lifecycle: "aborted" });
+			childPrompt.resolve(undefined);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("reports attached session completion through wait_agent and the runtime mailbox", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-complete-attached-session-"));
+		try {
+			const savedSessionId = "019f29f4-0000-7000-8000-000000000004";
+			const supervisorSessionId = "019f29f4-0000-7000-8000-000000000005";
+			const savedSession = SessionManager.create("/repo", tempDir, { id: savedSessionId });
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
+			const controlDbPath = join(tempDir, "control.sqlite");
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
+				messages: [fauxAssistantMessage("attached complete")],
+				prompt: async () => {},
+				transcript: agent.transcript,
+			});
+			const harness = createMultiAgentHarness({
+				createAttachedSession,
+				ctx: { controlDbPath, sessionManager: supervisorSession },
+			});
+
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Finish saved work",
+			});
+			const waited = await waitForTerminalAgent(harness, attached.details.agent.id);
+
+			expect(waited.details.agent).toMatchObject({
+				lifecycle: "completed",
+				result: { summary: "attached complete" },
+				transcript: { sessionId: savedSessionId },
+			});
+			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+				{
+					body: `Session ${savedSessionId} completed: attached complete`,
+					recipient: { agentId: null, sessionId: supervisorSessionId },
+					sender: { agentId: attached.details.agent.id, sessionId: savedSessionId },
+				},
+			]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("marks attached session resume failures as failed with an inspectable error", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-fail-attached-session-"));
+		try {
+			const savedSessionId = "019f29f4-0000-7000-8000-000000000006";
+			const savedSession = SessionManager.create("/repo", tempDir, { id: savedSessionId });
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const createAttachedSession: AttachedSessionFactory = async () => {
+				throw new Error("resume failed");
+			};
+			const harness = createMultiAgentHarness({ createAttachedSession });
+
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			const waited = await waitForTerminalAgent(harness, attached.details.agent.id);
+
+			expect(waited.details.agent).toMatchObject({
+				error: { message: "resume failed" },
+				lifecycle: "failed",
+				transcript: { sessionId: savedSessionId },
+			});
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("keeps split first-party modules scoped to core, viewer, and mailbox tools", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 
 		expect(collectTools((pi) => agentsCoreExtension(pi, { store }))).toEqual([
 			"agent_artifacts",
+			"attach_session_agent",
 			"cancel_agent",
 			"list_agents",
 			"spawn_agent",
@@ -840,14 +1056,26 @@ describe("multi-agent extension tools", () => {
 				{ message: "Please inspect auth", toAgentId: child.details.agent.id },
 				undefined,
 				undefined,
-				{ cwd: "/repo", hasUI: false, mode: "print", sessionManager: parentSession } as unknown as ExtensionContext,
+				{
+					cwd: "/repo",
+					hasUI: false,
+					mode: "print",
+					multiAgentAgentId: parent.details.agent.id,
+					sessionManager: parentSession,
+				} as unknown as ExtensionContext,
 			)) as AgentToolResult<SendAgentMessageDetails>;
 			const rejected = (await sendAgentMessage.execute(
 				"send-child",
 				{ message: "Can I read your state?", toAgentId: sibling.details.agent.id },
 				undefined,
 				undefined,
-				{ cwd: "/repo", hasUI: false, mode: "print", sessionManager: childSession } as unknown as ExtensionContext,
+				{
+					cwd: "/repo",
+					hasUI: false,
+					mode: "print",
+					multiAgentAgentId: child.details.agent.id,
+					sessionManager: childSession,
+				} as unknown as ExtensionContext,
 			)) as AgentToolResult<SendAgentMessageDetails>;
 			const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
 				agentId: child.details.agent.id,

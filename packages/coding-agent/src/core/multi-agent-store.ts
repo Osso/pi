@@ -115,7 +115,7 @@ export interface SpawnAgentInput {
 	agentType: string;
 	cwd: string;
 	permission: AgentNode["permission"];
-	lifecycle?: "queued" | "starting";
+	lifecycle?: "queued" | "starting" | "waiting_for_input";
 	worktree?: AgentNode["worktree"];
 	model?: AgentNode["model"];
 	account?: AgentNode["account"];
@@ -128,6 +128,10 @@ export interface SpawnAgentInput {
 export type SpawnChildAgentInput = Omit<SpawnAgentInput, "account" | "model" | "parentId"> & {
 	account?: AgentNode["account"];
 	model?: AgentNode["model"];
+};
+
+export type AttachSessionAgentInput = SpawnChildAgentInput & {
+	transcript: AgentTranscriptMetadata;
 };
 
 export interface AgentMailboxMessage {
@@ -391,6 +395,15 @@ export class MultiAgentStore {
 		});
 
 		return { ok: true, agent: spawned.agent };
+	}
+
+	attachSessionAgent(parentId: string, input: AttachSessionAgentInput): SpawnChildAgentResult {
+		return this.spawnChildAgent(parentId, {
+			...input,
+			agentType: input.agentType || "resumed-session",
+			lifecycle: input.lifecycle ?? "waiting_for_input",
+			transcript: copyTranscript(input.transcript),
+		});
 	}
 
 	transitionAgent(

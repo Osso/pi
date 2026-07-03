@@ -236,6 +236,12 @@ export interface AgentSessionConfig {
 	permissionPromptTool?: string;
 	/** Shared multi-agent store used for detached tool background jobs. */
 	multiAgentStore?: MultiAgentStore;
+	/** Current multi-agent runtime agent identity, when this session is running as a child agent. */
+	multiAgentAgentId?: string;
+	/** Parent runtime session ID for supervisor-directed messages from attached agents. */
+	multiAgentParentSessionId?: string;
+	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
+	multiAgentRequiresAgentId?: boolean;
 	/** Global settings directory used for persistent permission rule writes. */
 	agentDir?: string;
 	/**
@@ -455,6 +461,9 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
+	private _multiAgentAgentId: string | undefined;
+	private _multiAgentParentSessionId: string | undefined;
+	private _multiAgentRequiresAgentId: boolean;
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -470,6 +479,9 @@ export class AgentSession {
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._permissionPromptTool = config.permissionPromptTool ?? this.settingsManager.getPermissionPromptTool();
+		this._multiAgentAgentId = config.multiAgentAgentId;
+		this._multiAgentParentSessionId = config.multiAgentParentSessionId;
+		this._multiAgentRequiresAgentId = config.multiAgentRequiresAgentId ?? false;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
 		this._permissionRuleStore = new PermissionRuleStore({
@@ -1677,6 +1689,10 @@ export class AgentSession {
 		return this._extensionControlDbPath ?? this.sessionManager.getMetadataControlDbPath();
 	}
 
+	private _getRuntimeMailboxAgentId(): string | null {
+		return this._multiAgentAgentId ?? null;
+	}
+
 	private async _drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
 		if (this._runtimeMailboxDrainInProgress) {
 			return false;
@@ -1693,7 +1709,7 @@ export class AgentSession {
 		this._runtimeMailboxDrainInProgress = true;
 		try {
 			const claimed = claimRuntimeMailboxMessages(controlDbPath, {
-				agentId: null,
+				agentId: this._getRuntimeMailboxAgentId(),
 				sessionId: this.sessionId,
 			});
 			if (claimed.length === 0) {
@@ -1728,7 +1744,9 @@ export class AgentSession {
 		}
 		cleanupRuntimeMailboxMessages(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
-			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true }).catch((error: unknown) => {
+				console.error("Failed to drain runtime mailbox messages:", error);
+			});
 		}, RUNTIME_MAILBOX_POLL_INTERVAL_MS);
 	}
 
@@ -1746,6 +1764,10 @@ export class AgentSession {
 			return;
 		}
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
+		const agentId = this._getRuntimeMailboxAgentId();
+		if (agentId) {
+			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
+		}
 		if (process.platform === "win32" || this._runtimeMailboxSignalHandler) {
 			return;
 		}
@@ -2851,6 +2873,9 @@ export class AgentSession {
 				},
 				getControlDbPath: () => this._getRuntimeMailboxControlDbPath(),
 				getContextUsage: () => this.getContextUsage(),
+				getMultiAgentAgentId: () => this._multiAgentAgentId,
+				getMultiAgentParentSessionId: () => this._multiAgentParentSessionId,
+				getMultiAgentRequiresAgentId: () => this._multiAgentRequiresAgentId,
 				compact: (options) => {
 					void (async () => {
 						try {

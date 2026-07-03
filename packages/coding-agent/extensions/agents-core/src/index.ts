@@ -5,9 +5,15 @@ export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgen
 	registerAgentsCoreTools(pi, options);
 }
 
-export { createMultiAgentWorkflowOperations, createProductionChildAgentSessionFactory } from "./runtime.ts";
+export {
+	createMultiAgentWorkflowOperations,
+	createProductionAttachedSessionFactory,
+	createProductionChildAgentSessionFactory,
+} from "./runtime.ts";
 export { createHostrunMultiAgentRequestHandler } from "./runtime.ts";
 export type {
+	AttachedSessionDispatchInput,
+	AttachedSessionFactory,
 	ChildAgentDispatcher,
 	ChildAgentSessionFactory,
 	HostrunMultiAgentRequestHandler,

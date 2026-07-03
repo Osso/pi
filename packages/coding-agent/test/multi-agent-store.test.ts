@@ -264,6 +264,54 @@ describe("MultiAgentStore", () => {
 		expect(cleared.agent.slot).toBeUndefined();
 	});
 
+	it("attaches saved sessions as child agents while preserving session identity", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const parent = store.spawnAgent({
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Lead",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		const first = store.attachSessionAgent(parent.agent.id, {
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Saved Work",
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/saved.jsonl", sessionId: "saved-session" },
+		});
+		const second = store.attachSessionAgent(parent.agent.id, {
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Saved Work Again",
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/saved.jsonl", sessionId: "saved-session" },
+		});
+		const broadened = store.attachSessionAgent(parent.agent.id, {
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Broad Saved Work",
+			permission: { inheritedFrom: parent.agent.id, narrowed: false, policy: "auto-approve" },
+			transcript: { path: "/sessions/saved.jsonl", sessionId: "saved-session" },
+		});
+
+		expect(first.ok).toBe(true);
+		expect(second.ok).toBe(true);
+		if (!first.ok || !second.ok) {
+			throw new Error("expected session attachments");
+		}
+		expect(first.agent).toMatchObject({
+			agentType: "resumed-session",
+			lifecycle: "waiting_for_input",
+			parentId: parent.agent.id,
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/saved.jsonl", sessionId: "saved-session" },
+		});
+		expect(second.agent.id).not.toBe(first.agent.id);
+		expect(second.agent.transcript?.sessionId).toBe("saved-session");
+		expect(broadened).toMatchObject({ ok: false, error: "permission_broadened" });
+	});
+
 	it("spawns child agents with inherited account model budget and narrowed permission metadata", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const parent = store.spawnAgent({

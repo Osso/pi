@@ -324,6 +324,12 @@ export interface ExtensionContext {
 	settingsManager?: SettingsManager;
 	/** Global control DB path for session metadata, when available. */
 	controlDbPath?: string;
+	/** Current multi-agent runtime agent identity, when this session is running as a child agent. */
+	multiAgentAgentId?: string;
+	/** Parent runtime session ID for supervisor-directed messages from attached agents. */
+	multiAgentParentSessionId?: string;
+	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
+	multiAgentRequiresAgentId?: boolean;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
 	/** Whether the agent is idle (not streaming) */
@@ -1610,6 +1616,9 @@ export interface ExtensionContextActions {
 	restart: (options?: { notice?: string; process?: boolean }) => Promise<void>;
 	getControlDbPath?: () => string | undefined;
 	getContextUsage: () => ContextUsage | undefined;
+	getMultiAgentAgentId?: () => string | undefined;
+	getMultiAgentParentSessionId?: () => string | undefined;
+	getMultiAgentRequiresAgentId?: () => boolean;
 	compact: (options?: CompactOptions) => void;
 	getSystemPrompt: () => string;
 	getSystemPromptOptions?: () => BuildSystemPromptOptions;

@@ -76,6 +76,7 @@ function collectMultiAgentTools(
 
 function createRuntimeMailboxContext(input: {
 	controlDbPath: string;
+	multiAgentAgentId?: string;
 	sessionManager: SessionManager;
 }): ExtensionContext {
 	return {
@@ -84,6 +85,7 @@ function createRuntimeMailboxContext(input: {
 		hasUI: false,
 		isIdle: () => true,
 		mode: "print",
+		multiAgentAgentId: input.multiAgentAgentId,
 		sessionManager: input.sessionManager,
 	} as unknown as ExtensionContext;
 }
@@ -144,7 +146,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			{ agentId: child.agent.id, expectedRevision: child.agent.revision, message: "Need scope" },
 			undefined,
 			undefined,
-			createRuntimeMailboxContext({ controlDbPath, sessionManager: childSession }),
+			createRuntimeMailboxContext({
+				controlDbPath,
+				multiAgentAgentId: child.agent.id,
+				sessionManager: childSession,
+			}),
 		);
 
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
@@ -198,13 +204,17 @@ describe("runtime SQLite mailbox delivery", () => {
 			},
 			undefined,
 			undefined,
-			createRuntimeMailboxContext({ controlDbPath, sessionManager: senderSession }),
+			createRuntimeMailboxContext({
+				controlDbPath,
+				multiAgentAgentId: parent.agent.id,
+				sessionManager: senderSession,
+			}),
 		);
 
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 			{
 				body: "Hello other session",
-				recipient: { agentId: null, sessionId: "target-session" },
+				recipient: { agentId: child.agent.id, sessionId: "target-session" },
 				sender: { agentId: parent.agent.id, sessionId: "sender-session" },
 				status: "pending",
 			},
@@ -331,7 +341,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 			{
 				body: "Check permissions",
-				recipient: { agentId: null, sessionId: "child-session" },
+				recipient: { agentId: child.agent.id, sessionId: "child-session" },
 				sender: { agentId: "supervisor", sessionId: "parent-session" },
 				status: "pending",
 			},
