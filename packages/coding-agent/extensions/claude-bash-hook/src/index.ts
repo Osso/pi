@@ -24,7 +24,7 @@ type ClaudeBashHookReviewResult =
 
 export default function claudeBashHookExtension(pi: ExtensionAPI): void {
 	pi.registerApprovalReviewer(async (event, ctx) => {
-		const result = await reviewBashWithClaudeBashHook(event, ctx.cwd);
+		const result = await reviewToolWithClaudeBashHook(event, ctx.cwd);
 		if (result.action === "unavailable") {
 			return undefined;
 		}
@@ -32,16 +32,12 @@ export default function claudeBashHookExtension(pi: ExtensionAPI): void {
 	});
 }
 
-export async function reviewBashWithClaudeBashHook(
+export async function reviewToolWithClaudeBashHook(
 	event: ToolCallEvent,
 	cwd: string,
 ): Promise<ClaudeBashHookReviewResult> {
-	if (event.toolName !== "bash") {
-		return { action: "unavailable" };
-	}
-
-	const command = typeof event.input.command === "string" ? event.input.command : undefined;
-	if (!command) {
+	const toolName = toClaudeBashHookToolName(event.toolName);
+	if (!toolName || !hasReviewableInput(toolName, event.input)) {
 		return { action: "unavailable" };
 	}
 
@@ -56,7 +52,7 @@ export async function reviewBashWithClaudeBashHook(
 		cwd,
 		supports_updated_input: true,
 		tool_input: { ...event.input, cwd },
-		tool_name: "Bash",
+		tool_name: toolName,
 	};
 
 	const result = await runHookProcess(hookCommand, hookInput);
@@ -66,6 +62,23 @@ export async function reviewBashWithClaudeBashHook(
 	}
 
 	return mapHookOutput(hookOutput);
+}
+
+function toClaudeBashHookToolName(toolName: string): string | undefined {
+	if (toolName === "bash") {
+		return "Bash";
+	}
+	if (toolName === "hostrun_eval" || toolName === "pyrun_eval") {
+		return toolName;
+	}
+	return undefined;
+}
+
+function hasReviewableInput(toolName: string, input: Record<string, unknown>): boolean {
+	if (toolName === "Bash") {
+		return typeof input.command === "string" && input.command.length > 0;
+	}
+	return typeof input.code === "string" && input.code.length > 0;
 }
 
 function mapHookOutput(hookOutput: HookSpecificOutput): ClaudeBashHookReviewResult {
