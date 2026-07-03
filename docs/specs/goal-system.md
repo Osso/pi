@@ -14,6 +14,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 - [x] `/goal <objective>` establishes an active objective for the current session and persists it to the session's `session_metadata.goal_json` row in the control SQLite database.
 - [x] `/goal` prints the active objective, or a visible notice when no goal is active.
+- [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective.
 - [x] `/goal clear` removes the active objective.
 - [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted.
 - [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) are rejected with a visible error and are not persisted.
@@ -22,6 +23,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Normal forked sessions inherit the parent goal when no goal exists yet; subagent sessions do not inherit the parent goal and may set an independent goal.
 - [x] Corrupt or malformed goal JSON is handled as "no active goal" without crashing the command or turn hook.
 - [x] Completed goals are not treated as active by `/goal`, startup notifications, continuation, or context injection.
+- [x] Paused goals remain visible in `/goal`, startup notifications, and the footer, but do not inject context or continue automatically.
 - [x] `/goal` is delivered from a tracked first-party extension package, not from
   project-local `.pi/extensions/` code.
 - [x] A `set_goal` tool can establish the same active objective as `/goal <objective>` for tool-capability parity.
@@ -36,7 +38,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ### Starting and continuing work
 
 - [x] Setting a goal while the session is idle immediately submits a user message that asks the agent to work toward the objective.
-- [x] When an `agent_end` event fires and a goal is active but not completed, Pi re-submits a continuation message.
+- [x] When an `agent_end` event fires and a goal is active, not paused, and not completed, Pi re-submits a continuation message.
 - [x] A `goal_complete` tool or equivalent completion signal marks the active goal complete and stops further continuation.
 - [x] Autonomous continuation has no numeric turn cap; it may run for long-lived goals until completion, pending queued work, or an empty final assistant response stops it.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
@@ -51,15 +53,15 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `set_goal`/`goal_complete`, persists goal JSON through the session manager into `session_metadata.goal_json`, injects the active goal through `before_agent_start`, shows the active goal in the footer status, starts work when a goal is set while idle, and continues active goals from `agent_end`.
+- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `set_goal`/`goal_complete`, persists goal JSON through the session manager into `session_metadata.goal_json`, injects active unpaused goals through `before_agent_start`, shows the active goal in the footer status, starts work when a goal is set while idle, pauses goals on request, and continues active unpaused goals from `agent_end`.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/clear, per-session and subagent goal isolation, explicit replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/pause/clear, per-session and subagent goal isolation, explicit replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
 - `.gitignore` — ignores legacy `.pi/goals/` local goal state files during migration.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `set_goal`, `/goal` set/view/clear, per-session and subagent goal isolation, explicit replacement, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `set_goal`, `/goal` set/view/pause/clear, per-session and subagent goal isolation, explicit replacement, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
 
 ## Known gaps (current cycle)

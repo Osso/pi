@@ -13,6 +13,7 @@
  *   /goal <objective>             set the objective and start working toward it
  *   /goal --replace <objective>   replace the active objective
  *   /goal                         view the active objective
+ *   /goal pause                   pause continuation without clearing the objective
  *   /goal clear                   clear the active objective
  *
  * See docs/specs/goal-system.md for the contract.
@@ -43,6 +44,7 @@ interface Goal {
 	completedAt?: string;
 	completionReason?: string;
 	continuationTurns?: number;
+	pausedAt?: string;
 }
 
 interface ParsedGoalArgs {
@@ -97,6 +99,7 @@ function parseGoal(value: unknown): Goal | null {
 		completedAt: optionalString(value.completedAt),
 		completionReason: optionalString(value.completionReason),
 		continuationTurns: optionalNumber(value.continuationTurns),
+		pausedAt: optionalString(value.pausedAt),
 	};
 }
 
@@ -118,6 +121,11 @@ function loadGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal |
 function loadActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const goal = loadGoal(ctx);
 	return goal && !goal.completedAt ? goal : null;
+}
+
+function loadRunningGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	const goal = loadActiveGoal(ctx);
+	return goal && !goal.pausedAt ? goal : null;
 }
 
 function parseGoalJson(value: string): Goal | null {
@@ -155,6 +163,18 @@ function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
 	return completedGoal;
 }
 
+function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	const goal = loadActiveGoal(ctx);
+	if (!goal) return null;
+	if (goal.pausedAt) return goal;
+	const pausedGoal: Goal = {
+		...goal,
+		pausedAt: new Date().toISOString(),
+	};
+	saveGoal(ctx, pausedGoal);
+	return pausedGoal;
+}
+
 function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boolean {
 	const hasStoredGoal = ctx.sessionManager.getSessionGoalJson() !== undefined;
 	const legacyFile = goalPath(ctx);
@@ -167,7 +187,15 @@ function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boole
 }
 
 function goalFooterStatus(goal: Goal): string {
-	return `goal: ${goal.objective}`;
+	return goal.pausedAt ? `goal paused: ${goal.objective}` : `goal: ${goal.objective}`;
+}
+
+function goalStartupMessage(goal: Goal): string {
+	return goal.pausedAt ? `Paused goal: ${goal.objective}` : `Active goal: ${goal.objective}`;
+}
+
+function goalViewMessage(goal: Goal): string {
+	return goal.pausedAt ? `Goal paused: ${goal.objective}` : `Goal: ${goal.objective}`;
 }
 
 function updateGoalFooterStatus(ctx: ExtensionContext): void {
@@ -392,11 +420,11 @@ export default function goalExtension(pi: ExtensionAPI) {
 		inheritPreviousSessionGoal(event, ctx);
 		const goal = loadActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
-		if (goal) ctx.ui.notify(`Active goal: ${goal.objective}`, "info");
+		if (goal) ctx.ui.notify(goalStartupMessage(goal), "info");
 	});
 
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
-		const goal = loadActiveGoal(ctx);
+		const goal = loadRunningGoal(ctx);
 		if (!goal || ctx.hasPendingMessages()) return;
 
 		if (didLastAssistantReturnEmpty(event)) {
@@ -413,13 +441,13 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 	// Inject the active objective into the system prompt every turn.
 	pi.on("before_agent_start", async (event, ctx) => {
-		const goal = loadActiveGoal(ctx);
+		const goal = loadRunningGoal(ctx);
 		if (!goal) return;
 		return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
 	});
 
 	pi.registerCommand("goal", {
-		description: "Set or view the objective for a long-running task (/goal <objective> | /goal | /goal clear)",
+		description: "Set, view, pause, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const parsedArgs = parseGoalArgs(args);
 			if ("error" in parsedArgs) {
@@ -431,7 +459,15 @@ export default function goalExtension(pi: ExtensionAPI) {
 			// View
 			if (!objective) {
 				const goal = loadActiveGoal(ctx);
-				ctx.ui.notify(goal ? `Goal: ${goal.objective}` : "No active goal — use /goal <objective>", "info");
+				ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal <objective>", "info");
+				return;
+			}
+
+			// Pause
+			if (objective === "pause") {
+				const goal = pauseGoal(ctx);
+				ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
+				updateGoalFooterStatus(ctx);
 				return;
 			}
 

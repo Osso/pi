@@ -564,6 +564,37 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
+	it("pauses an active goal without clearing it", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("pause retained objective");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+		await harness.runCommand("pause");
+		await harness.runCommand("");
+		const injected = await harness.runBeforeAgentStart();
+		await harness.runAgentEnd();
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal.objective).toBe("pause retained objective");
+		expect(goal.pausedAt).toEqual(expect.any(String));
+		expect(harness.notify).toHaveBeenNthCalledWith(1, "Goal paused: pause retained objective", "info");
+		expect(harness.notify).toHaveBeenNthCalledWith(2, "Goal paused: pause retained objective", "info");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: pause retained objective");
+		expect(injected).toBeUndefined();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("does not pause when no active goal exists", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("pause");
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("No active goal to pause", "info");
+	});
+
 	it("continues without a numeric turn cap", async () => {
 		const harness = createGoalHarness(cwd);
 
