@@ -345,6 +345,31 @@ export function claimRuntimeMailboxMessages(
 	});
 }
 
+export function consumeRuntimeMailboxMessagesFromSender(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	senderAgentId: string,
+	kind: RuntimeMailboxMessageKind,
+): number {
+	return withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		const result = db
+			.prepare(
+				`
+				UPDATE runtime_mailbox_messages
+				SET status = 'delivered', delivered_at = ?, updated_at = ?
+				WHERE status = 'pending'
+					AND recipient_session_id = ?
+					AND ((? IS NULL AND recipient_agent_id IS NULL) OR recipient_agent_id = ?)
+					AND sender_agent_id = ?
+					AND kind = ?
+				`,
+			)
+			.run(now, now, recipient.sessionId, recipient.agentId, recipient.agentId, senderAgentId, kind);
+		return Number(result.changes);
+	});
+}
+
 export function registerRuntimeMailboxListener(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,

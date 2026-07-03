@@ -74,6 +74,19 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       content is fed back to the model.
 - [x] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
       with control-DB write access can inject messages, so the feature must not hide message origin.
+- [x] A mailbox message has exactly one delivery transport: once a store message is mirrored into
+      the runtime control-DB mailbox, the in-store copy is marked delivered so the in-store
+      agent_end drain never delivers the same message a second time. Steer messages are exempt
+      because the steering acknowledgement flow owns their status.
+- [x] `wait_agent` consumes the waited agent's pending lifecycle notifications from both the store
+      and the runtime control-DB mailbox before returning, because its tool result already reports
+      the terminal state; the notification must not arrive again as a mailbox prompt.
+- [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed so
+      mid-turn tools such as `wait_agent` can consume them; whatever remains is drained as
+      follow-up input at the end of the turn.
+- [x] The extension context control-DB path falls back to the session's metadata control-DB path,
+      so subagent sessions mirror mailbox messages through the same runtime transport as top-level
+      sessions instead of relying on in-store drains.
 
 ### Extension boundaries
 

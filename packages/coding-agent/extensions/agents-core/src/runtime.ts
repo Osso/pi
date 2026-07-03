@@ -33,6 +33,7 @@ import {
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
+	consumeRuntimeMailboxMessagesFromSender,
 	enqueueRuntimeMailboxMessage,
 	readSessionMetadata,
 	type RuntimeMailboxAddress,
@@ -1167,7 +1168,9 @@ function sendAgentMessage(
 	}
 
 	if (params.toSessionId) {
-		mirrorRuntimeSessionMessage(sent.message, params.toSessionId, ctx);
+		if (mirrorRuntimeSessionMessage(sent.message, params.toSessionId, ctx)) {
+			markMirroredMailboxMessageDelivered(store, sent.message);
+		}
 	} else {
 		mirrorRuntimeMailboxMessage(store, sent.message, ctx);
 	}
@@ -1219,9 +1222,9 @@ function mirrorRuntimeSessionMessage(
 	message: AgentMailboxMessage,
 	toSessionId: string,
 	ctx: ExtensionContext | undefined,
-): void {
+): boolean {
 	if (!ctx?.controlDbPath) {
-		return;
+		return false;
 	}
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
 		artifactIds: message.artifactIds,
@@ -1234,6 +1237,7 @@ function mirrorRuntimeSessionMessage(
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
 	});
+	return true;
 }
 
 function currentMessageSenderId(store: MultiAgentStore, ctx: ExtensionContext | undefined): string {
@@ -1267,6 +1271,7 @@ async function waitAgent(
 	dispatches: ActiveAgentDispatches,
 	params: WaitAgentParams,
 	signal: AbortSignal | undefined,
+	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	const initialAgent = store.getAgent(params.agentId);
 	if (!initialAgent) {
@@ -1284,7 +1289,23 @@ async function waitAgent(
 
 	const agent = store.getAgent(params.agentId) ?? initialAgent;
 	store.consumeCompletionNotificationsForAgent(agent.id);
+	consumeRuntimeLifecycleNotifications(agent.id, ctx);
 	return result(formatAgentStatus(agent), createWaitAgentDetails(store, agent, params));
+}
+
+// The wait_agent result already reports the agent's terminal state, so the
+// lifecycle notification queued for this session must not arrive again as a
+// separate mailbox prompt after the wait returns.
+function consumeRuntimeLifecycleNotifications(agentId: string, ctx: ExtensionContext | undefined): void {
+	if (!ctx?.controlDbPath) {
+		return;
+	}
+	consumeRuntimeMailboxMessagesFromSender(
+		ctx.controlDbPath,
+		{ agentId: null, sessionId: ctx.sessionManager.getSessionId() },
+		agentId,
+		"system",
+	);
 }
 
 function createWaitAgentDetails(
@@ -1580,6 +1601,20 @@ function mirrorRuntimeMailboxMessage(
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
 	});
+	markMirroredMailboxMessageDelivered(store, message);
+}
+
+// Invariant: an in-store mailbox message stays "pending" only while no transport
+// has picked it up. Once mirrored into the runtime control DB, the DB copy is the
+// single delivery source, so the in-store copy must be marked delivered or the
+// agent_end drain would deliver the same message a second time.
+function markMirroredMailboxMessageDelivered(store: MultiAgentStore, message: AgentMailboxMessage): void {
+	// Steer status is owned by the acknowledgement flow (ackSteering drives the
+	// child lifecycle back to running), so steer messages keep their status here.
+	if (message.kind === "steer" || !message.id) {
+		return;
+	}
+	store.markMailboxMessageDelivered(message.id);
 }
 
 function resolveRuntimeRecipient(
@@ -1777,7 +1812,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Wait for a dispatched agent to finish, then read its final state.",
 			approvalRequired: false,
 			parameters: waitAgentSchema,
-			execute: async (_toolCallId, params, signal) => waitAgent(store, activeDispatches, params, signal),
+			execute: async (_toolCallId, params, signal, _onUpdate, ctx) =>
+				waitAgent(store, activeDispatches, params, signal, ctx),
 		}),
 	);
 

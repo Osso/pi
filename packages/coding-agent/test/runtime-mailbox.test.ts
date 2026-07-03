@@ -155,6 +155,9 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
+		// The runtime mailbox owns delivery once mirrored; the in-store copy must
+		// not stay pending or the agent_end drain would deliver it a second time.
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
 	});
 
 	it("sends direct messages to an explicit runtime session", async () => {
@@ -206,6 +209,7 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
 	});
 
 	it("sends direct messages to an explicit main runtime session", async () => {
@@ -621,6 +625,43 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
+	});
+
+	it("wait_agent consumes the mirrored completion notification from the runtime mailbox", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const dispatcher: ChildAgentDispatcher = async () => ({
+			lifecycle: "completed",
+			result: { summary: "tests passed" },
+		});
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const tools = collectMultiAgentTools(store, { dispatcher });
+		const spawnAgent = tools.get("spawn_agent");
+		const waitAgent = tools.get("wait_agent");
+		if (!spawnAgent || !waitAgent) {
+			throw new Error("expected spawn_agent and wait_agent tools");
+		}
+		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		const spawned = await spawnAgent.execute(
+			"spawn",
+			{ displayName: "Worker", prompt: "run tests" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const agentId = (spawned.details as { agent: AgentSnapshot }).agent.id;
+		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
+			await delay(1);
+		}
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
+
+		await waitAgent.execute("wait", { agentId }, undefined, undefined, ctx);
+
+		// wait_agent already reported the terminal state, so the completion notice
+		// must not be delivered again as a mailbox prompt.
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
 	});
 
 	it("drains claimed runtime mailbox messages at the end of a turn", async () => {

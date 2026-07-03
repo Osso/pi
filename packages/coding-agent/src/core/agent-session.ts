@@ -1681,6 +1681,11 @@ export class AgentSession {
 		if (this._runtimeMailboxDrainInProgress) {
 			return false;
 		}
+		// While streaming, leave messages pending so tools like wait_agent can
+		// consume them mid-turn; the post-turn drain delivers whatever remains.
+		if (options.triggerIfIdle && this.isStreaming) {
+			return false;
+		}
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath) {
 			return false;
@@ -2844,7 +2849,7 @@ export class AgentSession {
 					}
 					return this._extensionCommandContextActions.restart(options);
 				},
-				getControlDbPath: () => this._extensionControlDbPath,
+				getControlDbPath: () => this._getRuntimeMailboxControlDbPath(),
 				getContextUsage: () => this.getContextUsage(),
 				compact: (options) => {
 					void (async () => {

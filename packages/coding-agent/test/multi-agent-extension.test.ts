@@ -1231,9 +1231,23 @@ describe("multi-agent extension tools", () => {
 		}
 		await harness.session.agent.waitForIdle();
 
+		const parentSessionId = harness.sessionManager.getSessionId();
 		expect(getUserTexts(harness)).toEqual([
 			"start child",
-			"Mailbox message from Worker (agent_1): Worker completed: child done",
+			[
+				"Runtime mailbox message received.",
+				"",
+				"From:",
+				`- session: ${parentSessionId}`,
+				"- agent: agent_1",
+				"",
+				"Message:",
+				"Worker completed: child done",
+				"",
+				"To reply, use send_agent_message with:",
+				`- toSessionId: ${parentSessionId}`,
+				'- toAgentId: "main"',
+			].join("\n"),
 		]);
 		expect(getAssistantTexts(harness)).toContain("parent idle");
 		expect(getAssistantTexts(harness)).toContain("parent woke");
