@@ -226,6 +226,14 @@ async function resultFor(request) {
       value: { stdout: "OUT\\n", stderr: "", exit_code: 0, upstream_results: [] }
     };
   }
+  if (request.code === "command.failed") {
+    return {
+      type: "completed",
+      executed: request.code,
+      console: ["tail error"],
+      value: { stdout: "full out\\n", stderr: "full error\\n", exit_code: 2, upstream_results: [] }
+    };
+  }
   if (request.code === "run.long_task()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "starting long task" }) + "\\n");
     process.stdout.write(JSON.stringify({ type: "progress", message: "halfway done" }) + "\\n");
@@ -399,6 +407,10 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Python");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("persistent ctx");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not compose shell strings");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("full logs");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
+			"MUST NOT rerun the same command only to recover logs",
+		);
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.compact");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.restart");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.current");
@@ -525,6 +537,17 @@ describe("pyrun extension", () => {
 		expect(result.content[0]).toEqual({
 			type: "text",
 			text: "command.result\n\nOUT",
+		});
+	});
+
+	it("summarizes failed command results without repeating full logs", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "command.failed" });
+
+		expect(result.content[0]).toEqual({
+			type: "text",
+			text: "command.failed\n\ntail error\nResult: exit code 2",
 		});
 	});
 

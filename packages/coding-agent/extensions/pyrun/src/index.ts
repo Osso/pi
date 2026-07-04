@@ -24,6 +24,8 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
+	"run.* displays only the last 300 output lines by default; access full logs from the returned CommandResult or previous results with run.last().stdout, run.last().stderr, or run.history().",
+	"Agents MUST NOT rerun the same command only to recover logs; inspect the saved CommandResult/full logs instead.",
 	"Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
 ];
 

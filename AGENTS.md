@@ -28,6 +28,7 @@
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing.
+- Do not rerun the same command only to recover logs or output hidden by a display cap. Use the saved tool result, full `CommandResult`, `run.last()`, `run.history()`, or an explicit log artifact instead.
 - After modifying code, run relevant tests for the touched behavior before committing. Prefer targeted tests first, then broader safe suites when the change spans multiple areas.
 - Builds and tests are allowed when needed to validate code changes or refresh generated/local build artifacts used by tests. Use the narrowest build that proves the change unless a broader build is required.
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. For targeted coding-agent tests, run `npm run test:coding-agent -- test/specific.test.ts` from the repo root.

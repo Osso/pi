@@ -40,8 +40,12 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined
 	if (result.type === "needs_approval") {
 		return `needs approval: ${result.approval?.summary ?? "unknown Pyrun operation"}`;
 	}
-	if (isSuccessfulCommandResult(result.value)) {
+	const commandExitCode = getCommandResultExitCode(result.value);
+	if (commandExitCode === 0) {
 		return undefined;
+	}
+	if (commandExitCode !== undefined) {
+		return `exit code ${commandExitCode}`;
 	}
 	if (result.value === undefined) {
 		return "undefined";
@@ -52,10 +56,11 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined
 	return JSON.stringify(result.value);
 }
 
-function isSuccessfulCommandResult(value: unknown): boolean {
-	if (!value || typeof value !== "object") return false;
+function getCommandResultExitCode(value: unknown): number | undefined {
+	if (!value || typeof value !== "object") return undefined;
 	const record = value as Record<string, unknown>;
-	return typeof record.stdout === "string" && typeof record.stderr === "string" && record.exit_code === 0;
+	const hasCommandOutput = typeof record.stdout === "string" && typeof record.stderr === "string";
+	return hasCommandOutput && typeof record.exit_code === "number" ? record.exit_code : undefined;
 }
 
 function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console"]>[number]): string {
