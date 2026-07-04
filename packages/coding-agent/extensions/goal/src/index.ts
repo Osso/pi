@@ -336,15 +336,15 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	saveGoal(ctx, goal);
 	updateGoalFooterStatus(ctx);
 
-	if (ctx.isIdle()) {
+	const idle = ctx.isIdle();
+	const message = replace && activeGoal ? "Goal replaced — starting work" : "Goal set — starting work";
+	if (idle) {
 		pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
-	} else {
-		ctx.ui.notify("Agent is busy — goal saved; it will guide the current run.", "warning");
 	}
 
 	return {
 		ok: true,
-		message: replace && activeGoal ? "Goal replaced — starting work" : "Goal set — starting work",
+		message: idle ? message : "Goal saved — it will guide the current run",
 		severity: "info",
 		goal,
 	};

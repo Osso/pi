@@ -276,6 +276,16 @@ describe("goal extension", () => {
 		);
 	});
 
+	it("reports busy goal saves as informational", async () => {
+		const harness = createGoalHarness(cwd, { idle: false });
+
+		await harness.runCommand("guide the current run");
+
+		expect(harness.notify).toHaveBeenCalledTimes(1);
+		expect(harness.notify).toHaveBeenCalledWith("Goal saved — it will guide the current run", "info");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
 	it("migrates old project goal file into session storage", async () => {
 		const legacyGoalFile = join(cwd, ".pi", "goal.json");
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
