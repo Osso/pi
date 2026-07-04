@@ -47,6 +47,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent state persists as per-entity rows in the session control DB (one upsert per
       mutated agent, artifact, or mailbox message), not as snapshots appended to the session
       JSONL transcript; transcripts carry conversation history only.
+- [x] Forked/branched sessions start with an empty multi-agent store: state is keyed by session
+      path and deliberately does not follow forks, so the original and the fork can never both
+      auto-restart the same child transcripts.
+- [x] In-memory (non-persisted) sessions do not retain multi-agent state across an in-process
+      restart: with no session file there is no persistence key, and restore clears the store.
+      This is an accepted limitation of non-persisted sessions.
 - [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth, and restore
       only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
       is derived at session start from active lifecycle plus the absence of a live dispatch — see

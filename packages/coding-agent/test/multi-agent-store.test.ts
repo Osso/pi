@@ -484,6 +484,23 @@ describe("MultiAgentStore", () => {
 		}
 	});
 
+	it("starts branched sessions with an empty multi-agent store", () => {
+		const session = createControlDbSession();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(session);
+		const spawned = spawnScout(store);
+		const leafId = session.appendMessage({ role: "user", content: "branch point", timestamp: 1 });
+		const originalSessionFile = session.getSessionFile();
+
+		const branchedFile = session.createBranchedSession(leafId);
+		store.restoreFromSessionManager(session);
+
+		expect(branchedFile).toBeDefined();
+		expect(branchedFile).not.toBe(originalSessionFile);
+		expect(store.listAgents()).toEqual([]);
+		expect(store.getAgent(spawned.agent.id)).toBeUndefined();
+	});
+
 	it("clears an existing store when the restored session has no persisted multi-agent state", () => {
 		const session = SessionManager.inMemory("/repo");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
