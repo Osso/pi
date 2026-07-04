@@ -86,6 +86,8 @@ State meanings:
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes never run supervisor recovery.
+- [x] `wait_agent` reports detachment (`detached: true` plus an explicit message) for in-flight
+      agents with no live dispatch instead of returning a live-looking non-terminal snapshot.
 
 ## How it works
 
@@ -115,8 +117,6 @@ State meanings:
 - [ ] Detached-but-active agents that cannot be restarted yet (spawned children) keep their
       truthful lifecycle; projections must expose detachment (active agent, no runtime) so the
       TUI does not show false liveness while no resume path exists.
-- [ ] `wait_agent` must handle detached-active agents (no dispatch to await) instead of
-      returning a live-looking non-terminal snapshot immediately.
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.
       Blocked on a hand-interruption surface existing (today the only manual stop is

@@ -275,6 +275,7 @@ interface LastMessageDetails extends Record<string, unknown> {
 interface AgentToolDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	descendants?: AgentSnapshot[];
+	detached?: boolean;
 	dispatched?: boolean;
 	pendingMessages?: AgentMailboxMessage[];
 	prompt?: string;
@@ -1011,7 +1012,7 @@ function recoverDetachedAgents(input: Omit<AttachSessionDispatchInput, "prompt" 
 	// that has no dispatch in this process is detached and needs recovery. Restore never
 	// rewrites lifecycle state, so the persisted snapshot is the truth about what was running.
 	for (const agent of input.store.listActiveAgents()) {
-		if (agent.lifecycle === "queued" || agent.lifecycle === "waiting_for_input" || input.dispatches.has(agent.id)) {
+		if (!isInFlightLifecycle(agent.lifecycle) || input.dispatches.has(agent.id)) {
 			continue;
 		}
 		if (agent.lifecycle === "cancelling") {
@@ -1734,7 +1735,15 @@ async function waitAgent(
 	const agent = store.getAgent(params.agentId) ?? initialAgent;
 	store.consumeCompletionNotificationsForAgent(agent.id);
 	consumeRuntimeLifecycleNotifications(agent.id, ctx);
-	return result(formatAgentStatus(agent), createWaitAgentDetails(store, agent, params));
+	const details = createWaitAgentDetails(store, agent, params);
+	if (isInFlightLifecycle(agent.lifecycle) && !dispatches.has(agent.id)) {
+		details.detached = true;
+		return result(
+			`${formatAgentStatus(agent)} The agent is detached: no live runtime is attached to it in this session.`,
+			details,
+		);
+	}
+	return result(formatAgentStatus(agent), details);
 }
 
 // The wait_agent result already reports the agent's terminal state, so the
@@ -1815,6 +1824,10 @@ async function waitForDispatch(
 		});
 		pollStoreState();
 	});
+}
+
+function isInFlightLifecycle(lifecycle: AgentSnapshot["lifecycle"]): boolean {
+	return isActiveLifecycle(lifecycle) && lifecycle !== "queued" && lifecycle !== "waiting_for_input";
 }
 
 function formatAgentStatus(agent: AgentSnapshot): string {

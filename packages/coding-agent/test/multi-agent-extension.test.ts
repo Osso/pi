@@ -78,6 +78,7 @@ interface ListAgentsDetails extends Record<string, unknown> {
 interface WaitAgentDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	descendants?: AgentSnapshot[];
+	detached?: boolean;
 	pendingMessages?: AgentMailboxMessage[];
 	terminal: boolean;
 }
@@ -804,6 +805,35 @@ describe("multi-agent extension tools", () => {
 		expect(createAttachedSession).not.toHaveBeenCalled();
 		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "running" });
 		expect(store.getAgent(interrupted.agent.id)?.error).toBeUndefined();
+	});
+
+	it("reports detached agents from wait_agent instead of a live-looking snapshot", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const interrupted = source.spawnAgent({
+			agentType: "implement",
+			cwd: "/repo",
+			displayName: "Detached child",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/detached-child.jsonl", sessionId: "detached-child-session" },
+		});
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
+		const harness = createMultiAgentHarness({ store });
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: interrupted.agent.id });
+
+		expect(waited.details).toMatchObject({
+			agent: { id: interrupted.agent.id, lifecycle: "running" },
+			detached: true,
+			terminal: false,
+		});
+		expect(waited.content).toMatchObject([{ text: expect.stringContaining("detached") }]);
 	});
 
 	it("fails detached agents without a transcript at recovery time", async () => {
