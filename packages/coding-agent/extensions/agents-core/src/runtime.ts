@@ -2213,6 +2213,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		if (event.reason === "reload") {
 			return;
 		}
+		// Abort-induced dispatch rejections must not persist agents as failed;
+		// the last snapshot keeps them active so a later resume can recover them.
+		store.invalidateInFlightDispatches();
 		for (const childSession of backgroundSessions.values()) {
 			childSession.abort?.();
 		}

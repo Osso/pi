@@ -52,7 +52,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       that were already waiting before restore are not auto-prompted. Dispatch finalizers are guarded
       by store restore generation so completions from a previous supervisor session cannot mutate a
       newly restored session that reused the same agent ID, and session shutdown aborts live child-session
-      handles before the store is rebound.
+      handles before the store is rebound. Shutdown invalidates in-flight dispatches before aborting, so
+      abort-induced rejections cannot persist agents as failed and the last snapshot keeps them recoverable.
 
 ### Mailbox and steering
 

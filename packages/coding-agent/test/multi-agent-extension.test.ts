@@ -709,6 +709,43 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("keeps shutdown-aborted agents recoverable instead of persisting them as failed", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-shutdown-abort-recoverable-"));
+		try {
+			const savedSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000102",
+			});
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const aborted = deferred<void>();
+			const abort = vi.fn(() => aborted.resolve(undefined));
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
+				abort,
+				messages: [],
+				prompt: async () => {
+					await aborted.promise;
+					throw new Error("aborted by shutdown");
+				},
+				transcript: agent.transcript,
+			});
+			const harness = createMultiAgentHarness({ createAttachedSession });
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			await Promise.resolve();
+
+			await harness.emit("session_shutdown", { reason: "resume", type: "session_shutdown" });
+			await delay(5);
+
+			expect(abort).toHaveBeenCalledOnce();
+			expect(harness.store.getAgent(attached.details.agent.id)).toMatchObject({ lifecycle: "running" });
+			expect(harness.store.getAgent(attached.details.agent.id)?.error).toBeUndefined();
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("aborts live child session handles on session shutdown before store rebind", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-shutdown-agent-handles-"));
 		try {

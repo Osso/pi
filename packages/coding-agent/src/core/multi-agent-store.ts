@@ -958,6 +958,10 @@ export class MultiAgentStore {
 		return this.restoreGeneration;
 	}
 
+	invalidateInFlightDispatches(): void {
+		this.restoreGeneration += 1;
+	}
+
 	setPersistenceSessionManager(sessionManager: SessionManager | undefined): void {
 		this.persistenceSessionManager = sessionManager;
 	}
