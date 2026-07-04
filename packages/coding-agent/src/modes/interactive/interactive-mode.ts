@@ -3318,6 +3318,7 @@ export class InteractiveMode {
 							{
 								durationMs: event.result.durationMs,
 								tokensAfter: event.result.estimatedTokensAfter,
+								keptFromPreviousContextTokens: event.result.keptFromPreviousContextTokens,
 								compactedResultTokens: event.result.compactedResultTokens,
 							},
 						),

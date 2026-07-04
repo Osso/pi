@@ -346,10 +346,13 @@ interface CompactedContextEstimateInput {
 	compactedResultTokens: number | undefined;
 }
 
-function estimateCompactedContextTokens(input: CompactedContextEstimateInput): number {
-	const syntheticTokensAfter = estimateMessagesTokens(input.messages);
-	if (input.compactedResultTokens === undefined) return syntheticTokensAfter;
+interface CompactedContextTokenEstimate {
+	estimatedTokensAfter: number;
+	keptFromPreviousContextTokens: number;
+}
 
+function estimateCompactedContextTokens(input: CompactedContextEstimateInput): CompactedContextTokenEstimate {
+	const syntheticTokensAfter = estimateMessagesTokens(input.messages);
 	const syntheticSummary = createCompactionSummaryMessage(
 		input.summary,
 		input.tokensBefore,
@@ -359,7 +362,13 @@ function estimateCompactedContextTokens(input: CompactedContextEstimateInput): n
 		},
 	);
 	const syntheticSummaryTokens = estimateTokens(syntheticSummary);
-	return Math.max(0, syntheticTokensAfter - syntheticSummaryTokens + input.compactedResultTokens);
+	const keptFromPreviousContextTokens = Math.max(0, syntheticTokensAfter - syntheticSummaryTokens);
+	const compactedResultTokens = input.compactedResultTokens ?? syntheticSummaryTokens;
+
+	return {
+		estimatedTokensAfter: keptFromPreviousContextTokens + compactedResultTokens,
+		keptFromPreviousContextTokens,
+	};
 }
 
 function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSessionId: string): string {
@@ -2328,7 +2337,7 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateCompactedContextTokens({
+			const tokenEstimate = estimateCompactedContextTokens({
 				messages: sessionContext.messages,
 				summary,
 				tokensBefore,
@@ -2356,7 +2365,8 @@ export class AgentSession {
 				firstKeptEntryId,
 				tokensBefore,
 				durationMs,
-				estimatedTokensAfter,
+				estimatedTokensAfter: tokenEstimate.estimatedTokensAfter,
+				keptFromPreviousContextTokens: tokenEstimate.keptFromPreviousContextTokens,
 				compactedResultTokens,
 				compactedResultBytes,
 				source,
@@ -2657,7 +2667,7 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateCompactedContextTokens({
+			const tokenEstimate = estimateCompactedContextTokens({
 				messages: sessionContext.messages,
 				summary,
 				tokensBefore,
@@ -2685,7 +2695,8 @@ export class AgentSession {
 				firstKeptEntryId,
 				tokensBefore,
 				durationMs,
-				estimatedTokensAfter,
+				estimatedTokensAfter: tokenEstimate.estimatedTokensAfter,
+				keptFromPreviousContextTokens: tokenEstimate.keptFromPreviousContextTokens,
 				compactedResultTokens,
 				compactedResultBytes,
 				source,

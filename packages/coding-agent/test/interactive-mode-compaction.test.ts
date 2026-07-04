@@ -115,6 +115,9 @@ describe("InteractiveMode compaction events", () => {
 							tokensBefore: number;
 							summary: string;
 							durationMs?: number;
+							estimatedTokensAfter?: number;
+							keptFromPreviousContextTokens?: number;
+							compactedResultTokens?: number;
 							source?: {
 								type: "openai_remote";
 								provider: string;
@@ -136,6 +139,9 @@ describe("InteractiveMode compaction events", () => {
 				tokensBefore: 123,
 				summary: "summary",
 				durationMs: 4567,
+				estimatedTokensAfter: 89,
+				keptFromPreviousContextTokens: 67,
+				compactedResultTokens: 22,
 				source: {
 					type: "openai_remote",
 					provider: "openai",
@@ -156,6 +162,9 @@ describe("InteractiveMode compaction events", () => {
 				tokensBefore: 123,
 				summary: "summary",
 				durationMs: 4567,
+				tokensAfter: 89,
+				keptFromPreviousContextTokens: 67,
+				compactedResultTokens: 22,
 			}),
 		);
 		expect(fakeThis.showStatus).toHaveBeenCalledWith(

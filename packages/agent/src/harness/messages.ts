@@ -49,6 +49,7 @@ export interface CompactionSummaryMessage {
 	summary: string;
 	tokensBefore: number;
 	tokensAfter?: number;
+	keptFromPreviousContextTokens?: number;
 	compactedResultTokens?: number;
 	durationMs?: number;
 	timestamp: number;
@@ -93,6 +94,7 @@ export function createBranchSummaryMessage(summary: string, fromId: string, time
 interface CompactionSummaryOptions {
 	durationMs?: number;
 	tokensAfter?: number;
+	keptFromPreviousContextTokens?: number;
 	compactedResultTokens?: number;
 }
 
@@ -107,6 +109,7 @@ export function createCompactionSummaryMessage(
 		summary,
 		tokensBefore,
 		tokensAfter: options.tokensAfter,
+		keptFromPreviousContextTokens: options.keptFromPreviousContextTokens,
 		compactedResultTokens: options.compactedResultTokens,
 		durationMs: options.durationMs,
 		timestamp: new Date(timestamp).getTime(),

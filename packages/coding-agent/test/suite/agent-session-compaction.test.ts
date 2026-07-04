@@ -208,9 +208,13 @@ describe("AgentSession compaction characterization", () => {
 		const result = await harness.session.compact();
 		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
 		const estimatedTokensAfter = harness.session.messages.reduce((sum, message) => sum + estimateTokens(message), 0);
+		const summaryMessage = harness.session.messages[0];
+		if (!summaryMessage) throw new Error("Expected compaction summary message");
+		const summaryTokens = estimateTokens(summaryMessage);
 
 		expect(result.summary).toBe("summary from extension");
 		expect(result.estimatedTokensAfter).toBe(estimatedTokensAfter);
+		expect(result.keptFromPreviousContextTokens).toBe(estimatedTokensAfter - summaryTokens);
 		expect(compactionEntries).toHaveLength(1);
 		expect(harness.session.messages[0]?.role).toBe("compactionSummary");
 	});

@@ -115,6 +115,8 @@ export interface CompactionResult<T = unknown> {
 	tokensBefore: number;
 	durationMs?: number;
 	estimatedTokensAfter?: number;
+	/** Estimated tokens kept verbatim from the previous context after compaction. */
+	keptFromPreviousContextTokens?: number;
 	/** Estimated size of the provider-native compacted result, when available. */
 	compactedResultTokens?: number;
 	/** UTF-8 byte size of the provider-native compacted result, when available. */

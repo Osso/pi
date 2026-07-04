@@ -18,7 +18,7 @@ describe("CompactionSummaryMessageComponent", () => {
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("Compacted from 1.2k tokens in 4.6s");
 	});
 
-	test("shows tokens after compaction, tokens saved, and compacted result size", () => {
+	test("shows tokens after compaction, kept tokens, and compacted result size", () => {
 		initTheme("dark");
 
 		const component = new CompactionSummaryMessageComponent({
@@ -26,6 +26,7 @@ describe("CompactionSummaryMessageComponent", () => {
 			summary: "summary",
 			tokensBefore: 286705,
 			tokensAfter: 31234,
+			keptFromPreviousContextTokens: 26667,
 			compactedResultTokens: 4567,
 			timestamp: Date.now(),
 		});
@@ -33,7 +34,8 @@ describe("CompactionSummaryMessageComponent", () => {
 		const rendered = stripAnsi(component.render(140).join("\n"));
 
 		expect(rendered).toContain("Compacted from 286.7k to 31.2k tokens");
-		expect(rendered).toContain("saved 255.5k");
+		expect(rendered).toContain("kept 26.7k tokens");
 		expect(rendered).toContain("remote result 4.6k tokens");
+		expect(rendered).not.toContain("saved");
 	});
 });

@@ -66,8 +66,13 @@ function formatCompactionTokenSummary(message: CompactionSummaryMessage): string
 	if (message.tokensAfter === undefined) return `Compacted from ${tokensBefore} tokens`;
 
 	const tokensAfter = formatTokenCount(message.tokensAfter);
-	const savedTokens = formatTokenCount(Math.max(0, message.tokensBefore - message.tokensAfter));
-	return `Compacted from ${tokensBefore} to ${tokensAfter} tokens; saved ${savedTokens}`;
+	const keptSuffix = formatKeptSuffix(message.keptFromPreviousContextTokens);
+	return `Compacted from ${tokensBefore} to ${tokensAfter} tokens${keptSuffix}`;
+}
+
+function formatKeptSuffix(keptFromPreviousContextTokens: number | undefined): string {
+	if (keptFromPreviousContextTokens === undefined) return "";
+	return `; kept ${formatTokenCount(keptFromPreviousContextTokens)} tokens`;
 }
 
 function formatRemoteResultSuffix(compactedResultTokens: number | undefined): string {
