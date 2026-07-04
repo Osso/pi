@@ -826,6 +826,33 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
 
+	/** Record a message addressed to another session; the target is not an agent in this store. */
+	recordOutboundSessionMessage(input: {
+		fromAgentId: string;
+		toAgentId: string;
+		body: string;
+		threadId?: string;
+		artifactIds?: string[];
+		artifactRefs?: AgentArtifactReference[];
+	}): AgentMailboxMessage {
+		const timestamp = this.now();
+		const message: AgentMailboxMessage = {
+			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
+			artifactRefs: copyArtifactRefs(input.artifactRefs),
+			body: input.body,
+			createdAt: timestamp,
+			fromAgentId: input.fromAgentId,
+			id: this.createMessageId(),
+			kind: "message",
+			status: "pending",
+			threadId: input.threadId,
+			toAgentId: input.toAgentId,
+			updatedAt: timestamp,
+		};
+		this.putMailboxMessage(message);
+		return copyMessage(message);
+	}
+
 	sendSteering(agentId: string, expectedRevision: number, input: SendSteeringInput): SteeringCommandResult {
 		const current = this.agents.get(agentId);
 		if (!current) {

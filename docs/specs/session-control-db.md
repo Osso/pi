@@ -23,10 +23,10 @@ reply without changing the JSONL transcript format. How it works lives in
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_artifacts`, `multi_agent_mailbox_messages`,
       `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
-- [x] Runtime mailbox transport rows do not copy message bodies from persisted stores: they
-      carry a store reference (`store_session_path`, `store_message_id`) and reads resolve
-      body/artifact payloads from `multi_agent_mailbox_messages`. Only unpersisted (in-memory)
-      senders copy the body into the transport row.
+- [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
+      (`store_session_path`, `store_message_id`) is required at enqueue, reads resolve
+      body/artifact payloads from `multi_agent_mailbox_messages`, and enqueue is idempotent per
+      store reference (one transport row per store message).
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt

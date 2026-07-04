@@ -29,6 +29,40 @@ import {
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
+let storedMessageCounter = 0;
+
+function enqueueStoredRuntimeMessage(
+	controlDbPath: string,
+	input: {
+		body: string;
+		kind: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["kind"];
+		recipient: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["recipient"];
+		sender: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["sender"];
+		artifactIds?: string[];
+		artifactRefs?: Array<{ id?: string; path?: string; label?: string }>;
+	},
+): number {
+	storedMessageCounter += 1;
+	const messageId = `message_${storedMessageCounter}`;
+	const sessionPath = "/sessions/test-sender.jsonl";
+	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+		artifactIds: input.artifactIds,
+		artifactRefs: input.artifactRefs,
+		body: input.body,
+		fromAgentId: input.sender.agentId ?? "main",
+		id: messageId,
+		kind: input.kind,
+		status: "pending",
+		toAgentId: input.recipient.agentId ?? "main",
+	});
+	return enqueueRuntimeMailboxMessage(controlDbPath, {
+		kind: input.kind,
+		recipient: input.recipient,
+		sender: input.sender,
+		storeRef: { messageId, sessionPath },
+	});
+}
+
 describe("session control DB", () => {
 	let tempDir: string;
 	let controlDbPath: string;
@@ -78,13 +112,13 @@ describe("session control DB", () => {
 	});
 
 	it("stores runtime mailbox messages by recipient session and nullable agent id", () => {
-		const mainMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const mainMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "main thread notice",
 			kind: "system",
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 		});
-		const agentMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const agentMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "subagent notice",
 			kind: "message",
 			recipient: { agentId: "agent_2", sessionId: "parent-session" },
@@ -117,7 +151,6 @@ describe("session control DB", () => {
 			toAgentId: "supervisor",
 		});
 		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
-			body: "",
 			kind: "supervisor_request",
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_1", sessionId: "child-session" },
@@ -147,13 +180,13 @@ describe("session control DB", () => {
 	});
 
 	it("claims runtime mailbox rows atomically before delivery", () => {
-		const firstId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const firstId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "first",
 			kind: "message",
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 		});
-		const secondId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const secondId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "second",
 			kind: "message",
 			recipient: { agentId: null, sessionId: "parent-session" },
@@ -169,8 +202,8 @@ describe("session control DB", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "claimed" });
 	});
 
-	it("claims runtime mailbox rows even when artifact JSON is malformed", () => {
-		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+	it("claims runtime mailbox rows even when the referenced store payload is malformed", () => {
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			artifactIds: ["artifact_1"],
 			body: "bad artifact metadata",
 			kind: "message",
@@ -179,28 +212,25 @@ describe("session control DB", () => {
 		});
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.prepare("UPDATE runtime_mailbox_messages SET artifact_ids_json = ? WHERE id = ?").run(
-				"not json",
-				messageId,
-			);
+			db.prepare("UPDATE multi_agent_mailbox_messages SET data = ?").run("not json");
 		} finally {
 			db.close();
 		}
 
 		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
 
-		expect(claimed).toMatchObject([{ artifactIds: undefined, body: "bad artifact metadata", id: messageId }]);
+		expect(claimed).toMatchObject([{ artifactIds: undefined, body: "", id: messageId }]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "claimed" });
 	});
 
 	it("marks runtime mailbox rows delivered only after enqueue and failed on enqueue failure", () => {
-		const deliveredId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const deliveredId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "delivered",
 			kind: "message",
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 		});
-		const failedId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const failedId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "failed",
 			kind: "message",
 			recipient: { agentId: null, sessionId: "parent-session" },

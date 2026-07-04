@@ -103,10 +103,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       content is fed back to the model.
 - [x] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
       with control-DB write access can inject messages, so the feature must not hide message origin.
-- [x] A mailbox message has exactly one delivery transport: once a store message is mirrored into
-      the runtime control-DB mailbox, the in-store copy is marked delivered so the in-store
-      agent_end drain never delivers the same message a second time. Steer messages are exempt
-      because the steering acknowledgement flow owns their status.
+- [x] A mailbox message has exactly one delivery transport: the runtime control-DB mailbox.
+      There is no in-store drain; transport rows reference the persisted store row (one transport
+      row per store message, enforced at enqueue), and the store record transitions to delivered
+      only when the recipient's process actually delivers the transport row. Steer messages are
+      exempt from delivery marking because the steering acknowledgement flow owns their status.
+- [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
+      in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
+      failure is reported explicitly rather than silently falling back.
 - [x] `wait_agent` consumes the waited agent's pending lifecycle notifications from both the store
       and the runtime control-DB mailbox before returning, because its tool result already reports
       the terminal state; the notification must not arrive again as a mailbox prompt.
@@ -115,7 +119,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       follow-up input at the end of the turn.
 - [x] The extension context control-DB path falls back to the session's metadata control-DB path,
       so subagent sessions mirror mailbox messages through the same runtime transport as top-level
-      sessions instead of relying on in-store drains.
+      sessions.
+- [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
+      no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray
+      wake signal (stale listener row, signal pending across a session switch) terminate the
+      process. Self-notification is skipped entirely when no wake handler is installed.
 
 ### Extension boundaries
 

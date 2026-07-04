@@ -28,7 +28,11 @@ import {
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
-import { getControlDbPath, listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
+import {
+	enqueueRuntimeMailboxMessage,
+	getControlDbPath,
+	listRuntimeMailboxMessages,
+} from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
@@ -323,28 +327,6 @@ function restoreOptionalEnv(name: string, value: string | undefined): void {
 	process.env[name] = value;
 }
 
-function createStoreWithParentMailboxMessage(
-	body: string,
-	input: { artifactIds?: string[]; artifactRefs?: Array<{ id?: string; label?: string; path?: string }> } = {},
-): {
-	message: AgentMailboxMessage;
-	store: MultiAgentStore;
-} {
-	const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-	const child = store.spawnAgent({
-		agentType: "worker",
-		cwd: "/repo",
-		displayName: "Worker",
-		parentId: "main",
-		permission: { narrowed: true, policy: "on-request" },
-	});
-	const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, { body, ...input });
-	if (!contacted.ok) {
-		throw new Error("expected supervisor contact");
-	}
-	return { message: contacted.message, store };
-}
-
 describe("multi-agent extension tools", () => {
 	const childHarnesses: Harness[] = [];
 
@@ -433,8 +415,13 @@ describe("multi-agent extension tools", () => {
 			savedSession.appendMessage(fauxAssistantMessage("saved response"));
 			const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
 			const controlDbPath = join(tempDir, "control.sqlite");
+			savedSession.setMetadataControlDbPath(controlDbPath);
+			supervisorSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
 			const harness = createMultiAgentHarness({
 				ctx: { controlDbPath, sessionManager: supervisorSession },
+				store,
 			});
 
 			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
@@ -497,7 +484,12 @@ describe("multi-agent extension tools", () => {
 					recipient: { agentId: attached.details.agent.id, sessionId: savedSessionId },
 				},
 			]);
-			expect(waited.details.pendingMessages).toMatchObject([{ id: steered.details.message.id }]);
+			// Both messages honestly stay pending: the recipient session is not running
+			// in this test, so the transport never delivers them.
+			expect(waited.details.pendingMessages).toMatchObject([
+				{ id: steered.details.message.id },
+				{ id: sent.details.message.id },
+			]);
 			expect(cancelled.details.agent).toMatchObject({ id: attached.details.agent.id, lifecycle: "aborted" });
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
@@ -560,6 +552,9 @@ describe("multi-agent extension tools", () => {
 			savedSession.appendMessage(fauxAssistantMessage("saved response"));
 			const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
 			const controlDbPath = join(tempDir, "control.sqlite");
+			supervisorSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
 			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
 				messages: [fauxAssistantMessage("attached complete")],
 				prompt: async () => {},
@@ -568,6 +563,7 @@ describe("multi-agent extension tools", () => {
 			const harness = createMultiAgentHarness({
 				createAttachedSession,
 				ctx: { controlDbPath, sessionManager: supervisorSession },
+				store,
 			});
 
 			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
@@ -1891,22 +1887,6 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("drains parent mailbox messages at agent_end and continues automatically", async () => {
-		const { message, store } = createStoreWithParentMailboxMessage("Need parent review");
-		const harness = await createHarness({
-			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
-		});
-		childHarnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
-
-		await harness.session.prompt("hello");
-		await harness.session.agent.waitForIdle();
-
-		expect(getUserTexts(harness)).toEqual(["hello", "Mailbox message from Worker (agent_1): Need parent review"]);
-		expect(getAssistantTexts(harness)).toEqual(["initial reply", "mailbox reply"]);
-		expect(store.listMailboxMessages()).toMatchObject([{ id: message.id, status: "delivered" }]);
-	});
-
 	it("wakes an idle main parent when a child completion notification arrives", async () => {
 		const childPrompt = deferred<void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -1916,8 +1896,11 @@ describe("multi-agent extension tools", () => {
 		});
 		const harness = await createHarness({
 			extensionFactories: [(pi) => multiAgentExtension(pi, { createChildSession, store })],
+			multiAgentStore: store,
+			persistedSession: true,
 		});
 		childHarnesses.push(harness);
+		store.setPersistenceSessionManager(harness.sessionManager);
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Worker", prompt: "child work" }), {
 				stopReason: "toolUse",
@@ -1959,55 +1942,48 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
 	});
 
-	it("does not deliver mailbox messages again after they are marked delivered", async () => {
-		const { message, store } = createStoreWithParentMailboxMessage("Need parent review once");
+	it("includes mailbox artifact references in the runtime mailbox follow-up", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = await createHarness({
 			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
+			multiAgentStore: store,
+			persistedSession: true,
 		});
 		childHarnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage("initial reply"),
-			fauxAssistantMessage("mailbox reply"),
-			fauxAssistantMessage("second reply"),
-		]);
-
-		await harness.session.prompt("hello");
-		await harness.session.agent.waitForIdle();
-		await harness.session.prompt("second prompt");
-		await harness.session.agent.waitForIdle();
-
-		expect(getUserTexts(harness)).toEqual([
-			"hello",
-			"Mailbox message from Worker (agent_1): Need parent review once",
-			"second prompt",
-		]);
-		expect(store.listMailboxMessages()).toMatchObject([{ id: message.id, status: "delivered" }]);
-	});
-
-	it("includes mailbox artifact references in the automatic follow-up", async () => {
-		const { store } = createStoreWithParentMailboxMessage("Review log", {
+		store.setPersistenceSessionManager(harness.sessionManager);
+		const controlDbPath = harness.sessionManager.getMetadataControlDbPath();
+		const sessionPath = harness.sessionManager.getSessionFile();
+		if (!controlDbPath || !sessionPath) throw new Error("expected control DB session");
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, {
 			artifactIds: ["artifact_1"],
 			artifactRefs: [{ id: "artifact_2", label: "Test log", path: "artifacts/test.log" }],
+			body: "Review log",
 		});
-		const harness = await createHarness({
-			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
-		});
-		childHarnesses.push(harness);
+		if (!contacted.ok) throw new Error("expected supervisor contact");
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
-
+		enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "supervisor_request",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: child.agent.id, sessionId: harness.sessionManager.getSessionId() },
+			storeRef: { messageId: contacted.message.id, sessionPath },
+		});
 		await harness.session.prompt("hello");
 		await harness.session.agent.waitForIdle();
+		for (let attempt = 0; attempt < 50 && store.listMailboxMessages()[0]?.status !== "delivered"; attempt += 1) {
+			await delay(1);
+		}
 
-		expect(getUserTexts(harness)).toEqual([
-			"hello",
-			[
-				"Mailbox message from Worker (agent_1): Review log",
-				"Artifact IDs:",
-				"- artifact_1",
-				"Artifact references:",
-				"- Test log — artifact_2 — artifacts/test.log",
-			].join("\n"),
-		]);
+		const followUp = getUserTexts(harness).find((text) => text.includes("Review log"));
+		expect(followUp).toContain("Artifact IDs:\n- artifact_1");
+		expect(followUp).toContain("Artifact references:\n- Test log — artifact_2 — artifacts/test.log");
+		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
 	});
 
 	it("wait_agent waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {

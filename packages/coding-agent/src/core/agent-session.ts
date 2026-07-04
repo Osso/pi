@@ -128,6 +128,20 @@ const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 3_000;
 
+// Once this process has ever advertised its pid as a runtime mailbox listener, stray
+// SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
+// across a session switch). Reverting to the OS default disposition would terminate
+// the process, so keep a permanent no-op handler installed.
+let runtimeMailboxSignalKeepaliveInstalled = false;
+
+function installRuntimeMailboxSignalKeepalive(): void {
+	if (runtimeMailboxSignalKeepaliveInstalled || process.platform === "win32") {
+		return;
+	}
+	runtimeMailboxSignalKeepaliveInstalled = true;
+	process.on("SIGUSR2", () => {});
+}
+
 export function getAssistantMessageText(message: AssistantMessage): string {
 	const content = message.content;
 	if (typeof content === "string") return content;
@@ -1751,6 +1765,7 @@ export class AgentSession {
 						queued = true;
 					}
 					markRuntimeMailboxMessageDelivered(controlDbPath, message.id);
+					this._markStoreMailboxMessageDelivered(message);
 				} catch (error) {
 					failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
 				}
@@ -1759,6 +1774,20 @@ export class AgentSession {
 		} finally {
 			this._runtimeMailboxDrainInProgress = false;
 		}
+	}
+
+	// Transport delivery is the only delivery, so the store record transitions to
+	// delivered here — at actual delivery — not when the row was enqueued. Steer status
+	// is owned by the acknowledgement flow.
+	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): void {
+		const storeRef = message.storeRef;
+		if (!storeRef || !this._multiAgentStore || message.kind === "steer") {
+			return;
+		}
+		if (this._multiAgentStore.getPersistenceTarget()?.sessionPath !== storeRef.sessionPath) {
+			return;
+		}
+		this._multiAgentStore.markMailboxMessageDelivered(storeRef.messageId);
 	}
 
 	private _startRuntimeMailboxPolling(): void {
@@ -1787,6 +1816,7 @@ export class AgentSession {
 		if (!controlDbPath) {
 			return;
 		}
+		installRuntimeMailboxSignalKeepalive();
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
 		const agentId = this._getRuntimeMailboxAgentId();
 		if (agentId) {
@@ -1796,7 +1826,9 @@ export class AgentSession {
 			return;
 		}
 		this._runtimeMailboxSignalHandler = () => {
-			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true }).catch((error: unknown) => {
+				console.error("Failed to drain runtime mailbox messages:", error);
+			});
 		};
 		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);
 	}

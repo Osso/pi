@@ -19,6 +19,7 @@ import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
 import { ModelRegistry } from "../../src/core/model-registry.ts";
+import type { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
@@ -72,6 +73,10 @@ export interface HarnessOptions {
 	extensionFactories?: Array<ExtensionFactory | CreateTestExtensionsResultInput>;
 	uiContext?: ExtensionUIContext;
 	withConfiguredAuth?: boolean;
+	/** Use a file-backed session so control-DB persistence (multi-agent rows, mailbox refs) works. */
+	persistedSession?: boolean;
+	/** Store handed to AgentSession so transport delivery can mark store mailbox rows delivered. */
+	multiAgentStore?: MultiAgentStore;
 }
 
 export interface Harness {
@@ -109,7 +114,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const withConfiguredAuth = options.withConfiguredAuth ?? true;
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
-	const sessionManager = SessionManager.inMemory();
+	const sessionManager = options.persistedSession
+		? SessionManager.create(tempDir, join(tempDir, "sessions"))
+		: SessionManager.inMemory();
 	const settingsManager = SettingsManager.inMemory(options.settings);
 
 	const authStorage = AuthStorage.inMemory();
@@ -187,6 +194,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		allowedToolNames: options.allowedToolNames,
 		excludedToolNames: options.excludedToolNames,
 		extensionRunnerRef,
+		multiAgentStore: options.multiAgentStore,
 	});
 
 	const events: AgentSessionEvent[] = [];

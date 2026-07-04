@@ -1200,7 +1200,6 @@ function startToolDispatch(
 		}
 		try {
 			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
-			wakeIdleParentMailbox(store, pi, ctx);
 		} catch (error) {
 			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
 		}
@@ -1216,21 +1215,9 @@ function startToolDispatch(
 	void trackedDispatch.finally(() => {
 		unsubscribeLifecycleNotifications();
 		closeWaitingDesktopNotificationWhenNotWaiting(store, agent.id, waitingDesktopNotifications);
-		wakeIdleParentMailbox(store, pi, ctx);
 	});
 
 	return store.getAgent(agent.id) ?? agent;
-}
-
-function wakeIdleParentMailbox(store: MultiAgentStore, pi: ExtensionAPI | undefined, ctx: ExtensionContext): void {
-	if (ctx.controlDbPath) {
-		return;
-	}
-	const canReadIdleState = typeof ctx.isIdle === "function";
-	if (!pi || !canReadIdleState || !ctx.isIdle()) {
-		return;
-	}
-	drainParentMailboxAtAgentEnd(store, pi, ctx);
 }
 
 function trackAgentDispatch(
@@ -1460,48 +1447,6 @@ function listViewerCommands(agents: AgentSnapshot[]): AgentViewerCommand[] {
 	]);
 }
 
-function drainParentMailboxAtAgentEnd(store: MultiAgentStore, pi: ExtensionAPI, ctx: ExtensionContext): void {
-	const agentId = resolveCurrentMailboxAgentId(store, ctx);
-	if (!agentId) {
-		return;
-	}
-
-	for (const message of store.listPendingMailboxMessagesForAgent(agentId)) {
-		if (message.kind === "steer") {
-			continue;
-		}
-		pi.sendUserMessage(formatParentMailboxMessage(store, message), { deliverAs: "followUp" });
-		store.markMailboxMessageDelivered(message.id);
-	}
-}
-
-function resolveCurrentMailboxAgentId(_store: MultiAgentStore, ctx: ExtensionContext): string | undefined {
-	if (ctx.multiAgentAgentId) {
-		return ctx.multiAgentAgentId;
-	}
-	return ctx.sessionManager.isSubagentSession() ? undefined : MAIN_THREAD_AGENT_ID;
-}
-
-function formatParentMailboxMessage(store: MultiAgentStore, message: AgentMailboxMessage): string {
-	const sender = store.getAgent(message.fromAgentId);
-	const senderLabel = sender ? `${sender.displayName} (${sender.id})` : message.fromAgentId;
-	const body = message.body?.trim() || "No message body.";
-	const artifactDetails = formatMailboxArtifactDetails(message);
-	return [`Mailbox message from ${senderLabel}: ${body}`, ...artifactDetails].join("\n");
-}
-
-function formatMailboxArtifactDetails(message: AgentMailboxMessage): string[] {
-	const artifactIds = message.artifactIds?.map((artifactId) => `- ${artifactId}`) ?? [];
-	const artifactRefs = message.artifactRefs?.map(formatMailboxArtifactReference) ?? [];
-	const sections: string[] = [];
-	if (artifactIds.length > 0) {
-		sections.push(["Artifact IDs:", ...artifactIds].join("\n"));
-	}
-	if (artifactRefs.length > 0) {
-		sections.push(["Artifact references:", ...artifactRefs].join("\n"));
-	}
-	return sections;
-}
 
 function formatMailboxArtifactReference(ref: NonNullable<AgentMailboxMessage["artifactRefs"]>[number]): string {
 	const label = ref.label ?? ref.id ?? ref.path ?? "artifact";
@@ -1603,9 +1548,7 @@ function sendAgentMessage(
 
 	if (params.toSessionId) {
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
-		if (mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
-			markMirroredMailboxMessageDelivered(store, sent.message);
-		}
+		mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId);
 	} else {
 		mirrorRuntimeMailboxMessage(store, sent.message, ctx);
 	}
@@ -1635,29 +1578,24 @@ function sendMainRuntimeSessionMessage(
 			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
 		});
 	}
-	const message = createRuntimeSessionMessage(params, senderId);
-	mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null);
+	const message = store.recordOutboundSessionMessage({
+		artifactIds: params.artifactIds,
+		artifactRefs: params.artifactRefs,
+		body: params.message,
+		fromAgentId: senderId,
+		threadId: params.threadId,
+		toAgentId: params.toAgentId,
+	});
+	if (!mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null)) {
+		return errorResult("Could not send runtime session message: runtime mailbox transport is unavailable.", {
+			agent: sender,
+			message,
+		});
+	}
 	return result(`Sent message to session ${params.toSessionId}.`, {
 		agent: sender,
 		message,
 	});
-}
-
-function createRuntimeSessionMessage(params: SendAgentMessageParams, senderId: string): AgentMailboxMessage {
-	const timestamp = new Date().toISOString();
-	return {
-		artifactIds: params.artifactIds,
-		artifactRefs: params.artifactRefs,
-		body: params.message,
-		createdAt: timestamp,
-		fromAgentId: senderId,
-		id: "",
-		kind: "message",
-		status: "pending",
-		threadId: params.threadId,
-		toAgentId: params.toAgentId,
-		updatedAt: timestamp,
-	};
 }
 
 function mirrorRuntimeSessionMessage(
@@ -1670,17 +1608,21 @@ function mirrorRuntimeSessionMessage(
 	if (!ctx?.controlDbPath) {
 		return false;
 	}
+	const storeRef = buildRuntimeMailboxStoreRef(store, message, ctx);
+	if (!storeRef) {
+		console.error(
+			`Runtime mailbox requires a store persisted to the control DB; dropped session message ${message.id}.`,
+		);
+		return false;
+	}
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
-		artifactIds: message.artifactIds,
-		artifactRefs: message.artifactRefs,
-		body: message.body ?? "",
 		kind: message.kind,
 		recipient: { agentId: recipientAgentId, sessionId: toSessionId },
 		sender: {
 			agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
-		storeRef: buildRuntimeMailboxStoreRef(store, message, ctx),
+		storeRef,
 	});
 	return true;
 }
@@ -2039,9 +1981,9 @@ function mirrorAgentLifecycleRuntimeMailbox(store: MultiAgentStore, agent: Agent
 	mirrorLifecycleRuntimeMailboxMessage(store, notification, ctx);
 }
 
-// A transport row references the persisted store row instead of copying its body when the
-// sender's store persists to the same control DB; unpersisted (in-memory) stores keep the
-// copy so their messages remain deliverable.
+// Transport rows never copy message bodies: they reference the persisted store row that
+// owns the content. Messaging therefore requires a store persisted to the runtime's
+// control DB; there is no in-memory delivery path.
 function buildRuntimeMailboxStoreRef(
 	store: MultiAgentStore,
 	message: AgentMailboxMessage,
@@ -2062,20 +2004,23 @@ function mirrorLifecycleRuntimeMailboxMessage(
 	if (!ctx.controlDbPath) {
 		return;
 	}
+	const storeRef = buildRuntimeMailboxStoreRef(store, notification, ctx);
+	if (!storeRef) {
+		console.error(
+			`Runtime mailbox requires a store persisted to the control DB; dropped lifecycle notification ${notification.id}.`,
+		);
+		return;
+	}
 	const agent = store.getAgent(notification.fromAgentId);
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
-		artifactIds: notification.artifactIds,
-		artifactRefs: notification.artifactRefs,
-		body: notification.body ?? "",
 		kind: notification.kind,
 		recipient: { agentId: null, sessionId: ctx.sessionManager.getSessionId() },
 		sender: {
 			agentId: notification.fromAgentId,
 			sessionId: agent?.transcript?.sessionId ?? ctx.sessionManager.getSessionId(),
 		},
-		storeRef: buildRuntimeMailboxStoreRef(store, notification, ctx),
+		storeRef,
 	});
-	store.markMailboxMessageDelivered(notification.id);
 }
 
 function isRuntimeMirroredLifecycle(lifecycle: AgentLifecycleState): lifecycle is "completed" | "waiting_for_input" {
@@ -2094,32 +2039,22 @@ function mirrorRuntimeMailboxMessage(
 	if (!recipient) {
 		return;
 	}
+	const storeRef = buildRuntimeMailboxStoreRef(store, message, ctx);
+	if (!storeRef) {
+		console.error(
+			`Runtime mailbox requires a store persisted to the control DB; dropped mailbox message ${message.id}.`,
+		);
+		return;
+	}
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
-		artifactIds: message.artifactIds,
-		artifactRefs: message.artifactRefs,
-		body: message.body ?? "",
 		kind: message.kind,
 		recipient,
 		sender: {
 			agentId: message.fromAgentId,
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
-		storeRef: buildRuntimeMailboxStoreRef(store, message, ctx),
+		storeRef,
 	});
-	markMirroredMailboxMessageDelivered(store, message);
-}
-
-// Invariant: an in-store mailbox message stays "pending" only while no transport
-// has picked it up. Once mirrored into the runtime control DB, the DB copy is the
-// single delivery source, so the in-store copy must be marked delivered or the
-// agent_end drain would deliver the same message a second time.
-function markMirroredMailboxMessageDelivered(store: MultiAgentStore, message: AgentMailboxMessage): void {
-	// Steer status is owned by the acknowledgement flow (ackSteering drives the
-	// child lifecycle back to running), so steer messages keep their status here.
-	if (message.kind === "steer" || !message.id) {
-		return;
-	}
-	store.markMailboxMessageDelivered(message.id);
 }
 
 function resolveRuntimeRecipient(
@@ -2419,10 +2354,6 @@ export function registerAgentViewerTools(pi: ExtensionAPI, options: MultiAgentEx
 
 export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
-
-	pi.on?.("agent_end", async (_event, ctx) => {
-		drainParentMailboxAtAgentEnd(store, pi, ctx);
-	});
 
 	pi.registerTool(
 		defineTool({

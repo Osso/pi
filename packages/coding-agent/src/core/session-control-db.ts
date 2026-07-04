@@ -22,6 +22,7 @@ export interface RuntimeMailboxMessage {
 	body: string;
 	artifactIds?: string[];
 	artifactRefs?: RuntimeMailboxArtifactReference[];
+	storeRef?: RuntimeMailboxStoreRef;
 	status: RuntimeMailboxMessageStatus;
 	createdAt: string;
 	updatedAt: string;
@@ -45,15 +46,11 @@ export interface EnqueueRuntimeMailboxMessageInput {
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
 	kind: RuntimeMailboxMessageKind;
-	body: string;
-	artifactIds?: string[];
-	artifactRefs?: RuntimeMailboxArtifactReference[];
 	/**
-	 * Reference to the persisted store row that owns this message's content. When set,
-	 * body/artifact payloads are not copied into the transport row; reads resolve them
-	 * from `multi_agent_mailbox_messages`.
+	 * Reference to the persisted store row that owns this message's content. Transport rows
+	 * never copy bodies; reads resolve payloads from `multi_agent_mailbox_messages`.
 	 */
-	storeRef?: RuntimeMailboxStoreRef;
+	storeRef: RuntimeMailboxStoreRef;
 }
 
 export interface LastControlMessage {
@@ -271,6 +268,14 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
 	const result = withControlDb(controlDbPath, (db) => {
+		// One transport row per store message: the store row is the single record, so a
+		// second enqueue for the same reference is a re-send of the same message.
+		const existing = db
+			.prepare("SELECT id FROM runtime_mailbox_messages WHERE store_session_path = ? AND store_message_id = ?")
+			.get(input.storeRef.sessionPath, input.storeRef.messageId) as { id: number } | undefined;
+		if (existing) {
+			return { id: existing.id, listener: undefined };
+		}
 		const now = new Date().toISOString();
 		const result = db
 			.prepare(
@@ -299,11 +304,11 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 				input.sender.sessionId,
 				input.sender.agentId,
 				input.kind,
-				input.storeRef ? "" : input.body,
-				input.storeRef ? null : input.artifactIds ? JSON.stringify(input.artifactIds) : null,
-				input.storeRef ? null : input.artifactRefs ? JSON.stringify(input.artifactRefs) : null,
-				input.storeRef?.sessionPath ?? null,
-				input.storeRef?.messageId ?? null,
+				"",
+				null,
+				null,
+				input.storeRef.sessionPath,
+				input.storeRef.messageId,
 				now,
 				now,
 			);
@@ -429,6 +434,11 @@ function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | unde
 	if (!listener || process.platform === "win32") {
 		return;
 	}
+	if (listener.pid === process.pid && process.listenerCount("SIGUSR2") === 0) {
+		// Signalling ourselves with no wake handler installed would terminate the
+		// process (OS default action). Polling delivers the message instead.
+		return;
+	}
 	try {
 		process.kill(listener.pid, "SIGUSR2");
 	} catch {
@@ -495,6 +505,10 @@ function runtimeMailboxMessageFromRow(db: SqliteDatabase, row: RuntimeMailboxRow
 		body: stored?.body ?? row.body,
 		artifactIds: stored ? stored.artifactIds : parseStringArray(row.artifact_ids_json),
 		artifactRefs: stored ? stored.artifactRefs : parseArtifactReferences(row.artifact_refs_json),
+		storeRef:
+			row.store_session_path && row.store_message_id
+				? { messageId: row.store_message_id, sessionPath: row.store_session_path }
+				: undefined,
 		status: toRuntimeMailboxMessageStatus(row.status),
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,

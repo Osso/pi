@@ -9,9 +9,41 @@ import {
 	getControlDbPath,
 	listRuntimeMailboxMessages,
 	readRuntimeMailboxMessage,
+	upsertMultiAgentMailboxMessage,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+
+let storedMessageCounter = 0;
+
+function enqueueStoredRuntimeMessage(
+	controlDbPath: string,
+	input: {
+		body: string;
+		kind: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["kind"];
+		recipient: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["recipient"];
+		sender: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["sender"];
+	},
+): number {
+	storedMessageCounter += 1;
+	const messageId = `runtime_test_message_${storedMessageCounter}`;
+	const sessionPath = "/sessions/runtime-test-sender.jsonl";
+	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+		body: input.body,
+		fromAgentId: input.sender.agentId ?? "main",
+		id: messageId,
+		kind: input.kind,
+		status: "pending",
+		toAgentId: input.recipient.agentId ?? "main",
+	});
+	return enqueueRuntimeMailboxMessage(controlDbPath, {
+		kind: input.kind,
+		recipient: input.recipient,
+		sender: input.sender,
+		storeRef: { messageId, sessionPath },
+	});
+}
+
 import multiAgentExtension, {
 	type AgentDesktopNotification,
 	type ChildAgentDispatcher,
@@ -126,7 +158,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			parentSession: parentSession.getSessionFile(),
 			subagentName: "Worker",
 		});
+		childSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(childSession);
 		const child = store.spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -161,16 +195,18 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
-		// The runtime mailbox owns delivery once mirrored; the in-store copy must
-		// not stay pending or the agent_end drain would deliver it a second time.
-		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
+		// The store row is the honest record: it stays pending until the transport
+		// actually delivers it in the recipient's process.
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
 	});
 
 	it("sends direct messages to an explicit runtime session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(senderSession);
 		const parent = store.spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -219,14 +255,18 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
-		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
+		// The store row is the honest record: it stays pending until the recipient's
+		// process actually delivers the transport row.
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
 	});
 
 	it("sends direct messages to an explicit main runtime session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(senderSession);
 		const tools = collectMultiAgentTools(store);
 		const sendAgentMessage = tools.get("send_agent_message");
 		if (!sendAgentMessage) {
@@ -259,7 +299,9 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(senderSession);
 		const parent = store.spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -309,7 +351,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			parentSession: parentSession.getSessionFile(),
 			subagentName: "Worker",
 		});
+		childSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(childSession);
 		const child = store.spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -357,7 +401,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			waitingAgents.push(agent);
 			return { lifecycle: "waiting_for_input" };
 		};
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, { dispatcher });
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
@@ -389,8 +435,10 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		let transitionedToWaiting = false;
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const dispatcher: ChildAgentDispatcher = ({ agent }) => {
 			const waiting = store.transitionAgent(agent.id, agent.revision, "waiting_for_input");
 			expect(waiting.ok).toBe(true);
@@ -561,9 +609,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, {
 			desktopNotifier: () => {
 				throw new Error("notification failed");
@@ -609,7 +659,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			completedAgents.push(agent);
 			return { lifecycle: "completed", result: { summary: "tests passed" } };
 		};
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, { dispatcher });
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
@@ -645,7 +697,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			lifecycle: "completed",
 			result: { summary: "tests passed" },
 		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, { dispatcher });
 		const spawnAgent = tools.get("spawn_agent");
 		const waitAgent = tools.get("wait_agent");
@@ -681,7 +735,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harnesses.push(harness);
 		await harness.session.bindExtensions({ controlDbPath });
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
-		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Child finished tests",
 			kind: "system",
 			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
@@ -703,7 +757,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harnesses.push(harness);
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		harness.setResponses([fauxAssistantMessage("mailbox reply")]);
-		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Constructor poll wake",
 			kind: "message",
 			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
@@ -728,7 +782,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		await harness.session.bindExtensions({});
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
-		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Fallback path notice",
 			kind: "system",
 			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
@@ -751,7 +805,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.bindExtensions({ controlDbPath });
 		harness.setResponses([fauxAssistantMessage("mailbox reply")]);
 		const releaseReservation = harness.session.reserveExternalUserInput();
-		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Reserved input wake",
 			kind: "message",
 			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
@@ -780,7 +834,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harnesses.push(harness);
 		await harness.session.bindExtensions({ controlDbPath });
 		harness.setResponses([fauxAssistantMessage("mailbox reply")]);
-		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Need parent review",
 			kind: "message",
 			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
