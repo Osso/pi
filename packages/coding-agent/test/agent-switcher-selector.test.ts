@@ -64,6 +64,23 @@ describe("AgentSwitcherComponent", () => {
 		expect(text).toContain("waiting for input");
 	});
 
+	it("renders child agents nested under their parent", () => {
+		const component = new AgentSwitcherComponent(
+			[
+				agent({ id: "agent-2", displayName: "Builder", lifecycle: "running" }),
+				agent({ id: "agent-3", displayName: "Verifier", lifecycle: "running", parentId: "agent-2" }),
+			],
+			undefined,
+			() => {},
+			() => {},
+		);
+
+		const text = renderedText(component);
+
+		expect(text).toContain("2. Builder");
+		expect(text).toContain("└─ -- 3. Verifier");
+	});
+
 	it("selects the highlighted agent by id without receiving mutation inputs", () => {
 		const onSelect = vi.fn();
 		const component = new AgentSwitcherComponent(
