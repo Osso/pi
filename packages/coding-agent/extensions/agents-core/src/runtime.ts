@@ -2234,8 +2234,17 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const activeDispatches = runtimeHandles.dispatches;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
+	let unsubscribeRuntimeLifecycleMirror: (() => void) | undefined;
 
 	pi.on?.("session_start", async (_event, ctx) => {
+		unsubscribeRuntimeLifecycleMirror?.();
+		unsubscribeRuntimeLifecycleMirror = store.subscribeLifecycleNotifications((message) => {
+			try {
+				mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
+			} catch (error) {
+				console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
+			}
+		});
 		recoverDetachedAgents({
 			createAttachedSession,
 			ctx,
@@ -2252,6 +2261,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		if (event.reason === "reload") {
 			return;
 		}
+		unsubscribeRuntimeLifecycleMirror?.();
+		unsubscribeRuntimeLifecycleMirror = undefined;
 		// Abort-induced dispatch rejections must not persist agents as failed;
 		// the last snapshot keeps them active so a later resume can recover them.
 		store.invalidateInFlightDispatches();

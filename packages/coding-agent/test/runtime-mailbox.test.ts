@@ -498,6 +498,46 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("mirrors child waiting-for-input notification after the dispatch listener is gone", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const harness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
+			multiAgentStore: store,
+			persistedSession: true,
+		});
+		harnesses.push(harness);
+		const controlDbPath = getControlDbPath(tempDir);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const starting = store.transitionAgent(child.agent.id, child.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) throw new Error("expected starting transition");
+		const running = store.transitionAgent(child.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+
+		const waiting = store.transitionAgent(child.agent.id, running.agent.revision, "waiting_for_input");
+
+		expect(waiting.ok).toBe(true);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "Worker is waiting for input.",
+				recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+				sender: { agentId: child.agent.id, sessionId: harness.sessionManager.getSessionId() },
+				status: "pending",
+			},
+		]);
+	});
+
 	it("mirrors child waiting-for-input notification before the dispatch resolves", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
