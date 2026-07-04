@@ -44,6 +44,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Supervisor session resume restores the persisted multi-agent store into the production
       first-party store so agent tree, slots, artifacts, mailbox state, and transcript pointers
       survive a crash or restart. The selected view is ephemeral UI state and is not persisted.
+- [x] Multi-agent state persists as per-entity rows in the session control DB (one upsert per
+      mutated agent, artifact, or mailbox message), not as snapshots appended to the session
+      JSONL transcript; transcripts carry conversation history only.
 - [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth, and restore
       only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
       is derived at session start from active lifecycle plus the absence of a live dispatch — see
@@ -165,8 +168,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 - [`packages/coding-agent/src/core/multi-agent-store.ts`](../../packages/coding-agent/src/core/multi-agent-store.ts)
   defines the first pure in-memory store, lifecycle transitions, revision checks, active-count
-  derivation, steering mailbox acknowledgement behavior, and SessionManager-backed snapshot
-  persistence/reload. Its current mailbox storage is local-process state and is not the target
+  derivation, steering mailbox acknowledgement behavior, and control-DB-backed row persistence:
+  each agent/artifact/mailbox mutation upserts one row keyed by session path, and restore selects
+  the session's rows. Multi-agent state is mutable runtime state and is not written to the session
+  JSONL transcript. Its current mailbox storage is local-process state and is not the target
   cross-session transport.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
@@ -192,8 +197,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 - [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
-  core-derived active counts. It also asserts snapshot persistence through SessionManager custom
-  entries, rehydration after reopening a persisted session, descendant listing below a parent, and
+  core-derived active counts. It also asserts row persistence through the session control DB,
+  rehydration after reopening a persisted session, descendant listing below a parent, and
   child-to-supervisor mailbox contact without sibling targeting. It verifies mailbox artifact
   references carry only ID/path metadata and do not copy large artifact content, covers stable
   agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
@@ -241,9 +246,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       read-only TUI projection contract.
 - [x] Add the first failing tests for stale-revision rejection, read-only agent switching, mailbox
       steering acknowledgement, and core-derived active counts.
-- [x] Add and implement store persistence tests for `SessionManager` custom entries and reloadable
-      snapshots/events, automatic snapshot persistence after mutations, in-place production-store restore,
-      empty-session clearing, and lifecycle-preserving restore of interrupted agents.
+- [x] Add and implement store persistence tests for control-DB row persistence, automatic
+      persistence after mutations, in-place production-store restore, empty-session clearing, and
+      lifecycle-preserving restore of interrupted agents.
 - [x] Add failing extension-tool tests for spawn/list/wait/cancel/steer over `MultiAgentStore`
       without spawning real child model sessions.
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over `MultiAgentStore`, update

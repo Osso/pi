@@ -20,6 +20,9 @@ reply without changing the JSONL transcript format. How it works lives in
       per-session accumulator (rebuilt only after wholesale entry replacement such as resume,
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
+- [x] Store multi-agent state as per-entity rows keyed by session path
+      (`multi_agent_agents`, `multi_agent_artifacts`, `multi_agent_mailbox_messages`,
+      `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt

@@ -786,6 +786,10 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionStartEvent,
 		projectTrustContext,
 	}) => {
+		// Switched/restarted sessions get their control DB path from the AgentSession
+		// constructor, which runs after this callback; set it here so the store restore
+		// and its row persistence see the DB.
+		sessionManager.setMetadataControlDbPath(getControlDbPath(agentDir));
 		firstPartyMultiAgentStore.restoreFromSessionManager(sessionManager);
 		const isInitialRuntime = sessionStartEvent === undefined;
 		const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];

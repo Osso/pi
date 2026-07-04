@@ -884,6 +884,128 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 	};
 }
 
+export interface MultiAgentCounters {
+	nextAgentNumber: number;
+	nextArtifactNumber: number;
+	nextMessageNumber: number;
+}
+
+export interface MultiAgentPersistedState {
+	agents: unknown[];
+	artifacts: unknown[];
+	mailboxMessages: unknown[];
+	counters: MultiAgentCounters;
+}
+
+function upsertMultiAgentRow(
+	controlDbPath: string,
+	table: "multi_agent_agents" | "multi_agent_artifacts" | "multi_agent_mailbox_messages",
+	idColumn: "agent_id" | "artifact_id" | "message_id",
+	sessionPath: string,
+	id: string,
+	data: unknown,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`
+			INSERT INTO ${table} (session_path, ${idColumn}, data, updated_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(session_path, ${idColumn}) DO UPDATE SET
+				data = excluded.data,
+				updated_at = excluded.updated_at
+			`,
+		).run(sessionPath, id, JSON.stringify(data), new Date().toISOString());
+	});
+}
+
+export function upsertMultiAgentAgent(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
+	upsertMultiAgentRow(controlDbPath, "multi_agent_agents", "agent_id", sessionPath, id, data);
+}
+
+export function upsertMultiAgentArtifact(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
+	upsertMultiAgentRow(controlDbPath, "multi_agent_artifacts", "artifact_id", sessionPath, id, data);
+}
+
+export function upsertMultiAgentMailboxMessage(
+	controlDbPath: string,
+	sessionPath: string,
+	id: string,
+	data: unknown,
+): void {
+	upsertMultiAgentRow(controlDbPath, "multi_agent_mailbox_messages", "message_id", sessionPath, id, data);
+}
+
+export function writeMultiAgentCounters(
+	controlDbPath: string,
+	sessionPath: string,
+	counters: MultiAgentCounters,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`
+			INSERT INTO multi_agent_counters (
+				session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(session_path) DO UPDATE SET
+				next_agent_number = excluded.next_agent_number,
+				next_artifact_number = excluded.next_artifact_number,
+				next_message_number = excluded.next_message_number,
+				updated_at = excluded.updated_at
+			`,
+		).run(
+			sessionPath,
+			counters.nextAgentNumber,
+			counters.nextArtifactNumber,
+			counters.nextMessageNumber,
+			new Date().toISOString(),
+		);
+	});
+}
+
+export function readMultiAgentState(controlDbPath: string, sessionPath: string): MultiAgentPersistedState | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const readRows = (table: string): unknown[] =>
+			(
+				db.prepare(`SELECT data FROM ${table} WHERE session_path = ? ORDER BY rowid`).all(sessionPath) as Array<{
+					data: string;
+				}>
+			)
+				.map((row) => {
+					try {
+						return JSON.parse(row.data) as unknown;
+					} catch {
+						return undefined;
+					}
+				})
+				.filter((data) => data !== undefined);
+		const counters = db
+			.prepare(
+				`
+				SELECT next_agent_number, next_artifact_number, next_message_number
+				FROM multi_agent_counters WHERE session_path = ?
+				`,
+			)
+			.get(sessionPath) as
+			| { next_agent_number: number; next_artifact_number: number; next_message_number: number }
+			| undefined;
+		const agents = readRows("multi_agent_agents");
+		if (!counters && agents.length === 0) {
+			return undefined;
+		}
+		return {
+			agents,
+			artifacts: readRows("multi_agent_artifacts"),
+			mailboxMessages: readRows("multi_agent_mailbox_messages"),
+			counters: {
+				nextAgentNumber: counters?.next_agent_number ?? 1,
+				nextArtifactNumber: counters?.next_artifact_number ?? 1,
+				nextMessageNumber: counters?.next_message_number ?? 1,
+			},
+		};
+	});
+}
+
 function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
 	const db = createSqliteDatabase(controlDbPath);
 	try {
@@ -980,6 +1102,38 @@ function initializeSchema(db: SqliteDatabase): void {
 
 		CREATE INDEX IF NOT EXISTS session_metadata_modified_at_idx
 		ON session_metadata(modified_at DESC, updated_at DESC);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_agents (
+			session_path TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			data TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (session_path, agent_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_artifacts (
+			session_path TEXT NOT NULL,
+			artifact_id TEXT NOT NULL,
+			data TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (session_path, artifact_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_mailbox_messages (
+			session_path TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			data TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (session_path, message_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_counters (
+			session_path TEXT PRIMARY KEY,
+			next_agent_number INTEGER NOT NULL,
+			next_artifact_number INTEGER NOT NULL,
+			next_message_number INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		);
 	`);
 	addMissingSessionMetadataColumns(db);
 }

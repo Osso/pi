@@ -1,9 +1,29 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import { MULTI_AGENT_EVENT_CUSTOM_TYPE, MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { type CustomEntry, SessionManager } from "../src/core/session-manager.ts";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { getControlDbPath, readMultiAgentState } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+
+const managedTempDirs: string[] = [];
+
+afterAll(() => {
+	for (const dir of managedTempDirs) {
+		rmSync(dir, { force: true, recursive: true });
+	}
+});
+
+function createControlDbSession(tempDir?: string, cwd = "/repo"): SessionManager {
+	let dir = tempDir;
+	if (!dir) {
+		dir = mkdtempSync(join(tmpdir(), "pi-agent-store-db-"));
+		managedTempDirs.push(dir);
+	}
+	const session = SessionManager.create(cwd, dir);
+	session.setMetadataControlDbPath(getControlDbPath(dir));
+	return session;
+}
 
 function spawnScout(store: MultiAgentStore) {
 	return store.spawnAgent({
@@ -436,11 +456,12 @@ describe("MultiAgentStore", () => {
 		expect(staleRunning).toMatchObject({ ok: false, error: "stale_revision" });
 	});
 
-	it("restores a persisted snapshot into an existing store instance", () => {
+	it("restores persisted multi-agent state into an existing store instance", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-existing-store-"));
 		try {
-			const session = SessionManager.create("/repo", tempDir);
+			const session = createControlDbSession(tempDir);
 			const persisted = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			persisted.setPersistenceSessionManager(session);
 			const spawned = persisted.spawnAgent({
 				agentType: "worker",
 				cwd: "/repo",
@@ -449,7 +470,6 @@ describe("MultiAgentStore", () => {
 				slot: { index: 2, pinned: true },
 			});
 			persisted.selectAgentView(spawned.agent.id);
-			persisted.persistSnapshot(session);
 
 			const existing = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			existing.restoreFromSessionManager(session);
@@ -464,7 +484,7 @@ describe("MultiAgentStore", () => {
 		}
 	});
 
-	it("clears an existing store when the restored session has no multi-agent snapshot", () => {
+	it("clears an existing store when the restored session has no persisted multi-agent state", () => {
 		const session = SessionManager.inMemory("/repo");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);
@@ -477,42 +497,33 @@ describe("MultiAgentStore", () => {
 	});
 
 	it("clears runtime subscribers when restoring another session snapshot", () => {
-		const session = SessionManager.inMemory("/repo");
-		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = spawnScout(source);
-		source.persistSnapshot(session);
-		const stale = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const lifecycleNotified = vi.fn();
-		const transitionNotified = vi.fn();
-		stale.subscribeLifecycleNotifications(lifecycleNotified);
-		stale.subscribeAgentTransitions(transitionNotified);
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-subscribers-"));
+		try {
+			const session = createControlDbSession(tempDir);
+			const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			source.setPersistenceSessionManager(session);
+			const spawned = spawnScout(source);
+			const stale = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const lifecycleNotified = vi.fn();
+			const transitionNotified = vi.fn();
+			stale.subscribeLifecycleNotifications(lifecycleNotified);
+			stale.subscribeAgentTransitions(transitionNotified);
 
-		stale.restoreFromSessionManager(session);
-		const running = stale.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
-		expect(running.ok).toBe(true);
+			stale.restoreFromSessionManager(session);
+			const running = stale.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+			expect(running.ok).toBe(true);
 
-		expect(lifecycleNotified).not.toHaveBeenCalled();
-		expect(transitionNotified).not.toHaveBeenCalled();
+			expect(lifecycleNotified).not.toHaveBeenCalled();
+			expect(transitionNotified).not.toHaveBeenCalled();
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
 	});
 
-	it("does not append snapshots for read-only selection changes", () => {
-		const session = SessionManager.inMemory("/repo");
-		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		store.setPersistenceSessionManager(session);
-		const spawned = spawnScout(store);
-		const entryCountAfterSpawn = session.getEntries().length;
-
-		store.selectAgentView(spawned.agent.id);
-		store.clearSelectedAgentView();
-		store.selectActiveAgentTarget(spawned.agent.id);
-
-		expect(session.getEntries()).toHaveLength(entryCountAfterSpawn);
-	});
-
-	it("persists snapshots automatically after multi-agent mutations", () => {
+	it("persists agent state automatically after multi-agent mutations", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-auto-persist-"));
 		try {
-			const session = SessionManager.create("/repo", tempDir);
+			const session = createControlDbSession(tempDir);
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			store.setPersistenceSessionManager(session);
 
@@ -542,6 +553,7 @@ describe("MultiAgentStore", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-multi-agent-"));
 		try {
 			const session = SessionManager.create(tempDir, join(tempDir, "sessions"));
+			session.setMetadataControlDbPath(getControlDbPath(tempDir));
 			session.appendMessage({ role: "user", content: "hello", timestamp: 1 });
 			session.appendMessage({
 				api: "anthropic-messages",
@@ -561,6 +573,7 @@ describe("MultiAgentStore", () => {
 				},
 			});
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(session);
 			const spawned = store.spawnAgent({
 				agentType: "worker",
 				cwd: "/repo",
@@ -583,12 +596,12 @@ describe("MultiAgentStore", () => {
 				transcript: { inlineMessages: string[]; path: string; sessionId: string };
 			});
 
-			store.persistSnapshot(session);
 			const sessionFile = session.getSessionFile();
 			if (!sessionFile) {
 				throw new Error("expected persisted session file");
 			}
 			const reopenedSession = SessionManager.open(sessionFile);
+			reopenedSession.setMetadataControlDbPath(getControlDbPath(tempDir));
 			const rehydrated = MultiAgentStore.fromSessionManager(reopenedSession, {
 				now: () => "2026-06-21T00:00:00.000Z",
 			});
@@ -1166,10 +1179,8 @@ describe("MultiAgentStore", () => {
 		expect(JSON.stringify(store.listMailboxMessages())).not.toContain("First five log lines");
 	});
 
-	it("wires rehydrated stores to append snapshots after later mutations", () => {
-		const session = SessionManager.inMemory("/repo");
-		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		source.persistSnapshot(session);
+	it("wires rehydrated stores to persist later mutations", () => {
+		const session = createControlDbSession();
 
 		const rehydrated = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1187,8 +1198,9 @@ describe("MultiAgentStore", () => {
 	});
 
 	it("restores crashed active agents with truthful lifecycles and cleared worker handles", () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const recoverable = source.spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
@@ -1231,7 +1243,6 @@ describe("MultiAgentStore", () => {
 		expect(source.transitionAgent(unrecoverable.agent.id, unrecoverableRunning.agent.revision, "running").ok).toBe(
 			true,
 		);
-		source.persistSnapshot(session);
 
 		const rehydrated = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1258,10 +1269,10 @@ describe("MultiAgentStore", () => {
 	});
 
 	it("leaves queued agents queued during crash recovery", () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const queued = spawnScout(source);
-		source.persistSnapshot(session);
 
 		const rehydrated = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1273,14 +1284,14 @@ describe("MultiAgentStore", () => {
 	});
 
 	it("keeps interrupted running agents running across repeated restores", () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = spawnScout(source);
 		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 
 		MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1295,30 +1306,29 @@ describe("MultiAgentStore", () => {
 		expect(reopened.getAgent(interrupted.agent.id)?.error).toBeUndefined();
 	});
 
-	it("persists snapshots as SessionManager custom entries", () => {
-		const session = SessionManager.inMemory("/repo");
+	it("persists agent state as control DB rows instead of transcript entries", () => {
+		const session = createControlDbSession();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(session);
 		const spawned = spawnScout(store);
 		const viewed = store.selectAgentView(spawned.agent.id);
+		const controlDbPath = session.getMetadataControlDbPath();
+		const sessionPath = session.getSessionFile();
+		if (!controlDbPath || !sessionPath) throw new Error("expected control DB session");
 
-		const entryId = store.persistSnapshot(session);
+		const state = readMultiAgentState(controlDbPath, sessionPath);
 
-		const entry = session.getEntries().find((candidate) => candidate.id === entryId) as CustomEntry | undefined;
 		expect(viewed?.id).toBe(spawned.agent.id);
-		expect(entry).toMatchObject({
-			customType: MULTI_AGENT_EVENT_CUSTOM_TYPE,
-			data: {
-				kind: "snapshot",
-				version: 1,
-			},
-		});
-		expect(entry?.data).toMatchObject({ mailboxMessages: [] });
-		expect(entry?.data).not.toHaveProperty("selectedAgentId");
+		expect(state?.agents).toMatchObject([{ displayName: "Scout", id: spawned.agent.id, lifecycle: "queued" }]);
+		expect(state?.counters).toEqual({ nextAgentNumber: 2, nextArtifactNumber: 1, nextMessageNumber: 1 });
+		expect(state?.mailboxMessages).toEqual([]);
+		expect(session.getEntries().some((entry) => entry.type === "custom")).toBe(false);
 	});
 
 	it("persists waiting-for-input notifications across session restore", () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(session);
 		const spawned = spawnScout(store);
 		const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
 		expect(started.ok).toBe(true);
@@ -1333,7 +1343,6 @@ describe("MultiAgentStore", () => {
 		const waiting = store.transitionAgent(spawned.agent.id, running.agent.revision, "waiting_for_input");
 		expect(waiting.ok).toBe(true);
 
-		store.persistSnapshot(session);
 		const rehydrated = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1350,10 +1359,11 @@ describe("MultiAgentStore", () => {
 		]);
 	});
 
-	it("rehydrates the latest persisted snapshot after reopening a session", () => {
+	it("rehydrates the latest persisted state after reopening a session", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-multi-agent-store-"));
 		try {
 			const session = SessionManager.create(tempDir, join(tempDir, "sessions"));
+			session.setMetadataControlDbPath(getControlDbPath(tempDir));
 			session.appendMessage({ role: "user", content: "hello", timestamp: 1 });
 			session.appendMessage({
 				api: "anthropic-messages",
@@ -1374,6 +1384,7 @@ describe("MultiAgentStore", () => {
 			});
 
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(session);
 			const spawned = spawnScout(store);
 			const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
 			expect(started.ok).toBe(true);
@@ -1402,13 +1413,13 @@ describe("MultiAgentStore", () => {
 			const completed = store.transitionAgent(spawned.agent.id, delivered.agent.revision, "completed");
 			expect(completed.ok).toBe(true);
 			store.selectAgentView(spawned.agent.id);
-			store.persistSnapshot(session);
 
 			const sessionFile = session.getSessionFile();
 			if (!sessionFile) {
 				throw new Error("expected persisted session file");
 			}
 			const reopenedSession = SessionManager.open(sessionFile);
+			reopenedSession.setMetadataControlDbPath(getControlDbPath(tempDir));
 			const rehydrated = MultiAgentStore.fromSessionManager(reopenedSession, {
 				now: () => "2026-06-21T00:00:00.000Z",
 			});

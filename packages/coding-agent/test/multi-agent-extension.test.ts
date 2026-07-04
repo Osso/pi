@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
@@ -28,7 +28,7 @@ import {
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
-import { listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
+import { getControlDbPath, listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
@@ -42,6 +42,22 @@ import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const managedTempDirs: string[] = [];
+
+afterAll(() => {
+	for (const dir of managedTempDirs) {
+		rmSync(dir, { force: true, recursive: true });
+	}
+});
+
+function createControlDbSession(cwd = "/repo"): SessionManager {
+	const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-ext-db-"));
+	managedTempDirs.push(tempDir);
+	const session = SessionManager.create(cwd, tempDir);
+	session.setMetadataControlDbPath(getControlDbPath(tempDir));
+	return session;
 }
 
 async function resolvesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
@@ -577,8 +593,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("restarts recovered attached agents on session start without treating old handles as live", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = source.spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
@@ -591,7 +608,6 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected recovered agent to start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -653,15 +669,15 @@ describe("multi-agent extension tools", () => {
 			});
 			await Promise.resolve();
 
-			const replacementSession = SessionManager.inMemory("/repo");
+			const replacementSession = createControlDbSession();
 			const replacementStore = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			replacementStore.setPersistenceSessionManager(replacementSession);
 			const replacementAgent = replacementStore.spawnAgent({
 				agentType: "worker",
 				cwd: "/repo",
 				displayName: "Scout",
 				permission: { narrowed: true, policy: "on-request" },
 			});
-			replacementStore.persistSnapshot(replacementSession);
 			store.restoreFromSessionManager(replacementSession);
 			createSessionGate.resolve(undefined);
 			childPrompt.resolve(undefined);
@@ -780,8 +796,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("does not restart recovered spawned children through the attached-session factory", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = source.spawnAgent({
 			agentType: "implement",
 			cwd: "/repo",
@@ -793,7 +810,6 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected spawned child to start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -808,8 +824,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("reports detached agents from wait_agent instead of a live-looking snapshot", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = source.spawnAgent({
 			agentType: "implement",
 			cwd: "/repo",
@@ -821,7 +838,6 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
@@ -837,8 +853,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("fails detached agents without a transcript at recovery time", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = source.spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -849,7 +866,6 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
 
@@ -862,8 +878,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("completes pending cancels for detached cancelling agents at recovery time", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const cancelled = source.spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -877,7 +894,6 @@ describe("multi-agent extension tools", () => {
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running");
 		expect(source.transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
 
@@ -906,8 +922,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("does not run supervisor crash recovery inside child agent runtimes", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = source.spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
@@ -920,7 +937,6 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected recovered agent to start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -938,8 +954,9 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("marks recovered attached-session restart failures as failed with an inspectable error", async () => {
-		const session = SessionManager.inMemory("/repo");
+		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
 		const interrupted = source.spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
@@ -952,7 +969,6 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected recovered agent to start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
