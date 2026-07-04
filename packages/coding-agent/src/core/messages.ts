@@ -63,6 +63,8 @@ export interface CompactionSummaryMessage {
 	role: "compactionSummary";
 	summary: string;
 	tokensBefore: number;
+	tokensAfter?: number;
+	compactedResultTokens?: number;
 	durationMs?: number;
 	timestamp: number;
 }
@@ -107,17 +109,25 @@ export function createBranchSummaryMessage(summary: string, fromId: string, time
 	};
 }
 
+interface CompactionSummaryOptions {
+	durationMs?: number;
+	tokensAfter?: number;
+	compactedResultTokens?: number;
+}
+
 export function createCompactionSummaryMessage(
 	summary: string,
 	tokensBefore: number,
 	timestamp: string,
-	durationMs?: number,
+	options: CompactionSummaryOptions = {},
 ): CompactionSummaryMessage {
 	return {
 		role: "compactionSummary",
 		summary: summary,
 		tokensBefore,
-		durationMs,
+		tokensAfter: options.tokensAfter,
+		compactedResultTokens: options.compactedResultTokens,
+		durationMs: options.durationMs,
 		timestamp: new Date(timestamp).getTime(),
 	};
 }

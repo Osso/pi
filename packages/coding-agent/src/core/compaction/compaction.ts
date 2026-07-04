@@ -87,7 +87,9 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 	}
 	if (entry.type === "compaction") {
-		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, entry.durationMs);
+		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, {
+			durationMs: entry.durationMs,
+		});
 	}
 	return undefined;
 }
@@ -113,6 +115,10 @@ export interface CompactionResult<T = unknown> {
 	tokensBefore: number;
 	durationMs?: number;
 	estimatedTokensAfter?: number;
+	/** Estimated size of the provider-native compacted result, when available. */
+	compactedResultTokens?: number;
+	/** UTF-8 byte size of the provider-native compacted result, when available. */
+	compactedResultBytes?: number;
 	/** Runtime source used for logging. Not persisted in session entries. */
 	source?: CompactionSourceInfo;
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */

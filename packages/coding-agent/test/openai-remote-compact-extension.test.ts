@@ -206,6 +206,8 @@ describe("openai remote compact extension", () => {
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 				{ type: "compaction", encrypted_content: "encrypted" },
 			],
+			replacementHistoryBytes: 120,
+			replacementHistoryTokens: 30,
 		});
 	});
 
@@ -277,7 +279,8 @@ describe("openai remote compact extension", () => {
 			summary: OPENAI_REMOTE_COMPACTION_SUMMARY,
 			firstKeptEntryId: "kept-1",
 			tokensBefore: 1234,
-			details: { type: "openai-remote-compaction" },
+			compactedResultTokens: 30,
+			details: { type: "openai-remote-compaction", replacementHistoryTokens: 30 },
 			source: {
 				type: "openai_remote",
 				provider: "openai",
@@ -317,6 +320,8 @@ describe("openai remote compact extension", () => {
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 				{ type: "compaction", encrypted_content: "encrypted" },
 			],
+			replacementHistoryBytes: 120,
+			replacementHistoryTokens: 30,
 		};
 		const payload = {
 			model: "gpt-4.1-mini",

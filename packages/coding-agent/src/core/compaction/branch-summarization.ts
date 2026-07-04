@@ -161,7 +161,9 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 			return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 
 		case "compaction":
-			return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, entry.durationMs);
+			return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, {
+				durationMs: entry.durationMs,
+			});
 
 		// These don't contribute to conversation content
 		case "thinking_level_change":

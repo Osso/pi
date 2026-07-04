@@ -32,15 +32,16 @@ export class CompactionSummaryMessageComponent extends Box {
 	private updateDisplay(): void {
 		this.clear();
 
-		const tokenStr = this.message.tokensBefore.toLocaleString();
+		const tokenSummary = formatCompactionTokenSummary(this.message);
 		const durationText = formatCompactionDuration(this.message.durationMs);
 		const durationSuffix = durationText ? ` in ${durationText}` : "";
+		const remoteResultSuffix = formatRemoteResultSuffix(this.message.compactedResultTokens);
 		const label = theme.fg("customMessageLabel", `\x1b[1m[compaction]\x1b[22m`);
 		this.addChild(new Text(label, 0, 0));
 		this.addChild(new Spacer(1));
 
 		if (this.expanded) {
-			const header = `**Compacted from ${tokenStr} tokens${durationSuffix}**\n\n`;
+			const header = `**${tokenSummary}${remoteResultSuffix}${durationSuffix}**\n\n`;
 			this.addChild(
 				new Markdown(header + this.message.summary, 0, 0, this.markdownTheme, {
 					color: (text: string) => theme.fg("customMessageText", text),
@@ -49,7 +50,7 @@ export class CompactionSummaryMessageComponent extends Box {
 		} else {
 			this.addChild(
 				new Text(
-					theme.fg("customMessageText", `Compacted from ${tokenStr} tokens${durationSuffix} (`) +
+					theme.fg("customMessageText", `${tokenSummary}${remoteResultSuffix}${durationSuffix} (`) +
 						theme.fg("dim", keyText("app.tools.expand")) +
 						theme.fg("customMessageText", " to expand)"),
 					0,
@@ -58,6 +59,20 @@ export class CompactionSummaryMessageComponent extends Box {
 			);
 		}
 	}
+}
+
+function formatCompactionTokenSummary(message: CompactionSummaryMessage): string {
+	const tokensBefore = message.tokensBefore.toLocaleString();
+	if (message.tokensAfter === undefined) return `Compacted from ${tokensBefore} tokens`;
+
+	const tokensAfter = message.tokensAfter.toLocaleString();
+	const savedTokens = Math.max(0, message.tokensBefore - message.tokensAfter).toLocaleString();
+	return `Compacted from ${tokensBefore} to ${tokensAfter} tokens; saved ${savedTokens}`;
+}
+
+function formatRemoteResultSuffix(compactedResultTokens: number | undefined): string {
+	if (compactedResultTokens === undefined) return "";
+	return `; remote result ${compactedResultTokens.toLocaleString()} tokens`;
 }
 
 function formatCompactionDuration(durationMs: number | undefined): string | undefined {

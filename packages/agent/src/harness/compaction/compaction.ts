@@ -73,7 +73,9 @@ function getMessageFromEntry(entry: SessionTreeEntry): AgentMessage | undefined 
 		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 	}
 	if (entry.type === "compaction") {
-		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, entry.durationMs);
+		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, {
+			durationMs: entry.durationMs,
+		});
 	}
 	return undefined;
 }

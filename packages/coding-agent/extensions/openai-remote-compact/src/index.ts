@@ -24,6 +24,8 @@ export interface OpenAIRemoteCompactionDetails {
 	model: string;
 	endpoint: string;
 	replacementHistory: OpenAIResponseItem[];
+	replacementHistoryBytes: number;
+	replacementHistoryTokens: number;
 }
 
 interface OpenAICompactPayload {
@@ -93,6 +95,8 @@ export async function handleSessionBeforeCompact(event: SessionBeforeCompactEven
 			firstKeptEntryId: event.preparation.firstKeptEntryId,
 			tokensBefore: event.preparation.tokensBefore,
 			durationMs,
+			compactedResultBytes: details.replacementHistoryBytes,
+			compactedResultTokens: details.replacementHistoryTokens,
 			source: { type: "openai_remote" as const, provider: model.provider, model: model.id, endpoint },
 			details,
 		},
@@ -148,6 +152,7 @@ export function extractOpenAICompactDetails(
 	if (!replacementHistory.some(isOpenAICompactionItem)) {
 		throw new Error("OpenAI compact response did not include a compaction item");
 	}
+	const replacementHistoryBytes = Buffer.byteLength(JSON.stringify(replacementHistory), "utf8");
 	return {
 		type: DETAILS_TYPE,
 		version: DETAILS_VERSION,
@@ -155,6 +160,8 @@ export function extractOpenAICompactDetails(
 		model: model.id,
 		endpoint,
 		replacementHistory,
+		replacementHistoryBytes,
+		replacementHistoryTokens: Math.ceil(replacementHistoryBytes / 4),
 	};
 }
 
@@ -276,7 +283,9 @@ function isOpenAIRemoteCompactionDetails(value: unknown): value is OpenAIRemoteC
 		typeof value.model === "string" &&
 		typeof value.endpoint === "string" &&
 		Array.isArray(value.replacementHistory) &&
-		value.replacementHistory.every(isRecord)
+		value.replacementHistory.every(isRecord) &&
+		(typeof value.replacementHistoryBytes !== "number" || Number.isFinite(value.replacementHistoryBytes)) &&
+		(typeof value.replacementHistoryTokens !== "number" || Number.isFinite(value.replacementHistoryTokens))
 	);
 }
 

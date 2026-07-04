@@ -60,12 +60,9 @@ export function buildSessionContext(pathEntries: SessionTreeEntry[]): SessionCon
 
 	if (compaction) {
 		messages.push(
-			createCompactionSummaryMessage(
-				compaction.summary,
-				compaction.tokensBefore,
-				compaction.timestamp,
-				compaction.durationMs,
-			),
+			createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp, {
+				durationMs: compaction.durationMs,
+			}),
 		);
 		const compactionIdx = pathEntries.findIndex((e) => e.type === "compaction" && e.id === compaction.id);
 		let foundFirstKept = false;

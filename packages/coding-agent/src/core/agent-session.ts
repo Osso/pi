@@ -87,7 +87,7 @@ import {
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
-import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
+import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
@@ -321,6 +321,30 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 		tokens += estimateTokens(message);
 	}
 	return tokens;
+}
+
+interface CompactedContextEstimateInput {
+	messages: AgentMessage[];
+	summary: string;
+	tokensBefore: number;
+	durationMs: number | undefined;
+	compactedResultTokens: number | undefined;
+}
+
+function estimateCompactedContextTokens(input: CompactedContextEstimateInput): number {
+	const syntheticTokensAfter = estimateMessagesTokens(input.messages);
+	if (input.compactedResultTokens === undefined) return syntheticTokensAfter;
+
+	const syntheticSummary = createCompactionSummaryMessage(
+		input.summary,
+		input.tokensBefore,
+		new Date(0).toISOString(),
+		{
+			durationMs: input.durationMs,
+		},
+	);
+	const syntheticSummaryTokens = estimateTokens(syntheticSummary);
+	return Math.max(0, syntheticTokensAfter - syntheticSummaryTokens + input.compactedResultTokens);
 }
 
 function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage): string {
@@ -2227,6 +2251,8 @@ export class AgentSession {
 			let firstKeptEntryId: string;
 			let tokensBefore: number;
 			let details: unknown;
+			let compactedResultTokens: number | undefined;
+			let compactedResultBytes: number | undefined;
 			let source: CompactionResult["source"];
 
 			if (extensionCompaction) {
@@ -2235,6 +2261,8 @@ export class AgentSession {
 				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
 				tokensBefore = extensionCompaction.tokensBefore;
 				details = extensionCompaction.details;
+				compactedResultTokens = extensionCompaction.compactedResultTokens;
+				compactedResultBytes = extensionCompaction.compactedResultBytes;
 				source = extensionCompaction.source;
 			} else {
 				// Generate compaction result
@@ -2253,6 +2281,8 @@ export class AgentSession {
 				firstKeptEntryId = result.firstKeptEntryId;
 				tokensBefore = result.tokensBefore;
 				details = result.details;
+				compactedResultTokens = result.compactedResultTokens;
+				compactedResultBytes = result.compactedResultBytes;
 				source = result.source;
 			}
 
@@ -2272,7 +2302,13 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			const estimatedTokensAfter = estimateCompactedContextTokens({
+				messages: sessionContext.messages,
+				summary,
+				tokensBefore,
+				durationMs,
+				compactedResultTokens,
+			});
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -2295,6 +2331,8 @@ export class AgentSession {
 				tokensBefore,
 				durationMs,
 				estimatedTokensAfter,
+				compactedResultTokens,
+				compactedResultBytes,
 				source,
 				details,
 			};
@@ -2535,6 +2573,8 @@ export class AgentSession {
 			let firstKeptEntryId: string;
 			let tokensBefore: number;
 			let details: unknown;
+			let compactedResultTokens: number | undefined;
+			let compactedResultBytes: number | undefined;
 			let source: CompactionResult["source"];
 
 			if (extensionCompaction) {
@@ -2543,6 +2583,8 @@ export class AgentSession {
 				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
 				tokensBefore = extensionCompaction.tokensBefore;
 				details = extensionCompaction.details;
+				compactedResultTokens = extensionCompaction.compactedResultTokens;
+				compactedResultBytes = extensionCompaction.compactedResultBytes;
 				source = extensionCompaction.source;
 			} else {
 				// Generate compaction result
@@ -2561,6 +2603,8 @@ export class AgentSession {
 				firstKeptEntryId = compactResult.firstKeptEntryId;
 				tokensBefore = compactResult.tokensBefore;
 				details = compactResult.details;
+				compactedResultTokens = compactResult.compactedResultTokens;
+				compactedResultBytes = compactResult.compactedResultBytes;
 				source = compactResult.source;
 			}
 
@@ -2587,7 +2631,13 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			const estimatedTokensAfter = estimateCompactedContextTokens({
+				messages: sessionContext.messages,
+				summary,
+				tokensBefore,
+				durationMs,
+				compactedResultTokens,
+			});
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -2610,6 +2660,8 @@ export class AgentSession {
 				tokensBefore,
 				durationMs,
 				estimatedTokensAfter,
+				compactedResultTokens,
+				compactedResultBytes,
 				source,
 				details,
 			};

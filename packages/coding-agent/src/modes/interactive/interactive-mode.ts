@@ -3315,7 +3315,11 @@ export class InteractiveMode {
 							event.result.summary,
 							event.result.tokensBefore,
 							new Date().toISOString(),
-							event.result.durationMs,
+							{
+								durationMs: event.result.durationMs,
+								tokensAfter: event.result.estimatedTokensAfter,
+								compactedResultTokens: event.result.compactedResultTokens,
+							},
 						),
 					);
 					this.footer.invalidate();

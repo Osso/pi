@@ -107,7 +107,9 @@ function getMessageFromEntry(entry: SessionTreeEntry): AgentMessage | undefined 
 			return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 
 		case "compaction":
-			return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, entry.durationMs);
+			return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, {
+				durationMs: entry.durationMs,
+			});
 		case "thinking_level_change":
 		case "model_change":
 		case "active_tools_change":

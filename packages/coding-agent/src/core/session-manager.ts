@@ -420,12 +420,9 @@ export function buildSessionContext(
 	if (compaction) {
 		// Emit summary first
 		messages.push(
-			createCompactionSummaryMessage(
-				compaction.summary,
-				compaction.tokensBefore,
-				compaction.timestamp,
-				compaction.durationMs,
-			),
+			createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp, {
+				durationMs: compaction.durationMs,
+			}),
 		);
 
 		// Find compaction index in path
