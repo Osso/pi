@@ -36,6 +36,11 @@ export interface RuntimeMailboxArtifactReference {
 	label?: string;
 }
 
+export interface RuntimeMailboxStoreRef {
+	sessionPath: string;
+	messageId: string;
+}
+
 export interface EnqueueRuntimeMailboxMessageInput {
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
@@ -43,6 +48,12 @@ export interface EnqueueRuntimeMailboxMessageInput {
 	body: string;
 	artifactIds?: string[];
 	artifactRefs?: RuntimeMailboxArtifactReference[];
+	/**
+	 * Reference to the persisted store row that owns this message's content. When set,
+	 * body/artifact payloads are not copied into the transport row; reads resolve them
+	 * from `multi_agent_mailbox_messages`.
+	 */
+	storeRef?: RuntimeMailboxStoreRef;
 }
 
 export interface LastControlMessage {
@@ -91,6 +102,8 @@ type RuntimeMailboxRow = {
 	body: string;
 	artifact_ids_json: string | null;
 	artifact_refs_json: string | null;
+	store_session_path: string | null;
+	store_message_id: string | null;
 	status: string;
 	created_at: string;
 	updated_at: string;
@@ -271,11 +284,13 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 					body,
 					artifact_ids_json,
 					artifact_refs_json,
+					store_session_path,
+					store_message_id,
 					status,
 					created_at,
 					updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
 				`,
 			)
 			.run(
@@ -284,9 +299,11 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 				input.sender.sessionId,
 				input.sender.agentId,
 				input.kind,
-				input.body,
-				input.artifactIds ? JSON.stringify(input.artifactIds) : null,
-				input.artifactRefs ? JSON.stringify(input.artifactRefs) : null,
+				input.storeRef ? "" : input.body,
+				input.storeRef ? null : input.artifactIds ? JSON.stringify(input.artifactIds) : null,
+				input.storeRef ? null : input.artifactRefs ? JSON.stringify(input.artifactRefs) : null,
+				input.storeRef?.sessionPath ?? null,
+				input.storeRef?.messageId ?? null,
 				now,
 				now,
 			);
@@ -336,7 +353,7 @@ export function claimRuntimeMailboxMessages(
 			}
 			db.exec("COMMIT");
 			return rows.map((row) =>
-				runtimeMailboxMessageFromRow({ ...row, status: "claimed", claimed_at: now, updated_at: now }),
+				runtimeMailboxMessageFromRow(db, { ...row, status: "claimed", claimed_at: now, updated_at: now }),
 			);
 		} catch (error) {
 			db.exec("ROLLBACK");
@@ -449,14 +466,14 @@ export function readRuntimeMailboxMessage(controlDbPath: string, id: number): Ru
 		const row = db.prepare("SELECT * FROM runtime_mailbox_messages WHERE id = ?").get(id) as
 			| RuntimeMailboxRow
 			| undefined;
-		return row ? runtimeMailboxMessageFromRow(row) : undefined;
+		return row ? runtimeMailboxMessageFromRow(db, row) : undefined;
 	});
 }
 
 export function listRuntimeMailboxMessages(controlDbPath: string): RuntimeMailboxMessage[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db.prepare("SELECT * FROM runtime_mailbox_messages ORDER BY id ASC").all() as RuntimeMailboxRow[];
-		return rows.map(runtimeMailboxMessageFromRow);
+		return rows.map((row) => runtimeMailboxMessageFromRow(db, row));
 	});
 }
 
@@ -468,15 +485,16 @@ export function cleanupRuntimeMailboxMessages(controlDbPath: string, nowIso = ne
 	});
 }
 
-function runtimeMailboxMessageFromRow(row: RuntimeMailboxRow): RuntimeMailboxMessage {
+function runtimeMailboxMessageFromRow(db: SqliteDatabase, row: RuntimeMailboxRow): RuntimeMailboxMessage {
+	const stored = readReferencedStoreMessage(db, row);
 	return {
 		id: row.id,
 		recipient: { agentId: row.recipient_agent_id, sessionId: row.recipient_session_id },
 		sender: { agentId: row.sender_agent_id, sessionId: row.sender_session_id ?? "" },
 		kind: toRuntimeMailboxMessageKind(row.kind),
-		body: row.body,
-		artifactIds: parseStringArray(row.artifact_ids_json),
-		artifactRefs: parseArtifactReferences(row.artifact_refs_json),
+		body: stored?.body ?? row.body,
+		artifactIds: stored ? stored.artifactIds : parseStringArray(row.artifact_ids_json),
+		artifactRefs: stored ? stored.artifactRefs : parseArtifactReferences(row.artifact_refs_json),
 		status: toRuntimeMailboxMessageStatus(row.status),
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
@@ -484,6 +502,35 @@ function runtimeMailboxMessageFromRow(row: RuntimeMailboxRow): RuntimeMailboxMes
 		deliveredAt: row.delivered_at ?? undefined,
 		error: row.error ?? undefined,
 	};
+}
+
+function readReferencedStoreMessage(
+	db: SqliteDatabase,
+	row: RuntimeMailboxRow,
+): { body: string; artifactIds?: string[]; artifactRefs?: RuntimeMailboxArtifactReference[] } | undefined {
+	if (!row.store_session_path || !row.store_message_id) {
+		return undefined;
+	}
+	const stored = db
+		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+		.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
+	if (!stored) {
+		return undefined;
+	}
+	try {
+		const data = JSON.parse(stored.data) as {
+			body?: string;
+			artifactIds?: string[];
+			artifactRefs?: RuntimeMailboxArtifactReference[];
+		};
+		return {
+			body: data.body ?? "",
+			artifactIds: Array.isArray(data.artifactIds) ? data.artifactIds : undefined,
+			artifactRefs: Array.isArray(data.artifactRefs) ? data.artifactRefs : undefined,
+		};
+	} catch {
+		return undefined;
+	}
 }
 
 function toRuntimeMailboxMessageKind(value: string): RuntimeMailboxMessageKind {
@@ -1046,6 +1093,8 @@ function initializeSchema(db: SqliteDatabase): void {
 			body TEXT NOT NULL,
 			artifact_ids_json TEXT,
 			artifact_refs_json TEXT,
+			store_session_path TEXT,
+			store_message_id TEXT,
 			status TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
@@ -1136,6 +1185,19 @@ function initializeSchema(db: SqliteDatabase): void {
 		);
 	`);
 	addMissingSessionMetadataColumns(db);
+	addMissingRuntimeMailboxColumns(db);
+}
+
+function addMissingRuntimeMailboxColumns(db: SqliteDatabase): void {
+	const columns = new Set(
+		(db.prepare("PRAGMA table_info(runtime_mailbox_messages)").all() as TableInfoRow[]).map((column) => column.name),
+	);
+	if (!columns.has("store_session_path")) {
+		db.exec("ALTER TABLE runtime_mailbox_messages ADD COLUMN store_session_path TEXT");
+	}
+	if (!columns.has("store_message_id")) {
+		db.exec("ALTER TABLE runtime_mailbox_messages ADD COLUMN store_message_id TEXT");
+	}
 }
 
 function addMissingSessionMetadataColumns(db: SqliteDatabase): void {

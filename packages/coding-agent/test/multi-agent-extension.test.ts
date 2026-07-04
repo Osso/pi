@@ -30,6 +30,7 @@ import {
 } from "../src/core/self-restart.ts";
 import { getControlDbPath, listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
 	type ChildAgentDispatcher,
@@ -587,6 +588,59 @@ describe("multi-agent extension tools", () => {
 					sender: { agentId: attached.details.agent.id, sessionId: savedSessionId },
 				},
 			]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("references persisted store rows from mirrored runtime mailbox messages", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-mailbox-store-ref-"));
+		try {
+			const savedSessionId = "019f29f4-0000-7000-8000-000000000103";
+			const supervisorSessionId = "019f29f4-0000-7000-8000-000000000104";
+			const savedSession = SessionManager.create("/repo", tempDir, { id: savedSessionId });
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
+			const controlDbPath = getControlDbPath(tempDir);
+			supervisorSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
+				messages: [fauxAssistantMessage("attached complete")],
+				prompt: async () => {},
+				transcript: agent.transcript,
+			});
+			const harness = createMultiAgentHarness({
+				createAttachedSession,
+				ctx: { controlDbPath, sessionManager: supervisorSession },
+				store,
+			});
+
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Finish saved work",
+			});
+			await waitForTerminalAgent(harness, attached.details.agent.id);
+
+			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+				{
+					body: `Session ${savedSessionId} completed: attached complete`,
+					recipient: { agentId: null, sessionId: supervisorSessionId },
+				},
+			]);
+			const db = createSqliteDatabase(controlDbPath);
+			try {
+				const raw = db
+					.prepare("SELECT body, store_session_path, store_message_id FROM runtime_mailbox_messages")
+					.all() as Array<{ body: string; store_session_path: string | null; store_message_id: string | null }>;
+				expect(raw).toHaveLength(1);
+				expect(raw[0].body).toBe("");
+				expect(raw[0].store_session_path).toBe(supervisorSession.getSessionFile());
+				expect(raw[0].store_message_id).toMatch(/^message_/);
+			} finally {
+				db.close();
+			}
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}

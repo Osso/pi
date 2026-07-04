@@ -22,6 +22,7 @@ import {
 	readSessionMetadata,
 	removeNamedSession,
 	setNamedSession,
+	upsertMultiAgentMailboxMessage,
 	writeLastMessage,
 	writeSessionGoal,
 	writeSessionMetadata,
@@ -103,6 +104,46 @@ describe("session control DB", () => {
 			),
 		).toEqual([mainMessageId]);
 		expect(readRuntimeMailboxMessage(controlDbPath, agentMessageId)).toMatchObject({ status: "pending" });
+	});
+
+	it("resolves store-referenced runtime mailbox bodies without copying them into transport rows", () => {
+		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
+			artifactRefs: [{ id: "artifact_1", label: "Log", path: "artifacts/run.log" }],
+			body: "stored supervisor request",
+			fromAgentId: "agent_1",
+			id: "message_1",
+			kind: "supervisor_request",
+			status: "pending",
+			toAgentId: "supervisor",
+		});
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			body: "",
+			kind: "supervisor_request",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+			storeRef: { messageId: "message_1", sessionPath: "/sessions/supervisor.jsonl" },
+		});
+
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({
+			artifactRefs: [{ id: "artifact_1", label: "Log", path: "artifacts/run.log" }],
+			body: "stored supervisor request",
+			kind: "supervisor_request",
+		});
+		expect(
+			claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
+				(message) => message.body,
+			),
+		).toEqual(["stored supervisor request"]);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const raw = db
+				.prepare("SELECT body, artifact_refs_json FROM runtime_mailbox_messages WHERE id = ?")
+				.get(messageId) as { body: string; artifact_refs_json: string | null };
+			expect(raw.body).toBe("");
+			expect(raw.artifact_refs_json).toBeNull();
+		} finally {
+			db.close();
+		}
 	});
 
 	it("claims runtime mailbox rows atomically before delivery", () => {

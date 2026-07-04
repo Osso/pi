@@ -907,6 +907,10 @@ export class MultiAgentStore {
 		return this.restoreGeneration;
 	}
 
+	getPersistenceTarget(): { controlDbPath: string; sessionPath: string } | undefined {
+		return this.persistence ? { ...this.persistence } : undefined;
+	}
+
 	invalidateInFlightDispatches(): void {
 		this.restoreGeneration += 1;
 	}

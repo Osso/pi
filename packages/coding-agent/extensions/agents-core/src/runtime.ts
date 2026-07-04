@@ -1603,7 +1603,7 @@ function sendAgentMessage(
 
 	if (params.toSessionId) {
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
-		if (mirrorRuntimeSessionMessage(sent.message, params.toSessionId, ctx, recipientAgentId)) {
+		if (mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
 			markMirroredMailboxMessageDelivered(store, sent.message);
 		}
 	} else {
@@ -1636,7 +1636,7 @@ function sendMainRuntimeSessionMessage(
 		});
 	}
 	const message = createRuntimeSessionMessage(params, senderId);
-	mirrorRuntimeSessionMessage(message, params.toSessionId, ctx, null);
+	mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null);
 	return result(`Sent message to session ${params.toSessionId}.`, {
 		agent: sender,
 		message,
@@ -1661,6 +1661,7 @@ function createRuntimeSessionMessage(params: SendAgentMessageParams, senderId: s
 }
 
 function mirrorRuntimeSessionMessage(
+	store: MultiAgentStore,
 	message: AgentMailboxMessage,
 	toSessionId: string,
 	ctx: ExtensionContext | undefined,
@@ -1679,6 +1680,7 @@ function mirrorRuntimeSessionMessage(
 			agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
+		storeRef: buildRuntimeMailboxStoreRef(store, message, ctx),
 	});
 	return true;
 }
@@ -2037,6 +2039,21 @@ function mirrorAgentLifecycleRuntimeMailbox(store: MultiAgentStore, agent: Agent
 	mirrorLifecycleRuntimeMailboxMessage(store, notification, ctx);
 }
 
+// A transport row references the persisted store row instead of copying its body when the
+// sender's store persists to the same control DB; unpersisted (in-memory) stores keep the
+// copy so their messages remain deliverable.
+function buildRuntimeMailboxStoreRef(
+	store: MultiAgentStore,
+	message: AgentMailboxMessage,
+	ctx: ExtensionContext | undefined,
+): { sessionPath: string; messageId: string } | undefined {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence || !message.id || persistence.controlDbPath !== ctx?.controlDbPath) {
+		return undefined;
+	}
+	return { messageId: message.id, sessionPath: persistence.sessionPath };
+}
+
 function mirrorLifecycleRuntimeMailboxMessage(
 	store: MultiAgentStore,
 	notification: AgentMailboxMessage,
@@ -2056,6 +2073,7 @@ function mirrorLifecycleRuntimeMailboxMessage(
 			agentId: notification.fromAgentId,
 			sessionId: agent?.transcript?.sessionId ?? ctx.sessionManager.getSessionId(),
 		},
+		storeRef: buildRuntimeMailboxStoreRef(store, notification, ctx),
 	});
 	store.markMailboxMessageDelivered(notification.id);
 }
@@ -2086,6 +2104,7 @@ function mirrorRuntimeMailboxMessage(
 			agentId: message.fromAgentId,
 			sessionId: ctx.sessionManager.getSessionId(),
 		},
+		storeRef: buildRuntimeMailboxStoreRef(store, message, ctx),
 	});
 	markMirroredMailboxMessageDelivered(store, message);
 }
