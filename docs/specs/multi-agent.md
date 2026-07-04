@@ -40,6 +40,19 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       profiles override them.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log.
+- [x] Supervisor session resume restores the persisted multi-agent store into the production
+      first-party store so agent tree, slots, selected view, artifacts, mailbox state, and transcript
+      pointers survive a crash or restart.
+- [x] Restored interrupted agents do not keep false liveness: in-flight agents with recoverable
+      transcript paths are moved back to a resumable waiting state with stale worker handles cleared,
+      while in-flight agents without transcript metadata are marked failed with an explicit recovery error.
+- [x] On supervisor session start, recovered attached-session agents with transcript paths are restarted
+      through the same attached-session dispatch path used by `attach_session_agent`, preserving their
+      agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle plumbing; agents
+      that were already waiting before restore are not auto-prompted. Dispatch finalizers are guarded
+      by store restore generation so completions from a previous supervisor session cannot mutate a
+      newly restored session that reused the same agent ID, and session shutdown aborts live child-session
+      handles before the store is rebound.
 
 ### Mailbox and steering
 
@@ -189,6 +202,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
+  recovered attached-session agents are restarted on `session_start` through the attached-session factory
+  without treating old process handles as live, recovered agents are consumed so later reloads do not
+  auto-prompt them again, idle waiting agents are not auto-prompted, child runtimes do not run supervisor
+  recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
   settings for `agentType: "explore"` and `agentType: "implement"`, that `wait_agent` reports terminal store state without TUI
@@ -218,7 +235,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add the first failing tests for stale-revision rejection, read-only agent switching, mailbox
       steering acknowledgement, and core-derived active counts.
 - [x] Add and implement store persistence tests for `SessionManager` custom entries and reloadable
-      snapshots/events.
+      snapshots/events, automatic snapshot persistence after mutations, in-place production-store restore,
+      empty-session clearing, and crash recovery of active agents with and without transcript metadata.
 - [x] Add failing extension-tool tests for spawn/list/wait/cancel/steer over `MultiAgentStore`
       without spawning real child model sessions.
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over `MultiAgentStore`, update

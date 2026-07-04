@@ -549,7 +549,7 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 	return namedFactory;
 }
 
-const firstPartyMultiAgentStore = new MultiAgentStore();
+const firstPartyMultiAgentStore = new MultiAgentStore({ recoverActiveAgents: true });
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -786,6 +786,7 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionStartEvent,
 		projectTrustContext,
 	}) => {
+		firstPartyMultiAgentStore.restoreFromSessionManager(sessionManager, { recoverActiveAgents: true });
 		const isInitialRuntime = sessionStartEvent === undefined;
 		const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
 		const cachedProjectTrust = projectTrustByCwd.get(cwd);

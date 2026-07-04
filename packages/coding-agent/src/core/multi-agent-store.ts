@@ -242,6 +242,7 @@ export type ActiveAgentTargetSelectionResult =
 
 export interface MultiAgentStoreOptions {
 	now?: () => string;
+	recoverActiveAgents?: boolean;
 }
 
 export type AgentLifecycleNotificationListener = (message: AgentMailboxMessage) => void;
@@ -309,16 +310,22 @@ export class MultiAgentStore {
 	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
+	private readonly recoveredAgentIds = new Set<string>();
 	private readonly transitionListeners = new Set<AgentTransitionListener>();
 	private readonly abortHandlers = new Map<string, () => void>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
 	private nextArtifactNumber = 1;
 	private nextMessageNumber = 1;
+	private restoreGeneration = 0;
+	private persistenceSessionManager: SessionManager | undefined;
+	private recoverActiveAgents: boolean;
 	private selectedAgentId: string | undefined;
+	private restoring = false;
 
 	constructor(options: MultiAgentStoreOptions = {}) {
 		this.now = options.now ?? (() => new Date().toISOString());
+		this.recoverActiveAgents = options.recoverActiveAgents ?? false;
 	}
 
 	subscribeLifecycleNotifications(listener: AgentLifecycleNotificationListener): () => void {
@@ -373,6 +380,7 @@ export class MultiAgentStore {
 		};
 
 		this.agents.set(agent.id, agent);
+		this.persistAfterMutation();
 
 		return { agent: copyAgent(agent) };
 	}
@@ -440,6 +448,7 @@ export class MultiAgentStore {
 		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
 			this.selectedAgentId = undefined;
 		}
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
@@ -455,6 +464,7 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = agent.id;
+		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(agent) };
 	}
@@ -474,6 +484,7 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = agent.id;
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(agent) };
 	}
 
@@ -489,6 +500,7 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = selectedAgent.id;
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(selectedAgent) };
 	}
 
@@ -507,6 +519,7 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = selectedAgent.id;
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(selectedAgent) };
 	}
 
@@ -516,6 +529,7 @@ export class MultiAgentStore {
 
 	clearSelectedAgentView(): void {
 		this.selectedAgentId = undefined;
+		this.persistAfterMutation();
 	}
 
 	getAgent(agentId: string): AgentSnapshot | undefined {
@@ -564,16 +578,22 @@ export class MultiAgentStore {
 
 		const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
 		this.mailboxMessages.set(updated.id, updated);
+		this.persistAfterMutation();
 		return copyMessage(updated);
 	}
 
 	consumeCompletionNotificationsForAgent(agentId: string): void {
+		let changed = false;
 		for (const message of this.mailboxMessages.values()) {
 			if (!isPendingCompletionNotification(message, agentId)) {
 				continue;
 			}
 			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
 			this.mailboxMessages.set(updated.id, updated);
+			changed = true;
+		}
+		if (changed) {
+			this.persistAfterMutation();
 		}
 	}
 
@@ -598,6 +618,7 @@ export class MultiAgentStore {
 			path: input.path,
 		};
 		this.artifacts.set(artifact.id, artifact);
+		this.persistAfterMutation();
 
 		return copyArtifact(artifact);
 	}
@@ -625,6 +646,20 @@ export class MultiAgentStore {
 
 	listActiveAgents(): AgentSnapshot[] {
 		return this.listAgents().filter((agent) => isActiveLifecycle(agent.lifecycle));
+	}
+
+	listRecoveredAgents(): AgentSnapshot[] {
+		return Array.from(this.recoveredAgentIds)
+			.map((agentId) => this.getAgent(agentId))
+			.filter((agent): agent is AgentSnapshot => agent !== undefined && isActiveLifecycle(agent.lifecycle));
+	}
+
+	consumeRecoveredAgents(): AgentSnapshot[] {
+		const recovered = this.listRecoveredAgents();
+		for (const agent of recovered) {
+			this.recoveredAgentIds.delete(agent.id);
+		}
+		return recovered;
 	}
 
 	getActiveAgentCount(): number {
@@ -668,6 +703,7 @@ export class MultiAgentStore {
 		const updated = this.updateAgent(current, {
 			slot: { index: slotIndex, pinned: true },
 		});
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
@@ -680,6 +716,7 @@ export class MultiAgentStore {
 		const updated = this.updateAgentMetadata(current, {
 			transcript: copyTranscript(transcript),
 		});
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
@@ -701,6 +738,7 @@ export class MultiAgentStore {
 		const updated = this.updateAgent(current, {
 			slot: undefined,
 		});
+		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
@@ -738,6 +776,7 @@ export class MultiAgentStore {
 		const updated = this.updateAgent(current, {
 			lastActivity: { description: "Contacted supervisor" },
 		});
+		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
@@ -772,6 +811,7 @@ export class MultiAgentStore {
 		const updated = this.updateAgent(target, {
 			lastActivity: { description: "Received mailbox message" },
 		});
+		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
@@ -819,6 +859,7 @@ export class MultiAgentStore {
 		const updated = this.updateAgent(current, {
 			lastActivity: { description: "Sent mailbox message" },
 		});
+		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
@@ -857,6 +898,7 @@ export class MultiAgentStore {
 
 		const updated = this.updateAgent(current, { lifecycle: "steering_pending" });
 		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
+		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
 	}
@@ -896,6 +938,7 @@ export class MultiAgentStore {
 
 		const updated = this.updateAgent(current, { lifecycle: nextLifecycle });
 		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
+		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(updatedMessage) };
 	}
@@ -918,26 +961,62 @@ export class MultiAgentStore {
 		return sessionManager.appendCustomEntry(MULTI_AGENT_EVENT_CUSTOM_TYPE, this.toPersistedSnapshot());
 	}
 
-	static fromSessionManager(sessionManager: SessionManager, options: MultiAgentStoreOptions = {}): MultiAgentStore {
-		const store = new MultiAgentStore(options);
+	getRestoreGeneration(): number {
+		return this.restoreGeneration;
+	}
+
+	setPersistenceSessionManager(sessionManager: SessionManager | undefined): void {
+		this.persistenceSessionManager = sessionManager;
+	}
+
+	restoreFromSessionManager(
+		sessionManager: SessionManager,
+		options: Pick<MultiAgentStoreOptions, "recoverActiveAgents"> = {},
+	): void {
+		this.setPersistenceSessionManager(sessionManager);
+		this.recoverActiveAgents = options.recoverActiveAgents ?? this.recoverActiveAgents;
 		const snapshot = findLatestPersistedSnapshot(sessionManager);
+		this.restoreGeneration += 1;
 		if (!snapshot) {
-			return store;
+			this.restoreSnapshot(createEmptyPersistedSnapshot());
+			return;
 		}
 
-		store.restoreSnapshot(snapshot);
+		let correctedRestoredAgent = false;
+		this.restoring = true;
+		try {
+			correctedRestoredAgent = this.restoreSnapshot(snapshot);
+		} finally {
+			this.restoring = false;
+		}
+		if (correctedRestoredAgent) {
+			this.persistAfterMutation();
+		}
+	}
 
+	static fromSessionManager(sessionManager: SessionManager, options: MultiAgentStoreOptions = {}): MultiAgentStore {
+		const store = new MultiAgentStore(options);
+		store.restoreFromSessionManager(sessionManager);
 		return store;
 	}
 
-	private restoreSnapshot(snapshot: PersistedMultiAgentSnapshot): void {
+	private restoreSnapshot(snapshot: PersistedMultiAgentSnapshot): boolean {
 		this.agents.clear();
 		this.artifacts.clear();
 		this.mailboxMessages.clear();
 		this.abortHandlers.clear();
+		this.lifecycleNotificationListeners.clear();
+		this.recoveredAgentIds.clear();
+		this.transitionListeners.clear();
+		let correctedRestoredAgent = false;
 
 		for (const agent of snapshot.agents) {
-			this.agents.set(agent.id, copyAgent(agent));
+			const restored = this.restoreAgentSnapshot(agent);
+			correctedRestoredAgent = correctedRestoredAgent || restored.corrected;
+			if (restored.recovered) {
+				this.recoveredAgentIds.add(agent.id);
+			}
+			this.agents.set(agent.id, restored.agent);
 		}
 
 		for (const artifact of snapshot.artifacts ?? []) {
@@ -952,6 +1031,52 @@ export class MultiAgentStore {
 		this.nextAgentNumber = snapshot.nextAgentNumber;
 		this.nextArtifactNumber = snapshot.nextArtifactNumber ?? 1;
 		this.nextMessageNumber = snapshot.nextMessageNumber;
+		return correctedRestoredAgent;
+	}
+
+	private restoreAgentSnapshot(agent: AgentSnapshot): { agent: AgentNode; corrected: boolean; recovered: boolean } {
+		const restored = copyAgent(agent);
+		if (!this.recoverActiveAgents || !isActiveLifecycle(restored.lifecycle)) {
+			return { agent: restored, corrected: false, recovered: false };
+		}
+		if (!isRecoverableInterruptedLifecycle(restored.lifecycle)) {
+			const corrected = restored.worker !== undefined;
+			return { agent: { ...restored, worker: undefined }, corrected, recovered: false };
+		}
+		if (restored.transcript?.path) {
+			return {
+				agent: {
+					...restored,
+					lifecycle: "waiting_for_input",
+					revision: restored.revision + 1,
+					updatedAt: this.now(),
+					worker: undefined,
+				},
+				corrected: true,
+				recovered: true,
+			};
+		}
+		return {
+			agent: {
+				...restored,
+				error: {
+					message: "Agent was active when the supervisor session ended and has no recoverable transcript.",
+				},
+				lifecycle: "failed",
+				revision: restored.revision + 1,
+				updatedAt: this.now(),
+				worker: undefined,
+			},
+			corrected: true,
+			recovered: false,
+		};
+	}
+
+	private persistAfterMutation(): void {
+		if (this.restoring || !this.persistenceSessionManager) {
+			return;
+		}
+		this.persistSnapshot(this.persistenceSessionManager);
 	}
 
 	private findRestoredSelectedAgentId(selectedAgentId: string | undefined): string | undefined {
@@ -1188,6 +1313,10 @@ export function isActiveLifecycle(lifecycle: AgentLifecycleState): boolean {
 	return !TERMINAL_STATES.has(lifecycle);
 }
 
+function isRecoverableInterruptedLifecycle(lifecycle: AgentLifecycleState): boolean {
+	return lifecycle !== "waiting_for_input" && isActiveLifecycle(lifecycle);
+}
+
 export function formatInactiveAgentSelectionMessage(agent: Pick<AgentSnapshot, "displayName" | "lifecycle">): string {
 	return `Agent is not active: ${agent.displayName} (${agent.lifecycle})`;
 }
@@ -1348,6 +1477,19 @@ function copyResult(result: AgentResult | undefined): AgentResult | undefined {
 				artifactIds: result.artifactIds ? [...result.artifactIds] : undefined,
 			}
 		: undefined;
+}
+
+function createEmptyPersistedSnapshot(): PersistedMultiAgentSnapshot {
+	return {
+		version: 1,
+		kind: "snapshot",
+		agents: [],
+		artifacts: [],
+		mailboxMessages: [],
+		nextAgentNumber: 1,
+		nextArtifactNumber: 1,
+		nextMessageNumber: 1,
+	};
 }
 
 function findLatestPersistedSnapshot(sessionManager: SessionManager): PersistedMultiAgentSnapshot | undefined {

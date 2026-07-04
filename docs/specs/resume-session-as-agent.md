@@ -18,7 +18,7 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 - [x] Runtime launch/resume failures move the agent to `failed` with an inspectable error.
 - [x] A successfully resumed session can reach terminal `completed`, `failed`, or `aborted` states through normal multi-agent lifecycle updates.
 - [x] Cancelling the attached agent aborts the live resumed runtime when one exists and records terminal state through the same lifecycle path as spawned child agents.
-- [ ] Reattaching a saved transcript after restart reconstructs only safe runtime handles and does not treat persisted metadata as proof of liveness.
+- [x] Reattaching a saved transcript after restart reconstructs only safe runtime handles and does not treat persisted metadata as proof of liveness.
 
 ### Mailbox and steering
 
@@ -62,8 +62,8 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/multi-agent-store.test.ts`
-- `packages/coding-agent/test/multi-agent-extension.test.ts`
+- `packages/coding-agent/test/multi-agent-store.test.ts` — covers persisted snapshot reload, automatic persistence after mutations, and crash recovery of active agents into resumable or explicit failed states.
+- `packages/coding-agent/test/multi-agent-extension.test.ts` — covers attached-session dispatch plus session-start recovery of persisted attached agents through the attached-session factory, including failed recovered restarts, one-shot recovery across reloads, idle waiting sessions that must not auto-prompt, child-runtime recovery suppression, shutdown abort of live child handles, and stale dispatch completions after store rebind.
 - `packages/coding-agent/test/runtime-mailbox.test.ts`
 
 ## Known gaps (current cycle)
@@ -73,6 +73,7 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 - [x] Wire attached session lifecycle into existing `wait_agent`, `cancel_agent`, `steer_agent`, and viewer surfaces.
 - [x] Verify completion notification for an attached session agent.
 - [x] Verify permission inheritance/narrowing and rejection of permission broadening.
+- [x] Restore persisted supervisor agent state on session resume and restart recovered attached-session agents through safe runtime handles.
 
 ## Out of scope
 

@@ -145,9 +145,13 @@ function createMultiAgentHarness(
 	} = {},
 ) {
 	const commands = new Map<string, RegisteredCommand>();
+	const eventHandlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void | Promise<void>>>();
 	const tools = new Map<string, RegisteredTool>();
 	const store = options.store ?? new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
+		on(eventName: string, handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>) {
+			eventHandlers.set(eventName, [...(eventHandlers.get(eventName) ?? []), handler]);
+		},
 		registerCommand(name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) {
 			commands.set(name, { ...command, name, sourceInfo: commandSourceInfo });
 		},
@@ -171,6 +175,11 @@ function createMultiAgentHarness(
 	} as ExtensionContext;
 
 	return {
+		emit: async (eventName: string, event: unknown = {}) => {
+			for (const handler of eventHandlers.get(eventName) ?? []) {
+				await handler(event, ctx);
+			}
+		},
 		call: async <TDetails extends Record<string, unknown>>(name: string, params: Record<string, unknown>) => {
 			const tool = tools.get(name);
 			if (!tool) {
@@ -564,6 +573,226 @@ describe("multi-agent extension tools", () => {
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
+	});
+
+	it("restarts recovered attached agents on session start without treating old handles as live", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const interrupted = source.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Recovered work",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+		});
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected recovered agent to start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+		const recovered = store.getAgent(interrupted.agent.id);
+		if (!recovered) throw new Error("expected recovered agent");
+		const prompts: string[] = [];
+		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
+			expect(agent.id).toBe(recovered.id);
+			expect(agent.permission).toEqual(recovered.permission);
+			expect(sessionPath).toBe("/sessions/recovered.jsonl");
+			return {
+				messages: [fauxAssistantMessage("recovered complete")],
+				prompt: async (prompt) => {
+					prompts.push(prompt);
+				},
+				transcript: agent.transcript,
+			};
+		};
+		const harness = createMultiAgentHarness({ createAttachedSession, store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		const waited = await waitForTerminalAgent(harness, recovered.id);
+
+		expect(prompts).toHaveLength(1);
+		expect(prompts[0]).toContain("Continue the conversation from where it left off");
+		await harness.emit("session_start", { reason: "reload", type: "session_start" });
+		expect(prompts).toHaveLength(1);
+		expect(waited.details.agent).toMatchObject({
+			lifecycle: "completed",
+			permission: recovered.permission,
+			result: { summary: "recovered complete" },
+			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+		});
+	});
+
+	it("ignores old dispatch completions after the store is rebound to another session", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-stale-dispatch-generation-"));
+		try {
+			const savedSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000099",
+			});
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const createSessionGate = deferred<void>();
+			const childPrompt = deferred<void>();
+			const createAttachedSession: AttachedSessionFactory = async () => {
+				await createSessionGate.promise;
+				return {
+					messages: [fauxAssistantMessage("old dispatch complete")],
+					prompt: async () => childPrompt.promise,
+					transcript: { path: "/sessions/stale-overwrite.jsonl", sessionId: "stale-session" },
+				};
+			};
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const harness = createMultiAgentHarness({ createAttachedSession, store });
+			await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			await Promise.resolve();
+
+			const replacementSession = SessionManager.inMemory("/repo");
+			const replacementStore = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const replacementAgent = replacementStore.spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Scout",
+				permission: { narrowed: true, policy: "on-request" },
+			});
+			replacementStore.persistSnapshot(replacementSession);
+			store.restoreFromSessionManager(replacementSession);
+			createSessionGate.resolve(undefined);
+			childPrompt.resolve(undefined);
+			await delay(5);
+
+			expect(store.getAgent(replacementAgent.agent.id)).toMatchObject({
+				displayName: "Scout",
+				lifecycle: "queued",
+				transcript: undefined,
+			});
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("aborts live child session handles on session shutdown before store rebind", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-shutdown-agent-handles-"));
+		try {
+			const savedSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000100",
+			});
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const childPrompt = deferred<void>();
+			const abort = vi.fn();
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
+				abort,
+				messages: [],
+				prompt: async () => childPrompt.promise,
+				transcript: agent.transcript,
+			});
+			const harness = createMultiAgentHarness({ createAttachedSession });
+			await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			await Promise.resolve();
+
+			await harness.emit("session_shutdown", { reason: "resume", type: "session_shutdown" });
+
+			expect(abort).toHaveBeenCalledOnce();
+			childPrompt.resolve(undefined);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("does not restart attached agents that were already waiting before restore", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const idle = store.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Idle work",
+			lifecycle: "waiting_for_input",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/idle.jsonl", sessionId: "idle-session" },
+		});
+		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const harness = createMultiAgentHarness({ createAttachedSession, store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(createAttachedSession).not.toHaveBeenCalled();
+		expect(store.getAgent(idle.agent.id)).toMatchObject({ lifecycle: "waiting_for_input" });
+	});
+
+	it("does not run supervisor crash recovery inside child agent runtimes", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const interrupted = source.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Recovered work",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+		});
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected recovered agent to start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const harness = createMultiAgentHarness({
+			createAttachedSession,
+			ctx: { multiAgentAgentId: "agent_child" },
+			store,
+		});
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(createAttachedSession).not.toHaveBeenCalled();
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "waiting_for_input" });
+	});
+
+	it("marks recovered attached-session restart failures as failed with an inspectable error", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const interrupted = source.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Recovered work",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+		});
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected recovered agent to start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+		const recovered = store.getAgent(interrupted.agent.id);
+		if (!recovered) throw new Error("expected recovered agent");
+		const createAttachedSession: AttachedSessionFactory = async () => {
+			throw new Error("recovery failed");
+		};
+		const harness = createMultiAgentHarness({ createAttachedSession, store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		const waited = await waitForTerminalAgent(harness, recovered.id);
+
+		expect(waited.details.agent).toMatchObject({
+			error: { message: "recovery failed" },
+			lifecycle: "failed",
+			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+		});
 	});
 
 	it("marks attached session resume failures as failed with an inspectable error", async () => {

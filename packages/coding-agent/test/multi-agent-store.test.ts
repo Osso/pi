@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MULTI_AGENT_EVENT_CUSTOM_TYPE, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { type CustomEntry, SessionManager } from "../src/core/session-manager.ts";
 
@@ -434,6 +434,95 @@ describe("MultiAgentStore", () => {
 		expect(starting.ok).toBe(true);
 		const staleRunning = store.transitionAgent(terminalWorker.agent.id, terminalWorker.agent.revision, "running");
 		expect(staleRunning).toMatchObject({ ok: false, error: "stale_revision" });
+	});
+
+	it("restores a persisted snapshot into an existing store instance", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-existing-store-"));
+		try {
+			const session = SessionManager.create("/repo", tempDir);
+			const persisted = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const spawned = persisted.spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Recovered",
+				permission: { narrowed: true, policy: "on-request" },
+				slot: { index: 2, pinned: true },
+			});
+			persisted.selectAgentView(spawned.agent.id);
+			persisted.persistSnapshot(session);
+
+			const existing = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			existing.restoreFromSessionManager(session);
+
+			expect(existing.getAgent(spawned.agent.id)).toMatchObject({ displayName: "Recovered" });
+			expect(existing.getProjectionSnapshot()).toMatchObject({
+				selectedAgentId: spawned.agent.id,
+				slots: [{ agentId: spawned.agent.id, index: 2, pinned: true }],
+			});
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("clears an existing store when the restored session has no multi-agent snapshot", () => {
+		const session = SessionManager.inMemory("/repo");
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+		store.selectAgentView(spawned.agent.id);
+
+		store.restoreFromSessionManager(session);
+
+		expect(store.listAgents()).toEqual([]);
+		expect(store.getSelectedAgentId()).toBeUndefined();
+	});
+
+	it("clears runtime subscribers when restoring another session snapshot", () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(source);
+		source.persistSnapshot(session);
+		const stale = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const lifecycleNotified = vi.fn();
+		const transitionNotified = vi.fn();
+		stale.subscribeLifecycleNotifications(lifecycleNotified);
+		stale.subscribeAgentTransitions(transitionNotified);
+
+		stale.restoreFromSessionManager(session);
+		const running = stale.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(running.ok).toBe(true);
+
+		expect(lifecycleNotified).not.toHaveBeenCalled();
+		expect(transitionNotified).not.toHaveBeenCalled();
+	});
+
+	it("persists snapshots automatically after multi-agent mutations", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-auto-persist-"));
+		try {
+			const session = SessionManager.create("/repo", tempDir);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(session);
+
+			const spawned = store.spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Worker",
+				permission: { narrowed: true, policy: "on-request" },
+			});
+			store.selectAgentView(spawned.agent.id);
+			store.recordArtifact({ agentId: spawned.agent.id, kind: "summary", title: "Summary" });
+			const transitioned = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+			expect(transitioned.ok).toBe(true);
+
+			const rehydrated = MultiAgentStore.fromSessionManager(session, {
+				now: () => "2026-06-21T00:00:00.000Z",
+			});
+
+			expect(rehydrated.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "starting" });
+			expect(rehydrated.getProjectionSnapshot().selectedAgentId).toBe(spawned.agent.id);
+			expect(rehydrated.listArtifacts(spawned.agent.id)).toHaveLength(1);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
 	});
 
 	it("persists bounded transcript and event stream metadata without inline output logs", () => {
@@ -1062,6 +1151,124 @@ describe("MultiAgentStore", () => {
 			{ id: artifact.id, label: "Auth test log", path: "artifacts/auth.log" },
 		]);
 		expect(JSON.stringify(store.listMailboxMessages())).not.toContain("First five log lines");
+	});
+
+	it("wires rehydrated stores to append snapshots after later mutations", () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.persistSnapshot(session);
+
+		const rehydrated = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+		});
+		const spawned = spawnScout(rehydrated);
+		const reopened = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+		});
+
+		expect(reopened.getAgent(spawned.agent.id)).toMatchObject({
+			displayName: "Scout",
+			id: spawned.agent.id,
+			lifecycle: "queued",
+		});
+	});
+
+	it("restores crashed active agents as resumable only when they have transcript metadata", () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const recoverable = source.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Recoverable",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/recoverable.jsonl", sessionId: "recoverable-session" },
+			worker: { adapter: "subprocess", handleId: "dead-pid" },
+		});
+		const idle = source.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Idle",
+			lifecycle: "waiting_for_input",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/idle.jsonl", sessionId: "idle-session" },
+			worker: { adapter: "subprocess", handleId: "old-idle-pid" },
+		});
+		const unrecoverable = source.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Unrecoverable",
+			permission: { narrowed: true, policy: "on-request" },
+			worker: { adapter: "subprocess", handleId: "dead-pid-2" },
+		});
+		const recoverableRunning = source.transitionAgent(recoverable.agent.id, recoverable.agent.revision, "starting");
+		expect(recoverableRunning.ok).toBe(true);
+		if (!recoverableRunning.ok) {
+			throw new Error("expected recoverable start");
+		}
+		expect(source.transitionAgent(recoverable.agent.id, recoverableRunning.agent.revision, "running").ok).toBe(true);
+		const unrecoverableRunning = source.transitionAgent(
+			unrecoverable.agent.id,
+			unrecoverable.agent.revision,
+			"starting",
+		);
+		expect(unrecoverableRunning.ok).toBe(true);
+		if (!unrecoverableRunning.ok) {
+			throw new Error("expected unrecoverable start");
+		}
+		expect(source.transitionAgent(unrecoverable.agent.id, unrecoverableRunning.agent.revision, "running").ok).toBe(
+			true,
+		);
+		source.persistSnapshot(session);
+
+		const rehydrated = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+
+		expect(rehydrated.getAgent(recoverable.agent.id)).toMatchObject({
+			id: recoverable.agent.id,
+			lifecycle: "waiting_for_input",
+			transcript: { path: "/sessions/recoverable.jsonl", sessionId: "recoverable-session" },
+		});
+		expect(rehydrated.getAgent(recoverable.agent.id)?.worker).toBeUndefined();
+		expect(rehydrated.getAgent(idle.agent.id)).toMatchObject({
+			id: idle.agent.id,
+			lifecycle: "waiting_for_input",
+			transcript: { path: "/sessions/idle.jsonl", sessionId: "idle-session" },
+		});
+		expect(rehydrated.getAgent(idle.agent.id)?.worker).toBeUndefined();
+		expect(rehydrated.getAgent(unrecoverable.agent.id)).toMatchObject({
+			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
+			id: unrecoverable.agent.id,
+			lifecycle: "failed",
+		});
+		expect(rehydrated.getAgent(unrecoverable.agent.id)?.worker).toBeUndefined();
+		expect(rehydrated.listRecoveredAgents().map((agent) => agent.id)).toEqual([recoverable.agent.id]);
+	});
+
+	it("persists explicit failed state when only unrecoverable active agents are restored", () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const unrecoverable = spawnScout(source);
+		const started = source.transitionAgent(unrecoverable.agent.id, unrecoverable.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected unrecoverable start");
+		expect(source.transitionAgent(unrecoverable.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+
+		MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+		const reopened = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+
+		expect(reopened.getAgent(unrecoverable.agent.id)).toMatchObject({
+			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
+			lifecycle: "failed",
+		});
 	});
 
 	it("persists snapshots as SessionManager custom entries", () => {

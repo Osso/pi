@@ -160,6 +160,8 @@ type ResolvedAgentProfile = {
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const MAIN_THREAD_AGENT_ID = "main";
+const CRASH_RECOVERY_PROMPT =
+	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
 const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 
@@ -1001,6 +1003,18 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 	);
 }
 
+function recoverPersistedAttachedSessions(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
+	if (!input.createAttachedSession || input.ctx.multiAgentAgentId) {
+		return;
+	}
+	for (const agent of input.store.consumeRecoveredAgents()) {
+		if (!agent.transcript?.path || input.dispatches.has(agent.id)) {
+			continue;
+		}
+		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+	}
+}
+
 function dispatchAttachedChildSession(
 	input: AttachSessionDispatchInput,
 	createAttachedSession: AttachedSessionFactory,
@@ -1171,10 +1185,7 @@ function startToolDispatch(
 			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
 		}
 	});
-	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch());
-	if (handles) {
-		void trackedDispatch.finally(() => handles.delete(agent.id));
-	}
+	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch(), handles);
 	void trackedDispatch.then((agent) => {
 		try {
 			mirrorAgentLifecycleRuntimeMailbox(store, agent, ctx);
@@ -1207,15 +1218,26 @@ function trackAgentDispatch(
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: Promise<AgentSnapshot>,
+	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
+	const restoreGeneration = store.getRestoreGeneration();
 	const trackedDispatch = dispatch.catch((error: unknown) =>
-		transitionActiveAgent(store, agent, "failed", {
-			error: { message: error instanceof Error ? error.message : String(error) },
-		}),
+		transitionActiveAgent(
+			store,
+			agent,
+			"failed",
+			{
+				error: { message: error instanceof Error ? error.message : String(error) },
+			},
+			restoreGeneration,
+		),
 	);
 	dispatches.set(agent.id, trackedDispatch);
 	void trackedDispatch.finally(() => {
-		dispatches.delete(agent.id);
+		if (dispatches.get(agent.id) === trackedDispatch) {
+			handles?.delete(agent.id);
+			dispatches.delete(agent.id);
+		}
 	});
 
 	return trackedDispatch;
@@ -1229,6 +1251,7 @@ async function dispatchAgentSession(
 	ctx: ExtensionContext,
 	onChildSession?: (childSession: ChildAgentSession) => void,
 ): Promise<AgentSnapshot> {
+	const restoreGeneration = store.getRestoreGeneration();
 	const starting = moveToStarting(store, initialAgent);
 	const running = store.transitionAgent(starting.id, starting.revision, "running");
 	if (!running.ok) {
@@ -1237,19 +1260,34 @@ async function dispatchAgentSession(
 
 	try {
 		const childSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		if (store.getRestoreGeneration() !== restoreGeneration) {
+			return running.agent;
+		}
 		if (childSession.transcript) {
 			store.updateAgentTranscript(running.agent.id, childSession.transcript);
 		}
 		onChildSession?.(childSession);
 		await childSession.prompt(prompt);
 		const summary = lastAssistantText(childSession.messages);
-		return transitionRunningAgent(store, running.agent, "completed", {
-			result: summary ? { summary } : undefined,
-		});
+		return transitionRunningAgent(
+			store,
+			running.agent,
+			"completed",
+			{
+				result: summary ? { summary } : undefined,
+			},
+			restoreGeneration,
+		);
 	} catch (error) {
-		return transitionRunningAgent(store, running.agent, "failed", {
-			error: { message: error instanceof Error ? error.message : String(error) },
-		});
+		return transitionRunningAgent(
+			store,
+			running.agent,
+			"failed",
+			{
+				error: { message: error instanceof Error ? error.message : String(error) },
+			},
+			restoreGeneration,
+		);
 	}
 }
 
@@ -1260,6 +1298,7 @@ async function dispatchAgent(
 	prompt: string,
 	ctx: ExtensionContext,
 ): Promise<AgentSnapshot> {
+	const restoreGeneration = store.getRestoreGeneration();
 	const starting = moveToStarting(store, initialAgent);
 	const running = store.transitionAgent(starting.id, starting.revision, "running");
 	if (!running.ok) {
@@ -1268,14 +1307,26 @@ async function dispatchAgent(
 
 	try {
 		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
-		return transitionRunningAgent(store, running.agent, dispatchResult.lifecycle, {
-			error: dispatchResult.error,
-			result: dispatchResult.result,
-		});
+		return transitionRunningAgent(
+			store,
+			running.agent,
+			dispatchResult.lifecycle,
+			{
+				error: dispatchResult.error,
+				result: dispatchResult.result,
+			},
+			restoreGeneration,
+		);
 	} catch (error) {
-		return transitionRunningAgent(store, running.agent, "failed", {
-			error: { message: error instanceof Error ? error.message : String(error) },
-		});
+		return transitionRunningAgent(
+			store,
+			running.agent,
+			"failed",
+			{
+				error: { message: error instanceof Error ? error.message : String(error) },
+			},
+			restoreGeneration,
+		);
 	}
 }
 
@@ -1284,8 +1335,9 @@ function transitionRunningAgent(
 	running: AgentSnapshot,
 	lifecycle: ChildAgentDispatchResult["lifecycle"],
 	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
+	expectedRestoreGeneration?: number,
 ): AgentSnapshot {
-	return transitionActiveAgent(store, running, lifecycle, metadata);
+	return transitionActiveAgent(store, running, lifecycle, metadata, expectedRestoreGeneration);
 }
 
 function transitionActiveAgent(
@@ -1293,7 +1345,11 @@ function transitionActiveAgent(
 	agent: AgentSnapshot,
 	lifecycle: ChildAgentDispatchResult["lifecycle"],
 	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
+	expectedRestoreGeneration?: number,
 ): AgentSnapshot {
+	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) {
+		return agent;
+	}
 	const current = store.getAgent(agent.id);
 	if (!current) {
 		return agent;
@@ -2139,6 +2195,30 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const activeDispatches: ActiveAgentDispatches = new Map();
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
+
+	pi.on?.("session_start", async (_event, ctx) => {
+		recoverPersistedAttachedSessions({
+			createAttachedSession,
+			ctx,
+			desktopNotifier,
+			dispatcher,
+			dispatches: activeDispatches,
+			handles: backgroundSessions,
+			pi,
+			store,
+			waitingDesktopNotifications,
+		});
+	});
+	pi.on?.("session_shutdown", async () => {
+		for (const childSession of backgroundSessions.values()) {
+			childSession.abort?.();
+		}
+		for (const agentId of waitingDesktopNotifications.keys()) {
+			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
+		}
+		backgroundSessions.clear();
+		activeDispatches.clear();
+	});
 
 	pi.registerCommand("bg", {
 		description: "Run a prompt as a background agent job.",
