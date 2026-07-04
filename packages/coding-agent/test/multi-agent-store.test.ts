@@ -495,6 +495,20 @@ describe("MultiAgentStore", () => {
 		expect(transitionNotified).not.toHaveBeenCalled();
 	});
 
+	it("does not append snapshots for read-only selection changes", () => {
+		const session = SessionManager.inMemory("/repo");
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(session);
+		const spawned = spawnScout(store);
+		const entryCountAfterSpawn = session.getEntries().length;
+
+		store.selectAgentView(spawned.agent.id);
+		store.clearSelectedAgentView();
+		store.selectActiveAgentTarget(spawned.agent.id);
+
+		expect(session.getEntries()).toHaveLength(entryCountAfterSpawn);
+	});
+
 	it("persists snapshots automatically after multi-agent mutations", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-auto-persist-"));
 		try {
@@ -1244,6 +1258,22 @@ describe("MultiAgentStore", () => {
 		});
 		expect(rehydrated.getAgent(unrecoverable.agent.id)?.worker).toBeUndefined();
 		expect(rehydrated.listRecoveredAgents().map((agent) => agent.id)).toEqual([recoverable.agent.id]);
+	});
+
+	it("leaves queued agents queued during crash recovery", () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const queued = spawnScout(source);
+		source.persistSnapshot(session);
+
+		const rehydrated = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+
+		expect(rehydrated.getAgent(queued.agent.id)).toMatchObject({
+			lifecycle: "queued",
+		});
 	});
 
 	it("persists explicit failed state when only unrecoverable active agents are restored", () => {

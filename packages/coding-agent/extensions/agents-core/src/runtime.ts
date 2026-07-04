@@ -2209,7 +2209,11 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			waitingDesktopNotifications,
 		});
 	});
-	pi.on?.("session_shutdown", async () => {
+	pi.on?.("session_shutdown", async (event) => {
+		store.flushPersistenceSnapshot();
+		if (event.reason === "reload") {
+			return;
+		}
 		for (const childSession of backgroundSessions.values()) {
 			childSession.abort?.();
 		}

@@ -464,7 +464,6 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = agent.id;
-		this.persistAfterMutation();
 
 		return { ok: true, agent: copyAgent(agent) };
 	}
@@ -484,7 +483,6 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = agent.id;
-		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(agent) };
 	}
 
@@ -500,7 +498,6 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = selectedAgent.id;
-		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(selectedAgent) };
 	}
 
@@ -519,7 +516,6 @@ export class MultiAgentStore {
 		}
 
 		this.selectedAgentId = selectedAgent.id;
-		this.persistAfterMutation();
 		return { ok: true, agent: copyAgent(selectedAgent) };
 	}
 
@@ -529,7 +525,6 @@ export class MultiAgentStore {
 
 	clearSelectedAgentView(): void {
 		this.selectedAgentId = undefined;
-		this.persistAfterMutation();
 	}
 
 	getAgent(agentId: string): AgentSnapshot | undefined {
@@ -961,6 +956,13 @@ export class MultiAgentStore {
 		return sessionManager.appendCustomEntry(MULTI_AGENT_EVENT_CUSTOM_TYPE, this.toPersistedSnapshot());
 	}
 
+	flushPersistenceSnapshot(): string | undefined {
+		if (!this.persistenceSessionManager) {
+			return undefined;
+		}
+		return this.persistSnapshot(this.persistenceSessionManager);
+	}
+
 	getRestoreGeneration(): number {
 		return this.restoreGeneration;
 	}
@@ -1314,7 +1316,7 @@ export function isActiveLifecycle(lifecycle: AgentLifecycleState): boolean {
 }
 
 function isRecoverableInterruptedLifecycle(lifecycle: AgentLifecycleState): boolean {
-	return lifecycle !== "waiting_for_input" && isActiveLifecycle(lifecycle);
+	return lifecycle !== "queued" && lifecycle !== "waiting_for_input" && isActiveLifecycle(lifecycle);
 }
 
 export function formatInactiveAgentSelectionMessage(agent: Pick<AgentSnapshot, "displayName" | "lifecycle">): string {

@@ -676,6 +676,39 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("keeps live child session handles running across extension reload", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-reload-agent-handles-"));
+		try {
+			const savedSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000101",
+			});
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const childPrompt = deferred<void>();
+			const abort = vi.fn();
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
+				abort,
+				messages: [],
+				prompt: async () => childPrompt.promise,
+				transcript: agent.transcript,
+			});
+			const harness = createMultiAgentHarness({ createAttachedSession });
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			await Promise.resolve();
+
+			await harness.emit("session_shutdown", { reason: "reload", type: "session_shutdown" });
+
+			expect(abort).not.toHaveBeenCalled();
+			expect(harness.store.getAgent(attached.details.agent.id)).toMatchObject({ lifecycle: "running" });
+			childPrompt.resolve(undefined);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("aborts live child session handles on session shutdown before store rebind", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-shutdown-agent-handles-"));
 		try {
