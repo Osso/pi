@@ -90,7 +90,7 @@ import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
-import type { MultiAgentStore } from "./multi-agent-store.ts";
+import type { AgentLifecycleState, MultiAgentStore } from "./multi-agent-store.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
@@ -486,6 +486,7 @@ export class AgentSession {
 	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
 	private _runtimeMailboxSignalHandler?: () => void;
 	private _runtimeMailboxDrainInProgress = false;
+	private _runtimeMailboxSteeringAgentIds = new Set<string>();
 
 	// Model registry for API key resolution
 	private _modelRegistry: ModelRegistry;
@@ -930,6 +931,73 @@ export class AgentSession {
 			}
 		}
 	};
+
+	private _completeRuntimeMailboxSteeringTurn(messages: AgentMessage[]): void {
+		if (!this._multiAgentStore || this._runtimeMailboxSteeringAgentIds.size === 0) {
+			return;
+		}
+
+		const lifecycle = this._runtimeMailboxSteeringLifecycle(messages);
+		const summary = lifecycle === "completed" ? this._lastRuntimeMailboxAssistantText(messages) : undefined;
+		for (const agentId of this._runtimeMailboxSteeringAgentIds) {
+			this._completeRuntimeMailboxSteeredAgent(agentId, lifecycle, summary);
+		}
+		this._runtimeMailboxSteeringAgentIds.clear();
+	}
+
+	private _completeRuntimeMailboxSteeredAgent(
+		agentId: string,
+		lifecycle: AgentLifecycleState,
+		summary: string | undefined,
+	): void {
+		if (!this._multiAgentStore) {
+			return;
+		}
+		const current = this._multiAgentStore.getAgent(agentId);
+		if (!current || this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
+			return;
+		}
+		const resultDetails = summary ? { result: { summary } } : {};
+		const errorDetails = lifecycle === "failed" ? { error: { message: "Runtime mailbox steering turn failed" } } : {};
+		this._multiAgentStore.transitionAgent(current.id, current.revision, lifecycle, {
+			...resultDetails,
+			...errorDetails,
+		});
+	}
+
+	private _isTerminalMultiAgentLifecycle(lifecycle: AgentLifecycleState): boolean {
+		return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "aborted";
+	}
+
+	private _runtimeMailboxSteeringLifecycle(messages: AgentMessage[]): AgentLifecycleState {
+		const assistant = this._lastRuntimeMailboxAssistant(messages);
+		if (assistant?.stopReason === "aborted") {
+			return "aborted";
+		}
+		if (assistant?.stopReason === "error") {
+			return "failed";
+		}
+		return "completed";
+	}
+
+	private _lastRuntimeMailboxAssistantText(messages: AgentMessage[]): string | undefined {
+		const assistant = this._lastRuntimeMailboxAssistant(messages);
+		if (!assistant) {
+			return undefined;
+		}
+		const text = getAssistantMessageText(assistant).trim();
+		return text.length > 0 ? text : undefined;
+	}
+
+	private _lastRuntimeMailboxAssistant(messages: AgentMessage[]): AssistantMessage | undefined {
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const message = messages[index];
+			if (message?.role === "assistant") {
+				return message as AssistantMessage;
+			}
+		}
+		return undefined;
+	}
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
 		const settings = this.settingsManager.getRetrySettings();
@@ -1586,7 +1654,11 @@ export class AgentSession {
 		}
 
 		preflightResult?.(true);
-		await this._runAgentPrompt(messages);
+		try {
+			await this._runAgentPrompt(messages);
+		} finally {
+			this._completeRuntimeMailboxSteeringTurn(this.messages);
+		}
 	}
 
 	/**
@@ -1763,13 +1835,18 @@ export class AgentSession {
 				try {
 					if (options.triggerIfIdle && !this.isStreaming) {
 						await this.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
+						this._markStoreMailboxMessageDelivered(message);
+						this._completeRuntimeMailboxSteeringTurn(this.messages);
 					} else {
 						await this._queueFollowUp(prompt);
+						this._markStoreMailboxMessageDelivered(message);
 						queued = true;
 					}
 					markRuntimeMailboxMessageDelivered(controlDbPath, message.id);
-					this._markStoreMailboxMessageDelivered(message);
 				} catch (error) {
+					if (message.kind === "steer") {
+						this._failStoreSteeringDelivery(message, error);
+					}
 					failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
 				}
 			}
@@ -1780,17 +1857,53 @@ export class AgentSession {
 	}
 
 	// Transport delivery is the only delivery, so the store record transitions to
-	// delivered here — at actual delivery — not when the row was enqueued. Steer status
-	// is owned by the acknowledgement flow.
-	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): void {
+	// delivered here — at actual delivery — not when the row was enqueued.
+	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): string | undefined {
 		const storeRef = message.storeRef;
-		if (!storeRef || !this._multiAgentStore || message.kind === "steer") {
-			return;
+		if (!storeRef || !this._multiAgentStore) {
+			return undefined;
 		}
 		if (this._multiAgentStore.getPersistenceTarget()?.sessionPath !== storeRef.sessionPath) {
-			return;
+			return undefined;
+		}
+		if (message.kind === "steer") {
+			return this._markStoreSteeringDelivered(message, storeRef.messageId);
 		}
 		this._multiAgentStore.markMailboxMessageDelivered(storeRef.messageId);
+		return undefined;
+	}
+
+	private _markStoreSteeringDelivered(message: RuntimeMailboxMessage, messageId: string): string | undefined {
+		const agentId = message.recipient.agentId;
+		if (!agentId || !this._multiAgentStore) {
+			return undefined;
+		}
+		const current = this._multiAgentStore.getAgent(agentId);
+		if (!current) {
+			return undefined;
+		}
+		const delivered = this._multiAgentStore.ackSteering(agentId, current.revision, messageId, "delivered");
+		if (!delivered.ok) {
+			return undefined;
+		}
+		this._runtimeMailboxSteeringAgentIds.add(agentId);
+		return agentId;
+	}
+
+	private _failStoreSteeringDelivery(message: RuntimeMailboxMessage, error: unknown): void {
+		const agentId = message.recipient.agentId;
+		const messageId = message.storeRef?.messageId;
+		if (!agentId || !messageId || !this._multiAgentStore) {
+			return;
+		}
+		this._runtimeMailboxSteeringAgentIds.delete(agentId);
+		this._multiAgentStore.markMailboxMessageFailed(messageId, errorMessage(error));
+		const current = this._multiAgentStore.getAgent(agentId);
+		if (current && !this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
+			this._multiAgentStore.transitionAgent(current.id, current.revision, "failed", {
+				error: { message: errorMessage(error) },
+			});
+		}
 	}
 
 	private _startRuntimeMailboxPolling(): void {

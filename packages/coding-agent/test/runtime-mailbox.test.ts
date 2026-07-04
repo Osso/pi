@@ -885,6 +885,170 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("marks runtime mailbox steer delivery and completion in the parent store", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const harness = await createHarness({
+			multiAgentAgentId: "agent_1",
+			multiAgentStore: store,
+			persistedSession: true,
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("steer done")]);
+		const spawned = store.spawnAgent({
+			agentType: "verifier",
+			cwd: harness.tempDir,
+			displayName: "Verifier",
+			lifecycle: "starting",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { sessionId: harness.sessionManager.getSessionId() },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+		const steered = store.sendSteering(spawned.agent.id, running.agent.revision, {
+			body: "Continue verification",
+			fromAgentId: "supervisor",
+		});
+		expect(steered.ok).toBe(true);
+		if (!steered.ok) throw new Error("expected steering to succeed");
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected store persistence target");
+		const runtimeMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "steer",
+			recipient: { agentId: spawned.agent.id, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			storeRef: { messageId: steered.message.id, sessionPath: persistence.sessionPath },
+		});
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
+		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
+			status: "delivered",
+		});
+	});
+
+	it("marks idle runtime mailbox steer completion after the prompted turn finishes", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const harness = await createHarness({
+			multiAgentAgentId: "agent_1",
+			multiAgentStore: store,
+			persistedSession: true,
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("idle steer done")]);
+		const spawned = store.spawnAgent({
+			agentType: "verifier",
+			cwd: harness.tempDir,
+			displayName: "Verifier",
+			lifecycle: "starting",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { sessionId: harness.sessionManager.getSessionId() },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+		const steered = store.sendSteering(spawned.agent.id, running.agent.revision, {
+			body: "Continue verification while idle",
+			fromAgentId: "supervisor",
+		});
+		expect(steered.ok).toBe(true);
+		if (!steered.ok) throw new Error("expected steering to succeed");
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected store persistence target");
+		const runtimeMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "steer",
+			recipient: { agentId: spawned.agent.id, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			storeRef: { messageId: steered.message.id, sessionPath: persistence.sessionPath },
+		});
+
+		await vi.advanceTimersByTimeAsync(3_000);
+		for (let attempt = 0; attempt < 10 && store.getAgent(spawned.agent.id)?.lifecycle !== "completed"; attempt += 1) {
+			await delay(0);
+		}
+		await harness.session.agent.waitForIdle();
+
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
+		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
+			status: "delivered",
+		});
+	});
+
+	it("fails idle runtime mailbox steer state when prompt preflight fails", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const harness = await createHarness({
+			multiAgentAgentId: "agent_1",
+			multiAgentStore: store,
+			persistedSession: true,
+			withConfiguredAuth: false,
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		const spawned = store.spawnAgent({
+			agentType: "verifier",
+			cwd: harness.tempDir,
+			displayName: "Verifier",
+			lifecycle: "starting",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { sessionId: harness.sessionManager.getSessionId() },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+		const steered = store.sendSteering(spawned.agent.id, running.agent.revision, {
+			body: "Continue verification without auth",
+			fromAgentId: "supervisor",
+		});
+		expect(steered.ok).toBe(true);
+		if (!steered.ok) throw new Error("expected steering to succeed");
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected store persistence target");
+		const runtimeMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "steer",
+			recipient: { agentId: spawned.agent.id, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			storeRef: { messageId: steered.message.id, sessionPath: persistence.sessionPath },
+		});
+
+		await vi.advanceTimersByTimeAsync(3_000);
+		for (
+			let attempt = 0;
+			attempt < 10 && readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)?.status !== "failed";
+			attempt += 1
+		) {
+			await delay(0);
+		}
+
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "failed" });
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "failed" });
+		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
+			status: "failed",
+		});
+	});
+
 	it("starts runtime mailbox polling before extension binding", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
