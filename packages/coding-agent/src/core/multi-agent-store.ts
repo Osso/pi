@@ -559,12 +559,24 @@ export class MultiAgentStore {
 	}
 
 	markMailboxMessageDelivered(messageId: string): AgentMailboxMessage | undefined {
+		return this.markMailboxMessageStatus(messageId, "delivered");
+	}
+
+	markMailboxMessageFailed(messageId: string, error: string): AgentMailboxMessage | undefined {
+		return this.markMailboxMessageStatus(messageId, "failed", error);
+	}
+
+	private markMailboxMessageStatus(
+		messageId: string,
+		status: Exclude<MailboxMessageStatus, "pending">,
+		error?: string,
+	): AgentMailboxMessage | undefined {
 		const message = this.mailboxMessages.get(messageId);
 		if (!message || message.status !== "pending") {
 			return undefined;
 		}
 
-		const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
+		const updated = { ...message, error, status, updatedAt: this.now() };
 		this.putMailboxMessage(updated);
 		return copyMessage(updated);
 	}

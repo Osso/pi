@@ -301,6 +301,38 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(sent.content[0]).toMatchObject({
 			text: "Could not send runtime session message: runtime mailbox transport is unavailable.",
 		});
+		expect(sent.details.message).toMatchObject({ status: "failed" });
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "failed" }]);
+		expect(listRuntimeMailboxMessages(getControlDbPath(tempDir))).toEqual([]);
+	});
+
+	it("fails explicit main runtime session messages without leaving a pending store row", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const tools = collectMultiAgentTools(store);
+		const sendAgentMessage = tools.get("send_agent_message");
+		if (!sendAgentMessage) {
+			throw new Error("expected send_agent_message tool");
+		}
+
+		const sent = await sendAgentMessage.execute(
+			"send-main-unavailable",
+			{
+				message: "Hello unreachable main session",
+				toAgentId: "main",
+				toSessionId: "target-session",
+			},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath: "", sessionManager: senderSession }),
+		);
+
+		expect(sent.content[0]).toMatchObject({
+			text: "Could not send runtime session message: runtime mailbox transport is unavailable.",
+		});
+		expect(sent.details.message).toMatchObject({ status: "failed" });
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "failed" }]);
 		expect(listRuntimeMailboxMessages(getControlDbPath(tempDir))).toEqual([]);
 	});
 

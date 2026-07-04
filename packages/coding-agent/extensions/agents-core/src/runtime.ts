@@ -1566,9 +1566,10 @@ function sendAgentMessage(
 	if (params.toSessionId) {
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
 		if (!mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
+			const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
 			return errorResult("Could not send runtime session message: runtime mailbox transport is unavailable.", {
 				agent: sent.agent,
-				message: sent.message,
+				message: failedMessage,
 			});
 		}
 	} else {
@@ -1609,15 +1610,29 @@ function sendMainRuntimeSessionMessage(
 		toAgentId: params.toAgentId,
 	});
 	if (!mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null)) {
+		const failedMessage = markFailedMailboxTransportMessage(store, message);
 		return errorResult("Could not send runtime session message: runtime mailbox transport is unavailable.", {
 			agent: sender,
-			message,
+			message: failedMessage,
 		});
 	}
 	return result(`Sent message to session ${params.toSessionId}.`, {
 		agent: sender,
 		message,
 	});
+}
+
+function markFailedMailboxTransportMessage(
+	store: MultiAgentStore,
+	message: AgentMailboxMessage,
+): AgentMailboxMessage {
+	const error = "Runtime mailbox transport is unavailable.";
+	try {
+		return store.markMailboxMessageFailed(message.id, error) ?? { ...message, error, status: "failed" as const };
+	} catch (cause) {
+		console.error(`Failed to persist failed mailbox message ${message.id}:`, cause);
+		return { ...message, error, status: "failed" as const };
+	}
 }
 
 function mirrorRuntimeSessionMessage(
@@ -1637,16 +1652,21 @@ function mirrorRuntimeSessionMessage(
 		);
 		return false;
 	}
-	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
-		kind: message.kind,
-		recipient: { agentId: recipientAgentId, sessionId: toSessionId },
-		sender: {
-			agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
-			sessionId: ctx.sessionManager.getSessionId(),
-		},
-		storeRef,
-	});
-	return true;
+	try {
+		enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
+			kind: message.kind,
+			recipient: { agentId: recipientAgentId, sessionId: toSessionId },
+			sender: {
+				agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
+				sessionId: ctx.sessionManager.getSessionId(),
+			},
+			storeRef,
+		});
+		return true;
+	} catch (error) {
+		console.error(`Failed to enqueue runtime session message ${message.id}:`, error);
+		return false;
+	}
 }
 
 function currentMessageSenderId(_store: MultiAgentStore, ctx: ExtensionContext | undefined): string | undefined {
