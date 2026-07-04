@@ -1992,8 +1992,6 @@ describe("multi-agent extension tools", () => {
 		expect(getUserTexts(harness)).toEqual([
 			"start child",
 			[
-				"Runtime mailbox message received.",
-				"",
 				"From:",
 				`- session: ${parentSessionId}`,
 				"- agent: agent_1",

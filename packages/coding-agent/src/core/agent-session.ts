@@ -366,16 +366,7 @@ function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage): string {
 	const senderSession = message.sender.sessionId || "unknown-session";
 	const senderAgent = message.sender.agentId || "main";
 	const body = message.body.trim() || "No message body.";
-	const sections = [
-		"Runtime mailbox message received.",
-		"",
-		"From:",
-		`- session: ${senderSession}`,
-		`- agent: ${senderAgent}`,
-		"",
-		"Message:",
-		body,
-	];
+	const sections = ["From:", `- session: ${senderSession}`, `- agent: ${senderAgent}`, "", "Message:", body];
 	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
 }
 

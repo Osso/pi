@@ -73,16 +73,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function runtimeMailboxPrompt(body: string): string {
-	return [
-		"Runtime mailbox message received.",
-		"",
-		"From:",
-		"- session: child-session",
-		"- agent: agent_1",
-		"",
-		"Message:",
-		body,
-	].join("\n");
+	return ["From:", "- session: child-session", "- agent: agent_1", "", "Message:", body].join("\n");
 }
 
 function collectMultiAgentTools(
