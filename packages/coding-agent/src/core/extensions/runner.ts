@@ -748,9 +748,9 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.getSystemPromptFn();
 			},
-			switchSession: (sessionPath) => {
+			switchSession: (sessionPath, options) => {
 				runner.assertActive();
-				return runner.switchSessionHandler(sessionPath);
+				return runner.switchSessionHandler(sessionPath, options);
 			},
 		};
 	}
