@@ -283,6 +283,54 @@ describe("SessionManager custom flat session directory", () => {
 		expect(currentA.map((entry) => entry.firstMessage)).toEqual(["metadata missing", "metadata A"]);
 	});
 
+	it("updates sqlite metadata incrementally on messages and skips writes for custom entries", () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const session = SessionManager.create(projectA, tempDir);
+		session.setMetadataControlDbPath(controlDbPath);
+		session.appendMessage({ role: "user", content: "first prompt", timestamp: 1 });
+		session.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "first reply" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: 2,
+		});
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persisted session file");
+		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
+			allMessagesText: "first prompt first reply",
+			messageCount: 2,
+		});
+
+		const sentinel = readSessionMetadata(controlDbPath, sessionFile);
+		if (!sentinel) throw new Error("Expected session metadata");
+		writeSessionMetadata(controlDbPath, { ...sentinel, firstMessage: "sentinel", allMessagesText: "sentinel" });
+		session.appendCustomEntry("multi-agent-test", { payload: "snapshot" });
+
+		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
+			allMessagesText: "sentinel",
+			firstMessage: "sentinel",
+		});
+
+		session.appendMessage({ role: "user", content: "second prompt", timestamp: 3 });
+
+		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
+			allMessagesText: "first prompt first reply second prompt",
+			firstMessage: "first prompt",
+			messageCount: 3,
+		});
+	});
+
 	it("preserves persisted subagent metadata when a session is reopened with sqlite metadata", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const session = SessionManager.create(projectA, tempDir, {

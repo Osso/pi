@@ -613,7 +613,7 @@ function getMessageActivityTime(entry: SessionMessageEntry): number | undefined 
 interface SessionInfoAccumulator {
 	messageCount: number;
 	firstMessage: string;
-	allMessages: string[];
+	allMessagesText: string;
 	name?: string;
 	lastActivityTime?: number;
 }
@@ -622,7 +622,7 @@ function createSessionInfoAccumulator(): SessionInfoAccumulator {
 	return {
 		messageCount: 0,
 		firstMessage: "",
-		allMessages: [],
+		allMessagesText: "",
 	};
 }
 
@@ -646,7 +646,9 @@ function applySessionInfoEntry(accumulator: SessionInfoAccumulator, entry: Sessi
 	const textContent = extractTextContent(message);
 	if (!textContent) return;
 
-	accumulator.allMessages.push(textContent);
+	accumulator.allMessagesText = accumulator.allMessagesText
+		? `${accumulator.allMessagesText} ${textContent}`
+		: textContent;
 	if (!accumulator.firstMessage && message.role === "user") {
 		accumulator.firstMessage = textContent;
 	}
@@ -677,7 +679,7 @@ function finishSessionInfo(
 		modified,
 		messageCount: accumulator.messageCount,
 		firstMessage: accumulator.firstMessage || "(no messages)",
-		allMessagesText: accumulator.allMessages.join(" "),
+		allMessagesText: accumulator.allMessagesText,
 	};
 }
 
@@ -714,29 +716,14 @@ function isSessionEntry(entry: FileEntry): entry is SessionEntry {
 	return entry.type !== "session";
 }
 
-function buildSessionInfoFromEntries(
-	filePath: string,
-	entries: FileEntry[],
-	fallbackModified: Date = new Date(),
-): SessionInfo | null {
-	const header = entries[0];
-	if (!header || header.type !== "session") return null;
-
-	const accumulator = createSessionInfoAccumulator();
-	for (const entry of entries) {
-		if (isSessionEntry(entry)) applySessionInfoEntry(accumulator, entry);
-	}
-
-	return finishSessionInfo(filePath, header, accumulator, fallbackModified);
+function affectsSessionInfo(entry: SessionEntry): boolean {
+	return entry.type === "message" || entry.type === "session_info";
 }
 
-function buildWritableSessionMetadata(
-	filePath: string,
-	entries: FileEntry[],
+function writableSessionMetadataFromInfo(
+	info: SessionInfo,
 	options: { isSubagent?: boolean; subagentName?: string } = {},
-): WritableSessionMetadata | null {
-	const info = buildSessionInfoFromEntries(filePath, entries);
-	if (!info) return null;
+): WritableSessionMetadata {
 	return {
 		sessionPath: info.path,
 		id: info.id,
@@ -841,18 +828,7 @@ function excludeKnownSubagentSessions(controlDbPath: string | undefined, session
 function cacheSessionMetadata(controlDbPath: string | undefined, sessions: SessionInfo[]): void {
 	if (!controlDbPath) return;
 	for (const session of sessions) {
-		writeSessionMetadata(controlDbPath, {
-			sessionPath: session.path,
-			id: session.id,
-			cwd: session.cwd,
-			name: session.name,
-			parentSessionPath: session.parentSessionPath,
-			createdAt: session.created.toISOString(),
-			modifiedAt: session.modified.toISOString(),
-			messageCount: session.messageCount,
-			firstMessage: session.firstMessage,
-			allMessagesText: session.allMessagesText,
-		});
+		writeSessionMetadata(controlDbPath, writableSessionMetadataFromInfo(session));
 	}
 }
 
@@ -960,6 +936,7 @@ export class SessionManager {
 	private persist: boolean;
 	private flushed: boolean = false;
 	private fileEntries: FileEntry[] = [];
+	private sessionInfoAccumulator: SessionInfoAccumulator | undefined;
 	private byId: Map<string, SessionEntry> = new Map();
 	private labelsById: Map<string, string> = new Map();
 	private labelTimestampsById: Map<string, string> = new Map();
@@ -1043,6 +1020,7 @@ export class SessionManager {
 			parentSession: options?.parentSession,
 		};
 		this.fileEntries = [header];
+		this.sessionInfoAccumulator = undefined;
 		this.byId.clear();
 		this.labelsById.clear();
 		this.leafId = null;
@@ -1056,6 +1034,7 @@ export class SessionManager {
 	}
 
 	private _buildIndex(): void {
+		this.sessionInfoAccumulator = undefined;
 		this.byId.clear();
 		this.labelsById.clear();
 		this.labelTimestampsById.clear();
@@ -1168,12 +1147,29 @@ export class SessionManager {
 
 	private writeMetadataSnapshot(): void {
 		if (!this.metadataControlDbPath || !this.persist || !this.sessionFile) return;
-		const metadata = buildWritableSessionMetadata(this.sessionFile, this.fileEntries, {
-			isSubagent: this.isSubagent,
-			subagentName: this.subagentName,
-		});
-		if (!metadata) return;
-		writeSessionMetadata(this.metadataControlDbPath, metadata);
+		const header = this.fileEntries[0];
+		if (!header || header.type !== "session") return;
+		const info = finishSessionInfo(this.sessionFile, header, this.currentSessionInfoAccumulator(), new Date());
+		writeSessionMetadata(
+			this.metadataControlDbPath,
+			writableSessionMetadataFromInfo(info, {
+				isSubagent: this.isSubagent,
+				subagentName: this.subagentName,
+			}),
+		);
+	}
+
+	// The accumulator folds entries one at a time as they are appended; it is rebuilt from
+	// fileEntries only after wholesale replacements (resume, branch, new session).
+	private currentSessionInfoAccumulator(): SessionInfoAccumulator {
+		if (!this.sessionInfoAccumulator) {
+			const accumulator = createSessionInfoAccumulator();
+			for (const entry of this.fileEntries) {
+				if (isSessionEntry(entry)) applySessionInfoEntry(accumulator, entry);
+			}
+			this.sessionInfoAccumulator = accumulator;
+		}
+		return this.sessionInfoAccumulator;
 	}
 
 	_persist(entry: SessionEntry): void {
@@ -1210,7 +1206,12 @@ export class SessionManager {
 		this.byId.set(entry.id, entry);
 		this.leafId = entry.id;
 		this._persist(entry);
-		this.writeMetadataSnapshot();
+		if (this.sessionInfoAccumulator) {
+			applySessionInfoEntry(this.sessionInfoAccumulator, entry);
+		}
+		if (affectsSessionInfo(entry)) {
+			this.writeMetadataSnapshot();
+		}
 	}
 
 	/** Append a message as child of current leaf, then advance leaf. Returns entry id.

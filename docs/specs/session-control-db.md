@@ -16,6 +16,10 @@ reply without changing the JSONL transcript format. How it works lives in
 - [x] Provide `pi control send`, `pi control last`, and `pi control path` so
   harnesses use the CLI instead of writing SQLite directly.
 - [x] Store named-session metadata in the control DB.
+- [x] Session-listing metadata is maintained incrementally: appended entries fold into a
+      per-session accumulator (rebuilt only after wholesale entry replacement such as resume,
+      branch, or new session), and entries that cannot change session metadata (custom entries,
+      labels, compaction records) do not trigger a metadata write at all.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
