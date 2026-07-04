@@ -123,6 +123,10 @@ detached and gets started.
       the live dispatch map. Agents with `origin: "attached"` and a transcript restart through
       the attach factory; an agent with no transcript is marked `failed` with the recovery
       error at recovery time (a runtime decision, not a restore rewrite).
+- [ ] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the
+      agent stays `running` while the dispatch and handle are re-established. Lifecycle moves
+      only on real events (completion, reattach failure, cancel) — recovery never relabels
+      state in either direction.
 - [ ] Detached-but-active agents that cannot be restarted yet (spawned children) keep their
       truthful lifecycle; projections must expose detachment (active agent, no runtime) so the
       TUI does not show false liveness while no resume path exists.
