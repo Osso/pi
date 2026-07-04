@@ -64,20 +64,28 @@ State meanings:
 - [x] Cancelling an agent aborts its live runtime handle and records terminal state through
       the normal lifecycle path.
 
-### Restore and recovery (current shape)
+### Restore and recovery (derived liveness)
 
-- [x] Restore clears stale worker handles from all active agents; persisted metadata is never
-      treated as proof of liveness.
-- [x] Interrupted in-flight agents (`starting`/`running`/`steering_pending`/`cancelling`) with a
-      transcript path are moved to a resumable waiting state; without a transcript they are
-      marked `failed` with an explicit recovery error.
-- [x] `queued` agents survive restore unchanged.
+- [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth. Restore
+      only clears stale worker handles from active agents; persisted metadata is never treated
+      as proof of liveness. Interrupted `running` agents stay `running` across any number of
+      restores.
+- [x] Detachment is derived at session start, not stored: an agent in an active non-idle state
+      with no live dispatch in this process needs recovery.
+- [x] `queued` agents survive restore unchanged and are not recovered.
 - [x] Agents already `waiting_for_input` before the crash are not auto-prompted after restore.
-- [x] Only agents with persisted `origin: "attached"` are auto-restarted, through the
-      attached-session dispatch path; recovered spawned children stay resumable and are not
-      re-driven through the attach factory.
+- [x] Only detached agents with persisted `origin: "attached"` and a transcript are auto-restarted,
+      through the attached-session dispatch path; detached spawned children keep their truthful
+      lifecycle and are not re-driven through the attach factory.
+- [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent
+      stays `running` while the dispatch and handle are re-established. Lifecycle moves only on
+      real events (completion, reattach failure, cancel).
+- [x] A detached agent with no transcript is marked `failed` with an explicit recovery error at
+      recovery time — a runtime decision, not a restore rewrite.
+- [x] A detached `cancelling` agent has its pending cancel completed to `aborted` at recovery time.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
+- [x] Child agent runtimes never run supervisor recovery.
 
 ## How it works
 
@@ -104,29 +112,6 @@ State meanings:
 
 ## Known gaps (current cycle)
 
-The restore-time "resumable waiting state" above is a design flaw being driven out:
-restore rewrites a crashed `running` agent to `waiting_for_input` (a state that otherwise
-means "idle"), then needs an in-memory `recoveredAgentIds` side-set to remember which
-"waiting" agents are actually interrupted — and that set does not survive a second restart.
-
-Planned model — derived liveness, no restore-time rewrite:
-
-The last written lifecycle is the truth. At crash the snapshot already says `running`;
-restore loads it as-is (clearing only `worker` handles, which are runtime metadata and never
-proof of liveness). Whether an agent needs starting is **derived at session start**, not
-stored: an agent in an active non-idle state with no live dispatch in this process is
-detached and gets started.
-
-- [ ] Restore stops rewriting lifecycle state entirely; `restoreAgentSnapshot` only clears
-      `worker` handles. `recoveredAgentIds` is deleted.
-- [ ] Session-start recovery derives the work list: active non-idle lifecycle AND no entry in
-      the live dispatch map. Agents with `origin: "attached"` and a transcript restart through
-      the attach factory; an agent with no transcript is marked `failed` with the recovery
-      error at recovery time (a runtime decision, not a restore rewrite).
-- [ ] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the
-      agent stays `running` while the dispatch and handle are re-established. Lifecycle moves
-      only on real events (completion, reattach failure, cancel) — recovery never relabels
-      state in either direction.
 - [ ] Detached-but-active agents that cannot be restarted yet (spawned children) keep their
       truthful lifecycle; projections must expose detachment (active agent, no runtime) so the
       TUI does not show false liveness while no resume path exists.

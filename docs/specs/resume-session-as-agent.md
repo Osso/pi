@@ -62,7 +62,7 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/multi-agent-store.test.ts` — covers persisted snapshot reload, automatic persistence after mutations, and crash recovery of active agents into resumable or explicit failed states.
+- `packages/coding-agent/test/multi-agent-store.test.ts` — covers persisted snapshot reload, automatic persistence after mutations, and lifecycle-preserving restore of interrupted agents with cleared worker handles.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — covers attached-session dispatch plus session-start recovery of persisted attached agents through the attached-session factory, including failed recovered restarts, one-shot recovery across reloads, idle waiting sessions that must not auto-prompt, child-runtime recovery suppression, shutdown abort of live child handles, and stale dispatch completions after store rebind.
 - `packages/coding-agent/test/runtime-mailbox.test.ts`
 

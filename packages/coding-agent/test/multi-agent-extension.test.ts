@@ -593,7 +593,6 @@ describe("multi-agent extension tools", () => {
 		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 		const recovered = store.getAgent(interrupted.agent.id);
 		if (!recovered) throw new Error("expected recovered agent");
@@ -796,7 +795,6 @@ describe("multi-agent extension tools", () => {
 		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 		const createAttachedSession = vi.fn<AttachedSessionFactory>();
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
@@ -804,8 +802,58 @@ describe("multi-agent extension tools", () => {
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
 
 		expect(createAttachedSession).not.toHaveBeenCalled();
-		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "waiting_for_input" });
-		expect(store.listRecoveredAgents().map((agent) => agent.id)).toEqual([interrupted.agent.id]);
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "running" });
+		expect(store.getAgent(interrupted.agent.id)?.error).toBeUndefined();
+	});
+
+	it("fails detached agents without a transcript at recovery time", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const interrupted = source.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "No transcript",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
+		const harness = createMultiAgentHarness({ store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
+			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
+			lifecycle: "failed",
+		});
+	});
+
+	it("completes pending cancels for detached cancelling agents at recovery time", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const cancelled = source.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Cancel pending",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const started = source.transitionAgent(cancelled.agent.id, cancelled.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected start");
+		const running = source.transitionAgent(cancelled.agent.id, started.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running");
+		expect(source.transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
+		const harness = createMultiAgentHarness({ store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(store.getAgent(cancelled.agent.id)).toMatchObject({ lifecycle: "aborted" });
 	});
 
 	it("does not restart attached agents that were already waiting before restore", async () => {
@@ -845,7 +893,6 @@ describe("multi-agent extension tools", () => {
 		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 		const createAttachedSession = vi.fn<AttachedSessionFactory>();
 		const harness = createMultiAgentHarness({
@@ -857,7 +904,7 @@ describe("multi-agent extension tools", () => {
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
 
 		expect(createAttachedSession).not.toHaveBeenCalled();
-		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "waiting_for_input" });
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "running" });
 	});
 
 	it("marks recovered attached-session restart failures as failed with an inspectable error", async () => {
@@ -878,7 +925,6 @@ describe("multi-agent extension tools", () => {
 		source.persistSnapshot(session);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 		const recovered = store.getAgent(interrupted.agent.id);
 		if (!recovered) throw new Error("expected recovered agent");

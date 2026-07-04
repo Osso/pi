@@ -1003,19 +1003,33 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 	);
 }
 
-function recoverPersistedAttachedSessions(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
-	if (!input.createAttachedSession || input.ctx.multiAgentAgentId) {
+function recoverDetachedAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
+	if (input.ctx.multiAgentAgentId) {
 		return;
 	}
-	for (const agent of input.store.listRecoveredAgents()) {
-		// Only attached sessions restart through the attached-session factory; spawned
-		// children stay recoverable in waiting_for_input instead of being re-driven
-		// through the wrong dispatch path with a generic continue prompt.
-		if (agent.origin !== "attached" || !agent.transcript?.path || input.dispatches.has(agent.id)) {
+	// Liveness is derived, not stored: an agent whose persisted lifecycle is in-flight but
+	// that has no dispatch in this process is detached and needs recovery. Restore never
+	// rewrites lifecycle state, so the persisted snapshot is the truth about what was running.
+	for (const agent of input.store.listActiveAgents()) {
+		if (agent.lifecycle === "queued" || agent.lifecycle === "waiting_for_input" || input.dispatches.has(agent.id)) {
 			continue;
 		}
-		input.store.consumeRecoveredAgent(agent.id);
-		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+		if (agent.lifecycle === "cancelling") {
+			// The runtime went away while a cancel was pending; complete the cancel.
+			transitionActiveAgent(input.store, agent, "aborted");
+			continue;
+		}
+		if (input.createAttachedSession && agent.origin === "attached" && agent.transcript?.path) {
+			dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+			continue;
+		}
+		if (!agent.transcript?.path) {
+			transitionActiveAgent(input.store, agent, "failed", {
+				error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
+			});
+		}
+		// Detached spawned children with a transcript keep their truthful lifecycle until a
+		// resume path exists for them.
 	}
 }
 
@@ -1257,10 +1271,9 @@ async function dispatchAgentSession(
 	onChildSession?: (childSession: ChildAgentSession) => void,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
-	const starting = moveToStarting(store, initialAgent);
-	const running = store.transitionAgent(starting.id, starting.revision, "running");
+	const running = rampToRunning(store, initialAgent);
 	if (!running.ok) {
-		return starting;
+		return running.agent;
 	}
 
 	try {
@@ -1304,10 +1317,9 @@ async function dispatchAgent(
 	ctx: ExtensionContext,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
-	const starting = moveToStarting(store, initialAgent);
-	const running = store.transitionAgent(starting.id, starting.revision, "running");
+	const running = rampToRunning(store, initialAgent);
 	if (!running.ok) {
-		return starting;
+		return running.agent;
 	}
 
 	try {
@@ -1373,6 +1385,16 @@ function moveToStarting(store: MultiAgentStore, agent: AgentSnapshot): AgentSnap
 
 	const starting = store.transitionAgent(agent.id, agent.revision, "starting");
 	return starting.ok ? starting.agent : agent;
+}
+
+function rampToRunning(store: MultiAgentStore, initialAgent: AgentSnapshot): { ok: boolean; agent: AgentSnapshot } {
+	if (initialAgent.lifecycle === "running") {
+		// Reattaching a runtime to a detached running agent is not a lifecycle transition.
+		return { ok: true, agent: initialAgent };
+	}
+	const starting = moveToStarting(store, initialAgent);
+	const running = store.transitionAgent(starting.id, starting.revision, "running");
+	return running.ok ? { ok: true, agent: running.agent } : { ok: false, agent: starting };
 }
 
 function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentToolResult<AgentListToolDetails> {
@@ -2202,7 +2224,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
 
 	pi.on?.("session_start", async (_event, ctx) => {
-		recoverPersistedAttachedSessions({
+		recoverDetachedAgents({
 			createAttachedSession,
 			ctx,
 			desktopNotifier,

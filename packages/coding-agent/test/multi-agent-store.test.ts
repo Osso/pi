@@ -1186,7 +1186,7 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
-	it("restores crashed active agents as resumable only when they have transcript metadata", () => {
+	it("restores crashed active agents with truthful lifecycles and cleared worker handles", () => {
 		const session = SessionManager.inMemory("/repo");
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const recoverable = source.spawnAgent({
@@ -1235,12 +1235,11 @@ describe("MultiAgentStore", () => {
 
 		const rehydrated = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 
 		expect(rehydrated.getAgent(recoverable.agent.id)).toMatchObject({
 			id: recoverable.agent.id,
-			lifecycle: "waiting_for_input",
+			lifecycle: "running",
 			transcript: { path: "/sessions/recoverable.jsonl", sessionId: "recoverable-session" },
 		});
 		expect(rehydrated.getAgent(recoverable.agent.id)?.worker).toBeUndefined();
@@ -1251,12 +1250,11 @@ describe("MultiAgentStore", () => {
 		});
 		expect(rehydrated.getAgent(idle.agent.id)?.worker).toBeUndefined();
 		expect(rehydrated.getAgent(unrecoverable.agent.id)).toMatchObject({
-			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
 			id: unrecoverable.agent.id,
-			lifecycle: "failed",
+			lifecycle: "running",
 		});
+		expect(rehydrated.getAgent(unrecoverable.agent.id)?.error).toBeUndefined();
 		expect(rehydrated.getAgent(unrecoverable.agent.id)?.worker).toBeUndefined();
-		expect(rehydrated.listRecoveredAgents().map((agent) => agent.id)).toEqual([recoverable.agent.id]);
 	});
 
 	it("leaves queued agents queued during crash recovery", () => {
@@ -1267,7 +1265,6 @@ describe("MultiAgentStore", () => {
 
 		const rehydrated = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 
 		expect(rehydrated.getAgent(queued.agent.id)).toMatchObject({
@@ -1275,29 +1272,27 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
-	it("persists explicit failed state when only unrecoverable active agents are restored", () => {
+	it("keeps interrupted running agents running across repeated restores", () => {
 		const session = SessionManager.inMemory("/repo");
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const unrecoverable = spawnScout(source);
-		const started = source.transitionAgent(unrecoverable.agent.id, unrecoverable.agent.revision, "starting");
+		const interrupted = spawnScout(source);
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
 		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected unrecoverable start");
-		expect(source.transitionAgent(unrecoverable.agent.id, started.agent.revision, "running").ok).toBe(true);
+		if (!started.ok) throw new Error("expected start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
 		source.persistSnapshot(session);
 
 		MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 		const reopened = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
-			recoverActiveAgents: true,
 		});
 
-		expect(reopened.getAgent(unrecoverable.agent.id)).toMatchObject({
-			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
-			lifecycle: "failed",
+		expect(reopened.getAgent(interrupted.agent.id)).toMatchObject({
+			lifecycle: "running",
 		});
+		expect(reopened.getAgent(interrupted.agent.id)?.error).toBeUndefined();
 	});
 
 	it("persists snapshots as SessionManager custom entries", () => {

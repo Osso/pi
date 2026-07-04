@@ -245,7 +245,6 @@ export type ActiveAgentTargetSelectionResult =
 
 export interface MultiAgentStoreOptions {
 	now?: () => string;
-	recoverActiveAgents?: boolean;
 }
 
 export type AgentLifecycleNotificationListener = (message: AgentMailboxMessage) => void;
@@ -312,7 +311,6 @@ export class MultiAgentStore {
 	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
-	private readonly recoveredAgentIds = new Set<string>();
 	private readonly transitionListeners = new Set<AgentTransitionListener>();
 	private readonly abortHandlers = new Map<string, () => void>();
 	private readonly now: () => string;
@@ -321,13 +319,11 @@ export class MultiAgentStore {
 	private nextMessageNumber = 1;
 	private restoreGeneration = 0;
 	private persistenceSessionManager: SessionManager | undefined;
-	private recoverActiveAgents: boolean;
 	private selectedAgentId: string | undefined;
 	private restoring = false;
 
 	constructor(options: MultiAgentStoreOptions = {}) {
 		this.now = options.now ?? (() => new Date().toISOString());
-		this.recoverActiveAgents = options.recoverActiveAgents ?? false;
 	}
 
 	subscribeLifecycleNotifications(listener: AgentLifecycleNotificationListener): () => void {
@@ -647,16 +643,6 @@ export class MultiAgentStore {
 		return this.listAgents().filter((agent) => isActiveLifecycle(agent.lifecycle));
 	}
 
-	listRecoveredAgents(): AgentSnapshot[] {
-		return Array.from(this.recoveredAgentIds)
-			.map((agentId) => this.getAgent(agentId))
-			.filter((agent): agent is AgentSnapshot => agent !== undefined && isActiveLifecycle(agent.lifecycle));
-	}
-
-	consumeRecoveredAgent(agentId: string): void {
-		this.recoveredAgentIds.delete(agentId);
-	}
-
 	getActiveAgentCount(): number {
 		let activeCount = 0;
 
@@ -967,12 +953,8 @@ export class MultiAgentStore {
 		this.persistenceSessionManager = sessionManager;
 	}
 
-	restoreFromSessionManager(
-		sessionManager: SessionManager,
-		options: Pick<MultiAgentStoreOptions, "recoverActiveAgents"> = {},
-	): void {
+	restoreFromSessionManager(sessionManager: SessionManager): void {
 		this.setPersistenceSessionManager(sessionManager);
-		this.recoverActiveAgents = options.recoverActiveAgents ?? this.recoverActiveAgents;
 		const snapshot = findLatestPersistedSnapshot(sessionManager);
 		this.restoreGeneration += 1;
 		if (!snapshot) {
@@ -1004,16 +986,12 @@ export class MultiAgentStore {
 		this.mailboxMessages.clear();
 		this.abortHandlers.clear();
 		this.lifecycleNotificationListeners.clear();
-		this.recoveredAgentIds.clear();
 		this.transitionListeners.clear();
 		let correctedRestoredAgent = false;
 
 		for (const agent of snapshot.agents) {
 			const restored = this.restoreAgentSnapshot(agent);
 			correctedRestoredAgent = correctedRestoredAgent || restored.corrected;
-			if (restored.recovered) {
-				this.recoveredAgentIds.add(agent.id);
-			}
 			this.agents.set(agent.id, restored.agent);
 		}
 
@@ -1032,42 +1010,14 @@ export class MultiAgentStore {
 		return correctedRestoredAgent;
 	}
 
-	private restoreAgentSnapshot(agent: AgentSnapshot): { agent: AgentNode; corrected: boolean; recovered: boolean } {
+	private restoreAgentSnapshot(agent: AgentSnapshot): { agent: AgentNode; corrected: boolean } {
 		const restored = copyAgent(agent);
-		if (!this.recoverActiveAgents || !isActiveLifecycle(restored.lifecycle)) {
-			return { agent: restored, corrected: false, recovered: false };
+		// The last written lifecycle is the truth: restore never rewrites state. Worker
+		// handles are runtime metadata and cannot survive the process, so they are cleared.
+		if (!isActiveLifecycle(restored.lifecycle) || restored.worker === undefined) {
+			return { agent: restored, corrected: false };
 		}
-		if (!isRecoverableInterruptedLifecycle(restored.lifecycle)) {
-			const corrected = restored.worker !== undefined;
-			return { agent: { ...restored, worker: undefined }, corrected, recovered: false };
-		}
-		if (restored.transcript?.path) {
-			return {
-				agent: {
-					...restored,
-					lifecycle: "waiting_for_input",
-					revision: restored.revision + 1,
-					updatedAt: this.now(),
-					worker: undefined,
-				},
-				corrected: true,
-				recovered: true,
-			};
-		}
-		return {
-			agent: {
-				...restored,
-				error: {
-					message: "Agent was active when the supervisor session ended and has no recoverable transcript.",
-				},
-				lifecycle: "failed",
-				revision: restored.revision + 1,
-				updatedAt: this.now(),
-				worker: undefined,
-			},
-			corrected: true,
-			recovered: false,
-		};
+		return { agent: { ...restored, worker: undefined }, corrected: true };
 	}
 
 	private persistAfterMutation(): void {
@@ -1302,10 +1252,6 @@ export class MultiAgentStore {
 
 export function isActiveLifecycle(lifecycle: AgentLifecycleState): boolean {
 	return !TERMINAL_STATES.has(lifecycle);
-}
-
-function isRecoverableInterruptedLifecycle(lifecycle: AgentLifecycleState): boolean {
-	return lifecycle !== "queued" && lifecycle !== "waiting_for_input" && isActiveLifecycle(lifecycle);
 }
 
 export function formatInactiveAgentSelectionMessage(agent: Pick<AgentSnapshot, "displayName" | "lifecycle">): string {

@@ -44,16 +44,18 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Supervisor session resume restores the persisted multi-agent store into the production
       first-party store so agent tree, slots, artifacts, mailbox state, and transcript pointers
       survive a crash or restart. The selected view is ephemeral UI state and is not persisted.
-- [x] Restored interrupted agents do not keep false liveness: in-flight agents with recoverable
-      transcript paths are moved back to a resumable waiting state with stale worker handles cleared,
-      while in-flight agents without transcript metadata are marked failed with an explicit recovery error.
-- [x] On supervisor session start, recovered agents with a persisted `attached` origin and transcript
+- [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth, and restore
+      only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
+      is derived at session start from active lifecycle plus the absence of a live dispatch — see
+      [agent-lifecycle.md](agent-lifecycle.md).
+- [x] On supervisor session start, detached agents with a persisted `attached` origin and transcript
       paths are restarted through the same attached-session dispatch path used by `attach_session_agent`,
       preserving their agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle
-      plumbing; agents that were already waiting before restore are not auto-prompted. Recovered spawned
-      children are never re-driven through the attached-session factory: they stay recoverable in
-      `waiting_for_input`, and recovered agents are only consumed from the recovery set when actually
-      dispatched. Dispatch finalizers are guarded
+      plumbing; reattaching a detached running agent is not a lifecycle transition. Queued and
+      already-waiting agents are not auto-prompted. Detached spawned children are never re-driven
+      through the attached-session factory and keep their truthful lifecycle; detached agents without
+      a transcript are marked failed at recovery time; detached cancelling agents have their pending
+      cancel completed to aborted. Dispatch finalizers are guarded
       by store restore generation so completions from a previous supervisor session cannot mutate a
       newly restored session that reused the same agent ID, and session shutdown aborts live child-session
       handles before the store is rebound. Shutdown invalidates in-flight dispatches before aborting, so
@@ -241,7 +243,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       steering acknowledgement, and core-derived active counts.
 - [x] Add and implement store persistence tests for `SessionManager` custom entries and reloadable
       snapshots/events, automatic snapshot persistence after mutations, in-place production-store restore,
-      empty-session clearing, and crash recovery of active agents with and without transcript metadata.
+      empty-session clearing, and lifecycle-preserving restore of interrupted agents.
 - [x] Add failing extension-tool tests for spawn/list/wait/cancel/steer over `MultiAgentStore`
       without spawning real child model sessions.
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over `MultiAgentStore`, update
