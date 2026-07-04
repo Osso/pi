@@ -82,6 +82,8 @@ export interface AgentNode {
 	parentId: string | undefined;
 	displayName: string;
 	agentType: string;
+	/** How the agent entered the store; absent means spawned as a child agent. */
+	origin?: "attached" | "spawned";
 	lifecycle: AgentLifecycleState;
 	revision: number;
 	createdAt: string;
@@ -113,6 +115,7 @@ export interface SpawnAgentInput {
 	parentId?: string;
 	displayName: string;
 	agentType: string;
+	origin?: AgentNode["origin"];
 	cwd: string;
 	permission: AgentNode["permission"];
 	lifecycle?: "queued" | "starting" | "waiting_for_input";
@@ -363,6 +366,7 @@ export class MultiAgentStore {
 			parentId: input.parentId,
 			displayName: input.displayName,
 			agentType: input.agentType,
+			origin: input.origin,
 			lifecycle: input.lifecycle ?? "queued",
 			revision: 1,
 			createdAt: timestamp,
@@ -409,6 +413,7 @@ export class MultiAgentStore {
 			...input,
 			agentType: input.agentType || "resumed-session",
 			lifecycle: input.lifecycle ?? "waiting_for_input",
+			origin: "attached",
 			transcript: copyTranscript(input.transcript),
 		});
 	}
@@ -648,12 +653,8 @@ export class MultiAgentStore {
 			.filter((agent): agent is AgentSnapshot => agent !== undefined && isActiveLifecycle(agent.lifecycle));
 	}
 
-	consumeRecoveredAgents(): AgentSnapshot[] {
-		const recovered = this.listRecoveredAgents();
-		for (const agent of recovered) {
-			this.recoveredAgentIds.delete(agent.id);
-		}
-		return recovered;
+	consumeRecoveredAgent(agentId: string): void {
+		this.recoveredAgentIds.delete(agentId);
 	}
 
 	getActiveAgentCount(): number {

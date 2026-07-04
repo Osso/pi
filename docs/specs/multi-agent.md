@@ -46,10 +46,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Restored interrupted agents do not keep false liveness: in-flight agents with recoverable
       transcript paths are moved back to a resumable waiting state with stale worker handles cleared,
       while in-flight agents without transcript metadata are marked failed with an explicit recovery error.
-- [x] On supervisor session start, recovered attached-session agents with transcript paths are restarted
-      through the same attached-session dispatch path used by `attach_session_agent`, preserving their
-      agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle plumbing; agents
-      that were already waiting before restore are not auto-prompted. Dispatch finalizers are guarded
+- [x] On supervisor session start, recovered agents with a persisted `attached` origin and transcript
+      paths are restarted through the same attached-session dispatch path used by `attach_session_agent`,
+      preserving their agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle
+      plumbing; agents that were already waiting before restore are not auto-prompted. Recovered spawned
+      children are never re-driven through the attached-session factory: they stay recoverable in
+      `waiting_for_input`, and recovered agents are only consumed from the recovery set when actually
+      dispatched. Dispatch finalizers are guarded
       by store restore generation so completions from a previous supervisor session cannot mutate a
       newly restored session that reused the same agent ID, and session shutdown aborts live child-session
       handles before the store is rebound. Shutdown invalidates in-flight dispatches before aborting, so

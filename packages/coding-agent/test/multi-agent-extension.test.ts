@@ -582,6 +582,7 @@ describe("multi-agent extension tools", () => {
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Recovered work",
+			origin: "attached",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
@@ -778,6 +779,35 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("does not restart recovered spawned children through the attached-session factory", async () => {
+		const session = SessionManager.inMemory("/repo");
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const interrupted = source.spawnAgent({
+			agentType: "implement",
+			cwd: "/repo",
+			displayName: "Spawned child",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/spawned-child.jsonl", sessionId: "spawned-child-session" },
+		});
+		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected spawned child to start");
+		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		source.persistSnapshot(session);
+		const store = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+			recoverActiveAgents: true,
+		});
+		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const harness = createMultiAgentHarness({ createAttachedSession, store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(createAttachedSession).not.toHaveBeenCalled();
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "waiting_for_input" });
+		expect(store.listRecoveredAgents().map((agent) => agent.id)).toEqual([interrupted.agent.id]);
+	});
+
 	it("does not restart attached agents that were already waiting before restore", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const idle = store.spawnAgent({
@@ -804,6 +834,7 @@ describe("multi-agent extension tools", () => {
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Recovered work",
+			origin: "attached",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
@@ -836,6 +867,7 @@ describe("multi-agent extension tools", () => {
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Recovered work",
+			origin: "attached",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});

@@ -1007,10 +1007,14 @@ function recoverPersistedAttachedSessions(input: Omit<AttachSessionDispatchInput
 	if (!input.createAttachedSession || input.ctx.multiAgentAgentId) {
 		return;
 	}
-	for (const agent of input.store.consumeRecoveredAgents()) {
-		if (!agent.transcript?.path || input.dispatches.has(agent.id)) {
+	for (const agent of input.store.listRecoveredAgents()) {
+		// Only attached sessions restart through the attached-session factory; spawned
+		// children stay recoverable in waiting_for_input instead of being re-driven
+		// through the wrong dispatch path with a generic continue prompt.
+		if (agent.origin !== "attached" || !agent.transcript?.path || input.dispatches.has(agent.id)) {
 			continue;
 		}
+		input.store.consumeRecoveredAgent(agent.id);
 		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
 	}
 }
@@ -1048,6 +1052,7 @@ function spawnAttachedSessionAgent(
 		displayName,
 		lifecycle: "waiting_for_input" as const,
 		model: profile.modelMetadata,
+		origin: "attached" as const,
 		permission,
 		transcript: { path: resolved.path, sessionId: resolved.sessionId },
 	};
