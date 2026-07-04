@@ -81,10 +81,6 @@ function runtimeMailboxPrompt(body: string): string {
 		"",
 		"Message:",
 		body,
-		"",
-		"To reply, use send_agent_message with:",
-		"- toSessionId: child-session",
-		'- toAgentId: "main"',
 	].join("\n");
 }
 

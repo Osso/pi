@@ -1931,10 +1931,6 @@ describe("multi-agent extension tools", () => {
 				"",
 				"Message:",
 				"Worker completed: child done",
-				"",
-				"To reply, use send_agent_message with:",
-				`- toSessionId: ${parentSessionId}`,
-				'- toAgentId: "main"',
 			].join("\n"),
 		]);
 		expect(getAssistantTexts(harness)).toContain("parent idle");

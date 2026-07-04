@@ -374,10 +374,6 @@ function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage): string {
 		"",
 		"Message:",
 		body,
-		"",
-		"To reply, use send_agent_message with:",
-		`- toSessionId: ${senderSession}`,
-		'- toAgentId: "main"',
 	];
 	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
 }
