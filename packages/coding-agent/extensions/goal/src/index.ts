@@ -270,10 +270,19 @@ function loadLegacyPreviousGoal(event: SessionStartEvent, ctx: ExtensionContext)
 }
 
 /** The block injected into the system prompt each turn while a goal is active. */
+type GoalAssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
+
+function findLastAssistantMessage(event: AgentEndEvent): GoalAssistantMessage | undefined {
+	return event.messages.filter((message): message is GoalAssistantMessage => message.role === "assistant").at(-1);
+}
+
+function didLastAssistantAbort(event: AgentEndEvent): boolean {
+	return findLastAssistantMessage(event)?.stopReason === "aborted";
+}
+
 function didLastAssistantReturnEmpty(event: AgentEndEvent): boolean {
-	const assistantMessages = event.messages.filter((message) => message.role === "assistant");
-	const lastAssistantMessage = assistantMessages.at(-1);
-	if (!lastAssistantMessage) return false;
+	const lastAssistantMessage = findLastAssistantMessage(event);
+	if (!lastAssistantMessage || lastAssistantMessage.stopReason === "aborted") return false;
 
 	const text = lastAssistantMessage.content
 		.filter((part) => part.type === "text")
@@ -425,7 +434,15 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		const goal = loadRunningGoal(ctx);
-		if (!goal || ctx.hasPendingMessages()) return;
+		if (!goal) return;
+
+		if (didLastAssistantAbort(event)) {
+			pauseGoal(ctx);
+			updateGoalFooterStatus(ctx);
+			return;
+		}
+
+		if (ctx.hasPendingMessages()) return;
 
 		if (didLastAssistantReturnEmpty(event)) {
 			ctx.ui.notify("Goal continuation stopped because the last assistant response was empty", "warning");

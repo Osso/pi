@@ -69,7 +69,7 @@ function sessionIdFromFile(file: string): string | undefined {
 	}
 }
 
-function createAssistantMessage(text: string): AssistantMessage {
+function createAssistantMessage(text: string, stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [{ type: "text", text }],
@@ -77,7 +77,7 @@ function createAssistantMessage(text: string): AssistantMessage {
 		provider: model.provider,
 		model: model.id,
 		usage: createUsage(),
-		stopReason: "stop",
+		stopReason,
 		timestamp: 1,
 	};
 }
@@ -93,6 +93,7 @@ function createGoalHarness(
 	options?: {
 		idle?: boolean;
 		contextUsage?: ContextUsage;
+		hasPendingMessages?: boolean;
 		sessionId?: string;
 		isSubagent?: boolean;
 		subagentName?: string;
@@ -159,7 +160,7 @@ function createGoalHarness(
 			getSubagentName: () => options?.subagentName,
 		},
 		isIdle: () => options?.idle ?? true,
-		hasPendingMessages: () => false,
+		hasPendingMessages: () => options?.hasPendingMessages ?? false,
 		getContextUsage: () => options?.contextUsage,
 	} as unknown as ExtensionCommandContext;
 
@@ -617,6 +618,26 @@ describe("goal extension", () => {
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.notify).toHaveBeenCalledWith(
+			"Goal continuation stopped because the last assistant response was empty",
+			"warning",
+		);
+	});
+
+	it("pauses the active goal when the agent turn is aborted", async () => {
+		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
+
+		await harness.runCommand("pause on abort");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+		await harness.runAgentEnd([createAssistantMessage("", "aborted")]);
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal.objective).toBe("pause on abort");
+		expect(goal.pausedAt).toEqual(expect.any(String));
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: pause on abort");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).not.toHaveBeenCalledWith(
 			"Goal continuation stopped because the last assistant response was empty",
 			"warning",
 		);
