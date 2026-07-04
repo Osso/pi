@@ -48,10 +48,10 @@ function getExecutedCode(details: unknown): string | undefined {
 	return typeof executed === "string" ? executed : undefined;
 }
 
-function getArgsCode(args: unknown): string | undefined {
+function readStringArg(args: unknown, key: string): string | undefined {
 	if (!args || typeof args !== "object") return undefined;
-	const code = (args as { code?: unknown }).code;
-	return typeof code === "string" ? code : undefined;
+	const value = (args as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function normalizeRestartParams(params: unknown): { notice?: string; process: true } {
@@ -249,9 +249,11 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			code: Type.String({ description: "Python source to evaluate." }),
 			session_id: Type.Optional(Type.String({ description: "Pyrun session id. Defaults to this Pi session." })),
 		}),
-		renderCall(_args, theme, context) {
+		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(theme.bold("pyrun_eval"));
+			const sessionId = readStringArg(args, "session_id");
+			const label = sessionId && sessionId !== "default" ? `pyrun_eval(${sessionId})` : "pyrun_eval";
+			text.setText(theme.bold(label));
 			return text;
 		},
 		renderResult(result, _options, theme, context) {
@@ -260,7 +262,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 				.filter((item) => item.type === "text")
 				.map((item) => item.text ?? "")
 				.join("\n");
-			const executed = getExecutedCode(result.details) ?? getArgsCode(context.args);
+			const executed = getExecutedCode(result.details) ?? readStringArg(context.args, "code");
 			text.setText(formatPyrunDisplay(output, executed, context.isError, theme));
 			return text;
 		},

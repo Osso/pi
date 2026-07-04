@@ -218,6 +218,14 @@ async function resultFor(request) {
       }
     };
   }
+  if (request.code === "command.result") {
+    return {
+      type: "completed",
+      executed: request.code,
+      console: ["OUT"],
+      value: { stdout: "OUT\\n", stderr: "", exit_code: 0, upstream_results: [] }
+    };
+  }
   if (request.code === "run.long_task()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "starting long task" }) + "\\n");
     process.stdout.write(JSON.stringify({ type: "progress", message: "halfway done" }) + "\\n");
@@ -449,6 +457,23 @@ describe("pyrun extension", () => {
 		expect(rendered).not.toContain("run.sleep(10)");
 	});
 
+	it("shows non-default Pyrun session id in the tool title", () => {
+		const harness = createPyrunHarness();
+		const component = new ToolExecutionComponent(
+			"pyrun_eval",
+			"pyrun-render-test-call",
+			{ code: "run.sleep(10)", session_id: "worker" },
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("pyrun_eval(worker)");
+		expect(rendered).not.toContain("Session: worker");
+	});
+
 	it("syntax-colors Pyrun Python in the interactive result row", () => {
 		const harness = createPyrunHarness();
 		const component = new ToolExecutionComponent(
@@ -462,7 +487,7 @@ describe("pyrun extension", () => {
 		);
 		component.updateResult(
 			{
-				content: [{ type: "text", text: 'value = run.sleep(10)\n\nSession: default\nResult: {"success":true}' }],
+				content: [{ type: "text", text: 'value = run.sleep(10)\n\nResult: {"success":true}' }],
 				details: { executed: "value = run.sleep(10)", type: "completed" },
 				isError: false,
 			},
@@ -472,7 +497,7 @@ describe("pyrun extension", () => {
 		const rendered = component.render(120).join("\n");
 		expect(rendered).toContain("\x1b[");
 		expect(stripAnsi(rendered)).toContain("value = run.sleep(10)");
-		expect(stripAnsi(rendered)).toContain("Session: default");
+		expect(stripAnsi(rendered)).not.toContain("Session: default");
 	});
 
 	it("delegates evaluation to the Pyrun JSONL runner process", async () => {
@@ -492,6 +517,17 @@ describe("pyrun extension", () => {
 		expect(text).toContain("hello");
 	});
 
+	it("omits successful command result JSON when command output is already shown", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "command.result" });
+
+		expect(result.content[0]).toEqual({
+			type: "text",
+			text: "command.result\n\nOUT",
+		});
+	});
+
 	it.runIf(hasLocalPyrunRunner && hasPython3)("evaluates code through the real local Pyrun JSONL runner", async () => {
 		delete process.env.PI_PYRUN_RUNNER_COMMAND;
 		delete process.env.PI_PYRUN_RUNNER;
@@ -508,7 +544,7 @@ describe("pyrun extension", () => {
 		});
 		expect(result.content[0]).toEqual({
 			type: "text",
-			text: "print('hello')\n1+1\n\nSession: default\nstdout: hello\nResult: 2",
+			text: "print('hello')\n1+1\n\nhello\nResult: 2",
 		});
 	});
 

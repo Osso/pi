@@ -36,9 +36,12 @@ export type PyrunPiRequestDispatcher = (
 	signal: AbortSignal | undefined,
 ) => Promise<unknown> | unknown;
 
-function formatResultValue(result: CanonicalPyrunEvalResult): string {
+function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined {
 	if (result.type === "needs_approval") {
 		return `needs approval: ${result.approval?.summary ?? "unknown Pyrun operation"}`;
+	}
+	if (isSuccessfulCommandResult(result.value)) {
+		return undefined;
 	}
 	if (result.value === undefined) {
 		return "undefined";
@@ -49,22 +52,31 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string {
 	return JSON.stringify(result.value);
 }
 
+function isSuccessfulCommandResult(value: unknown): boolean {
+	if (!value || typeof value !== "object") return false;
+	const record = value as Record<string, unknown>;
+	return typeof record.stdout === "string" && typeof record.stderr === "string" && record.exit_code === 0;
+}
+
 function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console"]>[number]): string {
 	if (typeof entry === "string") {
-		return `stdout: ${entry}`;
+		return entry;
 	}
 	return `${entry.level}: ${entry.message}`;
 }
 
 function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResult): string {
-	const lines = [params.code, "", `Session: ${params.session_id ?? "default"}`];
+	const lines = [params.code, ""];
 	for (const entry of result.console ?? []) {
 		lines.push(formatConsoleEntry(entry));
 	}
 	if (result.error) {
 		lines.push(`Error: ${result.error}`);
 	} else {
-		lines.push(`Result: ${formatResultValue(result)}`);
+		const formattedResult = formatResultValue(result);
+		if (formattedResult !== undefined) {
+			lines.push(`Result: ${formattedResult}`);
+		}
 	}
 	return lines.join("\n");
 }
