@@ -105,6 +105,7 @@ import {
 	getControlDbPath,
 	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxMessage,
+	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
 	removeNamedSession,
 	setNamedSession,
@@ -1742,10 +1743,12 @@ export class AgentSession {
 		}
 		this._runtimeMailboxDrainInProgress = true;
 		try {
-			const claimed = claimRuntimeMailboxMessages(controlDbPath, {
+			const recipient = {
 				agentId: this._getRuntimeMailboxAgentId(),
 				sessionId: this.sessionId,
-			});
+			};
+			recoverStaleRuntimeMailboxClaims(controlDbPath, recipient);
+			const claimed = claimRuntimeMailboxMessages(controlDbPath, recipient);
 			if (claimed.length === 0) {
 				return false;
 			}

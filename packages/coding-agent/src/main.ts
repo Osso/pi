@@ -13,6 +13,7 @@ import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, {
 	createHostrunMultiAgentRequestHandler,
+	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 } from "../extensions/agents-core/src/index.ts";
@@ -550,6 +551,7 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 }
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
+const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -560,15 +562,18 @@ function createFirstPartyExtensionFactories(
 		createSession: createAgentSession,
 		createSessionManager: SessionManager.create,
 		extensionFactories: getRuntimeExtensionFactories,
+		multiAgentStore: firstPartyMultiAgentStore,
 	});
 	const attachedSessionFactory = createProductionAttachedSessionFactory({
 		agentDir: getAgentDir(),
 		createSession: createAgentSession,
 		extensionFactories: getRuntimeExtensionFactories,
+		multiAgentStore: firstPartyMultiAgentStore,
 	});
 	const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
 		createAttachedSession: attachedSessionFactory,
 		createChildSession: childAgentSessionFactory,
+		runtimeHandles: firstPartyMultiAgentRuntimeHandles,
 		selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
 		store: firstPartyMultiAgentStore,
 	});
@@ -585,6 +590,7 @@ function createFirstPartyExtensionFactories(
 			agentsCoreExtension(pi, {
 				createAttachedSession: attachedSessionFactory,
 				createChildSession: childAgentSessionFactory,
+				runtimeHandles: firstPartyMultiAgentRuntimeHandles,
 				store: firstPartyMultiAgentStore,
 			}),
 		),

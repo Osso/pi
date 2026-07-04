@@ -11,6 +11,7 @@ import {
 	createAgentSessionServices,
 } from "../../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
+import { getControlDbPath, writeSessionMetadata } from "../../../src/core/session-control-db.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
 import { createResumeSessionToolDefinition } from "../../../src/core/tools/resume-session.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../../../src/index.ts";
@@ -245,6 +246,43 @@ describe("resume_session first-party tool", () => {
 				runtime.session.extensionRunner.createContext(),
 			),
 		).rejects.toThrow("Ambiguous session match for name 'duplicate target'");
+	});
+
+	it("rejects id and name targets whose metadata points at missing session files", async () => {
+		const root = join(tmpdir(), `pi-resume-session-stale-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const currentCwd = join(root, "current");
+		const sessionDir = join(root, "sessions");
+		mkdirSync(currentCwd, { recursive: true });
+		cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+		const current = SessionManager.create(currentCwd, sessionDir, { id: "current-session" });
+		const controlDbPath = getControlDbPath(root);
+		const stalePath = join(sessionDir, "stale-session.jsonl");
+		writeSessionMetadata(controlDbPath, {
+			allMessagesText: "stale",
+			createdAt: "2026-07-04T00:00:00.000Z",
+			cwd: currentCwd,
+			firstMessage: "stale",
+			id: "019f7421-stale-7000-8000-000000000001",
+			messageCount: 1,
+			modifiedAt: "2026-07-04T00:00:00.000Z",
+			name: "stale target",
+			parentSessionPath: undefined,
+			sessionPath: stalePath,
+		});
+		const context = {
+			controlDbPath,
+			cwd: currentCwd,
+			sessionManager: current,
+			switchSession: async () => ({ cancelled: false }),
+		} as unknown as ExtensionContext;
+		const tool = runtimeToolForTest();
+
+		await expect(tool.execute("stale-id", { id: "019f7421-stale" }, undefined, undefined, context)).rejects.toThrow(
+			`Session file does not exist: ${stalePath}`,
+		);
+		await expect(tool.execute("stale-name", { name: "stale target" }, undefined, undefined, context)).rejects.toThrow(
+			`Session file does not exist: ${stalePath}`,
+		);
 	});
 
 	it("resolves id targets across a custom session directory", async () => {

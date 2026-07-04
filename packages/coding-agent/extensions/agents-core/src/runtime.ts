@@ -174,6 +174,7 @@ export interface MultiAgentExtensionOptions {
 	createChildSession?: ChildAgentSessionFactory;
 	desktopNotifier?: AgentDesktopNotifier;
 	dispatcher?: ChildAgentDispatcher;
+	runtimeHandles?: MultiAgentRuntimeHandles;
 	selectAgentView?: (agentId: string) => boolean | undefined;
 	store?: MultiAgentStore;
 }
@@ -216,6 +217,7 @@ export interface ProductionChildAgentSessionFactoryOptions {
 		options: { parentSession: string; isSubagent?: boolean; subagentName?: string },
 	) => NonNullable<CreateAgentSessionOptions["sessionManager"]>;
 	extensionFactories?: ExtensionFactory[] | (() => ExtensionFactory[]);
+	multiAgentStore?: MultiAgentStore;
 	sessionDir?: string;
 }
 
@@ -350,6 +352,16 @@ interface AgentArtifactsToolDetails {
 
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
 type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
+
+export interface MultiAgentRuntimeHandles {
+	dispatches: ActiveAgentDispatches;
+	sessions: BackgroundSessionHandles;
+}
+
+export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
+	return { dispatches: new Map(), sessions: new Map() };
+}
+
 interface WaitingDesktopNotificationRegistration {
 	handle: DesktopNotificationHandle;
 	unsubscribeTransition: () => void;
@@ -494,6 +506,7 @@ export function createProductionChildAgentSessionFactory(
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
 			multiAgentAgentId: agent.id,
+			multiAgentStore: options.multiAgentStore,
 			sessionManager,
 			sessionStartEvent,
 			thinkingLevel: profile.thinkingLevel,
@@ -529,6 +542,7 @@ export function createProductionAttachedSessionFactory(
 			multiAgentAgentId: agent.id,
 			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
 			multiAgentRequiresAgentId: true,
+			multiAgentStore: options.multiAgentStore,
 			sessionManager,
 			sessionStartEvent,
 			thinkingLevel: profile.thinkingLevel,
@@ -602,8 +616,9 @@ export function createHostrunMultiAgentRequestHandler(
 	options: MultiAgentExtensionOptions,
 ): HostrunMultiAgentRequestHandler {
 	const store = resolveMultiAgentStore(options);
-	const activeDispatches: ActiveAgentDispatches = new Map();
-	const backgroundSessions: BackgroundSessionHandles = new Map();
+	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
+	const activeDispatches = runtimeHandles.dispatches;
+	const backgroundSessions = runtimeHandles.sessions;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 
@@ -618,12 +633,14 @@ export function createHostrunMultiAgentRequestHandler(
 				ctx,
 				desktopNotifier,
 				waitingDesktopNotifications,
+				undefined,
+				backgroundSessions,
 			);
 			return result.details;
 		}
 
 		if (request.method === "agents.wait") {
-			const result = await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal);
+			const result = await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal, ctx);
 			return result.details;
 		}
 
@@ -1548,7 +1565,12 @@ function sendAgentMessage(
 
 	if (params.toSessionId) {
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
-		mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId);
+		if (!mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
+			return errorResult("Could not send runtime session message: runtime mailbox transport is unavailable.", {
+				agent: sent.agent,
+				message: sent.message,
+			});
+		}
 	} else {
 		mirrorRuntimeMailboxMessage(store, sent.message, ctx);
 	}
@@ -2185,8 +2207,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const createChildSession = options.createChildSession;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const dispatcher = options.dispatcher;
-	const backgroundSessions: BackgroundSessionHandles = new Map();
-	const activeDispatches: ActiveAgentDispatches = new Map();
+	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
+	const backgroundSessions = runtimeHandles.sessions;
+	const activeDispatches = runtimeHandles.dispatches;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
 

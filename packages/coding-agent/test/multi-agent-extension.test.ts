@@ -6,7 +6,10 @@ import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
-import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
+import {
+	createHostrunMultiAgentRequestHandler,
+	createMultiAgentRuntimeHandles,
+} from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
@@ -40,6 +43,7 @@ import multiAgentExtension, {
 	type ChildAgentDispatcher,
 	type ChildAgentSessionFactory,
 	createMultiAgentWorkflowOperations,
+	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import { main } from "../src/main.ts";
@@ -163,6 +167,7 @@ function createMultiAgentHarness(
 		createChildSession?: ChildAgentSessionFactory;
 		ctx?: Partial<ExtensionContext>;
 		dispatcher?: ChildAgentDispatcher;
+		runtimeHandles?: ReturnType<typeof createMultiAgentRuntimeHandles>;
 		store?: MultiAgentStore;
 	} = {},
 ) {
@@ -186,6 +191,7 @@ function createMultiAgentHarness(
 		createAttachedSession: options.createAttachedSession,
 		createChildSession: options.createChildSession,
 		dispatcher: options.dispatcher,
+		runtimeHandles: options.runtimeHandles,
 		store,
 	});
 
@@ -1212,6 +1218,69 @@ describe("multi-agent extension tools", () => {
 		);
 	});
 
+	it("lets tool wait_agent observe Hostrun-spawned live dispatches through shared runtime handles", async () => {
+		const finishGate = deferred<void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const dispatcher: ChildAgentDispatcher = async () => {
+			await finishGate.promise;
+			return { lifecycle: "completed", result: { summary: "hostrun done" } };
+		};
+		const handler = createHostrunMultiAgentRequestHandler({ dispatcher, runtimeHandles, store });
+		const harness = createMultiAgentHarness({ dispatcher, runtimeHandles, store });
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
+
+		const spawned = (await handler(
+			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "hostrun work" } },
+			ctx,
+			undefined,
+		)) as SpawnAgentDetails;
+		const waitPromise = harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.agent.id });
+		const didResolveBeforeFinish = await resolvesWithin(waitPromise, 20);
+		finishGate.resolve(undefined);
+		const waited = await waitPromise;
+
+		expect(didResolveBeforeFinish).toBe(false);
+		expect(waited.details).toMatchObject({
+			agent: { id: spawned.agent.id, lifecycle: "completed", result: { summary: "hostrun done" } },
+			terminal: true,
+		});
+	});
+
+	it("lets tool cancel_agent abort Hostrun-spawned child sessions through shared runtime handles", async () => {
+		const abort = vi.fn();
+		const childPrompt = deferred<void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort,
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const handler = createHostrunMultiAgentRequestHandler({ createChildSession, runtimeHandles, store });
+		const harness = createMultiAgentHarness({ createChildSession, runtimeHandles, store });
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
+
+		const spawned = (await handler(
+			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "hostrun work" } },
+			ctx,
+			undefined,
+		)) as SpawnAgentDetails;
+		for (let attempt = 0; attempt < 20 && !runtimeHandles.sessions.has(spawned.agent.id); attempt += 1) {
+			await delay(1);
+		}
+		const current = store.getAgent(spawned.agent.id);
+		if (!current) throw new Error("expected spawned agent");
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: current.id,
+			expectedRevision: current.revision,
+			reason: "stop hostrun child",
+		});
+
+		expect(abort).toHaveBeenCalledOnce();
+		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "aborted" });
+	});
+
 	it("keeps spawn_agent returned revision usable after child transcript metadata attaches", async () => {
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
@@ -2223,6 +2292,7 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		let childHarness: Harness | undefined;
 		let sessionOptions: CreateAgentSessionOptions | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const childSessionDir = `${parentHarness.tempDir}/child-sessions`;
 		const harness = createMultiAgentHarness({
 			ctx: {
@@ -2230,9 +2300,11 @@ describe("multi-agent extension tools", () => {
 				modelRegistry: parentHarness.session.modelRegistry,
 				sessionManager: parentHarness.sessionManager,
 			},
+			store,
 			createChildSession: createProductionChildAgentSessionFactory({
 				sessionDir: childSessionDir,
 				createSessionManager: SessionManager.create,
+				multiAgentStore: store,
 				createSession: async (options) => {
 					sessionOptions = options;
 					childHarness = await createHarness();
@@ -2262,6 +2334,7 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(childSessionDir);
 		expect(sessionOptions?.sessionStartEvent).toEqual({ type: "session_start", reason: "fork" });
+		expect(sessionOptions?.multiAgentStore).toBe(store);
 
 		expect(childHarness).toBeDefined();
 		if (!childHarness) {
@@ -2352,6 +2425,45 @@ describe("multi-agent extension tools", () => {
 				rmSync(tempDir, { recursive: true, force: true });
 			}
 		}
+	});
+
+	it("passes the shared store into production attached AgentSession factories", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-session" });
+		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
+		let sessionOptions: CreateAgentSessionOptions | undefined;
+		const attachedFactory = createProductionAttachedSessionFactory({
+			createSession: async (options) => {
+				sessionOptions = options;
+				return { session: { messages: [], prompt: async () => {} } };
+			},
+			multiAgentStore: store,
+		});
+		const agent = store.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Attached",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: target.getSessionFile(), sessionId: target.getSessionId() },
+		}).agent;
+
+		await attachedFactory({
+			agent,
+			ctx: {
+				cwd: "/repo",
+				hasUI: false,
+				mode: "print",
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			} as unknown as ExtensionContext,
+			prompt: "resume",
+			sessionPath: target.getSessionFile() ?? "",
+		});
+
+		expect(sessionOptions?.multiAgentStore).toBe(store);
 	});
 
 	it("records production child transcript metadata when the child session is created", async () => {

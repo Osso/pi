@@ -20,6 +20,7 @@ import {
 	readRuntimeMailboxMessage,
 	readSessionGoal,
 	readSessionMetadata,
+	recoverStaleRuntimeMailboxClaims,
 	removeNamedSession,
 	setNamedSession,
 	upsertMultiAgentMailboxMessage,
@@ -200,6 +201,48 @@ describe("session control DB", () => {
 		expect(secondClaim).toEqual([]);
 		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toMatchObject({ status: "claimed" });
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "claimed" });
+	});
+
+	it("recovers stale claimed runtime mailbox rows for bounded redelivery", () => {
+		const staleId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "stale",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const freshId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "fresh",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_2", sessionId: "child-session" },
+		});
+		claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("UPDATE runtime_mailbox_messages SET claimed_at = ?, updated_at = ? WHERE id = ?").run(
+				"2026-07-04T00:00:00.000Z",
+				"2026-07-04T00:00:00.000Z",
+				staleId,
+			);
+			db.prepare("UPDATE runtime_mailbox_messages SET claimed_at = ?, updated_at = ? WHERE id = ?").run(
+				"2026-07-04T00:04:30.000Z",
+				"2026-07-04T00:04:30.000Z",
+				freshId,
+			);
+		} finally {
+			db.close();
+		}
+
+		const recovered = recoverStaleRuntimeMailboxClaims(
+			controlDbPath,
+			{ agentId: null, sessionId: "parent-session" },
+			{ nowIso: "2026-07-04T00:05:00.000Z", staleAfterMs: 60_000 },
+		);
+		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+
+		expect(recovered).toBe(1);
+		expect(claimed.map((message) => message.id)).toEqual([staleId]);
+		expect(readRuntimeMailboxMessage(controlDbPath, freshId)).toMatchObject({ status: "claimed" });
 	});
 
 	it("claims runtime mailbox rows even when the referenced store payload is malformed", () => {

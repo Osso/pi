@@ -319,6 +319,38 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 	return result.id;
 }
 
+export interface RecoverStaleRuntimeMailboxClaimsOptions {
+	nowIso?: string;
+	staleAfterMs?: number;
+}
+
+const DEFAULT_RUNTIME_MAILBOX_CLAIM_STALE_AFTER_MS = 5 * 60 * 1000;
+
+export function recoverStaleRuntimeMailboxClaims(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	options: RecoverStaleRuntimeMailboxClaimsOptions = {},
+): number {
+	const nowIso = options.nowIso ?? new Date().toISOString();
+	const staleAfterMs = options.staleAfterMs ?? DEFAULT_RUNTIME_MAILBOX_CLAIM_STALE_AFTER_MS;
+	const cutoff = new Date(new Date(nowIso).getTime() - staleAfterMs).toISOString();
+	return withControlDb(controlDbPath, (db) => {
+		const result = db
+			.prepare(
+				`
+				UPDATE runtime_mailbox_messages
+				SET status = 'pending', claimed_at = NULL, updated_at = ?
+				WHERE status = 'claimed'
+					AND claimed_at <= ?
+					AND recipient_session_id = ?
+					AND ((? IS NULL AND recipient_agent_id IS NULL) OR recipient_agent_id = ?)
+				`,
+			)
+			.run(nowIso, cutoff, recipient.sessionId, recipient.agentId, recipient.agentId);
+		return Number(result.changes);
+	});
+}
+
 export function claimRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,

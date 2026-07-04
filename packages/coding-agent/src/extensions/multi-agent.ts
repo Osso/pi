@@ -6,10 +6,12 @@ export type {
 	ChildAgentDispatcher,
 	ChildAgentSessionFactory,
 	MultiAgentExtensionOptions,
+	MultiAgentRuntimeHandles,
 	MultiAgentWorkflowOperations,
 	WorkflowWaitResult,
 } from "../../extensions/agents-core/src/runtime.ts";
 export {
+	createMultiAgentRuntimeHandles,
 	createMultiAgentWorkflowOperations,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,

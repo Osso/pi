@@ -44,6 +44,7 @@ function enqueueStoredRuntimeMessage(
 	});
 }
 
+import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
 	type AgentDesktopNotification,
 	type ChildAgentDispatcher,
@@ -254,6 +255,53 @@ describe("runtime SQLite mailbox delivery", () => {
 		// The store row is the honest record: it stays pending until the recipient's
 		// process actually delivers the transport row.
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
+	});
+
+	it("fails direct messages to explicit child runtime sessions when transport mirroring is unavailable", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const parent = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Parent",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const child = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Child",
+			parentId: parent.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		expect(store.updateAgentTranscript(child.agent.id, { sessionId: "target-session" }).ok).toBe(true);
+		const tools = collectMultiAgentTools(store);
+		const sendAgentMessage = tools.get("send_agent_message");
+		if (!sendAgentMessage) {
+			throw new Error("expected send_agent_message tool");
+		}
+
+		const sent = await sendAgentMessage.execute(
+			"send-child-unavailable",
+			{
+				message: "Hello unreachable child session",
+				toAgentId: child.agent.id,
+				toSessionId: "target-session",
+			},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({
+				controlDbPath: "",
+				multiAgentAgentId: parent.agent.id,
+				sessionManager: senderSession,
+			}),
+		);
+
+		expect(sent.content[0]).toMatchObject({
+			text: "Could not send runtime session message: runtime mailbox transport is unavailable.",
+		});
+		expect(listRuntimeMailboxMessages(getControlDbPath(tempDir))).toEqual([]);
 	});
 
 	it("sends direct messages to an explicit main runtime session", async () => {
@@ -683,6 +731,35 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		]);
+	});
+
+	it("Hostrun agents.wait consumes the mirrored completion notification from the runtime mailbox", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const dispatcher: ChildAgentDispatcher = async () => ({
+			lifecycle: "completed",
+			result: { summary: "tests passed" },
+		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const handler = createHostrunMultiAgentRequestHandler({ dispatcher, store });
+		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		const spawned = (await handler(
+			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } },
+			ctx,
+			undefined,
+		)) as { agent: AgentSnapshot };
+		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
+			await delay(1);
+		}
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
+
+		await handler({ method: "agents.wait", params: { agentId: spawned.agent.id } }, ctx, undefined);
+
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
 	});
 
 	it("wait_agent consumes the mirrored completion notification from the runtime mailbox", async () => {

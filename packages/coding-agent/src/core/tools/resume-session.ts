@@ -119,7 +119,12 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 
 	const sessions = await listResolvableSessions(ctx);
 	if (params.name) {
-		return findUniqueSessionMatch(sessions, `name '${params.name}'`, (session) => session.name === params.name).path;
+		const match = findUniqueSessionMatch(
+			sessions,
+			`name '${params.name}'`,
+			(session) => session.name === params.name,
+		);
+		return assertResumeSessionPath(match.path);
 	}
 
 	const id = params.id;
@@ -128,9 +133,10 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	}
 	const exactMatches = sessions.filter((session) => session.id === id);
 	const exactMatch = exactMatches[0];
-	if (exactMatches.length === 1 && exactMatch) return exactMatch.path;
+	if (exactMatches.length === 1 && exactMatch) return assertResumeSessionPath(exactMatch.path);
 	if (exactMatches.length > 1) throw new Error(`Ambiguous session match for id '${id}'`);
-	return findUniqueSessionMatch(sessions, `id '${id}'`, (session) => session.id.startsWith(id)).path;
+	const prefixMatch = findUniqueSessionMatch(sessions, `id '${id}'`, (session) => session.id.startsWith(id));
+	return assertResumeSessionPath(prefixMatch.path);
 }
 
 function formatResumeTarget(args: ResumeSessionToolInput | undefined): string {
