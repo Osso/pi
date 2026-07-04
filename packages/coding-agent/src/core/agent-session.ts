@@ -362,11 +362,15 @@ function estimateCompactedContextTokens(input: CompactedContextEstimateInput): n
 	return Math.max(0, syntheticTokensAfter - syntheticSummaryTokens + input.compactedResultTokens);
 }
 
-function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage): string {
+function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSessionId: string): string {
 	const senderSession = message.sender.sessionId || "unknown-session";
 	const senderAgent = message.sender.agentId || "main";
 	const body = message.body.trim() || "No message body.";
-	const sections = ["From:", `- session: ${senderSession}`, `- agent: ${senderAgent}`, "", "Message:", body];
+	const senderLines =
+		senderSession === recipientSessionId
+			? [`- agent: ${senderAgent}`]
+			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
+	const sections = ["From:", ...senderLines, "", "Message:", body];
 	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
 }
 
@@ -1746,7 +1750,7 @@ export class AgentSession {
 
 			let queued = false;
 			for (const message of claimed) {
-				const prompt = formatRuntimeMailboxPrompt(message);
+				const prompt = formatRuntimeMailboxPrompt(message, recipient.sessionId);
 				try {
 					if (options.triggerIfIdle && !this.isStreaming) {
 						await this.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
