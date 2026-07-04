@@ -41,8 +41,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log.
 - [x] Supervisor session resume restores the persisted multi-agent store into the production
-      first-party store so agent tree, slots, selected view, artifacts, mailbox state, and transcript
-      pointers survive a crash or restart.
+      first-party store so agent tree, slots, artifacts, mailbox state, and transcript pointers
+      survive a crash or restart. The selected view is ephemeral UI state and is not persisted.
 - [x] Restored interrupted agents do not keep false liveness: in-flight agents with recoverable
       transcript paths are moved back to a resumable waiting state with stale worker handles cleared,
       while in-flight agents without transcript metadata are marked failed with an explicit recovery error.

@@ -456,9 +456,9 @@ describe("MultiAgentStore", () => {
 
 			expect(existing.getAgent(spawned.agent.id)).toMatchObject({ displayName: "Recovered" });
 			expect(existing.getProjectionSnapshot()).toMatchObject({
-				selectedAgentId: spawned.agent.id,
 				slots: [{ agentId: spawned.agent.id, index: 2, pinned: true }],
 			});
+			expect(existing.getSelectedAgentId()).toBeUndefined();
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
@@ -532,7 +532,6 @@ describe("MultiAgentStore", () => {
 			});
 
 			expect(rehydrated.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "starting" });
-			expect(rehydrated.getProjectionSnapshot().selectedAgentId).toBe(spawned.agent.id);
 			expect(rehydrated.listArtifacts(spawned.agent.id)).toHaveLength(1);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
@@ -1315,11 +1314,11 @@ describe("MultiAgentStore", () => {
 			customType: MULTI_AGENT_EVENT_CUSTOM_TYPE,
 			data: {
 				kind: "snapshot",
-				selectedAgentId: spawned.agent.id,
 				version: 1,
 			},
 		});
 		expect(entry?.data).toMatchObject({ mailboxMessages: [] });
+		expect(entry?.data).not.toHaveProperty("selectedAgentId");
 	});
 
 	it("persists waiting-for-input notifications across session restore", () => {
@@ -1424,7 +1423,7 @@ describe("MultiAgentStore", () => {
 				lifecycle: "completed",
 				revision: 6,
 			});
-			expect(rehydrated.getSelectedAgentId()).toBe(spawned.agent.id);
+			expect(rehydrated.getSelectedAgentId()).toBeUndefined();
 			expect(rehydrated.getActiveAgentCount()).toBe(0);
 			expect(rehydrated.listMailboxMessages()).toMatchObject([
 				{

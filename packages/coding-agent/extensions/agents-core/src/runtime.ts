@@ -2210,7 +2210,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		});
 	});
 	pi.on?.("session_shutdown", async (event) => {
-		store.flushPersistenceSnapshot();
 		if (event.reason === "reload") {
 			return;
 		}

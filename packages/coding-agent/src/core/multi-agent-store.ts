@@ -254,7 +254,6 @@ export interface PersistedMultiAgentSnapshot {
 	agents: AgentSnapshot[];
 	artifacts: AgentArtifact[];
 	mailboxMessages?: AgentMailboxMessage[];
-	selectedAgentId?: string;
 	nextAgentNumber: number;
 	nextArtifactNumber: number;
 	nextMessageNumber: number;
@@ -945,7 +944,6 @@ export class MultiAgentStore {
 			agents: this.listAgents(),
 			artifacts: this.listArtifacts(),
 			mailboxMessages: this.listMailboxMessages(),
-			selectedAgentId: this.selectedAgentId,
 			nextAgentNumber: this.nextAgentNumber,
 			nextArtifactNumber: this.nextArtifactNumber,
 			nextMessageNumber: this.nextMessageNumber,
@@ -954,13 +952,6 @@ export class MultiAgentStore {
 
 	persistSnapshot(sessionManager: SessionManager): string {
 		return sessionManager.appendCustomEntry(MULTI_AGENT_EVENT_CUSTOM_TYPE, this.toPersistedSnapshot());
-	}
-
-	flushPersistenceSnapshot(): string | undefined {
-		if (!this.persistenceSessionManager) {
-			return undefined;
-		}
-		return this.persistSnapshot(this.persistenceSessionManager);
 	}
 
 	getRestoreGeneration(): number {
@@ -1029,7 +1020,7 @@ export class MultiAgentStore {
 			this.mailboxMessages.set(message.id, copyMessage(message));
 		}
 
-		this.selectedAgentId = this.findRestoredSelectedAgentId(snapshot.selectedAgentId);
+		this.selectedAgentId = undefined;
 		this.nextAgentNumber = snapshot.nextAgentNumber;
 		this.nextArtifactNumber = snapshot.nextArtifactNumber ?? 1;
 		this.nextMessageNumber = snapshot.nextMessageNumber;
@@ -1079,13 +1070,6 @@ export class MultiAgentStore {
 			return;
 		}
 		this.persistSnapshot(this.persistenceSessionManager);
-	}
-
-	private findRestoredSelectedAgentId(selectedAgentId: string | undefined): string | undefined {
-		if (!selectedAgentId) {
-			return undefined;
-		}
-		return this.agents.has(selectedAgentId) ? selectedAgentId : undefined;
 	}
 
 	private listSlotProjections(): AgentSlotProjection[] {
