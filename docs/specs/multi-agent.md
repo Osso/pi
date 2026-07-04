@@ -22,7 +22,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       model/account metadata, permission policy, and monotonic revision.
 - [x] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,
       `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, and
-      `aborted`.
+      `aborted`. The state graph, state meanings, and restore-time rewrite rules live in
+      [agent-lifecycle.md](agent-lifecycle.md).
 - [x] Commands that mutate agent state carry an expected revision and fail with a conflict when
       the caller is acting on stale state.
 - [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
