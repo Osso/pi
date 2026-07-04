@@ -959,10 +959,13 @@ export class AgentSession {
 		}
 		const resultDetails = summary ? { result: { summary } } : {};
 		const errorDetails = lifecycle === "failed" ? { error: { message: "Runtime mailbox steering turn failed" } } : {};
-		this._multiAgentStore.transitionAgent(current.id, current.revision, lifecycle, {
+		const transitioned = this._multiAgentStore.transitionAgent(current.id, current.revision, lifecycle, {
 			...resultDetails,
 			...errorDetails,
 		});
+		if (!transitioned.ok) {
+			console.error(`Failed to complete runtime mailbox steering for ${current.id}: ${transitioned.error}`);
+		}
 	}
 
 	private _isTerminalMultiAgentLifecycle(lifecycle: AgentLifecycleState): boolean {
