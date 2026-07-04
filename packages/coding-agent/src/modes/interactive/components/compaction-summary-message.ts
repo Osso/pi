@@ -62,17 +62,22 @@ export class CompactionSummaryMessageComponent extends Box {
 }
 
 function formatCompactionTokenSummary(message: CompactionSummaryMessage): string {
-	const tokensBefore = message.tokensBefore.toLocaleString();
+	const tokensBefore = formatTokenCount(message.tokensBefore);
 	if (message.tokensAfter === undefined) return `Compacted from ${tokensBefore} tokens`;
 
-	const tokensAfter = message.tokensAfter.toLocaleString();
-	const savedTokens = Math.max(0, message.tokensBefore - message.tokensAfter).toLocaleString();
+	const tokensAfter = formatTokenCount(message.tokensAfter);
+	const savedTokens = formatTokenCount(Math.max(0, message.tokensBefore - message.tokensAfter));
 	return `Compacted from ${tokensBefore} to ${tokensAfter} tokens; saved ${savedTokens}`;
 }
 
 function formatRemoteResultSuffix(compactedResultTokens: number | undefined): string {
 	if (compactedResultTokens === undefined) return "";
-	return `; remote result ${compactedResultTokens.toLocaleString()} tokens`;
+	return `; remote result ${formatTokenCount(compactedResultTokens)} tokens`;
+}
+
+function formatTokenCount(tokens: number): string {
+	if (tokens < 1000) return tokens.toLocaleString();
+	return `${(tokens / 1000).toFixed(1)}k`;
 }
 
 function formatCompactionDuration(durationMs: number | undefined): string | undefined {
