@@ -109,32 +109,29 @@ restore rewrites a crashed `running` agent to `waiting_for_input` (a state that 
 means "idle"), then needs an in-memory `recoveredAgentIds` side-set to remember which
 "waiting" agents are actually interrupted — and that set does not survive a second restart.
 
-Planned truthful states:
+Planned model — derived liveness, no restore-time rewrite:
 
-```mermaid
-stateDiagram-v2
-    running --> suspended: supervisor shutdown / crash (restore-time)
-    starting --> suspended: supervisor shutdown / crash (restore-time)
-    steering_pending --> suspended: supervisor shutdown / crash (restore-time)
-    suspended --> starting: auto-recovery at session start (routed by origin)
-    suspended --> failed: recovery restart failed
-    suspended --> aborted: cancel
-    running --> interrupted: user pauses agent by hand (future UI)
-    interrupted --> running: user resumes / steers
-    interrupted --> aborted: cancel
-```
+The last written lifecycle is the truth. At crash the snapshot already says `running`;
+restore loads it as-is (clearing only `worker` handles, which are runtime metadata and never
+proof of liveness). Whether an agent needs starting is **derived at session start**, not
+stored: an agent in an active non-idle state with no live dispatch in this process is
+detached and gets started.
 
-- [ ] Add `suspended`: persisted state for agents that were in-flight when the supervisor shut
-      down or crashed. Restore maps active non-idle states to `suspended`; recovery iterates
-      `lifecycle === "suspended"`; `recoveredAgentIds` is deleted; surviving multiple restarts
-      falls out of persistence. `suspended` counts as active and is not auto-failed.
-- [ ] Auto-recovery policy: `suspended` agents with `origin: "attached"` restart through the
-      attach factory; `suspended` spawned children stay `suspended` until a resume path exists.
-- [ ] Add `interrupted`: persisted state for agents deliberately paused by the user. Never
-      auto-restarted at session start; resume is an explicit user action. Blocked on a
-      hand-interruption surface existing (today the only manual stop is `cancel_agent`).
-- [ ] Decide `cancelling`-at-crash mapping: `suspended` (conservative, current proposal) vs
-      completing the cancel to `aborted` at restore.
+- [ ] Restore stops rewriting lifecycle state entirely; `restoreAgentSnapshot` only clears
+      `worker` handles. `recoveredAgentIds` is deleted.
+- [ ] Session-start recovery derives the work list: active non-idle lifecycle AND no entry in
+      the live dispatch map. Agents with `origin: "attached"` and a transcript restart through
+      the attach factory; an agent with no transcript is marked `failed` with the recovery
+      error at recovery time (a runtime decision, not a restore rewrite).
+- [ ] Detached-but-active agents that cannot be restarted yet (spawned children) keep their
+      truthful lifecycle; projections must expose detachment (active agent, no runtime) so the
+      TUI does not show false liveness while no resume path exists.
+- [ ] `wait_agent` must handle detached-active agents (no dispatch to await) instead of
+      returning a live-looking non-terminal snapshot immediately.
+- [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
+      difference (never auto-restarted) that cannot be derived, unlike crash detachment.
+      Blocked on a hand-interruption surface existing (today the only manual stop is
+      `cancel_agent`).
 
 ## Out of scope
 
