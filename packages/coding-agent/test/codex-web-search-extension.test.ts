@@ -2,10 +2,10 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import codexWebSearchExtension, {
 	addWebSearchToolToPayload,
-	handleBeforeProviderRequest,
-	resolveWebSearchMode,
+	createWebSearchToolDefinition,
+	isOpenAIHostedWebSearchModel,
 } from "../extensions/codex-web-search/src/index.ts";
-import type { BeforeProviderRequestEvent, ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 
 function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-messages"): Model<Api> {
 	return {
@@ -25,75 +25,70 @@ function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-m
 function context(api: Parameters<typeof model>[0]): ExtensionContext {
 	return {
 		model: model(api),
-		ui: { notify: vi.fn() },
+		modelRegistry: {
+			getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: "test-key" })),
+		},
 	} as unknown as ExtensionContext;
 }
 
 describe("codex web search extension", () => {
-	it("registers a web-search CLI flag and provider payload hook", () => {
+	it("registers a web_search tool without registering a CLI flag", () => {
 		const registerFlag = vi.fn();
-		const on = vi.fn();
-		const getFlag = vi.fn(() => "disabled");
+		const registerTool = vi.fn();
 
-		codexWebSearchExtension({ registerFlag, on, getFlag } as unknown as ExtensionAPI);
+		codexWebSearchExtension({ registerFlag, registerTool } as unknown as ExtensionAPI);
 
-		expect(registerFlag).toHaveBeenCalledWith("web-search", {
-			description: "Enable OpenAI Responses hosted web search: disabled, cached, or live",
-			type: "string",
-			default: "disabled",
-		});
-		expect(on).toHaveBeenCalledWith("before_provider_request", expect.any(Function));
+		expect(registerFlag).not.toHaveBeenCalled();
+		expect(registerTool).toHaveBeenCalledOnce();
+		expect(registerTool).toHaveBeenCalledWith(
+			expect.objectContaining({
+				name: "web_search",
+				label: "Web Search",
+				description: expect.stringContaining("Search the web"),
+			}),
+		);
 	});
 
-	it("maps live and cached modes to external_web_access", () => {
-		expect(addWebSearchToolToPayload({ model: "gpt", tools: [] }, "live")).toMatchObject({
-			tools: [{ type: "web_search", external_web_access: true }],
-		});
-		expect(addWebSearchToolToPayload({ model: "gpt", tools: [] }, "cached")).toMatchObject({
-			tools: [{ type: "web_search", external_web_access: false }],
-		});
+	it("executes web search with the current OpenAI Responses model", async () => {
+		const runSearch = vi.fn(async () => "Search result text");
+		const tool = createWebSearchToolDefinition({ runSearch });
+		const ctx = context("openai-responses");
+
+		const result = await tool.execute("call-1", { query: "pi web search" }, undefined, undefined, ctx);
+
+		expect(runSearch).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: "pi web search",
+				model: ctx.model,
+				apiKey: "test-key",
+			}),
+			expect.anything(),
+		);
+		expect(result).toMatchObject({ content: [{ type: "text", text: "Search result text" }] });
 	});
 
-	it("preserves existing tools and avoids duplicate hosted web search tools", () => {
-		const payload = {
+	it("adds an SDK-compatible hosted web search tool to provider payloads", () => {
+		expect(addWebSearchToolToPayload({ model: "gpt", tools: [{ type: "function", name: "read" }] })).toEqual({
 			model: "gpt",
-			tools: [
-				{ type: "function", name: "read" },
-				{ type: "web_search", external_web_access: false },
-			],
-		};
-
-		expect(addWebSearchToolToPayload(payload, "live")).toBeUndefined();
-		expect(addWebSearchToolToPayload({ model: "gpt", tools: [{ type: "function", name: "read" }] }, "live")).toEqual({
-			model: "gpt",
-			tools: [
-				{ type: "function", name: "read" },
-				{ type: "web_search", external_web_access: true },
-			],
+			tools: [{ type: "function", name: "read" }, { type: "web_search" }],
 		});
+		expect(addWebSearchToolToPayload({ model: "gpt", tools: [{ type: "web_search" }] })).toBeUndefined();
 	});
 
-	it("only rewrites OpenAI Responses payloads when the flag enables web search", () => {
-		const event: BeforeProviderRequestEvent = { type: "before_provider_request", payload: { model: "gpt" } };
+	it("rejects web search when the current model cannot use hosted OpenAI search", async () => {
+		const runSearch = vi.fn(async () => "Search result text");
+		const tool = createWebSearchToolDefinition({ runSearch });
 
-		expect(handleBeforeProviderRequest(event, context("openai-responses"), "live")).toEqual({
-			model: "gpt",
-			tools: [{ type: "web_search", external_web_access: true }],
-		});
-		expect(handleBeforeProviderRequest(event, context("openai-codex-responses"), "cached")).toEqual({
-			model: "gpt",
-			tools: [{ type: "web_search", external_web_access: false }],
-		});
-		expect(handleBeforeProviderRequest(event, context("openai-responses"), "disabled")).toBeUndefined();
-		expect(handleBeforeProviderRequest(event, context("anthropic-messages"), "live")).toBeUndefined();
+		await expect(
+			tool.execute("call-1", { query: "pi web search" }, undefined, undefined, context("anthropic-messages")),
+		).rejects.toThrow("web_search requires an OpenAI Responses model");
+		expect(runSearch).not.toHaveBeenCalled();
 	});
 
-	it("validates flag values", () => {
-		expect(resolveWebSearchMode("live")).toBe("live");
-		expect(resolveWebSearchMode("cached")).toBe("cached");
-		expect(resolveWebSearchMode("disabled")).toBe("disabled");
-		expect(resolveWebSearchMode(undefined)).toBe("disabled");
-		expect(resolveWebSearchMode(true)).toBe("live");
-		expect(resolveWebSearchMode("invalid")).toBeUndefined();
+	it("identifies OpenAI Responses models as hosted web-search capable", () => {
+		expect(isOpenAIHostedWebSearchModel(model("openai-responses"))).toBe(true);
+		expect(isOpenAIHostedWebSearchModel(model("openai-codex-responses"))).toBe(true);
+		expect(isOpenAIHostedWebSearchModel(model("anthropic-messages"))).toBe(false);
+		expect(isOpenAIHostedWebSearchModel(undefined)).toBe(false);
 	});
 });

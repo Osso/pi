@@ -7,7 +7,7 @@
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
-- Added a first-party `--web-search cached|live` extension flag for OpenAI Responses hosted web search.
+- Added a first-party `web_search` tool for OpenAI Responses hosted web search.
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
 - Added first-party OpenAI remote compaction through `/responses/compact` for OpenAI and OpenAI Codex Responses models.
 - Added `pi.compact(...)` to Hostrun's Pi runtime bridge for triggering session compaction.

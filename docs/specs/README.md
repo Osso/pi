@@ -32,6 +32,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox/artifact extensions, account-governed budgets/permissions. |
 | Tool backgrounding | [`tool-backgrounding.md`](tool-backgrounding.md) | **BUILD** (done) | Shared detach registry with bash and Pyrun background job tracking. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
+| Web search tool | [`web-search-tool.md`](web-search-tool.md) | **BUILD** | First-party `web_search` tool backed by OpenAI Responses hosted search; no legacy web-search flag. |
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
 | PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |
 | Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |
