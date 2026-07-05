@@ -35,7 +35,7 @@
 
 ### Fixed
 
-- Fixed `web_search` to request live OpenAI hosted search results and abort stalled requests with a clear timeout error while preserving user cancellation.
+- Fixed `web_search` to use OpenAI's hosted search tool in the main Responses request, request live results, and abort stalled fallback requests with a clear timeout error while preserving user cancellation.
 - Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.
 - Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.
 - Fixed threshold auto-compaction to resume a `"length"`-truncated turn once instead of leaving the session idle with unfinished work.

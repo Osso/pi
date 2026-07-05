@@ -35,6 +35,10 @@ type WebSearchInput = Static<typeof webSearchSchema>;
 
 export default function codexWebSearchExtension(pi: ExtensionAPI) {
 	pi.registerTool(createWebSearchToolDefinition());
+	pi.on("before_provider_request", (event, ctx) => {
+		if (!isOpenAIHostedWebSearchModel(ctx.model)) return undefined;
+		return addWebSearchToolToPayload(event.payload);
+	});
 }
 
 export function createWebSearchToolDefinition(options?: {
@@ -163,11 +167,16 @@ export function addWebSearchToolToPayload(payload: unknown): unknown | undefined
 	if (!isRecord(payload)) return undefined;
 
 	const tools = Array.isArray(payload.tools) ? payload.tools : [];
-	if (tools.some(isHostedWebSearchTool)) return undefined;
+	const toolsWithoutFunctionWebSearch = tools.filter((tool) => !isFunctionWebSearchTool(tool));
+	if (toolsWithoutFunctionWebSearch.some(isHostedWebSearchTool)) {
+		return toolsWithoutFunctionWebSearch.length === tools.length
+			? undefined
+			: ({ ...payload, tools: toolsWithoutFunctionWebSearch } satisfies PayloadWithTools);
+	}
 
 	return {
 		...payload,
-		tools: [...tools, createWebSearchTool()],
+		tools: [...toolsWithoutFunctionWebSearch, createWebSearchTool()],
 	} satisfies PayloadWithTools;
 }
 
@@ -178,6 +187,11 @@ function createWebSearchTool(): WebSearchTool {
 function isHostedWebSearchTool(value: unknown): boolean {
 	if (!isRecord(value)) return false;
 	return value.type === "web_search" || value.type === "web_search_2025_08_26";
+}
+
+function isFunctionWebSearchTool(value: unknown): boolean {
+	if (!isRecord(value)) return false;
+	return value.type === "function" && value.name === "web_search";
 }
 
 function isRecord(value: unknown): value is PayloadWithTools {

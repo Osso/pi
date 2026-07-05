@@ -5,7 +5,13 @@ import codexWebSearchExtension, {
 	createWebSearchToolDefinition,
 	isOpenAIHostedWebSearchModel,
 } from "../extensions/codex-web-search/src/index.ts";
-import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
+import type {
+	BeforeProviderRequestEvent,
+	BeforeProviderRequestEventResult,
+	ExtensionAPI,
+	ExtensionContext,
+	ExtensionHandler,
+} from "../src/core/extensions/types.ts";
 
 function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-messages"): Model<Api> {
 	return {
@@ -21,6 +27,8 @@ function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-m
 		maxTokens: 1000,
 	};
 }
+
+type BeforeProviderRequestHandler = ExtensionHandler<BeforeProviderRequestEvent, BeforeProviderRequestEventResult>;
 
 function context(api: Parameters<typeof model>[0]): ExtensionContext {
 	return {
@@ -39,10 +47,12 @@ describe("codex web search extension", () => {
 	it("registers a web_search tool without registering a CLI flag", () => {
 		const registerFlag = vi.fn();
 		const registerTool = vi.fn();
+		const on = vi.fn();
 
-		codexWebSearchExtension({ registerFlag, registerTool } as unknown as ExtensionAPI);
+		codexWebSearchExtension({ on, registerFlag, registerTool } as unknown as ExtensionAPI);
 
 		expect(registerFlag).not.toHaveBeenCalled();
+		expect(on).toHaveBeenCalledWith("before_provider_request", expect.any(Function));
 		expect(registerTool).toHaveBeenCalledOnce();
 		expect(registerTool).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -51,6 +61,34 @@ describe("codex web search extension", () => {
 				description: expect.stringContaining("Search the web"),
 			}),
 		);
+	});
+
+	it("injects hosted web search into OpenAI Responses provider payloads", () => {
+		const on = vi.fn();
+		codexWebSearchExtension({ on, registerTool: vi.fn() } as unknown as ExtensionAPI);
+		const handler = on.mock.calls.find(([event]) => event === "before_provider_request")?.[1] as
+			| BeforeProviderRequestHandler
+			| undefined;
+
+		expect(handler).toBeDefined();
+		expect(
+			handler?.(
+				{
+					type: "before_provider_request",
+					payload: { tools: [{ type: "function", name: "web_search" }] },
+				},
+				context("openai-responses"),
+			),
+		).toEqual({ tools: [{ type: "web_search", external_web_access: true }] });
+		expect(
+			handler?.(
+				{
+					type: "before_provider_request",
+					payload: { tools: [{ type: "function", name: "web_search" }] },
+				},
+				context("anthropic-messages"),
+			),
+		).toBeUndefined();
 	});
 
 	it("executes web search with the current OpenAI Responses model", async () => {
@@ -117,6 +155,24 @@ describe("codex web search extension", () => {
 			],
 		});
 		expect(addWebSearchToolToPayload({ model: "gpt", tools: [{ type: "web_search" }] })).toBeUndefined();
+	});
+
+	it("replaces the Pi web_search function tool with the hosted web search tool", () => {
+		expect(
+			addWebSearchToolToPayload({
+				model: "gpt",
+				tools: [
+					{ type: "function", name: "web_search" },
+					{ type: "function", name: "read" },
+				],
+			}),
+		).toEqual({
+			model: "gpt",
+			tools: [
+				{ type: "function", name: "read" },
+				{ type: "web_search", external_web_access: true },
+			],
+		});
 	});
 
 	it("rejects web search when the current model cannot use hosted OpenAI search", async () => {
