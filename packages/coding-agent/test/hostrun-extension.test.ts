@@ -439,8 +439,20 @@ describe("hostrun extension", () => {
 		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 		expect(text).toContain("console.log('hello'); 1 + 1");
 		expect(text).not.toContain("Executed code:");
-		expect(text).toContain("Result: 2");
+		expect(text).toContain("\n2");
+		expect(text).not.toContain("Result:");
 		expect(text).toContain("hello");
+	});
+
+	it("omits null Hostrun result values", async () => {
+		const harness = createHostrunHarness();
+
+		const result = await harness.evaluate({ code: "null.result" });
+
+		expect(result.content[0]).toEqual({
+			type: "text",
+			text: "null.result\n\nSession: default",
+		});
 	});
 
 	it("keeps Hostrun session state in the runner instead of Pi-local QuickJS", async () => {

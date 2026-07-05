@@ -50,7 +50,7 @@
 - Fixed custom session entries appended during assistant streaming to render before the live assistant message, matching persisted session order.
 - Fixed oversized bash tool timeouts to fail with a clear validation error instead of being clamped to an immediate timeout ([#6181](https://github.com/earendil-works/pi/issues/6181)).
 - Fixed the edit tool schema to allow model-invented extra replacement fields instead of rejecting otherwise valid edits ([#6278](https://github.com/earendil-works/pi/issues/6278)).
-- Fixed Pyrun evaluation output to omit noisy `Result:` labels and null result values.
+- Fixed Pyrun and Hostrun evaluation output to omit noisy `Result:` labels and null result values.
 
 ### Removed
 

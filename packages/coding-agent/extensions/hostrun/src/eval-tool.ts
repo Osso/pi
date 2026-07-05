@@ -36,15 +36,15 @@ export type HostrunPiRequestDispatcher = (
 	signal: AbortSignal | undefined,
 ) => Promise<unknown> | unknown;
 
-function formatResultValue(result: CanonicalHostrunEvalResult): string {
+function formatResultValue(result: CanonicalHostrunEvalResult): string | undefined {
 	if (result.type === "needs_approval") {
 		return `needs approval: ${result.approval?.summary ?? "unknown Hostrun operation"}`;
 	}
-	if (result.value === undefined) {
-		return "undefined";
+	if (result.value === undefined || result.value === null) {
+		return undefined;
 	}
 	if (typeof result.value === "string") {
-		return result.value;
+		return result.value.trim().length > 0 ? result.value : undefined;
 	}
 	return JSON.stringify(result.value);
 }
@@ -57,7 +57,10 @@ function formatToolText(params: HostrunEvalParams, result: CanonicalHostrunEvalR
 	if (result.error) {
 		lines.push(`Error: ${result.error}`);
 	} else {
-		lines.push(`Result: ${formatResultValue(result)}`);
+		const formattedResult = formatResultValue(result);
+		if (formattedResult !== undefined) {
+			lines.push(formattedResult);
+		}
 	}
 	return lines.join("\n");
 }
