@@ -19,14 +19,15 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 - [x] When the plan file does not exist, a visible error is shown (not a silent no-op).
 
 ### Prompt submission
-- [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)`.
+- [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)` with an instruction not to read `PLAN.md`; the command already selected the item.
 - [x] After an active plan agent run ends, the current first unchecked item is submitted again as a follow-up if it remains unchecked; if the previous item was checked, the next unchecked item is submitted.
 - [x] The active run stops when the plan file is missing or no unchecked items remain.
 - [x] The composer / input buffer is cleared after dispatch (no residual text shown).
 
 ### Active-plan signaling
 - [x] `process.env.PI_PLAN_FILE` is set to the plan filename (basename) before submission so hook scripts can read which plan is active.
-- [x] The active plan filename is appended as a session entry via `pi.appendEntry("run-plan:active", { file })` for in-process hook extensions.
+- [x] `process.env.PI_PLAN_PATH` is set to the resolved plan path so follow-up hooks do not depend on process cwd.
+- [x] The active plan filename and resolved path are appended as a session entry via `pi.appendEntry("run-plan:active", { file, path })` for in-process hook extensions.
 - [x] When the default `PLAN.md` is used, `PI_PLAN_FILE` is set to `"PLAN.md"` (not a sentinel value like `"1"`).
 
 ### Error reporting
@@ -51,7 +52,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 - [x] Create `packages/coding-agent/src/extensions/run-plan.ts` extension factory.
 - [x] Implement `findNextPlanItem(filePath: string): Promise<string | null>` — reads file, walks lines, returns first unchecked item text or null.
 - [x] Wire `getArgumentCompletions` to list `.md` files in cwd.
-- [x] Set `process.env.PI_PLAN_FILE` and call `pi.appendEntry("run-plan:active", { file })` before `pi.sendUserMessage()`.
+- [x] Set `process.env.PI_PLAN_FILE`, `process.env.PI_PLAN_PATH`, and call `pi.appendEntry("run-plan:active", { file, path })` before `pi.sendUserMessage()`.
 - [x] Surface the extension via `packages/coding-agent/src/extensions/run-plan.ts`; callers can load it through `extensionFactories` or extension path configuration.
 - [x] Write unit tests for `findNextPlanItem`: checked skip, all-checked no-op, missing file error.
 

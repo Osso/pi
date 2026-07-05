@@ -1,7 +1,7 @@
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { applyPatch } from "diff";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeBashWithOperations } from "../src/core/bash-executor.ts";
 import { type BashOperations, createBashTool, createLocalBashOperations } from "../src/core/tools/bash.ts";
@@ -13,6 +13,8 @@ import {
 	createLsTool,
 	createReadTool,
 	createWriteTool,
+	DEFAULT_MAX_BYTES,
+	type ReadOperations,
 } from "../src/index.ts";
 import * as shellModule from "../src/utils/shell.ts";
 
@@ -110,7 +112,48 @@ describe("Coding Agent Tools", () => {
 
 			expect(output).toContain("Line 1:");
 			// Should show byte limit message
-			expect(output).toMatch(/\[Showing lines 1-\d+ of 500 \(.* limit\)\. Use offset=\d+ to continue\.\]/);
+			expect(output).toMatch(/\[Showing lines 1-\d+ of file \(.* limit\)\. Use offset=\d+ to continue\.\]/);
+		});
+
+		it("should cap oversized user limits before returning content to the model", async () => {
+			const testFile = join(testDir, "huge-user-limit.txt");
+			const lines = Array.from({ length: 5000 }, (_, i) => `Line ${i + 1}: ${"x".repeat(40)}`);
+			writeFileSync(testFile, lines.join("\n"));
+
+			const result = await readTool.execute("test-call-huge-limit", {
+				path: testFile,
+				limit: 5000,
+			});
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Line 1:");
+			expect(output).not.toContain("Line 5000:");
+			expect(output).toContain("Use offset=");
+			expect(result.details?.truncation?.truncated).toBe(true);
+		});
+
+		it("should avoid full reads for oversized files", async () => {
+			const rangeContent = Buffer.from(["Line 1", "Line 2", "Line 3"].join("\n"));
+			const operations: ReadOperations = {
+				access: vi.fn(async () => undefined),
+				detectImageMimeType: vi.fn(async () => null),
+				readFile: vi.fn(async () => {
+					throw new Error("full read should not be used");
+				}),
+				readRange: vi.fn(async () => rangeContent),
+				stat: vi.fn(async () => ({ size: DEFAULT_MAX_BYTES * 4 })),
+			};
+			const cappedReadTool = createReadTool(testDir, { operations });
+
+			const result = await cappedReadTool.execute("test-call-oversized-file", {
+				path: "large.txt",
+			});
+			const output = getTextOutput(result);
+
+			expect(operations.readFile).not.toHaveBeenCalled();
+			expect(operations.readRange).toHaveBeenCalledWith(expect.any(String), 0, DEFAULT_MAX_BYTES);
+			expect(output).toContain("Line 1");
+			expect(output).toContain("Use offset=");
 		});
 
 		it("should handle offset parameter", async () => {
@@ -118,7 +161,10 @@ describe("Coding Agent Tools", () => {
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);
 			writeFileSync(testFile, lines.join("\n"));
 
-			const result = await readTool.execute("test-call-5", { path: testFile, offset: 51 });
+			const result = await readTool.execute("test-call-5", {
+				path: testFile,
+				offset: 51,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).not.toContain("Line 50");
@@ -133,7 +179,10 @@ describe("Coding Agent Tools", () => {
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);
 			writeFileSync(testFile, lines.join("\n"));
 
-			const result = await readTool.execute("test-call-6", { path: testFile, limit: 10 });
+			const result = await readTool.execute("test-call-6", {
+				path: testFile,
+				limit: 10,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).toContain("Line 1");
@@ -193,7 +242,9 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "image.txt");
 			writeFileSync(testFile, pngBuffer);
 
-			const result = await readTool.execute("test-call-img-1", { path: testFile });
+			const result = await readTool.execute("test-call-img-1", {
+				path: testFile,
+			});
 
 			expect(result.content[0]?.type).toBe("text");
 			expect(getTextOutput(result)).toContain("Read image file [image/png]");
@@ -211,7 +262,9 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "image.bmp");
 			writeFileSync(testFile, createTinyBmp1x1Red24bpp());
 
-			const result = await readTool.execute("test-call-img-bmp", { path: testFile });
+			const result = await readTool.execute("test-call-img-bmp", {
+				path: testFile,
+			});
 
 			expect(result.content[0]?.type).toBe("text");
 			expect(getTextOutput(result)).toContain("Read image file [image/png]");
@@ -229,7 +282,9 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "not-an-image.png");
 			writeFileSync(testFile, "definitely not a png");
 
-			const result = await readTool.execute("test-call-img-2", { path: testFile });
+			const result = await readTool.execute("test-call-img-2", {
+				path: testFile,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).toContain("definitely not a png");
@@ -242,7 +297,10 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "write-test.txt");
 			const content = "Test content";
 
-			const result = await writeTool.execute("test-call-3", { path: testFile, content });
+			const result = await writeTool.execute("test-call-3", {
+				path: testFile,
+				content,
+			});
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
 			expect(getTextOutput(result)).toContain(testFile);
@@ -253,7 +311,10 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "nested", "dir", "test.txt");
 			const content = "Nested content";
 
-			const result = await writeTool.execute("test-call-4", { path: testFile, content });
+			const result = await writeTool.execute("test-call-4", {
+				path: testFile,
+				content,
+			});
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
 		});
@@ -457,7 +518,9 @@ describe("Coding Agent Tools", () => {
 			const missingFile = join(testDir, "missing-preview.txt");
 			const result = await computeEditsDiff(missingFile, [{ oldText: "hello", newText: "world" }], testDir);
 
-			expect(result).toEqual({ error: `Could not edit file: ${missingFile}. Error code: ENOENT.` });
+			expect(result).toEqual({
+				error: `Could not edit file: ${missingFile}. Error code: ENOENT.`,
+			});
 		});
 
 		it("should include EACCES in diff preview for unreadable files", async () => {
@@ -467,13 +530,17 @@ describe("Coding Agent Tools", () => {
 
 			const result = await computeEditsDiff(unreadableFile, [{ oldText: "hello", newText: "world" }], testDir);
 
-			expect(result).toEqual({ error: `Could not edit file: ${unreadableFile}. Error code: EACCES.` });
+			expect(result).toEqual({
+				error: `Could not edit file: ${unreadableFile}. Error code: EACCES.`,
+			});
 		});
 	});
 
 	describe("bash tool", () => {
 		it("should execute simple commands", async () => {
-			const result = await bashTool.execute("test-call-8", { command: "echo 'test output'" });
+			const result = await bashTool.execute("test-call-8", {
+				command: "echo 'test output'",
+			});
 
 			expect(getTextOutput(result)).toContain("test output");
 			expect(result.details).toBeUndefined();
@@ -508,7 +575,9 @@ describe("Coding Agent Tools", () => {
 
 				let error: unknown;
 				try {
-					await bash.execute(`test-call-${testCase.error}`, { command: "chatty-fail" });
+					await bash.execute(`test-call-${testCase.error}`, {
+						command: "chatty-fail",
+					});
 				} catch (err) {
 					error = err;
 				}
@@ -557,7 +626,9 @@ describe("Coding Agent Tools", () => {
 				},
 			});
 
-			await bashWithCustomShell.execute("test-call-12b", { command: "echo test" });
+			await bashWithCustomShell.execute("test-call-12b", {
+				command: "echo test",
+			});
 
 			expect(getShellConfigSpy).not.toHaveBeenCalled();
 
@@ -580,7 +651,9 @@ describe("Coding Agent Tools", () => {
 				commandTransport: "stdin",
 			});
 			const chunks: Buffer[] = [];
-			const ops = createLocalBashOperations({ shellPath: "C:\\Windows\\System32\\bash.exe" });
+			const ops = createLocalBashOperations({
+				shellPath: "C:\\Windows\\System32\\bash.exe",
+			});
 			const nameExpansion = "$" + "{name}";
 			const countExpansion = "$" + "{count}";
 			const iExpansion = "$" + "{i}";
@@ -625,7 +698,9 @@ describe("Coding Agent Tools", () => {
 				commandPrefix: "export TEST_VAR=hello",
 			});
 
-			const result = await bashWithPrefix.execute("test-prefix-1", { command: "echo $TEST_VAR" });
+			const result = await bashWithPrefix.execute("test-prefix-1", {
+				command: "echo $TEST_VAR",
+			});
 			expect(getTextOutput(result).trim()).toBe("hello");
 		});
 
@@ -634,14 +709,18 @@ describe("Coding Agent Tools", () => {
 				commandPrefix: "echo prefix-output",
 			});
 
-			const result = await bashWithPrefix.execute("test-prefix-2", { command: "echo command-output" });
+			const result = await bashWithPrefix.execute("test-prefix-2", {
+				command: "echo command-output",
+			});
 			expect(getTextOutput(result).trim()).toBe("prefix-output\ncommand-output");
 		});
 
 		it("should work without command prefix", async () => {
 			const bashWithoutPrefix = createBashTool(testDir, {});
 
-			const result = await bashWithoutPrefix.execute("test-prefix-3", { command: "echo no-prefix" });
+			const result = await bashWithoutPrefix.execute("test-prefix-3", {
+				command: "echo no-prefix",
+			});
 			expect(getTextOutput(result).trim()).toBe("no-prefix");
 		});
 
@@ -654,7 +733,10 @@ describe("Coding Agent Tools", () => {
 					return { exitCode: 0 };
 				},
 			};
-			const updates: Array<{ content: Array<{ type: string; text?: string }>; details?: unknown }> = [];
+			const updates: Array<{
+				content: Array<{ type: string; text?: string }>;
+				details?: unknown;
+			}> = [];
 			const bash = createBashTool(testDir, { operations });
 
 			const result = await bash.execute("test-call-chatty-updates", { command: "chatty" }, undefined, (update) =>
@@ -698,7 +780,9 @@ describe("Coding Agent Tools", () => {
 			};
 			const bash = createBashTool(testDir, { operations });
 
-			const result = await bash.execute("test-call-split-utf8", { command: "split-utf8" });
+			const result = await bash.execute("test-call-split-utf8", {
+				command: "split-utf8",
+			});
 
 			expect(getTextOutput(result).trim()).toBe("€");
 		});
@@ -729,7 +813,9 @@ describe("Coding Agent Tools", () => {
 
 		it("should persist full output when truncation happens by line count only", async () => {
 			const bash = createBashTool(testDir);
-			const result = await bash.execute("test-call-line-truncation", { command: "seq 3000" });
+			const result = await bash.execute("test-call-line-truncation", {
+				command: "seq 3000",
+			});
 			const output = getTextOutput(result);
 			const fullOutputPath = result.details?.fullOutputPath;
 
@@ -971,7 +1057,12 @@ describe("edit tool fuzzy matching", () => {
 		// oldText with ASCII quotes should match
 		const result = await editTool.execute("test-fuzzy-3", {
 			path: testFile,
-			edits: [{ oldText: 'const msg = "Hello World";', newText: 'const msg = "Goodbye";' }],
+			edits: [
+				{
+					oldText: 'const msg = "Hello World";',
+					newText: 'const msg = "Goodbye";',
+				},
+			],
 		});
 
 		expect(getTextOutput(result)).toContain("Successfully replaced");
@@ -987,7 +1078,12 @@ describe("edit tool fuzzy matching", () => {
 		// oldText with ASCII hyphens should match
 		const result = await editTool.execute("test-fuzzy-4", {
 			path: testFile,
-			edits: [{ oldText: "range: 1-5\nbreak-here", newText: "range: 10-50\nbreak--here" }],
+			edits: [
+				{
+					oldText: "range: 1-5\nbreak-here",
+					newText: "range: 10-50\nbreak--here",
+				},
+			],
 		});
 
 		expect(getTextOutput(result)).toContain("Successfully replaced");
@@ -1058,7 +1154,10 @@ describe("edit tool fuzzy matching", () => {
 		await editTool.execute("test-fuzzy-9", {
 			path: testFile,
 			edits: [
-				{ oldText: "console.log('hello');\n", newText: "console.log('world');\n" },
+				{
+					oldText: "console.log('hello');\n",
+					newText: "console.log('world');\n",
+				},
 				{ oldText: "hello world\n", newText: "hello universe\n" },
 			],
 		});

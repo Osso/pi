@@ -82,10 +82,14 @@ describe("run-plan extension", () => {
 		await harness.runCommand("");
 
 		expect(process.env.PI_PLAN_FILE).toBe("PLAN.md");
+		expect(process.env.PI_PLAN_PATH).toBe(join(cwd, "PLAN.md"));
 		expect(harness.appendEntry).toHaveBeenCalledWith("run-plan:active", {
 			file: "PLAN.md",
+			path: join(cwd, "PLAN.md"),
 		});
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Implement run plan");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Implement run plan\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
+		);
 	});
 
 	it("clears the editor after dispatching the next item", async () => {
@@ -105,9 +109,10 @@ describe("run-plan extension", () => {
 		await harness.runEvent("agent_end");
 
 		expect(harness.sendUserMessage).toHaveBeenCalledTimes(2);
-		expect(harness.sendUserMessage).toHaveBeenLastCalledWith("Keep working", {
-			deliverAs: "followUp",
-		});
+		expect(harness.sendUserMessage).toHaveBeenLastCalledWith(
+			"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
+			{ deliverAs: "followUp" },
+		);
 	});
 
 	it("uses an inline plan filename argument", async () => {
@@ -117,7 +122,9 @@ describe("run-plan extension", () => {
 		await harness.runCommand("ALT.md");
 
 		expect(process.env.PI_PLAN_FILE).toBe("ALT.md");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Alternate plan");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Alternate plan\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
+		);
 	});
 
 	it("notifies when the plan file is missing or complete", async () => {

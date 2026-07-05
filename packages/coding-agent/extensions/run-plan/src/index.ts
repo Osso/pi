@@ -22,21 +22,21 @@ export async function findNextPlanItem(
 	return null;
 }
 
+const RUN_PLAN_AGENT_INSTRUCTION =
+	"[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]";
+
 interface ActivePlan {
 	file: string;
-	cwd: string;
+	path: string;
 }
 
-function resolvePlanFile(
-	cwd: string,
-	args: string,
-): ActivePlan & { path: string } {
+function resolvePlanFile(cwd: string, args: string): ActivePlan {
 	const file = args.trim() || "PLAN.md";
-	return { file, cwd, path: join(cwd, file) };
+	return { file, path: join(cwd, file) };
 }
 
-function planPath(plan: ActivePlan): string {
-	return join(plan.cwd, plan.file);
+function buildPlanPrompt(item: string): string {
+	return `${item}\n\n${RUN_PLAN_AGENT_INSTRUCTION}`;
 }
 
 async function submitNextPlanItem(
@@ -45,22 +45,22 @@ async function submitNextPlanItem(
 	pi: ExtensionAPI,
 	options?: { followUp?: boolean },
 ): Promise<boolean> {
-	const path = planPath(plan);
-	if (!existsSync(path)) {
+	if (!existsSync(plan.path)) {
 		ctx.ui.notify(`Plan file not found: ${plan.file}`, "error");
 		return false;
 	}
 
-	const nextItem = await findNextPlanItem(path);
+	const nextItem = await findNextPlanItem(plan.path);
 	if (!nextItem) {
 		ctx.ui.notify(`No unchecked items in ${plan.file}`, "info");
 		return false;
 	}
 
+	const prompt = buildPlanPrompt(nextItem);
 	if (options?.followUp) {
-		pi.sendUserMessage(nextItem, { deliverAs: "followUp" });
+		pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 	} else {
-		pi.sendUserMessage(nextItem);
+		pi.sendUserMessage(prompt);
 	}
 	return true;
 }
@@ -76,7 +76,11 @@ async function runPlan(
 	}
 
 	process.env.PI_PLAN_FILE = basename(plan.file);
-	pi.appendEntry("run-plan:active", { file: basename(plan.file) });
+	process.env.PI_PLAN_PATH = plan.path;
+	pi.appendEntry("run-plan:active", {
+		file: basename(plan.file),
+		path: plan.path,
+	});
 	ctx.ui.setEditorText("");
 	return plan;
 }
