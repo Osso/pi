@@ -181,7 +181,7 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 
 function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal) => {
-		if (request.method === "compact") return triggerCompact(request.params, pi);
+		if (request.method === "compact") return triggerCompact(request.params, ctx);
 		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
 		if (request.method === "restart") return triggerRestart(request.params, ctx);
 		if (request.method === "sessions.resume") return triggerSessionResume(request.params, ctx);
@@ -193,11 +193,9 @@ function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOption
 	};
 }
 
-function triggerCompact(params: unknown, pi: ExtensionAPI): { enqueued: true } {
-	const options = normalizeCompactParams(params);
-	const suffix = options.customInstructions ? ` ${options.customInstructions}` : "";
-	pi.sendUserMessage(`/compact${suffix}`, { deliverAs: "followUp" });
-	return { enqueued: true };
+function triggerCompact(params: unknown, ctx: ExtensionContext): { started: true } {
+	ctx.compact(normalizeCompactParams(params));
+	return { started: true };
 }
 
 async function triggerRestart(params: unknown, ctx: ExtensionContext): Promise<{ started: true }> {

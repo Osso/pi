@@ -948,18 +948,16 @@ describe("pyrun extension", () => {
 		});
 	});
 
-	it("enqueues Pi compaction from Pyrun pi.compact after the active tool call", async () => {
+	it("starts Pi compaction directly from Pyrun pi.compact", async () => {
 		const harness = createPyrunHarness();
 
 		const result = await harness.evaluate({
 			code: "pi.compact({'customInstructions': 'preserve IDs'})",
 		});
 
-		expect(result.details.value).toEqual({ enqueued: true });
-		expect(harness.compactRequests).toEqual([]);
-		expect(harness.enqueuedMessages).toEqual([
-			{ content: "/compact preserve IDs", options: { deliverAs: "followUp" } },
-		]);
+		expect(result.details.value).toEqual({ started: true });
+		expect(harness.compactRequests).toEqual([{ customInstructions: "preserve IDs" }]);
+		expect(harness.enqueuedMessages).toEqual([]);
 	});
 
 	it("restarts Pi from Pyrun pi.restart", async () => {
