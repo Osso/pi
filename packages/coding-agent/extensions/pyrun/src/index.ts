@@ -57,6 +57,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.restart(...) to restart Pi and resume the same session from Pyrun.",
 	"Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
 	"Use pi.models.scoped() to list the current session scoped models for model cycling.",
+	"Use pi.tools.call(name, params) to call active Pi tools from Pyrun, and pi.web_search(query) as a web_search shortcut.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
 	"run.* displays only the last 300 output lines by default; access full logs from the returned CommandResult or previous results with run.last().stdout, run.last().stderr, or run.history().",
@@ -225,6 +226,7 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal) => {
 		if (request.method === "models.scoped") return listScopedModels(ctx);
+		if (request.method === "tools.call") return callActiveTool(request.params, pi, signal);
 		if (request.method === "compact") return triggerCompact(request.params, ctx);
 		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
 		if (request.method === "restart") return triggerRestart(request.params, ctx);
@@ -249,6 +251,23 @@ function listScopedModels(ctx: ExtensionContext): Array<{
 		provider: scoped.model.provider,
 		...(scoped.thinkingLevel ? { thinkingLevel: scoped.thinkingLevel } : {}),
 	}));
+}
+
+async function callActiveTool(params: unknown, pi: ExtensionAPI, signal: AbortSignal | undefined): Promise<unknown> {
+	const request = normalizeToolCallParams(params);
+	return pi.callTool(request.name, request.params, signal);
+}
+
+function normalizeToolCallParams(params: unknown): { name: string; params: unknown } {
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.tools.call requires { name, params }");
+	}
+	const record = params as { name?: unknown; params?: unknown; toolName?: unknown };
+	const name = record.name ?? record.toolName;
+	if (typeof name !== "string" || name.trim() === "") {
+		throw new Error("pi.tools.call requires a non-empty tool name");
+	}
+	return { name: name.trim(), params: record.params };
 }
 
 function triggerCompact(params: unknown, ctx: ExtensionContext): { started: true } {

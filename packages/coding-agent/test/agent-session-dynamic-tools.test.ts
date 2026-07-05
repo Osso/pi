@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -133,6 +134,92 @@ describe("AgentSession dynamic tool registration", () => {
 			origin: "top-level",
 		});
 		expect(session.getActiveToolNames()).toContain("sdk_tool");
+
+		session.dispose();
+	});
+
+	it("calls active SDK custom tools through the runtime tool bridge and honors tool hooks", async () => {
+		let afterHookSawError = false;
+		let executed = false;
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const sessionManager = SessionManager.inMemory();
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_call", async (event) => {
+						if (event.toolName === "sdk_blocked_tool") return { block: true, reason: "blocked by hook" };
+						return undefined;
+					});
+					pi.on("tool_result", async (event) => {
+						if (event.toolName === "sdk_throwing_tool" && event.isError) {
+							afterHookSawError = true;
+							return { content: [{ type: "text", text: "rewritten error" }], isError: true };
+						}
+						return undefined;
+					});
+				},
+			],
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+			customTools: [
+				{
+					name: "sdk_blocked_tool",
+					label: "SDK Blocked Tool",
+					description: "Tool blocked through tool_call hook",
+					parameters: Type.Object({}),
+					execute: async () => {
+						executed = true;
+						return { content: [{ type: "text", text: "ok" }], details: {} };
+					},
+				},
+				{
+					name: "sdk_required_tool",
+					label: "SDK Required Tool",
+					description: "Tool with required input",
+					parameters: Type.Object({ value: Type.String() }),
+					execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+				},
+				{
+					name: "sdk_throwing_tool",
+					label: "SDK Throwing Tool",
+					description: "Tool that throws",
+					parameters: Type.Object({}),
+					execute: async () => {
+						throw new Error("boom");
+					},
+				},
+			],
+		});
+		await session.bindExtensions({});
+		const bridgedSession = session as unknown as {
+			_callActiveTool(name: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult<unknown>>;
+		};
+
+		const blocked = await bridgedSession._callActiveTool("sdk_blocked_tool", {}, undefined);
+		const thrown = await bridgedSession._callActiveTool("sdk_throwing_tool", {}, undefined);
+		await expect(bridgedSession._callActiveTool("sdk_required_tool", {}, undefined)).rejects.toThrow(
+			"Validation failed for tool",
+		);
+		session.setActiveToolsByName([]);
+
+		await expect(bridgedSession._callActiveTool("sdk_blocked_tool", {}, undefined)).rejects.toThrow(
+			"Tool is not active: sdk_blocked_tool",
+		);
+		expect(blocked).toMatchObject({ content: [{ type: "text", text: "blocked by hook" }], isError: true });
+		expect(thrown).toMatchObject({ content: [{ type: "text", text: "rewritten error" }], isError: true });
+		expect(afterHookSawError).toBe(true);
+		expect(executed).toBe(false);
 
 		session.dispose();
 	});

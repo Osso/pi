@@ -67,6 +67,7 @@ describe("ExtensionRunner", () => {
 		getActiveTools: () => [],
 		getAllTools: () => [],
 		setActiveTools: () => {},
+		callTool: async () => ({ content: [], details: undefined }),
 		refreshTools: () => {},
 		getCommands: () => [],
 		setModel: async () => false,

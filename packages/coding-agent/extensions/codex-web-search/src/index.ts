@@ -48,26 +48,7 @@ export function createWebSearchToolDefinition(options?: { runSearch?: RunWebSear
 		approvalRequired: true,
 		parameters: webSearchSchema,
 		async execute(_toolCallId, params: WebSearchInput, signal, _onUpdate, ctx): Promise<AgentToolResult<undefined>> {
-			const query = params.query.trim();
-			if (!query) throw new Error("web_search query is required");
-			if (!isOpenAIHostedWebSearchModel(ctx.model)) {
-				throw new Error("web_search requires an OpenAI Responses model");
-			}
-
-			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-			if (!auth.ok) throw new Error(auth.error);
-
-			const text = await runSearch(
-				{
-					query,
-					model: ctx.model,
-					apiKey: auth.apiKey,
-					headers: auth.headers,
-					env: auth.env,
-					signal,
-				},
-				ctx,
-			);
+			const text = await executeWebSearch(params, ctx, signal, runSearch);
 			return { content: [{ type: "text", text }], details: undefined };
 		},
 	};
@@ -75,6 +56,35 @@ export function createWebSearchToolDefinition(options?: { runSearch?: RunWebSear
 
 export function isOpenAIHostedWebSearchModel(model: Model<Api> | undefined): model is OpenAIWebSearchModel {
 	return model?.api === "openai-responses" || model?.api === "openai-codex-responses";
+}
+
+async function executeWebSearch(
+	params: WebSearchInput,
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+	runSearch: RunWebSearch,
+): Promise<string> {
+	const query = params.query.trim();
+	if (!query) throw new Error("web_search query is required");
+	if (!isOpenAIHostedWebSearchModel(ctx.model)) {
+		throw new Error("web_search requires an OpenAI Responses model");
+	}
+
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+	if (!auth.ok) throw new Error(auth.error);
+
+	const text = await runSearch(
+		{
+			query,
+			model: ctx.model,
+			apiKey: auth.apiKey,
+			headers: auth.headers,
+			env: auth.env,
+			signal,
+		},
+		ctx,
+	);
+	return text;
 }
 
 async function runHostedWebSearch(request: WebSearchRequest): Promise<string> {

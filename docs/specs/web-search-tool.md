@@ -18,6 +18,12 @@ The web search tool exposes OpenAI Responses hosted web search as an explicit ca
 - [x] Reject execution when the current model is not hosted-web-search capable.
 - [x] Return the hosted search text as the tool result.
 
+### Pyrun bridge
+
+- [x] Expose web search to Pyrun as `pi.web_search(query)`.
+- [x] Implement `pi.web_search(query)` as a convenience wrapper over the generic `pi.tools.call("web_search", { query })` bridge.
+- [x] Route Pyrun tool bridge requests through the active Pi tool registry instead of a web-search-specific bridge method.
+
 ## How it works
 
 - [ ] See [`docs/wiki/systems/web-search-tool.md`](../wiki/systems/web-search-tool.md).
@@ -25,12 +31,17 @@ The web search tool exposes OpenAI Responses hosted web search as an explicit ca
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/codex-web-search/src/index.ts` - Registers and executes the `web_search` tool.
-- `packages/coding-agent/src/main.ts` - Loads the first-party web search extension.
+- `packages/coding-agent/extensions/pyrun/src/index.ts` - Exposes generic `tools.call` bridge handling and documents the `pi.web_search(query)` helper in model-facing Pyrun guidance.
+- `packages/coding-agent/src/main.ts` - Loads the first-party web search and Pyrun extensions.
+- `/syncthing/Sync/Projects/claude/pyrun/pyrun/runtime.py` - Defines the canonical Python-side `pi.web_search(...)` helper.
 - `packages/coding-agent/CHANGELOG.md` - Records the user-visible feature change.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/codex-web-search-extension.test.ts`
+- `packages/coding-agent/test/pyrun-extension.test.ts`
+- `/syncthing/Sync/Projects/claude/pyrun/tests/test_runtime.py`
+- `/syncthing/Sync/Projects/claude/pyrun/tests/test_jsonl.py`
 
 ## Known gaps (current cycle)
 

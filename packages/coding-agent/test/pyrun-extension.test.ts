@@ -58,6 +58,10 @@ interface PyrunProgressDetails {
 	type: string;
 }
 
+type PyrunHarnessOptions = PyrunExtensionOptions & {
+	callTool?: ExtensionAPI["callTool"];
+};
+
 type PyrunTool = {
 	name: string;
 	execute: (
@@ -69,7 +73,7 @@ type PyrunTool = {
 	) => Promise<AgentToolResult<PyrunEvalDetails>>;
 };
 
-function createPyrunHarness(options: PyrunExtensionOptions = {}) {
+function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	let pyrunTool: PyrunTool | undefined;
 	let pyrunDefinition: ToolDefinition | undefined;
 	const compactRequests: unknown[] = [];
@@ -78,6 +82,7 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 	const switchedSessions: string[] = [];
 
 	const pi = {
+		callTool: options.callTool ?? (async () => ({ content: [], details: undefined })),
 		registerTool(tool: ToolDefinition) {
 			if (tool.name === "pyrun_eval") {
 				pyrunDefinition = tool;
@@ -290,6 +295,11 @@ async function resultFor(request) {
   }
   if (request.code === "pi.models.scoped()") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "models.scoped", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.web_search('current Pi release')") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "tools.call", params: { name: "web_search", params: { query: "current Pi release" } } }) + "\\n");
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
@@ -772,6 +782,22 @@ describe("pyrun extension", () => {
 			});
 		},
 	);
+
+	it("responds to Pyrun pi.tools.call requests through active Pi tools", async () => {
+		const harness = createPyrunHarness({
+			callTool: async (name, params) => ({
+				content: [{ type: "text", text: "Pi release notes" }],
+				details: { name, params },
+			}),
+		});
+
+		const result = await harness.evaluate({ code: "pi.web_search('current Pi release')" });
+
+		expect(result.details.value).toEqual({
+			content: [{ type: "text", text: "Pi release notes" }],
+			details: { name: "web_search", params: { query: "current Pi release" } },
+		});
+	});
 
 	it("responds to Pyrun pi.agents.spawn requests through configured handlers", async () => {
 		const requests: Array<{ method: string; params: unknown }> = [];

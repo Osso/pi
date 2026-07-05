@@ -577,7 +577,6 @@ function createFirstPartyExtensionFactories(
 		selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
 		store: firstPartyMultiAgentStore,
 	});
-
 	return [
 		firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 		firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
