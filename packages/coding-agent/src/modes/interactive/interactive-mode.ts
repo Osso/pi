@@ -4852,8 +4852,10 @@ export class InteractiveMode {
 							enabledIds === null || enabledIds.length === allModels.length
 								? undefined // All enabled = clear filter
 								: enabledIds;
-						const settingsScope = this.settingsManager.getProjectSettings().enabledModels ? "project" : "global";
-						this.settingsManager.setEnabledModels(newPatterns ? [...newPatterns] : undefined, settingsScope);
+						const hasProjectEnabledModels = this.settingsManager.getProjectSettings().enabledModels !== undefined;
+						const settingsScope = hasProjectEnabledModels ? "project" : "global";
+						const patternsToPersist = newPatterns ? [...newPatterns] : hasProjectEnabledModels ? [] : undefined;
+						this.settingsManager.setEnabledModels(patternsToPersist, settingsScope);
 						this.showStatus("Model selection saved to settings");
 					},
 					onCancel: () => {

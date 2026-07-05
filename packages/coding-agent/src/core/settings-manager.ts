@@ -1248,7 +1248,14 @@ export class SettingsManager {
 		return this.settings.enabledModels;
 	}
 
-	setEnabledModels(patterns: string[] | undefined): void {
+	setEnabledModels(patterns: string[] | undefined, scope: SettingsScope = "global"): void {
+		if (scope === "project") {
+			this.updateProjectSettings("enabledModels", (settings) => {
+				settings.enabledModels = patterns;
+			});
+			return;
+		}
+
 		this.globalSettings.enabledModels = patterns;
 		this.markModified("enabledModels");
 		this.save();
