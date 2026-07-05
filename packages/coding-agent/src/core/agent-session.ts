@@ -21,6 +21,7 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@earendil-works/pi-ai/compat";
@@ -98,6 +99,7 @@ import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+
 import {
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
@@ -111,7 +113,8 @@ import {
 	setNamedSession,
 	writeLastMessage,
 } from "./session-control-db.ts";
-import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
+import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
+
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
@@ -208,6 +211,7 @@ export type AgentSessionEvent =
 			followUp: readonly string[];
 	  }
 	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow"; sourceHint?: CompactionSourceInfo }
+	| { type: "entry_appended"; entry: SessionEntry }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
@@ -509,6 +513,7 @@ export class AgentSession {
 	private _multiAgentAgentId: string | undefined;
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
+	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -542,6 +547,7 @@ export class AgentSession {
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
+		this._installAgentNextTurnRefresh();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -834,6 +840,29 @@ export class AgentSession {
 					return stream.result();
 				},
 			);
+	}
+
+	private _installAgentNextTurnRefresh(): void {
+		const previousPrepareNextTurnWithContext =
+			this.agent.prepareNextTurnWithContext ??
+			(this.agent.prepareNextTurn
+				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
+				: undefined);
+		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
+			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
+			const previousContext = previousSnapshot?.context ?? turn.context;
+
+			return {
+				...previousSnapshot,
+				context: {
+					...previousContext,
+					systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
+					tools: this.agent.state.tools.slice(),
+				},
+				model: this.agent.state.model,
+				thinkingLevel: this.agent.state.thinkingLevel,
+			};
+		};
 	}
 
 	// =========================================================================
@@ -1339,7 +1368,7 @@ export class AgentSession {
 
 		// Rebuild base system prompt with new tool set
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
-		this.agent.state.systemPrompt = this._baseSystemPrompt;
+		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 	}
 
 	/** Whether compaction or branch summarization is currently running */
@@ -1469,6 +1498,7 @@ export class AgentSession {
 				await this.agent.continue();
 			}
 		} finally {
+			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 		}
 	}
@@ -1596,17 +1626,11 @@ export class AgentSession {
 				throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
 			}
 
-			// Check if we need to compact before sending (catches aborted responses)
+			// Check if we need to compact before sending (catches aborted responses).
+			// The user's new prompt is sent below, so do not call agent.continue() here.
 			const lastAssistant = this._findLastAssistantMessage();
-			if (lastAssistant && (await this._checkCompaction(lastAssistant, false))) {
-				try {
-					await this.agent.continue();
-					while (await this._handlePostAgentRun()) {
-						await this.agent.continue();
-					}
-				} finally {
-					this._flushPendingBashMessages();
-				}
+			if (lastAssistant) {
+				await this._checkCompaction(lastAssistant, false);
 			}
 
 			// Build messages array (custom message if any, then user message)
@@ -1650,10 +1674,12 @@ export class AgentSession {
 				}
 			}
 			// Apply extension-modified system prompt, or reset to base
-			if (result?.systemPrompt) {
+			if (result?.systemPrompt !== undefined) {
+				this._systemPromptOverride = result.systemPrompt;
 				this.agent.state.systemPrompt = result.systemPrompt;
 			} else {
 				// Ensure we're using the base prompt (in case previous turn had modifications)
+				this._systemPromptOverride = undefined;
 				this.agent.state.systemPrompt = this._baseSystemPrompt;
 			}
 		} catch (error) {
@@ -3039,7 +3065,11 @@ export class AgentSession {
 					});
 				},
 				appendEntry: (customType, data) => {
-					this.sessionManager.appendCustomEntry(customType, data);
+					const entryId = this.sessionManager.appendCustomEntry(customType, data);
+					const entry = this.sessionManager.getEntry(entryId);
+					if (entry) {
+						this._emit({ type: "entry_appended", entry });
+					}
 				},
 				setSessionName: (name) => {
 					this.setSessionName(name);
@@ -3518,7 +3548,9 @@ export class AgentSession {
 			setNamedSession(getControlDbPath(this._agentDir), sessionFile, name);
 		}
 		this.sessionManager.appendSessionInfo(name);
-		this._emit({ type: "session_info_changed", name: this.sessionManager.getSessionName() });
+		const event = { type: "session_info_changed", name: this.sessionManager.getSessionName() } as const;
+		this._emit(event);
+		void this._extensionRunner.emit(event);
 	}
 
 	clearSessionName(): void {

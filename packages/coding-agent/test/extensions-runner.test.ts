@@ -572,7 +572,7 @@ describe("ExtensionRunner", () => {
 		});
 	});
 
-	describe("message renderers", () => {
+	describe("message and entry renderers", () => {
 		it("gets message renderer by type", async () => {
 			const extCode = `
 				export default function(pi) {
@@ -589,6 +589,21 @@ describe("ExtensionRunner", () => {
 
 			const missing = runner.getMessageRenderer("not-exists");
 			expect(missing).toBeUndefined();
+		});
+
+		it("gets entry renderer by type", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerEntryRenderer("my-entry", (entry, options, theme) => null);
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "entry-renderer.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			expect(runner.getEntryRenderer("my-entry")).toBeDefined();
+			expect(runner.getEntryRenderer("not-exists")).toBeUndefined();
 		});
 	});
 
