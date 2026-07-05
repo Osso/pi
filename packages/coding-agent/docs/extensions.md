@@ -2017,15 +2017,15 @@ See [examples/extensions/ssh.ts](../examples/extensions/ssh.ts) for a complete S
 - Compaction failures
 - Degraded model performance
 
-The built-in limit is **50KB** (~10k tokens) and **2000 lines**, whichever is hit first. Use the exported truncation utilities:
+The built-in limit is **10KB** and **2000 lines**, whichever is hit first. Use the exported truncation utilities:
 
 ```typescript
 import {
   truncateHead,      // Keep first N lines/bytes (good for file reads, search results)
   truncateTail,      // Keep last N lines/bytes (good for logs, command output)
   truncateLine,      // Truncate a single line to maxBytes with ellipsis
-  formatSize,        // Human-readable size (e.g., "50KB", "1.5MB")
-  DEFAULT_MAX_BYTES, // 50KB
+  formatSize,        // Human-readable size (e.g., "10KB", "1.5MB")
+  DEFAULT_MAX_BYTES, // 10KB
   DEFAULT_MAX_LINES, // 2000
 } from "@earendil-works/pi-coding-agent";
 

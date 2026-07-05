@@ -711,7 +711,7 @@ async function finalizeExecutedToolCall(
 	};
 }
 
-const MAX_TOOL_RESULT_TEXT_BYTES = 50 * 1024;
+const MAX_TOOL_RESULT_TEXT_BYTES = 10 * 1024;
 const MAX_TOOL_RESULT_TEXT_LINES = 2000;
 
 function createErrorToolResult(message: string): AgentToolResult<any> {

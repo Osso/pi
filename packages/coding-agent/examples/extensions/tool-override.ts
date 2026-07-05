@@ -105,11 +105,11 @@ export default function (pi: ExtensionAPI) {
 				const endLine = limit ? startLine + limit : lines.length;
 				const selectedLines = lines.slice(startLine, endLine);
 
-				// Basic truncation (50KB limit)
+				// Basic truncation (10KB limit)
 				let text = selectedLines.join("\n");
-				const maxBytes = 50 * 1024;
+				const maxBytes = 10 * 1024;
 				if (Buffer.byteLength(text, "utf-8") > maxBytes) {
-					text = `${text.slice(0, maxBytes)}\n\n[Output truncated at 50KB]`;
+					text = `${text.slice(0, maxBytes)}\n\n[Output truncated at 10KB]`;
 				}
 
 				return {

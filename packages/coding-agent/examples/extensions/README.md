@@ -39,7 +39,7 @@ cp permission-gate.ts ~/.pi/agent/extensions/
 | `structured-output.ts` | Final structured-output tool that returns `terminate: true` so the agent can end on the tool call |
 | `built-in-tool-renderer.ts` | Custom compact rendering for built-in tools (read, bash, edit, write) while keeping original behavior |
 | `minimal-mode.ts` | Override built-in tool rendering for minimal display (only tool calls, no output in collapsed mode) |
-| `truncated-tool.ts` | Wraps ripgrep with proper output truncation (50KB/2000 lines) |
+| `truncated-tool.ts` | Wraps ripgrep with proper output truncation (10KB/2000 lines) |
 | `ssh.ts` | Delegate all tools to a remote machine via SSH using pluggable operations |
 | `subagent/` | Delegate tasks to specialized subagents with isolated context windows |
 

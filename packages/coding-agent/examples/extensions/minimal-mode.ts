@@ -72,7 +72,7 @@ export default function (pi: ExtensionAPI) {
 		name: "read",
 		label: "read",
 		description:
-			"Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files.",
+			"Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 10KB (whichever is hit first). Use offset/limit for large files.",
 		parameters: getBuiltInTools(process.cwd()).read.parameters,
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -119,7 +119,7 @@ export default function (pi: ExtensionAPI) {
 		name: "bash",
 		label: "bash",
 		description:
-			"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first).",
+			"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 10KB (whichever is hit first).",
 		parameters: getBuiltInTools(process.cwd()).bash.parameters,
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {

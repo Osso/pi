@@ -2,7 +2,7 @@
  * Truncated Tool Example - Demonstrates proper output truncation for custom tools
  *
  * Custom tools MUST truncate their output to avoid overwhelming the LLM context.
- * The built-in limit is 50KB (~10k tokens) and 2000 lines, whichever is hit first.
+ * The built-in limit is 10KB and 2000 lines, whichever is hit first.
  *
  * This example shows how to:
  * 1. Use the built-in truncation utilities

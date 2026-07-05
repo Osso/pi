@@ -49,7 +49,7 @@ describe("tool inventory", () => {
 			{
 				name: "bash",
 				description:
-					"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
+					"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 10KB.",
 				parameters: Type.Object({}),
 				sourceInfo: {
 					path: "<builtin:bash>",

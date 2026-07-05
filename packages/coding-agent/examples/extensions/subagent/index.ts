@@ -33,7 +33,7 @@ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
-const PER_TASK_OUTPUT_CAP = 50 * 1024;
+const PER_TASK_OUTPUT_CAP = 10 * 1024;
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();

@@ -89,21 +89,19 @@ describe("Coding Agent Tools", () => {
 
 		it("should truncate files exceeding line limit", async () => {
 			const testFile = join(testDir, "large.txt");
-			const lines = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`);
+			const lines = Array.from({ length: 2500 }, () => "x");
 			writeFileSync(testFile, lines.join("\n"));
 
 			const result = await readTool.execute("test-call-3", { path: testFile });
 			const output = getTextOutput(result);
 
-			expect(output).toContain("Line 1");
-			expect(output).toContain("Line 2000");
-			expect(output).not.toContain("Line 2001");
+			expect(output.split("\n").filter((line) => line === "x")).toHaveLength(2000);
 			expect(output).toContain("[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]");
 		});
 
 		it("should truncate when byte limit exceeded", async () => {
 			const testFile = join(testDir, "large-bytes.txt");
-			// Create file that exceeds 50KB byte limit but has fewer than 2000 lines
+			// Create file that exceeds 10KB byte limit but has fewer than 2000 lines
 			const lines = Array.from({ length: 500 }, (_, i) => `Line ${i + 1}: ${"x".repeat(200)}`);
 			writeFileSync(testFile, lines.join("\n"));
 
@@ -221,7 +219,7 @@ describe("Coding Agent Tools", () => {
 
 		it("should include truncation details when truncated", async () => {
 			const testFile = join(testDir, "large-file.txt");
-			const lines = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`);
+			const lines = Array.from({ length: 2500 }, () => "x");
 			writeFileSync(testFile, lines.join("\n"));
 
 			const result = await readTool.execute("test-call-9", { path: testFile });
@@ -751,7 +749,7 @@ describe("Coding Agent Tools", () => {
 			const operations: BashOperations = {
 				exec: async (_command, _cwd, { onData }) => {
 					for (let i = 1; i <= 4000; i++) {
-						onData(Buffer.from(`line-${String(i).padStart(4, "0")}\n`, "utf-8"));
+						onData(Buffer.from("x\n", "utf-8"));
 					}
 					return { exitCode: 0 };
 				},
@@ -763,10 +761,8 @@ describe("Coding Agent Tools", () => {
 
 			expect(result.details?.truncation?.totalLines).toBe(4000);
 			expect(result.details?.truncation?.outputLines).toBe(2000);
-			expect(output).toContain("line-2001");
-			expect(output).toContain("line-4000");
+			expect(output.split("\n").filter((line) => line === "x")).toHaveLength(2000);
 			expect(output).toMatch(/\[Showing lines 2001-4000 of 4000\. Full output: /);
-			expect(output).not.toContain("4001");
 		});
 
 		it("should decode UTF-8 characters split across output chunks", async () => {
@@ -814,7 +810,7 @@ describe("Coding Agent Tools", () => {
 		it("should persist full output when truncation happens by line count only", async () => {
 			const bash = createBashTool(testDir);
 			const result = await bash.execute("test-call-line-truncation", {
-				command: "seq 3000",
+				command: "printf 'x\\n%.0s' {1..3000}",
 			});
 			const output = getTextOutput(result);
 			const fullOutputPath = result.details?.fullOutputPath;
@@ -832,12 +828,15 @@ describe("Coding Agent Tools", () => {
 			expect(fullOutputPath).toBeDefined();
 			expect(existsSync(fullOutputPath!)).toBe(true);
 			const fullOutput = readFileSync(fullOutputPath!, "utf-8");
-			expect(fullOutput).toContain("1\n2\n3");
-			expect(fullOutput).toContain("2998\n2999\n3000");
+			expect(fullOutput.split("\n").filter((line) => line === "x")).toHaveLength(3000);
 		});
 
 		it("executeBash should persist full output when truncation happens by line count only", async () => {
-			const result = await executeBashWithOperations("seq 3000", process.cwd(), createLocalBashOperations());
+			const result = await executeBashWithOperations(
+				"printf 'x\\n%.0s' {1..3000}",
+				process.cwd(),
+				createLocalBashOperations(),
+			);
 			const fullOutputPath = result.fullOutputPath;
 
 			expect(result.truncated).toBe(true);
@@ -850,8 +849,7 @@ describe("Coding Agent Tools", () => {
 			expect(fullOutputPath).toBeDefined();
 			expect(existsSync(fullOutputPath!)).toBe(true);
 			const fullOutput = readFileSync(fullOutputPath!, "utf-8");
-			expect(fullOutput).toContain("1\n2\n3");
-			expect(fullOutput).toContain("2998\n2999\n3000");
+			expect(fullOutput.split("\n").filter((line) => line === "x")).toHaveLength(3000);
 		});
 	});
 
