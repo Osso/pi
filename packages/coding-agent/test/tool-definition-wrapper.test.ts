@@ -85,4 +85,32 @@ describe("wrapToolDefinition", () => {
 		expect(existsSync(fullOutputPath)).toBe(true);
 		expect(readFileSync(fullOutputPath, "utf-8")).toBe(hugeText);
 	});
+
+	it("spills a single oversized chunk to a temp file", async () => {
+		const hugeText = `start${"z".repeat(DEFAULT_MAX_BYTES * 2)}end`;
+		const tool = wrapToolDefinition(
+			defineTool({
+				name: "single_huge_chunk",
+				label: "Single huge chunk",
+				description: "Returns one giant chunk",
+				parameters: Type.Object({}),
+				async execute() {
+					return {
+						content: [{ type: "text" as const, text: hugeText }],
+						details: { ok: true },
+					};
+				},
+			}),
+		);
+
+		const result = await tool.execute("test-call-single-huge-chunk", {}, undefined, undefined);
+		const output = textOutput(result);
+		const fullOutputPath = requireFullOutputPath(result.details);
+
+		expect(output.length).toBeLessThan(DEFAULT_MAX_BYTES + 2048);
+		expect(output).toContain("Full output:");
+		expect(output).toContain("end");
+		expect(existsSync(fullOutputPath)).toBe(true);
+		expect(readFileSync(fullOutputPath, "utf-8")).toBe(hugeText);
+	});
 });

@@ -67,7 +67,8 @@ export class OutputAccumulator {
 		}
 
 		this.totalRawBytes += data.length;
-		this.appendDecodedText(this.decoder.decode(data, { stream: true }));
+		const decoded = this.decoder.decode(data, { stream: true });
+		this.appendDecodedText(decoded);
 
 		if (this.tempFileStream || this.shouldUseTempFile()) {
 			this.ensureTempFile();
@@ -214,9 +215,10 @@ export class OutputAccumulator {
 		}
 		this.tempFilePath = defaultTempFilePath(this.tempFilePrefix);
 		this.tempFileStream = createWriteStream(this.tempFilePath);
-		for (const chunk of this.rawChunks) {
+		const chunks = this.rawChunks;
+		this.rawChunks = [];
+		for (const chunk of chunks) {
 			this.tempFileStream.write(chunk);
 		}
-		this.rawChunks = [];
 	}
 }
