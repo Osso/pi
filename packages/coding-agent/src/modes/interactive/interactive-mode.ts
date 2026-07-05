@@ -106,6 +106,7 @@ import {
 	type SessionListProgress,
 	SessionManager,
 } from "../../core/session-manager.ts";
+import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
@@ -221,6 +222,16 @@ type CompactionQueuedMessage = {
 const STREAMING_RENDER_THROTTLE_MS = 50;
 
 const LOADER_ELAPSED_TOOL_NAMES = new Set(["wait_agent"]);
+
+function resolveEnabledModelsPersistTarget(
+	projectEnabledModels: string[] | undefined,
+	patterns: string[] | undefined,
+): { patterns: string[] | undefined; scope: SettingsScope } {
+	if (projectEnabledModels === undefined) {
+		return { patterns, scope: "global" };
+	}
+	return { patterns: patterns ?? [], scope: "project" };
+}
 
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
 
@@ -4852,10 +4863,11 @@ export class InteractiveMode {
 							enabledIds === null || enabledIds.length === allModels.length
 								? undefined // All enabled = clear filter
 								: enabledIds;
-						const hasProjectEnabledModels = this.settingsManager.getProjectSettings().enabledModels !== undefined;
-						const settingsScope = hasProjectEnabledModels ? "project" : "global";
-						const patternsToPersist = newPatterns ? [...newPatterns] : hasProjectEnabledModels ? [] : undefined;
-						this.settingsManager.setEnabledModels(patternsToPersist, settingsScope);
+						const target = resolveEnabledModelsPersistTarget(
+							this.settingsManager.getProjectSettings().enabledModels,
+							newPatterns ? [...newPatterns] : undefined,
+						);
+						this.settingsManager.setEnabledModels(target.patterns, target.scope);
 						this.showStatus("Model selection saved to settings");
 					},
 					onCancel: () => {
