@@ -376,6 +376,7 @@ export class ModelRegistry {
 	 * Reload models from disk (built-in + custom from models.json).
 	 */
 	refresh(): void {
+		this.authStorage.reload();
 		this.providerRequestConfigs.clear();
 		this.modelRequestHeaders.clear();
 		this.loadError = undefined;

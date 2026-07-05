@@ -110,6 +110,29 @@ describe("ModelRegistry", () => {
 				})),
 			);
 		});
+
+		test("refresh picks up OAuth credentials written by another process", () => {
+			const authJsonPath = join(tempDir, "auth.json");
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+			expect(registry.getAvailable().some((model) => model.provider === "openai-codex")).toBe(false);
+
+			writeFileSync(
+				authJsonPath,
+				JSON.stringify({
+					"openai-codex": {
+						type: "oauth",
+						access: "access-token",
+						refresh: "refresh-token",
+						expires: Date.now() + 60_000,
+					},
+				}),
+			);
+
+			registry.refresh();
+
+			expect(registry.getAvailable().some((model) => model.provider === "openai-codex")).toBe(true);
+		});
 	});
 
 	describe("baseUrl override (no custom models)", () => {
