@@ -92,24 +92,37 @@ function findUniqueSessionMatch(
 	return matchedSession;
 }
 
-async function listResolvableSessions(ctx: ExtensionContext): Promise<SessionInfo[]> {
+async function listLocalAndSessionDirSessions(ctx: ExtensionContext): Promise<SessionInfo[]> {
 	const localSessions = await SessionManager.list(
 		ctx.sessionManager.getCwd(),
 		ctx.sessionManager.getSessionDir(),
 		undefined,
 		ctx.controlDbPath,
 	);
-	const defaultSessions = await SessionManager.listAll(undefined, undefined, ctx.controlDbPath);
 	const sessionDirSessions = await SessionManager.listAll(
 		ctx.sessionManager.getSessionDir(),
 		undefined,
 		ctx.controlDbPath,
 	);
-	return [
-		...new Map(
-			[...localSessions, ...defaultSessions, ...sessionDirSessions].map((session) => [session.path, session]),
-		).values(),
-	];
+	return [...new Map([...localSessions, ...sessionDirSessions].map((session) => [session.path, session])).values()];
+}
+
+async function listAllResolvableSessions(ctx: ExtensionContext): Promise<SessionInfo[]> {
+	const scopedSessions = await listLocalAndSessionDirSessions(ctx);
+	const defaultSessions = await SessionManager.listAll(undefined, undefined, ctx.controlDbPath);
+	return [...new Map([...scopedSessions, ...defaultSessions].map((session) => [session.path, session])).values()];
+}
+
+function findResumeSessionById(sessions: SessionInfo[], id: string): SessionInfo | undefined {
+	const exactMatches = sessions.filter((session) => session.id === id);
+	const exactMatch = exactMatches[0];
+	if (exactMatches.length === 1 && exactMatch) return exactMatch;
+	if (exactMatches.length > 1) throw new Error(`Ambiguous session match for id '${id}'`);
+	const prefixMatches = sessions.filter((session) => session.id.startsWith(id));
+	const prefixMatch = prefixMatches[0];
+	if (prefixMatches.length === 1 && prefixMatch) return prefixMatch;
+	if (prefixMatches.length > 1) throw new Error(`Ambiguous session match for id '${id}'`);
+	return undefined;
 }
 
 async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: ExtensionContext): Promise<string> {
@@ -117,10 +130,16 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 		return assertResumeSessionPath(resolvePath(params.path, ctx.cwd));
 	}
 
-	const sessions = await listResolvableSessions(ctx);
 	if (params.name) {
+		const scopedSessions = await listLocalAndSessionDirSessions(ctx);
+		const scopedMatches = scopedSessions.filter((session) => session.name === params.name);
+		if (scopedMatches.length > 0) {
+			return assertResumeSessionPath(
+				findUniqueSessionMatch(scopedMatches, `name '${params.name}'`, () => true).path,
+			);
+		}
 		const match = findUniqueSessionMatch(
-			sessions,
+			await listAllResolvableSessions(ctx),
 			`name '${params.name}'`,
 			(session) => session.name === params.name,
 		);
@@ -131,12 +150,11 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	if (!id) {
 		throw new Error("resume_session requires { path }, { id }, or { name }");
 	}
-	const exactMatches = sessions.filter((session) => session.id === id);
-	const exactMatch = exactMatches[0];
-	if (exactMatches.length === 1 && exactMatch) return assertResumeSessionPath(exactMatch.path);
-	if (exactMatches.length > 1) throw new Error(`Ambiguous session match for id '${id}'`);
-	const prefixMatch = findUniqueSessionMatch(sessions, `id '${id}'`, (session) => session.id.startsWith(id));
-	return assertResumeSessionPath(prefixMatch.path);
+	const scopedMatch = findResumeSessionById(await listLocalAndSessionDirSessions(ctx), id);
+	if (scopedMatch) return assertResumeSessionPath(scopedMatch.path);
+	const match = findResumeSessionById(await listAllResolvableSessions(ctx), id);
+	if (!match) throw new Error(`No session found matching id '${id}'`);
+	return assertResumeSessionPath(match.path);
 }
 
 function formatResumeTarget(args: ResumeSessionToolInput | undefined): string {
