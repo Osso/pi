@@ -465,6 +465,21 @@ describe("buildSessionContext", () => {
 		expect(loaded.messages.length).toBe(5);
 	});
 
+	it("caps kept pre-compaction context to 20k bytes", () => {
+		const olderHugeOutput = createMessageEntry(createAssistantMessage(`older output ${"x".repeat(80_000)}`));
+		const latestHugeOutput = createMessageEntry(createAssistantMessage(`latest output ${"y".repeat(80_000)}`));
+		const compaction = createCompactionEntry("summary", olderHugeOutput.id);
+		const afterCompaction = createMessageEntry(createUserMessage("continue"));
+
+		const loaded = buildSessionContext([olderHugeOutput, latestHugeOutput, compaction, afterCompaction]);
+		const keptMessages = loaded.messages.slice(1, -1);
+		const keptBytes = Buffer.byteLength(JSON.stringify(keptMessages), "utf8");
+
+		expect(keptBytes).toBeLessThanOrEqual(20_000);
+		expect(JSON.stringify(keptMessages)).toContain("latest output");
+		expect(JSON.stringify(keptMessages)).not.toContain("older output");
+	});
+
 	it("should track model and thinking level changes", () => {
 		const entries: SessionEntry[] = [
 			createMessageEntry(createUserMessage("1")),

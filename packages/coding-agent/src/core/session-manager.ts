@@ -37,6 +37,7 @@ import {
 } from "./session-control-db.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
+export const MAX_KEPT_PRE_COMPACTION_BYTES = 20_000;
 
 export interface SessionHeader {
 	type: "session";
@@ -341,6 +342,154 @@ export function getLatestCompactionEntry(entries: SessionEntry[]): CompactionEnt
  * If leafId is provided, walks from that entry to root.
  * Handles compaction and branch summaries along the path.
  */
+function messageFromEntry(entry: SessionEntry): AgentMessage | undefined {
+	if (entry.type === "message") {
+		return entry.message;
+	}
+	if (entry.type === "custom_message") {
+		return createCustomMessage(entry.customType, entry.content, entry.display, entry.details, entry.timestamp);
+	}
+	if (entry.type === "branch_summary" && entry.summary) {
+		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
+	}
+	return undefined;
+}
+
+function jsonBytes(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function getMessageText(message: AgentMessage): string | undefined {
+	const content = (message as { content?: unknown }).content;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	const textItem = content.find((item): item is TextContent => {
+		return typeof item === "object" && item !== null && (item as { type?: unknown }).type === "text";
+	});
+	return textItem?.text;
+}
+
+function cloneMessageWithText(message: AgentMessage, text: string): AgentMessage | undefined {
+	const clone = JSON.parse(JSON.stringify(message)) as AgentMessage;
+	const content = (clone as { content?: unknown }).content;
+	if (typeof content === "string") {
+		(clone as { content: string }).content = text;
+		return clone;
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	const textIndex = content.findIndex((item): item is TextContent => {
+		return typeof item === "object" && item !== null && (item as { type?: unknown }).type === "text";
+	});
+	if (textIndex === -1) {
+		return undefined;
+	}
+	(clone as { content: unknown[] }).content = content.map((item, index) => {
+		if (index !== textIndex) {
+			return item;
+		}
+		return { ...(item as TextContent), text };
+	});
+	return clone;
+}
+
+function truncateMessageToFit(message: AgentMessage, newerMessages: AgentMessage[]): AgentMessage | undefined {
+	const originalText = getMessageText(message);
+	if (originalText === undefined) {
+		return undefined;
+	}
+
+	let best: AgentMessage | undefined;
+	let low = 0;
+	let high = originalText.length;
+	while (low <= high) {
+		const mid = Math.floor((low + high) / 2);
+		const candidate = cloneMessageWithText(message, originalText.slice(0, mid));
+		if (candidate && jsonBytes([candidate, ...newerMessages]) <= MAX_KEPT_PRE_COMPACTION_BYTES) {
+			best = candidate;
+			low = mid + 1;
+		} else {
+			high = mid - 1;
+		}
+	}
+	return best;
+}
+
+function buildCappedKeptMessages(entries: SessionEntry[]): AgentMessage[] {
+	const keptMessages: AgentMessage[] = [];
+	for (const entry of [...entries].reverse()) {
+		const message = messageFromEntry(entry);
+		if (!message) {
+			continue;
+		}
+
+		const candidateMessages = [message, ...keptMessages];
+		if (jsonBytes(candidateMessages) <= MAX_KEPT_PRE_COMPACTION_BYTES) {
+			keptMessages.unshift(message);
+			continue;
+		}
+
+		const truncatedMessage = truncateMessageToFit(message, keptMessages);
+		if (truncatedMessage) {
+			keptMessages.unshift(truncatedMessage);
+		}
+		break;
+	}
+	return keptMessages;
+}
+
+function appendEntryMessage(messages: AgentMessage[], entry: SessionEntry): void {
+	const message = messageFromEntry(entry);
+	if (message) {
+		messages.push(message);
+	}
+}
+
+function collectKeptEntries(path: SessionEntry[], compaction: CompactionEntry, compactionIdx: number): SessionEntry[] {
+	const keptEntries: SessionEntry[] = [];
+	let foundFirstKept = false;
+	for (let i = 0; i < compactionIdx; i++) {
+		const entry = path[i];
+		if (entry.id === compaction.firstKeptEntryId) {
+			foundFirstKept = true;
+		}
+		if (foundFirstKept) {
+			keptEntries.push(entry);
+		}
+	}
+	return keptEntries;
+}
+
+function buildCompactedMessages(path: SessionEntry[], compaction: CompactionEntry): AgentMessage[] {
+	const messages: AgentMessage[] = [
+		createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp, {
+			durationMs: compaction.durationMs,
+		}),
+	];
+	const compactionIdx = path.findIndex((e) => e.type === "compaction" && e.id === compaction.id);
+	messages.push(...buildCappedKeptMessages(collectKeptEntries(path, compaction, compactionIdx)));
+	for (let i = compactionIdx + 1; i < path.length; i++) {
+		appendEntryMessage(messages, path[i]);
+	}
+	return messages;
+}
+
+function buildMessages(path: SessionEntry[], compaction: CompactionEntry | null): AgentMessage[] {
+	if (compaction) {
+		return buildCompactedMessages(path, compaction);
+	}
+	const messages: AgentMessage[] = [];
+	for (const entry of path) {
+		appendEntryMessage(messages, entry);
+	}
+	return messages;
+}
+
 export function buildSessionContext(
 	entries: SessionEntry[],
 	leafId?: string | null,
@@ -398,61 +547,7 @@ export function buildSessionContext(
 		}
 	}
 
-	// Build messages and collect corresponding entries
-	// When there's a compaction, we need to:
-	// 1. Emit summary first (entry = compaction)
-	// 2. Emit kept messages (from firstKeptEntryId up to compaction)
-	// 3. Emit messages after compaction
-	const messages: AgentMessage[] = [];
-
-	const appendMessage = (entry: SessionEntry) => {
-		if (entry.type === "message") {
-			messages.push(entry.message);
-		} else if (entry.type === "custom_message") {
-			messages.push(
-				createCustomMessage(entry.customType, entry.content, entry.display, entry.details, entry.timestamp),
-			);
-		} else if (entry.type === "branch_summary" && entry.summary) {
-			messages.push(createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp));
-		}
-	};
-
-	if (compaction) {
-		// Emit summary first
-		messages.push(
-			createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp, {
-				durationMs: compaction.durationMs,
-			}),
-		);
-
-		// Find compaction index in path
-		const compactionIdx = path.findIndex((e) => e.type === "compaction" && e.id === compaction.id);
-
-		// Emit kept messages (before compaction, starting from firstKeptEntryId)
-		let foundFirstKept = false;
-		for (let i = 0; i < compactionIdx; i++) {
-			const entry = path[i];
-			if (entry.id === compaction.firstKeptEntryId) {
-				foundFirstKept = true;
-			}
-			if (foundFirstKept) {
-				appendMessage(entry);
-			}
-		}
-
-		// Emit messages after compaction
-		for (let i = compactionIdx + 1; i < path.length; i++) {
-			const entry = path[i];
-			appendMessage(entry);
-		}
-	} else {
-		// No compaction - emit all messages, handle branch summaries and custom messages
-		for (const entry of path) {
-			appendMessage(entry);
-		}
-	}
-
-	return { messages, thinkingLevel, model };
+	return { messages: buildMessages(path, compaction), thinkingLevel, model };
 }
 
 /**
