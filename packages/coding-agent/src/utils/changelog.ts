@@ -11,6 +11,7 @@ export interface ChangelogEntry {
 const GITHUB_REPO = "earendil-works/pi";
 const CHANGELOG_LINK_BASE_PATH = "packages/coding-agent";
 const LEGACY_REPO_RE = /^https:\/\/github\.com\/(?:badlogic|earendil-works)\/pi-mono(?=\/|$)/;
+const LEGACY_AGENT_PACKAGE_PATH_RE = /\/packages\/agent(?=\/|$)/;
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 const INLINE_MARKDOWN_LINK_RE = /(!?\[[^\]\n]+\]\()([^\s)]+)((?:\s+[^)]*)?\))/g;
 
@@ -69,6 +70,10 @@ function isDirectoryTarget(originalPath: string, repositoryPath: string): boolea
 function normalizeChangelogLinkTarget(target: string, tag: string): string {
 	let canonicalTarget = target.replace(LEGACY_REPO_RE, `https://github.com/${GITHUB_REPO}`);
 	const repoUrl = `https://github.com/${GITHUB_REPO}`;
+
+	if (canonicalTarget.startsWith(`${repoUrl}/blob/`) || canonicalTarget.startsWith(`${repoUrl}/tree/`)) {
+		canonicalTarget = canonicalTarget.replace(LEGACY_AGENT_PACKAGE_PATH_RE, "/packages/agent-core");
+	}
 
 	for (const route of ["blob", "tree"]) {
 		for (const branch of ["main", "master"]) {

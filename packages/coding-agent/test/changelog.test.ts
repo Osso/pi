@@ -40,7 +40,7 @@ describe("normalizeChangelogLinks", () => {
 			[
 				"[#5167](https://github.com/earendil-works/pi/pull/5167)",
 				"[#4163](https://github.com/earendil-works/pi/issues/4163)",
-				"[Agent README](https://github.com/earendil-works/pi/blob/v0.79.0/packages/agent/README.md)",
+				"[Agent README](https://github.com/earendil-works/pi/blob/v0.79.0/packages/agent-core/README.md)",
 				"[External](https://example.com/docs)",
 				"[Local anchor](#settings)",
 			].join("\n"),
