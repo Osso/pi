@@ -39,6 +39,17 @@ function buildPlanPrompt(item: string): string {
 	return `${item}\n\n${RUN_PLAN_AGENT_INSTRUCTION}`;
 }
 
+function planFileEnvValue(plan: ActivePlan): string {
+	return basename(plan.file) === "PLAN.md" ? "1" : basename(plan.file);
+}
+
+function exportPlanEnvironment(plan: ActivePlan): void {
+	process.env.PLAN_FILE = planFileEnvValue(plan);
+	process.env.PLAN_PATH = plan.path;
+	process.env.PI_PLAN_FILE = basename(plan.file);
+	process.env.PI_PLAN_PATH = plan.path;
+}
+
 async function submitNextPlanItem(
 	plan: ActivePlan,
 	ctx: Pick<ExtensionContext, "ui">,
@@ -46,8 +57,7 @@ async function submitNextPlanItem(
 	options?: { followUp?: boolean },
 ): Promise<boolean> {
 	if (!existsSync(plan.path)) {
-		ctx.ui.notify(`Plan file not found: ${plan.file}`, "error");
-		return false;
+		throw new Error(`Plan file not found: ${plan.file}`);
 	}
 
 	const nextItem = await findNextPlanItem(plan.path);
@@ -70,13 +80,16 @@ async function runPlan(
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,
 ): Promise<ActivePlan | undefined> {
+	if (!ctx.isIdle()) {
+		throw new Error("/run-plan is blocked while a task is running");
+	}
+
 	const plan = resolvePlanFile(ctx.cwd, args);
 	if (!(await submitNextPlanItem(plan, ctx, pi))) {
 		return undefined;
 	}
 
-	process.env.PI_PLAN_FILE = basename(plan.file);
-	process.env.PI_PLAN_PATH = plan.path;
+	exportPlanEnvironment(plan);
 	pi.appendEntry("run-plan:active", {
 		file: basename(plan.file),
 		path: plan.path,

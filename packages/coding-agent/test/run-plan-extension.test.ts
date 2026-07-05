@@ -7,13 +7,14 @@ import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from ".
 
 type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
-function createRunPlanHarness(cwd: string) {
+function createRunPlanHarness(cwd: string, options: { idle?: boolean } = {}) {
 	let command: RegisteredRunPlanCommand | undefined;
 	const eventHandlers = new Map<string, (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void>();
 	const appendEntry = vi.fn();
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
 	const setEditorText = vi.fn();
+	const isIdle = vi.fn(() => options.idle ?? true);
 
 	const pi = {
 		appendEntry,
@@ -32,6 +33,7 @@ function createRunPlanHarness(cwd: string) {
 
 	const ctx = {
 		cwd,
+		isIdle,
 		ui: { notify, setEditorText },
 	} as unknown as ExtensionCommandContext;
 
@@ -81,6 +83,8 @@ describe("run-plan extension", () => {
 
 		await harness.runCommand("");
 
+		expect(process.env.PLAN_FILE).toBe("1");
+		expect(process.env.PLAN_PATH).toBe(join(cwd, "PLAN.md"));
 		expect(process.env.PI_PLAN_FILE).toBe("PLAN.md");
 		expect(process.env.PI_PLAN_PATH).toBe(join(cwd, "PLAN.md"));
 		expect(harness.appendEntry).toHaveBeenCalledWith("run-plan:active", {
@@ -121,21 +125,37 @@ describe("run-plan extension", () => {
 
 		await harness.runCommand("ALT.md");
 
+		expect(process.env.PLAN_FILE).toBe("ALT.md");
+		expect(process.env.PLAN_PATH).toBe(join(cwd, "ALT.md"));
 		expect(process.env.PI_PLAN_FILE).toBe("ALT.md");
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
 			"Alternate plan\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
 		);
 	});
 
-	it("notifies when the plan file is missing or complete", async () => {
+	it("throws when the plan file is missing", async () => {
+		const harness = createRunPlanHarness(cwd);
+
+		await expect(harness.runCommand("MISSING.md")).rejects.toThrow("Plan file not found: MISSING.md");
+		expect(harness.notify).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("notifies when the plan file is complete", async () => {
 		writeFileSync(join(cwd, "PLAN.md"), "- [x] Done\n");
 		const harness = createRunPlanHarness(cwd);
 
-		await harness.runCommand("MISSING.md");
 		await harness.runCommand("");
 
-		expect(harness.notify).toHaveBeenCalledWith("Plan file not found: MISSING.md", "error");
 		expect(harness.notify).toHaveBeenCalledWith("No unchecked items in PLAN.md", "info");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("blocks while a task is running", async () => {
+		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Implement run plan\n");
+		const harness = createRunPlanHarness(cwd, { idle: false });
+
+		await expect(harness.runCommand("")).rejects.toThrow("/run-plan is blocked while a task is running");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
