@@ -1,9 +1,12 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
+	fauxToolCall,
 	type Model,
 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
 import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
@@ -440,6 +443,61 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(harness.faux.state.callCount).toBe(1);
 		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "manual", willRetry: true });
+	});
+
+	it("continues after manual compaction starts from a running tool turn", async () => {
+		const sessionRef: { current?: Harness["session"] } = {};
+		const compactTool: AgentTool = {
+			name: "compact_now",
+			label: "Compact Now",
+			description: "Start compaction from inside a tool turn",
+			parameters: Type.Object({}),
+			async execute() {
+				const session = sessionRef.current;
+				if (!session) throw new Error("Session was not assigned");
+				session.extensionRunner.createContext().compact();
+				return { content: [{ type: "text", text: "started" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			tools: [compactTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "manual compacted from tool",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		sessionRef.current = harness.session;
+		harness.setResponses([
+			createAssistant(harness, { stopReason: "stop", totalTokens: 100 }),
+			fauxAssistantMessage(fauxToolCall("compact_now", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("continued after compact"),
+		]);
+
+		await harness.session.prompt("old request");
+		const resumed = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "agent_end" && getAssistantTexts(harness).includes("continued after compact")) {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+		await harness.session.prompt("compact and keep going");
+		await resumed;
+
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "manual", willRetry: true });
+		expect(harness.faux.state.callCount).toBe(3);
+		expect(getAssistantTexts(harness)).toContain("continued after compact");
 	});
 
 	it("does not continue after manual compaction when latest assistant completed", async () => {

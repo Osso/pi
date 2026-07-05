@@ -1076,18 +1076,22 @@ export class AgentSession {
 		return latestUserIndex !== -1 && latestCompletedAssistantIndex < latestUserIndex;
 	}
 
-	private _removeTrailingAbortedOrErrorAssistant(): void {
+	private _removeTrailingInterruptedAssistant(removeToolUseAssistant: boolean): void {
 		const messages = this.agent.state.messages;
 		const lastMessage = messages[messages.length - 1];
 		if (lastMessage?.role !== "assistant") return;
 		const assistant = lastMessage as AssistantMessage;
-		if (assistant.stopReason === "aborted" || assistant.stopReason === "error") {
+		if (
+			assistant.stopReason === "aborted" ||
+			assistant.stopReason === "error" ||
+			(removeToolUseAssistant && assistant.stopReason === "toolUse")
+		) {
 			this.agent.state.messages = messages.slice(0, -1);
 		}
 	}
 
-	private async _continueAfterManualCompaction(): Promise<void> {
-		this._removeTrailingAbortedOrErrorAssistant();
+	private async _continueAfterManualCompaction(removeToolUseAssistant: boolean): Promise<void> {
+		this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
 		try {
 			await this.agent.continue();
 			while (await this._handlePostAgentRun()) {
@@ -2346,6 +2350,7 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
+		const wasRunningAgentTurn = this.isStreaming;
 		this._disconnectFromAgent();
 		await this.abort();
 		const compactionAbortController = new AbortController();
@@ -2460,6 +2465,7 @@ export class AgentSession {
 				durationMs,
 				compactedResultTokens,
 			});
+			const willRetry = wasRunningAgentTurn || this._shouldContinueAfterManualCompaction(sessionContext.messages);
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -2472,7 +2478,7 @@ export class AgentSession {
 					compactionEntry: savedCompactionEntry,
 					fromExtension,
 					reason: "manual",
-					willRetry: false,
+					willRetry,
 				});
 			}
 
@@ -2488,7 +2494,6 @@ export class AgentSession {
 				source,
 				details,
 			};
-			const willRetry = this._shouldContinueAfterManualCompaction(sessionContext.messages);
 			this._emit({
 				type: "compaction_end",
 				reason: "manual",
@@ -2498,7 +2503,7 @@ export class AgentSession {
 			});
 			if (willRetry) {
 				this._reconnectToAgent();
-				await this._continueAfterManualCompaction();
+				await this._continueAfterManualCompaction(wasRunningAgentTurn);
 			}
 			return compactionResult;
 		} catch (error) {

@@ -172,6 +172,7 @@ async function runLoop(
 
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
+			throwIfAborted(signal);
 			if (!firstTurn) {
 				await emit({ type: "turn_start" });
 			} else {
@@ -216,6 +217,7 @@ async function runLoop(
 			}
 
 			await emit({ type: "turn_end", message, toolResults });
+			throwIfAborted(signal);
 
 			const nextTurnContext = {
 				message,
@@ -266,6 +268,12 @@ async function runLoop(
 	}
 
 	await emit({ type: "agent_end", messages: newMessages });
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+	if (signal?.aborted) {
+		throw new Error("Agent run aborted");
+	}
 }
 
 /**
