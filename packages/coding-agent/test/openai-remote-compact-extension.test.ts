@@ -9,6 +9,7 @@ import {
 	handleSessionBeforeCompact,
 	handleSessionCompactionSource,
 	isOpenAIResponsesModel,
+	limitOpenAICompactInput,
 	OPENAI_REMOTE_COMPACTION_SUMMARY,
 	type OpenAIRemoteCompactionDetails,
 	rewriteOpenAICompactionPayload,
@@ -133,7 +134,7 @@ describe("openai remote compact extension", () => {
 		]);
 	});
 
-	it("caps the /responses/compact input context to 400k serialized characters", () => {
+	it("caps the /responses/compact input context to the first 400k serialized characters", () => {
 		const tail = "tail that must not reach endpoint";
 		const messages: AgentMessage[] = [{ role: "user", content: `${"a".repeat(450_000)}${tail}`, timestamp: 1 }];
 
@@ -141,7 +142,126 @@ describe("openai remote compact extension", () => {
 
 		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
 		expect(JSON.stringify(payload.input)).not.toContain(tail);
+		expect(JSON.stringify(payload.input)).toContain(`"${"a".repeat(1000)}`);
 		expect(payload.input[0]).toMatchObject({ role: "user" });
+	});
+
+	it("preserves parallel tool call order when compact input is under cap", () => {
+		const input = [
+			{ type: "function_call", id: "item-1", call_id: "call-1", name: "read", arguments: "{}" },
+			{ type: "function_call", id: "item-2", call_id: "call-2", name: "read", arguments: "{}" },
+			{ type: "function_call_output", call_id: "call-1", output: "first" },
+			{ type: "function_call_output", call_id: "call-2", output: "second" },
+		];
+
+		expect(limitOpenAICompactInput(input)).toEqual(input);
+	});
+
+	it("preserves function call arguments exactly when compact input is capped", () => {
+		const toolArguments = { path: "large.txt", content: "keep arguments intact" };
+		const messages: AgentMessage[] = [
+			{ role: "user", content: `old ${"a".repeat(399_900)}`, timestamp: 1 },
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-1|item-1", name: "write", arguments: toolArguments }],
+				api: "openai-codex-responses",
+				provider: "openai-codex",
+				model: "gpt-5.5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: 2,
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call-1|item-1",
+				toolName: "write",
+				content: [{ type: "text", text: "wrote file" }],
+				isError: false,
+				timestamp: 3,
+			},
+		];
+
+		const payload = buildOpenAICompactPayload(createOpenAICodexResponsesModel(), messages, "system prompt", []);
+		const functionCall = payload.input.find((item) => item.type === "function_call");
+
+		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
+		expect(functionCall).toMatchObject({ arguments: JSON.stringify(toolArguments) });
+	});
+
+	it("truncates oversized text tool output while preserving its function call pair", () => {
+		const messages: AgentMessage[] = [
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-1|item-1", name: "read", arguments: { path: "large.txt" } }],
+				api: "openai-codex-responses",
+				provider: "openai-codex",
+				model: "gpt-5.5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: 1,
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call-1|item-1",
+				toolName: "read",
+				content: [{ type: "text", text: `head ${"x".repeat(450_000)} tail` }],
+				isError: false,
+				timestamp: 2,
+			},
+		];
+
+		const payload = buildOpenAICompactPayload(createOpenAICodexResponsesModel(), messages, "system prompt", []);
+		const output = payload.input.find((item) => item.type === "function_call_output");
+
+		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
+		expect(payload.input.some((item) => item.type === "function_call")).toBe(true);
+		expect(output).toMatchObject({ type: "function_call_output", call_id: "call-1" });
+		expect(typeof output?.output).toBe("string");
+		expect((output?.output as string).length).toBeGreaterThan(0);
+		expect((output?.output as string).length).toBeLessThan(450_000);
+	});
+
+	it("drops oversized images instead of truncating image data", () => {
+		const input = [
+			{
+				role: "user",
+				content: [
+					{ type: "input_image", detail: "auto", image_url: `data:image/png;base64,${"x".repeat(450_000)}` },
+					{ type: "input_text", text: "keep this text" },
+				],
+			},
+		];
+
+		const limited = limitOpenAICompactInput(input);
+
+		expect(limited).toEqual([{ role: "user", content: [{ type: "input_text", text: "keep this text" }] }]);
+	});
+
+	it("keeps older context before truncating the first chunk that overflows", () => {
+		const input = [
+			{ role: "user", content: [{ type: "input_text", text: `old ${"a".repeat(399_900)}` }] },
+			{ role: "user", content: [{ type: "input_text", text: "newest text must remain" }] },
+		];
+
+		const limited = limitOpenAICompactInput(input);
+		const serialized = JSON.stringify(limited);
+
+		expect(serialized.length).toBeLessThanOrEqual(400_000);
+		expect(serialized).toContain("newest text must remain");
 	});
 
 	it("drops function calls that have no matching tool output from compact payloads", () => {

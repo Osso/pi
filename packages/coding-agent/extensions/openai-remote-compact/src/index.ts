@@ -316,39 +316,126 @@ function convertAgentMessagesToOpenAIResponseItems(
 	});
 }
 
-function limitOpenAICompactInput(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
-	const limitedItems: OpenAIResponseItem[] = [];
-	for (const item of items) {
-		if (serializedOpenAIInputChars([...limitedItems, item]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
-			limitedItems.push(item);
+type OpenAIInputChunk = OpenAIResponseItem[];
+
+export function limitOpenAICompactInput(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
+	if (serializedOpenAIInputChars(items) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) return items;
+
+	const limitedChunks: OpenAIInputChunk[] = [];
+	const chunks = groupOpenAIToolBatches(items);
+	for (let index = chunks.length - 1; index >= 0; index--) {
+		const chunk = chunks[index];
+		if (!chunk) continue;
+		const newerItems = limitedChunks.flat();
+		if (serializedOpenAIInputChars([...chunk, ...newerItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+			limitedChunks.unshift(chunk);
 			continue;
 		}
 
-		const truncatedItem = truncateOpenAIItemToFit(limitedItems, item);
-		if (truncatedItem) limitedItems.push(truncatedItem);
-		break;
+		const reducedChunk = reduceOpenAIChunkToFit(newerItems, chunk);
+		if (reducedChunk) limitedChunks.unshift(reducedChunk);
 	}
-	return limitedItems;
+	return limitedChunks.flat();
+}
+
+function groupOpenAIToolBatches(items: OpenAIResponseItem[]): OpenAIInputChunk[] {
+	const chunks: OpenAIInputChunk[] = [];
+	let index = 0;
+	while (index < items.length) {
+		const item = items[index];
+		if (!item) {
+			index++;
+			continue;
+		}
+		if (!isFunctionCallItem(item)) {
+			chunks.push([item]);
+			index++;
+			continue;
+		}
+
+		const batchEndIndex = findToolBatchEndIndex(items, index);
+		chunks.push(items.slice(index, batchEndIndex + 1));
+		index = batchEndIndex + 1;
+	}
+	return chunks;
+}
+
+function findToolBatchEndIndex(items: OpenAIResponseItem[], startIndex: number): number {
+	const pendingCallIds = new Set<string>();
+	let lastFunctionCallIndex = startIndex;
+	for (let index = startIndex; index < items.length; index++) {
+		const item = items[index];
+		if (!item) continue;
+		if (isFunctionCallItem(item)) {
+			pendingCallIds.add(item.call_id);
+			lastFunctionCallIndex = index;
+			continue;
+		}
+		if (isFunctionCallOutputItem(item)) {
+			pendingCallIds.delete(item.call_id);
+			if (pendingCallIds.size === 0) return index;
+		}
+		if (index > lastFunctionCallIndex && pendingCallIds.size === 0) return lastFunctionCallIndex;
+	}
+	return lastFunctionCallIndex;
 }
 
 function serializedOpenAIInputChars(items: OpenAIResponseItem[]): number {
 	return JSON.stringify(items).length;
 }
 
-function truncateOpenAIItemToFit(
-	prefix: OpenAIResponseItem[],
-	item: OpenAIResponseItem,
-): OpenAIResponseItem | undefined {
+function reduceOpenAIChunkToFit(
+	newerItems: OpenAIResponseItem[],
+	chunk: OpenAIInputChunk,
+): OpenAIInputChunk | undefined {
+	const withoutImages = dropImagePartsFromChunk(chunk);
+	if (withoutImages.length === 0) return undefined;
+	if (serializedOpenAIInputChars([...withoutImages, ...newerItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+		return withoutImages;
+	}
+	return truncateChunkTextToFit(newerItems, withoutImages);
+}
+
+function dropImagePartsFromChunk(chunk: OpenAIInputChunk): OpenAIInputChunk {
+	return chunk.flatMap((item) => {
+		const itemWithoutImages = dropImagePartsFromItem(item);
+		return itemWithoutImages ? [itemWithoutImages] : [];
+	});
+}
+
+function dropImagePartsFromItem(item: OpenAIResponseItem): OpenAIResponseItem | undefined {
+	if (isAtomicOpenAIItem(item)) return item;
+	const content = Array.isArray(item.content) ? item.content.filter((part) => !isImagePart(part)) : undefined;
+	if (content) return content.length > 0 ? { ...item, content } : undefined;
+
+	const output = Array.isArray(item.output) ? item.output.filter((part) => !isImagePart(part)) : undefined;
+	if (output) return output.length > 0 ? { ...item, output } : undefined;
+
+	return item;
+}
+
+function isAtomicOpenAIItem(item: OpenAIResponseItem): boolean {
+	return item.type === "function_call" || item.type === "compaction" || item.type === "compaction_summary";
+}
+
+function isImagePart(value: unknown): boolean {
+	return isRecord(value) && value.type === "input_image";
+}
+
+function truncateChunkTextToFit(
+	newerItems: OpenAIResponseItem[],
+	chunk: OpenAIInputChunk,
+): OpenAIInputChunk | undefined {
+	const textChars = countReducibleTextChars(chunk);
 	let low = 0;
-	let high = countStringChars(item);
-	let best: OpenAIResponseItem | undefined;
+	let high = textChars;
+	let best: OpenAIInputChunk | undefined;
 
 	while (low <= high) {
 		const mid = Math.floor((low + high) / 2);
-		const candidate = truncateStringsToBudget(item, { remaining: mid });
-		if (!isRecord(candidate)) return undefined;
-
-		if (serializedOpenAIInputChars([...prefix, candidate]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+		const candidate = truncateReducibleText(chunk, { remaining: mid });
+		if (!Array.isArray(candidate) || !candidate.every(isRecord)) return undefined;
+		if (serializedOpenAIInputChars([...candidate, ...newerItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
 			best = candidate;
 			low = mid + 1;
 		} else {
@@ -356,28 +443,34 @@ function truncateOpenAIItemToFit(
 		}
 	}
 
-	return best;
+	return best && countReducibleTextChars(best) > 0 ? best : undefined;
 }
 
-function countStringChars(value: unknown): number {
-	if (typeof value === "string") return value.length;
-	if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + countStringChars(item), 0);
-	if (!isRecord(value)) return 0;
-	return Object.values(value).reduce<number>((sum, item) => sum + countStringChars(item), 0);
+function countReducibleTextChars(value: unknown): number {
+	if (isOpenAITextPart(value)) return value.text.length;
+	if (isStringToolOutput(value)) return value.output.length;
+	if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + countReducibleTextChars(item), 0);
+	if (!isRecord(value) || isAtomicOpenAIItem(value)) return 0;
+	return Object.values(value).reduce<number>((sum, item) => sum + countReducibleTextChars(item), 0);
 }
 
-function truncateStringsToBudget(value: unknown, budget: { remaining: number }): unknown {
-	if (typeof value === "string") {
-		const keptChars = Math.min(value.length, budget.remaining);
+function truncateReducibleText(value: unknown, budget: { remaining: number }): unknown {
+	if (isOpenAITextPart(value)) {
+		const keptChars = Math.min(value.text.length, budget.remaining);
 		budget.remaining -= keptChars;
-		return value.slice(0, keptChars);
+		return { ...value, text: value.text.slice(0, keptChars) };
 	}
-	if (Array.isArray(value)) return value.map((item) => truncateStringsToBudget(item, budget));
-	if (!isRecord(value)) return value;
+	if (isStringToolOutput(value)) {
+		const keptChars = Math.min(value.output.length, budget.remaining);
+		budget.remaining -= keptChars;
+		return { ...value, output: value.output.slice(0, keptChars) };
+	}
+	if (Array.isArray(value)) return value.map((item) => truncateReducibleText(item, budget));
+	if (!isRecord(value) || isAtomicOpenAIItem(value)) return value;
 
 	const truncated: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(value)) {
-		truncated[key] = truncateStringsToBudget(item, budget);
+		truncated[key] = truncateReducibleText(item, budget);
 	}
 	return truncated;
 }
@@ -480,6 +573,18 @@ function outputText(text: string): OpenAITextPart {
 
 function isInputTextPart(value: unknown): value is { type: "input_text"; text: string } {
 	return isRecord(value) && value.type === "input_text" && typeof value.text === "string";
+}
+
+function isOpenAITextPart(value: unknown): value is OpenAITextPart {
+	return (
+		isRecord(value) &&
+		(value.type === "input_text" || value.type === "output_text") &&
+		typeof value.text === "string"
+	);
+}
+
+function isStringToolOutput(value: unknown): value is OpenAIResponseItem & { output: string } {
+	return isRecord(value) && value.type === "function_call_output" && typeof value.output === "string";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
