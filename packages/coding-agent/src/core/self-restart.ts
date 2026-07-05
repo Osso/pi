@@ -87,6 +87,18 @@ export async function restartCurrentProcess(
 	throw new Error("process.exit returned after spawning restart process");
 }
 
+const BUN_VIRTUAL_ENTRYPOINT_PREFIXES = ["/$bunfs/root/", "/~BUN/root/", "/%7EBUN/root/"];
+
+function isBunVirtualEntrypoint(path: string | undefined): boolean {
+	return path !== undefined && BUN_VIRTUAL_ENTRYPOINT_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+function getSelfRestartArgs(execArgv: readonly string[], argv: readonly string[]): string[] {
+	const firstRealArgIndex = argv.findIndex((arg, index) => index > 0 && !isBunVirtualEntrypoint(arg));
+	const scriptArgs = firstRealArgIndex === -1 ? [] : argv.slice(firstRealArgIndex);
+	return [...execArgv, ...scriptArgs];
+}
+
 export function spawnSelfRestart(
 	request: SelfRestartRequest,
 	dependencies: SelfRestartDependencies = {},
@@ -94,7 +106,7 @@ export function spawnSelfRestart(
 	const spawnProcess = dependencies.spawn ?? spawn;
 	const argv = dependencies.argv ?? process.argv;
 	const execArgv = dependencies.execArgv ?? process.execArgv;
-	const child = spawnProcess(process.execPath, [...execArgv, ...argv.slice(1)], {
+	const child = spawnProcess(process.execPath, getSelfRestartArgs(execArgv, argv), {
 		cwd: process.cwd(),
 		env: {
 			...process.env,

@@ -31,6 +31,7 @@
 
 ### Fixed
 
+- Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.
 - Fixed threshold auto-compaction to resume a `"length"`-truncated turn once instead of leaving the session idle with unfinished work.
 - Fixed permission approval prompts to send non-expiring desktop notifications without exposing raw tool input.
 - Fixed child agents waiting for input to create persistent parent notifications and non-expiring desktop notifications for Quickshell-compatible notification daemons.

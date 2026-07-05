@@ -112,6 +112,28 @@ describe("self restart request", () => {
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_OLD_PID]).toBe(process.pid.toString());
 	});
 
+	it("does not pass Bun virtual entrypoint paths back to compiled binaries", async () => {
+		const child = new EventEmitter() as EventEmitter & { unref: () => void };
+		let spawnArgs: readonly string[] | undefined;
+		child.unref = () => {};
+
+		const exitPromise = spawnSelfRestart(
+			{ sessionFile: "/tmp/session.jsonl" },
+			{
+				argv: ["/usr/bin/pi", "/$bunfs/root/pi", "/$bunfs/root/pi"],
+				execArgv: [],
+				spawn: (_command, args) => {
+					spawnArgs = args;
+					return child;
+				},
+			},
+		);
+		child.emit("exit", 0);
+
+		await expect(exitPromise).resolves.toBe(0);
+		expect(spawnArgs).toEqual([]);
+	});
+
 	it("rejects when the restarted child fails to spawn", async () => {
 		const child = new EventEmitter() as EventEmitter & { unref: () => void };
 		const spawnError = new Error("spawn failed");
