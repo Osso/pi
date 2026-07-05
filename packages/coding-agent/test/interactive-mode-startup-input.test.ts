@@ -25,6 +25,7 @@ type SubmitContext = {
 	flushPendingBashComponents: () => void;
 	onInputCallback?: (text: string) => void;
 	pendingUserInputs: string[];
+	showSettingsSelector: () => void;
 };
 
 type InputContext = {
@@ -66,6 +67,7 @@ function createSubmitContext(): SubmitContext {
 		},
 		flushPendingBashComponents: vi.fn(),
 		pendingUserInputs: [],
+		showSettingsSelector: vi.fn(),
 	};
 }
 
@@ -91,6 +93,17 @@ describe("InteractiveMode startup input", () => {
 		expect(context.pendingUserInputs).toEqual(["early prompt"]);
 		expect(context.flushPendingBashComponents).toHaveBeenCalledTimes(1);
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("early prompt");
+	});
+
+	it("records built-in slash commands in prompt history", async () => {
+		const context = createSubmitContext();
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" /settings ");
+
+		expect(context.editor.addToHistory).toHaveBeenCalledWith("/settings");
+		expect(context.showSettingsSelector).toHaveBeenCalledTimes(1);
+		expect(context.editor.setText).toHaveBeenCalledWith("");
 	});
 
 	it("returns queued startup input before installing a new input callback", async () => {

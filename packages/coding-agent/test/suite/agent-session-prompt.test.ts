@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { InputEvent } from "../../src/core/extensions/index.ts";
 import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
+import { getControlDbPath, readPromptHistory, recordPromptHistoryEntry } from "../../src/core/session-control-db.ts";
 import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
 import { createTestResourceLoader } from "../utilities.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
@@ -246,6 +247,27 @@ describe("AgentSession prompt characterization", () => {
 		expect(commandRuns).toEqual(["hello world"]);
 		expect(harness.session.messages).toEqual([]);
 		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(readPromptHistory(getControlDbPath(harness.tempDir))).toEqual(["/testcmd hello world"]);
+	});
+
+	it("does not duplicate a handled extension command already recorded by the editor", async () => {
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerCommand("testcmd", {
+						description: "Test command",
+						handler: async () => {},
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		const controlDbPath = getControlDbPath(harness.tempDir);
+		recordPromptHistoryEntry(controlDbPath, "/testcmd hello world");
+
+		await harness.session.prompt("/testcmd hello world");
+
+		expect(readPromptHistory(controlDbPath)).toEqual(["/testcmd hello world"]);
 	});
 
 	it("sendUserMessage while idle triggers a turn", async () => {

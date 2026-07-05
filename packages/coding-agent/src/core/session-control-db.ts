@@ -721,12 +721,30 @@ function readPromptHistoryRows(db: SqliteDatabase, limit: number): string[] {
 }
 
 function insertPromptHistoryEntry(db: SqliteDatabase, content: string): void {
+	const trimmedContent = content.trim();
+	if (!trimmedContent) return;
+	if (readLatestPromptHistoryEntry(db) === trimmedContent) return;
+
 	db.prepare(
 		`
 		INSERT INTO prompt_history (content, created_at)
 		VALUES (?, ?)
 		`,
-	).run(content, new Date().toISOString());
+	).run(trimmedContent, new Date().toISOString());
+}
+
+function readLatestPromptHistoryEntry(db: SqliteDatabase): string | undefined {
+	const row = db
+		.prepare(
+			`
+			SELECT content
+			FROM prompt_history
+			ORDER BY id DESC
+			LIMIT 1
+			`,
+		)
+		.get() as PromptHistoryRow | undefined;
+	return row?.content;
 }
 
 export function setNamedSession(controlDbPath: string, sessionPath: string, name: string): void {

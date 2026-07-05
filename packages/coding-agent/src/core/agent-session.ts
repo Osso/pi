@@ -106,6 +106,7 @@ import {
 	failRuntimeMailboxMessage,
 	getControlDbPath,
 	markRuntimeMailboxMessageDelivered,
+	recordPromptHistoryEntry,
 	type RuntimeMailboxMessage,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
@@ -1557,6 +1558,7 @@ export class AgentSession {
 			if (expandPromptTemplates && text.startsWith("/")) {
 				const handled = await this._tryExecuteExtensionCommand(text);
 				if (handled) {
+					this._recordHandledSlashCommandHistory(text);
 					// Extension command executed, no prompt to send
 					preflightResult?.(true);
 					return;
@@ -1696,6 +1698,17 @@ export class AgentSession {
 			await this._runAgentPrompt(messages);
 		} finally {
 			this._completeRuntimeMailboxSteeringTurn(this.messages);
+		}
+	}
+
+	private _recordHandledSlashCommandHistory(text: string): void {
+		try {
+			recordPromptHistoryEntry(getControlDbPath(this._agentDir), text);
+		} catch (error) {
+			console.error(
+				"Failed to persist prompt history for handled slash command:",
+				error instanceof Error ? error.message : String(error),
+			);
 		}
 	}
 
