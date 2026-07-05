@@ -207,8 +207,8 @@ export function transformMessages<TApi extends Api>(
 		} else if (msg.role === "toolResult") {
 			if (pendingToolCallIds.has(msg.toolCallId)) {
 				existingToolResultIds.add(msg.toolCallId);
-				result.push(msg);
 			}
+			result.push(msg);
 		} else if (msg.role === "user") {
 			// User message interrupts tool flow - insert synthetic results for orphaned calls
 			insertSyntheticToolResults();
