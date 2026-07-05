@@ -12,8 +12,15 @@ import {
 import { stripAnsi } from "../../../utils/ansi.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
+import { formatElapsedDuration } from "./elapsed-time.ts";
 import { keyHint, keyText } from "./keybinding-hints.ts";
 import { truncateToVisualLines } from "./visual-truncate.ts";
+
+const BASH_TIMER_INTERVAL_MS = 1000;
+
+export interface BashExecutionOptions {
+	showElapsed?: boolean;
+}
 
 // Preview line limit when not expanded (matches tool execution behavior)
 const PREVIEW_LINES = 20;
@@ -28,10 +35,17 @@ export class BashExecutionComponent extends Container {
 	private fullOutputPath?: string;
 	private expanded = false;
 	private contentContainer: Container;
+	private startedAt = Date.now();
+	private finishedAt: number | undefined;
+	private timerInterval: ReturnType<typeof setInterval> | undefined;
+	private ui: TUI;
+	private showElapsed: boolean;
 
-	constructor(command: string, ui: TUI, excludeFromContext = false) {
+	constructor(command: string, ui: TUI, excludeFromContext = false, options: BashExecutionOptions = {}) {
 		super();
 		this.command = command;
+		this.ui = ui;
+		this.showElapsed = options.showElapsed ?? true;
 
 		// Use dim border for excluded-from-context commands (!! prefix)
 		const colorKey = excludeFromContext ? "dim" : "bashMode";
@@ -59,6 +73,9 @@ export class BashExecutionComponent extends Container {
 			`Running... (${keyText("tui.select.cancel")} to cancel)`, // Plain text for loader
 		);
 		this.contentContainer.addChild(this.loader);
+		if (this.showElapsed) {
+			this.startTimer();
+		}
 
 		// Bottom border
 		this.addChild(new DynamicBorder(borderColor));
@@ -109,11 +126,43 @@ export class BashExecutionComponent extends Container {
 				: "complete";
 		this.truncationResult = truncationResult;
 		this.fullOutputPath = fullOutputPath;
+		this.finishedAt = Date.now();
 
 		// Stop loader
 		this.loader.stop();
+		this.stopTimer();
 
 		this.updateDisplay();
+	}
+
+	private startTimer(): void {
+		if (this.timerInterval) {
+			return;
+		}
+
+		this.timerInterval = setInterval(() => {
+			this.updateDisplay();
+			this.ui.requestRender();
+		}, BASH_TIMER_INTERVAL_MS);
+	}
+
+	private stopTimer(): void {
+		if (!this.timerInterval) {
+			return;
+		}
+
+		clearInterval(this.timerInterval);
+		this.timerInterval = undefined;
+	}
+
+	private formatTimer(): string {
+		const endTime = this.finishedAt ?? Date.now();
+		return formatElapsedDuration(endTime - this.startedAt);
+	}
+
+	dispose(): void {
+		this.loader.stop();
+		this.stopTimer();
 	}
 
 	private updateDisplay(): void {
@@ -169,9 +218,11 @@ export class BashExecutionComponent extends Container {
 
 		// Loader or status
 		if (this.status === "running") {
+			const runningPrefix = this.showElapsed ? `Running ${this.formatTimer()}...` : "Running...";
+			this.loader.setMessage(`${runningPrefix} (${keyText("tui.select.cancel")} to cancel)`);
 			this.contentContainer.addChild(this.loader);
 		} else {
-			const statusParts: string[] = [];
+			const statusParts: string[] = this.showElapsed ? [theme.fg("muted", `(elapsed ${this.formatTimer()})`)] : [];
 
 			// Show how many lines are hidden (collapsed preview)
 			if (hiddenLineCount > 0) {

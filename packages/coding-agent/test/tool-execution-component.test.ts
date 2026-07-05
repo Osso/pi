@@ -1,13 +1,15 @@
 import { join, resolve } from "node:path";
 import { Text, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
 import { createLsToolDefinition } from "../src/core/tools/ls.ts";
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
+import { BashExecutionComponent } from "../src/modes/interactive/components/bash-execution.ts";
+import { formatElapsedDuration } from "../src/modes/interactive/components/elapsed-time.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -34,6 +36,57 @@ function createFakeTui(): TUI {
 describe("ToolExecutionComponent parity", () => {
 	beforeAll(() => {
 		initTheme("dark");
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	test("formats elapsed durations compactly", () => {
+		expect(formatElapsedDuration(999)).toBe("0s");
+		expect(formatElapsedDuration(65_000)).toBe("1m 05s");
+		expect(formatElapsedDuration(3_660_000)).toBe("1h 01m");
+	});
+
+	test("shows live and final elapsed time for tool executions", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-timer",
+			{},
+			{},
+			createBaseToolDefinition(),
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		component.markExecutionStarted();
+		vi.setSystemTime(2_100);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 2s");
+
+		vi.setSystemTime(3_250);
+		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
+		vi.setSystemTime(10_000);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 3s");
+	});
+
+	test("shows live and final elapsed time for interactive bash executions", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const component = new BashExecutionComponent("sleep 10", createFakeTui());
+
+		vi.setSystemTime(1_200);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Running 1s...");
+
+		vi.setSystemTime(2_300);
+		component.setComplete(0, false);
+		vi.setSystemTime(9_000);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("elapsed 2s");
 	});
 
 	test("stacks custom call and result renderers like the old implementation", () => {
@@ -97,6 +150,31 @@ describe("ToolExecutionComponent parity", () => {
 		);
 
 		expect(component.render(120)).toEqual([]);
+
+		component.markExecutionStarted();
+		expect(component.render(120)).toEqual([]);
+
+		component.updateResult(
+			{
+				content: [],
+				details: {},
+				isError: false,
+			},
+			false,
+		);
+		expect(component.render(120)).toEqual([]);
+	});
+
+	test("can suppress elapsed time for restored bash executions", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const component = new BashExecutionComponent("echo restored", createFakeTui(), false, { showElapsed: false });
+
+		vi.setSystemTime(5_000);
+		component.setComplete(0, false);
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).not.toContain("elapsed");
+		expect(rendered).not.toContain("Running 5s");
 	});
 
 	test("uses built-in rendering for built-in overrides without custom renderers", () => {

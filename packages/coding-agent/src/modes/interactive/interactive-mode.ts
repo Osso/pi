@@ -1758,13 +1758,14 @@ export class InteractiveMode {
 	}
 
 	private renderCurrentSessionState(): void {
+		this.disposeActiveBashComponents();
 		this.loadedResourcesContainer.clear();
 		this.chatContainer.clear();
 		this.pendingMessagesContainer.clear();
 		this.compactionQueuedMessages = [];
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
-		this.pendingTools.clear();
+		this.clearPendingToolComponents();
 		this.renderInitialMessages();
 	}
 
@@ -3059,6 +3060,22 @@ export class InteractiveMode {
 		this.streamingRenderTimeout = undefined;
 	}
 
+	private clearPendingToolComponents(): void {
+		for (const component of this.pendingTools.values()) {
+			component.dispose();
+		}
+		this.pendingTools.clear();
+	}
+
+	private disposeActiveBashComponents(): void {
+		this.bashComponent?.dispose();
+		this.bashComponent = undefined;
+		for (const component of this.pendingBashComponents) {
+			component.dispose();
+		}
+		this.pendingBashComponents = [];
+	}
+
 	private ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent {
 		const existingComponent = this.pendingTools.get(toolCallId);
 		if (existingComponent) {
@@ -3093,7 +3110,7 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
-				this.pendingTools.clear();
+				this.clearPendingToolComponents();
 				this.executingToolNames.clear();
 				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
 				if (this.settingsManager.getShowTerminalProgress()) {
@@ -3195,7 +3212,7 @@ export class InteractiveMode {
 								isError: true,
 							});
 						}
-						this.pendingTools.clear();
+						this.clearPendingToolComponents();
 					} else {
 						for (const content of this.streamingMessage.content) {
 							if (content.type === "toolCall") {
@@ -3260,7 +3277,7 @@ export class InteractiveMode {
 					this.streamingComponent = undefined;
 					this.streamingMessage = undefined;
 				}
-				this.pendingTools.clear();
+				this.clearPendingToolComponents();
 
 				await this.checkShutdownRequested();
 
@@ -3454,7 +3471,9 @@ export class InteractiveMode {
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
 		switch (message.role) {
 			case "bashExecution": {
-				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext);
+				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext, {
+					showElapsed: false,
+				});
 				if (message.output) {
 					component.appendOutput(message.output);
 				}
@@ -3555,7 +3574,7 @@ export class InteractiveMode {
 		sessionContext: SessionContext,
 		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
-		this.pendingTools.clear();
+		this.clearPendingToolComponents();
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 		const toolRenderCwd = options.sourceCwd ?? this.sessionManager.getCwd();
 
@@ -6158,7 +6177,7 @@ export class InteractiveMode {
 			const result = eventResult.result;
 
 			// Create UI component for display
-			this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
+			this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext, { showElapsed: false });
 			if (this.session.isStreaming) {
 				this.pendingMessagesContainer.addChild(this.bashComponent);
 				this.pendingBashComponents.push(this.bashComponent);
@@ -6260,6 +6279,8 @@ export class InteractiveMode {
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
+		this.disposeActiveBashComponents();
+		this.clearPendingToolComponents();
 		this.cancelStreamingUpdateRender();
 		if (this.isInitialized) {
 			this.ui.stop();
