@@ -112,6 +112,7 @@ if [[ "\$NO_ENV" == "true" ]]; then
 fi
 
 exec env \
+	-u PI_SELF_RESTART_REQUEST \
 	-u PI_SELF_RESTART_SESSION \
 	-u PI_SELF_RESTART_PROMPT \
 	-u PI_SELF_RESTART_OLD_PID \

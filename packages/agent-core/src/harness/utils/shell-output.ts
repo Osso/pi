@@ -119,13 +119,16 @@ export async function executeShellWithCapture(
 		if (!writeResult.ok) return err(writeResult.error);
 		if (captureError) return err(captureError);
 
+		const truncated = truncationResult.truncated || fullOutputRequested;
+		const output = truncationResult.truncated ? truncationResult.content : tailOutput;
+
 		if (!result.ok) {
 			if (result.error.code === "aborted" || options?.abortSignal?.aborted) {
 				return ok({
-					output: truncationResult.truncated ? truncationResult.content : tailOutput,
+					output,
 					exitCode: undefined,
 					cancelled: true,
-					truncated: truncationResult.truncated,
+					truncated,
 					fullOutputPath,
 				});
 			}
@@ -133,10 +136,10 @@ export async function executeShellWithCapture(
 		}
 		const cancelled = options?.abortSignal?.aborted ?? false;
 		return ok({
-			output: truncationResult.truncated ? truncationResult.content : tailOutput,
+			output,
 			exitCode: cancelled ? undefined : result.value.exitCode,
 			cancelled,
-			truncated: truncationResult.truncated,
+			truncated,
 			fullOutputPath,
 		});
 	} catch (error) {

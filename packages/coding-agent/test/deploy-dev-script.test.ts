@@ -38,6 +38,7 @@ describe("deploy-dev.sh", () => {
 		expect(wrapper).toContain(`"PI_EXECUTABLE_NAME=pi-dev"`);
 		expect(wrapper).not.toContain(`PI_RESTART_EXIT_CODE`);
 		expect(wrapper).not.toContain(`PI_RESTART_REQUEST_FILE`);
+		expect(wrapper).toContain(`-u PI_SELF_RESTART_REQUEST`);
 		expect(wrapper).toContain(`-u PI_SELF_RESTART_SESSION`);
 		expect(wrapper).toContain(`-u PI_SELF_RESTART_PROMPT`);
 		expect(wrapper).toContain(`-u PI_SELF_RESTART_OLD_PID`);
@@ -54,6 +55,7 @@ describe("deploy-dev.sh", () => {
 		expect(existsSync(join(fixture.repoDir, "pi-test-invoked.log"))).toBe(false);
 		expect(readFileSync(join(fixture.repoDir, "tsx-invocations.log"), "utf8")).toBe(`cwd=${fixture.runDir}
 PI_EXECUTABLE_NAME=pi-dev
+PI_SELF_RESTART_REQUEST=unset
 PI_SELF_RESTART_SESSION=unset
 PI_SELF_RESTART_PROMPT=unset
 PI_SELF_RESTART_OLD_PID=unset
@@ -139,6 +141,7 @@ set -euo pipefail
 {
   printf 'cwd=%s\\n' "$PWD"
   printf 'PI_EXECUTABLE_NAME=%s\\n' "\${PI_EXECUTABLE_NAME-unset}"
+  printf 'PI_SELF_RESTART_REQUEST=%s\\n' "\${PI_SELF_RESTART_REQUEST-unset}"
   printf 'PI_SELF_RESTART_SESSION=%s\\n' "\${PI_SELF_RESTART_SESSION-unset}"
   printf 'PI_SELF_RESTART_PROMPT=%s\\n' "\${PI_SELF_RESTART_PROMPT-unset}"
   printf 'PI_SELF_RESTART_OLD_PID=%s\\n' "\${PI_SELF_RESTART_OLD_PID-unset}"

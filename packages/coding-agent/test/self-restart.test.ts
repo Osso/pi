@@ -6,6 +6,7 @@ import {
 	applySelfRestartRequest,
 	ENV_SELF_RESTART_OLD_PID,
 	ENV_SELF_RESTART_PROMPT,
+	ENV_SELF_RESTART_REQUEST,
 	ENV_SELF_RESTART_SESSION,
 	restartCurrentProcess,
 	spawnSelfRestart,
@@ -27,10 +28,24 @@ function createArgs(): Args {
 }
 
 describe("self restart request", () => {
+	it("ignores leaked restart session env without a restart request marker", () => {
+		const args = createArgs();
+
+		applySelfRestartRequest(args, {
+			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
+			[ENV_SELF_RESTART_PROMPT]: "Restarted.",
+		});
+
+		expect(args.session).toBeUndefined();
+		expect(args.messages).toEqual(["old prompt"]);
+		expect(args.fileArgs).toEqual(["file.txt"]);
+	});
+
 	it("resumes the requested session without injecting a prompt when none is provided", () => {
 		const args = createArgs();
 
 		applySelfRestartRequest(args, {
+			[ENV_SELF_RESTART_REQUEST]: "1",
 			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
 		});
 
@@ -43,6 +58,7 @@ describe("self restart request", () => {
 		const args = createArgs();
 
 		applySelfRestartRequest(args, {
+			[ENV_SELF_RESTART_REQUEST]: "1",
 			[ENV_SELF_RESTART_SESSION]: "/tmp/session.jsonl",
 			[ENV_SELF_RESTART_PROMPT]: "Restarted.",
 		});
@@ -90,6 +106,7 @@ describe("self restart request", () => {
 		]);
 		expect(spawnOptions?.cwd).toBe(process.cwd());
 		expect(spawnOptions?.stdio).toBe("inherit");
+		expect(spawnOptions?.env?.[ENV_SELF_RESTART_REQUEST]).toBe("1");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_SESSION]).toBe("/tmp/session.jsonl");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_PROMPT]).toBe("Restarted.");
 		expect(spawnOptions?.env?.[ENV_SELF_RESTART_OLD_PID]).toBe(process.pid.toString());

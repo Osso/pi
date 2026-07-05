@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import type { Args } from "../cli/args.ts";
 import type { SessionManager } from "./session-manager.ts";
 
+export const ENV_SELF_RESTART_REQUEST = "PI_SELF_RESTART_REQUEST";
 export const ENV_SELF_RESTART_SESSION = "PI_SELF_RESTART_SESSION";
 export const ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 export const ENV_SELF_RESTART_OLD_PID = "PI_SELF_RESTART_OLD_PID";
@@ -38,6 +39,9 @@ export type ProcessRestarter = (
 ) => Promise<never>;
 
 export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = process.env): void {
+	if (env[ENV_SELF_RESTART_REQUEST] !== "1") {
+		return;
+	}
 	const sessionFile = env[ENV_SELF_RESTART_SESSION];
 	if (!sessionFile) {
 		return;
@@ -94,6 +98,7 @@ export function spawnSelfRestart(
 		cwd: process.cwd(),
 		env: {
 			...process.env,
+			[ENV_SELF_RESTART_REQUEST]: "1",
 			[ENV_SELF_RESTART_SESSION]: request.sessionFile,
 			[ENV_SELF_RESTART_PROMPT]: request.prompt ?? "",
 			[ENV_SELF_RESTART_OLD_PID]: request.oldPid?.toString() ?? process.pid.toString(),
