@@ -11,6 +11,7 @@ The web search tool exposes OpenAI Responses hosted web search as an explicit ca
 - [x] Register a callable `web_search` tool instead of a CLI flag.
 - [x] Keep legacy web-search CLI modes out of the extension API surface.
 - [x] Accept a required `query` string parameter.
+- [x] Appear as active in formatted tool inventory when the first-party extension is loaded.
 
 ### Execution
 
@@ -40,12 +41,13 @@ The web search tool exposes OpenAI Responses hosted web search as an explicit ca
 
 - `packages/coding-agent/test/codex-web-search-extension.test.ts`
 - `packages/coding-agent/test/pyrun-extension.test.ts`
+- `packages/coding-agent/test/tool-inventory-session.test.ts`
 - `/syncthing/Sync/Projects/claude/pyrun/tests/test_runtime.py`
 - `/syncthing/Sync/Projects/claude/pyrun/tests/test_jsonl.py`
 
 ## Known gaps (current cycle)
 
-- [ ] Add an integration-style tool inventory assertion that `web_search` appears in `pi tools` when first-party extensions are loaded.
+None.
 
 ## Out of scope
 
