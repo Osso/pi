@@ -163,6 +163,34 @@ describe("bash tool background detach", () => {
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "auto-detached process completion");
 	});
 
+	it("does not auto-detach bash when no background job store is available", async () => {
+		const cwd = await createTempDir();
+		const scriptPath = join(cwd, "no-store-auto-detach.mjs");
+		writeFileSync(
+			scriptPath,
+			[
+				"console.log('before-no-store-auto-detach');",
+				"setTimeout(() => console.log('after-no-store-auto-detach'), 80);",
+				"setTimeout(() => process.exit(0), 110);",
+			].join("\n"),
+		);
+		const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 40 });
+		const tool = createBashToolDefinition(cwd, { detachRegistry });
+
+		const result = await tool.execute(
+			"tool-bash-no-store-auto-detach",
+			{ command: `${quotePath(process.execPath)} ${quotePath(scriptPath)}` },
+			undefined,
+			undefined,
+			{} as never,
+		);
+		const resultText = textFrom(result);
+		expect(resultText).toContain("before-no-store-auto-detach");
+		expect(resultText).toContain("after-no-store-auto-detach");
+		expect(resultText).not.toContain("Command moved to background");
+		expect(result.details?.backgroundJobId).toBeUndefined();
+	});
+
 	it("keeps bash timeout active after detaching", async () => {
 		const cwd = await createTempDir();
 		const scriptPath = join(cwd, "timeout-running.mjs");

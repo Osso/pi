@@ -318,7 +318,7 @@ function createDetachOptions(
 		return undefined;
 	}
 	if (!backgroundJobs) {
-		return { signal: detachController.signal };
+		return undefined;
 	}
 	return {
 		adopt: (process) => {
@@ -551,7 +551,9 @@ export function createBashToolDefinition(
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
 			const output = new OutputAccumulator({ tempFilePrefix: "pi-bash" });
-			const detachController = configuredDetach ? undefined : detachRegistry ? new AbortController() : undefined;
+			const canCreateBackgroundJob = backgroundJobs !== undefined;
+			const detachController =
+				configuredDetach || !canCreateBackgroundJob || !detachRegistry ? undefined : new AbortController();
 			let unregisterDetach: (() => void) | undefined;
 			const detach = configuredDetach ?? createDetachOptions(detachController, backgroundJobs);
 			let acceptingOutput = true;
