@@ -262,12 +262,15 @@ export { createSyntheticSourceInfo } from "./core/source-info.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
+	type AskQuestionsToolDetails,
+	type AskQuestionsToolInput,
 	type BashOperations,
 	type BashSpawnContext,
 	type BashSpawnHook,
 	type BashToolDetails,
 	type BashToolInput,
 	type BashToolOptions,
+	createAskQuestionsToolDefinition,
 	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,

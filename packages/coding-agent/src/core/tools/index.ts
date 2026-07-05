@@ -1,4 +1,9 @@
 export {
+	type AskQuestionsToolDetails,
+	type AskQuestionsToolInput,
+	createAskQuestionsToolDefinition,
+} from "./ask-questions.ts";
+export {
 	type BashOperations,
 	type BashSpawnContext,
 	type BashSpawnHook,
@@ -75,6 +80,7 @@ export {
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
+import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
@@ -87,7 +93,7 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "resume_session";
+export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "resume_session" | "ask_questions";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -97,6 +103,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"find",
 	"ls",
 	"resume_session",
+	"ask_questions",
 ]);
 export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"read",
@@ -107,6 +114,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"find",
 	"ls",
 	"resume_session",
+	"ask_questions",
 ];
 
 export interface ToolsOptions {
@@ -137,6 +145,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createLsToolDefinition(cwd, options?.ls);
 		case "resume_session":
 			return createResumeSessionToolDefinition();
+		case "ask_questions":
+			return createAskQuestionsToolDefinition();
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -160,6 +170,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createLsTool(cwd, options?.ls);
 		case "resume_session":
 			return wrapToolDefinition(createResumeSessionToolDefinition());
+		case "ask_questions":
+			return wrapToolDefinition(createAskQuestionsToolDefinition());
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -193,6 +205,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
 		resume_session: createResumeSessionToolDefinition(),
+		ask_questions: createAskQuestionsToolDefinition(),
 	};
 }
 
@@ -224,5 +237,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
+		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
 	};
 }

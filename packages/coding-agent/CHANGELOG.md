@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a built-in `ask_questions` tool for structured clarifying questions in interactive sessions.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
@@ -34,7 +35,7 @@
 
 ### Fixed
 
-- Fixed `web_search` to abort stalled OpenAI hosted search requests with a clear timeout error while preserving user cancellation.
+- Fixed `web_search` to request live OpenAI hosted search results and abort stalled requests with a clear timeout error while preserving user cancellation.
 - Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.
 - Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.
 - Fixed threshold auto-compaction to resume a `"length"`-truncated turn once instead of leaving the session idle with unfinished work.

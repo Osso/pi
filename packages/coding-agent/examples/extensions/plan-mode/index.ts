@@ -19,7 +19,7 @@ import { Key } from "@earendil-works/pi-tui";
 import { extractTodoItems, isSafeCommand, markCompletedSteps, type TodoItem } from "./utils.ts";
 
 // Tools
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
+const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "ask_questions"];
 const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write"];
 const PLAN_MODE_DISABLED_TOOLS = new Set<string>(["edit", "write"]);
 const PLAN_MANAGED_TOOLS = new Set<string>([...PLAN_MODE_TOOLS, ...NORMAL_MODE_TOOLS]);
@@ -211,7 +211,7 @@ Restrictions:
 - Other currently active tools remain available
 - Bash is restricted to an allowlist of read-only commands
 
-Ask clarifying questions using the questionnaire tool.
+Ask clarifying questions using the ask_questions tool.
 Use brave-search skill via bash for web research.
 
 Create a detailed numbered plan under a "Plan:" header:

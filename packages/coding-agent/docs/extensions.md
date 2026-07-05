@@ -2650,7 +2650,7 @@ All examples in [examples/extensions/](../examples/extensions/).
 | **Tools** |||
 | `hello.ts` | Minimal tool registration | `registerTool` |
 | `question.ts` | Tool with user interaction | `registerTool`, `ui.select` |
-| `questionnaire.ts` | Multi-step wizard tool | `registerTool`, `ui.custom` |
+| `questionnaire.ts` | Legacy multi-step wizard example; use built-in `ask_questions` for normal clarifying questions | `registerTool`, `ui.custom` |
 | `todo.ts` | Stateful tool with persistence | `registerTool`, `appendEntry`, `renderResult`, session events |
 | `dynamic-tools.ts` | Register tools after startup and during commands | `registerTool`, `session_start`, `registerCommand` |
 | `structured-output.ts` | Final structured-output tool with `terminate: true` | `registerTool`, terminating tool results |
