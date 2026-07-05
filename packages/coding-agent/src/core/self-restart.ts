@@ -42,6 +42,10 @@ export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = p
 	if (env[ENV_SELF_RESTART_REQUEST] !== "1") {
 		return;
 	}
+	const oldPid = env[ENV_SELF_RESTART_OLD_PID];
+	if (oldPid && oldPid !== process.ppid.toString()) {
+		return;
+	}
 	const sessionFile = env[ENV_SELF_RESTART_SESSION];
 	if (!sessionFile) {
 		return;
