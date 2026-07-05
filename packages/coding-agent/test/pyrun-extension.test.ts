@@ -1146,6 +1146,8 @@ describe("pyrun extension", () => {
 		expect(job.lifecycle).toBe("running");
 		expect(logPath ? existsSync(logPath) : false).toBe(true);
 		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain("Pyrun evaluation is still running");
+		const [runningArtifact] = store.listArtifacts(job.id);
+		expect(runningArtifact).toMatchObject({ kind: "log", path: logPath, title: "Pyrun output" });
 
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
 	});
@@ -1188,9 +1190,13 @@ describe("pyrun extension", () => {
 
 		const [job] = store.listAgents();
 		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
+		const [runningArtifact] = store.listArtifacts(job.id);
+		expect(runningArtifact).toMatchObject({ kind: "log", title: "Pyrun output" });
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
 		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation completed");
 		const [artifact] = store.listArtifacts(job.id);
+		expect(store.listArtifacts(job.id)).toHaveLength(1);
+		expect(artifact.id).toBe(runningArtifact.id);
 		expect(artifact).toMatchObject({ kind: "log", title: "Pyrun output" });
 		expect(artifact.path && existsSync(artifact.path)).toBe(true);
 		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").toContain("detached-done");

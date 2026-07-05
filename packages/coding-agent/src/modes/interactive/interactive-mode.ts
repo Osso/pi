@@ -123,6 +123,9 @@ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-current-directory.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
+
+const MAX_AGENT_LOG_VIEW_BYTES = 32 * 1024;
+
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
 import { ArminComponent } from "./components/armin.ts";
@@ -2726,10 +2729,47 @@ export class InteractiveMode {
 		return this.renderSelectedAgentView();
 	}
 
+	private findReadableAgentLogPath(agent: AgentSnapshot): string | undefined {
+		const logArtifact = this.multiAgentStore?.listArtifacts(agent.id).find((artifact) => {
+			if (artifact.kind !== "log" || !artifact.path) {
+				return false;
+			}
+			return fs.existsSync(artifact.path);
+		});
+		return logArtifact?.path;
+	}
+
+	private readAgentLogPreview(logPath: string): string {
+		try {
+			return this.readAgentLogPreviewUnchecked(logPath);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return `Unable to read log: ${message}`;
+		}
+	}
+
+	private readAgentLogPreviewUnchecked(logPath: string): string {
+		const logSize = fs.statSync(logPath).size;
+		if (logSize <= MAX_AGENT_LOG_VIEW_BYTES) {
+			return fs.readFileSync(logPath, "utf8");
+		}
+
+		const startOffset = logSize - MAX_AGENT_LOG_VIEW_BYTES;
+		const buffer = Buffer.alloc(MAX_AGENT_LOG_VIEW_BYTES);
+		const file = fs.openSync(logPath, "r");
+		try {
+			fs.readSync(file, buffer, 0, MAX_AGENT_LOG_VIEW_BYTES, startOffset);
+		} finally {
+			fs.closeSync(file);
+		}
+		return `[Showing last ${MAX_AGENT_LOG_VIEW_BYTES} bytes]\n${buffer.toString("utf8")}`;
+	}
+
 	private renderLiveAgentPlaceholder(agent: AgentSnapshot, transcriptPath: string | undefined): void {
 		const transcriptStatus = transcriptPath
 			? `Transcript file has not been written yet: ${transcriptPath}`
 			: "Transcript file has not been assigned yet.";
+		const logPath = this.findReadableAgentLogPath(agent);
 		this.chatContainer.clear();
 		this.chatContainer.addChild(
 			new Text(theme.bold(theme.fg("accent", `Viewing live agent: ${agent.displayName}`)), 1, 0),
@@ -2737,6 +2777,11 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("dim", `${agent.id} ${agent.lifecycle}`), 1, 0));
 		this.chatContainer.addChild(new Text(theme.fg("dim", transcriptStatus), 1, 0));
+		if (logPath) {
+			this.chatContainer.addChild(new Spacer(1));
+			this.chatContainer.addChild(new Text(theme.fg("dim", `Log: ${logPath}`), 1, 0));
+			this.chatContainer.addChild(new Text(this.readAgentLogPreview(logPath), 1, 0));
+		}
 	}
 
 	private renderSelectedAgentView(): boolean {

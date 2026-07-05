@@ -25,6 +25,7 @@ export interface PyrunExtensionOptions {
 }
 
 interface PyrunBackgroundJob {
+	artifactId: string;
 	id: string;
 	logPath: string;
 }
@@ -333,16 +334,17 @@ function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams
 		lastActivity: { description: params.code, toolName: "pyrun_eval" },
 	});
 	const agent = running.ok ? running.agent : spawned.agent;
+	const artifact = store.recordArtifact({ agentId: agent.id, kind: "log", path: logPath, title: "Pyrun output" });
 	return {
+		artifactId: artifact.id,
 		id: agent.id,
 		logPath,
 	};
 }
 
-function recordPyrunLogArtifact(store: MultiAgentStore, job: PyrunBackgroundJob, output: string): string {
+function updatePyrunLogArtifact(job: PyrunBackgroundJob, output: string): string {
 	writeFileSync(job.logPath, output, "utf8");
-	const artifact = store.recordArtifact({ agentId: job.id, kind: "log", path: job.logPath, title: "Pyrun output" });
-	return artifact.id;
+	return job.artifactId;
 }
 
 function transitionPyrunJobFailure(store: MultiAgentStore, job: PyrunBackgroundJob, message: string): void {
@@ -354,7 +356,7 @@ function transitionPyrunJobFailure(store: MultiAgentStore, job: PyrunBackgroundJ
 function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, result: AgentToolResult<unknown>): void {
 	let artifactId: string;
 	try {
-		artifactId = recordPyrunLogArtifact(store, job, textFromToolResult(result));
+		artifactId = updatePyrunLogArtifact(job, textFromToolResult(result));
 	} catch (error) {
 		transitionPyrunJobFailure(store, job, error instanceof Error ? error.message : String(error));
 		return;
@@ -372,7 +374,7 @@ function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJo
 function failPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, error: unknown): void {
 	const message = error instanceof Error ? error.message : String(error);
 	try {
-		recordPyrunLogArtifact(store, job, message);
+		updatePyrunLogArtifact(job, message);
 	} catch (logError) {
 		transitionPyrunJobFailure(store, job, logError instanceof Error ? logError.message : String(logError));
 		return;

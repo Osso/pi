@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -158,6 +158,9 @@ interface InteractiveModeKeyHandlerInternals {
 	showAgentSwitcher(this: unknown): void;
 	openChildAgentView(this: unknown, agent: unknown): boolean;
 	renderInitialMessages(this: unknown): void;
+	findReadableAgentLogPath(this: unknown, agent: unknown): string | undefined;
+	readAgentLogPreview(this: unknown, logPath: string): string;
+	readAgentLogPreviewUnchecked(this: unknown, logPath: string): string;
 	renderLiveAgentPlaceholder(this: unknown, agent: unknown, transcriptPath: string | undefined): void;
 	renderSelectedAgentView(this: unknown): boolean;
 	renderSessionContext(
@@ -204,6 +207,9 @@ type TranscriptSwitchFixture = {
 		renderInitialMessages: typeof interactiveModeKeyHandlers.renderInitialMessages;
 		renderProjectTrustWarningIfNeeded: () => void;
 		openChildAgentView: typeof interactiveModeKeyHandlers.openChildAgentView;
+		findReadableAgentLogPath: typeof interactiveModeKeyHandlers.findReadableAgentLogPath;
+		readAgentLogPreview: typeof interactiveModeKeyHandlers.readAgentLogPreview;
+		readAgentLogPreviewUnchecked: typeof interactiveModeKeyHandlers.readAgentLogPreviewUnchecked;
 		renderLiveAgentPlaceholder: typeof interactiveModeKeyHandlers.renderLiveAgentPlaceholder;
 		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
 		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
@@ -260,6 +266,9 @@ function createTranscriptSwitchFixture(options: {
 		renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
 		renderProjectTrustWarningIfNeeded: () => {},
 		openChildAgentView: interactiveModeKeyHandlers.openChildAgentView,
+		findReadableAgentLogPath: interactiveModeKeyHandlers.findReadableAgentLogPath,
+		readAgentLogPreview: interactiveModeKeyHandlers.readAgentLogPreview,
+		readAgentLogPreviewUnchecked: interactiveModeKeyHandlers.readAgentLogPreviewUnchecked,
 		renderLiveAgentPlaceholder: interactiveModeKeyHandlers.renderLiveAgentPlaceholder,
 		renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
 		restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
@@ -733,6 +742,33 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
+	test("selecting an active child without a transcript path renders its log artifact", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: false });
+		const tmp = mkdtempSync(path.join(tmpdir(), "pi-agent-log-view-"));
+		try {
+			const logPath = path.join(tmp, "agent.log");
+			writeFileSync(logPath, "live log output", "utf8");
+			fixture.store.recordArtifact({
+				agentId: fixture.childAgentId,
+				kind: "log",
+				path: logPath,
+				title: "Pyrun output",
+			});
+
+			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
+
+			expect(selected).toBe(true);
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("Viewing live agent: Scout");
+			expect(output).toContain("Log: ");
+			expect(output).toContain("agent.log");
+			expect(output).toContain("live log output");
+		} finally {
+			rmSync(tmp, { force: true, recursive: true });
+			fixture.cleanup();
+		}
+	});
+
 	test("selecting an active child with an unwritten transcript file renders a live placeholder", () => {
 		const tmp = mkdtempSync(path.join(tmpdir(), "pi-transcript-rollback-"));
 		try {
@@ -778,6 +814,9 @@ describe("InteractiveMode key handlers", () => {
 				pendingTools: new Map<string, unknown>(),
 				renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
 				renderProjectTrustWarningIfNeeded: () => {},
+				findReadableAgentLogPath: interactiveModeKeyHandlers.findReadableAgentLogPath,
+				readAgentLogPreview: interactiveModeKeyHandlers.readAgentLogPreview,
+				readAgentLogPreviewUnchecked: interactiveModeKeyHandlers.readAgentLogPreviewUnchecked,
 				renderLiveAgentPlaceholder: interactiveModeKeyHandlers.renderLiveAgentPlaceholder,
 				renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
 				renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
