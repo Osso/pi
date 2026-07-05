@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const packages = [
 	{ directory: "packages/ai", name: "@earendil-works/pi-ai" },
 	{ directory: "packages/tui", name: "@earendil-works/pi-tui" },
-	{ directory: "packages/agent", name: "@earendil-works/pi-agent-core" },
+	{ directory: "packages/agent-core", name: "@earendil-works/pi-agent-core" },
 	{ directory: "packages/coding-agent", name: "@earendil-works/pi-coding-agent" },
 ];
 

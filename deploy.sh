@@ -91,8 +91,8 @@ npm --prefix packages/tui run clean
 npm --prefix packages/tui run build
 npm --prefix packages/ai run clean
 npm --prefix packages/ai exec -- tsgo -p packages/ai/tsconfig.build.json
-npm --prefix packages/agent run clean
-npm --prefix packages/agent run build
+npm --prefix packages/agent-core run clean
+npm --prefix packages/agent-core run build
 npm --prefix packages/coding-agent run clean
 npm --prefix packages/coding-agent run build
 

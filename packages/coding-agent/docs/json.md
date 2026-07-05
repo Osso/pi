@@ -22,7 +22,7 @@ type AgentSessionEvent =
 
 `queue_update` emits the full pending steering and follow-up queues whenever they change. `compaction_start` and `compaction_end` cover both manual and automatic compaction.
 
-Base events from [`AgentEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/agent/src/types.ts#L179):
+Base events from [`AgentEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/agent-core/src/types.ts#L179):
 
 ```typescript
 type AgentEvent =

@@ -4,7 +4,7 @@
 
 ## Goal
 
-Make `packages/ai` and `packages/agent`/harness observable without depending on OpenTelemetry, Sentry, or any APM vendor.
+Make `packages/ai` and `packages/agent-core`/harness observable without depending on OpenTelemetry, Sentry, or any APM vendor.
 
 Pi should emit stable, structured lifecycle events. External listeners can convert those events into OTel spans, Sentry spans, logs, metrics, or custom telemetry.
 
@@ -191,7 +191,7 @@ pi.session.write
 
 ## Minimal instrumentation points
 
-### packages/agent
+### packages/agent-core
 
 Wrap:
 
@@ -355,7 +355,7 @@ Then:
 packages/ai
   emits pi.ai.* events
 
-packages/agent
+packages/agent-core
   emits pi.agent.* / pi.session.* events
 ```
 

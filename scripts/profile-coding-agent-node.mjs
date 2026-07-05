@@ -279,7 +279,7 @@ async function waitForExit(child, errorPrefix) {
 }
 
 async function runBuild() {
-	process.stdout.write("Building packages/tui, packages/ai, packages/agent, and packages/coding-agent...\n");
+	process.stdout.write("Building packages/tui, packages/ai, packages/agent-core, and packages/coding-agent...\n");
 	const startedAt = performance.now();
 	const child = spawn(
 		"npm",
@@ -291,7 +291,7 @@ async function runBuild() {
 			"--workspace",
 			"packages/ai",
 			"--workspace",
-			"packages/agent",
+			"packages/agent-core",
 			"--workspace",
 			"packages/coding-agent",
 		],

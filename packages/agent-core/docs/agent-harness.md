@@ -221,8 +221,8 @@ Harness tests should stay focused by area instead of growing one large catch-all
 
 Current structure:
 
-- `packages/agent/test/harness/agent-harness.test.ts`: core lifecycle and public API behavior.
-- `packages/agent/test/harness/agent-harness-stream.test.ts`: stream options and provider hook semantics.
+- `packages/agent-core/test/harness/agent-harness.test.ts`: core lifecycle and public API behavior.
+- `packages/agent-core/test/harness/agent-harness-stream.test.ts`: stream options and provider hook semantics.
 
 Preferred future structure:
 
