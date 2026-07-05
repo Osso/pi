@@ -49,6 +49,7 @@ import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
+import type { MultiAgentStore } from "../multi-agent-store.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -61,6 +62,7 @@ import type { SettingsManager } from "../settings-manager.ts";
 import type { SlashCommandInfo } from "../slash-commands.ts";
 import type { SourceInfo } from "../source-info.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import type { ToolDetachRegistry } from "../tool-detach-registry.ts";
 import type { BashOperations } from "../tools/bash.ts";
 import type { EditToolDetails } from "../tools/edit.ts";
 import type {
@@ -331,6 +333,10 @@ export interface ExtensionContext {
 	multiAgentParentSessionId?: string;
 	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
 	multiAgentRequiresAgentId?: boolean;
+	/** Shared multi-agent store for background tool jobs, when available. */
+	multiAgentStore?: MultiAgentStore;
+	/** Shared detach registry for in-flight tools that can move to background. */
+	toolDetachRegistry?: ToolDetachRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
 	/** Whether the agent is idle (not streaming) */
@@ -1645,6 +1651,8 @@ export interface ExtensionContextActions {
 	getMultiAgentAgentId?: () => string | undefined;
 	getMultiAgentParentSessionId?: () => string | undefined;
 	getMultiAgentRequiresAgentId?: () => boolean;
+	getMultiAgentStore?: () => MultiAgentStore | undefined;
+	getToolDetachRegistry?: () => ToolDetachRegistry | undefined;
 	compact: (options?: CompactOptions) => void;
 	getSystemPrompt: () => string;
 	getSystemPromptOptions?: () => BuildSystemPromptOptions;

@@ -124,7 +124,8 @@ import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
-import { type BashOperations, BashToolDetachRegistry, createLocalBashOperations } from "./tools/bash.ts";
+import { ToolDetachRegistry } from "./tool-detach-registry.ts";
+import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
@@ -464,7 +465,7 @@ export class AgentSession {
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
-	private readonly _bashToolDetachRegistry = new BashToolDetachRegistry();
+	private readonly _toolDetachRegistry = new ToolDetachRegistry();
 	private _pendingBashMessages: BashExecutionMessage[] = [];
 
 	// Extension system
@@ -3134,6 +3135,8 @@ export class AgentSession {
 				getMultiAgentAgentId: () => this._multiAgentAgentId,
 				getMultiAgentParentSessionId: () => this._multiAgentParentSessionId,
 				getMultiAgentRequiresAgentId: () => this._multiAgentRequiresAgentId,
+				getMultiAgentStore: () => this._multiAgentStore,
+				getToolDetachRegistry: () => this._toolDetachRegistry,
 				compact: (options) => {
 					void (async () => {
 						try {
@@ -3274,7 +3277,7 @@ export class AgentSession {
 					bash: {
 						backgroundJobs: this._multiAgentStore ? { store: this._multiAgentStore } : undefined,
 						commandPrefix: shellCommandPrefix,
-						detachRegistry: this._bashToolDetachRegistry,
+						detachRegistry: this._toolDetachRegistry,
 						shellPath,
 					},
 				});
@@ -3512,8 +3515,12 @@ export class AgentSession {
 		this._bashAbortController?.abort();
 	}
 
+	detachRunningTool(): boolean {
+		return this._toolDetachRegistry.detachRunning();
+	}
+
 	detachBashTool(): boolean {
-		return this._bashToolDetachRegistry.detachRunning();
+		return this.detachRunningTool();
 	}
 
 	/** Whether a bash command is currently running */
@@ -3521,8 +3528,12 @@ export class AgentSession {
 		return this._bashAbortController !== undefined;
 	}
 
+	get hasDetachableTool(): boolean {
+		return this._toolDetachRegistry.hasRunning();
+	}
+
 	get hasDetachableBashTool(): boolean {
-		return this._bashToolDetachRegistry.hasRunning();
+		return this.hasDetachableTool;
 	}
 
 	/** Whether there are pending bash messages waiting to be flushed */

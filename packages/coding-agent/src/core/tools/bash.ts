@@ -20,6 +20,7 @@ import {
 } from "../../utils/shell.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
+import { type ToolDetachHandle, ToolDetachRegistry } from "../tool-detach-registry.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -79,32 +80,8 @@ export interface BashBackgroundJobsOptions {
 	store: MultiAgentStore;
 }
 
-export interface BashToolDetachHandle {
-	detach(): boolean;
-}
-
-export class BashToolDetachRegistry {
-	private readonly handles = new Set<BashToolDetachHandle>();
-
-	register(handle: BashToolDetachHandle): () => void {
-		this.handles.add(handle);
-		return () => this.handles.delete(handle);
-	}
-
-	detachRunning(): boolean {
-		const handles = [...this.handles].reverse();
-		for (const handle of handles) {
-			if (handle.detach()) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	hasRunning(): boolean {
-		return this.handles.size > 0;
-	}
-}
+export type BashToolDetachHandle = ToolDetachHandle;
+export class BashToolDetachRegistry extends ToolDetachRegistry {}
 
 /**
  * Pluggable operations for the bash tool.

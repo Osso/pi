@@ -30,6 +30,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Hostrun (`hostrun_eval`) | [`hostrun.md`](hostrun.md) | **BUILD** | Stateful QuickJS host tool ported as a Pi extension; approval-gated; optional stdio MCP server. |
 | Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox/artifact extensions, account-governed budgets/permissions. |
+| Tool backgrounding | [`tool-backgrounding.md`](tool-backgrounding.md) | **BUILD** (done) | Shared detach registry with bash and Pyrun background job tracking. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
 | PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |

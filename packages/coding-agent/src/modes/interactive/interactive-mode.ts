@@ -746,7 +746,7 @@ export class InteractiveMode {
 				rawKeyHint(`${keyText("app.model.cycleForward")}/${keyText("app.model.cycleBackward")}`, "to cycle models"),
 				hint("app.model.select", "to select model"),
 				hint("app.tools.expand", "to expand tools"),
-				hint("app.tool.background", "to background bash tools"),
+				hint("app.tool.background", "to background tools"),
 				hint("app.thinking.toggle", "to expand thinking"),
 				hint("app.editor.external", "for external editor"),
 				rawKeyHint("/", "for commands"),
@@ -2791,7 +2791,7 @@ export class InteractiveMode {
 		this.ui.onDebug = () => this.handleDebugCommand();
 		this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
-		this.defaultEditor.onAction("app.tool.background", () => this.detachRunningBashTool());
+		this.defaultEditor.onAction("app.tool.background", () => this.detachRunningTool());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
 		this.defaultEditor.onAction("app.editor.external", () => this.openExternalEditor());
 		this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
@@ -2818,15 +2818,15 @@ export class InteractiveMode {
 		};
 	}
 
-	private detachRunningBashTool(): boolean {
-		if (!this.session.hasDetachableBashTool) {
+	private detachRunningTool(): boolean {
+		if (!this.session.hasDetachableTool) {
 			return false;
 		}
-		const detached = this.session.detachBashTool();
+		const detached = this.session.detachRunningTool();
 		if (!detached) {
 			return false;
 		}
-		this.showStatus("Detached bash command to background job");
+		this.showStatus("Detached tool to background job");
 		return true;
 	}
 

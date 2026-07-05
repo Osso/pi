@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -9,6 +9,7 @@ import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/
 import { resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -37,6 +38,7 @@ interface PyrunPiCapabilitySnapshot {
 }
 
 interface PyrunEvalDetails {
+	backgroundJobId?: string;
 	approval?: {
 		args: unknown;
 		id: string;
@@ -160,6 +162,18 @@ function createFakeTui(): TUI {
 	} as unknown as TUI;
 }
 
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(condition: () => boolean, label: string): Promise<void> {
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		if (condition()) return;
+		await delay(10);
+	}
+	throw new Error(`Timed out waiting for ${label}`);
+}
+
 const localPyrunCheckout = "/syncthing/Sync/Projects/claude/pyrun";
 const localPyrunJsonl = join(localPyrunCheckout, "pyrun", "jsonl.py");
 const hasLocalPyrunRunner = existsSync(localPyrunJsonl);
@@ -238,6 +252,16 @@ async function resultFor(request) {
     process.stdout.write(JSON.stringify({ type: "status", message: "starting long task" }) + "\\n");
     process.stdout.write(JSON.stringify({ type: "progress", message: "halfway done" }) + "\\n");
     return { type: "completed", executed: request.code, value: "done" };
+  }
+  if (request.code === "run.detachable()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "detachable started" }) + "\\n");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    return { type: "completed", executed: request.code, value: "detached-done" };
+  }
+  if (request.code === "run.detached_error()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "detachable error started" }) + "\\n");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    return { type: "error", error: "detached boom" };
   }
   if (request.code === "run.never()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "still running" }) + "\\n");
@@ -1011,6 +1035,50 @@ describe("pyrun extension", () => {
 		expect(result.isError).toBe(true);
 		expect(result.details.error).toBe("pi.sessions.resume is not available in this session mode");
 		expect(harness.switchedSessions).toEqual([]);
+	});
+
+	it("detaches a running Pyrun evaluation into the multi-agent job store", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const resultPromise = harness.evaluate({ code: "run.detachable()" }, (update) => updates.push(update));
+		await waitFor(() => updates.some((update) => update.details.type === "status"), "Pyrun progress before detach");
+		expect(detachRegistry.detachRunning()).toBe(true);
+
+		const result = await resultPromise;
+		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(resultText).toContain("Pyrun evaluation moved to background as job");
+		expect(result.details?.backgroundJobId).toBeDefined();
+
+		const [job] = store.listAgents();
+		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
+		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation completed");
+		const [artifact] = store.listArtifacts(job.id);
+		expect(artifact).toMatchObject({ kind: "log", title: "Pyrun output" });
+		expect(artifact.path && existsSync(artifact.path)).toBe(true);
+		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").toContain("Result: detached-done");
+	});
+
+	it("marks detached Pyrun evaluation errors as failed jobs", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const resultPromise = harness.evaluate({ code: "run.detached_error()" }, (update) => updates.push(update));
+		await waitFor(
+			() => updates.some((update) => update.details.type === "status"),
+			"Pyrun error progress before detach",
+		);
+		expect(detachRegistry.detachRunning()).toBe(true);
+		await resultPromise;
+
+		const [job] = store.listAgents();
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "failed", "detached Pyrun failure");
+		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation failed");
 	});
 
 	it("aborts an in-progress Pyrun evaluation when the agent signal is aborted", async () => {

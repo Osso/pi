@@ -95,7 +95,7 @@ export const KEYBINDINGS = {
 	},
 	"app.model.select": { defaultKeys: "ctrl+l", description: "Open model selector" },
 	"app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
-	"app.tool.background": { defaultKeys: "ctrl+b", description: "Detach running bash tool to background" },
+	"app.tool.background": { defaultKeys: "ctrl+b", description: "Detach running tool to background" },
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",
 		description: "Toggle thinking blocks",

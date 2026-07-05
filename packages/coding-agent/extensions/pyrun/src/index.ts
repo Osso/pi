@@ -1,15 +1,49 @@
-import { existsSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
+import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import { resolvePath } from "../../../src/utils/paths.ts";
-import { createPyrunEvalExecutor, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
+import { createPyrunEvalExecutor, type PyrunEvalParams, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
 import { PyrunRunnerClient } from "./runner.ts";
 
+export interface PyrunBackgroundJobsOptions {
+	store: MultiAgentStore;
+}
+
 export interface PyrunExtensionOptions {
+	backgroundJobs?: PyrunBackgroundJobsOptions;
+	detachRegistry?: ToolDetachRegistry;
 	piRequestHandlers?: PyrunPiRequestDispatcher[];
+}
+
+interface PyrunBackgroundJob {
+	id: string;
+	logPath: string;
+}
+
+type PyrunEvaluate = ReturnType<typeof createPyrunEvalExecutor>;
+
+interface DetachablePyrunEvaluationOptions {
+	detachRegistry: ToolDetachRegistry;
+	evaluate: PyrunEvaluate;
+	ctx: ExtensionContext;
+	onUpdate?: (partialResult: AgentToolResult<unknown>) => void;
+	params: PyrunEvalParams;
+	signal: AbortSignal | undefined;
+	store: MultiAgentStore;
+}
+
+interface MirroredAbortController {
+	controller: AbortController;
+	cleanup: () => void;
 }
 
 const PYRUN_PROMPT_SNIPPET = "Evaluate Python through the canonical Pyrun JSONL runtime adapter";
@@ -54,6 +88,14 @@ function readStringArg(args: unknown, key: string): string | undefined {
 	if (!args || typeof args !== "object") return undefined;
 	const value = (args as Record<string, unknown>)[key];
 	return typeof value === "string" ? value : undefined;
+}
+
+function textFromToolResult(result: AgentToolResult<unknown>): string {
+	return result.content.map((item) => (item.type === "text" ? (item.text ?? "") : "")).join("\n");
+}
+
+function createPyrunLogPath(): string {
+	return join(tmpdir(), `pi-pyrun-${randomUUID()}.log`);
 }
 
 function normalizeRestartParams(params: unknown): { notice?: string; process: true } {
@@ -234,6 +276,129 @@ function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "follo
 	return { deliverAs, message: record.message };
 }
 
+function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams, ctx: ExtensionContext): PyrunBackgroundJob {
+	const spawned = store.spawnAgent({
+		agentType: "background",
+		cwd: ctx.cwd,
+		displayName: "Pyrun evaluation",
+		lifecycle: "starting",
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
+		lastActivity: { description: params.code, toolName: "pyrun_eval" },
+	});
+	const agent = running.ok ? running.agent : spawned.agent;
+	return {
+		id: agent.id,
+		logPath: createPyrunLogPath(),
+	};
+}
+
+function recordPyrunLogArtifact(store: MultiAgentStore, job: PyrunBackgroundJob, output: string): string {
+	writeFileSync(job.logPath, output, "utf8");
+	const artifact = store.recordArtifact({ agentId: job.id, kind: "log", path: job.logPath, title: "Pyrun output" });
+	return artifact.id;
+}
+
+function transitionPyrunJobFailure(store: MultiAgentStore, job: PyrunBackgroundJob, message: string): void {
+	const current = store.getAgent(job.id);
+	if (!current || !isActiveLifecycle(current.lifecycle)) return;
+	store.transitionAgent(current.id, current.revision, "failed", { error: { message } });
+}
+
+function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, result: AgentToolResult<unknown>): void {
+	let artifactId: string;
+	try {
+		artifactId = recordPyrunLogArtifact(store, job, textFromToolResult(result));
+	} catch (error) {
+		transitionPyrunJobFailure(store, job, error instanceof Error ? error.message : String(error));
+		return;
+	}
+
+	const current = store.getAgent(job.id);
+	if (!current || !isActiveLifecycle(current.lifecycle)) return;
+	const lifecycle = result.isError ? "failed" : "completed";
+	const summary = result.isError ? "Pyrun evaluation failed." : "Pyrun evaluation completed.";
+	store.transitionAgent(current.id, current.revision, lifecycle, {
+		result: { artifactIds: [artifactId], summary },
+	});
+}
+
+function failPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, error: unknown): void {
+	const message = error instanceof Error ? error.message : String(error);
+	try {
+		recordPyrunLogArtifact(store, job, message);
+	} catch (logError) {
+		transitionPyrunJobFailure(store, job, logError instanceof Error ? logError.message : String(logError));
+		return;
+	}
+	transitionPyrunJobFailure(store, job, message);
+}
+
+function createDetachedPyrunResult(params: PyrunEvalParams, job: PyrunBackgroundJob): AgentToolResult<unknown> {
+	return {
+		content: [
+			{
+				type: "text",
+				text: `${params.code}\n\nPyrun evaluation moved to background as job ${job.id}. Output will be written to ${job.logPath}.`,
+			},
+		],
+		details: { backgroundJobId: job.id, executed: params.code, type: "completed" },
+	};
+}
+
+function mirrorAbortSignal(signal: AbortSignal | undefined): MirroredAbortController {
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	if (signal?.aborted) {
+		controller.abort();
+		return { cleanup: () => {}, controller };
+	}
+	signal?.addEventListener("abort", abort, { once: true });
+	return { cleanup: () => signal?.removeEventListener("abort", abort), controller };
+}
+
+function runDetachablePyrunEvaluation(options: DetachablePyrunEvaluationOptions): Promise<AgentToolResult<unknown>> {
+	const abort = mirrorAbortSignal(options.signal);
+	let detached = false;
+	let unregisterDetach: (() => void) | undefined;
+	let resolveDetached = (_result: AgentToolResult<unknown>) => {};
+	const detachedResult = new Promise<AgentToolResult<unknown>>((resolve) => {
+		resolveDetached = resolve;
+	});
+	const evaluation = options
+		.evaluate(
+			options.params,
+			options.ctx,
+			(update) => {
+				if (!detached) options.onUpdate?.(update);
+			},
+			abort.controller.signal,
+		)
+		.finally(() => {
+			abort.cleanup();
+			unregisterDetach?.();
+		});
+
+	unregisterDetach = options.detachRegistry.register({
+		detach: () => {
+			if (detached || abort.controller.signal.aborted) return false;
+			detached = true;
+			unregisterDetach?.();
+			abort.cleanup();
+			const job = spawnPyrunBackgroundJob(options.store, options.params, options.ctx);
+			void evaluation.then(
+				(result) => finishPyrunBackgroundJob(options.store, job, result),
+				(error) => failPyrunBackgroundJob(options.store, job, error),
+			);
+			resolveDetached(createDetachedPyrunResult(options.params, job));
+			return true;
+		},
+	});
+
+	return Promise.race([evaluation, detachedResult]);
+}
+
 export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
 	const runner = new PyrunRunnerClient();
 	const evaluate = createPyrunEvalExecutor(runner, createPyrunPiDispatcher(pi, options));
@@ -271,7 +436,12 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 				content: [{ type: "text", text: params.code }],
 				details: { executed: params.code, type: "running" },
 			});
-			return evaluate(params, ctx, onUpdate, signal);
+			const store = options.backgroundJobs?.store ?? ctx.multiAgentStore;
+			const detachRegistry = options.detachRegistry ?? ctx.toolDetachRegistry;
+			if (!store || !detachRegistry) {
+				return evaluate(params, ctx, onUpdate, signal);
+			}
+			return runDetachablePyrunEvaluation({ detachRegistry, evaluate, ctx, onUpdate, params, signal, store });
 		},
 	});
 }
