@@ -100,9 +100,8 @@ function createGoalHarness(
 	},
 ) {
 	let command: RegisteredGoalCommand | undefined;
-	let completeTool: GoalTool | undefined;
-	let pauseGoalTool: GoalTool | undefined;
-	let setGoalTool: GoalTool | undefined;
+	let manageGoalTool: GoalTool | undefined;
+	const registeredToolNames: string[] = [];
 	let agentEnd: ExtensionHandler<AgentEndEvent, undefined> | undefined;
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
@@ -128,14 +127,9 @@ function createGoalHarness(
 			}
 		},
 		registerTool(tool: GoalTool) {
-			if (tool.name === "goal_complete") {
-				completeTool = tool;
-			}
-			if (tool.name === "pause_goal") {
-				pauseGoalTool = tool;
-			}
-			if (tool.name === "set_goal") {
-				setGoalTool = tool;
+			registeredToolNames.push(tool.name);
+			if (tool.name === "manage_goal") {
+				manageGoalTool = tool;
 			}
 		},
 		sendUserMessage,
@@ -186,16 +180,33 @@ function createGoalHarness(
 		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
-			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
+			manageGoalTool?.execute(
+				"manage-goal-complete-1",
+				{ action: "complete", reason },
+				undefined,
+				undefined,
+				ctx as ExtensionContext,
+			),
 		runPauseGoal: async () =>
-			pauseGoalTool?.execute("pause-goal-1", {}, undefined, undefined, ctx as ExtensionContext),
+			manageGoalTool?.execute(
+				"manage-goal-pause-1",
+				{ action: "pause" },
+				undefined,
+				undefined,
+				ctx as ExtensionContext,
+			),
 		runSetGoal: async (objective: string) =>
-			setGoalTool?.execute("set-goal-1", { objective }, undefined, undefined, ctx as ExtensionContext),
-		getSetGoalTool: () => setGoalTool,
+			manageGoalTool?.execute(
+				"manage-goal-set-1",
+				{ action: "set", objective },
+				undefined,
+				undefined,
+				ctx as ExtensionContext,
+			),
+		getManageGoalTool: () => manageGoalTool,
+		getRegisteredToolNames: () => registeredToolNames,
 		hasGoalCommand: () => command !== undefined,
-		hasGoalCompleteTool: () => completeTool !== undefined,
-		hasPauseGoalTool: () => pauseGoalTool !== undefined,
-		hasSetGoalTool: () => setGoalTool !== undefined,
+		hasManageGoalTool: () => manageGoalTool !== undefined,
 		notify,
 		setStatus,
 		sendUserMessage,
@@ -217,28 +228,33 @@ describe("goal extension", () => {
 		rmSync(cwd, { recursive: true, force: true });
 	});
 
-	it("registers from the first-party extension path", () => {
+	it("registers only the manage_goal lifecycle tool from the first-party extension path", () => {
 		const harness = createGoalHarness(cwd);
 
 		expect(harness.hasGoalCommand()).toBe(true);
-		expect(harness.hasGoalCompleteTool()).toBe(true);
-		expect(harness.hasPauseGoalTool()).toBe(true);
-		expect(harness.hasSetGoalTool()).toBe(true);
+		expect(harness.hasManageGoalTool()).toBe(true);
+		expect(harness.getRegisteredToolNames()).toContain("manage_goal");
+		expect(harness.getRegisteredToolNames()).not.toContain("set_goal");
+		expect(harness.getRegisteredToolNames()).not.toContain("pause_goal");
+		expect(harness.getRegisteredToolNames()).not.toContain("goal_complete");
 	});
 
-	it("exposes set_goal without replacement or budget parameters or guidance", () => {
+	it("exposes manage_goal without budget parameters or guidance", () => {
 		const harness = createGoalHarness(cwd);
-		const setGoalTool = harness.getSetGoalTool();
+		const manageGoalTool = harness.getManageGoalTool();
 
-		expect(setGoalTool?.description).not.toContain("budget");
-		expect(setGoalTool?.description).not.toContain("tokenBudget");
-		expect(setGoalTool?.description).not.toContain("wallClockMinutes");
-		expect(setGoalTool?.promptGuidelines).toEqual([]);
-		expect(schemaHasProperty(setGoalTool?.parameters, "tokenBudget")).toBe(false);
-		expect(schemaHasProperty(setGoalTool?.parameters, "wallClockMinutes")).toBe(false);
+		expect(manageGoalTool?.description).not.toContain("budget");
+		expect(manageGoalTool?.description).not.toContain("tokenBudget");
+		expect(manageGoalTool?.description).not.toContain("wallClockMinutes");
+		expect(manageGoalTool?.promptGuidelines).toEqual([]);
+		expect(schemaHasProperty(manageGoalTool?.parameters, "action")).toBe(true);
+		expect(schemaHasProperty(manageGoalTool?.parameters, "objective")).toBe(true);
+		expect(schemaHasProperty(manageGoalTool?.parameters, "reason")).toBe(true);
+		expect(schemaHasProperty(manageGoalTool?.parameters, "tokenBudget")).toBe(false);
+		expect(schemaHasProperty(manageGoalTool?.parameters, "wallClockMinutes")).toBe(false);
 	});
 
-	it("sets an objective through the set_goal tool", async () => {
+	it("sets an objective through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
 		const result = await harness.runSetGoal("ship tool parity");
@@ -251,7 +267,7 @@ describe("goal extension", () => {
 		);
 	});
 
-	it("replaces an active goal through the set_goal tool", async () => {
+	it("replaces an active goal through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("first objective");
@@ -363,7 +379,7 @@ describe("goal extension", () => {
 		const result = await harness.runBeforeAgentStart();
 		expect(result?.systemPrompt).toContain("<goal>");
 		expect(result?.systemPrompt).toContain("Long-running objective: keep context anchored");
-		expect(result?.systemPrompt).toContain("When it is achieved, call the goal_complete tool.");
+		expect(result?.systemPrompt).toContain('When it is achieved, call the manage_goal tool with action "complete".');
 		expect(result?.systemPrompt).toContain("base prompt");
 	});
 
@@ -561,7 +577,7 @@ describe("goal extension", () => {
 		);
 	});
 
-	it("stops continuation after goal_complete is called", async () => {
+	it("stops continuation after manage_goal completes the objective", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("complete explicitly");
@@ -573,7 +589,17 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("pauses an active goal through the pause_goal tool", async () => {
+	it("does not complete a goal twice through manage_goal", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("complete once");
+		await harness.runGoalComplete("done");
+		const result = await harness.runGoalComplete("again");
+
+		expect(result?.content).toEqual([{ type: "text", text: "No active goal to complete." }]);
+	});
+
+	it("pauses an active goal through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("pause by tool objective");
@@ -594,7 +620,7 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("does not pause through the pause_goal tool when no active goal exists", async () => {
+	it("does not pause through the manage_goal tool when no active goal exists", async () => {
 		const harness = createGoalHarness(cwd);
 
 		const result = await harness.runPauseGoal();

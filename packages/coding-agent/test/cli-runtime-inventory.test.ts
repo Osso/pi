@@ -126,7 +126,10 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).not.toContain("hostrun_eval");
-		expect(result.stdout).toContain("set_goal");
+		expect(result.stdout).toContain("manage_goal");
+		expect(result.stdout).not.toContain("set_goal");
+		expect(result.stdout).not.toContain("pause_goal");
+		expect(result.stdout).not.toContain("goal_complete");
 	});
 
 	it("keeps first-party extensions after project trust reload", async () => {
@@ -180,10 +183,12 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toMatch(/^yes\s+find\s+builtin\s+/m);
 		expect(result.stdout).toMatch(/^yes\s+grep\s+builtin\s+/m);
-		expect(result.stdout).toContain("goal_complete");
 		expect(result.stdout).toContain("hostrun_eval");
 		expect(result.stdout).toMatch(/^yes\s+ls\s+builtin\s+/m);
-		expect(result.stdout).toContain("set_goal");
+		expect(result.stdout).toContain("manage_goal");
+		expect(result.stdout).not.toContain("set_goal");
+		expect(result.stdout).not.toContain("pause_goal");
+		expect(result.stdout).not.toContain("goal_complete");
 		expect(result.stdout).toContain("spawn_agent");
 	});
 });

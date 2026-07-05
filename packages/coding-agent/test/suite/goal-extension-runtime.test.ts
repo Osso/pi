@@ -109,11 +109,11 @@ describe("goal extension runtime", () => {
 		expect(getUserTexts(harness)).toEqual(["queued after escape"]);
 	});
 
-	it("lets an agent reset an active goal through set_goal", async () => {
+	it("lets an agent reset an active goal through manage_goal", async () => {
 		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("set_goal", { objective: "agent-chosen objective" }), {
+			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "agent-chosen objective" }), {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("done"),

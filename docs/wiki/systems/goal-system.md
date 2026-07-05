@@ -1,10 +1,10 @@
 # Goal System
 
 The goal system is implemented as a first-party coding-agent extension in
-`packages/coding-agent/extensions/goal/`. It provides `/goal` plus `set_goal`,
-`pause_goal`, and `goal_complete` tools, persists one active objective per
-session in a working directory, and keeps that objective in the system prompt
-until it is completed or another continuation stop condition is reached.
+`packages/coding-agent/extensions/goal/`. It provides `/goal` plus a
+`manage_goal` tool, persists one active objective per session in control SQLite
+metadata, and keeps that objective in the system prompt until it is completed or
+another continuation stop condition is reached.
 
 The contract lives in `docs/specs/goal-system.md`.
 
@@ -21,7 +21,7 @@ The persisted record contains:
 - `branch`: the git branch when the goal was created, or `(no branch)` if branch
   lookup fails.
 - `createdAt`: ISO timestamp for creation.
-- `completedAt` and `completionReason`: set when `goal_complete` marks the goal
+- `completedAt` and `completionReason`: set when `manage_goal` marks the goal
   complete.
 - `continuationTurns`: number of automatic continuation turns already sent.
 
@@ -39,8 +39,8 @@ and if the agent is idle sends:
 Work toward this objective until it is achieved: <objective>
 ```
 
-If the agent is busy, the goal is saved and a warning is shown instead of
-starting a second turn.
+If the agent is busy, the goal is saved and Pi shows an informational notice
+instead of starting a second turn.
 
 `/goal` with no arguments displays the current objective or a no-goal notice.
 
@@ -53,12 +53,11 @@ before state is written.
 
 The command rejects flags with a visible error and does not write state. Removed budget flags keep specific error messages.
 
-The `set_goal` tool exposes only an `objective` parameter.
-
-The `pause_goal` tool pauses the current active goal without clearing it. Paused
-goals remain visible in `/goal`, startup notifications, and footer status, but do
-not inject prompt context or continue automatically until `/goal resume` clears
-the pause state.
+The `manage_goal` tool exposes an `action` parameter with optional `objective`
+and `reason` parameters. It can set, pause, resume, complete, clear, or view the
+current active goal. Paused goals remain visible in `/goal`, startup
+notifications, and footer status, but do not inject prompt context or continue
+automatically until the resume action clears the pause state.
 
 ## Prompt Injection
 
@@ -90,9 +89,9 @@ parent goals.
 
 ## Automatic Continuation
 
-The extension listens for `agent_end`. If a goal is active, incomplete, the
-agent is idle, and there are no pending messages, the extension increments
-`continuationTurns` and sends:
+The extension listens for `agent_end`. If a goal is active, incomplete, and
+there are no pending messages, the extension increments `continuationTurns` and
+sends:
 
 ```text
 Continue working toward this objective until it is achieved: <objective>
@@ -106,21 +105,21 @@ Continuation stops without sending a message when:
 
 When an empty response stops continuation, Pi shows a warning explaining the stop reason.
 
-## Completion Tool
+## Completion Tool Action
 
-The extension registers `goal_complete`. Calling it marks the active goal
-complete by writing `completedAt` and `completionReason`, notifies the UI, and
-returns a short text result. If no active goal exists, it returns "No active goal
-to complete."
+Calling `manage_goal` with action `complete` marks the active goal complete by
+writing `completedAt` and `completionReason`, notifies the UI, and returns a
+short text result. If no active goal exists, it returns "No active goal to
+complete."
 
 Completed goals do not trigger automatic continuation.
 
 ## Tests
 
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
-behavior: first-party registration, `pause_goal`, set/view/clear, default
+behavior: first-party registration, `manage_goal`, set/view/clear, default
 replacement, removed replacement flag rejection, objective length rejection,
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
-handling, automatic continuation, busy guard, `goal_complete`, per-session
-isolation, budget flag rejection, and legacy budget field ignorance.
+handling, automatic continuation, busy guard, per-session isolation, budget flag
+rejection, and legacy budget field ignorance.

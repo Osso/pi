@@ -27,6 +27,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
 	AgentEndEvent,
+	AgentToolResult,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -53,6 +54,20 @@ interface ParsedGoalArgs {
 
 interface SetGoalParams extends ParsedGoalArgs {
 	ctx: ExtensionContext;
+	pi: ExtensionAPI;
+}
+
+type ManageGoalAction = "set" | "pause" | "resume" | "complete" | "clear" | "status";
+
+interface ManageGoalParams {
+	action: ManageGoalAction;
+	objective?: string;
+	reason?: string;
+}
+
+interface ManageGoalContext {
+	ctx: ExtensionContext;
+	params: ManageGoalParams;
 	pi: ExtensionAPI;
 }
 
@@ -151,7 +166,7 @@ function saveGoal(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal): vo
 }
 
 function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
-	const goal = loadGoal(ctx);
+	const goal = loadActiveGoal(ctx);
 	if (!goal) return null;
 	const completedGoal: Goal = {
 		...goal,
@@ -306,11 +321,15 @@ function goalSystemBlock(goal: Goal): string {
 		...goalStateLines(goal),
 		"",
 		"Keep working toward this objective across turns until it is achieved.",
-		"When it is achieved, call the goal_complete tool.",
-		"Do not call set_goal for this objective; it is already active.",
+		'When it is achieved, call the manage_goal tool with action "complete".',
+		"Do not call manage_goal with action set for this objective; it is already active.",
 		"If you cannot make further progress, say what is blocking it rather than stopping silently.",
 		"</goal>",
 	].join("\n");
+}
+
+function textResult(text: string, details: Record<string, unknown> = {}): AgentToolResult<unknown> {
+	return { content: [{ type: "text", text }], details };
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
@@ -345,93 +364,110 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	};
 }
 
+function runSetGoalAction({ ctx, params, pi }: ManageGoalContext): AgentToolResult<unknown> {
+	const objective = params.objective?.trim() ?? "";
+	if (!objective) {
+		return textResult("Objective is required.");
+	}
+
+	const result = setGoal({ objective, ctx, pi });
+	ctx.ui.notify(result.message, result.severity);
+	const details = result.goal ? { objective: result.goal.objective } : {};
+	return textResult(result.ok ? `Goal set: ${objective}` : result.message, details);
+}
+
+function runPauseGoalAction(ctx: ExtensionContext): AgentToolResult<unknown> {
+	const goal = pauseGoal(ctx);
+	updateGoalFooterStatus(ctx);
+	if (!goal) {
+		ctx.ui.notify("No active goal to pause", "info");
+		return textResult("No active goal to pause.");
+	}
+
+	ctx.ui.notify(`Goal paused: ${goal.objective}`, "info");
+	return textResult(`Goal paused: ${goal.objective}`, { objective: goal.objective });
+}
+
+function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentToolResult<unknown> {
+	const goal = resumeGoal(ctx);
+	updateGoalFooterStatus(ctx);
+	if (!goal) {
+		ctx.ui.notify("No paused goal to resume", "info");
+		return textResult("No paused goal to resume.");
+	}
+
+	ctx.ui.notify(`Goal resumed: ${goal.objective}`, "info");
+	if (ctx.isIdle()) {
+		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`);
+	}
+	return textResult(`Goal resumed: ${goal.objective}`, { objective: goal.objective });
+}
+
+function runCompleteGoalAction(ctx: ExtensionContext, reasonInput: string | undefined): AgentToolResult<unknown> {
+	const reason = reasonInput?.trim() || "complete";
+	const goal = markGoalComplete(ctx, reason);
+	if (!goal) {
+		return textResult("No active goal to complete.");
+	}
+
+	updateGoalFooterStatus(ctx);
+	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+	return textResult(`Goal marked complete: ${reason}`);
+}
+
+function runClearGoalAction(ctx: ExtensionContext): AgentToolResult<unknown> {
+	const cleared = clearGoal(ctx);
+	updateGoalFooterStatus(ctx);
+	const message = cleared ? "Goal cleared" : "No active goal";
+	ctx.ui.notify(message, "info");
+	return textResult(message);
+}
+
+function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
+	const goal = loadActiveGoal(ctx);
+	const message = goal ? goalViewMessage(goal) : "No active goal — use /goal <objective>";
+	ctx.ui.notify(message, "info");
+	const details = goal ? { objective: goal.objective } : {};
+	return textResult(message, details);
+}
+
+function manageGoal({ ctx, params, pi }: ManageGoalContext): AgentToolResult<unknown> {
+	switch (params.action) {
+		case "set":
+			return runSetGoalAction({ ctx, params, pi });
+		case "pause":
+			return runPauseGoalAction(ctx);
+		case "resume":
+			return runResumeGoalAction(ctx, pi);
+		case "complete":
+			return runCompleteGoalAction(ctx, params.reason);
+		case "clear":
+			return runClearGoalAction(ctx);
+		case "status":
+			return runGoalStatusAction(ctx);
+	}
+}
+
 export default function goalExtension(pi: ExtensionAPI) {
 	pi.registerTool({
-		name: "set_goal",
-		label: "Set Goal",
-		description: "Set the active long-running /goal objective.",
+		name: "manage_goal",
+		label: "Manage Goal",
+		description: "Manage the active long-running /goal objective.",
 		promptGuidelines: [],
 		approvalRequired: false,
 		parameters: Type.Object({
-			objective: Type.String(),
-		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-			const objective = params.objective.trim();
-			if (!objective) {
-				return {
-					content: [{ type: "text", text: "Objective is required." }],
-					details: {},
-				};
-			}
-
-			const result = setGoal({
-				objective,
-				ctx,
-				pi,
-			});
-			ctx.ui.notify(result.message, result.severity);
-
-			return {
-				content: [
-					{
-						type: "text",
-						text: result.ok ? `Goal set: ${objective}` : result.message,
-					},
-				],
-				details: result.goal ? { objective: result.goal.objective } : {},
-			};
-		},
-	});
-
-	pi.registerTool({
-		name: "pause_goal",
-		label: "Pause Goal",
-		description: "Pause the active long-running /goal objective without clearing it.",
-		approvalRequired: false,
-		parameters: Type.Object({}),
-		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
-			const goal = pauseGoal(ctx);
-			updateGoalFooterStatus(ctx);
-			if (!goal) {
-				ctx.ui.notify("No active goal to pause", "info");
-				return {
-					content: [{ type: "text", text: "No active goal to pause." }],
-					details: {},
-				};
-			}
-
-			ctx.ui.notify(`Goal paused: ${goal.objective}`, "info");
-			return {
-				content: [{ type: "text", text: `Goal paused: ${goal.objective}` }],
-				details: { objective: goal.objective },
-			};
-		},
-	});
-
-	pi.registerTool({
-		name: "goal_complete",
-		label: "Goal Complete",
-		description: "Mark the active long-running /goal objective as complete.",
-		approvalRequired: false,
-		parameters: Type.Object({
+			action: Type.Union([
+				Type.Literal("set"),
+				Type.Literal("pause"),
+				Type.Literal("resume"),
+				Type.Literal("complete"),
+				Type.Literal("clear"),
+				Type.Literal("status"),
+			]),
+			objective: Type.Optional(Type.String()),
 			reason: Type.Optional(Type.String()),
 		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-			const reason = params.reason?.trim() || "complete";
-			const goal = markGoalComplete(ctx, reason);
-			if (!goal) {
-				return {
-					content: [{ type: "text", text: "No active goal to complete." }],
-					details: {},
-				};
-			}
-			updateGoalFooterStatus(ctx);
-			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
-			return {
-				content: [{ type: "text", text: `Goal marked complete: ${reason}` }],
-				details: {},
-			};
-		},
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => manageGoal({ ctx, params, pi }),
 	});
 
 	// Notify on session start if an objective is active.

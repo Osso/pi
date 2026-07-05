@@ -2544,7 +2544,9 @@ describe("multi-agent extension tools", () => {
 			JSON.stringify({ objective: "parent objective", branch: "test", createdAt: "2026-01-01T00:00:00.000Z" }),
 		);
 		parentHarness.setResponses([
-			fauxAssistantMessage(fauxToolCall("set_goal", { objective: "child objective" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "child objective" }), {
+				stopReason: "toolUse",
+			}),
 			fauxAssistantMessage("child done"),
 		]);
 		let childSessionManager: SessionManager | undefined;

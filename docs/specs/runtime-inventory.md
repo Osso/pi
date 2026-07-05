@@ -15,7 +15,7 @@ Runtime inventory commands expose what Pi actually loaded for the current startu
 - [x] Tool inventory output must show an explicit empty state when no tools are available.
 - [x] Default coding sessions must keep the read-only discovery tools `grep`, `find`, and `ls` active alongside editing tools.
 - [x] Tool inventory data must include tools registered by extensions during `session_start`.
-- [x] Tool inventory data must include default first-party runtime tools such as `spawn_agent`, `set_goal`, `goal_complete`, and `hostrun_eval`.
+- [x] Tool inventory data must include default first-party runtime tools such as `spawn_agent`, `manage_goal`, and `hostrun_eval`.
 
 ### Extension inventory
 
