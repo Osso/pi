@@ -220,6 +220,8 @@ type CompactionQueuedMessage = {
 
 const STREAMING_RENDER_THROTTLE_MS = 50;
 
+const LOADER_ELAPSED_TOOL_NAMES = new Set(["wait_agent"]);
+
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
 
 function isDeadTerminalError(error: unknown): boolean {
@@ -1879,7 +1881,7 @@ export class InteractiveMode {
 		}
 
 		const [toolCallId, toolName] = nextToolEntry;
-		const showElapsed = !this.pendingTools.has(toolCallId);
+		const showElapsed = LOADER_ELAPSED_TOOL_NAMES.has(toolName) || !this.pendingTools.has(toolCallId);
 		this.setDefaultWorkingMessage(
 			this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId), showElapsed),
 		);
@@ -4850,7 +4852,8 @@ export class InteractiveMode {
 							enabledIds === null || enabledIds.length === allModels.length
 								? undefined // All enabled = clear filter
 								: enabledIds;
-						this.settingsManager.setEnabledModels(newPatterns ? [...newPatterns] : undefined);
+						const settingsScope = this.settingsManager.getProjectSettings().enabledModels ? "project" : "global";
+						this.settingsManager.setEnabledModels(newPatterns ? [...newPatterns] : undefined, settingsScope);
 						this.showStatus("Model selection saved to settings");
 					},
 					onCancel: () => {

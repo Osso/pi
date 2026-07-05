@@ -111,6 +111,22 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("enabled models", () => {
+		it("can update project-scoped enabled models when project settings override global settings", async () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ enabledModels: ["global/model"] }));
+			storage.withLock("project", () => JSON.stringify({ enabledModels: [] }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			expect(settingsManager.getEnabledModels()).toEqual([]);
+
+			settingsManager.setEnabledModels(["faux/faux-1", "faux/faux-2"], "project");
+			await settingsManager.flush();
+
+			expect(settingsManager.getEnabledModels()).toEqual(["faux/faux-1", "faux/faux-2"]);
+		});
+	});
+
 	describe("agent profiles", () => {
 		it("returns built-in agent profiles when not configured", () => {
 			const settingsManager = SettingsManager.inMemory();

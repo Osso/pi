@@ -255,6 +255,26 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
 	});
 
+	test("shows elapsed time in wait_agent waiting labels", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const fakeThis = createFakeInteractiveModeThis();
+		const setMessage = vi.fn();
+		fakeThis.loadingAnimation = { setMessage };
+		fakeThis.pendingTools.set("wait-1", createToolExecutionStub());
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolName: "wait_agent",
+			toolCallId: "wait-1",
+			args: { agentId: "agent_1" },
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent...");
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent... Elapsed: 1s");
+	});
+
 	test("keeps extension working message override during tool execution", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const setMessage = vi.fn();
