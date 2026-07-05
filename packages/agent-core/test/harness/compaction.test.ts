@@ -568,6 +568,27 @@ describe("harness compaction", () => {
 		expect(result).toContain("[... 3000 more characters truncated]");
 	});
 
+	it("serializes truncated tool results with full output paths", () => {
+		const text = `${"x".repeat(5000)}\n[Showing lines 1-5000 of 5000. Full output: /tmp/pi-full-output.log]`;
+		const messages = convertMessages([
+			{
+				role: "toolResult",
+				toolCallId: "tc1",
+				toolName: "bash",
+				content: [{ type: "text", text }],
+				details: {
+					truncation: { truncated: true },
+					fullOutputPath: "/tmp/pi-full-output.log",
+				},
+				isError: false,
+				timestamp: Date.now(),
+			},
+		]);
+		const result = serializeConversation(messages);
+		expect(result).toContain("more characters truncated]");
+		expect(result).toContain("[Output truncated. Full output: /tmp/pi-full-output.log]");
+	});
+
 	it("omits reasoning from generateSummary even for reasoning models with thinking enabled", async () => {
 		const messages: AgentMessage[] = [createUserMessage("Summarize this.")];
 		const seenOptions: Array<Record<string, unknown> | undefined> = [];

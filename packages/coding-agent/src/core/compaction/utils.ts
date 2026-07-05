@@ -101,6 +101,31 @@ function truncateForSummary(text: string, maxChars: number): string {
 	return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function extractFullOutputPath(details: unknown): string | undefined {
+	if (!isRecord(details)) return undefined;
+	return typeof details.fullOutputPath === "string" && details.fullOutputPath.length > 0
+		? details.fullOutputPath
+		: undefined;
+}
+
+function hasToolOutputTruncation(details: unknown): boolean {
+	if (!isRecord(details) || !isRecord(details.truncation)) return false;
+	return details.truncation.truncated === true;
+}
+
+function serializeToolResultForSummary(content: string, details: unknown): string {
+	const serialized = truncateForSummary(content, TOOL_RESULT_MAX_CHARS);
+	const fullOutputPath = extractFullOutputPath(details);
+	if (!fullOutputPath) return serialized;
+	if (serialized.includes(fullOutputPath)) return serialized;
+	if (content.length <= TOOL_RESULT_MAX_CHARS && !hasToolOutputTruncation(details)) return serialized;
+	return `${serialized}\n\n[Output truncated. Full output: ${fullOutputPath}]`;
+}
+
 function serializeToolCallArgument(value: unknown): string {
 	const serialized = JSON.stringify(value);
 	if (serialized === undefined) return "undefined";
@@ -156,7 +181,7 @@ export function serializeConversation(messages: Message[]): string {
 				.map((c) => c.text)
 				.join("");
 			if (content) {
-				parts.push(`[Tool result]: ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`);
+				parts.push(`[Tool result]: ${serializeToolResultForSummary(content, msg.details)}`);
 			}
 		}
 	}

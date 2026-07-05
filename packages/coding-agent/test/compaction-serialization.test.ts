@@ -25,6 +25,29 @@ describe("serializeConversation", () => {
 		expect(result).toContain("x".repeat(2000));
 	});
 
+	it("should preserve full output paths when summarizing truncated tool results", () => {
+		const text = `${"x".repeat(5000)}\n[Showing lines 1-5000 of 5000. Full output: /tmp/pi-full-output.log]`;
+		const messages: Message[] = [
+			{
+				role: "toolResult",
+				toolCallId: "tc1",
+				toolName: "bash",
+				content: [{ type: "text", text }],
+				details: {
+					truncation: { truncated: true },
+					fullOutputPath: "/tmp/pi-full-output.log",
+				},
+				isError: false,
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain("more characters truncated]");
+		expect(result).toContain("[Output truncated. Full output: /tmp/pi-full-output.log]");
+	});
+
 	it("should truncate long tool call arguments", () => {
 		const longContent = "x".repeat(5000);
 		const messages: Message[] = [
