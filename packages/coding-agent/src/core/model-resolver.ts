@@ -14,11 +14,11 @@ import type { ModelRegistry } from "./model-registry.ts";
 export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	"amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
 	"ant-ling": "Ring-2.6-1T",
+	"openai-codex": "gpt-5.5",
+	"openai-codex-gc": "gpt-5.5",
 	anthropic: "claude-opus-4-8",
 	openai: "gpt-5.5",
 	"azure-openai-responses": "gpt-5.4",
-	"openai-codex": "gpt-5.5",
-	"openai-codex-gc": "gpt-5.5",
 	nvidia: "nvidia/nemotron-3-super-120b-a12b",
 	deepseek: "deepseek-v4-pro",
 	google: "gemini-3.1-pro-preview",
