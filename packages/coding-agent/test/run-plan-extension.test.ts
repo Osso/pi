@@ -9,6 +9,7 @@ type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
 function createRunPlanHarness(cwd: string) {
 	let command: RegisteredRunPlanCommand | undefined;
+	const eventHandlers = new Map<string, (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void>();
 	const appendEntry = vi.fn();
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
@@ -16,6 +17,9 @@ function createRunPlanHarness(cwd: string) {
 
 	const pi = {
 		appendEntry,
+		on(event: string, handler: (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void) {
+			eventHandlers.set(event, handler);
+		},
 		registerCommand(name: string, options: RegisteredRunPlanCommand) {
 			if (name === "run-plan") {
 				command = options;
@@ -26,11 +30,15 @@ function createRunPlanHarness(cwd: string) {
 
 	runPlanExtension(pi);
 
-	const ctx = { cwd, ui: { notify, setEditorText } } as unknown as ExtensionCommandContext;
+	const ctx = {
+		cwd,
+		ui: { notify, setEditorText },
+	} as unknown as ExtensionCommandContext;
 
 	return {
 		complete: async (prefix: string) => command?.getArgumentCompletions?.(prefix),
 		runCommand: async (args: string) => command?.handler(args, ctx),
+		runEvent: async (event: string) => eventHandlers.get(event)?.({ type: event }, ctx),
 		appendEntry,
 		notify,
 		sendUserMessage,
@@ -74,7 +82,9 @@ describe("run-plan extension", () => {
 		await harness.runCommand("");
 
 		expect(process.env.PI_PLAN_FILE).toBe("PLAN.md");
-		expect(harness.appendEntry).toHaveBeenCalledWith("run-plan:active", { file: "PLAN.md" });
+		expect(harness.appendEntry).toHaveBeenCalledWith("run-plan:active", {
+			file: "PLAN.md",
+		});
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Implement run plan");
 	});
 
@@ -85,6 +95,19 @@ describe("run-plan extension", () => {
 		await harness.runCommand("");
 
 		expect(harness.setEditorText).toHaveBeenCalledWith("");
+	});
+
+	it("prompts the agent again after completion while the active plan item remains unchecked", async () => {
+		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Keep working\n");
+		const harness = createRunPlanHarness(cwd);
+
+		await harness.runCommand("");
+		await harness.runEvent("agent_end");
+
+		expect(harness.sendUserMessage).toHaveBeenCalledTimes(2);
+		expect(harness.sendUserMessage).toHaveBeenLastCalledWith("Keep working", {
+			deliverAs: "followUp",
+		});
 	});
 
 	it("uses an inline plan filename argument", async () => {

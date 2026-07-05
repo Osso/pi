@@ -2,7 +2,7 @@
 
 Module boundary: first-party extension module (`packages/coding-agent/extensions/run-plan/`).
 
-The `/run-plan` slash command automates checklist-driven work by reading `PLAN.md` (or a user-specified file), finding the first unchecked `- [ ]` or `* [ ]` item, and submitting it as the next user message via `pi.sendUserMessage()`. The command is registered as a first-party extension module via `pi.registerCommand("run-plan", {...})`. Source lives in `packages/coding-agent/extensions/run-plan/src/index.ts`. An active plan file is signaled to downstream hooks by writing the plan filename into a well-known entry in extension state via `pi.appendEntry("run-plan:active", { file })`; callers can also inspect `process.env.PI_PLAN_FILE`, which the handler sets before submission. See [docs/wiki/systems/run-plan-command.md](../wiki/systems/run-plan-command.md) for how it works.
+The `/run-plan` slash command automates checklist-driven work by reading `PLAN.md` (or a user-specified file), finding the first unchecked `- [ ]` or `* [ ]` item, and submitting it as the next user message via `pi.sendUserMessage()`. After the agent finishes, the active plan is checked again and the next unchecked item is submitted as a follow-up until no unchecked items remain. The command is registered as a first-party extension module via `pi.registerCommand("run-plan", {...})`. Source lives in `packages/coding-agent/extensions/run-plan/src/index.ts`. An active plan file is signaled to downstream hooks by writing the plan filename into a well-known entry in extension state via `pi.appendEntry("run-plan:active", { file })`; callers can also inspect `process.env.PI_PLAN_FILE`, which the handler sets before submission. See [docs/wiki/systems/run-plan-command.md](../wiki/systems/run-plan-command.md) for how it works.
 
 ## What it must do
 
@@ -20,6 +20,8 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 
 ### Prompt submission
 - [x] The extracted item text (stripped of the checkbox prefix) is submitted via `pi.sendUserMessage(text)`.
+- [x] After an active plan agent run ends, the current first unchecked item is submitted again as a follow-up if it remains unchecked; if the previous item was checked, the next unchecked item is submitted.
+- [x] The active run stops when the plan file is missing or no unchecked items remain.
 - [x] The composer / input buffer is cleared after dispatch (no residual text shown).
 
 ### Active-plan signaling
@@ -55,6 +57,5 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 
 ## Out of scope
 
-- Auto-advancing to the next item after the agent completes a turn (requires turn-end hook logic; tracked separately).
 - Mutating PLAN.md to mark items checked (Pi's agent does that; the command only reads).
 - Multi-file plan queues or plan switching mid-session.
