@@ -48,7 +48,7 @@ describe("ToolExecutionComponent parity", () => {
 		expect(formatElapsedDuration(3_660_000)).toBe("1h 01m");
 	});
 
-	test("shows live and final elapsed time for tool executions", () => {
+	test("shows final elapsed time for tool executions", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
 		const component = new ToolExecutionComponent(
@@ -62,13 +62,9 @@ describe("ToolExecutionComponent parity", () => {
 		);
 
 		component.markExecutionStarted();
-		vi.setSystemTime(999);
-		component.invalidate();
-		expect(stripAnsi(component.render(120).join("\n"))).not.toContain("Elapsed:");
-
 		vi.setSystemTime(2_100);
 		component.invalidate();
-		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 2s");
+		expect(stripAnsi(component.render(120).join("\n"))).not.toContain("Elapsed:");
 
 		vi.setSystemTime(3_250);
 		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);

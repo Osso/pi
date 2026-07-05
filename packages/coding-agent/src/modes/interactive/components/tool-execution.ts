@@ -151,12 +151,11 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatTimerText(): string | undefined {
-		if (this.executionStartedAt === undefined) {
+		if (this.executionStartedAt === undefined || this.executionFinishedAt === undefined) {
 			return undefined;
 		}
 
-		const endTime = this.executionFinishedAt ?? Date.now();
-		const elapsedMs = endTime - this.executionStartedAt;
+		const elapsedMs = this.executionFinishedAt - this.executionStartedAt;
 		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
 			return undefined;
 		}
