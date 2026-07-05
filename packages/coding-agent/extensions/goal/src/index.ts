@@ -13,6 +13,7 @@
  *   /goal <objective>             set the objective and start working toward it
  *   /goal                         view the active objective
  *   /goal pause                   pause continuation without clearing the objective
+ *   /goal resume                  resume a paused objective
  *   /goal clear                   clear the active objective
  *
  * See docs/specs/goal-system.md for the contract.
@@ -171,6 +172,14 @@ function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal 
 	};
 	saveGoal(ctx, pausedGoal);
 	return pausedGoal;
+}
+
+function resumeGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	const goal = loadActiveGoal(ctx);
+	if (!goal?.pausedAt) return null;
+	const { pausedAt: _pausedAt, ...resumedGoal } = goal;
+	saveGoal(ctx, resumedGoal);
+	return resumedGoal;
 }
 
 function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boolean {
@@ -440,7 +449,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("goal", {
-		description: "Set, view, pause, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal clear)",
+		description: "Set, view, pause, resume, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal resume | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const parsedArgs = parseGoalArgs(args);
 			if ("error" in parsedArgs) {
@@ -461,6 +470,17 @@ export default function goalExtension(pi: ExtensionAPI) {
 				const goal = pauseGoal(ctx);
 				ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
 				updateGoalFooterStatus(ctx);
+				return;
+			}
+
+			// Resume
+			if (objective === "resume") {
+				const goal = resumeGoal(ctx);
+				ctx.ui.notify(goal ? `Goal resumed: ${goal.objective}` : "No paused goal to resume", "info");
+				updateGoalFooterStatus(ctx);
+				if (goal && ctx.isIdle()) {
+					pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`);
+				}
 				return;
 			}
 

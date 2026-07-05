@@ -587,6 +587,51 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
+	it("resumes a paused goal without replacing it", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("resume retained objective");
+		await harness.runCommand("pause");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+		await harness.runCommand("resume");
+		const injected = await harness.runBeforeAgentStart();
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal.objective).toBe("resume retained objective");
+		expect(goal.pausedAt).toBeUndefined();
+		expect(harness.notify).toHaveBeenCalledWith("Goal resumed: resume retained objective", "info");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal: resume retained objective");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Continue working toward this objective until it is achieved: resume retained objective",
+		);
+		expect(injected?.systemPrompt).toContain("Long-running objective: resume retained objective");
+	});
+
+	it("does not resume when no paused goal exists", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("resume");
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("No paused goal to resume", "info");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("clears a paused goal", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("clear paused objective");
+		await harness.runCommand("pause");
+		await harness.runCommand("clear");
+		await harness.runCommand("");
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("Goal cleared", "info");
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+	});
+
 	it("does not pause when no active goal exists", async () => {
 		const harness = createGoalHarness(cwd);
 
