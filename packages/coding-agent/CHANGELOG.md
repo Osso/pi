@@ -20,6 +20,7 @@
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
 - Added `Ctrl+B` backgrounding for running bash tool calls, moving detached commands into `/jobs` with log artifacts and `cancel_agent` support.
 - Added `Ctrl+B` backgrounding for running Pyrun evaluations, moving detached evaluations into `/jobs` with log artifacts.
+- Added automatic backgrounding after 120 seconds for detachable bash and Pyrun tool calls.
 - Added public SDK exports for CLI-equivalent model and scoped-model resolution ([#6201](https://github.com/earendil-works/pi/issues/6201)).
 - Added extension entry renderers for persisted display-only session entries that are rendered in interactive mode without being sent to the model context.
 - Added `/continue` to send `continue` for resuming interrupted work.
@@ -54,6 +55,7 @@
 - Fixed oversized bash tool timeouts to fail with a clear validation error instead of being clamped to an immediate timeout ([#6181](https://github.com/earendil-works/pi/issues/6181)).
 - Fixed the edit tool schema to allow model-invented extra replacement fields instead of rejecting otherwise valid edits ([#6278](https://github.com/earendil-works/pi/issues/6278)).
 - Fixed Pyrun and Hostrun evaluation output to omit noisy `Result:` labels and null result values.
+- Fixed `wait_agent` to wait for active detached tool jobs that update the multi-agent store without a child dispatch.
 
 ### Removed
 

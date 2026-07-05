@@ -127,6 +127,42 @@ describe("bash tool background detach", () => {
 		expect(readFileSync(artifact.path!, "utf8")).toContain("after-detach");
 	});
 
+	it("auto-detaches a running bash tool after the registry threshold", async () => {
+		const cwd = await createTempDir();
+		const scriptPath = join(cwd, "auto-detach.mjs");
+		writeFileSync(
+			scriptPath,
+			[
+				"console.log('before-auto-detach');",
+				"setTimeout(() => console.log('after-auto-detach'), 140);",
+				"setTimeout(() => process.exit(0), 170);",
+			].join("\n"),
+		);
+		const store = new MultiAgentStore();
+		const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 100 });
+		const updates: string[] = [];
+		const tool = createBashToolDefinition(cwd, { backgroundJobs: { store }, detachRegistry });
+
+		const resultPromise = tool.execute(
+			"tool-bash-auto-detach",
+			{ command: `${quotePath(process.execPath)} ${quotePath(scriptPath)}` },
+			undefined,
+			(partial) => updates.push(textFrom(partial)),
+			{} as never,
+		);
+		await waitFor(() => updates.some((update) => update.includes("before-auto-detach")), "pre-auto-detach output");
+
+		const result = await resultPromise;
+		const resultText = textFrom(result);
+		expect(resultText).toContain("before-auto-detach");
+		expect(resultText).toContain("Command moved to background as job");
+		expect(resultText).not.toContain("after-auto-detach");
+
+		const [job] = store.listAgents();
+		expect(job).toMatchObject({ agentType: "background", displayName: "Bash command", lifecycle: "running" });
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "auto-detached process completion");
+	});
+
 	it("keeps bash timeout active after detaching", async () => {
 		const cwd = await createTempDir();
 		const scriptPath = join(cwd, "timeout-running.mjs");

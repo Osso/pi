@@ -879,6 +879,40 @@ describe("multi-agent extension tools", () => {
 		expect(store.getAgent(interrupted.agent.id)?.error).toBeUndefined();
 	});
 
+	it("waits for active background jobs that update store state without a dispatch", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const harness = createMultiAgentHarness({ store });
+		const spawned = store.spawnAgent({
+			agentType: "background",
+			cwd: "/repo",
+			displayName: "Background tool",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
+			lastActivity: { description: "sleep", toolName: "bash" },
+		});
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected background job to be running");
+
+		const waited = harness.call<WaitAgentDetails>("wait_agent", { agentId: running.agent.id });
+		expect(await resolvesWithin(waited, 10)).toBe(false);
+
+		const current = store.getAgent(running.agent.id);
+		expect(current).toBeDefined();
+		if (!current) throw new Error("expected current background job");
+		expect(store.transitionAgent(current.id, current.revision, "completed", { result: { summary: "done" } }).ok).toBe(
+			true,
+		);
+
+		const result = await waited;
+		expect(result.details).toMatchObject({
+			agent: { id: running.agent.id, lifecycle: "completed" },
+			terminal: true,
+		});
+		expect(result.content).toMatchObject([{ text: expect.stringContaining("done") }]);
+	});
+
 	it("reports detached agents from wait_agent instead of a live-looking snapshot", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

@@ -270,6 +270,11 @@ async function resultFor(request) {
     await new Promise((resolve) => setTimeout(resolve, 60));
     return { type: "completed", executed: request.code, value: "detached-done" };
   }
+  if (request.code === "run.auto_detachable()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "auto detachable started" }) + "\\n");
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    return { type: "completed", executed: request.code, value: "auto-detached-done" };
+  }
   if (request.code === "run.slow_detachable()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "slow detachable started" }) + "\\n");
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1143,6 +1148,27 @@ describe("pyrun extension", () => {
 		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain("Pyrun evaluation is still running");
 
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
+	});
+
+	it("auto-detaches a running Pyrun evaluation after the registry threshold", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 80 });
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const resultPromise = harness.evaluate({ code: "run.auto_detachable()" }, (update) => updates.push(update));
+		await waitFor(
+			() => updates.some((update) => update.details.type === "status"),
+			"Pyrun progress before auto-detach",
+		);
+		const result = await resultPromise;
+		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(resultText).toContain("Pyrun evaluation moved to background as job");
+		expect(result.details?.backgroundJobId).toBeDefined();
+
+		const [job] = store.listAgents();
+		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "auto-detached Pyrun completion");
 	});
 
 	it("detaches a running Pyrun evaluation into the multi-agent job store", async () => {

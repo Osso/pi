@@ -164,6 +164,7 @@ const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
 const WAIT_AGENT_POLL_INTERVAL_MS = 25;
+const WAITABLE_BACKGROUND_TOOL_NAMES = new Set(["bash", "pyrun_eval"]);
 
 export type AgentDesktopNotification = DesktopNotification;
 
@@ -1716,6 +1717,12 @@ async function waitAgent(
 			const agent = store.getAgent(params.agentId) ?? initialAgent;
 			return errorResult(`Wait cancelled for ${agent.displayName}.`, createWaitAgentDetails(store, agent, params));
 		}
+	} else if (isWaitableBackgroundToolJob(initialAgent)) {
+		const aborted = await waitForStoreTerminalAgent(store, initialAgent.id, signal);
+		if (aborted) {
+			const agent = store.getAgent(params.agentId) ?? initialAgent;
+			return errorResult(`Wait cancelled for ${agent.displayName}.`, createWaitAgentDetails(store, agent, params));
+		}
 	}
 
 	const agent = store.getAgent(params.agentId) ?? initialAgent;
@@ -1769,11 +1776,37 @@ function isWaitAgentReady(agent: AgentSnapshot): boolean {
 	return !isActiveLifecycle(agent.lifecycle);
 }
 
+function isWaitableBackgroundToolJob(agent: AgentSnapshot): boolean {
+	return (
+		agent.agentType === "background" &&
+		isInFlightLifecycle(agent.lifecycle) &&
+		WAITABLE_BACKGROUND_TOOL_NAMES.has(agent.lastActivity?.toolName ?? "")
+	);
+}
+
+async function waitForStoreTerminalAgent(
+	store: MultiAgentStore,
+	agentId: string,
+	signal: AbortSignal | undefined,
+): Promise<boolean> {
+	return waitForAgentState(store, agentId, signal, (agent) => !agent || isWaitAgentReady(agent));
+}
+
 async function waitForDispatch(
 	store: MultiAgentStore,
 	agentId: string,
 	dispatch: Promise<AgentSnapshot>,
 	signal: AbortSignal | undefined,
+): Promise<boolean> {
+	return waitForAgentState(store, agentId, signal, (agent) => !!agent && isWaitAgentReady(agent), dispatch);
+}
+
+async function waitForAgentState(
+	store: MultiAgentStore,
+	agentId: string,
+	signal: AbortSignal | undefined,
+	isReady: (agent: AgentSnapshot | undefined) => boolean,
+	settleWhenDone?: Promise<unknown>,
 ): Promise<boolean> {
 	if (signal?.aborted) {
 		return true;
@@ -1793,21 +1826,16 @@ async function waitForDispatch(
 			signal?.removeEventListener("abort", onAbort);
 			resolve(aborted);
 		};
-		const onAbort = () => {
-			finish(true);
-		};
+		const onAbort = () => finish(true);
 		const pollStoreState = () => {
-			const agent = store.getAgent(agentId);
-			if (agent && isWaitAgentReady(agent)) {
+			if (isReady(store.getAgent(agentId))) {
 				finish(false);
 				return;
 			}
 			pollTimer = setTimeout(pollStoreState, WAIT_AGENT_POLL_INTERVAL_MS);
 		};
 		signal?.addEventListener("abort", onAbort, { once: true });
-		void dispatch.finally(() => {
-			finish(false);
-		});
+		void settleWhenDone?.finally(() => finish(false));
 		pollStoreState();
 	});
 }
