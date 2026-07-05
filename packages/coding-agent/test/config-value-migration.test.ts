@@ -37,6 +37,94 @@ describe("config value env var syntax migration", () => {
 		}
 	}
 
+	it("merges legacy oauth credentials into existing auth.json", () => {
+		const agentDir = createAgentDir();
+		fs.writeFileSync(
+			path.join(agentDir, "auth.json"),
+			`${JSON.stringify({ anthropic: { type: "api_key", key: "anthropic-key" } }, null, 2)}\n`,
+			"utf-8",
+		);
+		fs.writeFileSync(
+			path.join(agentDir, "oauth.json"),
+			`${JSON.stringify(
+				{
+					"openai-codex": { access: "access-token", refresh: "refresh-token", expires: 123 },
+				},
+				null,
+				2,
+			)}\n`,
+			"utf-8",
+		);
+
+		withAgentDir(agentDir, () => expect(runMigrations(agentDir).migratedAuthProviders).toEqual(["openai-codex"]));
+
+		const migrated = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf-8")) as Record<
+			string,
+			Record<string, unknown>
+		>;
+		expect(migrated.anthropic).toEqual({ type: "api_key", key: "anthropic-key" });
+		expect(migrated["openai-codex"]).toEqual({
+			type: "oauth",
+			access: "access-token",
+			refresh: "refresh-token",
+			expires: 123,
+		});
+		expect(fs.existsSync(path.join(agentDir, "oauth.json"))).toBe(false);
+		expect(fs.existsSync(path.join(agentDir, "oauth.json.migrated"))).toBe(true);
+	});
+
+	it("preserves existing auth.json providers when legacy auth has the same provider", () => {
+		const agentDir = createAgentDir();
+		fs.writeFileSync(
+			path.join(agentDir, "auth.json"),
+			`${JSON.stringify({ "openai-codex": { type: "oauth", access: "current" } }, null, 2)}\n`,
+			"utf-8",
+		);
+		fs.writeFileSync(
+			path.join(agentDir, "oauth.json"),
+			`${JSON.stringify({ "openai-codex": { access: "legacy" }, github: { access: "github" } }, null, 2)}\n`,
+			"utf-8",
+		);
+		fs.writeFileSync(
+			path.join(agentDir, "settings.json"),
+			`${JSON.stringify({ apiKeys: { "openai-codex": "legacy-key", anthropic: "anthropic-key" } }, null, 2)}\n`,
+			"utf-8",
+		);
+
+		withAgentDir(agentDir, () =>
+			expect(runMigrations(agentDir).migratedAuthProviders).toEqual(["github", "anthropic"]),
+		);
+
+		const migrated = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf-8")) as Record<
+			string,
+			Record<string, unknown>
+		>;
+		expect(migrated["openai-codex"]).toEqual({ type: "oauth", access: "current" });
+		expect(migrated.github).toEqual({ type: "oauth", access: "github" });
+		expect(migrated.anthropic).toEqual({ type: "api_key", key: "anthropic-key" });
+		const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf-8")) as Record<
+			string,
+			unknown
+		>;
+		expect(settings.apiKeys).toBeUndefined();
+	});
+
+	it("does not throw or overwrite when existing auth.json is malformed", () => {
+		const agentDir = createAgentDir();
+		const authPath = path.join(agentDir, "auth.json");
+		fs.writeFileSync(authPath, "{", "utf-8");
+		fs.writeFileSync(
+			path.join(agentDir, "oauth.json"),
+			`${JSON.stringify({ "openai-codex": { access: "access-token" } }, null, 2)}\n`,
+			"utf-8",
+		);
+
+		withAgentDir(agentDir, () => expect(() => runMigrations(agentDir)).not.toThrow());
+
+		expect(fs.readFileSync(authPath, "utf-8")).toBe("{");
+		expect(fs.existsSync(path.join(agentDir, "oauth.json"))).toBe(true);
+	});
+
 	it("leaves uppercase auth.json API key values unchanged", () => {
 		const agentDir = createAgentDir();
 		fs.writeFileSync(

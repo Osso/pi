@@ -31,6 +31,7 @@
 
 ### Fixed
 
+- Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.
 - Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.
 - Fixed threshold auto-compaction to resume a `"length"`-truncated turn once instead of leaving the session idle with unfinished work.
 - Fixed permission approval prompts to send non-expiring desktop notifications without exposing raw tool input.

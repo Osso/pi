@@ -14,6 +14,25 @@ const MIGRATION_GUIDE_URL =
 const EXTENSIONS_DOC_URL =
 	"https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readJsonRecord(path: string): Record<string, unknown> {
+	const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+	if (!isRecord(parsed)) return {};
+	return parsed;
+}
+
+function readAuthJson(authPath: string): Record<string, unknown> | undefined {
+	if (!existsSync(authPath)) return {};
+	try {
+		return readJsonRecord(authPath);
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Migrate legacy oauth.json and settings.json apiKeys to auth.json.
  *
@@ -25,18 +44,18 @@ export function migrateAuthToAuthJson(): string[] {
 	const oauthPath = join(agentDir, "oauth.json");
 	const settingsPath = join(agentDir, "settings.json");
 
-	// Skip if auth.json already exists
-	if (existsSync(authPath)) return [];
+	const migrated = readAuthJson(authPath);
+	if (!migrated) return [];
 
-	const migrated: Record<string, unknown> = {};
 	const providers: string[] = [];
 
 	// Migrate oauth.json
 	if (existsSync(oauthPath)) {
 		try {
-			const oauth = JSON.parse(readFileSync(oauthPath, "utf-8"));
+			const oauth = readJsonRecord(oauthPath);
 			for (const [provider, cred] of Object.entries(oauth)) {
-				migrated[provider] = { type: "oauth", ...(cred as object) };
+				if (provider in migrated || !isRecord(cred)) continue;
+				migrated[provider] = { type: "oauth", ...cred };
 				providers.push(provider);
 			}
 			renameSync(oauthPath, `${oauthPath}.migrated`);
@@ -48,14 +67,13 @@ export function migrateAuthToAuthJson(): string[] {
 	// Migrate settings.json apiKeys
 	if (existsSync(settingsPath)) {
 		try {
-			const content = readFileSync(settingsPath, "utf-8");
-			const settings = JSON.parse(content);
-			if (settings.apiKeys && typeof settings.apiKeys === "object") {
-				for (const [provider, key] of Object.entries(settings.apiKeys)) {
-					if (!migrated[provider] && typeof key === "string") {
-						migrated[provider] = { type: "api_key", key };
-						providers.push(provider);
-					}
+			const settings = readJsonRecord(settingsPath);
+			const apiKeys = settings.apiKeys;
+			if (isRecord(apiKeys)) {
+				for (const [provider, key] of Object.entries(apiKeys)) {
+					if (provider in migrated || typeof key !== "string") continue;
+					migrated[provider] = { type: "api_key", key };
+					providers.push(provider);
 				}
 				delete settings.apiKeys;
 				writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
@@ -65,7 +83,7 @@ export function migrateAuthToAuthJson(): string[] {
 		}
 	}
 
-	if (Object.keys(migrated).length > 0) {
+	if (providers.length > 0) {
 		mkdirSync(dirname(authPath), { recursive: true });
 		writeFileSync(authPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
 	}
