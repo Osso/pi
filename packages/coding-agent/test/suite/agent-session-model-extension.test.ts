@@ -5,12 +5,17 @@ import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type * as DesktopNotificationModule from "../../src/core/desktop-notification.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
 
-vi.mock("../../src/core/desktop-notification.ts", () => ({
-	sendDesktopNotification: desktopNotifier,
-}));
+vi.mock("../../src/core/desktop-notification.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof DesktopNotificationModule>();
+	return {
+		...actual,
+		sendDesktopNotification: desktopNotifier,
+	};
+});
 
 import claudeBashHookExtension from "../../extensions/claude-bash-hook/src/index.ts";
 import hostrunExtension from "../../extensions/hostrun/src/index.ts";
