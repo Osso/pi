@@ -4,7 +4,10 @@
 
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
+import { DEFAULT_AUTO_DETACH_AFTER_MS } from "./tool-detach-registry.ts";
 import { DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
+
+const MILLISECONDS_PER_MINUTE = 60_000;
 
 function appendUserRulesSection(prompt: string, rulesContent: string | undefined): string {
 	if (!rulesContent) {
@@ -119,6 +122,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	};
 
 	const hasBash = tools.includes("bash");
+	const hasBackgroundableCommandTool = hasBash || tools.includes("pyrun_eval");
 	const hasGrep = tools.includes("grep");
 	const hasFind = tools.includes("find");
 	const hasLs = tools.includes("ls");
@@ -137,6 +141,13 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		);
 		addGuideline(
 			'For final code review or second opinions on non-trivial changes, use spawn_agent with agentType "reviewer".',
+		);
+	}
+
+	if (hasBackgroundableCommandTool) {
+		const autoBackgroundAfterMinutes = DEFAULT_AUTO_DETACH_AFTER_MS / MILLISECONDS_PER_MINUTE;
+		addGuideline(
+			`Supported long-running command tools such as bash and Pyrun are automatically backgrounded after ${autoBackgroundAfterMinutes} minutes; use wait_agent or the reported background job details to inspect completion and logs instead of assuming the command stopped.`,
 		);
 	}
 

@@ -104,6 +104,21 @@ describe("buildSystemPrompt", () => {
 		});
 	});
 
+	describe("command backgrounding guidelines", () => {
+		test("warns that supported long-running command tools auto-background after 2 minutes", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["bash"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				"Supported long-running command tools such as bash and Pyrun are automatically backgrounded after 2 minutes; use wait_agent or the reported background job details to inspect completion and logs instead of assuming the command stopped.",
+			);
+		});
+	});
+
 	describe("delegation guidelines", () => {
 		test("requires explore agents for codebase research", () => {
 			const prompt = buildSystemPrompt({
