@@ -306,6 +306,7 @@ export class ExtensionRunner {
 	private abortFn: () => void = () => {};
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
+	private getScopedModelsFn: ExtensionContextActions["getScopedModels"] = () => [];
 	private getMultiAgentAgentIdFn: () => string | undefined = () => undefined;
 	private getMultiAgentParentSessionIdFn: () => string | undefined = () => undefined;
 	private getMultiAgentRequiresAgentIdFn: () => boolean = () => false;
@@ -382,6 +383,7 @@ export class ExtensionRunner {
 		this.restartFn = contextActions.restart;
 		this.getControlDbPathFn = contextActions.getControlDbPath ?? (() => undefined);
 		this.getContextUsageFn = contextActions.getContextUsage;
+		this.getScopedModelsFn = contextActions.getScopedModels ?? (() => []);
 		this.getMultiAgentAgentIdFn = contextActions.getMultiAgentAgentId ?? (() => undefined);
 		this.getMultiAgentParentSessionIdFn = contextActions.getMultiAgentParentSessionId ?? (() => undefined);
 		this.getMultiAgentRequiresAgentIdFn = contextActions.getMultiAgentRequiresAgentId ?? (() => false);
@@ -749,6 +751,10 @@ export class ExtensionRunner {
 			get model() {
 				runner.assertActive();
 				return getModel();
+			},
+			getScopedModels: () => {
+				runner.assertActive();
+				return runner.getScopedModelsFn?.() ?? [];
 			},
 			isIdle: () => {
 				runner.assertActive();

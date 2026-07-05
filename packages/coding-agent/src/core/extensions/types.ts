@@ -339,6 +339,8 @@ export interface ExtensionContext {
 	toolDetachRegistry?: ToolDetachRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
+	/** Current scoped models used for model cycling, when available. */
+	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
 	isIdle(): boolean;
 	/** Whether project-local trust is active for this context. */
@@ -1638,6 +1640,7 @@ export interface ExtensionActions {
  */
 export interface ExtensionContextActions {
 	getModel: () => Model<any> | undefined;
+	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	getFooterData?: () => ReadonlyFooterDataProvider | undefined;
 	isIdle: () => boolean;
 	isProjectTrusted: () => boolean;

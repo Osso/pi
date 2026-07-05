@@ -3120,6 +3120,7 @@ export class AgentSession {
 			},
 			{
 				getModel: () => this.model,
+				getScopedModels: () => this.scopedModels,
 				getFooterData: () => this._extensionFooterData,
 				isIdle: () => !this.isStreaming,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),

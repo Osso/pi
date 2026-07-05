@@ -120,6 +120,7 @@ function createPyrunHarness(options: PyrunExtensionOptions = {}) {
 		hasUI: false,
 		mode: "tui",
 		model: { id: "faux/model" },
+		getScopedModels: () => [],
 		restart: async (request: unknown) => {
 			restartRequests.push(request);
 		},
@@ -286,6 +287,11 @@ async function resultFor(request) {
   }
   if (request.code === "pi.footer.snapshot()") {
     return { type: "completed", executed: request.code, value: request.pi.footer };
+  }
+  if (request.code === "pi.models.scoped()") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "models.scoped", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
   }
   if (request.code === "pi.agents.spawn({'prompt': 'inspect X'})") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X" } }) + "\\n");
@@ -626,6 +632,27 @@ describe("pyrun extension", () => {
 			type: "text",
 			text: "print('hello')\n1+1\n\nhello\n2",
 		});
+	});
+
+	it("lists scoped models through the Pi bridge", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "pi.models.scoped()" }, undefined, undefined, {
+			getScopedModels: () => [
+				{
+					model: { id: "gpt-5.5", name: "GPT-5.5", provider: "openai-codex" },
+					thinkingLevel: "high",
+				},
+				{
+					model: { id: "claude-opus-4-8", provider: "anthropic" },
+				},
+			],
+		});
+
+		expect(result.details.value).toEqual([
+			{ id: "gpt-5.5", name: "GPT-5.5", provider: "openai-codex", thinkingLevel: "high" },
+			{ id: "claude-opus-4-8", provider: "anthropic" },
+		]);
 	});
 
 	it("keeps Pyrun session state in the runner", async () => {
