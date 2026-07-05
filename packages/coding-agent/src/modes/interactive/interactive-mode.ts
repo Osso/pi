@@ -135,6 +135,7 @@ import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
 import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
+import { formatElapsedDuration, MIN_VISIBLE_ELAPSED_MS } from "./components/elapsed-time.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -358,6 +359,8 @@ export class InteractiveMode {
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
 	private executingToolNames = new Map<string, string>();
+	private executingToolStartedAt = new Map<string, number>();
+	private toolWaitingTimer: ReturnType<typeof setInterval> | undefined;
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -1847,8 +1850,17 @@ export class InteractiveMode {
 		return this.workingMessage ?? this.currentWorkingDefaultMessage;
 	}
 
-	private getToolWaitingMessage(toolName: string): string {
-		return toolName === "bash" ? "Waiting for command..." : `Waiting for tool: ${toolName}...`;
+	private getToolWaitingMessage(toolName: string, startedAt?: number): string {
+		const baseMessage = toolName === "bash" ? "Waiting for command..." : `Waiting for tool: ${toolName}...`;
+		if (startedAt === undefined) {
+			return baseMessage;
+		}
+
+		const elapsedMs = Date.now() - startedAt;
+		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
+			return baseMessage;
+		}
+		return `${baseMessage} Elapsed: ${formatElapsedDuration(elapsedMs)}`;
 	}
 
 	private setDefaultWorkingMessage(message: string): void {
@@ -1859,10 +1871,33 @@ export class InteractiveMode {
 	}
 
 	private setWorkingMessageForActiveTools(): void {
-		const nextToolName = this.executingToolNames.values().next().value;
-		this.setDefaultWorkingMessage(
-			nextToolName ? this.getToolWaitingMessage(nextToolName) : this.defaultWorkingMessage,
-		);
+		const nextToolEntry = this.executingToolNames.entries().next().value;
+		if (!nextToolEntry) {
+			this.setDefaultWorkingMessage(this.defaultWorkingMessage);
+			return;
+		}
+
+		const [toolCallId, toolName] = nextToolEntry;
+		this.setDefaultWorkingMessage(this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId)));
+	}
+
+	private startToolWaitingTimer(): void {
+		if (this.toolWaitingTimer) {
+			return;
+		}
+
+		this.toolWaitingTimer = setInterval(() => {
+			this.setWorkingMessageForActiveTools();
+		}, MIN_VISIBLE_ELAPSED_MS);
+	}
+
+	private stopToolWaitingTimerIfIdle(): void {
+		if (this.executingToolNames.size > 0 || !this.toolWaitingTimer) {
+			return;
+		}
+
+		clearInterval(this.toolWaitingTimer);
+		this.toolWaitingTimer = undefined;
 	}
 
 	private createWorkingLoader(): Loader {
@@ -3112,6 +3147,8 @@ export class InteractiveMode {
 			case "agent_start":
 				this.clearPendingToolComponents();
 				this.executingToolNames.clear();
+				this.executingToolStartedAt.clear();
+				this.stopToolWaitingTimerIfIdle();
 				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
@@ -3213,6 +3250,9 @@ export class InteractiveMode {
 							});
 						}
 						this.clearPendingToolComponents();
+						this.executingToolNames.clear();
+						this.executingToolStartedAt.clear();
+						this.stopToolWaitingTimerIfIdle();
 					} else {
 						for (const content of this.streamingMessage.content) {
 							if (content.type === "toolCall") {
@@ -3233,6 +3273,8 @@ export class InteractiveMode {
 
 			case "tool_execution_start": {
 				this.executingToolNames.set(event.toolCallId, event.toolName);
+				this.executingToolStartedAt.set(event.toolCallId, Date.now());
+				this.startToolWaitingTimer();
 				this.setWorkingMessageForActiveTools();
 				const component = this.ensureToolExecutionComponent(event.toolName, event.toolCallId, event.args);
 				component.markExecutionStarted();
@@ -3256,6 +3298,8 @@ export class InteractiveMode {
 					this.pendingTools.delete(event.toolCallId);
 				}
 				this.executingToolNames.delete(event.toolCallId);
+				this.executingToolStartedAt.delete(event.toolCallId);
+				this.stopToolWaitingTimerIfIdle();
 				this.setWorkingMessageForActiveTools();
 				if (component) {
 					this.ui.requestRender();
@@ -3264,6 +3308,9 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
+				this.executingToolNames.clear();
+				this.executingToolStartedAt.clear();
+				this.stopToolWaitingTimerIfIdle();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
 				}

@@ -12,7 +12,7 @@ import {
 import { stripAnsi } from "../../../utils/ansi.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
-import { formatElapsedDuration } from "./elapsed-time.ts";
+import { formatElapsedDuration, MIN_VISIBLE_ELAPSED_MS } from "./elapsed-time.ts";
 import { keyHint, keyText } from "./keybinding-hints.ts";
 import { truncateToVisualLines } from "./visual-truncate.ts";
 
@@ -155,9 +155,13 @@ export class BashExecutionComponent extends Container {
 		this.timerInterval = undefined;
 	}
 
-	private formatTimer(): string {
+	private formatTimer(): string | undefined {
 		const endTime = this.finishedAt ?? Date.now();
-		return formatElapsedDuration(endTime - this.startedAt);
+		const elapsedMs = endTime - this.startedAt;
+		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
+			return undefined;
+		}
+		return formatElapsedDuration(elapsedMs);
 	}
 
 	dispose(): void {
@@ -218,11 +222,13 @@ export class BashExecutionComponent extends Container {
 
 		// Loader or status
 		if (this.status === "running") {
-			const runningPrefix = this.showElapsed ? `Running ${this.formatTimer()}...` : "Running...";
+			const elapsed = this.showElapsed ? this.formatTimer() : undefined;
+			const runningPrefix = elapsed ? `Running ${elapsed}...` : "Running...";
 			this.loader.setMessage(`${runningPrefix} (${keyText("tui.select.cancel")} to cancel)`);
 			this.contentContainer.addChild(this.loader);
 		} else {
-			const statusParts: string[] = this.showElapsed ? [theme.fg("muted", `(elapsed ${this.formatTimer()})`)] : [];
+			const elapsed = this.showElapsed ? this.formatTimer() : undefined;
+			const statusParts: string[] = elapsed ? [theme.fg("muted", `(elapsed ${elapsed})`)] : [];
 
 			// Show how many lines are hidden (collapsed preview)
 			if (hiddenLineCount > 0) {

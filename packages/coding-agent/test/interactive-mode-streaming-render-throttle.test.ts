@@ -25,6 +25,7 @@ type HandleEventThis = {
 	currentWorkingDefaultMessage: string;
 	defaultWorkingMessage: string;
 	executingToolNames: Map<string, string>;
+	executingToolStartedAt: Map<string, number>;
 	footer: { invalidate(): void };
 	getMarkdownThemeWithSettings(): MarkdownTheme;
 	hiddenThinkingLabel: string;
@@ -99,6 +100,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		currentWorkingDefaultMessage: "Thinking...",
 		defaultWorkingMessage: "Thinking...",
 		executingToolNames: new Map<string, string>(),
+		executingToolStartedAt: new Map<string, number>(),
 		footer: { invalidate: vi.fn() },
 		getMarkdownThemeWithSettings: getMarkdownTheme,
 		hiddenThinkingLabel: "Thinking...",
@@ -229,6 +231,29 @@ describe("InteractiveMode streaming render throttling", () => {
 			isError: false,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
+	});
+
+	test("adds elapsed time to waiting labels after the first second", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const fakeThis = createFakeInteractiveModeThis();
+		const setMessage = vi.fn();
+		fakeThis.loadingAnimation = { setMessage };
+		fakeThis.pendingTools.set("pyrun-1", createToolExecutionStub());
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolName: "pyrun_eval",
+			toolCallId: "pyrun-1",
+			args: { code: "print(1)" },
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
+
+		await vi.advanceTimersByTimeAsync(999);
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
+
+		await vi.advanceTimersByTimeAsync(47_001);
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval... Elapsed: 48s");
 	});
 
 	test("keeps extension working message override during tool execution", async () => {

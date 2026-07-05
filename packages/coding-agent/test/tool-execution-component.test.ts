@@ -62,6 +62,10 @@ describe("ToolExecutionComponent parity", () => {
 		);
 
 		component.markExecutionStarted();
+		vi.setSystemTime(999);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).not.toContain("Elapsed:");
+
 		vi.setSystemTime(2_100);
 		component.invalidate();
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 2s");
@@ -77,6 +81,11 @@ describe("ToolExecutionComponent parity", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
 		const component = new BashExecutionComponent("sleep 10", createFakeTui());
+
+		vi.setSystemTime(999);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Running...");
+		expect(stripAnsi(component.render(120).join("\n"))).not.toContain("Running 0s");
 
 		vi.setSystemTime(1_200);
 		component.invalidate();
