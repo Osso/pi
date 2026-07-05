@@ -111,7 +111,10 @@ describe("codex web search extension", () => {
 	it("adds an SDK-compatible hosted web search tool to provider payloads", () => {
 		expect(addWebSearchToolToPayload({ model: "gpt", tools: [{ type: "function", name: "read" }] })).toEqual({
 			model: "gpt",
-			tools: [{ type: "function", name: "read" }, { type: "web_search" }],
+			tools: [
+				{ type: "function", name: "read" },
+				{ type: "web_search", external_web_access: true },
+			],
 		});
 		expect(addWebSearchToolToPayload({ model: "gpt", tools: [{ type: "web_search" }] })).toBeUndefined();
 	});

@@ -5,6 +5,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } 
 
 interface WebSearchTool {
 	type: "web_search";
+	external_web_access: true;
 }
 
 interface PayloadWithTools extends Record<string, unknown> {
@@ -171,7 +172,7 @@ export function addWebSearchToolToPayload(payload: unknown): unknown | undefined
 }
 
 function createWebSearchTool(): WebSearchTool {
-	return { type: "web_search" };
+	return { type: "web_search", external_web_access: true };
 }
 
 function isHostedWebSearchTool(value: unknown): boolean {
