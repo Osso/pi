@@ -1,0 +1,8 @@
+[output]
+max_stdout_bytes = 20000
+
+[checks]
+disabled = ["function_length", "parameter_overload", "exits", "function_count", "maintainability", "halstead", "abc"]
+
+[metrics]
+disabled = ["nargs", "nexits", "halstead", "loc", "nom", "mi", "abc"]
