@@ -183,8 +183,8 @@ function createGoalHarness(
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
-		runSetGoal: async (objective: string, replace = false) =>
-			setGoalTool?.execute("set-goal-1", { objective, replace }, undefined, undefined, ctx as ExtensionContext),
+		runSetGoal: async (objective: string) =>
+			setGoalTool?.execute("set-goal-1", { objective }, undefined, undefined, ctx as ExtensionContext),
 		getSetGoalTool: () => setGoalTool,
 		hasGoalCommand: () => command !== undefined,
 		hasGoalCompleteTool: () => completeTool !== undefined,
@@ -218,7 +218,7 @@ describe("goal extension", () => {
 		expect(harness.hasSetGoalTool()).toBe(true);
 	});
 
-	it("exposes set_goal without budget parameters or guidance", () => {
+	it("exposes set_goal without replacement or budget parameters or guidance", () => {
 		const harness = createGoalHarness(cwd);
 		const setGoalTool = harness.getSetGoalTool();
 
@@ -226,6 +226,7 @@ describe("goal extension", () => {
 		expect(setGoalTool?.description).not.toContain("tokenBudget");
 		expect(setGoalTool?.description).not.toContain("wallClockMinutes");
 		expect(setGoalTool?.promptGuidelines).toEqual([]);
+		expect(schemaHasProperty(setGoalTool?.parameters, "replace")).toBe(false);
 		expect(schemaHasProperty(setGoalTool?.parameters, "tokenBudget")).toBe(false);
 		expect(schemaHasProperty(setGoalTool?.parameters, "wallClockMinutes")).toBe(false);
 	});
@@ -249,17 +250,12 @@ describe("goal extension", () => {
 		await harness.runCommand("first objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
-		const result = await harness.runSetGoal("agent-chosen objective", true);
+		const result = await harness.runSetGoal("agent-chosen objective");
 
 		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("first objective");
-		expect(result?.content).toEqual([
-			{ type: "text", text: "Active goal already set — use /goal --replace <objective> to replace it" },
-		]);
-		expect(harness.notify).toHaveBeenCalledWith(
-			"Active goal already set — use /goal --replace <objective> to replace it",
-			"warning",
-		);
+		expect(result?.content).toEqual([{ type: "text", text: "Active goal already set." }]);
+		expect(harness.notify).toHaveBeenCalledWith("Active goal already set.", "warning");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
@@ -323,30 +319,13 @@ describe("goal extension", () => {
 		expect(secondPrompt?.systemPrompt).not.toContain("first session objective");
 	});
 
-	it("requires an explicit replace flag before overwriting an active goal", async () => {
+	it("replaces an active goal by default", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("first objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		await harness.runCommand("second objective");
-
-		const goal = readStoredGoal<{ objective: string }>(cwd);
-		expect(goal.objective).toBe("first objective");
-		expect(harness.notify).toHaveBeenCalledWith(
-			"Active goal already set — use /goal --replace <objective> to replace it",
-			"warning",
-		);
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-	});
-
-	it("replaces an active goal when the replace flag is present", async () => {
-		const harness = createGoalHarness(cwd);
-
-		await harness.runCommand("first objective");
-		harness.notify.mockClear();
-		harness.sendUserMessage.mockClear();
-		await harness.runCommand("--replace second objective");
 
 		const goal = readStoredGoal<{ objective: string; continuationTurns: number }>(cwd);
 		expect(goal.objective).toBe("second objective");
@@ -355,6 +334,16 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
 			"Work toward this objective until it is achieved: second objective",
 		);
+	});
+
+	it("rejects the removed replacement flag", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand(`${"--"}replace second objective`);
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("Goal flags are no longer supported", "error");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("injects the active objective into the system prompt", async () => {

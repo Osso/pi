@@ -23,6 +23,7 @@
 
 ### Changed
 
+- Changed `/goal <objective>` to replace the active goal by default and removed the replacement flag.
 - Changed the LLM-approved tool reviewer to allow bounded-risk coding-agent commands, including `/tmp` cleanup, while still denying catastrophic system, credential, irreversible data-loss, or unrelated external-side-effect actions.
 - Changed the `pi -r` and `/resume` session selector default sort to recent sessions.
 - Changed project skill auto-discovery to include `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` in ancestor directories above the git repo root.

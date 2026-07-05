@@ -103,7 +103,7 @@ describe("goal extension runtime", () => {
 		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("set_goal", { objective: "agent-chosen objective", replace: true }), {
+			fauxAssistantMessage(fauxToolCall("set_goal", { objective: "agent-chosen objective" }), {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("done"),

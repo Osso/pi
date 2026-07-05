@@ -10,8 +10,7 @@
  * State is persisted as JSON in the control SQLite `session_metadata` row for the session.
  *
  * Commands:
- *   /goal <objective>             set the objective and start working toward it
- *   /goal --replace <objective>   replace the active objective
+ *   /goal <objective>             set or replace the objective and start working toward it
  *   /goal                         view the active objective
  *   /goal pause                   pause continuation without clearing the objective
  *   /goal clear                   clear the active objective
@@ -49,7 +48,6 @@ interface Goal {
 
 interface ParsedGoalArgs {
 	objective: string;
-	replace: boolean;
 }
 
 interface SetGoalParams extends ParsedGoalArgs {
@@ -205,24 +203,22 @@ function updateGoalFooterStatus(ctx: ExtensionContext): void {
 
 function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
 	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
-	let replace = false;
 	const objectiveParts: string[] = [];
 
 	for (const part of parts) {
-		if (part === "--replace") {
-			replace = true;
-			continue;
-		}
 		if (part === "--token-budget" || part.startsWith("--token-budget=")) {
 			return { error: "/goal --token-budget is no longer supported" };
 		}
 		if (part === "--wall-clock-minutes" || part.startsWith("--wall-clock-minutes=")) {
 			return { error: "/goal --wall-clock-minutes is no longer supported" };
 		}
+		if (part.startsWith("--")) {
+			return { error: "Goal flags are no longer supported" };
+		}
 		objectiveParts.push(part);
 	}
 
-	return { objective: objectiveParts.join(" "), replace };
+	return { objective: objectiveParts.join(" ") };
 }
 
 function goalStateLines(goal: Goal): string[] {
@@ -309,7 +305,7 @@ function goalSystemBlock(goal: Goal): string {
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
-	const { objective, replace, ctx, pi } = params;
+	const { objective, ctx, pi } = params;
 	if (objective.length > MAX_OBJECTIVE_CHARS) {
 		return {
 			ok: false,
@@ -319,13 +315,6 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	}
 
 	const activeGoal = loadActiveGoal(ctx);
-	if (activeGoal && !replace) {
-		return {
-			ok: false,
-			message: "Active goal already set — use /goal --replace <objective> to replace it",
-			severity: "warning",
-		};
-	}
 
 	const goal: Goal = {
 		objective,
@@ -337,7 +326,7 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	updateGoalFooterStatus(ctx);
 
 	const idle = ctx.isIdle();
-	const message = replace && activeGoal ? "Goal replaced — starting work" : "Goal set — starting work";
+	const message = activeGoal ? "Goal replaced — starting work" : "Goal set — starting work";
 	if (idle) {
 		pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
 	}
@@ -358,7 +347,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 		promptGuidelines: [],
 		parameters: Type.Object({
 			objective: Type.String(),
-			replace: Type.Optional(Type.Boolean()),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const objective = params.objective.trim();
@@ -371,7 +359,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 			const activeGoal = loadActiveGoal(ctx);
 			if (activeGoal) {
-				const message = "Active goal already set — use /goal --replace <objective> to replace it";
+				const message = "Active goal already set.";
 				ctx.ui.notify(message, "warning");
 				return {
 					content: [{ type: "text", text: message }],
@@ -381,7 +369,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 
 			const result = setGoal({
 				objective,
-				replace: false,
 				ctx,
 				pi,
 			});
@@ -464,14 +451,14 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("goal", {
-		description: "Set, view, pause, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal clear)",
+		description: "Set, replace, view, pause, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const parsedArgs = parseGoalArgs(args);
 			if ("error" in parsedArgs) {
 				ctx.ui.notify(parsedArgs.error, "error");
 				return;
 			}
-			const { objective, replace } = parsedArgs;
+			const { objective } = parsedArgs;
 
 			// View
 			if (!objective) {
@@ -495,7 +482,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			const result = setGoal({ objective, replace, ctx, pi });
+			const result = setGoal({ objective, ctx, pi });
 			ctx.ui.notify(result.message, result.severity);
 		},
 	});
