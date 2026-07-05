@@ -48,10 +48,10 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined
 		return `exit code ${commandExitCode}`;
 	}
 	if (result.value === undefined) {
-		return "undefined";
+		return undefined;
 	}
 	if (typeof result.value === "string") {
-		return result.value;
+		return result.value.trim().length > 0 ? result.value : undefined;
 	}
 	return JSON.stringify(result.value);
 }

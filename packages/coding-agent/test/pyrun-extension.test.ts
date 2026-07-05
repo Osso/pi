@@ -221,6 +221,12 @@ async function resultFor(request) {
       value: 2
     };
   }
+  if (request.code === "empty.result") {
+    return { type: "completed", executed: request.code, value: "" };
+  }
+  if (request.code === "undefined.result") {
+    return { type: "completed", executed: request.code };
+  }
   if (request.code === "fs.write('/tmp/probe.txt', 'hello')") {
     return {
       type: "needs_approval",
@@ -551,6 +557,22 @@ describe("pyrun extension", () => {
 		expect(text).toContain("print('hello')\n1 + 1");
 		expect(text).toContain("Result: 2");
 		expect(text).toContain("hello");
+	});
+
+	it("omits empty Pyrun result values", async () => {
+		const harness = createPyrunHarness();
+
+		const emptyResult = await harness.evaluate({ code: "empty.result" });
+		const undefinedResult = await harness.evaluate({ code: "undefined.result" });
+
+		expect(emptyResult.content[0]).toEqual({
+			type: "text",
+			text: "empty.result\n",
+		});
+		expect(undefinedResult.content[0]).toEqual({
+			type: "text",
+			text: "undefined.result\n",
+		});
 	});
 
 	it("omits successful command result JSON when command output is already shown", async () => {
