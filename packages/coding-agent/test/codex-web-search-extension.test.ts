@@ -1,5 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import codexWebSearchExtension, {
 	addWebSearchToolToPayload,
 	createWebSearchToolDefinition,
@@ -32,6 +32,10 @@ function context(api: Parameters<typeof model>[0]): ExtensionContext {
 }
 
 describe("codex web search extension", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it("registers a web_search tool without registering a CLI flag", () => {
 		const registerFlag = vi.fn();
 		const registerTool = vi.fn();
@@ -61,10 +65,47 @@ describe("codex web search extension", () => {
 				query: "pi web search",
 				model: ctx.model,
 				apiKey: "test-key",
+				signal: expect.any(AbortSignal),
 			}),
 			expect.anything(),
 		);
 		expect(result).toMatchObject({ content: [{ type: "text", text: "Search result text" }] });
+	});
+
+	it("times out slow hosted web search calls with a clear error", async () => {
+		vi.useFakeTimers();
+		let capturedSignal: AbortSignal | undefined;
+		const runSearch = vi.fn((request: { signal?: AbortSignal }) => {
+			capturedSignal = request.signal;
+			return new Promise<string>(() => {});
+		});
+		const tool = createWebSearchToolDefinition({ runSearch, timeoutMs: 10 });
+
+		const result = expect(
+			tool.execute("call-1", { query: "slow search" }, undefined, undefined, context("openai-responses")),
+		).rejects.toThrow("OpenAI hosted web_search timed out after 10ms");
+		await vi.advanceTimersByTimeAsync(10);
+
+		await result;
+		expect(capturedSignal?.aborted).toBe(true);
+	});
+
+	it("preserves caller aborts while applying the hosted search timeout", async () => {
+		const controller = new AbortController();
+		let capturedSignal: AbortSignal | undefined;
+		const runSearch = vi.fn((request: { signal?: AbortSignal }) => {
+			capturedSignal = request.signal;
+			controller.abort(new Error("cancelled by user"));
+			return new Promise<string>(() => {});
+		});
+		const tool = createWebSearchToolDefinition({ runSearch, timeoutMs: 10_000 });
+
+		const result = expect(
+			tool.execute("call-1", { query: "abort search" }, controller.signal, undefined, context("openai-responses")),
+		).rejects.toThrow("cancelled by user");
+
+		await result;
+		expect(capturedSignal?.aborted).toBe(true);
 	});
 
 	it("adds an SDK-compatible hosted web search tool to provider payloads", () => {

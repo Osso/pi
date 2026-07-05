@@ -24,6 +24,8 @@ type OpenAIWebSearchApi = "openai-responses" | "openai-codex-responses";
 type OpenAIWebSearchModel = Model<OpenAIWebSearchApi>;
 type RunWebSearch = (request: WebSearchRequest, ctx: ExtensionContext) => Promise<string>;
 
+const DEFAULT_WEB_SEARCH_TIMEOUT_MS = 180_000;
+
 const webSearchSchema = Type.Object({
 	query: Type.String({ description: "Search query to send to the web search provider." }),
 });
@@ -34,8 +36,12 @@ export default function codexWebSearchExtension(pi: ExtensionAPI) {
 	pi.registerTool(createWebSearchToolDefinition());
 }
 
-export function createWebSearchToolDefinition(options?: { runSearch?: RunWebSearch }): ToolDefinition<typeof webSearchSchema> {
+export function createWebSearchToolDefinition(options?: {
+	runSearch?: RunWebSearch;
+	timeoutMs?: number;
+}): ToolDefinition<typeof webSearchSchema> {
 	const runSearch = options?.runSearch ?? runHostedWebSearch;
+	const timeoutMs = options?.timeoutMs ?? DEFAULT_WEB_SEARCH_TIMEOUT_MS;
 	return {
 		name: "web_search",
 		label: "Web Search",
@@ -48,7 +54,7 @@ export function createWebSearchToolDefinition(options?: { runSearch?: RunWebSear
 		approvalRequired: true,
 		parameters: webSearchSchema,
 		async execute(_toolCallId, params: WebSearchInput, signal, _onUpdate, ctx): Promise<AgentToolResult<undefined>> {
-			const text = await executeWebSearch(params, ctx, signal, runSearch);
+			const text = await executeWebSearch(params, ctx, signal, runSearch, timeoutMs);
 			return { content: [{ type: "text", text }], details: undefined };
 		},
 	};
@@ -63,6 +69,7 @@ async function executeWebSearch(
 	ctx: ExtensionContext,
 	signal: AbortSignal | undefined,
 	runSearch: RunWebSearch,
+	timeoutMs: number,
 ): Promise<string> {
 	const query = params.query.trim();
 	if (!query) throw new Error("web_search query is required");
@@ -73,7 +80,7 @@ async function executeWebSearch(
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 	if (!auth.ok) throw new Error(auth.error);
 
-	const text = await runSearch(
+	return runSearchWithTimeout(
 		{
 			query,
 			model: ctx.model,
@@ -83,8 +90,53 @@ async function executeWebSearch(
 			signal,
 		},
 		ctx,
+		runSearch,
+		timeoutMs,
 	);
-	return text;
+}
+
+async function runSearchWithTimeout(
+	request: WebSearchRequest,
+	ctx: ExtensionContext,
+	runSearch: RunWebSearch,
+	timeoutMs: number,
+): Promise<string> {
+	const timeoutController = new AbortController();
+	const timeout = setTimeout(() => {
+		timeoutController.abort(new Error(`OpenAI hosted web_search timed out after ${formatTimeout(timeoutMs)}`));
+	}, timeoutMs);
+	timeout.unref?.();
+
+	const signal = request.signal ? AbortSignal.any([request.signal, timeoutController.signal]) : timeoutController.signal;
+	try {
+		throwIfAborted(signal);
+		return await waitForWebSearch(runSearch({ ...request, signal }, ctx), signal);
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+function waitForWebSearch(promise: Promise<string>, signal: AbortSignal): Promise<string> {
+	if (signal.aborted) return Promise.reject(toAbortError(signal.reason));
+
+	return new Promise<string>((resolve, reject) => {
+		const abort = () => reject(toAbortError(signal.reason));
+		signal.addEventListener("abort", abort, { once: true });
+		promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+	});
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+	if (signal.aborted) throw toAbortError(signal.reason);
+}
+
+function toAbortError(reason: unknown): Error {
+	if (reason instanceof Error) return reason;
+	return new Error("OpenAI hosted web_search aborted");
+}
+
+function formatTimeout(timeoutMs: number): string {
+	return timeoutMs % 1000 === 0 ? `${timeoutMs / 1000}s` : `${timeoutMs}ms`;
 }
 
 async function runHostedWebSearch(request: WebSearchRequest): Promise<string> {
