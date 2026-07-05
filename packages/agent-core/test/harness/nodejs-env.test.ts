@@ -318,4 +318,21 @@ describe("NodeExecutionEnv", () => {
 		expect(fullOutput.split("\n").length).toBeGreaterThan(10000);
 		expect(result.output.length).toBeLessThan(fullOutput.length);
 	});
+
+	it("captures a single oversized shell chunk to a full output file", async () => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		const result = getOrThrow(
+			await executeShellWithCapture(
+				env,
+				"node -e \"process.stdout.write('start' + 'x'.repeat(128 * 1024) + 'end')\"",
+			),
+		);
+		expect(result.truncated).toBe(true);
+		expect(result.fullOutputPath).toBeDefined();
+		const fullOutput = getOrThrow(await env.readTextFile(result.fullOutputPath!));
+		expect(fullOutput).toContain("start");
+		expect(fullOutput).toContain("end");
+		expect(result.output.length).toBeLessThan(fullOutput.length);
+	});
 });

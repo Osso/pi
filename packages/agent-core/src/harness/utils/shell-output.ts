@@ -44,11 +44,17 @@ export async function executeShellWithCapture(
 
 	let totalBytes = 0;
 	let fullOutputPath: string | undefined;
+	let fullOutputRequested = false;
+	let pendingFullOutput = "";
 	let writeChain: Promise<Result<void, ExecutionError>> = Promise.resolve(ok(undefined));
 	let captureError: ExecutionError | undefined;
 
 	const appendFullOutput = (text: string): void => {
-		if (!fullOutputPath || captureError) return;
+		if (captureError) return;
+		if (!fullOutputPath) {
+			if (fullOutputRequested) pendingFullOutput += text;
+			return;
+		}
 		const path = fullOutputPath;
 		writeChain = writeChain.then(async (previous) => {
 			if (!previous.ok) return previous;
@@ -58,7 +64,9 @@ export async function executeShellWithCapture(
 	};
 
 	const ensureFullOutputFile = (initialContent: string): void => {
-		if (fullOutputPath || captureError) return;
+		if (fullOutputRequested || captureError) return;
+		fullOutputRequested = true;
+		pendingFullOutput = initialContent;
 		writeChain = writeChain.then(async (previous) => {
 			if (!previous.ok) return previous;
 			const tempFile = await env.createTempFile({
@@ -68,7 +76,9 @@ export async function executeShellWithCapture(
 			});
 			if (!tempFile.ok) return err(toExecutionError(tempFile.error));
 			fullOutputPath = tempFile.value;
-			const appendResult = await env.appendFile(tempFile.value, initialContent, options?.abortSignal);
+			const initialOutput = pendingFullOutput;
+			pendingFullOutput = "";
+			const appendResult = await env.appendFile(tempFile.value, initialOutput, options?.abortSignal);
 			return appendResult.ok ? ok(undefined) : err(toExecutionError(appendResult.error));
 		});
 	};
@@ -77,7 +87,7 @@ export async function executeShellWithCapture(
 		try {
 			totalBytes += encoder.encode(chunk).byteLength;
 			const text = sanitizeBinaryOutput(chunk).replace(/\r/g, "");
-			if (totalBytes > DEFAULT_MAX_BYTES && !fullOutputPath) {
+			if (totalBytes > DEFAULT_MAX_BYTES && !fullOutputRequested) {
 				ensureFullOutputFile(outputChunks.join("") + text);
 			} else {
 				appendFullOutput(text);
@@ -102,7 +112,7 @@ export async function executeShellWithCapture(
 		});
 		const tailOutput = outputChunks.join("");
 		const truncationResult = truncateTail(tailOutput);
-		if (truncationResult.truncated && !fullOutputPath) {
+		if (truncationResult.truncated && !fullOutputRequested) {
 			ensureFullOutputFile(tailOutput);
 		}
 		const writeResult = await writeChain;
