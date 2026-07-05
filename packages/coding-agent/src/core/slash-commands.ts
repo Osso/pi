@@ -15,6 +15,13 @@ export interface BuiltinSlashCommand {
 	description: string;
 }
 
+export function expandBuiltinSlashCommandInput(text: string): string {
+	if (text === "/continue") {
+		return "continue";
+	}
+	return text;
+}
+
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
 	{ name: "model", description: "Select model (opens selector UI)" },
@@ -37,6 +44,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "login", description: "Configure provider authentication" },
 	{ name: "logout", description: "Remove provider authentication" },
 	{ name: "new", description: "Start a new session" },
+	{ name: "continue", description: "Send 'continue' to resume interrupted work" },
 	{ name: "compact", description: "Manually compact the session context" },
 	{ name: "resume", description: "Resume a different session" },
 	{ name: "agents", description: "Open agent switcher" },

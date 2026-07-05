@@ -108,7 +108,7 @@ import {
 } from "../../core/session-manager.ts";
 import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
-import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+import { BUILTIN_SLASH_COMMANDS, expandBuiltinSlashCommandInput } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -2877,6 +2877,8 @@ export class InteractiveMode {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			text = text.trim();
 			if (!text) return;
+
+			text = expandBuiltinSlashCommandInput(text);
 
 			if (text.startsWith("/")) {
 				this.editor.addToHistory?.(text);
