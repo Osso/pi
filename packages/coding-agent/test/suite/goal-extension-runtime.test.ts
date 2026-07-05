@@ -54,6 +54,16 @@ async function waitForProviderCalls(harness: Harness, expectedCallCount: number)
 	}
 }
 
+async function waitForStoredGoalObjective(harness: Harness, objective: string): Promise<void> {
+	const deadline = Date.now() + 1000;
+	while (Date.now() < deadline) {
+		if (readStoredGoal(harness).objective === objective) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+}
+
 describe("goal extension runtime", () => {
 	const harnesses: Harness[] = [];
 
@@ -99,7 +109,7 @@ describe("goal extension runtime", () => {
 		expect(getUserTexts(harness)).toEqual(["queued after escape"]);
 	});
 
-	it("does not let an agent reset an active goal through set_goal", async () => {
+	it("lets an agent reset an active goal through set_goal", async () => {
 		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([
@@ -111,8 +121,9 @@ describe("goal extension runtime", () => {
 
 		await harness.session.prompt("/goal first objective");
 		await waitForProviderCalls(harness, 2);
+		await waitForStoredGoalObjective(harness, "agent-chosen objective");
 
 		const goal = readStoredGoal(harness);
-		expect(goal.objective).toBe("first objective");
+		expect(goal.objective).toBe("agent-chosen objective");
 	});
 });

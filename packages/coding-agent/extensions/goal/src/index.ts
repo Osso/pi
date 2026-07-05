@@ -10,7 +10,7 @@
  * State is persisted as JSON in the control SQLite `session_metadata` row for the session.
  *
  * Commands:
- *   /goal <objective>             set or replace the objective and start working toward it
+ *   /goal <objective>             set the objective and start working toward it
  *   /goal                         view the active objective
  *   /goal pause                   pause continuation without clearing the objective
  *   /goal clear                   clear the active objective
@@ -314,8 +314,6 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 		};
 	}
 
-	const activeGoal = loadActiveGoal(ctx);
-
 	const goal: Goal = {
 		objective,
 		branch: currentBranch(ctx.cwd),
@@ -326,14 +324,13 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	updateGoalFooterStatus(ctx);
 
 	const idle = ctx.isIdle();
-	const message = activeGoal ? "Goal replaced — starting work" : "Goal set — starting work";
 	if (idle) {
 		pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
 	}
 
 	return {
 		ok: true,
-		message: idle ? message : "Goal saved — it will guide the current run",
+		message: idle ? "Goal set — starting work" : "Goal saved — it will guide the current run",
 		severity: "info",
 		goal,
 	};
@@ -345,6 +342,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		label: "Set Goal",
 		description: "Set the active long-running /goal objective.",
 		promptGuidelines: [],
+		approvalRequired: false,
 		parameters: Type.Object({
 			objective: Type.String(),
 		}),
@@ -354,16 +352,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: "Objective is required." }],
 					details: {},
-				};
-			}
-
-			const activeGoal = loadActiveGoal(ctx);
-			if (activeGoal) {
-				const message = "Active goal already set.";
-				ctx.ui.notify(message, "warning");
-				return {
-					content: [{ type: "text", text: message }],
-					details: { objective: activeGoal.objective },
 				};
 			}
 
@@ -390,6 +378,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		name: "goal_complete",
 		label: "Goal Complete",
 		description: "Mark the active long-running /goal objective as complete.",
+		approvalRequired: false,
 		parameters: Type.Object({
 			reason: Type.Optional(Type.String()),
 		}),
@@ -451,7 +440,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("goal", {
-		description: "Set, replace, view, pause, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal clear)",
+		description: "Set, view, pause, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const parsedArgs = parseGoalArgs(args);
 			if ("error" in parsedArgs) {

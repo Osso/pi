@@ -233,13 +233,12 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
 	});
 
-	test("adds elapsed time to waiting labels after the first second", async () => {
+	test("keeps elapsed time out of waiting labels when a rendered tool row exists", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
 		const fakeThis = createFakeInteractiveModeThis();
 		const setMessage = vi.fn();
 		fakeThis.loadingAnimation = { setMessage };
-		fakeThis.pendingTools.set("pyrun-1", createToolExecutionStub());
 
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_start",
@@ -253,7 +252,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
 
 		await vi.advanceTimersByTimeAsync(47_001);
-		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval... Elapsed: 48s");
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
 	});
 
 	test("keeps extension working message override during tool execution", async () => {

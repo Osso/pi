@@ -226,7 +226,6 @@ describe("goal extension", () => {
 		expect(setGoalTool?.description).not.toContain("tokenBudget");
 		expect(setGoalTool?.description).not.toContain("wallClockMinutes");
 		expect(setGoalTool?.promptGuidelines).toEqual([]);
-		expect(schemaHasProperty(setGoalTool?.parameters, "replace")).toBe(false);
 		expect(schemaHasProperty(setGoalTool?.parameters, "tokenBudget")).toBe(false);
 		expect(schemaHasProperty(setGoalTool?.parameters, "wallClockMinutes")).toBe(false);
 	});
@@ -244,7 +243,7 @@ describe("goal extension", () => {
 		);
 	});
 
-	it("does not let the set_goal tool replace an active goal", async () => {
+	it("replaces an active goal through the set_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("first objective");
@@ -253,10 +252,12 @@ describe("goal extension", () => {
 		const result = await harness.runSetGoal("agent-chosen objective");
 
 		const goal = readStoredGoal<{ objective: string }>(cwd);
-		expect(goal.objective).toBe("first objective");
-		expect(result?.content).toEqual([{ type: "text", text: "Active goal already set." }]);
-		expect(harness.notify).toHaveBeenCalledWith("Active goal already set.", "warning");
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(goal.objective).toBe("agent-chosen objective");
+		expect(result?.content).toEqual([{ type: "text", text: "Goal set: agent-chosen objective" }]);
+		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(
+			"Work toward this objective until it is achieved: agent-chosen objective",
+		);
 	});
 
 	it("sets an objective, persists it, and starts work when idle", async () => {
@@ -330,7 +331,7 @@ describe("goal extension", () => {
 		const goal = readStoredGoal<{ objective: string; continuationTurns: number }>(cwd);
 		expect(goal.objective).toBe("second objective");
 		expect(goal.continuationTurns).toBe(0);
-		expect(harness.notify).toHaveBeenCalledWith("Goal replaced — starting work", "info");
+		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
 		expect(harness.sendUserMessage).toHaveBeenCalledWith(
 			"Work toward this objective until it is achieved: second objective",
 		);

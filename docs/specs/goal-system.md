@@ -12,12 +12,12 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ### Goal lifecycle
 
-- [x] `/goal <objective>` establishes or replaces the active objective for the current session and persists it to the session's `session_metadata.goal_json` row in the control SQLite database.
+- [x] `/goal <objective>` replaces the active objective for the current session by default and persists it to the session's `session_metadata.goal_json` row in the control SQLite database.
 - [x] `/goal` prints the active objective, or a visible notice when no goal is active.
 - [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective.
 - [x] `/goal clear` removes the active objective.
 - [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted.
-- [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) are rejected with a visible error and are not persisted.
+- [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) and the replacement flag (`--replace`) are rejected with a visible error and are not persisted.
 - [x] At most one active goal exists per session at a time; separate sessions and subagents in the same project can have distinct active goals.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
 - [x] Normal forked sessions inherit the parent goal when no goal exists yet; subagent sessions do not inherit the parent goal and may set an independent goal.
@@ -56,7 +56,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `set_goal`/`goal_complete`, persists goal JSON through the session manager into `session_metadata.goal_json`, injects active unpaused goals through `before_agent_start`, shows the active goal in the footer status, starts work when a goal is set while idle, pauses goals on request, and continues active unpaused goals from `agent_end`.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/pause/clear, per-session and subagent goal isolation, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `set_goal`, set/view/pause/clear, per-session and subagent goal isolation, default replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `goal_complete`, `agent_end` continuation, busy guard, no numeric turn cap, empty-response stop, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
 - `.gitignore` — ignores legacy `.pi/goals/` local goal state files during migration.
 
 ## Tests asserting this spec

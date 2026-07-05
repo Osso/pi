@@ -1850,9 +1850,9 @@ export class InteractiveMode {
 		return this.workingMessage ?? this.currentWorkingDefaultMessage;
 	}
 
-	private getToolWaitingMessage(toolName: string, startedAt?: number): string {
+	private getToolWaitingMessage(toolName: string, startedAt?: number, showElapsed = true): string {
 		const baseMessage = toolName === "bash" ? "Waiting for command..." : `Waiting for tool: ${toolName}...`;
-		if (startedAt === undefined) {
+		if (!showElapsed || startedAt === undefined) {
 			return baseMessage;
 		}
 
@@ -1878,7 +1878,10 @@ export class InteractiveMode {
 		}
 
 		const [toolCallId, toolName] = nextToolEntry;
-		this.setDefaultWorkingMessage(this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId)));
+		const showElapsed = !this.pendingTools.has(toolCallId);
+		this.setDefaultWorkingMessage(
+			this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId), showElapsed),
+		);
 	}
 
 	private startToolWaitingTimer(): void {
