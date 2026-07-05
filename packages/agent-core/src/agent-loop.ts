@@ -433,6 +433,7 @@ async function executeToolCallsSequential(
 			);
 		}
 
+		finalized = capFinalizedToolCallOutcome(finalized);
 		await emitToolExecutionEnd(finalized, emit);
 		const toolResultMessage = createToolResultMessage(finalized);
 		await emitToolResultMessage(toolResultMessage, emit);
@@ -464,11 +465,11 @@ async function executeToolCallsParallel(
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
 		await emitToolExecutionStart(toolCall, preparation, emit);
 		if (preparation.kind === "immediate") {
-			const finalized = {
+			const finalized = capFinalizedToolCallOutcome({
 				toolCall,
 				result: preparation.result,
 				isError: preparation.isError,
-			} satisfies FinalizedToolCallOutcome;
+			});
 			await emitToolExecutionEnd(finalized, emit);
 			finalizedCalls.push(finalized);
 			if (signal?.aborted) {
@@ -479,13 +480,8 @@ async function executeToolCallsParallel(
 
 		finalizedCalls.push(async () => {
 			const executed = await executePreparedToolCall(preparation, signal, emit);
-			const finalized = await finalizeExecutedToolCall(
-				currentContext,
-				assistantMessage,
-				preparation,
-				executed,
-				config,
-				signal,
+			const finalized = capFinalizedToolCallOutcome(
+				await finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal),
 			);
 			await emitToolExecutionEnd(finalized, emit);
 			return finalized;
@@ -649,7 +645,7 @@ async function executePreparedToolCall(
 							toolCallId: prepared.toolCall.id,
 							toolName: prepared.toolCall.name,
 							args: prepared.args,
-							partialResult,
+							partialResult: capToolResult(partialResult),
 						}),
 					),
 				);
@@ -715,11 +711,81 @@ async function finalizeExecutedToolCall(
 	};
 }
 
+const MAX_TOOL_RESULT_TEXT_BYTES = 50 * 1024;
+const MAX_TOOL_RESULT_TEXT_LINES = 2000;
+
 function createErrorToolResult(message: string): AgentToolResult<any> {
 	return {
 		content: [{ type: "text", text: message }],
 		details: {},
 	};
+}
+
+function capFinalizedToolCallOutcome(finalized: FinalizedToolCallOutcome): FinalizedToolCallOutcome {
+	const cappedResult = capToolResult(finalized.result);
+	return cappedResult === finalized.result ? finalized : { ...finalized, result: cappedResult };
+}
+
+function capToolResult(result: AgentToolResult<any>): AgentToolResult<any> {
+	const content = capToolResultContent(result.content);
+	const details = capToolResultDetails(result.details);
+	if (content === result.content && details === result.details) {
+		return result;
+	}
+	return { ...result, content, details };
+}
+
+function capToolResultContent(content: AgentToolResult<any>["content"]): AgentToolResult<any>["content"] {
+	let changed = false;
+	const capped = content.map((part) => {
+		if (part.type !== "text") return part;
+		const cappedText = capToolResultText(part.text);
+		if (cappedText === part.text) return part;
+		changed = true;
+		return { ...part, text: cappedText };
+	});
+	return changed ? capped : content;
+}
+
+function capToolResultDetails(details: unknown): unknown {
+	const text = stringifyToolResultDetails(details);
+	if (text === undefined || !isToolResultTextTooLarge(text)) {
+		return details;
+	}
+	return {
+		truncated: true,
+		reason: "tool result details exceeded storage cap",
+		maxBytes: MAX_TOOL_RESULT_TEXT_BYTES,
+		maxLines: MAX_TOOL_RESULT_TEXT_LINES,
+		preview: capToolResultText(text),
+	};
+}
+
+function stringifyToolResultDetails(details: unknown): string | undefined {
+	try {
+		return JSON.stringify(details);
+	} catch (error) {
+		return `Unserializable tool result details: ${error instanceof Error ? error.message : String(error)}`;
+	}
+}
+
+function capToolResultText(text: string): string {
+	if (!isToolResultTextTooLarge(text)) return text;
+	const lines = text.split("\n");
+	const lineCapped =
+		lines.length > MAX_TOOL_RESULT_TEXT_LINES ? lines.slice(-MAX_TOOL_RESULT_TEXT_LINES).join("\n") : text;
+	let byteCapped = lineCapped;
+	while (Buffer.byteLength(byteCapped, "utf-8") > MAX_TOOL_RESULT_TEXT_BYTES) {
+		byteCapped = byteCapped.slice(Math.max(1, Math.floor(byteCapped.length / 10)));
+	}
+	return `[tool output truncated: max ${MAX_TOOL_RESULT_TEXT_BYTES} bytes / ${MAX_TOOL_RESULT_TEXT_LINES} lines]\n${byteCapped}`;
+}
+
+function isToolResultTextTooLarge(text: string): boolean {
+	return (
+		text.split("\n").length > MAX_TOOL_RESULT_TEXT_LINES ||
+		Buffer.byteLength(text, "utf-8") > MAX_TOOL_RESULT_TEXT_BYTES
+	);
 }
 
 async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: AgentEventSink): Promise<void> {
