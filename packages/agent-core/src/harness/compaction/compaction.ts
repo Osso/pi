@@ -207,6 +207,7 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 }
 
 const ESTIMATED_IMAGE_CHARS = 4800;
+const MAX_COMPACTION_CONTEXT_CHARS = 300_000;
 const MAX_PROTECTED_RECENT_CONTEXT_MESSAGES = 3;
 const MAX_PROTECTED_RECENT_CONTEXT_TOKENS = 10_000;
 
@@ -563,7 +564,7 @@ export async function generateSummary(
 		basePrompt = `${basePrompt}\n\nAdditional focus: ${customInstructions}`;
 	}
 	const llmMessages = convertToLlm(currentMessages);
-	const conversationText = serializeConversation(llmMessages);
+	const conversationText = serializeConversation(llmMessages).slice(0, MAX_COMPACTION_CONTEXT_CHARS);
 	let promptText = `<conversation>\n${conversationText}\n</conversation>\n\n`;
 	if (previousSummary) {
 		promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
@@ -801,7 +802,7 @@ async function generateTurnPrefixSummary(
 		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
 	);
 	const llmMessages = convertToLlm(messages);
-	const conversationText = serializeConversation(llmMessages);
+	const conversationText = serializeConversation(llmMessages).slice(0, MAX_COMPACTION_CONTEXT_CHARS);
 	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 	const summarizationMessages = [
 		{

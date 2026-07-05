@@ -649,6 +649,29 @@ describe("harness compaction", () => {
 		expect(promptText).toContain("Additional focus: focus");
 	});
 
+	it("caps compaction endpoint conversation context to the first 300k characters", async () => {
+		const retainedContext = "a".repeat(300_000);
+		const truncatedContext = "tail beyond compaction context cap";
+		const messages: AgentMessage[] = [createUserMessage(`${retainedContext}${truncatedContext}`)];
+		let promptText = "";
+		const { faux, model } = createFauxModel(false);
+		faux.setResponses([
+			(context) => {
+				const message = context.messages[0];
+				const content = message?.role === "user" ? message.content : [];
+				promptText = Array.isArray(content) && content[0]?.type === "text" ? content[0].text : "";
+				return fauxAssistantMessage("## Goal\nTest summary");
+			},
+		]);
+
+		getOrThrow(await generateSummary(messages, models, model, 2000));
+
+		const conversationText = promptText.match(/<conversation>\n(?<conversation>[\s\S]*)\n<\/conversation>/)?.groups
+			?.conversation;
+		expect(conversationText).toHaveLength(300_000);
+		expect(promptText).not.toContain(truncatedContext);
+	});
+
 	it("returns error results for failed or aborted summary generations", async () => {
 		const messages: AgentMessage[] = [createUserMessage("Summarize this.")];
 		const { faux: errorFaux, model: errorModel } = createFauxModel(false);
