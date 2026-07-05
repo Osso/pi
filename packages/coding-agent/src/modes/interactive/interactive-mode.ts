@@ -4800,7 +4800,6 @@ export class InteractiveMode {
 	}
 
 	private async showModelsSelector(): Promise<void> {
-		// Get all available models
 		this.session.modelRegistry.refresh();
 		const allModels = this.session.modelRegistry.getAvailable();
 
@@ -4809,43 +4808,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		// Check if session has scoped models (from previous session-only changes or CLI --models)
-		const sessionScopedModels = this.session.scopedModels;
-		const hasSessionScope = sessionScopedModels.length > 0;
-
-		// Build enabled model IDs from session state or settings
-		let currentEnabledIds: string[] | null = null;
-
-		if (hasSessionScope) {
-			// Use current session's scoped models
-			currentEnabledIds = sessionScopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
-		} else {
-			// Fall back to settings
-			const patterns = this.settingsManager.getEnabledModels();
-			if (patterns !== undefined && patterns.length > 0) {
-				const scopedModels = await resolveModelScope(patterns, this.session.modelRegistry);
-				currentEnabledIds = scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
-			}
-		}
-
-		// Helper to update session's scoped models (session-only, no persist)
-		const updateSessionModels = async (enabledIds: string[] | null) => {
-			currentEnabledIds = enabledIds === null ? null : [...enabledIds];
-			if (enabledIds && enabledIds.length > 0 && enabledIds.length < allModels.length) {
-				const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRegistry);
-				this.session.setScopedModels(
-					newScopedModels.map((sm) => ({
-						model: sm.model,
-						thinkingLevel: sm.thinkingLevel,
-					})),
-				);
-			} else {
-				// All enabled or none enabled = no filter
-				this.session.setScopedModels([]);
-			}
-			await this.updateAvailableProviderCount();
-			this.ui.requestRender();
-		};
+		let currentEnabledIds = await this.getCurrentEnabledModelIds();
 
 		this.showSelector((done) => {
 			const selector = new ScopedModelsSelectorComponent(
@@ -4855,20 +4818,11 @@ export class InteractiveMode {
 				},
 				{
 					onChange: async (enabledIds) => {
-						await updateSessionModels(enabledIds);
+						currentEnabledIds = enabledIds === null ? null : [...enabledIds];
+						await this.updateSessionModelsForSelector(enabledIds, allModels.length);
 					},
 					onPersist: (enabledIds) => {
-						// Persist to settings
-						const newPatterns =
-							enabledIds === null || enabledIds.length === allModels.length
-								? undefined // All enabled = clear filter
-								: enabledIds;
-						const target = resolveEnabledModelsPersistTarget(
-							this.settingsManager.getProjectSettings().enabledModels,
-							newPatterns ? [...newPatterns] : undefined,
-						);
-						this.settingsManager.setEnabledModels(target.patterns, target.scope);
-						this.showStatus("Model selection saved to settings");
+						this.persistEnabledModelsForSelector(enabledIds, allModels.length);
 					},
 					onCancel: () => {
 						done();
@@ -4878,6 +4832,51 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	private async getCurrentEnabledModelIds(): Promise<string[] | null> {
+		const sessionScopedModels = this.session.scopedModels;
+		if (sessionScopedModels.length > 0) {
+			return sessionScopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
+		}
+
+		const patterns = this.settingsManager.getEnabledModels();
+		if (patterns === undefined || patterns.length === 0) {
+			return null;
+		}
+
+		const scopedModels = await resolveModelScope(patterns, this.session.modelRegistry);
+		return scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
+	}
+
+	private async updateSessionModelsForSelector(
+		enabledIds: string[] | null,
+		availableModelCount: number,
+	): Promise<void> {
+		if (enabledIds && enabledIds.length > 0 && enabledIds.length < availableModelCount) {
+			const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRegistry);
+			this.session.setScopedModels(
+				newScopedModels.map((sm) => ({
+					model: sm.model,
+					thinkingLevel: sm.thinkingLevel,
+				})),
+			);
+		} else {
+			// All enabled or none enabled = no filter
+			this.session.setScopedModels([]);
+		}
+		await this.updateAvailableProviderCount();
+		this.ui.requestRender();
+	}
+
+	private persistEnabledModelsForSelector(enabledIds: string[] | null, availableModelCount: number): void {
+		const enabledPatterns = enabledIds === null || enabledIds.length === availableModelCount ? undefined : enabledIds;
+		const target = resolveEnabledModelsPersistTarget(
+			this.settingsManager.getProjectSettings().enabledModels,
+			enabledPatterns ? [...enabledPatterns] : undefined,
+		);
+		this.settingsManager.setEnabledModels(target.patterns, target.scope);
+		this.showStatus("Model selection saved to settings");
 	}
 
 	private showUserMessageSelector(): void {
