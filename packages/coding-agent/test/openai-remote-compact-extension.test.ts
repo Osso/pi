@@ -133,6 +133,17 @@ describe("openai remote compact extension", () => {
 		]);
 	});
 
+	it("caps the /responses/compact input context to 400k serialized characters", () => {
+		const tail = "tail that must not reach endpoint";
+		const messages: AgentMessage[] = [{ role: "user", content: `${"a".repeat(450_000)}${tail}`, timestamp: 1 }];
+
+		const payload = buildOpenAICompactPayload(createOpenAIResponsesModel(), messages, "system prompt", []);
+
+		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
+		expect(JSON.stringify(payload.input)).not.toContain(tail);
+		expect(payload.input[0]).toMatchObject({ role: "user" });
+	});
+
 	it("drops function calls that have no matching tool output from compact payloads", () => {
 		const messages: AgentMessage[] = [
 			{ role: "user", content: "use a tool", timestamp: 1 },

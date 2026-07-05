@@ -13,6 +13,7 @@ import type { CompactionEntry, SessionEntry } from "../../../src/core/session-ma
 export const OPENAI_REMOTE_COMPACTION_SUMMARY = "OpenAI native compaction stored in session entry details.";
 const DETAILS_TYPE = "openai-remote-compaction";
 const DETAILS_VERSION = 1;
+const MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS = 400_000;
 
 type OpenAINativeCompactApi = "openai-responses" | "openai-codex-responses";
 type OpenAINativeCompactModel = Model<OpenAINativeCompactApi>;
@@ -127,10 +128,11 @@ export function buildOpenAICompactPayload(
 	instructions: string,
 	previousReplacementHistory: OpenAIResponseItem[],
 ): OpenAICompactPayload {
-	const input = reconcileOpenAIToolPairs([
+	const reconciledInput = reconcileOpenAIToolPairs([
 		...previousReplacementHistory,
 		...convertAgentMessagesToOpenAIResponseItems(model, messages),
 	]);
+	const input = reconcileOpenAIToolPairs(limitOpenAICompactInput(reconciledInput));
 	return {
 		model: model.id,
 		input,
@@ -312,6 +314,72 @@ function convertAgentMessagesToOpenAIResponseItems(
 		if (message.role === "toolResult") return [convertToolResultMessage(message.toolCallId, message.content, model)];
 		return [];
 	});
+}
+
+function limitOpenAICompactInput(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
+	const limitedItems: OpenAIResponseItem[] = [];
+	for (const item of items) {
+		if (serializedOpenAIInputChars([...limitedItems, item]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+			limitedItems.push(item);
+			continue;
+		}
+
+		const truncatedItem = truncateOpenAIItemToFit(limitedItems, item);
+		if (truncatedItem) limitedItems.push(truncatedItem);
+		break;
+	}
+	return limitedItems;
+}
+
+function serializedOpenAIInputChars(items: OpenAIResponseItem[]): number {
+	return JSON.stringify(items).length;
+}
+
+function truncateOpenAIItemToFit(
+	prefix: OpenAIResponseItem[],
+	item: OpenAIResponseItem,
+): OpenAIResponseItem | undefined {
+	let low = 0;
+	let high = countStringChars(item);
+	let best: OpenAIResponseItem | undefined;
+
+	while (low <= high) {
+		const mid = Math.floor((low + high) / 2);
+		const candidate = truncateStringsToBudget(item, { remaining: mid });
+		if (!isRecord(candidate)) return undefined;
+
+		if (serializedOpenAIInputChars([...prefix, candidate]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+			best = candidate;
+			low = mid + 1;
+		} else {
+			high = mid - 1;
+		}
+	}
+
+	return best;
+}
+
+function countStringChars(value: unknown): number {
+	if (typeof value === "string") return value.length;
+	if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + countStringChars(item), 0);
+	if (!isRecord(value)) return 0;
+	return Object.values(value).reduce<number>((sum, item) => sum + countStringChars(item), 0);
+}
+
+function truncateStringsToBudget(value: unknown, budget: { remaining: number }): unknown {
+	if (typeof value === "string") {
+		const keptChars = Math.min(value.length, budget.remaining);
+		budget.remaining -= keptChars;
+		return value.slice(0, keptChars);
+	}
+	if (Array.isArray(value)) return value.map((item) => truncateStringsToBudget(item, budget));
+	if (!isRecord(value)) return value;
+
+	const truncated: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(value)) {
+		truncated[key] = truncateStringsToBudget(item, budget);
+	}
+	return truncated;
 }
 
 function reconcileOpenAIToolPairs(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
