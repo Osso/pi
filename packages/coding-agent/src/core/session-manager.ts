@@ -397,19 +397,139 @@ function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "
  * Plain custom entries are display/state entries and do not participate in context.
  */
 export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage[] {
+	const message = messageFromContextEntry(entry);
+	return message ? [message] : [];
+}
+
+function messageFromContextEntry(entry: SessionEntry): AgentMessage | undefined {
 	if (entry.type === "message") {
-		return [entry.message];
+		return entry.message;
 	}
 	if (entry.type === "custom_message") {
-		return [createCustomMessage(entry.customType, entry.content, entry.display, entry.details, entry.timestamp)];
+		return createCustomMessage(entry.customType, entry.content, entry.display, entry.details, entry.timestamp);
 	}
 	if (entry.type === "branch_summary" && entry.summary) {
-		return [createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp)];
+		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 	}
 	if (entry.type === "compaction") {
-		return [createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp)];
+		return createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, {
+			durationMs: entry.durationMs,
+		});
 	}
-	return [];
+	return undefined;
+}
+
+function jsonBytes(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function getMessageText(message: AgentMessage): string | undefined {
+	const content = (message as { content?: unknown }).content;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	const textItem = content.find((item): item is TextContent => {
+		return typeof item === "object" && item !== null && (item as { type?: unknown }).type === "text";
+	});
+	return textItem?.text;
+}
+
+function cloneMessageWithText(message: AgentMessage, text: string): AgentMessage | undefined {
+	const clone = JSON.parse(JSON.stringify(message)) as AgentMessage;
+	const content = (clone as { content?: unknown }).content;
+	if (typeof content === "string") {
+		(clone as { content: string }).content = text;
+		return clone;
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	const textIndex = content.findIndex((item): item is TextContent => {
+		return typeof item === "object" && item !== null && (item as { type?: unknown }).type === "text";
+	});
+	if (textIndex === -1) {
+		return undefined;
+	}
+	(clone as { content: unknown[] }).content = content.map((item, index) => {
+		if (index !== textIndex) {
+			return item;
+		}
+		return { ...(item as TextContent), text };
+	});
+	return clone;
+}
+
+function truncateMessageToFit(message: AgentMessage, newerMessages: AgentMessage[]): AgentMessage | undefined {
+	const originalText = getMessageText(message);
+	if (originalText === undefined) {
+		return undefined;
+	}
+
+	let best: AgentMessage | undefined;
+	let low = 0;
+	let high = originalText.length;
+	while (low <= high) {
+		const mid = Math.floor((low + high) / 2);
+		const candidate = cloneMessageWithText(message, originalText.slice(0, mid));
+		if (candidate && jsonBytes([candidate, ...newerMessages]) <= MAX_KEPT_PRE_COMPACTION_BYTES) {
+			best = candidate;
+			low = mid + 1;
+		} else {
+			high = mid - 1;
+		}
+	}
+	return best;
+}
+
+function buildCappedKeptMessages(entries: SessionEntry[]): AgentMessage[] {
+	const keptMessages: AgentMessage[] = [];
+	for (const entry of [...entries].reverse()) {
+		const message = messageFromContextEntry(entry);
+		if (!message) {
+			continue;
+		}
+
+		const candidateMessages = [message, ...keptMessages];
+		if (jsonBytes(candidateMessages) <= MAX_KEPT_PRE_COMPACTION_BYTES) {
+			keptMessages.unshift(message);
+			continue;
+		}
+
+		const truncatedMessage = truncateMessageToFit(message, keptMessages);
+		if (truncatedMessage) {
+			keptMessages.unshift(truncatedMessage);
+		}
+		break;
+	}
+	return keptMessages;
+}
+
+function collectKeptEntries(path: SessionEntry[], compaction: CompactionEntry, compactionIdx: number): SessionEntry[] {
+	const keptEntries: SessionEntry[] = [];
+	let foundFirstKept = false;
+	for (let i = 0; i < compactionIdx; i++) {
+		const entry = path[i];
+		if (entry.id === compaction.firstKeptEntryId) {
+			foundFirstKept = true;
+		}
+		if (foundFirstKept) {
+			keptEntries.push(entry);
+		}
+	}
+	return keptEntries;
+}
+
+function buildCompactedContextMessages(path: SessionEntry[], compaction: CompactionEntry): AgentMessage[] {
+	const messages = sessionEntryToContextMessages(compaction);
+	const compactionIdx = path.findIndex((entry) => entry.id === compaction.id);
+	messages.push(...buildCappedKeptMessages(collectKeptEntries(path, compaction, compactionIdx)));
+	for (const entry of path.slice(compactionIdx + 1)) {
+		messages.push(...sessionEntryToContextMessages(entry));
+	}
+	return messages;
 }
 
 /**
@@ -470,7 +590,10 @@ export function buildSessionContext(
 ): SessionContext {
 	const path = buildSessionPath(entries, leafId, byId);
 	const { thinkingLevel, model } = getSessionContextSettings(path);
-	const messages = buildContextEntries(entries, leafId, byId).flatMap(sessionEntryToContextMessages);
+	const compaction = getLatestCompactionEntry(path);
+	const messages = compaction
+		? buildCompactedContextMessages(path, compaction)
+		: path.flatMap(sessionEntryToContextMessages);
 	return { messages, thinkingLevel, model };
 }
 
@@ -1007,7 +1130,10 @@ export class SessionManager {
 			}
 
 			const header = this.fileEntries.find((e) => e.type === "session") as SessionHeader | undefined;
-			this.sessionId = header?.id ?? createSessionId();
+			if (!header) {
+				throw new Error(`Session file is not a valid pi session: ${this.sessionFile}`);
+			}
+			this.sessionId = header.id;
 
 			if (migrateToCurrentVersion(this.fileEntries)) {
 				this._rewriteFile();
