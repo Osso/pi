@@ -362,8 +362,13 @@ function estimateCompactedContextTokens(input: CompactedContextEstimateInput): C
 		},
 	);
 	const syntheticSummaryTokens = estimateTokens(syntheticSummary);
-	const keptFromPreviousContextTokens = Math.max(0, syntheticTokensAfter - syntheticSummaryTokens);
 	const compactedResultTokens = input.compactedResultTokens ?? syntheticSummaryTokens;
+	// The number of tokens kept from previous context should be calculated against the
+	// actual compacted result tokens (which may be supplied by a remote compaction),
+	// not the synthetic summary token estimate. Using syntheticSummaryTokens here
+	// caused the kept value to include the difference between the synthetic and
+	// remote result, yielding inflated "kept" counts.
+	const keptFromPreviousContextTokens = Math.max(0, syntheticTokensAfter - compactedResultTokens);
 
 	return {
 		estimatedTokensAfter: keptFromPreviousContextTokens + compactedResultTokens,

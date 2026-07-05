@@ -334,16 +334,14 @@ function findContextMessageCountCutIndex(entries: SessionEntry[], startIndex: nu
 
 function findTokenBoundedCutIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
 	let accumulatedTokens = 0;
-	let suffixStartIndex = startIndex;
-	let hasContextMessage = false;
+	let suffixStartIndex = endIndex;
 
 	for (let i = endIndex - 1; i >= startIndex; i--) {
 		const tokens = estimateEntryTokens(entries[i]);
 		if (tokens === undefined) continue;
-		if (hasContextMessage && accumulatedTokens + tokens > MAX_PROTECTED_RECENT_CONTEXT_TOKENS) {
+		if (accumulatedTokens + tokens > MAX_PROTECTED_RECENT_CONTEXT_TOKENS) {
 			break;
 		}
-		hasContextMessage = true;
 		accumulatedTokens += tokens;
 		suffixStartIndex = i;
 	}
@@ -355,7 +353,7 @@ function findNearestCutPointAtOrAfter(cutPoints: number[], index: number): numbe
 	for (const cutPoint of cutPoints) {
 		if (cutPoint >= index) return cutPoint;
 	}
-	return cutPoints[cutPoints.length - 1] ?? index;
+	return index;
 }
 
 function findProtectedSuffixStartIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
@@ -528,6 +526,10 @@ export function findCutPoint(
 		}
 		// Include this non-message entry (bash, settings change, etc.)
 		cutIndex--;
+	}
+
+	if (cutIndex >= endIndex) {
+		return { firstKeptEntryIndex: endIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
 
 	// Determine if this is a split turn
@@ -762,12 +764,12 @@ export function prepareCompaction(
 
 	const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentTokens);
 
-	// Get UUID of first kept entry
+	// Get UUID of first kept entry. Empty means compaction kept no previous entries verbatim.
 	const firstKeptEntry = pathEntries[cutPoint.firstKeptEntryIndex];
-	if (!firstKeptEntry?.id) {
+	if (cutPoint.firstKeptEntryIndex < boundaryEnd && !firstKeptEntry?.id) {
 		return undefined; // Session needs migration
 	}
-	const firstKeptEntryId = firstKeptEntry.id;
+	const firstKeptEntryId = firstKeptEntry?.id ?? "";
 
 	const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
 

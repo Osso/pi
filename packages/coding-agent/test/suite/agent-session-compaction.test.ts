@@ -187,6 +187,15 @@ describe("AgentSession compaction characterization", () => {
 		expect(cutPoint.firstKeptEntryIndex).toBe(4);
 	});
 
+	it("keeps no verbatim suffix when the latest context message exceeds ten thousand tokens", () => {
+		const hugeText = "x".repeat(44_000);
+		const entries = [createUserEntry("old user"), createAssistantEntry("old assistant"), createUserEntry(hugeText)];
+
+		const cutPoint = findCutPoint(entries, 0, entries.length, 20_000);
+
+		expect(cutPoint.firstKeptEntryIndex).toBe(entries.length);
+	});
+
 	it("manually compacts using an extension-provided summary", async () => {
 		const harness = await createHarness({
 			settings: { compaction: { keepRecentTokens: 1 } },
