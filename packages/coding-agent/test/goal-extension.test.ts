@@ -101,6 +101,7 @@ function createGoalHarness(
 ) {
 	let command: RegisteredGoalCommand | undefined;
 	let completeTool: GoalTool | undefined;
+	let pauseGoalTool: GoalTool | undefined;
 	let setGoalTool: GoalTool | undefined;
 	let agentEnd: ExtensionHandler<AgentEndEvent, undefined> | undefined;
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
@@ -129,6 +130,9 @@ function createGoalHarness(
 		registerTool(tool: GoalTool) {
 			if (tool.name === "goal_complete") {
 				completeTool = tool;
+			}
+			if (tool.name === "pause_goal") {
+				pauseGoalTool = tool;
 			}
 			if (tool.name === "set_goal") {
 				setGoalTool = tool;
@@ -183,11 +187,14 @@ function createGoalHarness(
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			completeTool?.execute("goal-complete-1", { reason }, undefined, undefined, ctx as ExtensionContext),
+		runPauseGoal: async () =>
+			pauseGoalTool?.execute("pause-goal-1", {}, undefined, undefined, ctx as ExtensionContext),
 		runSetGoal: async (objective: string) =>
 			setGoalTool?.execute("set-goal-1", { objective }, undefined, undefined, ctx as ExtensionContext),
 		getSetGoalTool: () => setGoalTool,
 		hasGoalCommand: () => command !== undefined,
 		hasGoalCompleteTool: () => completeTool !== undefined,
+		hasPauseGoalTool: () => pauseGoalTool !== undefined,
 		hasSetGoalTool: () => setGoalTool !== undefined,
 		notify,
 		setStatus,
@@ -215,6 +222,7 @@ describe("goal extension", () => {
 
 		expect(harness.hasGoalCommand()).toBe(true);
 		expect(harness.hasGoalCompleteTool()).toBe(true);
+		expect(harness.hasPauseGoalTool()).toBe(true);
 		expect(harness.hasSetGoalTool()).toBe(true);
 	});
 
@@ -563,6 +571,37 @@ describe("goal extension", () => {
 
 		expect(result?.content).toEqual([{ type: "text", text: "Goal marked complete: done" }]);
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("pauses an active goal through the pause_goal tool", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("pause by tool objective");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+		const result = await harness.runPauseGoal();
+		const injected = await harness.runBeforeAgentStart();
+		await harness.runAgentEnd();
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal.objective).toBe("pause by tool objective");
+		expect(goal.pausedAt).toEqual(expect.any(String));
+		expect(result?.content).toEqual([{ type: "text", text: "Goal paused: pause by tool objective" }]);
+		expect(harness.notify).toHaveBeenCalledWith("Goal paused: pause by tool objective", "info");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: pause by tool objective");
+		expect(injected).toBeUndefined();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("does not pause through the pause_goal tool when no active goal exists", async () => {
+		const harness = createGoalHarness(cwd);
+
+		const result = await harness.runPauseGoal();
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(result?.content).toEqual([{ type: "text", text: "No active goal to pause." }]);
+		expect(harness.notify).toHaveBeenCalledWith("No active goal to pause", "info");
 	});
 
 	it("pauses an active goal without clearing it", async () => {

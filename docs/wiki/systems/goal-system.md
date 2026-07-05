@@ -1,10 +1,10 @@
 # Goal System
 
 The goal system is implemented as a first-party coding-agent extension in
-`packages/coding-agent/extensions/goal/`. It provides `/goal` plus a
-`goal_complete` tool, persists one active objective per session in a working
-directory, and keeps that objective in the system prompt until it is completed
-or another continuation stop condition is reached.
+`packages/coding-agent/extensions/goal/`. It provides `/goal` plus `set_goal`,
+`pause_goal`, and `goal_complete` tools, persists one active objective per
+session in a working directory, and keeps that objective in the system prompt
+until it is completed or another continuation stop condition is reached.
 
 The contract lives in `docs/specs/goal-system.md`.
 
@@ -54,6 +54,11 @@ before state is written.
 The command rejects flags with a visible error and does not write state. Removed budget flags keep specific error messages.
 
 The `set_goal` tool exposes only an `objective` parameter.
+
+The `pause_goal` tool pauses the current active goal without clearing it. Paused
+goals remain visible in `/goal`, startup notifications, and footer status, but do
+not inject prompt context or continue automatically until `/goal resume` clears
+the pause state.
 
 ## Prompt Injection
 
@@ -113,9 +118,9 @@ Completed goals do not trigger automatic continuation.
 ## Tests
 
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
-behavior: first-party registration, set/view/clear, default replacement,
-removed replacement flag rejection, objective length rejection, prompt injection,
-continuation state without budget lines, footer status, session-start restore
-notifications, fork-only goal inheritance, corrupt state handling, automatic
-continuation, busy guard, `goal_complete`, per-session isolation, budget flag
-rejection, and legacy budget field ignorance.
+behavior: first-party registration, `pause_goal`, set/view/clear, default
+replacement, removed replacement flag rejection, objective length rejection,
+prompt injection, continuation state without budget lines, footer status,
+session-start restore notifications, fork-only goal inheritance, corrupt state
+handling, automatic continuation, busy guard, `goal_complete`, per-session
+isolation, budget flag rejection, and legacy budget field ignorance.

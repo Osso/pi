@@ -384,6 +384,31 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
+		name: "pause_goal",
+		label: "Pause Goal",
+		description: "Pause the active long-running /goal objective without clearing it.",
+		approvalRequired: false,
+		parameters: Type.Object({}),
+		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
+			const goal = pauseGoal(ctx);
+			updateGoalFooterStatus(ctx);
+			if (!goal) {
+				ctx.ui.notify("No active goal to pause", "info");
+				return {
+					content: [{ type: "text", text: "No active goal to pause." }],
+					details: {},
+				};
+			}
+
+			ctx.ui.notify(`Goal paused: ${goal.objective}`, "info");
+			return {
+				content: [{ type: "text", text: `Goal paused: ${goal.objective}` }],
+				details: { objective: goal.objective },
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "goal_complete",
 		label: "Goal Complete",
 		description: "Mark the active long-running /goal objective as complete.",
