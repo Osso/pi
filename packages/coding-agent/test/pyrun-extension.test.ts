@@ -264,6 +264,11 @@ async function resultFor(request) {
     await new Promise((resolve) => setTimeout(resolve, 60));
     return { type: "completed", executed: request.code, value: "detached-done" };
   }
+  if (request.code === "run.slow_detachable()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "slow detachable started" }) + "\\n");
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return { type: "completed", executed: request.code, value: "slow-detached-done" };
+  }
   if (request.code === "run.detached_error()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "detachable error started" }) + "\\n");
     await new Promise((resolve) => setTimeout(resolve, 60));
@@ -1057,6 +1062,28 @@ describe("pyrun extension", () => {
 		expect(result.isError).toBe(true);
 		expect(result.details.error).toBe("pi.sessions.resume is not available in this session mode");
 		expect(harness.switchedSessions).toEqual([]);
+	});
+
+	it("creates the reported detached Pyrun log path before evaluation completes", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const resultPromise = harness.evaluate({ code: "run.slow_detachable()" }, (update) => updates.push(update));
+		await waitFor(() => updates.some((update) => update.details.type === "status"), "Pyrun progress before detach");
+		expect(detachRegistry.detachRunning()).toBe(true);
+
+		const result = await resultPromise;
+		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
+		const logPath = resultText.match(/Output will be written to (.+)\./)?.[1];
+		expect(logPath).toBeDefined();
+		const [job] = store.listAgents();
+		expect(job.lifecycle).toBe("running");
+		expect(logPath ? existsSync(logPath) : false).toBe(true);
+		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain("Pyrun evaluation is still running");
+
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
 	});
 
 	it("detaches a running Pyrun evaluation into the multi-agent job store", async () => {

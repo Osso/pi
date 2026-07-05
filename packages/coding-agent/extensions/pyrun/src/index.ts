@@ -276,7 +276,17 @@ function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "follo
 	return { deliverAs, message: record.message };
 }
 
+function createPyrunPlaceholderLog(params: PyrunEvalParams, logPath: string): void {
+	writeFileSync(
+		logPath,
+		`${params.code}\n\nPyrun evaluation is still running. Final output will replace this file when the background job completes.\n`,
+		"utf8",
+	);
+}
+
 function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams, ctx: ExtensionContext): PyrunBackgroundJob {
+	const logPath = createPyrunLogPath();
+	createPyrunPlaceholderLog(params, logPath);
 	const spawned = store.spawnAgent({
 		agentType: "background",
 		cwd: ctx.cwd,
@@ -290,7 +300,7 @@ function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams
 	const agent = running.ok ? running.agent : spawned.agent;
 	return {
 		id: agent.id,
-		logPath: createPyrunLogPath(),
+		logPath,
 	};
 }
 
