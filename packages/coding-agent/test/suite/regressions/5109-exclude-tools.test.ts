@@ -57,6 +57,7 @@ describe("regression #5109: exclude tools", () => {
 				"find",
 				"grep",
 				"ls",
+				"resume_session",
 				"write",
 			]);
 			expect(harness.session.systemPrompt).not.toContain("- read:");

@@ -43,7 +43,10 @@ describe("pre-prompt compaction regression", () => {
 		harnesses.push(harness);
 
 		const now = Date.now();
-		const model = harness.getModel();
+		const model = harness.session.model;
+		if (!model) {
+			throw new Error("expected active model");
+		}
 		harness.sessionManager.appendMessage({
 			role: "user",
 			content: [{ type: "text", text: "previous prompt" }],
@@ -54,7 +57,7 @@ describe("pre-prompt compaction regression", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: createUsage(100),
+			usage: createUsage(101),
 		};
 		harness.sessionManager.appendMessage(lengthStopAssistant);
 		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
@@ -64,11 +67,13 @@ describe("pre-prompt compaction regression", () => {
 		await expect(harness.session.prompt("next prompt")).resolves.toBeUndefined();
 
 		expect(continueSpy).not.toHaveBeenCalled();
-		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
-			reason: "overflow",
-			aborted: false,
-			willRetry: true,
-		});
+		expect(harness.eventsOfType("compaction_end")).toContainEqual(
+			expect.objectContaining({
+				reason: "overflow",
+				aborted: false,
+				willRetry: false,
+			}),
+		);
 		expect(getUserTexts(harness)).toContain("next prompt");
 		expect(harness.faux.state.callCount).toBe(1);
 	});

@@ -45,7 +45,11 @@ type RenderSessionContextThis = {
 	sessionManager: { getCwd(): string };
 	session: { retryAttempt: number };
 	toolOutputExpanded: boolean;
+	executingToolNames: Map<string, string>;
+	executingToolStartedAt: Map<string, number>;
 	isInitialized: boolean;
+	stopToolWaitingTimerIfIdle(): void;
+	setWorkingMessageForActiveTools(): void;
 	updateEditorBorderColor(): void;
 	getRegisteredToolDefinition(toolName: string): undefined;
 	addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void;
@@ -74,7 +78,11 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		sessionManager: { getCwd: () => process.cwd() },
 		session: { retryAttempt: 0 },
 		toolOutputExpanded: false,
+		executingToolNames: new Map<string, string>(),
+		executingToolStartedAt: new Map<string, number>(),
 		isInitialized: true,
+		stopToolWaitingTimerIfIdle: vi.fn(),
+		setWorkingMessageForActiveTools: vi.fn(),
 		updateEditorBorderColor: vi.fn(),
 		getRegisteredToolDefinition: (_toolName: string) => undefined,
 		renderSessionItems: (InteractiveMode.prototype as unknown as { renderSessionItems: RenderSessionItems })

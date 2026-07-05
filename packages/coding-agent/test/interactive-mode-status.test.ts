@@ -165,6 +165,11 @@ interface InteractiveModeKeyHandlerInternals {
 		sessionContext: ReturnType<SessionManager["buildSessionContext"]>,
 		options?: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean },
 	): void;
+	renderSessionItems(
+		this: unknown,
+		messages: unknown[],
+		options?: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean },
+	): void;
 	restorePreviousAgentSelection(this: unknown, agentId: string | undefined): void;
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	selectAgentView(this: unknown, agentId: string): boolean;
@@ -203,6 +208,7 @@ type TranscriptSwitchFixture = {
 		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
 		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
 		renderSessionContext: typeof interactiveModeKeyHandlers.renderSessionContext;
+		renderSessionItems: typeof interactiveModeKeyHandlers.renderSessionItems;
 		selectAgentView: typeof interactiveModeKeyHandlers.selectAgentView;
 		selectedAgentBanner: AgentSelectionBannerComponent;
 		sessionManager: SessionManager;
@@ -258,6 +264,7 @@ function createTranscriptSwitchFixture(options: {
 		renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
 		restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 		renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
+		renderSessionItems: interactiveModeKeyHandlers.renderSessionItems,
 		selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 		selectedAgentBanner: new AgentSelectionBannerComponent(store),
 		sessionManager: parent,
@@ -774,6 +781,7 @@ describe("InteractiveMode key handlers", () => {
 				renderLiveAgentPlaceholder: interactiveModeKeyHandlers.renderLiveAgentPlaceholder,
 				renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
 				renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
+				renderSessionItems: interactiveModeKeyHandlers.renderSessionItems,
 				restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 				selectedAgentBanner: new AgentSelectionBannerComponent(store),
 				sessionManager: parent,

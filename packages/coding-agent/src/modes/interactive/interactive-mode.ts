@@ -101,6 +101,7 @@ import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../cor
 import { SessionImportFileNotFoundError } from "../../core/session-errors.ts";
 import {
 	type SessionContext,
+	type SessionEntry,
 	type SessionInfo,
 	type SessionListProgress,
 	SessionManager,
@@ -1749,7 +1750,7 @@ export class InteractiveMode {
 		await this.updateAvailableProviderCount();
 		this.updateEditorBorderColor();
 		this.updateTerminalTitle();
-		this.updateTerminalCurrentDirectory();
+		this.updateTerminalCurrentDirectory?.();
 	}
 
 	private async handleFatalRuntimeError(prefix: string, error: unknown): Promise<never> {
@@ -1913,12 +1914,16 @@ export class InteractiveMode {
 		);
 	}
 
+	private clearStatusIndicator(): void {
+		this.statusContainer.clear();
+	}
+
 	private stopWorkingLoader(): void {
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
-		this.statusContainer.clear();
+		this.clearStatusIndicator();
 	}
 
 	private setWorkingVisible(visible: boolean): void {
@@ -3624,7 +3629,22 @@ export class InteractiveMode {
 		sessionContext: SessionContext,
 		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
-		this.clearPendingToolComponents();
+		InteractiveMode.prototype.renderSessionItems.call(this, sessionContext.messages, options);
+	}
+
+	renderSessionEntries(
+		entries: SessionEntry[],
+		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
+	): void {
+		const messages = entries.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
+		InteractiveMode.prototype.renderSessionItems.call(this, messages, options);
+	}
+
+	private renderSessionItems(
+		messages: AgentMessage[],
+		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
+	): void {
+		InteractiveMode.prototype.clearPendingToolComponents.call(this);
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 		const toolRenderCwd = options.sourceCwd ?? this.sessionManager.getCwd();
 
@@ -3633,7 +3653,7 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 		}
 
-		for (const message of sessionContext.messages) {
+		for (const message of messages) {
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
 				this.addMessageToChat(message);
@@ -5762,7 +5782,7 @@ export class InteractiveMode {
 				this.loadingAnimation.stop();
 				this.loadingAnimation = undefined;
 			}
-			this.statusContainer.clear();
+			this.clearStatusIndicator();
 			const result = await this.runtimeHost.importFromJsonl(inputPath);
 			if (result.cancelled) {
 				this.showStatus("Import cancelled");
@@ -6329,9 +6349,9 @@ export class InteractiveMode {
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
+		this.cancelStreamingUpdateRender();
 		this.disposeActiveBashComponents();
 		this.clearPendingToolComponents();
-		this.cancelStreamingUpdateRender();
 		if (this.isInitialized) {
 			this.ui.stop();
 			this.isInitialized = false;

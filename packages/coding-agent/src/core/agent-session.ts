@@ -106,8 +106,8 @@ import {
 	failRuntimeMailboxMessage,
 	getControlDbPath,
 	markRuntimeMailboxMessageDelivered,
-	recordPromptHistoryEntry,
 	type RuntimeMailboxMessage,
+	recordPromptHistoryEntry,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
 	removeNamedSession,
@@ -2165,6 +2165,10 @@ export class AgentSession {
 	 */
 	async abort(): Promise<void> {
 		this.abortRetry();
+		this._steeringMessages = [];
+		this._followUpMessages = [];
+		this.agent.clearAllQueues();
+		this._emitQueueUpdate();
 		this.agent.abort();
 		await this.agent.waitForIdle();
 	}
@@ -2630,9 +2634,10 @@ export class AgentSession {
 		// but must not retry: the assistant answer already completed and agent.continue() cannot
 		// continue from an assistant message.
 		if (sameModel && isContextOverflow(assistantMessage, contextWindow)) {
-			const willRetry = assistantMessage.stopReason !== "stop";
+			const shouldRetryAfterCompaction = assistantMessage.stopReason !== "stop";
+			const shouldContinueAfterCompaction = postRunCheck && shouldRetryAfterCompaction;
 
-			if (!willRetry) {
+			if (!shouldRetryAfterCompaction) {
 				return await this._runAutoCompaction("overflow", false);
 			}
 
@@ -2649,14 +2654,16 @@ export class AgentSession {
 				return false;
 			}
 
-			this._overflowRecoveryAttempted = true;
-			// Remove the error message from agent state (it IS saved to session for history,
-			// but we don't want it in context for the retry)
-			const messages = this.agent.state.messages;
-			if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
-				this.agent.state.messages = messages.slice(0, -1);
+			if (postRunCheck) {
+				this._overflowRecoveryAttempted = true;
+				// Remove the error message from agent state (it IS saved to session for history,
+				// but we don't want it in context for the retry)
+				const messages = this.agent.state.messages;
+				if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+					this.agent.state.messages = messages.slice(0, -1);
+				}
 			}
-			return await this._runAutoCompaction("overflow", willRetry);
+			return await this._runAutoCompaction("overflow", true, shouldContinueAfterCompaction);
 		}
 
 		// Case 2: Threshold - context is getting large
@@ -2701,7 +2708,11 @@ export class AgentSession {
 	/**
 	 * Internal: Run auto-compaction with events.
 	 */
-	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
+	private async _runAutoCompaction(
+		reason: "overflow" | "threshold",
+		willRetry: boolean,
+		continueAfterCompaction = willRetry,
+	): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
 		let started = false;
 		let autoCompactionAbortController: AbortController | undefined;
@@ -2870,7 +2881,7 @@ export class AgentSession {
 			};
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
 
-			if (willRetry) {
+			if (continueAfterCompaction) {
 				// Drop the failed/truncated assistant message from agent state (it stays in
 				// session history) so agent.continue() can resume from the preceding message.
 				const messages = this.agent.state.messages;

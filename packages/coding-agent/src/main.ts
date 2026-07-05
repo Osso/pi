@@ -696,9 +696,6 @@ export async function main(args: string[], options?: MainOptions) {
 
 	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
 	const shouldTakeOverStdout = appMode !== "interactive" && !isPlainRuntimeMetadataCommand(parsed);
-	if (shouldTakeOverStdout) {
-		takeOverStdout();
-	}
 
 	if (parsed.mode === "rpc" && parsed.fileArgs.length > 0) {
 		console.error(chalk.red("Error: @file arguments are not supported in RPC mode"));
@@ -766,6 +763,9 @@ export async function main(args: string[], options?: MainOptions) {
 			process.exit(1);
 		}
 		sessionManager.appendSessionInfo(name);
+	}
+	if (shouldTakeOverStdout) {
+		takeOverStdout();
 	}
 	time("createSessionManager");
 	const controlMessage = appMode === "interactive" ? claimLatestIncomingMessage(controlDbPath) : undefined;

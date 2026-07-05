@@ -1676,7 +1676,7 @@ function currentMessageSenderId(_store: MultiAgentStore, ctx: ExtensionContext |
 	if (ctx?.multiAgentRequiresAgentId) {
 		return undefined;
 	}
-	return ctx?.sessionManager?.isSubagentSession() ? undefined : MAIN_THREAD_AGENT_ID;
+	return ctx?.sessionManager?.isSubagentSession?.() ? undefined : MAIN_THREAD_AGENT_ID;
 }
 
 function currentMessageSenderAgent(store: MultiAgentStore, ctx: ExtensionContext | undefined): AgentSnapshot {

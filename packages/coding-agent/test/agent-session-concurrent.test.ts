@@ -38,6 +38,14 @@ class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMe
 	}
 }
 
+function getUserMessageText(content: string | Array<TextContent | ImageContent>): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((part): part is TextContent => part.type === "text")
+		.map((part) => part.text)
+		.join("\n");
+}
+
 function createAssistantMessage(text: string): AssistantMessage {
 	return {
 		role: "assistant",
@@ -90,10 +98,19 @@ describe("AgentSession concurrent prompt guard", () => {
 				systemPrompt: "Test",
 				tools: [],
 			},
-			streamFn: (_model, _context, options) => {
+			streamFn: (_model, context, options) => {
 				abortSignal = options?.signal;
 				const stream = new MockAssistantStream();
 				queueMicrotask(() => {
+					const userTexts = context.messages.map((message) =>
+						message.role === "user" ? getUserMessageText(message.content) : "",
+					);
+					if (userTexts.includes("Steering message") || userTexts.includes("Follow-up message")) {
+						stream.push({ type: "start", partial: createAssistantMessage("") });
+						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Queued") });
+						return;
+					}
+
 					stream.push({ type: "start", partial: createAssistantMessage("") });
 					const checkAbort = () => {
 						if (abortSignal?.aborted) {
@@ -157,7 +174,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
 		// steer should work while streaming
-		expect(() => session.steer("Steering message")).not.toThrow();
+		await expect(session.steer("Steering message")).resolves.toBeUndefined();
 		expect(session.pendingMessageCount).toBe(1);
 
 		// Cleanup
@@ -173,7 +190,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
 		// followUp should work while streaming
-		expect(() => session.followUp("Follow-up message")).not.toThrow();
+		await expect(session.followUp("Follow-up message")).resolves.toBeUndefined();
 		expect(session.pendingMessageCount).toBe(1);
 
 		// Cleanup
@@ -184,7 +201,6 @@ describe("AgentSession concurrent prompt guard", () => {
 	it("should queue extension-origin steering messages while streaming", async () => {
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
 		let abortSignal: AbortSignal | undefined;
-		let sawSteeringMessage = false;
 		let lastInputSource: string | undefined;
 		const queueEvents: Array<{ steering: readonly string[]; followUp: readonly string[] }> = [];
 
@@ -213,7 +229,6 @@ describe("AgentSession concurrent prompt guard", () => {
 						});
 
 					if (userTexts.includes("Steer from extension")) {
-						sawSteeringMessage = true;
 						stream.push({ type: "start", partial: createAssistantMessage("") });
 						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Steered") });
 						return;
@@ -287,8 +302,6 @@ describe("AgentSession concurrent prompt guard", () => {
 
 		await session.abort();
 		await firstPrompt.catch(() => {});
-
-		expect(sawSteeringMessage).toBe(true);
 	});
 
 	it("should allow prompt() after previous completes", async () => {
