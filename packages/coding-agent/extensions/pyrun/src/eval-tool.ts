@@ -47,7 +47,7 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined
 	if (commandExitCode !== undefined) {
 		return `exit code ${commandExitCode}`;
 	}
-	if (result.value === undefined) {
+	if (result.value === undefined || result.value === null) {
 		return undefined;
 	}
 	if (typeof result.value === "string") {
@@ -83,7 +83,7 @@ function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResul
 	} else {
 		const formattedResult = formatResultValue(result);
 		if (formattedResult !== undefined) {
-			lines.push(`Result: ${formattedResult}`);
+			lines.push(formattedResult);
 		}
 	}
 	return lines.join("\n");

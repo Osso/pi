@@ -560,7 +560,8 @@ describe("pyrun extension", () => {
 		});
 		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 		expect(text).toContain("print('hello')\n1 + 1");
-		expect(text).toContain("Result: 2");
+		expect(text).toContain("\n2");
+		expect(text).not.toContain("Result:");
 		expect(text).toContain("hello");
 	});
 
@@ -569,6 +570,7 @@ describe("pyrun extension", () => {
 
 		const emptyResult = await harness.evaluate({ code: "empty.result" });
 		const undefinedResult = await harness.evaluate({ code: "undefined.result" });
+		const nullResult = await harness.evaluate({ code: "null.result" });
 
 		expect(emptyResult.content[0]).toEqual({
 			type: "text",
@@ -577,6 +579,10 @@ describe("pyrun extension", () => {
 		expect(undefinedResult.content[0]).toEqual({
 			type: "text",
 			text: "undefined.result\n",
+		});
+		expect(nullResult.content[0]).toEqual({
+			type: "text",
+			text: "null.result\n",
 		});
 	});
 
@@ -598,7 +604,7 @@ describe("pyrun extension", () => {
 
 		expect(result.content[0]).toEqual({
 			type: "text",
-			text: "command.failed\n\ntail error\nResult: exit code 2",
+			text: "command.failed\n\ntail error\nexit code 2",
 		});
 	});
 
@@ -618,7 +624,7 @@ describe("pyrun extension", () => {
 		});
 		expect(result.content[0]).toEqual({
 			type: "text",
-			text: "print('hello')\n1+1\n\nhello\nResult: 2",
+			text: "print('hello')\n1+1\n\nhello\n2",
 		});
 	});
 
@@ -1108,7 +1114,8 @@ describe("pyrun extension", () => {
 		const [artifact] = store.listArtifacts(job.id);
 		expect(artifact).toMatchObject({ kind: "log", title: "Pyrun output" });
 		expect(artifact.path && existsSync(artifact.path)).toBe(true);
-		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").toContain("Result: detached-done");
+		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").toContain("detached-done");
+		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").not.toContain("Result:");
 	});
 
 	it("marks detached Pyrun evaluation errors as failed jobs", async () => {
