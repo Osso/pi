@@ -161,7 +161,7 @@ export const KEYBINDINGS = {
 		description: "Delete session when query is empty",
 	},
 	"app.models.save": {
-		defaultKeys: "ctrl+s",
+		defaultKeys: ["ctrl+s", "ctrl+enter"],
 		description: "Save model selection",
 	},
 	"app.models.enableAll": {

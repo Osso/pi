@@ -35,6 +35,36 @@ describe("issue #3217 scoped model ordering", () => {
 		}
 	});
 
+	it("persists scoped model choices with a flow-control-safe save key", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+
+		const orderedIds = harness.models.map((model) => `${model.provider}/${model.id}`);
+		const persisted: Array<string[] | null> = [];
+		const selector = new ScopedModelsSelectorComponent(
+			{
+				allModels: [...harness.models],
+				enabledModelIds: orderedIds,
+			},
+			{
+				onChange: () => {},
+				onPersist: (enabledModelIds) => {
+					persisted.push(enabledModelIds);
+				},
+				onCancel: () => {},
+			},
+		);
+
+		selector.handleInput("\x1b[27;5;13~");
+
+		expect(persisted).toEqual([orderedIds]);
+	});
+
 	it("propagates reordered scoped models back to the session state", async () => {
 		const harness = await createHarness({
 			models: [
