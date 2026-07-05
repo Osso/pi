@@ -156,6 +156,7 @@ export function transformMessages<TApi extends Api>(
 	// This preserves thinking signatures and satisfies API requirements
 	const result: Message[] = [];
 	let pendingToolCalls: ToolCall[] = [];
+	let pendingToolCallIds = new Set<string>();
 	let existingToolResultIds = new Set<string>();
 	const insertSyntheticToolResults = () => {
 		if (pendingToolCalls.length > 0) {
@@ -172,6 +173,7 @@ export function transformMessages<TApi extends Api>(
 				}
 			}
 			pendingToolCalls = [];
+			pendingToolCallIds = new Set();
 			existingToolResultIds = new Set();
 		}
 	};
@@ -197,13 +199,16 @@ export function transformMessages<TApi extends Api>(
 			const toolCalls = assistantMsg.content.filter((b) => b.type === "toolCall") as ToolCall[];
 			if (toolCalls.length > 0) {
 				pendingToolCalls = toolCalls;
+				pendingToolCallIds = new Set(toolCalls.map((toolCall) => toolCall.id));
 				existingToolResultIds = new Set();
 			}
 
 			result.push(msg);
 		} else if (msg.role === "toolResult") {
-			existingToolResultIds.add(msg.toolCallId);
-			result.push(msg);
+			if (pendingToolCallIds.has(msg.toolCallId)) {
+				existingToolResultIds.add(msg.toolCallId);
+				result.push(msg);
+			}
 		} else if (msg.role === "user") {
 			// User message interrupts tool flow - insert synthetic results for orphaned calls
 			insertSyntheticToolResults();
