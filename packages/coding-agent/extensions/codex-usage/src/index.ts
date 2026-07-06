@@ -275,8 +275,8 @@ async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI):
 	}
 
 	const confirmed = await ctx.ui.confirm(
-		"Consume OpenAI Codex reset credit?",
-		`This will use 1 of ${before.resetCreditsAvailable} available reset credits.`,
+		"Are you sure you want to reset OpenAI Codex usage?",
+		`This will consume 1 of ${before.resetCreditsAvailable} available reset credits.`,
 	);
 	if (!confirmed) return;
 

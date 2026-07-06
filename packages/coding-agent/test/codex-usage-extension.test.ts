@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import {
+import { afterEach, describe, expect, it, vi } from "vitest";
+import codexUsageExtension, {
 	type CodexUsagePayload,
 	formatCodexUsage,
 	mapCodexUsagePayload,
@@ -7,6 +7,7 @@ import {
 	resolveCodexAccountInfo,
 	resolveCodexDisplayEmail,
 } from "../extensions/codex-usage/src/index.ts";
+import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
 
 function usagePayload(overrides: Partial<CodexUsagePayload> = {}): CodexUsagePayload {
 	return {
@@ -21,7 +22,15 @@ function usagePayload(overrides: Partial<CodexUsagePayload> = {}): CodexUsagePay
 	};
 }
 
+function tokenWithClaims(claims: unknown): string {
+	return `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+}
+
 describe("codex usage extension", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	it("maps the Codex /wham/usage payload to displayable account usage", () => {
 		const usage = mapCodexUsagePayload(usagePayload());
 
@@ -70,11 +79,48 @@ describe("codex usage extension", () => {
 		expect(text).toContain("codex: credits balance 9.99");
 	});
 
+	it("asks for confirmation before resetting usage", async () => {
+		const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
+		const pi = {
+			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+				commands.set(name, options);
+			},
+			sendMessage: vi.fn(),
+		} as unknown as ExtensionAPI;
+		codexUsageExtension(pi);
+		const usageCommand = commands.get("usage");
+		if (!usageCommand) throw new Error("usage command was not registered");
+
+		const confirm = vi.fn(async () => false);
+		const token = tokenWithClaims({ "https://api.openai.com/auth": { chatgpt_account_id: "acct_123" } });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(JSON.stringify(usagePayload()), { status: 200 })),
+		);
+		const ctx = {
+			model: undefined,
+			modelRegistry: {
+				authStorage: {
+					get: () => null,
+					getApiKey: async () => token,
+				},
+			},
+			ui: {
+				confirm,
+				notify: vi.fn(),
+			},
+		} as unknown as ExtensionCommandContext;
+
+		await usageCommand.handler("reset", ctx);
+
+		expect(confirm).toHaveBeenCalledWith(
+			"Are you sure you want to reset OpenAI Codex usage?",
+			"This will consume 1 of 3 available reset credits.",
+		);
+	});
+
 	it("extracts the ChatGPT account id from the Codex access token", () => {
-		const payload = Buffer.from(
-			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acct_123" } }),
-		).toString("base64url");
-		const token = `header.${payload}.signature`;
+		const token = tokenWithClaims({ "https://api.openai.com/auth": { chatgpt_account_id: "acct_123" } });
 
 		expect(resolveCodexAccountId(token)).toBe("acct_123");
 	});
