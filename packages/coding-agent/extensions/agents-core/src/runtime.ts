@@ -2309,16 +2309,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		}),
 	);
 
-	pi.registerTool(
-		defineTool({
-			name: "wait_agent",
-			label: "Wait Agent",
-			description: "Wait for a dispatched agent to finish. Returns no output; read mailbox/list tools for results.",
-			approvalRequired: false,
-			parameters: waitAgentSchema,
-			execute: async (_toolCallId, params, signal) => waitAgent(store, activeDispatches, params, signal),
-		}),
-	);
+	// wait_agent is temporarily disabled. Keep the implementation intact so this
+	// can be restored by re-enabling registration after the runtime issue is fixed.
 
 	pi.registerTool(
 		defineTool({

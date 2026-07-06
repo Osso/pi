@@ -105,9 +105,9 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("command backgrounding guidelines", () => {
-		test("warns that supported long-running command tools auto-background after 2 minutes", () => {
+		test("warns that supported long-running command tools auto-background after 2 minutes when wait_agent is available", () => {
 			const prompt = buildSystemPrompt({
-				selectedTools: ["bash"],
+				selectedTools: ["bash", "wait_agent"],
 				contextFiles: [],
 				skills: [],
 				cwd: process.cwd(),
@@ -116,6 +116,17 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain(
 				"Supported long-running command tools such as bash and Pyrun are automatically backgrounded after 2 minutes; use wait_agent to wait for completion, then inspect reported background job details or mailbox/log artifacts instead of assuming the command stopped.",
 			);
+		});
+
+		test("omits wait_agent backgrounding instructions when wait_agent is unavailable", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["bash"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).not.toContain("use wait_agent to wait for completion");
 		});
 	});
 

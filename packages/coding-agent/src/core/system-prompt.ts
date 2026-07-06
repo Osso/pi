@@ -144,7 +144,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		);
 	}
 
-	if (hasBackgroundableCommandTool) {
+	if (hasBackgroundableCommandTool && tools.includes("wait_agent")) {
 		const autoBackgroundAfterMinutes = DEFAULT_AUTO_DETACH_AFTER_MS / MILLISECONDS_PER_MINUTE;
 		addGuideline(
 			`Supported long-running command tools such as bash and Pyrun are automatically backgrounded after ${autoBackgroundAfterMinutes} minutes; use wait_agent to wait for completion, then inspect reported background job details or mailbox/log artifacts instead of assuming the command stopped.`,
