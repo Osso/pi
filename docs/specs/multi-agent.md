@@ -233,10 +233,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
   settings for `agentType: "explore"` and `agentType: "implement"`, that `wait_agent` waits for terminal state without returning
-  output, that mailbox results remain pending for mailbox delivery, that `list_agents` can return
-  descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
-  ID/path rather than copied content. It verifies `agent_viewer` returns read-only projection,
-  tree, status, transcript, and command descriptor details without advancing lifecycle state. The
+  output, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
+  active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
+  ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID and returns one
+  agent's read-only snapshot, status, transcript, child IDs, and stop/steer command descriptor details without advancing lifecycle state. The
   read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
   store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of
   accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
@@ -299,8 +299,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       persistence and projection snapshots.
 - [x] Add focused TUI-facing projection tests proving core snapshots are authoritative for visible
       rows, pane slots, and stale conflict refresh.
-- [x] Add focused `agent_viewer` tests for read-only tree/status/transcript inspection plus
-      explicit stop/resume/steer command descriptors.
+- [x] Add focused `agent_viewer` tests for one-agent read-only status/transcript/child inspection plus
+      explicit stop/steer command descriptors.
 - [x] Add focused TUI slot-key tests for `Alt+1` through `Alt+9` switching visible agent slots
       without lifecycle mutation.
 - [x] Add focused TUI slot persistence tests for stable bindings across list refreshes and pinned

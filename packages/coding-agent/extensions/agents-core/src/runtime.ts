@@ -25,7 +25,6 @@ import {
 	formatInactiveAgentSelectionMessage,
 	isActiveLifecycle,
 	type MailboxMessageCommandResult,
-	type MultiAgentProjectionSnapshot,
 	MultiAgentStore,
 	type RecordAgentArtifactInput,
 	type SendMailboxMessageInput,
@@ -112,7 +111,10 @@ const contactSupervisorSchema = Type.Object({
 	threadId: Type.Optional(Type.String()),
 });
 
-const agentViewerSchema = Type.Object({});
+const agentViewerSchema = Type.Object({
+	agentId: Type.String(),
+	sessionId: Type.Optional(Type.String()),
+});
 
 const sendAgentMessageSchema = Type.Object({
 	artifactIds: Type.Optional(Type.Array(Type.String())),
@@ -135,6 +137,7 @@ const agentArtifactsSchema = Type.Object({
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
+type AgentViewerParams = Static<typeof agentViewerSchema>;
 type WaitAgentParams = Static<typeof waitAgentSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
@@ -282,17 +285,15 @@ interface ContactSupervisorToolDetails {
 }
 
 interface AgentViewerToolDetails {
-	commands: AgentViewerCommand[];
-	projection: MultiAgentProjectionSnapshot;
-	statuses: AgentViewerStatus[];
-	transcripts: AgentViewerTranscript[];
-	tree: AgentViewerTreeNode[];
-}
-
-interface AgentViewerTreeNode {
-	agentId: string;
-	children: string[];
+	agent?: AgentSnapshot;
+	agentId?: string;
+	children?: string[];
+	commands?: AgentViewerCommand[];
+	error?: "not_found" | "session_mismatch";
 	parentId?: string;
+	sessionId?: string;
+	status?: AgentViewerStatus;
+	transcript?: AgentViewerTranscript;
 }
 
 interface AgentViewerStatus {
@@ -310,8 +311,8 @@ interface AgentViewerTranscript {
 
 interface AgentViewerCommand {
 	agentId: string;
-	command: "stop" | "resume" | "steer";
-	tool: "cancel_agent" | "wait_agent" | "steer_agent";
+	command: "stop" | "steer";
+	tool: "cancel_agent" | "steer_agent";
 }
 
 interface SendAgentMessageToolDetails {
@@ -1366,53 +1367,59 @@ function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentTool
 
 function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): AgentSnapshot[] {
 	const agents = params.parentId ? store.listDescendants(params.parentId) : store.listAgents();
-	return params.activeOnly ? agents.filter((agent) => isActiveLifecycle(agent.lifecycle)) : agents;
+	return params.activeOnly === false ? agents : agents.filter((agent) => isActiveLifecycle(agent.lifecycle));
 }
 
-function agentViewer(store: MultiAgentStore): AgentToolResult<AgentViewerToolDetails> {
-	const projection = store.getProjectionSnapshot();
-	return result(`Viewing ${projection.agents.length} agent${projection.agents.length === 1 ? "" : "s"}.`, {
-		commands: listViewerCommands(projection.agents),
-		projection,
-		statuses: listViewerStatuses(projection.agents),
-		transcripts: listViewerTranscripts(projection.agents),
-		tree: listViewerTree(projection.agents),
+function agentViewer(store: MultiAgentStore, params: AgentViewerParams): AgentToolResult<AgentViewerToolDetails> {
+	const agent = store.getAgent(params.agentId);
+	if (!agent) {
+		return errorResult(`Agent not found: ${params.agentId}.`, { agentId: params.agentId, error: "not_found" as const });
+	}
+	if (params.sessionId && agent.transcript?.sessionId !== params.sessionId) {
+		return errorResult(`Agent ${params.agentId} is not attached to session ${params.sessionId}.`, {
+			agentId: params.agentId,
+			error: "session_mismatch" as const,
+			sessionId: params.sessionId,
+		});
+	}
+	const children = store
+		.listAgents()
+		.filter((candidate) => candidate.parentId === agent.id)
+		.map((child) => child.id);
+
+	return result(`Viewing agent ${agent.id}.`, {
+		agent,
+		children,
+		commands: listViewerCommands([agent]),
+		parentId: agent.parentId,
+		status: viewStatus(agent),
+		transcript: viewTranscript(agent),
 	});
 }
 
-function listViewerTree(agents: AgentSnapshot[]): AgentViewerTreeNode[] {
-	return agents.map((agent) => ({
-		agentId: agent.id,
-		children: agents.filter((candidate) => candidate.parentId === agent.id).map((child) => child.id),
-		parentId: agent.parentId,
-	}));
-}
-
-function listViewerStatuses(agents: AgentSnapshot[]): AgentViewerStatus[] {
-	return agents.map((agent) => ({
+function viewStatus(agent: AgentSnapshot): AgentViewerStatus {
+	return {
 		agentId: agent.id,
 		lifecycle: agent.lifecycle,
 		revision: agent.revision,
 		terminal: agent.lifecycle === "completed" || agent.lifecycle === "failed" || agent.lifecycle === "aborted",
-	}));
+	};
 }
 
-function listViewerTranscripts(agents: AgentSnapshot[]): AgentViewerTranscript[] {
-	return agents
-		.filter((agent): agent is AgentSnapshot & { transcript: NonNullable<AgentSnapshot["transcript"]> } => {
-			return agent.transcript !== undefined;
-		})
-		.map((agent) => ({
-			agentId: agent.id,
-			path: agent.transcript.path,
-			sessionId: agent.transcript.sessionId,
-		}));
+function viewTranscript(agent: AgentSnapshot): AgentViewerTranscript | undefined {
+	if (!agent.transcript) {
+		return undefined;
+	}
+	return {
+		agentId: agent.id,
+		path: agent.transcript.path,
+		sessionId: agent.transcript.sessionId,
+	};
 }
 
 function listViewerCommands(agents: AgentSnapshot[]): AgentViewerCommand[] {
 	return agents.flatMap((agent) => [
 		{ agentId: agent.id, command: "stop", tool: "cancel_agent" },
-		{ agentId: agent.id, command: "resume", tool: "wait_agent" },
 		{ agentId: agent.id, command: "steer", tool: "steer_agent" },
 	]);
 }
@@ -2308,10 +2315,10 @@ export function registerAgentViewerTools(pi: ExtensionAPI, options: MultiAgentEx
 		defineTool({
 			name: "agent_viewer",
 			label: "Agent Viewer",
-			description: "Read a projection snapshot for agent tree/status/slot viewer surfaces.",
+			description: "Inspect one agent by ID, with status, transcript, child IDs, and command descriptors.",
 			approvalRequired: false,
 			parameters: agentViewerSchema,
-			execute: async () => agentViewer(store),
+			execute: async (_toolCallId, params) => agentViewer(store, params),
 		}),
 	);
 }

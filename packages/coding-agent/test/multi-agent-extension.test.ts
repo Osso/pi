@@ -23,7 +23,7 @@ import type {
 	RegisteredCommand,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
-import type { AgentArtifact, MultiAgentProjectionSnapshot } from "../src/core/multi-agent-store.ts";
+import type { AgentArtifact } from "../src/core/multi-agent-store.ts";
 import {
 	type AgentMailboxMessage,
 	type AgentSnapshot,
@@ -56,6 +56,19 @@ import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function completeAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
+	const started = store.transitionAgent(agent.id, agent.revision, "starting");
+	expect(started.ok).toBe(true);
+	if (!started.ok) throw new Error("expected starting transition");
+	const running = store.transitionAgent(agent.id, started.agent.revision, "running");
+	expect(running.ok).toBe(true);
+	if (!running.ok) throw new Error("expected running transition");
+	const completed = store.transitionAgent(agent.id, running.agent.revision, "completed");
+	expect(completed.ok).toBe(true);
+	if (!completed.ok) throw new Error("expected completed transition");
+	return completed.agent;
 }
 
 const managedTempDirs: string[] = [];
@@ -123,11 +136,12 @@ interface ContactSupervisorDetails extends Record<string, unknown> {
 }
 
 interface AgentViewerDetails extends Record<string, unknown> {
-	commands: Array<{ agentId: string; command: "stop" | "resume" | "steer"; tool: string }>;
-	projection: MultiAgentProjectionSnapshot;
-	statuses: Array<{ agentId: string; lifecycle: string; revision: number; terminal: boolean }>;
-	transcripts: Array<{ agentId: string; path?: string; sessionId: string }>;
-	tree: Array<{ agentId: string; children: string[]; parentId?: string }>;
+	agent: AgentSnapshot;
+	children: string[];
+	commands: Array<{ agentId: string; command: "stop" | "steer"; tool: string }>;
+	parentId?: string;
+	status: { agentId: string; lifecycle: string; revision: number; terminal: boolean };
+	transcript?: { agentId: string; path?: string; sessionId: string };
 }
 
 interface MailboxDetails {
@@ -406,10 +420,10 @@ describe("multi-agent extension tools", () => {
 			displayName: "Split Worker",
 			prompt: "Use shared store",
 		});
-		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: spawned.details.agent.id });
 		const mailbox = mailboxDetails(harness.store, spawned.details.agent.id);
 
-		expect(viewed.details.projection.agents.map((agent) => agent.id)).toEqual([spawned.details.agent.id]);
+		expect(viewed.details.agent.id).toBe(spawned.details.agent.id);
 		expect(mailbox.pendingCount).toBe(0);
 		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({
 			displayName: "Split Worker",
@@ -439,7 +453,10 @@ describe("multi-agent extension tools", () => {
 				displayName: "Saved Work",
 				sessionId: savedSessionId,
 			});
-			const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+			const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {
+				agentId: attached.details.agent.id,
+				sessionId: savedSessionId,
+			});
 			const steered = await harness.call<SteerAgentDetails>("steer_agent", {
 				agentId: attached.details.agent.id,
 				expectedRevision: attached.details.agent.revision,
@@ -468,9 +485,11 @@ describe("multi-agent extension tools", () => {
 				dispatched: false,
 			});
 			expect(attached.details.agent.id).not.toBe(savedSessionId);
-			expect(viewed.details.transcripts).toEqual([
-				{ agentId: attached.details.agent.id, path: savedSession.getSessionFile(), sessionId: savedSessionId },
-			]);
+			expect(viewed.details.transcript).toEqual({
+				agentId: attached.details.agent.id,
+				path: savedSession.getSessionFile(),
+				sessionId: savedSessionId,
+			});
 			expect(steered.details.message).toMatchObject({
 				fromAgentId: "supervisor",
 				kind: "steer",
@@ -1414,6 +1433,29 @@ describe("multi-agent extension tools", () => {
 		expect(listed.details.agents).toEqual([spawned.details.agent]);
 	});
 
+	it("lists only active agents by default while allowing inactive agents when requested", async () => {
+		const harness = createMultiAgentHarness();
+		const active = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Active",
+			prompt: "Active task",
+		});
+		const completed = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Completed",
+			prompt: "Completed task",
+		});
+		const terminal = completeAgent(harness.store, completed.details.agent);
+
+		const defaultList = await harness.call<ListAgentsDetails>("list_agents", {});
+		const fullList = await harness.call<ListAgentsDetails>("list_agents", { activeOnly: false });
+
+		expect(terminal.lifecycle).toBe("completed");
+		expect(defaultList.details.agents.map((agent) => agent.id)).toEqual([active.details.agent.id]);
+		expect(fullList.details.agents.map((agent) => agent.id)).toEqual([
+			active.details.agent.id,
+			completed.details.agent.id,
+		]);
+	});
+
 	it("lists descendants for a parent without TUI state", async () => {
 		const harness = createMultiAgentHarness();
 		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
@@ -1438,7 +1480,7 @@ describe("multi-agent extension tools", () => {
 		expect(listed.details.agents.map((agent) => agent.id)).toEqual([child.details.agent.id]);
 	});
 
-	it("projects a read-only agent viewer snapshot without lifecycle mutation", async () => {
+	it("views one agent without lifecycle mutation", async () => {
 		const harness = createMultiAgentHarness();
 		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			displayName: "Parent",
@@ -1456,21 +1498,19 @@ describe("multi-agent extension tools", () => {
 		}
 		harness.store.selectAgentView(child.details.agent.id);
 
-		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: child.details.agent.id });
 		const afterView = harness.store.getAgent(child.details.agent.id);
 
-		expect(viewed.details.projection).toMatchObject({
-			activeCount: 2,
-			selectedAgentId: child.details.agent.id,
-			slots: [
-				{
-					agent: { id: child.details.agent.id, lifecycle: "queued", revision: pinned.agent.revision },
-					agentId: child.details.agent.id,
-					index: 3,
-					pinned: true,
-					revision: pinned.agent.revision,
-				},
-			],
+		expect(viewed.details).toMatchObject({
+			agent: { id: child.details.agent.id, lifecycle: "queued", revision: pinned.agent.revision },
+			children: [],
+			parentId: parent.details.agent.id,
+			status: {
+				agentId: child.details.agent.id,
+				lifecycle: "queued",
+				revision: pinned.agent.revision,
+				terminal: false,
+			},
 		});
 		expect(afterView).toMatchObject({
 			id: child.details.agent.id,
@@ -1479,7 +1519,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("exposes read-only tree status transcript and command descriptors in agent_viewer", async () => {
+	it("exposes read-only status transcript and command descriptors in agent_viewer", async () => {
 		const harness = createMultiAgentHarness();
 		const parent = harness.store.spawnAgent({
 			agentType: "lead",
@@ -1502,23 +1542,18 @@ describe("multi-agent extension tools", () => {
 			throw new Error("expected child start");
 		}
 
-		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: child.agent.id });
 
-		expect(viewed.details.tree).toEqual([
-			{ agentId: parent.agent.id, children: [child.agent.id], parentId: "root" },
-			{ agentId: child.agent.id, children: [], parentId: parent.agent.id },
-		]);
-		expect(viewed.details.statuses).toMatchObject([
-			{ agentId: parent.agent.id, lifecycle: "queued", revision: parent.agent.revision, terminal: false },
-			{ agentId: child.agent.id, lifecycle: "starting", revision: running.agent.revision, terminal: false },
-		]);
-		expect(viewed.details.transcripts).toEqual([
-			{ agentId: child.agent.id, path: "sessions/child.jsonl", sessionId: "child-session" },
-		]);
+		expect(viewed.details).toMatchObject({
+			agent: { id: child.agent.id, lifecycle: "starting", revision: running.agent.revision },
+			children: [],
+			parentId: parent.agent.id,
+			status: { agentId: child.agent.id, lifecycle: "starting", revision: running.agent.revision, terminal: false },
+			transcript: { agentId: child.agent.id, path: "sessions/child.jsonl", sessionId: "child-session" },
+		});
 		expect(viewed.details.commands).toEqual(
 			expect.arrayContaining([
 				{ agentId: child.agent.id, command: "stop", tool: "cancel_agent" },
-				{ agentId: child.agent.id, command: "resume", tool: "wait_agent" },
 				{ agentId: child.agent.id, command: "steer", tool: "steer_agent" },
 			]),
 		);

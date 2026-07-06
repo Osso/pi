@@ -19,8 +19,9 @@ injected factory. `wait_agent` synchronizes with those live dispatches without r
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
 `SessionManager.create()` primitives so production callers can create child sessions with the
 parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
-does not create live child model sessions yet. `list_agents` can scope results to descendants below
-a parent ID, using core store state rather than rendered TUI rows. `contact_supervisor` lets a child
+does not create live child model sessions yet. `list_agents` returns active agents by default and
+can include inactive agents or scope results to descendants below a parent ID, using core store state
+rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
 and labels, so large logs or diffs stay outside coordination events. `wait_agent` only synchronizes
@@ -31,9 +32,9 @@ surfaces can resync from core state by agent ID instead of trusting stale render
 `send_agent_message` creates direct mailbox messages only across parent-child relationships, so
 siblings cannot target each other directly.
 `agent_artifacts` records and lists shared artifact pointers outside mailbox events.
-`agent_viewer` is read-only and returns the core projection plus explicit tree, status, transcript,
-and command descriptor lists for stop/resume/steer actions; those descriptors name existing tools
-and do not mutate agent lifecycle by themselves.
+`agent_viewer` is read-only, requires an agent ID, and returns one agent's snapshot, status,
+transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
+tools and do not mutate agent lifecycle by themselves.
 `createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
 for higher-level workflow extensions without giving them a separate runtime state store.
 `spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
