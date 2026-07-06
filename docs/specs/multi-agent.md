@@ -236,9 +236,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   output, that mailbox results remain pending for mailbox delivery, that `list_agents` can return
   descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
   ID/path rather than copied content. It verifies `agent_viewer` returns read-only projection,
-  tree, status, transcript, and command descriptor details without advancing lifecycle state and
-  `agents_mailbox` returns inbox/outbox plus acknowledgement summaries from core mailbox state. It
-  also verifies `send_agent_message` derives the sender from the current session instead of
+  tree, status, transcript, and command descriptor details without advancing lifecycle state. The
+  read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
+  store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of
   accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
   while rejecting sibling targets, and `agent_artifacts` records/list shared artifact pointers
   outside mailbox events. It verifies

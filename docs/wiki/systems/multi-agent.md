@@ -11,9 +11,9 @@ SessionManager-backed snapshot reload before any child model sessions, subproces
 are added.
 
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
-`agent_artifacts`, `agent_viewer`, `agents_mailbox`, `spawn_agent`, `list_agents`, `wait_agent`,
-`cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate
-or read `MultiAgentStore`.
+`agent_artifacts`, `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`,
+`contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate or read
+`MultiAgentStore`. The read-only `agents_mailbox` tool is temporarily disabled.
 `spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
 injected factory. `wait_agent` synchronizes with those live dispatches without reporting final state.
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and

@@ -114,10 +114,6 @@ const contactSupervisorSchema = Type.Object({
 
 const agentViewerSchema = Type.Object({});
 
-const agentsMailboxSchema = Type.Object({
-	agentId: Type.Optional(Type.String()),
-});
-
 const sendAgentMessageSchema = Type.Object({
 	artifactIds: Type.Optional(Type.Array(Type.String())),
 	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
@@ -143,7 +139,6 @@ type WaitAgentParams = Static<typeof waitAgentSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
 type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
-type AgentsMailboxParams = Static<typeof agentsMailboxSchema>;
 type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
 type AgentArtifactsParams = Static<typeof agentArtifactsSchema>;
 
@@ -317,13 +312,6 @@ interface AgentViewerCommand {
 	agentId: string;
 	command: "stop" | "resume" | "steer";
 	tool: "cancel_agent" | "wait_agent" | "steer_agent";
-}
-
-interface AgentsMailboxToolDetails {
-	acknowledgements: AgentMailboxMessage[];
-	inbox: AgentMailboxMessage[];
-	outbox: AgentMailboxMessage[];
-	pendingCount: number;
 }
 
 interface SendAgentMessageToolDetails {
@@ -1436,28 +1424,6 @@ function formatMailboxArtifactReference(ref: NonNullable<AgentMailboxMessage["ar
 	return `- ${parts.join(" — ")}`;
 }
 
-function agentsMailbox(store: MultiAgentStore, params: AgentsMailboxParams): AgentToolResult<AgentsMailboxToolDetails> {
-	const messages = store.listMailboxMessages();
-	const scopedMessages = params.agentId
-		? messages.filter((message) => message.toAgentId === params.agentId || message.fromAgentId === params.agentId)
-		: messages;
-	const inbox = params.agentId
-		? scopedMessages.filter((message) => message.toAgentId === params.agentId)
-		: scopedMessages;
-	const outbox = params.agentId
-		? scopedMessages.filter((message) => message.fromAgentId === params.agentId)
-		: scopedMessages;
-	const acknowledgements = scopedMessages.filter((message) => message.status !== "pending");
-	const pendingCount = scopedMessages.filter((message) => message.status === "pending").length;
-
-	return result(`Mailbox has ${pendingCount} pending message${pendingCount === 1 ? "" : "s"}.`, {
-		acknowledgements,
-		inbox,
-		outbox,
-		pendingCount,
-	});
-}
-
 function agentArtifacts(
 	store: MultiAgentStore,
 	params: AgentArtifactsParams,
@@ -2352,17 +2318,6 @@ export function registerAgentViewerTools(pi: ExtensionAPI, options: MultiAgentEx
 
 export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
-
-	pi.registerTool(
-		defineTool({
-			name: "agents_mailbox",
-			label: "Agents Mailbox",
-			description: "Read inbox, outbox, and acknowledgement summaries from the multi-agent mailbox.",
-			approvalRequired: false,
-			parameters: agentsMailboxSchema,
-			execute: async (_toolCallId, params) => agentsMailbox(store, params),
-		}),
-	);
 
 	pi.registerTool(
 		defineTool({

@@ -130,11 +130,27 @@ interface AgentViewerDetails extends Record<string, unknown> {
 	tree: Array<{ agentId: string; children: string[]; parentId?: string }>;
 }
 
-interface AgentsMailboxDetails extends Record<string, unknown> {
+interface MailboxDetails {
 	acknowledgements: AgentMailboxMessage[];
 	inbox: AgentMailboxMessage[];
 	outbox: AgentMailboxMessage[];
 	pendingCount: number;
+}
+
+function mailboxDetails(store: MultiAgentStore, agentId?: string): MailboxDetails {
+	const messages = store.listMailboxMessages();
+	const scopedMessages = agentId
+		? messages.filter((message) => message.toAgentId === agentId || message.fromAgentId === agentId)
+		: messages;
+	const inbox = agentId ? scopedMessages.filter((message) => message.toAgentId === agentId) : scopedMessages;
+	const outbox = agentId ? scopedMessages.filter((message) => message.fromAgentId === agentId) : scopedMessages;
+
+	return {
+		acknowledgements: scopedMessages.filter((message) => message.status !== "pending"),
+		inbox,
+		outbox,
+		pendingCount: scopedMessages.filter((message) => message.status === "pending").length,
+	};
 }
 
 interface SendAgentMessageDetails extends Record<string, unknown> {
@@ -339,13 +355,12 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("registers spawn/list/wait/cancel/steer/contact/viewer tools", () => {
+	it("registers spawn/list/cancel/steer/contact/viewer tools", () => {
 		const harness = createMultiAgentHarness();
 
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_artifacts",
 			"agent_viewer",
-			"agents_mailbox",
 			"attach_session_agent",
 			"cancel_agent",
 			"contact_supervisor",
@@ -353,7 +368,6 @@ describe("multi-agent extension tools", () => {
 			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
-			"wait_agent",
 		]);
 	});
 
@@ -363,7 +377,6 @@ describe("multi-agent extension tools", () => {
 		expect([...harness.tools.values()].map((tool) => [tool.name, tool.approvalRequired]).sort()).toEqual([
 			["agent_artifacts", false],
 			["agent_viewer", false],
-			["agents_mailbox", false],
 			["attach_session_agent", false],
 			["cancel_agent", false],
 			["contact_supervisor", false],
@@ -371,7 +384,6 @@ describe("multi-agent extension tools", () => {
 			["send_agent_message", false],
 			["spawn_agent", false],
 			["steer_agent", false],
-			["wait_agent", false],
 		]);
 	});
 
@@ -381,7 +393,6 @@ describe("multi-agent extension tools", () => {
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_artifacts",
 			"agent_viewer",
-			"agents_mailbox",
 			"attach_session_agent",
 			"cancel_agent",
 			"contact_supervisor",
@@ -389,7 +400,6 @@ describe("multi-agent extension tools", () => {
 			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
-			"wait_agent",
 		]);
 
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
@@ -397,12 +407,10 @@ describe("multi-agent extension tools", () => {
 			prompt: "Use shared store",
 		});
 		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {});
-		const mailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
-			agentId: spawned.details.agent.id,
-		});
+		const mailbox = mailboxDetails(harness.store, spawned.details.agent.id);
 
 		expect(viewed.details.projection.agents.map((agent) => agent.id)).toEqual([spawned.details.agent.id]);
-		expect(mailbox.details.pendingCount).toBe(0);
+		expect(mailbox.pendingCount).toBe(0);
 		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({
 			displayName: "Split Worker",
 		});
@@ -1109,11 +1117,9 @@ describe("multi-agent extension tools", () => {
 			"list_agents",
 			"spawn_agent",
 			"steer_agent",
-			"wait_agent",
 		]);
 		expect(collectTools((pi) => agentViewerExtension(pi, { store }))).toEqual(["agent_viewer"]);
 		expect(collectTools((pi) => agentsMailboxExtension(pi, { store }))).toEqual([
-			"agents_mailbox",
 			"contact_supervisor",
 			"send_agent_message",
 		]);
@@ -1565,21 +1571,17 @@ describe("multi-agent extension tools", () => {
 			message: "Need scope",
 		});
 
-		const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
-			agentId: child.details.agent.id,
-		});
-		const parentMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
-			agentId: parent.details.agent.id,
-		});
+		const childMailbox = mailboxDetails(harness.store, child.details.agent.id);
+		const parentMailbox = mailboxDetails(harness.store, parent.details.agent.id);
 		const childAfterMailbox = harness.store.getAgent(child.details.agent.id);
 
-		expect(childMailbox.details).toMatchObject({
+		expect(childMailbox).toMatchObject({
 			acknowledgements: [{ id: steered.details.message.id, status: "accepted" }],
 			inbox: [{ id: steered.details.message.id, fromAgentId: "supervisor", status: "accepted" }],
 			outbox: [{ id: contact.details.message.id, toAgentId: parent.details.agent.id, status: "pending" }],
 			pendingCount: 1,
 		});
-		expect(parentMailbox.details).toMatchObject({
+		expect(parentMailbox).toMatchObject({
 			inbox: [{ id: contact.details.message.id, fromAgentId: child.details.agent.id, status: "pending" }],
 			pendingCount: 1,
 		});
@@ -1647,9 +1649,7 @@ describe("multi-agent extension tools", () => {
 					sessionManager: childSession,
 				} as unknown as ExtensionContext,
 			)) as AgentToolResult<SendAgentMessageDetails>;
-			const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
-				agentId: child.details.agent.id,
-			});
+			const childMailbox = mailboxDetails(harness.store, child.details.agent.id);
 
 			expect(sent.details.message).toMatchObject({
 				body: "Please inspect auth",
@@ -1658,7 +1658,7 @@ describe("multi-agent extension tools", () => {
 				status: "pending",
 				toAgentId: child.details.agent.id,
 			});
-			expect(childMailbox.details.inbox).toMatchObject([{ id: sent.details.message.id }]);
+			expect(childMailbox.inbox).toMatchObject([{ id: sent.details.message.id }]);
 			expect(rejected.details).toMatchObject({
 				agent: { id: child.details.agent.id, revision: child.details.agent.revision },
 				message: { status: "failed", toAgentId: sibling.details.agent.id },
@@ -1679,9 +1679,7 @@ describe("multi-agent extension tools", () => {
 			message: "Main thread request",
 			toAgentId: child.details.agent.id,
 		});
-		const childMailbox = await harness.call<AgentsMailboxDetails>("agents_mailbox", {
-			agentId: child.details.agent.id,
-		});
+		const childMailbox = mailboxDetails(harness.store, child.details.agent.id);
 
 		expect(sent.details.message).toMatchObject({
 			body: "Main thread request",
@@ -1690,7 +1688,7 @@ describe("multi-agent extension tools", () => {
 			status: "pending",
 			toAgentId: child.details.agent.id,
 		});
-		expect(childMailbox.details.inbox).toMatchObject([{ id: sent.details.message.id }]);
+		expect(childMailbox.inbox).toMatchObject([{ id: sent.details.message.id }]);
 	});
 
 	it("records and lists shared artifacts outside mailbox events", async () => {
