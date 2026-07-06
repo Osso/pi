@@ -1387,6 +1387,9 @@ export interface ExtensionAPI {
 	/** Call an active registered tool by name. */
 	callTool(name: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult<unknown>>;
 
+	/** Call a registered slash command by invocation name. */
+	callCommand(name: string, args?: string): Promise<unknown>;
+
 	/** Get available slash commands in the current session. */
 	getCommands(): SlashCommandInfo[];
 
@@ -1607,6 +1610,8 @@ export type CallToolHandler = (
 	signal?: AbortSignal,
 ) => Promise<AgentToolResult<unknown>>;
 
+export type CallCommandHandler = (name: string, args?: string) => Promise<unknown>;
+
 export type SetActiveToolsHandler = (toolNames: string[]) => void;
 
 export type RefreshToolsHandler = () => void;
@@ -1656,6 +1661,7 @@ export interface ExtensionActions {
 	getAllTools: GetAllToolsHandler;
 	setActiveTools: SetActiveToolsHandler;
 	callTool: CallToolHandler;
+	callCommand: CallCommandHandler;
 	refreshTools: RefreshToolsHandler;
 	getCommands: GetCommandsHandler;
 	setModel: SetModelHandler;

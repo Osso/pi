@@ -66,6 +66,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
 	"Use pi.models.scoped() to list the current session scoped models for model cycling.",
 	"Use pi.tools.call(name, params) to call active Pi tools from Pyrun, and pi.web_search(query) as a web_search shortcut.",
+	"Use pi.commands.list() to list slash commands and pi.commands.run(name, args=\"\") to run registered slash commands from Pyrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait(...) is synchronization-only and returns no agent output.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
 	"Use tools.ssh({ host, user, port, password }) for SSH commands that need password auth; it wraps sshpass automatically.",
@@ -241,6 +242,8 @@ function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOption
 	return async (request, ctx, signal) => {
 		if (request.method === "models.scoped") return listScopedModels(ctx);
 		if (request.method === "tools.call") return callActiveTool(request.params, pi, signal);
+		if (request.method === "commands.list") return pi.getCommands();
+		if (request.method === "commands.run") return callCommand(request.params, pi);
 		if (request.method === "compact") return triggerCompact(request.params, ctx);
 		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
 		if (request.method === "restart") return triggerRestart(request.params, ctx);
@@ -282,6 +285,25 @@ function normalizeToolCallParams(params: unknown): { name: string; params: unkno
 		throw new Error("pi.tools.call requires a non-empty tool name");
 	}
 	return { name: name.trim(), params: record.params };
+}
+
+async function callCommand(params: unknown, pi: ExtensionAPI): Promise<unknown> {
+	const request = normalizeCommandRunParams(params);
+	return pi.callCommand(request.name, request.args);
+}
+
+function normalizeCommandRunParams(params: unknown): { args: string; name: string } {
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.commands.run requires { name, args }");
+	}
+	const record = params as { args?: unknown; name?: unknown };
+	if (typeof record.name !== "string" || record.name.trim() === "") {
+		throw new Error("pi.commands.run requires a non-empty command name");
+	}
+	if (record.args !== undefined && typeof record.args !== "string") {
+		throw new Error("pi.commands.run args must be a string when provided");
+	}
+	return { name: record.name.trim(), args: record.args ?? "" };
 }
 
 function triggerCompact(params: unknown, ctx: ExtensionContext): { started: true } {

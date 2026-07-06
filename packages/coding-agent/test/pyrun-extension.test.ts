@@ -59,6 +59,7 @@ interface PyrunProgressDetails {
 }
 
 type PyrunHarnessOptions = PyrunExtensionOptions & {
+	callCommand?: ExtensionAPI["callCommand"];
 	callTool?: ExtensionAPI["callTool"];
 };
 
@@ -82,7 +83,9 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	const switchedSessions: string[] = [];
 
 	const pi = {
+		callCommand: options.callCommand ?? (async () => undefined),
 		callTool: options.callTool ?? (async () => ({ content: [], details: undefined })),
+		getCommands: () => [{ name: "usage", source: "extension" }],
 		registerTool(tool: ToolDefinition) {
 			if (tool.name === "pyrun_eval") {
 				pyrunDefinition = tool;
@@ -305,6 +308,16 @@ async function resultFor(request) {
   }
   if (request.code === "pi.web_search('current Pi release')") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "tools.call", params: { name: "web_search", params: { query: "current Pi release" } } }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.commands.list()") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "commands.list", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.commands.run('usage', 'reset')") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "commands.run", params: { name: "usage", args: "reset" } }) + "\\n");
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
@@ -803,6 +816,29 @@ describe("pyrun extension", () => {
 			content: [{ type: "text", text: "Pi release notes" }],
 			details: { name: "web_search", params: { query: "current Pi release" } },
 		});
+	});
+
+	it("lists slash commands from Pyrun pi.commands.list", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "pi.commands.list()" });
+
+		expect(result.details.value).toEqual([{ name: "usage", source: "extension" }]);
+	});
+
+	it("runs slash commands from Pyrun pi.commands.run", async () => {
+		const calls: Array<{ args: string | undefined; name: string }> = [];
+		const harness = createPyrunHarness({
+			callCommand: async (name, args) => {
+				calls.push({ name, args });
+				return { displayed: true };
+			},
+		});
+
+		const result = await harness.evaluate({ code: "pi.commands.run('usage', 'reset')" });
+
+		expect(calls).toEqual([{ name: "usage", args: "reset" }]);
+		expect(result.details.value).toEqual({ displayed: true });
 	});
 
 	it("responds to Pyrun pi.agents.spawn requests through configured handlers", async () => {

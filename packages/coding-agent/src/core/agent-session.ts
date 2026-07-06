@@ -3225,6 +3225,12 @@ export class AgentSession {
 			return [...extensionCommands, ...templates, ...skills];
 		};
 
+		const callCommand = async (name: string, args?: string): Promise<unknown> => {
+			const command = runner.getCommand(name);
+			if (!command) throw new Error(`Command not found: ${name}`);
+			return command.handler(args ?? "", runner.createCommandContext());
+		};
+
 		runner.bindCore(
 			{
 				sendMessage: (message, options) => {
@@ -3265,6 +3271,7 @@ export class AgentSession {
 				getAllTools: () => this.getAllTools(),
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
 				callTool: (toolName, params, signal) => this._callActiveTool(toolName, params, signal),
+				callCommand,
 				refreshTools: () => this._refreshToolRegistry(),
 				getCommands,
 				setModel: async (model) => {
