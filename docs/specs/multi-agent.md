@@ -112,7 +112,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
 - [x] `wait_agent` is synchronization-only: after the target finishes, it returns no agent output
-      or final-state payload, and lifecycle/result notifications remain owned by the mailbox path.
+      or final-state payload. When it observes a completed agent, it consumes pending completion
+      mailbox notifications for that agent so the supervisor does not receive duplicate completion
+      follow-ups after explicitly waiting.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
 - [x] The extension context control-DB path falls back to the session's metadata control-DB path,
@@ -233,9 +235,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
   settings for `agentType: "explore"` and `agentType: "implement"`, that `wait_agent` waits for terminal state without returning
-  output, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
+  output, consumes matching completion mailbox notices, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
   active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
-  ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID and returns one
+  ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID, can read an
+  agent from a persisted supervisor store via `storeSessionId`, and returns one
   agent's read-only snapshot, status, transcript, child IDs, and stop/steer command descriptor details without advancing lifecycle state. The
   read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
   store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of

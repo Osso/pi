@@ -33,6 +33,8 @@ import {
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
 	enqueueRuntimeMailboxMessage,
+	listSessionMetadata,
+	readMultiAgentState,
 	readSessionMetadata,
 	type RuntimeMailboxAddress,
 } from "../../../src/core/session-control-db.ts";
@@ -114,6 +116,7 @@ const contactSupervisorSchema = Type.Object({
 const agentViewerSchema = Type.Object({
 	agentId: Type.String(),
 	sessionId: Type.Optional(Type.String()),
+	storeSessionId: Type.Optional(Type.String()),
 });
 
 const sendAgentMessageSchema = Type.Object({
@@ -289,7 +292,7 @@ interface AgentViewerToolDetails {
 	agentId?: string;
 	children?: string[];
 	commands?: AgentViewerCommand[];
-	error?: "not_found" | "session_mismatch";
+	error?: "missing_control_db" | "not_found" | "session_mismatch" | "session_not_found";
 	parentId?: string;
 	sessionId?: string;
 	status?: AgentViewerStatus;
@@ -1370,7 +1373,15 @@ function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): A
 	return params.activeOnly === false ? agents : agents.filter((agent) => isActiveLifecycle(agent.lifecycle));
 }
 
-function agentViewer(store: MultiAgentStore, params: AgentViewerParams): AgentToolResult<AgentViewerToolDetails> {
+function agentViewer(
+	store: MultiAgentStore,
+	params: AgentViewerParams,
+	ctx?: ExtensionContext,
+): AgentToolResult<AgentViewerToolDetails> {
+	if (params.storeSessionId) {
+		return agentViewerFromPersistedSession(params, ctx);
+	}
+
 	const agent = store.getAgent(params.agentId);
 	if (!agent) {
 		return errorResult(`Agent not found: ${params.agentId}.`, { agentId: params.agentId, error: "not_found" as const });
@@ -1382,10 +1393,79 @@ function agentViewer(store: MultiAgentStore, params: AgentViewerParams): AgentTo
 			sessionId: params.sessionId,
 		});
 	}
-	const children = store
-		.listAgents()
-		.filter((candidate) => candidate.parentId === agent.id)
-		.map((child) => child.id);
+
+	return agentViewerResult(agent, store.listAgents());
+}
+
+function agentViewerFromPersistedSession(
+	params: AgentViewerParams,
+	ctx?: ExtensionContext,
+): AgentToolResult<AgentViewerToolDetails> {
+	const loaded = loadPersistedAgentsForViewer(params, ctx);
+	if (loaded.error) {
+		return loaded.error;
+	}
+
+	const agent = loaded.agents.find((candidate) => candidate.id === params.agentId);
+	if (!agent) {
+		return errorResult(`Agent not found: ${params.agentId}.`, {
+			agentId: params.agentId,
+			error: "not_found" as const,
+			storeSessionId: params.storeSessionId,
+		});
+	}
+	if (params.sessionId && agent.transcript?.sessionId !== params.sessionId) {
+		return errorResult(`Agent ${params.agentId} is not attached to session ${params.sessionId}.`, {
+			agentId: params.agentId,
+			error: "session_mismatch" as const,
+			sessionId: params.sessionId,
+			storeSessionId: params.storeSessionId,
+		});
+	}
+
+	return agentViewerResult(agent, loaded.agents);
+}
+
+function loadPersistedAgentsForViewer(
+	params: AgentViewerParams,
+	ctx?: ExtensionContext,
+): { agents: AgentSnapshot[]; error?: undefined } | { agents?: undefined; error: AgentToolResult<AgentViewerToolDetails> } {
+	const controlDbPath = ctx?.controlDbPath;
+	if (!controlDbPath) {
+		return {
+			error: errorResult("Cannot view a persisted agent without a control DB.", {
+				agentId: params.agentId,
+				error: "missing_control_db" as const,
+				storeSessionId: params.storeSessionId,
+			}),
+		};
+	}
+
+	const session = listSessionMetadata(controlDbPath).find((metadata) => metadata.id === params.storeSessionId);
+	if (!session) {
+		return {
+			error: errorResult(`Session not found: ${params.storeSessionId}.`, {
+				agentId: params.agentId,
+				error: "session_not_found" as const,
+				storeSessionId: params.storeSessionId,
+			}),
+		};
+	}
+
+	const state = readMultiAgentState(controlDbPath, session.sessionPath);
+	return { agents: state?.agents.filter(isPersistedAgentSnapshot) ?? [] };
+}
+
+function isPersistedAgentSnapshot(value: unknown): value is AgentSnapshot {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const candidate = value as Partial<AgentSnapshot>;
+	return typeof candidate.id === "string" && typeof candidate.lifecycle === "string" && typeof candidate.revision === "number";
+}
+
+function agentViewerResult(agent: AgentSnapshot, agents: AgentSnapshot[]): AgentToolResult<AgentViewerToolDetails> {
+	const children = agents.filter((candidate) => candidate.parentId === agent.id).map((child) => child.id);
 
 	return result(`Viewing agent ${agent.id}.`, {
 		agent,
@@ -1664,6 +1744,9 @@ async function waitAgent(
 	const agent = store.getAgent(params.agentId) ?? initialAgent;
 	if (isInFlightLifecycle(agent.lifecycle) && !dispatches.has(agent.id)) {
 		return errorResult(`Cannot wait for detached agent ${agent.displayName}: no live runtime is attached to it in this session.`, {});
+	}
+	if (agent.lifecycle === "completed") {
+		store.consumeCompletionNotificationsForAgent(agent.id);
 	}
 	return emptyResult();
 }
@@ -2282,8 +2365,16 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		}),
 	);
 
-	// wait_agent is temporarily disabled. Keep the implementation intact so this
-	// can be restored by re-enabling registration after the runtime issue is fixed.
+	pi.registerTool(
+		defineTool({
+			name: "wait_agent",
+			label: "Wait Agent",
+			description: "Synchronize on an agent reaching a terminal state and consume matching completion mailbox notifications.",
+			approvalRequired: false,
+			parameters: waitAgentSchema,
+			execute: async (_toolCallId, params, signal) => waitAgent(store, activeDispatches, params, signal),
+		}),
+	);
 
 	pi.registerTool(
 		defineTool({
@@ -2318,7 +2409,7 @@ export function registerAgentViewerTools(pi: ExtensionAPI, options: MultiAgentEx
 			description: "Inspect one agent by ID, with status, transcript, child IDs, and command descriptors.",
 			approvalRequired: false,
 			parameters: agentViewerSchema,
-			execute: async (_toolCallId, params) => agentViewer(store, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => agentViewer(store, params, ctx),
 		}),
 	);
 }

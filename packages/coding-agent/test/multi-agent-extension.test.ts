@@ -382,6 +382,7 @@ describe("multi-agent extension tools", () => {
 			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
+			"wait_agent",
 		]);
 	});
 
@@ -398,6 +399,7 @@ describe("multi-agent extension tools", () => {
 			["send_agent_message", false],
 			["spawn_agent", false],
 			["steer_agent", false],
+			["wait_agent", false],
 		]);
 	});
 
@@ -414,6 +416,7 @@ describe("multi-agent extension tools", () => {
 			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
+			"wait_agent",
 		]);
 
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
@@ -1136,6 +1139,7 @@ describe("multi-agent extension tools", () => {
 			"list_agents",
 			"spawn_agent",
 			"steer_agent",
+			"wait_agent",
 		]);
 		expect(collectTools((pi) => agentViewerExtension(pi, { store }))).toEqual(["agent_viewer"]);
 		expect(collectTools((pi) => agentsMailboxExtension(pi, { store }))).toEqual([
@@ -1478,6 +1482,48 @@ describe("multi-agent extension tools", () => {
 
 		expect(listed.details).toMatchObject({ activeCount: 3 });
 		expect(listed.details.agents.map((agent) => agent.id)).toEqual([child.details.agent.id]);
+	});
+
+	it("views a persisted agent from another supervisor session", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-viewer-store-session-"));
+		managedTempDirs.push(tempDir);
+		const supervisorSessionId = "019f39aa-0000-7000-8000-000000000001";
+		const currentSessionId = "019f39aa-0000-7000-8000-000000000002";
+		const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
+		const currentSession = SessionManager.create("/repo", tempDir, { id: currentSessionId });
+		const controlDbPath = join(tempDir, "control.sqlite");
+		supervisorSession.setMetadataControlDbPath(controlDbPath);
+		currentSession.setMetadataControlDbPath(controlDbPath);
+		const supervisorStore = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		supervisorStore.setPersistenceSessionManager(supervisorSession);
+		const agent = supervisorStore.spawnAgent({
+			agentType: "verifier",
+			cwd: "/repo",
+			displayName: "Verifier",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "sessions/verifier.jsonl", sessionId: "child-session" },
+		});
+		const completed = completeAgent(supervisorStore, agent.agent);
+		const currentStore = MultiAgentStore.fromSessionManager(currentSession, {
+			now: () => "2026-06-21T00:00:00.000Z",
+		});
+		const harness = createMultiAgentHarness({
+			ctx: { controlDbPath, sessionManager: currentSession },
+			store: currentStore,
+		});
+
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", {
+			agentId: agent.agent.id,
+			storeSessionId: supervisorSessionId,
+		});
+
+		expect(harness.store.getAgent(agent.agent.id)).toBeUndefined();
+		expect(viewed.details).toMatchObject({
+			agent: { id: agent.agent.id, lifecycle: "completed", revision: completed.revision },
+			children: [],
+			status: { agentId: agent.agent.id, lifecycle: "completed", revision: completed.revision, terminal: true },
+			transcript: { agentId: agent.agent.id, path: "sessions/verifier.jsonl", sessionId: "child-session" },
+		});
 	});
 
 	it("views one agent without lifecycle mutation", async () => {
@@ -2094,7 +2140,7 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
 	});
 
-	it("wait_agent waits for a dispatched agent to complete and leaves the parent completion mailbox message pending", async () => {
+	it("wait_agent waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
 		const idleGate = deferred<void>();
 		const finishGate = deferred<void>();
 		const idleState = deferred<void>();
@@ -2149,7 +2195,7 @@ describe("multi-agent extension tools", () => {
 				body: "Worker completed: done",
 				fromAgentId: spawned.details.agent.id,
 				kind: "system",
-				status: "pending",
+				status: "delivered",
 				toAgentId: parent.agent.id,
 			},
 		]);
