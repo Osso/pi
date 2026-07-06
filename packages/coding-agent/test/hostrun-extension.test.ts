@@ -638,6 +638,21 @@ describe("hostrun extension", () => {
 		expect(store.getAgent("agent_1")).toMatchObject({ lifecycle: "completed", result: { summary: "done" } });
 	});
 
+	it("treats null from Hostrun pi.agents.wait as a handled result", async () => {
+		const harness = createHostrunHarness({
+			piRequestHandlers: [
+				(request) => {
+					if (request.method !== "agents.wait") return undefined;
+					return null;
+				},
+			],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.wait('agent_1')" });
+
+		expect(result.details.value).toBeNull();
+	});
+
 	it("responds to Hostrun pi.agents.list requests through configured handlers", async () => {
 		const harness = createHostrunHarness({
 			piRequestHandlers: [

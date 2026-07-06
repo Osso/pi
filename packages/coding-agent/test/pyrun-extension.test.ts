@@ -855,6 +855,21 @@ describe("pyrun extension", () => {
 		expect(store.getAgent("agent_1")).toMatchObject({ lifecycle: "completed", result: { summary: "done" } });
 	});
 
+	it("treats null from Pyrun pi.agents.wait as a handled result", async () => {
+		const harness = createPyrunHarness({
+			piRequestHandlers: [
+				(request) => {
+					if (request.method !== "agents.wait") return undefined;
+					return null;
+				},
+			],
+		});
+
+		const result = await harness.evaluate({ code: "pi.agents.wait('agent_1')" });
+
+		expect(result.details.value).toBeNull();
+	});
+
 	it("responds to Pyrun pi.agents.current requests through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const spawned = store.spawnAgent({
