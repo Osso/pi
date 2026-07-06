@@ -213,16 +213,22 @@ function mapCredits(credits: NullableBox<CodexCreditsPayload>): CodexCredits | n
 
 function formatLimit(limit: CodexRateLimit): string {
 	const label = limit.limitName ? `${limit.limitId} (${limit.limitName})` : limit.limitId;
-	const details = formatLimitDetails(limit);
-	return details.length > 0 ? `${label}: ${details.join("; ")}` : `${label}: no limit data`;
+	const details = formatLimitDetails(limit).map((detail) => `${label}: ${detail}`);
+	return details.length > 0 ? details.join("\n") : `${label}: no limit data`;
 }
 
 function formatLimitDetails(limit: CodexRateLimit): string[] {
 	const details: string[] = [];
-	if (limit.primary) details.push(`primary ${formatWindow(limit.primary)}`);
-	if (limit.secondary) details.push(`secondary ${formatWindow(limit.secondary)}`);
+	if (limit.primary) details.push(`${formatWindowLabel(limit.primary, "primary")} ${formatWindow(limit.primary)}`);
+	if (limit.secondary) details.push(`${formatWindowLabel(limit.secondary, "secondary")} ${formatWindow(limit.secondary)}`);
 	if (limit.credits) details.push(formatCredits(limit.credits));
 	return details;
+}
+
+function formatWindowLabel(window: CodexRateLimitWindow, fallback: "primary" | "secondary"): string {
+	if (window.windowMinutes === 300) return "5-hour usage";
+	if (window.windowMinutes === 10_080) return "weekly usage";
+	return fallback;
 }
 
 function formatWindow(window: CodexRateLimitWindow): string {

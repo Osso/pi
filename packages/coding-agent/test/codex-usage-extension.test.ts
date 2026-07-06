@@ -65,9 +65,9 @@ describe("codex usage extension", () => {
 		expect(text).toContain("Account: acct_123");
 		expect(text).toContain("Plan: pro");
 		expect(text).toContain("Reset credits: 3 available");
-		expect(text).toContain("codex: primary 42% of 300m window resets 2027-01-15 08:00");
-		expect(text).toContain("secondary 84% of 10080m window resets 2027-01-22 08:00");
-		expect(text).toContain("credits balance 9.99");
+		expect(text).toContain("codex: 5-hour usage 42% of 300m window resets 2027-01-15 08:00");
+		expect(text).toContain("codex: weekly usage 84% of 10080m window resets 2027-01-22 08:00");
+		expect(text).toContain("codex: credits balance 9.99");
 	});
 
 	it("extracts the ChatGPT account id from the Codex access token", () => {
