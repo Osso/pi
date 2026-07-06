@@ -399,11 +399,9 @@ export function claimRuntimeMailboxMessages(
 	});
 }
 
-export function consumeRuntimeMailboxMessagesFromSender(
+export function consumeRuntimeMailboxMessageByStoreRef(
 	controlDbPath: string,
-	recipient: RuntimeMailboxAddress,
-	senderAgentId: string,
-	kind: RuntimeMailboxMessageKind,
+	storeRef: RuntimeMailboxStoreRef,
 ): number {
 	return withControlDb(controlDbPath, (db) => {
 		const now = new Date().toISOString();
@@ -413,13 +411,11 @@ export function consumeRuntimeMailboxMessagesFromSender(
 				UPDATE runtime_mailbox_messages
 				SET status = 'delivered', delivered_at = ?, updated_at = ?
 				WHERE status = 'pending'
-					AND recipient_session_id = ?
-					AND ((? IS NULL AND recipient_agent_id IS NULL) OR recipient_agent_id = ?)
-					AND sender_agent_id = ?
-					AND kind = ?
+					AND store_session_path = ?
+					AND store_message_id = ?
 				`,
 			)
-			.run(now, now, recipient.sessionId, recipient.agentId, recipient.agentId, senderAgentId, kind);
+			.run(now, now, storeRef.sessionPath, storeRef.messageId);
 		return Number(result.changes);
 	});
 }

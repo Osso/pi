@@ -118,7 +118,9 @@ interface ListAgentsDetails extends Record<string, unknown> {
 	agents: AgentSnapshot[];
 }
 
-type WaitAgentDetails = Record<string, never>;
+interface WaitAgentDetails extends Record<string, unknown> {
+	message?: AgentMailboxMessage;
+}
 
 interface CancelAgentDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
@@ -149,6 +151,11 @@ interface MailboxDetails {
 	inbox: AgentMailboxMessage[];
 	outbox: AgentMailboxMessage[];
 	pendingCount: number;
+}
+
+function expectWaitCompletionMessage(result: AgentToolResult<Record<string, unknown>>, body: string): void {
+	expect(result.content).toEqual([{ text: body, type: "text" }]);
+	expect(result.details).toMatchObject({ message: { body, status: "delivered" } });
 }
 
 function mailboxDetails(store: MultiAgentStore, agentId?: string): MailboxDetails {
@@ -270,7 +277,7 @@ async function waitForTerminalAgent(
 	agentId: string,
 ): Promise<AgentSnapshot> {
 	const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId });
-	expect(waited).toEqual({ content: [], details: {} });
+	expect(waited.details).toEqual(expect.any(Object));
 	const agent = harness.store.getAgent(agentId);
 	if (!agent || isActiveLifecycle(agent.lifecycle)) {
 		throw new Error(`agent did not reach terminal state: ${agentId}`);
@@ -931,7 +938,7 @@ describe("multi-agent extension tools", () => {
 		);
 
 		const result = await waited;
-		expect(result).toEqual({ content: [], details: {} });
+		expectWaitCompletionMessage(result, "Background tool completed: done");
 		expect(store.getAgent(running.agent.id)).toMatchObject({
 			id: running.agent.id,
 			lifecycle: "completed",
@@ -1296,7 +1303,7 @@ describe("multi-agent extension tools", () => {
 		const waited = await waitPromise;
 
 		expect(didResolveBeforeFinish).toBe(false);
-		expect(waited).toEqual({ content: [], details: {} });
+		expectWaitCompletionMessage(waited, "Worker completed: hostrun done");
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({
 			id: spawned.agent.id,
 			lifecycle: "completed",
@@ -2048,7 +2055,7 @@ describe("multi-agent extension tools", () => {
 		const waited = await waitPromise;
 
 		expect(didResolveBeforeDispatch).toBe(false);
-		expect(waited).toEqual({ content: [], details: {} });
+		expectWaitCompletionMessage(waited, "Worker completed: done");
 		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({
 			id: spawned.details.agent.id,
 			lifecycle: "completed",
@@ -2140,11 +2147,43 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
 	});
 
+	it("wait_agent reports completion when the mailbox message was already delivered", async () => {
+		const harness = createMultiAgentHarness();
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "Complete before wait",
+		});
+		const starting = harness.store.transitionAgent(
+			spawned.details.agent.id,
+			spawned.details.agent.revision,
+			"starting",
+		);
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) throw new Error("expected starting transition");
+		const running = harness.store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running transition");
+		const completed = harness.store.transitionAgent(running.agent.id, running.agent.revision, "completed", {
+			result: { summary: "already delivered" },
+		});
+		expect(completed.ok).toBe(true);
+		harness.store.consumeCompletionNotificationsForAgent(spawned.details.agent.id);
+
+		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: spawned.details.agent.id });
+
+		expect(waited.content).toEqual([{ text: "Worker completed: already delivered", type: "text" }]);
+		expect(waited.details).toEqual({});
+	});
+
 	it("wait_agent waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
 		const idleGate = deferred<void>();
 		const finishGate = deferred<void>();
 		const idleState = deferred<void>();
+		const session = createControlDbSession();
+		const controlDbPath = session.getMetadataControlDbPath();
+		if (!controlDbPath) throw new Error("expected control DB path");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(session);
 		const parent = store.spawnAgent({
 			agentType: "lead",
 			cwd: "/repo",
@@ -2159,7 +2198,7 @@ describe("multi-agent extension tools", () => {
 			await finishGate.promise;
 			return { lifecycle: "completed", result: { artifactIds: ["artifact_1"], summary: "done" } };
 		};
-		const harness = createMultiAgentHarness({ dispatcher, store });
+		const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: session }, dispatcher, store });
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			displayName: "Worker",
 			parentId: parent.agent.id,
@@ -2176,7 +2215,15 @@ describe("multi-agent extension tools", () => {
 
 		expect(didResolveBeforeIdle).toBe(false);
 		expect(didResolveAfterIdle).toBe(false);
-		expect(waited).toEqual({ content: [], details: {} });
+		expect(waited.content).toEqual([{ text: "Worker completed: done", type: "text" }]);
+		expect(waited.details.message).toMatchObject({
+			artifactIds: ["artifact_1"],
+			body: "Worker completed: done",
+			fromAgentId: spawned.details.agent.id,
+			kind: "system",
+			status: "delivered",
+			toAgentId: parent.agent.id,
+		});
 		expect(store.getAgent(spawned.details.agent.id)).toMatchObject({
 			id: spawned.details.agent.id,
 			lifecycle: "completed",
@@ -2198,6 +2245,14 @@ describe("multi-agent extension tools", () => {
 				status: "delivered",
 				toAgentId: parent.agent.id,
 			},
+		]);
+		expect(
+			listRuntimeMailboxMessages(controlDbPath).filter(
+				(message) => message.sender.agentId === spawned.details.agent.id,
+			),
+		).toMatchObject([
+			{ kind: "system", status: "pending" },
+			{ kind: "system", status: "delivered" },
 		]);
 	});
 
@@ -2278,7 +2333,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(didResolveBeforeTerminal).toBe(false);
 		expect(didResolveAfterTerminal).toBe(true);
-		expect(waited).toEqual({ content: [], details: {} });
+		expectWaitCompletionMessage(waited, "Worker completed: done");
 		expect(store.getAgent(spawned.details.agent.id)).toMatchObject({
 			id: spawned.details.agent.id,
 			lifecycle: "completed",
@@ -2319,7 +2374,7 @@ describe("multi-agent extension tools", () => {
 		expect(waited).toMatchObject({ id: spawned.details.agent.id, lifecycle: "completed" });
 	});
 
-	it("returns no output after wait_agent observes completion", async () => {
+	it("returns the consumed completion message after wait_agent observes completion", async () => {
 		const dispatcher: ChildAgentDispatcher = async () => ({
 			lifecycle: "completed",
 			result: { summary: "Committed 18125d44 feat: add local deploy script" },
@@ -2330,9 +2385,12 @@ describe("multi-agent extension tools", () => {
 			displayName: "commit workflow",
 			prompt: "Commit current changes",
 		});
-		const waited = await harness.call<Record<string, never>>("wait_agent", { agentId: spawned.details.agent.id });
+		const waited = await harness.call<Record<string, unknown>>("wait_agent", { agentId: spawned.details.agent.id });
 
-		expect(waited).toEqual({ content: [], details: {} });
+		expectWaitCompletionMessage(
+			waited,
+			"commit workflow completed: Committed 18125d44 feat: add local deploy script",
+		);
 	});
 
 	it("dispatches a real child AgentSession behind spawn_agent", async () => {

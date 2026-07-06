@@ -111,10 +111,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agent` is synchronization-only: after the target finishes, it returns no agent output
-      or final-state payload. When it observes a completed agent, it consumes pending completion
-      mailbox notifications for that agent so the supervisor does not receive duplicate completion
-      follow-ups after explicitly waiting.
+- [x] `wait_agent` is synchronization-only: after the target finishes, it returns no final-state
+      payload. When it observes a completed agent, it consumes pending completion mailbox
+      notifications for that agent and the matching runtime mailbox transport row, then returns
+      the consumed completion text; if another receiver already delivered the mailbox row, it still
+      returns completion text from the agent result so the caller sees the subagent response without
+      a duplicate follow-up.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
 - [x] The extension context control-DB path falls back to the session's metadata control-DB path,
@@ -234,8 +236,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
-  settings for `agentType: "explore"` and `agentType: "implement"`, that `wait_agent` waits for terminal state without returning
-  output, consumes matching completion mailbox notices, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
+  settings for `agentType: "explore"` and `agentType: "implement"`, that `wait_agent` waits for terminal state,
+  returns completion text, consumes matching completion mailbox notices, and falls back to the agent result when the mailbox row is already delivered, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
   active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
   ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
@@ -278,8 +280,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
 - [x] Add and implement mailbox artifact references by ID/path without copying large content into
       coordination events.
-- [x] Add and implement synchronization-only `wait_agent` behavior that returns no output and leaves
-      mailbox messages for mailbox delivery.
+- [x] Add and implement `wait_agent` behavior that waits for terminal state, returns completion
+      text to the caller, and consumes matching completion mailbox messages to avoid duplicate
+      mailbox follow-ups.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID

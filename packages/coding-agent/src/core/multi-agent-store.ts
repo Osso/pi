@@ -581,14 +581,17 @@ export class MultiAgentStore {
 		return copyMessage(updated);
 	}
 
-	consumeCompletionNotificationsForAgent(agentId: string): void {
+	consumeCompletionNotificationsForAgent(agentId: string): AgentMailboxMessage[] {
+		const consumed: AgentMailboxMessage[] = [];
 		for (const message of this.mailboxMessages.values()) {
 			if (!isPendingCompletionNotification(message, agentId)) {
 				continue;
 			}
 			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
 			this.putMailboxMessage(updated);
+			consumed.push(copyMessage(updated));
 		}
+		return consumed;
 	}
 
 	listPendingLifecycleNotificationsForAgent(

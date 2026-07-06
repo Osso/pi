@@ -32,6 +32,7 @@ import {
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
+	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	listSessionMetadata,
 	readMultiAgentState,
@@ -287,6 +288,9 @@ interface ContactSupervisorToolDetails {
 	message: AgentMailboxMessage;
 }
 
+interface WaitAgentToolDetails {
+	message?: AgentMailboxMessage;
+}
 interface AgentViewerToolDetails {
 	agent?: AgentSnapshot;
 	agentId?: string;
@@ -1720,7 +1724,8 @@ async function waitAgent(
 	dispatches: ActiveAgentDispatches,
 	params: WaitAgentParams,
 	signal: AbortSignal | undefined,
-): Promise<AgentToolResult<Record<string, never>>> {
+	ctx?: ExtensionContext,
+): Promise<AgentToolResult<WaitAgentToolDetails>> {
 	const initialAgent = store.getAgent(params.agentId);
 	if (!initialAgent) {
 		return errorResult(`Agent not found: ${params.agentId}`, {});
@@ -1746,7 +1751,13 @@ async function waitAgent(
 		return errorResult(`Cannot wait for detached agent ${agent.displayName}: no live runtime is attached to it in this session.`, {});
 	}
 	if (agent.lifecycle === "completed") {
-		store.consumeCompletionNotificationsForAgent(agent.id);
+		const [completionMessage] = store.consumeCompletionNotificationsForAgent(agent.id);
+		if (completionMessage) {
+			consumeRuntimeCompletionNotification(ctx, store, completionMessage.id);
+			const body = completionMessage.body ?? formatAgentStatus(agent);
+			return result(body, { message: completionMessage });
+		}
+		return result(formatWaitAgentCompletion(agent), {});
 	}
 	return emptyResult();
 }
@@ -1821,6 +1832,24 @@ async function waitForAgentState(
 
 function isInFlightLifecycle(lifecycle: AgentSnapshot["lifecycle"]): boolean {
 	return isActiveLifecycle(lifecycle) && lifecycle !== "queued" && lifecycle !== "waiting_for_input";
+}
+
+function consumeRuntimeCompletionNotification(
+	ctx: ExtensionContext | undefined,
+	store: MultiAgentStore,
+	messageId: string,
+): void {
+	const controlDbPath = ctx?.controlDbPath;
+	const persistence = store.getPersistenceTarget();
+	if (!controlDbPath || !persistence || persistence.controlDbPath !== controlDbPath) {
+		return;
+	}
+	consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath: persistence.sessionPath });
+}
+
+function formatWaitAgentCompletion(agent: AgentSnapshot): string {
+	const summary = agent.result?.summary?.trim();
+	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
 }
 
 function formatAgentStatus(agent: AgentSnapshot): string {
@@ -2372,7 +2401,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Synchronize on an agent reaching a terminal state and consume matching completion mailbox notifications.",
 			approvalRequired: false,
 			parameters: waitAgentSchema,
-			execute: async (_toolCallId, params, signal) => waitAgent(store, activeDispatches, params, signal),
+			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => waitAgent(store, activeDispatches, params, signal, ctx),
 		}),
 	);
 
