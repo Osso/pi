@@ -375,9 +375,18 @@ export interface Usage {
 
 export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
+export interface ProviderNativeContext {
+	provider: ProviderId | string;
+	api: Api | string;
+	format: "openai.responses.input";
+	value: unknown;
+}
+
 export interface UserMessage {
 	role: "user";
 	content: string | (TextContent | ImageContent)[];
+	/** Provider-native context items emitted by a compaction provider. Providers that do not understand this ignore it. */
+	providerNative?: ProviderNativeContext;
 	timestamp: number; // Unix timestamp in milliseconds
 }
 

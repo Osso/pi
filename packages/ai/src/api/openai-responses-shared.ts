@@ -136,6 +136,16 @@ export function convertResponsesMessages<TApi extends Api>(
 	const emittedToolCallIds = new Set<string>();
 	for (const msg of transformedMessages) {
 		if (msg.role === "user") {
+			if (
+				msg.providerNative?.provider === model.provider &&
+				msg.providerNative.api === model.api &&
+				msg.providerNative.format === "openai.responses.input" &&
+				Array.isArray(msg.providerNative.value)
+			) {
+				messages.push(...(msg.providerNative.value as ResponseInput));
+				continue;
+			}
+
 			if (typeof msg.content === "string") {
 				messages.push({
 					role: "user",
