@@ -1,10 +1,10 @@
 import {
+	allocateMultiAgentCounter,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	upsertMultiAgentAgent,
 	upsertMultiAgentArtifact,
 	upsertMultiAgentMailboxMessage,
-	writeMultiAgentCounters,
 } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
 
@@ -1031,17 +1031,6 @@ export class MultiAgentStore {
 		upsertMultiAgentArtifact(this.persistence.controlDbPath, this.persistence.sessionPath, artifact.id, artifact);
 	}
 
-	private persistCounters(): void {
-		if (!this.persistence) {
-			return;
-		}
-		writeMultiAgentCounters(this.persistence.controlDbPath, this.persistence.sessionPath, {
-			nextAgentNumber: this.nextAgentNumber,
-			nextArtifactNumber: this.nextArtifactNumber,
-			nextMessageNumber: this.nextMessageNumber,
-		});
-	}
-
 	private putMailboxMessage(message: AgentMailboxMessage): void {
 		this.mailboxMessages.set(message.id, message);
 		if (!this.persistence) {
@@ -1254,27 +1243,43 @@ export class MultiAgentStore {
 	}
 
 	private createAgentId(): string {
-		const id = `agent_${this.nextAgentNumber}`;
-		this.nextAgentNumber += 1;
-		this.persistCounters();
-
-		return id;
+		const allocated = this.allocateCounter("agent", this.nextAgentNumber);
+		return `agent_${allocated}`;
 	}
 
 	private createArtifactId(): string {
-		const id = `artifact_${this.nextArtifactNumber}`;
-		this.nextArtifactNumber += 1;
-		this.persistCounters();
-
-		return id;
+		const allocated = this.allocateCounter("artifact", this.nextArtifactNumber);
+		return `artifact_${allocated}`;
 	}
 
 	private createMessageId(): string {
-		const id = `message_${this.nextMessageNumber}`;
-		this.nextMessageNumber += 1;
-		this.persistCounters();
+		const allocated = this.allocateCounter("message", this.nextMessageNumber);
+		return `message_${allocated}`;
+	}
 
-		return id;
+	private allocateCounter(counterName: "agent" | "artifact" | "message", currentValue: number): number {
+		if (this.persistence) {
+			const allocated = allocateMultiAgentCounter(
+				this.persistence.controlDbPath,
+				this.persistence.sessionPath,
+				counterName,
+			);
+			this.updateLocalCounter(counterName, allocated + 1);
+			return allocated;
+		}
+
+		this.updateLocalCounter(counterName, currentValue + 1);
+		return currentValue;
+	}
+
+	private updateLocalCounter(counterName: "agent" | "artifact" | "message", nextValue: number): void {
+		if (counterName === "agent") {
+			this.nextAgentNumber = nextValue;
+		} else if (counterName === "artifact") {
+			this.nextArtifactNumber = nextValue;
+		} else {
+			this.nextMessageNumber = nextValue;
+		}
 	}
 }
 

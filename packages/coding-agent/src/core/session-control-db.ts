@@ -1046,6 +1046,49 @@ export function upsertMultiAgentMailboxMessage(
 	upsertMultiAgentRow(controlDbPath, "multi_agent_mailbox_messages", "message_id", sessionPath, id, data);
 }
 
+export function markMultiAgentMailboxMessageDelivered(
+	controlDbPath: string,
+	sessionPath: string,
+	messageId: string,
+): boolean {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+			.get(sessionPath, messageId) as { data: string } | undefined;
+		if (!row) {
+			return false;
+		}
+
+		const parsed = parseJsonObject(row.data);
+		if (!parsed || parsed.status !== "pending") {
+			return false;
+		}
+
+		const now = new Date().toISOString();
+		const updated = { ...parsed, status: "delivered", updatedAt: now };
+		db.prepare(
+			`
+			UPDATE multi_agent_mailbox_messages
+			SET data = ?, updated_at = ?
+			WHERE session_path = ? AND message_id = ?
+			`,
+		).run(JSON.stringify(updated), now, sessionPath, messageId);
+		return true;
+	});
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | undefined {
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return undefined;
+		}
+		return parsed as Record<string, unknown>;
+	} catch {
+		return undefined;
+	}
+}
+
 export function writeMultiAgentCounters(
 	controlDbPath: string,
 	sessionPath: string,
@@ -1071,6 +1114,73 @@ export function writeMultiAgentCounters(
 			counters.nextMessageNumber,
 			new Date().toISOString(),
 		);
+	});
+}
+
+export type MultiAgentCounterName = "agent" | "artifact" | "message";
+
+type MultiAgentCounterRow = {
+	next_agent_number: number;
+	next_artifact_number: number;
+	next_message_number: number;
+};
+
+const MULTI_AGENT_COUNTER_COLUMNS: Record<MultiAgentCounterName, keyof MultiAgentCounterRow> = {
+	agent: "next_agent_number",
+	artifact: "next_artifact_number",
+	message: "next_message_number",
+};
+
+export function allocateMultiAgentCounter(
+	controlDbPath: string,
+	sessionPath: string,
+	counterName: MultiAgentCounterName,
+): number {
+	const column = MULTI_AGENT_COUNTER_COLUMNS[counterName];
+	return withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const now = new Date().toISOString();
+			const row = db
+				.prepare(
+					`
+					SELECT next_agent_number, next_artifact_number, next_message_number
+					FROM multi_agent_counters WHERE session_path = ?
+					`,
+				)
+				.get(sessionPath) as MultiAgentCounterRow | undefined;
+			const counters = {
+				next_agent_number: row?.next_agent_number ?? 1,
+				next_artifact_number: row?.next_artifact_number ?? 1,
+				next_message_number: row?.next_message_number ?? 1,
+			};
+			const allocated = counters[column];
+			counters[column] = allocated + 1;
+			db.prepare(
+				`
+				INSERT INTO multi_agent_counters (
+					session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?)
+				ON CONFLICT(session_path) DO UPDATE SET
+					next_agent_number = excluded.next_agent_number,
+					next_artifact_number = excluded.next_artifact_number,
+					next_message_number = excluded.next_message_number,
+					updated_at = excluded.updated_at
+				`,
+			).run(
+				sessionPath,
+				counters.next_agent_number,
+				counters.next_artifact_number,
+				counters.next_message_number,
+				now,
+			);
+			db.exec("COMMIT");
+			return allocated;
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
 	});
 }
 

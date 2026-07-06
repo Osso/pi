@@ -14,6 +14,7 @@ import {
 	listNamedSessions,
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
+	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
 	readIncomingMessageStatus,
 	readLastMessage,
@@ -178,6 +179,34 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("marks persisted store mailbox messages delivered by reference", () => {
+		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
+			body: "stored supervisor request",
+			fromAgentId: "agent_1",
+			id: "message_1",
+			kind: "system",
+			status: "pending",
+			toAgentId: "main",
+		});
+
+		expect(markMultiAgentMailboxMessageDelivered(controlDbPath, "/sessions/supervisor.jsonl", "message_1")).toBe(
+			true,
+		);
+		expect(markMultiAgentMailboxMessageDelivered(controlDbPath, "/sessions/supervisor.jsonl", "message_1")).toBe(
+			false,
+		);
+		const runtimeId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "system",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+			storeRef: { messageId: "message_1", sessionPath: "/sessions/supervisor.jsonl" },
+		});
+
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeId)).toMatchObject({
+			body: "stored supervisor request",
+		});
 	});
 
 	it("claims runtime mailbox rows atomically before delivery", () => {

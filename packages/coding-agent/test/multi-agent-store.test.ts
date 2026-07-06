@@ -1214,6 +1214,42 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("allocates persisted mailbox message IDs across concurrent rehydrated stores", () => {
+		const session = createControlDbSession();
+		const source = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+		});
+		const first = spawnScout(source);
+		const second = source.spawnAgent({
+			agentType: "scout",
+			cwd: "/repo",
+			displayName: "Second Scout",
+			parentId: "root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const left = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:01.000Z",
+		});
+		const right = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:02.000Z",
+		});
+
+		const leftContact = left.contactSupervisor(first.agent.id, first.agent.revision, { body: "left" });
+		const rightContact = right.contactSupervisor(second.agent.id, second.agent.revision, { body: "right" });
+		const controlDbPath = session.getMetadataControlDbPath();
+		const sessionPath = session.getSessionFile();
+		if (!controlDbPath || !sessionPath) throw new Error("expected control DB session");
+		const state = readMultiAgentState(controlDbPath, sessionPath);
+
+		expect(leftContact.ok && leftContact.message.id).toBe("message_1");
+		expect(rightContact.ok && rightContact.message.id).toBe("message_2");
+		expect(state?.mailboxMessages).toMatchObject([
+			{ body: "left", id: "message_1" },
+			{ body: "right", id: "message_2" },
+		]);
+		expect(state?.counters.nextMessageNumber).toBe(3);
+	});
+
 	it("restores crashed active agents with truthful lifecycles and cleared worker handles", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

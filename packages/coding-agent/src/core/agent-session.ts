@@ -109,6 +109,7 @@ import {
 	cleanupRuntimeMailboxMessages,
 	failRuntimeMailboxMessage,
 	getControlDbPath,
+	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxMessage,
 	recordPromptHistoryEntry,
@@ -2012,16 +2013,22 @@ export class AgentSession {
 	// delivered here — at actual delivery — not when the row was enqueued.
 	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): string | undefined {
 		const storeRef = message.storeRef;
-		if (!storeRef || !this._multiAgentStore) {
+		if (!storeRef) {
 			return undefined;
 		}
-		if (this._multiAgentStore.getPersistenceTarget()?.sessionPath !== storeRef.sessionPath) {
+		if (this._multiAgentStore?.getPersistenceTarget()?.sessionPath === storeRef.sessionPath) {
+			if (message.kind === "steer") {
+				return this._markStoreSteeringDelivered(message, storeRef.messageId);
+			}
+			this._multiAgentStore.markMailboxMessageDelivered(storeRef.messageId);
 			return undefined;
 		}
-		if (message.kind === "steer") {
-			return this._markStoreSteeringDelivered(message, storeRef.messageId);
+		if (message.kind !== "steer") {
+			const controlDbPath = this._getRuntimeMailboxControlDbPath();
+			if (controlDbPath) {
+				markMultiAgentMailboxMessageDelivered(controlDbPath, storeRef.sessionPath, storeRef.messageId);
+			}
 		}
-		this._multiAgentStore.markMailboxMessageDelivered(storeRef.messageId);
 		return undefined;
 	}
 
