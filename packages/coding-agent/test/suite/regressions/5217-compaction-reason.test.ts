@@ -8,14 +8,14 @@ type SessionWithCompactionInternals = {
 };
 
 interface RecordedCompactionEvent {
-	type: "session_before_compact" | "session_compact";
+	type: "compaction" | "session_compact";
 	reason: "manual" | "threshold" | "overflow";
 	willRetry: boolean;
 }
 
 function recordingExtension(recorded: RecordedCompactionEvent[]): ExtensionFactory {
 	return (pi) => {
-		pi.on("session_before_compact", async (event) => {
+		pi.on("compaction", async (event) => {
 			recorded.push({ type: event.type, reason: event.reason, willRetry: event.willRetry });
 			return {
 				compaction: {
@@ -60,7 +60,7 @@ describe("issue #5217 compaction reason on extension events", () => {
 		await harness.session.compact();
 
 		expect(recorded).toEqual([
-			{ type: "session_before_compact", reason: "manual", willRetry: false },
+			{ type: "compaction", reason: "manual", willRetry: false },
 			{ type: "session_compact", reason: "manual", willRetry: false },
 		]);
 	});
@@ -74,7 +74,7 @@ describe("issue #5217 compaction reason on extension events", () => {
 		await sessionInternals._runAutoCompaction("threshold", false);
 
 		expect(recorded).toEqual([
-			{ type: "session_before_compact", reason: "threshold", willRetry: false },
+			{ type: "compaction", reason: "threshold", willRetry: false },
 			{ type: "session_compact", reason: "threshold", willRetry: false },
 		]);
 	});
@@ -88,7 +88,7 @@ describe("issue #5217 compaction reason on extension events", () => {
 		await sessionInternals._runAutoCompaction("overflow", true);
 
 		expect(recorded).toEqual([
-			{ type: "session_before_compact", reason: "overflow", willRetry: true },
+			{ type: "compaction", reason: "overflow", willRetry: true },
 			{ type: "session_compact", reason: "overflow", willRetry: true },
 		]);
 	});

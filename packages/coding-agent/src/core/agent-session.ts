@@ -74,7 +74,6 @@ import {
 	type MessageStartEvent,
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
-	type SessionBeforeCompactResult,
 	type SessionBeforeTreeResult,
 	type SessionStartEvent,
 	type ShutdownHandler,
@@ -622,6 +621,10 @@ export class AgentSession {
 			if (result?.source) {
 				return result.source;
 			}
+		}
+
+		if (this._extensionRunner.hasHandlers("compaction")) {
+			return undefined;
 		}
 
 		return { type: "local", provider: this.model.provider, model: this.model.id };
@@ -2535,6 +2538,21 @@ export class AgentSession {
 				throw new Error("Nothing to compact (session too small)");
 			}
 
+			if (this._extensionRunner.hasHandlers("session_before_compact")) {
+				const preflight = await this._extensionRunner.emit({
+					type: "session_before_compact",
+					preparation,
+					branchEntries: pathEntries,
+					customInstructions,
+					reason: "manual",
+					willRetry: false,
+					signal: compactionAbortController.signal,
+				});
+				if (preflight?.cancel) {
+					throw new Error("Compaction cancelled");
+				}
+			}
+
 			let extensionCompaction: CompactionResult | undefined;
 			let fromExtension = false;
 
@@ -2548,27 +2566,6 @@ export class AgentSession {
 					willRetry: false,
 					signal: compactionAbortController.signal,
 				});
-
-				if (result?.cancel) {
-					throw new Error("Compaction cancelled");
-				}
-
-				if (result?.compaction) {
-					extensionCompaction = result.compaction;
-					fromExtension = true;
-				}
-			}
-
-			if (!extensionCompaction && this._extensionRunner.hasHandlers("session_before_compact")) {
-				const result = (await this._extensionRunner.emit({
-					type: "session_before_compact",
-					preparation,
-					branchEntries: pathEntries,
-					customInstructions,
-					reason: "manual",
-					willRetry: false,
-					signal: compactionAbortController.signal,
-				})) as SessionBeforeCompactResult | undefined;
 
 				if (result?.cancel) {
 					throw new Error("Compaction cancelled");
@@ -2884,6 +2881,28 @@ export class AgentSession {
 			started = true;
 			const startedAt = Date.now();
 
+			if (this._extensionRunner.hasHandlers("session_before_compact")) {
+				const preflight = await this._extensionRunner.emit({
+					type: "session_before_compact",
+					preparation,
+					branchEntries: pathEntries,
+					customInstructions: undefined,
+					reason,
+					willRetry,
+					signal: autoCompactionAbortController.signal,
+				});
+				if (preflight?.cancel) {
+					this._emit({
+						type: "compaction_end",
+						reason,
+						result: undefined,
+						aborted: true,
+						willRetry: false,
+					});
+					return false;
+				}
+			}
+
 			let extensionCompaction: CompactionResult | undefined;
 			let fromExtension = false;
 
@@ -2897,34 +2916,6 @@ export class AgentSession {
 					willRetry,
 					signal: autoCompactionAbortController.signal,
 				});
-
-				if (extensionResult?.cancel) {
-					this._emit({
-						type: "compaction_end",
-						reason,
-						result: undefined,
-						aborted: true,
-						willRetry: false,
-					});
-					return false;
-				}
-
-				if (extensionResult?.compaction) {
-					extensionCompaction = extensionResult.compaction;
-					fromExtension = true;
-				}
-			}
-
-			if (!extensionCompaction && this._extensionRunner.hasHandlers("session_before_compact")) {
-				const extensionResult = (await this._extensionRunner.emit({
-					type: "session_before_compact",
-					preparation,
-					branchEntries: pathEntries,
-					customInstructions: undefined,
-					reason,
-					willRetry,
-					signal: autoCompactionAbortController.signal,
-				})) as SessionBeforeCompactResult | undefined;
 
 				if (extensionResult?.cancel) {
 					this._emit({

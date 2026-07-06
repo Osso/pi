@@ -3,13 +3,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.ts";
+import type { CompactionEvent, ExtensionAPI, SessionCompactEvent } from "../src/core/extensions/index.ts";
 
 describe("Documentation example", () => {
-	it("compaction cancellation example should type-check correctly", () => {
+	it("compaction provider example should type-check correctly", () => {
 		// This is the example from extensions.md - verify it compiles
 		const exampleExtension = (pi: ExtensionAPI) => {
-			pi.on("session_before_compact", async (event: SessionBeforeCompactEvent, ctx) => {
+			pi.on("compaction", async (event: CompactionEvent, ctx) => {
 				// All these should be accessible on the event
 				const { preparation, branchEntries } = event;
 				// sessionManager, modelRegistry, and model come from ctx
@@ -27,8 +27,13 @@ describe("Documentation example", () => {
 				expect(typeof firstKeptEntryId).toBe("string");
 				expect(Array.isArray(branchEntries)).toBe(true);
 
-				// Extensions can cancel compaction; summaries always use configured Ollama.
-				return { cancel: tokensBefore === 0 };
+				return {
+					compaction: {
+						summary: "summary from extension",
+						firstKeptEntryId,
+						tokensBefore,
+					},
+				};
 			});
 		};
 

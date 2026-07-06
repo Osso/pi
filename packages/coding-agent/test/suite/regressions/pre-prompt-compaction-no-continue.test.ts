@@ -29,7 +29,7 @@ describe("pre-prompt compaction regression", () => {
 			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "pre-prompt summary",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,

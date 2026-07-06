@@ -201,7 +201,7 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "summary from extension",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -264,6 +264,7 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(result.summary).toBe("summary from compaction provider");
 		expect(result.source).toEqual({ type: "openai_remote", provider: "openai", model: "gpt-4.1-mini" });
+		expect(harness.eventsOfType("compaction_start").at(-1)).toMatchObject({ sourceHint: undefined });
 		expect(compactionEntry).toMatchObject({
 			summary: "summary from compaction provider",
 			fromHook: true,
@@ -339,7 +340,7 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => {
+					pi.on("compaction", async (event) => {
 						requireSessionInternals(sessionInternalsRef)._compactionAbortController = undefined;
 						return {
 							compaction: {
@@ -370,7 +371,7 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => {
+					pi.on("compaction", async (event) => {
 						requireSessionInternals(sessionInternalsRef)._autoCompactionAbortController = replacementController;
 						return {
 							compaction: {
@@ -430,7 +431,7 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "auto compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -464,7 +465,7 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "manual compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -527,7 +528,7 @@ describe("AgentSession compaction characterization", () => {
 			tools: [compactTool],
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "manual compacted from tool",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -568,7 +569,7 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "manual compacted complete turn",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -622,7 +623,7 @@ describe("AgentSession compaction characterization", () => {
 			models: [{ id: "faux-1", contextWindow: 1, maxTokens: 100 }],
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "successful overflow compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -823,7 +824,7 @@ describe("AgentSession compaction characterization", () => {
 			models: [{ id: "faux-1", contextWindow: 400, maxTokens: 100 }],
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "length recovery compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -885,7 +886,7 @@ describe("AgentSession compaction characterization", () => {
 			models: [{ id: "faux-1", contextWindow: 400, maxTokens: 100 }],
 			extensionFactories: [
 				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+					pi.on("compaction", async (event) => ({
 						compaction: {
 							summary: "length recovery compacted again",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,

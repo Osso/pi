@@ -1155,7 +1155,6 @@ export interface SessionBeforeForkResult {
 
 export interface SessionBeforeCompactResult {
 	cancel?: boolean;
-	compaction?: CompactionResult;
 }
 
 export interface CompactionEventResult {
