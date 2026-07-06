@@ -68,6 +68,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.tools.call(name, params) to call active Pi tools from Pyrun, and pi.web_search(query) as a web_search shortcut.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait(...) is synchronization-only and returns no agent output.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
+	"Use tools.ssh({ host, user, port, password }) for SSH commands that need password auth; it wraps sshpass automatically.",
 	"run.* displays only the last 300 output lines by default; access full logs from the returned CommandResult or previous results with run.last().stdout, run.last().stderr, or run.history().",
 	"Agents MUST NOT rerun the same command only to recover logs; inspect the saved CommandResult/full logs instead.",
 	"Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
