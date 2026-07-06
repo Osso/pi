@@ -86,8 +86,8 @@ State meanings:
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes never run supervisor recovery.
-- [x] `wait_agent` reports detachment (`detached: true` plus an explicit message) for in-flight
-      agents with no live dispatch instead of returning a live-looking non-terminal snapshot.
+- [x] `wait_agent` reports an explicit wait error for in-flight agents with no live dispatch
+      instead of returning a live-looking non-terminal snapshot.
 
 ## How it works
 

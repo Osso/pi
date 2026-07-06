@@ -114,7 +114,7 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain(
-				"Supported long-running command tools such as bash and Pyrun are automatically backgrounded after 2 minutes; use wait_agent or the reported background job details to inspect completion and logs instead of assuming the command stopped.",
+				"Supported long-running command tools such as bash and Pyrun are automatically backgrounded after 2 minutes; use wait_agent to wait for completion, then inspect reported background job details or mailbox/log artifacts instead of assuming the command stopped.",
 			);
 		});
 	});

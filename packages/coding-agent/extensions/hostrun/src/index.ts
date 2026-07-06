@@ -20,7 +20,7 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Use pi.footer.snapshot() to read the current Pi footer snapshot inside Hostrun.",
 	"Use pi.compact(...) to trigger Pi session compaction from Hostrun.",
 	"Use pi.restart(...) to restart Pi and resume the same session from Hostrun.",
-	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge.",
+	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge; pi.agents.wait(...) is synchronization-only and returns no agent output.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
 ];

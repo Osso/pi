@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
 import hostrunExtension, { type HostrunExtensionOptions } from "../extensions/hostrun/src/index.ts";
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -224,8 +226,9 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
-  if (request.code === "pi.agents.wait('agent-1')") {
-    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: { agentId: "agent-1" } }) + "\\n");
+  if (request.code === "pi.agents.wait('agent-1')" || request.code === "pi.agents.wait('agent_1')") {
+    const agentId = request.code.includes("agent_1") ? "agent_1" : "agent-1";
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: { agentId } }) + "\\n");
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
@@ -607,14 +610,32 @@ describe("hostrun extension", () => {
 			piRequestHandlers: [
 				(request) => {
 					if (request.method !== "agents.wait") return undefined;
-					return { agent: { id: "agent-1", lifecycle: "completed" }, terminal: true };
+					return null;
 				},
 			],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.wait('agent-1')" });
 
-		expect(result.details.value).toEqual({ agent: { id: "agent-1", lifecycle: "completed" }, terminal: true });
+		expect(result.details.value).toBeNull();
+	});
+
+	it("returns null from Hostrun pi.agents.wait through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const harness = createHostrunHarness({
+			piRequestHandlers: [
+				createHostrunMultiAgentRequestHandler({
+					dispatcher: async () => ({ lifecycle: "completed", result: { summary: "done" } }),
+					store,
+				}),
+			],
+		});
+
+		await harness.evaluate({ code: "pi.agents.spawn({ prompt: 'inspect X' })" });
+		const result = await harness.evaluate({ code: "pi.agents.wait('agent_1')" });
+
+		expect(result.details.value).toBeNull();
+		expect(store.getAgent("agent_1")).toMatchObject({ lifecycle: "completed", result: { summary: "done" } });
 	});
 
 	it("responds to Hostrun pi.agents.list requests through configured handlers", async () => {

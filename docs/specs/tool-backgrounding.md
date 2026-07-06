@@ -18,7 +18,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
-- `wait_agent` only polls store state for active background jobs created by supported tool integrations; spawned or recovered agents without a live local runtime still report as detached.
+- `wait_agent` only polls store state for active background jobs created by supported tool integrations; after completion it returns no job output, and spawned or recovered agents without a live local runtime report an explicit wait error.
 
 ## Implementation inventory
 

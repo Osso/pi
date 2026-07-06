@@ -796,7 +796,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("Hostrun agents.wait consumes the mirrored completion notification from the runtime mailbox", async () => {
+	it("Hostrun agents.wait leaves the mirrored completion notification in the runtime mailbox", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -820,12 +820,13 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 
-		await handler({ method: "agents.wait", params: { agentId: spawned.agent.id } }, ctx, undefined);
+		const waited = await handler({ method: "agents.wait", params: { agentId: spawned.agent.id } }, ctx, undefined);
 
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
+		expect(waited).toBeNull();
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 	});
 
-	it("wait_agent consumes the mirrored completion notification from the runtime mailbox", async () => {
+	it("wait_agent leaves the mirrored completion notification in the runtime mailbox", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -857,11 +858,10 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 
-		await waitAgent.execute("wait", { agentId }, undefined, undefined, ctx);
+		const waited = await waitAgent.execute("wait", { agentId }, undefined, undefined, ctx);
 
-		// wait_agent already reported the terminal state, so the completion notice
-		// must not be delivered again as a mailbox prompt.
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
+		expect(waited).toEqual({ content: [], details: {} });
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 	});
 
 	it("drains claimed runtime mailbox messages at the end of a turn", async () => {

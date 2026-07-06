@@ -15,7 +15,7 @@ are added.
 `cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate
 or read `MultiAgentStore`.
 `spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
-injected factory, then reports terminal state through `wait_agent`.
+injected factory. `wait_agent` synchronizes with those live dispatches without reporting final state.
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
 `SessionManager.create()` primitives so production callers can create child sessions with the
 parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
@@ -23,8 +23,8 @@ does not create live child model sessions yet. `list_agents` can scope results t
 a parent ID, using core store state rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
-and labels, so large logs or diffs stay outside coordination events. `wait_agent` can include the
-target agent's descendant snapshots and pending mailbox messages without reading any TUI state.
+and labels, so large logs or diffs stay outside coordination events. `wait_agent` only synchronizes
+until the target finishes; it returns no agent output, and mailbox messages stay on the mailbox path.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.

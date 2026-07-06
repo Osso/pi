@@ -313,8 +313,9 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
-  if (request.code === "pi.agents.wait('agent-1')") {
-    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: { agentId: "agent-1" } }) + "\\n");
+  if (request.code === "pi.agents.wait('agent-1')" || request.code === "pi.agents.wait('agent_1')") {
+    const agentId = request.code.includes("agent_1") ? "agent_1" : "agent-1";
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: { agentId } }) + "\\n");
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
@@ -826,14 +827,32 @@ describe("pyrun extension", () => {
 			piRequestHandlers: [
 				(request) => {
 					if (request.method !== "agents.wait") return undefined;
-					return { agent: { id: "agent-1", lifecycle: "completed" }, terminal: true };
+					return null;
 				},
 			],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.wait('agent-1')" });
 
-		expect(result.details.value).toEqual({ agent: { id: "agent-1", lifecycle: "completed" }, terminal: true });
+		expect(result.details.value).toBeNull();
+	});
+
+	it("returns null from Pyrun pi.agents.wait through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const harness = createPyrunHarness({
+			piRequestHandlers: [
+				createHostrunMultiAgentRequestHandler({
+					dispatcher: async () => ({ lifecycle: "completed", result: { summary: "done" } }),
+					store,
+				}),
+			],
+		});
+
+		await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
+		const result = await harness.evaluate({ code: "pi.agents.wait('agent_1')" });
+
+		expect(result.details.value).toBeNull();
+		expect(store.getAgent("agent_1")).toMatchObject({ lifecycle: "completed", result: { summary: "done" } });
 	});
 
 	it("responds to Pyrun pi.agents.current requests through the multi-agent handler", async () => {

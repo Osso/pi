@@ -8,7 +8,6 @@ export type {
 	MultiAgentExtensionOptions,
 	MultiAgentRuntimeHandles,
 	MultiAgentWorkflowOperations,
-	WorkflowWaitResult,
 } from "../../extensions/agents-core/src/runtime.ts";
 export {
 	createMultiAgentRuntimeHandles,
