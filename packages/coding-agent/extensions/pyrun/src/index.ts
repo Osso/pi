@@ -32,10 +32,17 @@ interface PyrunBackgroundJob {
 
 type PyrunEvaluate = ReturnType<typeof createPyrunEvalExecutor>;
 
+interface PyrunExecutorState {
+	evaluate: PyrunEvaluate;
+	runner: PyrunRunnerClient;
+}
+
 interface DetachablePyrunEvaluationOptions {
 	detachRegistry: ToolDetachRegistry;
 	evaluate: PyrunEvaluate;
 	ctx: ExtensionContext;
+	onBackgroundSettled?: () => void;
+	onDetached?: () => void;
 	onUpdate?: (partialResult: AgentToolResult<unknown>) => void;
 	params: PyrunEvalParams;
 	signal: AbortSignal | undefined;
@@ -222,6 +229,11 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	if (exactMatches.length === 1 && exactMatch) return exactMatch.path;
 	if (exactMatches.length > 1) throw new Error(`Ambiguous session match for id '${id}'`);
 	return findUniqueSessionMatch(sessions, `id '${id}'`, (session) => session.id.startsWith(id)).path;
+}
+
+function createPyrunExecutorState(dispatchPiRequest: PyrunPiRequestDispatcher): PyrunExecutorState {
+	const runner = new PyrunRunnerClient();
+	return { evaluate: createPyrunEvalExecutor(runner, dispatchPiRequest), runner };
 }
 
 function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
@@ -433,11 +445,14 @@ function runDetachablePyrunEvaluation(options: DetachablePyrunEvaluationOptions)
 			detached = true;
 			unregisterDetach?.();
 			abort.cleanup();
+			options.onDetached?.();
 			const job = spawnPyrunBackgroundJob(options.store, options.params, options.ctx);
-			void evaluation.then(
-				(result) => finishPyrunBackgroundJob(options.store, job, result),
-				(error) => failPyrunBackgroundJob(options.store, job, error),
-			);
+			void evaluation
+				.then(
+					(result) => finishPyrunBackgroundJob(options.store, job, result),
+					(error) => failPyrunBackgroundJob(options.store, job, error),
+				)
+				.finally(() => options.onBackgroundSettled?.());
 			resolveDetached(createDetachedPyrunResult(options.params, job));
 			return true;
 		},
@@ -447,8 +462,8 @@ function runDetachablePyrunEvaluation(options: DetachablePyrunEvaluationOptions)
 }
 
 export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
-	const runner = new PyrunRunnerClient();
-	const evaluate = createPyrunEvalExecutor(runner, createPyrunPiDispatcher(pi, options));
+	const dispatchPiRequest = createPyrunPiDispatcher(pi, options);
+	let executor = createPyrunExecutorState(dispatchPiRequest);
 
 	pi.registerTool({
 		name: "pyrun_eval",
@@ -485,10 +500,25 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			});
 			const store = options.backgroundJobs?.store ?? ctx.multiAgentStore;
 			const detachRegistry = options.detachRegistry ?? ctx.toolDetachRegistry;
+			const activeExecutor = executor;
 			if (!store || !detachRegistry) {
-				return evaluate(params, ctx, onUpdate, signal);
+				return activeExecutor.evaluate(params, ctx, onUpdate, signal);
 			}
-			return runDetachablePyrunEvaluation({ detachRegistry, evaluate, ctx, onUpdate, params, signal, store });
+			return runDetachablePyrunEvaluation({
+				detachRegistry,
+				evaluate: activeExecutor.evaluate,
+				ctx,
+				onBackgroundSettled: () => activeExecutor.runner.dispose(),
+				onDetached: () => {
+					if (executor === activeExecutor) {
+						executor = createPyrunExecutorState(dispatchPiRequest);
+					}
+				},
+				onUpdate,
+				params,
+				signal,
+				store,
+			});
 		},
 	});
 }

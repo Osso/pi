@@ -1192,6 +1192,30 @@ describe("pyrun extension", () => {
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "auto-detached Pyrun completion");
 	});
 
+	it("keeps foreground Pyrun evaluations unblocked after detaching a background job", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const backgroundPromise = harness.evaluate({ code: "run.slow_detachable()" }, (update) => updates.push(update));
+		await waitFor(() => updates.some((update) => update.details.type === "status"), "Pyrun progress before detach");
+		expect(detachRegistry.detachRunning()).toBe(true);
+		await backgroundPromise;
+
+		const foregroundResult = await Promise.race([
+			harness.evaluate({ code: "empty.result" }),
+			new Promise<never>((_, reject) =>
+				setTimeout(() => reject(new Error("foreground Pyrun remained queued")), 200),
+			),
+		]);
+
+		expect(foregroundResult.details.value).toBe("");
+		const [job] = store.listAgents();
+		expect(job.lifecycle).toBe("running");
+		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
+	});
+
 	it("detaches a running Pyrun evaluation into the multi-agent job store", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
 		const detachRegistry = new ToolDetachRegistry();
