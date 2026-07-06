@@ -629,6 +629,19 @@ export interface SessionBeforeCompactEvent {
 	signal: AbortSignal;
 }
 
+/** Fired to let an extension provide the complete compaction result instead of the default summarizer. */
+export interface CompactionEvent {
+	type: "compaction";
+	preparation: CompactionPreparation;
+	branchEntries: SessionEntry[];
+	customInstructions?: string;
+	/** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
+	reason: "manual" | "threshold" | "overflow";
+	/** True when the aborted turn is retried after this compaction (overflow recovery) */
+	willRetry: boolean;
+	signal: AbortSignal;
+}
+
 /** Fired before context compaction starts to describe the compaction implementation that will be used. */
 export interface SessionCompactionSourceEvent {
 	type: "session_compaction_source";
@@ -694,6 +707,7 @@ export type SessionEvent =
 	| SessionBeforeSwitchEvent
 	| SessionBeforeForkEvent
 	| SessionBeforeCompactEvent
+	| CompactionEvent
 	| SessionCompactionSourceEvent
 	| SessionCompactEvent
 	| SessionShutdownEvent
@@ -1144,6 +1158,11 @@ export interface SessionBeforeCompactResult {
 	compaction?: CompactionResult;
 }
 
+export interface CompactionEventResult {
+	cancel?: boolean;
+	compaction?: CompactionResult;
+}
+
 export interface SessionCompactionSourceResult {
 	source?: CompactionSourceInfo;
 }
@@ -1231,6 +1250,7 @@ export interface ExtensionAPI {
 		event: "session_before_compact",
 		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
 	): void;
+	on(event: "compaction", handler: ExtensionHandler<CompactionEvent, CompactionEventResult>): void;
 	on(
 		event: "session_compaction_source",
 		handler: ExtensionHandler<SessionCompactionSourceEvent, SessionCompactionSourceResult>,

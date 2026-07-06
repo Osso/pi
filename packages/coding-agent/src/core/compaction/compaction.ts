@@ -6,6 +6,7 @@
  */
 
 import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ProviderNativeContext } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import {
@@ -123,6 +124,8 @@ export interface CompactionResult<T = unknown> {
 	compactedResultBytes?: number;
 	/** Runtime source used for logging. Not persisted in session entries. */
 	source?: CompactionSourceInfo;
+	/** Provider-native context emitted by the compaction provider. */
+	providerNative?: ProviderNativeContext;
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
 	details?: T;
 }

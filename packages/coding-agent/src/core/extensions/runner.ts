@@ -18,6 +18,7 @@ import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	BeforeProviderRequestEvent,
+	CompactionEventResult,
 	CompactOptions,
 	ContextEvent,
 	ContextEventResult,
@@ -172,11 +173,13 @@ type RunnerEmitResult<TEvent extends RunnerEmitEvent> = TEvent extends { type: "
 		? SessionBeforeForkResult | undefined
 		: TEvent extends { type: "session_before_compact" }
 			? SessionBeforeCompactResult | undefined
-			: TEvent extends { type: "session_before_tree" }
-				? SessionBeforeTreeResult | undefined
-				: TEvent extends { type: "session_compaction_source" }
-					? SessionCompactionSourceResult | undefined
-					: undefined;
+			: TEvent extends { type: "compaction" }
+				? CompactionEventResult | undefined
+				: TEvent extends { type: "session_before_tree" }
+					? SessionBeforeTreeResult | undefined
+					: TEvent extends { type: "session_compaction_source" }
+						? SessionCompactionSourceResult | undefined
+						: undefined;
 
 export type ExtensionErrorListener = (error: ExtensionError) => void;
 
@@ -866,7 +869,7 @@ export class ExtensionRunner {
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
 		const ctx = this.createContext();
-		let result: SessionBeforeEventResult | SessionCompactionSourceResult | undefined;
+		let result: SessionBeforeEventResult | CompactionEventResult | SessionCompactionSourceResult | undefined;
 
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get(event.type);
@@ -881,6 +884,14 @@ export class ExtensionRunner {
 						result = beforeResult;
 						if (beforeResult.cancel) {
 							return beforeResult as RunnerEmitResult<TEvent>;
+						}
+					}
+
+					if (event.type === "compaction" && handlerResult) {
+						const compactionResult = handlerResult as CompactionEventResult;
+						result = compactionResult;
+						if (compactionResult.cancel || compactionResult.compaction) {
+							return compactionResult as RunnerEmitResult<TEvent>;
 						}
 					}
 

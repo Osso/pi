@@ -2538,7 +2538,28 @@ export class AgentSession {
 			let extensionCompaction: CompactionResult | undefined;
 			let fromExtension = false;
 
-			if (this._extensionRunner.hasHandlers("session_before_compact")) {
+			if (this._extensionRunner.hasHandlers("compaction")) {
+				const result = await this._extensionRunner.emit({
+					type: "compaction",
+					preparation,
+					branchEntries: pathEntries,
+					customInstructions,
+					reason: "manual",
+					willRetry: false,
+					signal: compactionAbortController.signal,
+				});
+
+				if (result?.cancel) {
+					throw new Error("Compaction cancelled");
+				}
+
+				if (result?.compaction) {
+					extensionCompaction = result.compaction;
+					fromExtension = true;
+				}
+			}
+
+			if (!extensionCompaction && this._extensionRunner.hasHandlers("session_before_compact")) {
 				const result = (await this._extensionRunner.emit({
 					type: "session_before_compact",
 					preparation,
@@ -2566,6 +2587,7 @@ export class AgentSession {
 			let compactedResultTokens: number | undefined;
 			let compactedResultBytes: number | undefined;
 			let source: CompactionResult["source"];
+			let providerNative: CompactionResult["providerNative"];
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
@@ -2576,6 +2598,7 @@ export class AgentSession {
 				compactedResultTokens = extensionCompaction.compactedResultTokens;
 				compactedResultBytes = extensionCompaction.compactedResultBytes;
 				source = extensionCompaction.source;
+				providerNative = extensionCompaction.providerNative;
 			} else {
 				// Generate compaction result
 				const result = await compact(
@@ -2596,6 +2619,7 @@ export class AgentSession {
 				compactedResultTokens = result.compactedResultTokens;
 				compactedResultBytes = result.compactedResultBytes;
 				source = result.source;
+				providerNative = result.providerNative;
 			}
 
 			if (compactionAbortController.signal.aborted) {
@@ -2610,6 +2634,7 @@ export class AgentSession {
 				details,
 				fromExtension,
 				durationMs,
+				providerNative,
 			);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
@@ -2648,6 +2673,7 @@ export class AgentSession {
 				compactedResultTokens,
 				compactedResultBytes,
 				source,
+				providerNative,
 				details,
 			};
 			this._emit({
@@ -2861,7 +2887,35 @@ export class AgentSession {
 			let extensionCompaction: CompactionResult | undefined;
 			let fromExtension = false;
 
-			if (this._extensionRunner.hasHandlers("session_before_compact")) {
+			if (this._extensionRunner.hasHandlers("compaction")) {
+				const extensionResult = await this._extensionRunner.emit({
+					type: "compaction",
+					preparation,
+					branchEntries: pathEntries,
+					customInstructions: undefined,
+					reason,
+					willRetry,
+					signal: autoCompactionAbortController.signal,
+				});
+
+				if (extensionResult?.cancel) {
+					this._emit({
+						type: "compaction_end",
+						reason,
+						result: undefined,
+						aborted: true,
+						willRetry: false,
+					});
+					return false;
+				}
+
+				if (extensionResult?.compaction) {
+					extensionCompaction = extensionResult.compaction;
+					fromExtension = true;
+				}
+			}
+
+			if (!extensionCompaction && this._extensionRunner.hasHandlers("session_before_compact")) {
 				const extensionResult = (await this._extensionRunner.emit({
 					type: "session_before_compact",
 					preparation,
@@ -2896,6 +2950,7 @@ export class AgentSession {
 			let compactedResultTokens: number | undefined;
 			let compactedResultBytes: number | undefined;
 			let source: CompactionResult["source"];
+			let providerNative: CompactionResult["providerNative"];
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
@@ -2906,6 +2961,7 @@ export class AgentSession {
 				compactedResultTokens = extensionCompaction.compactedResultTokens;
 				compactedResultBytes = extensionCompaction.compactedResultBytes;
 				source = extensionCompaction.source;
+				providerNative = extensionCompaction.providerNative;
 			} else {
 				// Generate compaction result
 				const compactResult = await compact(
@@ -2947,6 +3003,7 @@ export class AgentSession {
 				details,
 				fromExtension,
 				durationMs,
+				providerNative,
 			);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
@@ -2984,6 +3041,7 @@ export class AgentSession {
 				compactedResultTokens,
 				compactedResultBytes,
 				source,
+				providerNative,
 				details,
 			};
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });

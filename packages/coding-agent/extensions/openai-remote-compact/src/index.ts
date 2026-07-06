@@ -1,14 +1,12 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
 import type {
-	BeforeProviderRequestEvent,
+	CompactionEvent,
 	ExtensionAPI,
 	ExtensionContext,
-	SessionBeforeCompactEvent,
-	SessionCompactionSourceEvent,
 } from "../../../src/core/extensions/types.ts";
 import { convertToLlm } from "../../../src/core/messages.ts";
-import type { CompactionEntry, SessionEntry } from "../../../src/core/session-manager.ts";
+import type { SessionEntry } from "../../../src/core/session-manager.ts";
 
 export const OPENAI_REMOTE_COMPACTION_SUMMARY = "OpenAI native compaction stored in session entry details.";
 const DETAILS_TYPE = "openai-remote-compaction";
@@ -22,6 +20,7 @@ export interface OpenAIRemoteCompactionDetails {
 	type: typeof DETAILS_TYPE;
 	version: typeof DETAILS_VERSION;
 	provider: string;
+	api: OpenAINativeCompactApi;
 	model: string;
 	endpoint: string;
 	replacementHistory: OpenAIResponseItem[];
@@ -49,29 +48,10 @@ interface OpenAITextPart extends Record<string, unknown> {
 }
 
 export default function openAIRemoteCompactExtension(pi: ExtensionAPI) {
-	pi.on("session_compaction_source", handleSessionCompactionSource);
-	pi.on("session_before_compact", handleSessionBeforeCompact);
-	pi.on("before_provider_request", handleBeforeProviderRequest);
+	pi.on("compaction", handleCompaction);
 }
 
-export async function handleSessionCompactionSource(_event: SessionCompactionSourceEvent, ctx: ExtensionContext) {
-	const model = ctx.model;
-	if (!isOpenAIResponsesModel(model)) return undefined;
-
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-	if (!auth.ok) return undefined;
-
-	return {
-		source: {
-			type: "openai_remote" as const,
-			provider: model.provider,
-			model: model.id,
-			endpoint: buildCompactEndpoint(model),
-		},
-	};
-}
-
-export async function handleSessionBeforeCompact(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {
+export async function handleCompaction(event: CompactionEvent, ctx: ExtensionContext) {
 	const model = ctx.model;
 	if (!isOpenAIResponsesModel(model)) return;
 
@@ -82,7 +62,7 @@ export async function handleSessionBeforeCompact(event: SessionBeforeCompactEven
 	}
 
 	const endpoint = buildCompactEndpoint(model);
-	const previousReplacementHistory = findLatestOpenAIReplacementHistory(event.branchEntries);
+	const previousReplacementHistory = findLatestOpenAIReplacementHistory(event.branchEntries, model);
 	const messages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
 	const payload = buildOpenAICompactPayload(model, messages, ctx.getSystemPrompt(), previousReplacementHistory);
 	const startedAt = Date.now();
@@ -99,15 +79,15 @@ export async function handleSessionBeforeCompact(event: SessionBeforeCompactEven
 			compactedResultBytes: details.replacementHistoryBytes,
 			compactedResultTokens: details.replacementHistoryTokens,
 			source: { type: "openai_remote" as const, provider: model.provider, model: model.id, endpoint },
+			providerNative: {
+				provider: model.provider,
+				api: model.api,
+				format: "openai.responses.input" as const,
+				value: details.replacementHistory,
+			},
 			details,
 		},
 	};
-}
-
-function handleBeforeProviderRequest(event: BeforeProviderRequestEvent, ctx: ExtensionContext) {
-	if (!isOpenAIResponsesModel(ctx.model)) return undefined;
-	const entries = ctx.sessionManager.getEntries();
-	return rewriteOpenAICompactionPayload(event.payload, entries);
 }
 
 export function isOpenAIResponsesModel(model: Model<Api> | undefined): model is OpenAINativeCompactModel {
@@ -159,29 +139,13 @@ export function extractOpenAICompactDetails(
 		type: DETAILS_TYPE,
 		version: DETAILS_VERSION,
 		provider: model.provider,
+		api: model.api,
 		model: model.id,
 		endpoint,
 		replacementHistory,
 		replacementHistoryBytes,
 		replacementHistoryTokens: Math.ceil(replacementHistoryBytes / 4),
 	};
-}
-
-export function rewriteOpenAICompactionPayload(payload: unknown, entries: SessionEntry[]): unknown {
-	if (!isRecord(payload) || !Array.isArray(payload.input)) return undefined;
-	const details = findLatestOpenAIReplacementHistoryDetails(entries);
-	if (!details) return undefined;
-
-	let replaced = false;
-	const input = payload.input.flatMap((item): unknown[] => {
-		if (isSyntheticOpenAICompactionSummaryItem(item)) {
-			replaced = true;
-			return details.replacementHistory;
-		}
-		return [item];
-	});
-
-	return replaced ? { ...payload, input } : undefined;
 }
 
 async function postOpenAICompact(
@@ -264,8 +228,13 @@ function formatOpenAIError(body: OpenAICompactResponse): string {
 	return JSON.stringify(body);
 }
 
-function findLatestOpenAIReplacementHistory(entries: SessionEntry[]): OpenAIResponseItem[] {
-	return findLatestOpenAIReplacementHistoryDetails(entries)?.replacementHistory ?? [];
+function findLatestOpenAIReplacementHistory(
+	entries: SessionEntry[],
+	model: OpenAINativeCompactModel,
+): OpenAIResponseItem[] {
+	const details = findLatestOpenAIReplacementHistoryDetails(entries);
+	if (!details || details.provider !== model.provider || details.api !== model.api || details.model !== model.id) return [];
+	return details.replacementHistory;
 }
 
 function findLatestOpenAIReplacementHistoryDetails(entries: SessionEntry[]): OpenAIRemoteCompactionDetails | undefined {
@@ -282,6 +251,7 @@ function isOpenAIRemoteCompactionDetails(value: unknown): value is OpenAIRemoteC
 		value.type === DETAILS_TYPE &&
 		value.version === DETAILS_VERSION &&
 		typeof value.provider === "string" &&
+		(value.api === "openai-responses" || value.api === "openai-codex-responses") &&
 		typeof value.model === "string" &&
 		typeof value.endpoint === "string" &&
 		Array.isArray(value.replacementHistory) &&
@@ -289,11 +259,6 @@ function isOpenAIRemoteCompactionDetails(value: unknown): value is OpenAIRemoteC
 		(typeof value.replacementHistoryBytes !== "number" || Number.isFinite(value.replacementHistoryBytes)) &&
 		(typeof value.replacementHistoryTokens !== "number" || Number.isFinite(value.replacementHistoryTokens))
 	);
-}
-
-function isSyntheticOpenAICompactionSummaryItem(value: unknown): boolean {
-	if (!isRecord(value) || value.role !== "user" || !Array.isArray(value.content)) return false;
-	return value.content.some((part) => isInputTextPart(part) && part.text.includes(OPENAI_REMOTE_COMPACTION_SUMMARY));
 }
 
 function isOpenAICompactionItem(value: unknown): boolean {

@@ -231,6 +231,60 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.session.messages[0]?.role).toBe("compactionSummary");
 	});
 
+	it("manually compacts using the purpose-built compaction hook before local compaction", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => ({
+						compaction: {
+							summary: "summary from compaction provider",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							source: { type: "openai_remote", provider: "openai", model: "gpt-4.1-mini" },
+							providerNative: {
+								provider: "openai",
+								api: "openai-responses",
+								format: "openai.responses.input",
+								value: [{ type: "compaction", encrypted_content: "encrypted" }],
+							},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+
+		await harness.session.prompt("one");
+		await harness.session.prompt("two");
+
+		const result = await harness.session.compact();
+		const [compactionEntry] = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
+		const [summaryMessage] = harness.session.messages;
+
+		expect(result.summary).toBe("summary from compaction provider");
+		expect(result.source).toEqual({ type: "openai_remote", provider: "openai", model: "gpt-4.1-mini" });
+		expect(compactionEntry).toMatchObject({
+			summary: "summary from compaction provider",
+			fromHook: true,
+			providerNative: {
+				provider: "openai",
+				api: "openai-responses",
+				format: "openai.responses.input",
+				value: [{ type: "compaction", encrypted_content: "encrypted" }],
+			},
+		});
+		expect(summaryMessage).toMatchObject({
+			role: "compactionSummary",
+			providerNative: {
+				provider: "openai",
+				api: "openai-responses",
+				format: "openai.responses.input",
+				value: [{ type: "compaction", encrypted_content: "encrypted" }],
+			},
+		});
+	});
+
 	it("throws when compacting without a model", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

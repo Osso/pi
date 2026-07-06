@@ -6,21 +6,13 @@ import {
 	buildOpenAICompactPayload,
 	buildOpenAIRequestHeaders,
 	extractOpenAICompactDetails,
-	handleSessionBeforeCompact,
-	handleSessionCompactionSource,
+	handleCompaction,
 	isOpenAIResponsesModel,
 	limitOpenAICompactInput,
 	OPENAI_REMOTE_COMPACTION_SUMMARY,
-	type OpenAIRemoteCompactionDetails,
-	rewriteOpenAICompactionPayload,
 } from "../extensions/openai-remote-compact/src/index.ts";
 import type { CompactionPreparation } from "../src/core/compaction/index.ts";
-import type {
-	ExtensionContext,
-	SessionBeforeCompactEvent,
-	SessionCompactionSourceEvent,
-} from "../src/core/extensions/types.ts";
-import type { CompactionEntry } from "../src/core/session-manager.ts";
+import type { CompactionEvent, ExtensionContext } from "../src/core/extensions/types.ts";
 
 function createOpenAIResponsesModel(overrides: Partial<Model<"openai-responses">> = {}): Model<"openai-responses"> {
 	return {
@@ -64,19 +56,6 @@ function createCodexJwt(): string {
 		),
 		"signature",
 	].join(".");
-}
-
-function compactionEntry(details: OpenAIRemoteCompactionDetails): CompactionEntry<OpenAIRemoteCompactionDetails> {
-	return {
-		type: "compaction",
-		id: "compact-1",
-		parentId: "parent-1",
-		timestamp: "2026-01-01T00:00:00Z",
-		summary: OPENAI_REMOTE_COMPACTION_SUMMARY,
-		firstKeptEntryId: "kept-1",
-		tokensBefore: 1000,
-		details,
-	};
 }
 
 const originalFetch = globalThis.fetch;
@@ -342,30 +321,6 @@ describe("openai remote compact extension", () => {
 		});
 	});
 
-	it("reports remote source before starting eligible OpenAI compaction", async () => {
-		const model = createOpenAIResponsesModel();
-		const event = {
-			type: "session_compaction_source",
-			reason: "manual",
-			willRetry: false,
-		} satisfies SessionCompactionSourceEvent;
-		const ctx = {
-			model,
-			modelRegistry: {
-				getApiKeyAndHeaders: async () => ({ ok: true as const, apiKey: "key", headers: undefined }),
-			},
-		} as unknown as ExtensionContext;
-
-		const result = await handleSessionCompactionSource(event, ctx);
-
-		expect(result?.source).toEqual({
-			type: "openai_remote",
-			provider: "openai",
-			model: "gpt-4.1-mini",
-			endpoint: "https://api.openai.com/v1/responses/compact",
-		});
-	});
-
 	it("returns remote compaction duration from the compact endpoint call", async () => {
 		globalThis.fetch = (async () =>
 			new Response(
@@ -388,13 +343,13 @@ describe("openai remote compact extension", () => {
 			turnPrefixMessages: [],
 		};
 		const event = {
-			type: "session_before_compact",
+			type: "compaction",
 			preparation,
 			branchEntries: [],
 			reason: "manual",
 			willRetry: false,
 			signal: new AbortController().signal,
-		} satisfies SessionBeforeCompactEvent;
+		} satisfies CompactionEvent;
 		const ctx = {
 			model,
 			getSystemPrompt: () => "system prompt",
@@ -404,7 +359,7 @@ describe("openai remote compact extension", () => {
 			ui: { notify: () => undefined },
 		} as unknown as ExtensionContext;
 
-		const result = await handleSessionBeforeCompact(event, ctx);
+		const result = await handleCompaction(event, ctx);
 
 		expect(result?.compaction).toMatchObject({
 			summary: OPENAI_REMOTE_COMPACTION_SUMMARY,
@@ -420,6 +375,15 @@ describe("openai remote compact extension", () => {
 			},
 		});
 		expect(result?.compaction?.durationMs).toEqual(expect.any(Number));
+		expect(result?.compaction?.providerNative).toEqual({
+			provider: "openai",
+			api: "openai-responses",
+			format: "openai.responses.input",
+			value: [
+				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
+				{ type: "compaction", encrypted_content: "encrypted" },
+			],
+		});
 	});
 
 	it("extracts native replacement history from Codex /responses/compact output", () => {
@@ -438,47 +402,5 @@ describe("openai remote compact extension", () => {
 			{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 			{ type: "compaction_summary", encrypted_content: "encrypted" },
 		]);
-	});
-
-	it("rewrites synthetic compaction summary messages to native replacement history", () => {
-		const details: OpenAIRemoteCompactionDetails = {
-			type: "openai-remote-compaction",
-			version: 1,
-			provider: "openai",
-			model: "gpt-4.1-mini",
-			endpoint: "https://api.openai.com/v1/responses/compact",
-			replacementHistory: [
-				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
-				{ type: "compaction", encrypted_content: "encrypted" },
-			],
-			replacementHistoryBytes: 120,
-			replacementHistoryTokens: 30,
-		};
-		const payload = {
-			model: "gpt-4.1-mini",
-			input: [
-				{
-					role: "user",
-					content: [
-						{
-							type: "input_text",
-							text: `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${OPENAI_REMOTE_COMPACTION_SUMMARY}\n</summary>`,
-						},
-					],
-				},
-				{ role: "user", content: [{ type: "input_text", text: "recent" }] },
-			],
-		};
-
-		const rewritten = rewriteOpenAICompactionPayload(payload, [compactionEntry(details)]);
-
-		expect(rewritten).toEqual({
-			model: "gpt-4.1-mini",
-			input: [
-				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
-				{ type: "compaction", encrypted_content: "encrypted" },
-				{ role: "user", content: [{ type: "input_text", text: "recent" }] },
-			],
-		});
 	});
 });

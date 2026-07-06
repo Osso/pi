@@ -1,4 +1,4 @@
-import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, Message, ProviderNativeContext, TextContent } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "../types.ts";
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
@@ -52,6 +52,7 @@ export interface CompactionSummaryMessage {
 	keptFromPreviousContextTokens?: number;
 	compactedResultTokens?: number;
 	durationMs?: number;
+	providerNative?: ProviderNativeContext;
 	timestamp: number;
 }
 
@@ -96,6 +97,7 @@ interface CompactionSummaryOptions {
 	tokensAfter?: number;
 	keptFromPreviousContextTokens?: number;
 	compactedResultTokens?: number;
+	providerNative?: ProviderNativeContext;
 }
 
 export function createCompactionSummaryMessage(
@@ -112,6 +114,7 @@ export function createCompactionSummaryMessage(
 		keptFromPreviousContextTokens: options.keptFromPreviousContextTokens,
 		compactedResultTokens: options.compactedResultTokens,
 		durationMs: options.durationMs,
+		providerNative: options.providerNative,
 		timestamp: new Date(timestamp).getTime(),
 	};
 }
@@ -166,6 +169,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						content: [
 							{ type: "text" as const, text: COMPACTION_SUMMARY_PREFIX + m.summary + COMPACTION_SUMMARY_SUFFIX },
 						],
+						providerNative: m.providerNative,
 						timestamp: m.timestamp,
 					};
 				case "user":
