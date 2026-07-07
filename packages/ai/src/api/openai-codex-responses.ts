@@ -59,6 +59,7 @@ const DEFAULT_MAX_RETRIES = 0;
 const BASE_DELAY_MS = 1000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
+const WEBSOCKET_PING_INTERVAL_MS = 30_000;
 // The Codex backend accepts zstd-compressed request bodies on the SSE responses
 // endpoint (the same endpoint the official Codex client compresses against).
 const REQUEST_COMPRESSION_ZSTD_LEVEL = 3;
@@ -429,7 +430,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			}
 
 			stream.push({ type: "start", partial: output });
-			await processStream(response, output, stream, model, options);
+			await processStream(response, output, stream, model, httpTimeoutMs, options);
 
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
@@ -589,13 +590,20 @@ async function processStream(
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
 	model: Model<"openai-codex-responses">,
+	idleTimeoutMs: number | undefined,
 	options?: OpenAICodexResponsesOptions,
 ): Promise<void> {
-	await processResponsesStream(mapCodexEvents(parseSSE(response, options?.signal)), output, stream, model, {
-		serviceTier: options?.serviceTier,
-		resolveServiceTier: resolveCodexServiceTier,
-		applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
-	});
+	await processResponsesStream(
+		mapCodexEvents(parseSSE(response, idleTimeoutMs, options?.signal)),
+		output,
+		stream,
+		model,
+		{
+			serviceTier: options?.serviceTier,
+			resolveServiceTier: resolveCodexServiceTier,
+			applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
+		},
+	);
 }
 
 class CodexApiError extends Error {
@@ -685,7 +693,52 @@ function normalizeCodexStatus(status: unknown): CodexResponseStatus | undefined 
 // SSE Parsing
 // ============================================================================
 
-async function* parseSSE(response: Response, signal?: AbortSignal): AsyncGenerator<Record<string, unknown>> {
+type SseReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>>;
+
+async function readSseChunkWithTimeout(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	timeoutMs: number | undefined,
+	signal?: AbortSignal,
+): Promise<SseReadResult> {
+	if (signal?.aborted) {
+		throw new Error("Request was aborted");
+	}
+	if (timeoutMs === undefined || timeoutMs <= 0) {
+		return reader.read();
+	}
+
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const clear = () => {
+			clearTimeout(timeout);
+			signal?.removeEventListener("abort", onAbort);
+		};
+		const settle = (callback: () => void) => {
+			if (settled) return;
+			settled = true;
+			clear();
+			callback();
+		};
+		const onAbort = () => {
+			settle(() => reject(new Error("Request was aborted")));
+		};
+		const timeout = setTimeout(() => {
+			settle(() => reject(new Error(`Codex SSE body read timed out after ${timeoutMs}ms`)));
+		}, timeoutMs);
+
+		signal?.addEventListener("abort", onAbort, { once: true });
+		reader.read().then(
+			(result) => settle(() => resolve(result)),
+			(error: unknown) => settle(() => reject(error)),
+		);
+	});
+}
+
+async function* parseSSE(
+	response: Response,
+	idleTimeoutMs: number | undefined,
+	signal?: AbortSignal,
+): AsyncGenerator<Record<string, unknown>> {
 	if (!response.body) return;
 
 	const reader = response.body.getReader();
@@ -701,7 +754,7 @@ async function* parseSSE(response: Response, signal?: AbortSignal): AsyncGenerat
 			if (signal?.aborted) {
 				throw new Error("Request was aborted");
 			}
-			const { done, value } = await reader.read();
+			const { done, value } = await readSseChunkWithTimeout(reader, idleTimeoutMs, signal);
 			if (signal?.aborted) {
 				throw new Error("Request was aborted");
 			}
@@ -758,6 +811,7 @@ type WebSocketListener = (event: unknown) => void;
 interface WebSocketLike {
 	close(code?: number, reason?: string): void;
 	send(data: string): void;
+	ping?: () => void;
 	addEventListener(type: WebSocketEventType, listener: WebSocketListener): void;
 	removeEventListener(type: WebSocketEventType, listener: WebSocketListener): void;
 }
@@ -1178,6 +1232,21 @@ async function decodeWebSocketData(data: unknown): Promise<string | null> {
 	return null;
 }
 
+function startNativeWebSocketPing(socket: WebSocketLike): ReturnType<typeof setInterval> | undefined {
+	if (typeof socket.ping !== "function") {
+		return undefined;
+	}
+	const interval = setInterval(() => {
+		try {
+			socket.ping?.();
+		} catch {
+			// Socket errors are reported through the WebSocket error/close events.
+		}
+	}, WEBSOCKET_PING_INTERVAL_MS);
+	interval.unref?.();
+	return interval;
+}
+
 async function* parseWebSocket(
 	socket: WebSocketLike,
 	signal?: AbortSignal,
@@ -1251,6 +1320,7 @@ async function* parseWebSocket(
 	socket.addEventListener("error", onError);
 	socket.addEventListener("close", onClose);
 	signal?.addEventListener("abort", onAbort);
+	const nativePingInterval = startNativeWebSocketPing(socket);
 
 	try {
 		while (true) {
@@ -1289,6 +1359,9 @@ async function* parseWebSocket(
 			throw new Error("WebSocket stream closed before response.completed");
 		}
 	} finally {
+		if (nativePingInterval) {
+			clearInterval(nativePingInterval);
+		}
 		socket.removeEventListener("message", onMessage);
 		socket.removeEventListener("error", onError);
 		socket.removeEventListener("close", onClose);

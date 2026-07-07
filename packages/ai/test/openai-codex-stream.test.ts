@@ -380,6 +380,55 @@ describe("openai-codex streaming", () => {
 		expect(result.errorMessage).toBe("Codex SSE response headers timed out after 10ms");
 	});
 
+	it("errors when an SSE body read stalls past timeoutMs", async () => {
+		vi.useFakeTimers();
+		const token = mockToken();
+		let cancelled = false;
+		const stream = new ReadableStream<Uint8Array>({
+			pull() {
+				return new Promise<void>(() => {});
+			},
+			cancel() {
+				cancelled = true;
+			},
+		});
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } })),
+		);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
+		};
+
+		const resultPromise = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "sse",
+			timeoutMs: 50,
+		}).result();
+
+		await vi.advanceTimersByTimeAsync(50);
+		const result = await resultPromise;
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toBe("Codex SSE body read timed out after 50ms");
+		expect(cancelled).toBe(true);
+	});
+
 	it("aborts SSE body reads after response headers arrive", async () => {
 		const token = mockToken();
 		const encoder = new TextEncoder();
@@ -1108,6 +1157,182 @@ describe("openai-codex streaming", () => {
 			cachedContextRequests: 1,
 			fullContextRequests: 1,
 		});
+	});
+
+	it("sends native websocket pings while waiting for events", async () => {
+		vi.useFakeTimers();
+		const token = mockToken();
+		const pings: number[] = [];
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
+		);
+
+		class MockWebSocket {
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor() {
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(): void {
+				queueMicrotask(() => {
+					this.dispatch("message", {
+						data: JSON.stringify({
+							type: "response.output_item.added",
+							item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+						}),
+					});
+				});
+			}
+
+			ping(): void {
+				pings.push(Date.now());
+			}
+
+			close(): void {}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) {
+					listener(event);
+				}
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+		};
+
+		const resultPromise = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "websocket",
+			timeoutMs: 90_000,
+		}).result();
+
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(30_000);
+		await vi.advanceTimersByTimeAsync(30_000);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		const result = await resultPromise;
+		expect(result.errorMessage).toBe("WebSocket idle timeout after 90000ms");
+		expect(pings).toHaveLength(3);
+		expect(global.fetch).not.toHaveBeenCalled();
+	});
+
+	it("does not send websocket messages when native ping is unavailable", async () => {
+		vi.useFakeTimers();
+		const token = mockToken();
+		const sentData: string[] = [];
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
+		);
+
+		class MockWebSocket {
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor() {
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(data: string): void {
+				sentData.push(data);
+				queueMicrotask(() => {
+					this.dispatch("message", {
+						data: JSON.stringify({
+							type: "response.output_item.added",
+							item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+						}),
+					});
+				});
+			}
+
+			close(): void {}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) {
+					listener(event);
+				}
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+		};
+
+		const resultPromise = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "websocket",
+			timeoutMs: 90_000,
+		}).result();
+
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(90_000);
+
+		const result = await resultPromise;
+		expect(result.errorMessage).toBe("WebSocket idle timeout after 90000ms");
+		expect(sentData).toHaveLength(1);
+		expect(JSON.parse(sentData[0] ?? "{}")).toMatchObject({ type: "response.create" });
+		expect(global.fetch).not.toHaveBeenCalled();
 	});
 
 	it("falls back to SSE when websocket connect does not open before the connect timeout", async () => {
