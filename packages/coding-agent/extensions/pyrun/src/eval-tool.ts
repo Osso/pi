@@ -36,6 +36,19 @@ export type PyrunPiRequestDispatcher = (
 	signal: AbortSignal | undefined,
 ) => Promise<unknown> | unknown;
 
+const STREAMED_CONSOLE_LINE_LIMIT = 300;
+
+function appendCappedConsoleText(existingText: string, newText: string): string {
+	const text = `${existingText}${newText}`;
+	const hasTrailingNewline = text.endsWith("\n");
+	const lines = text.split("\n");
+	if (hasTrailingNewline) {
+		lines.pop();
+	}
+	const cappedText = lines.slice(-STREAMED_CONSOLE_LINE_LIMIT).join("\n");
+	return hasTrailingNewline ? `${cappedText}\n` : cappedText;
+}
+
 function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined {
 	if (result.type === "needs_approval") {
 		return `needs approval: ${result.approval?.summary ?? "unknown Pyrun operation"}`;
@@ -144,7 +157,10 @@ export function createPyrunEvalExecutor(runner: PyrunRunnerClient, dispatchPiReq
 			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true, stream_console: true },
 			(update) => {
 				const formattedProgressText = formatProgressText(update);
-				const progressText = update.type === "console" ? `${streamedConsoleText}${formattedProgressText}` : formattedProgressText;
+				const progressText =
+					update.type === "console"
+						? appendCappedConsoleText(streamedConsoleText, formattedProgressText)
+						: formattedProgressText;
 				if (update.type === "console") {
 					streamedConsoleText = progressText;
 				}

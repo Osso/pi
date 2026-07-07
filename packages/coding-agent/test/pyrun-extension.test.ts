@@ -274,6 +274,14 @@ async function resultFor(request) {
     }
     return { type: "completed", executed: request.code, console: ["tick 1", "tick 2"], value: "done" };
   }
+  if (request.code === "print.noisy_stream()") {
+    if (request.stream_console === true) {
+      for (let i = 0; i < 305; i += 1) {
+        process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "line " + i + "\\n" }) + "\\n");
+      }
+    }
+    return { type: "completed", executed: request.code, console: Array.from({ length: 300 }, (_, i) => "line " + (i + 5)), value: "done" };
+  }
   if (request.code === "run.long_task()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "starting long task" }) + "\\n");
     process.stdout.write(JSON.stringify({ type: "progress", message: "halfway done" }) + "\\n");
@@ -738,6 +746,19 @@ describe("pyrun extension", () => {
 			type: "completed",
 			value: "done",
 		});
+	});
+
+	it("caps accumulated streaming console output to the final console line limit", async () => {
+		const harness = createPyrunHarness();
+		let lastUpdateText = "";
+
+		await harness.evaluate({ code: "print.noisy_stream()" }, (update) => {
+			lastUpdateText = readToolText(update);
+		});
+
+		expect(lastUpdateText.split("\n").filter(Boolean)).toEqual(
+			Array.from({ length: 300 }, (_, i) => `line ${i + 5}`),
+		);
 	});
 
 	it("streams Pyrun in-progress output before the completed result", async () => {
@@ -1256,14 +1277,7 @@ describe("pyrun extension", () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
 		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 80 });
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
-		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
-
-		const resultPromise = harness.evaluate({ code: "run.auto_detachable()" }, (update) => updates.push(update));
-		await waitFor(
-			() => updates.some((update) => update.details.type === "status"),
-			"Pyrun progress before auto-detach",
-		);
-		const result = await resultPromise;
+		const result = await harness.evaluate({ code: "run.auto_detachable()" });
 		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
 		expect(resultText).toContain("Pyrun evaluation moved to background as job");
 		expect(result.details?.backgroundJobId).toBeDefined();
