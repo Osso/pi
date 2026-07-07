@@ -224,8 +224,6 @@ type CompactionQueuedMessage = {
 
 const STREAMING_RENDER_THROTTLE_MS = 50;
 
-const LOADER_ELAPSED_TOOL_NAMES = new Set(["wait_agent"]);
-
 function resolveEnabledModelsPersistTarget(
 	projectEnabledModels: string[] | undefined,
 	patterns: string[] | undefined,
@@ -1895,7 +1893,7 @@ export class InteractiveMode {
 		}
 
 		const [toolCallId, toolName] = nextToolEntry;
-		const showElapsed = LOADER_ELAPSED_TOOL_NAMES.has(toolName) || !this.pendingTools.has(toolCallId);
+		const showElapsed = !this.pendingTools.has(toolCallId);
 		this.setDefaultWorkingMessage(
 			this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId), showElapsed),
 		);
