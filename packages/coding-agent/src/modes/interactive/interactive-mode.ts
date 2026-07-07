@@ -3200,6 +3200,32 @@ export class InteractiveMode {
 		this.pendingBashComponents = [];
 	}
 
+	private clearToolExecutionTracking(): void {
+		this.executingToolNames.clear();
+		this.executingToolStartedAt.clear();
+		this.stopToolWaitingTimerIfIdle();
+		this.setWorkingMessageForActiveTools();
+	}
+
+	private clearToolExecutionTrackingFor(toolCallId: string): void {
+		this.executingToolNames.delete(toolCallId);
+		this.executingToolStartedAt.delete(toolCallId);
+		this.stopToolWaitingTimerIfIdle();
+		this.setWorkingMessageForActiveTools();
+	}
+
+	private syncToolExecutionTrackingForHiddenMainEvent(event: AgentSessionEvent): void {
+		switch (event.type) {
+			case "agent_start":
+			case "agent_end":
+				this.clearToolExecutionTracking();
+				break;
+			case "tool_execution_end":
+				this.clearToolExecutionTrackingFor(event.toolCallId);
+				break;
+		}
+	}
+
 	private ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent {
 		const existingComponent = this.pendingTools.get(toolCallId);
 		if (existingComponent) {
@@ -3232,6 +3258,7 @@ export class InteractiveMode {
 
 		this.footer.invalidate();
 		if (this.isViewingAgentSession() && isMainSessionDisplayEvent(event)) {
+			this.syncToolExecutionTrackingForHiddenMainEvent(event);
 			this.ui.requestRender();
 			return;
 		}

@@ -307,6 +307,32 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent...");
 	});
 
+	test("clears main session tool waiting state while viewing an agent session", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const setMessage = vi.fn();
+		fakeThis.loadingAnimation = { setMessage };
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolName: "bash",
+			toolCallId: "bash-1",
+			args: { command: "sleep 120" },
+		});
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
+
+		fakeThis.multiAgentStore = { getSelectedAgentId: () => "agent_1" };
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: "bash-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "Command moved to background as job agent_1" }] },
+			isError: false,
+		});
+
+		expect(fakeThis.executingToolNames.has("bash-1")).toBe(false);
+		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
+	});
+
 	test("keeps extension working message override during tool execution", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const setMessage = vi.fn();
