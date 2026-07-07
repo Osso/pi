@@ -183,6 +183,10 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
 	throw new Error(`Timed out waiting for ${label}`);
 }
 
+function readToolText(result: AgentToolResult<unknown>): string {
+	return result.content.map((item) => (item.type === "text" ? (item.text ?? "") : "")).join("\n");
+}
+
 const localPyrunCheckout = "/syncthing/Sync/Projects/claude/pyrun";
 const localPyrunJsonl = join(localPyrunCheckout, "pyrun", "jsonl.py");
 const hasLocalPyrunRunner = existsSync(localPyrunJsonl);
@@ -262,6 +266,13 @@ async function resultFor(request) {
       console: ["tail error"],
       value: { stdout: "full out\\n", stderr: "full error\\n", exit_code: 2, upstream_results: [] }
     };
+  }
+  if (request.code === "print.streaming()") {
+    if (request.stream_console === true) {
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "tick 1\\n" }) + "\\n");
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "tick 2\\n" }) + "\\n");
+    }
+    return { type: "completed", executed: request.code, console: ["tick 1", "tick 2"], value: "done" };
   }
   if (request.code === "run.long_task()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "starting long task" }) + "\\n");
@@ -707,6 +718,21 @@ describe("pyrun extension", () => {
 				tool: "fs.write",
 			},
 			type: "needs_approval",
+		});
+	});
+
+	it("requests and forwards streaming console output before the completed result", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "print.streaming()" }, (update) => updates.push(update));
+
+		expect(updates.map((update) => readToolText(update))).toEqual(["print.streaming()", "tick 1\n", "tick 2\n"]);
+		expect(result.details).toEqual({
+			console: ["tick 1", "tick 2"],
+			executed: "print.streaming()",
+			type: "completed",
+			value: "done",
 		});
 	});
 

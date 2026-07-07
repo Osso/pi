@@ -140,7 +140,7 @@ export function createPyrunEvalExecutor(runner: PyrunRunnerClient, dispatchPiReq
 			return dispatchPiRequest(request, ctx, signal);
 		};
 		const result = await runner.evaluate(
-			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true },
+			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true, stream_console: true },
 			(update) => {
 				onUpdate?.({
 					content: [{ type: "text", text: formatProgressText(update) }],

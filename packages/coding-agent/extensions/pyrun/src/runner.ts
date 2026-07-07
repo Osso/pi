@@ -8,6 +8,7 @@ export interface CanonicalPyrunEvalParams {
 	pi?: unknown;
 	pi_bridge?: boolean;
 	session_id?: string;
+	stream_console?: boolean;
 }
 
 export type CanonicalPyrunConsoleEntry = string | { level: string; message: string };
@@ -34,6 +35,7 @@ export interface CanonicalPyrunProgressUpdate {
 	output?: string;
 	params?: unknown;
 	status?: string;
+	stream?: string;
 	text?: string;
 	type: string;
 	value?: unknown;
