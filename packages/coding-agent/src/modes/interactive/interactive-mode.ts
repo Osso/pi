@@ -192,6 +192,25 @@ interface Expandable {
 	setExpanded(expanded: boolean): void;
 }
 
+function isMainSessionDisplayEvent(event: AgentSessionEvent): boolean {
+	switch (event.type) {
+		case "agent_end":
+		case "agent_start":
+		case "compaction_end":
+		case "compaction_start":
+		case "message_end":
+		case "message_start":
+		case "message_update":
+		case "queue_update":
+		case "tool_execution_end":
+		case "tool_execution_start":
+		case "tool_execution_update":
+			return true;
+		default:
+			return false;
+	}
+}
+
 function isExpandable(obj: unknown): obj is Expandable {
 	return typeof obj === "object" && obj !== null && "setExpanded" in obj && typeof obj.setExpanded === "function";
 }
@@ -2800,6 +2819,10 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private isViewingAgentSession(): boolean {
+		return this.multiAgentStore?.getSelectedAgentId() !== undefined;
+	}
+
 	private showInactiveAgentSelectionStatus(selected: ActiveAgentTargetSelectionResult): void {
 		if (!selected.ok && selected.error === "inactive") {
 			this.showStatus(formatInactiveAgentSelectionMessage(selected.agent));
@@ -3208,6 +3231,10 @@ export class InteractiveMode {
 		}
 
 		this.footer.invalidate();
+		if (this.isViewingAgentSession() && isMainSessionDisplayEvent(event)) {
+			this.ui.requestRender();
+			return;
+		}
 
 		switch (event.type) {
 			case "agent_start":

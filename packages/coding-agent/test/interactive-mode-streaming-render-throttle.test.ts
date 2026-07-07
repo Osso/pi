@@ -1,5 +1,5 @@
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
-import { Container, type MarkdownTheme, type TUI } from "@earendil-works/pi-tui";
+import { Container, type MarkdownTheme, Text, type TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -22,6 +22,7 @@ const EMPTY_USAGE: Usage = {
 
 type HandleEventThis = {
 	chatContainer: Container;
+	compactionQueuedMessages: [];
 	currentWorkingDefaultMessage: string;
 	defaultWorkingMessage: string;
 	executingToolNames: Map<string, string>;
@@ -32,9 +33,13 @@ type HandleEventThis = {
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
 	loadingAnimation: { setMessage(message: string): void } | undefined;
+	multiAgentStore: { getSelectedAgentId(): string | undefined } | undefined;
+	pendingMessagesContainer: Container;
 	pendingTools: Map<string, unknown>;
 	runtimeHost: {
 		session: {
+			getFollowUpMessages(): string[];
+			getSteeringMessages(): string[];
 			retryAttempt: number;
 			sessionManager: { getCwd(): string };
 			settingsManager: { getImageWidthCells(): number; getShowImages(): boolean };
@@ -94,9 +99,21 @@ function createMessageUpdate(message: AssistantMessage): AgentSessionEvent {
 	};
 }
 
+function createUserMessage(text: string): AgentSessionEvent {
+	return {
+		type: "message_start",
+		message: {
+			role: "user",
+			content: [{ type: "text", text }],
+			timestamp: Date.now(),
+		},
+	};
+}
+
 function createFakeInteractiveModeThis(): HandleEventThis {
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
+		compactionQueuedMessages: [],
 		currentWorkingDefaultMessage: "Thinking...",
 		defaultWorkingMessage: "Thinking...",
 		executingToolNames: new Map<string, string>(),
@@ -107,9 +124,13 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		hideThinkingBlock: false,
 		isInitialized: true,
 		loadingAnimation: undefined,
+		multiAgentStore: undefined,
+		pendingMessagesContainer: new Container(),
 		pendingTools: new Map<string, unknown>(),
 		runtimeHost: {
 			session: {
+				getFollowUpMessages: () => [],
+				getSteeringMessages: () => [],
 				retryAttempt: 0,
 				sessionManager: { getCwd: () => process.cwd() },
 				settingsManager: { getImageWidthCells: () => 40, getShowImages: () => false },
@@ -131,6 +152,17 @@ describe("InteractiveMode streaming render throttling", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+	});
+
+	test("does not append main session messages while viewing an agent", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.multiAgentStore = { getSelectedAgentId: () => "agent_1" };
+		fakeThis.chatContainer.addChild(new Text("child backlog", 0, 0));
+
+		await handleEvent.call(fakeThis, createUserMessage("main thread leak"));
+
+		expect(fakeThis.chatContainer.render(80).join("\n")).toContain("child backlog");
+		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("main thread leak");
 	});
 
 	test("coalesces rapid assistant message updates into one delayed render", async () => {
