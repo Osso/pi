@@ -231,6 +231,39 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.session.messages[0]?.role).toBe("compactionSummary");
 	});
 
+	it("reports kept suffix tokens independently from remote compaction result size", async () => {
+		const compactedResultTokens = 999_999;
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => ({
+						compaction: {
+							summary: "summary from extension",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							compactedResultTokens,
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+
+		await harness.session.prompt("one");
+		await harness.session.prompt("two");
+
+		const result = await harness.session.compact();
+		const syntheticTokensAfter = harness.session.messages.reduce((sum, message) => sum + estimateTokens(message), 0);
+		const summaryMessage = harness.session.messages[0];
+		if (!summaryMessage) throw new Error("Expected compaction summary message");
+		const keptSuffixTokens = syntheticTokensAfter - estimateTokens(summaryMessage);
+
+		expect(keptSuffixTokens).toBeGreaterThan(0);
+		expect(result.keptFromPreviousContextTokens).toBe(keptSuffixTokens);
+		expect(result.estimatedTokensAfter).toBe(keptSuffixTokens + compactedResultTokens);
+	});
+
 	it("manually compacts using the purpose-built compaction hook before local compaction", async () => {
 		const harness = await createHarness({
 			settings: { compaction: { keepRecentTokens: 1 } },
