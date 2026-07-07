@@ -139,11 +139,17 @@ export function createPyrunEvalExecutor(runner: PyrunRunnerClient, dispatchPiReq
 			}
 			return dispatchPiRequest(request, ctx, signal);
 		};
+		let streamedConsoleText = "";
 		const result = await runner.evaluate(
 			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true, stream_console: true },
 			(update) => {
+				const formattedProgressText = formatProgressText(update);
+				const progressText = update.type === "console" ? `${streamedConsoleText}${formattedProgressText}` : formattedProgressText;
+				if (update.type === "console") {
+					streamedConsoleText = progressText;
+				}
 				onUpdate?.({
-					content: [{ type: "text", text: formatProgressText(update) }],
+					content: [{ type: "text", text: progressText }],
 					details: update,
 				});
 			},

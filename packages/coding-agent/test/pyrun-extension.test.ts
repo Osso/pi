@@ -727,7 +727,11 @@ describe("pyrun extension", () => {
 
 		const result = await harness.evaluate({ code: "print.streaming()" }, (update) => updates.push(update));
 
-		expect(updates.map((update) => readToolText(update))).toEqual(["print.streaming()", "tick 1\n", "tick 2\n"]);
+		expect(updates.map((update) => readToolText(update))).toEqual([
+			"print.streaming()",
+			"tick 1\n",
+			"tick 1\ntick 2\n",
+		]);
 		expect(result.details).toEqual({
 			console: ["tick 1", "tick 2"],
 			executed: "print.streaming()",
