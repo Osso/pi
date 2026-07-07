@@ -1392,6 +1392,13 @@ export class TUI extends Container {
 			lastChanged = expandedRange.lastChanged;
 		}
 		const appendStart = appendedLines && firstChanged === this.previousLines.length && firstChanged > 0;
+		const insertedBeforeExistingLines =
+			appendedLines && firstChanged >= 0 && firstChanged < this.previousLines.length;
+		if (insertedBeforeExistingLines) {
+			logRedraw(`line insertion before existing content (firstChanged=${firstChanged})`);
+			fullRender(true);
+			return;
+		}
 
 		// No changes - but still need to update hardware cursor position if it moved
 		if (firstChanged === -1) {

@@ -679,6 +679,28 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
+	it("full re-renders when content grows before existing following lines", async () => {
+		const terminal = new VirtualTerminal(20, 6);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = ["head", "tail"];
+		tui.start();
+		await terminal.waitForRender();
+
+		const initialRedraws = tui.fullRedraws;
+
+		component.lines = ["head", "inserted", "tail"];
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		assert.ok(tui.fullRedraws > initialRedraws, "Insertion before following lines should force a full redraw");
+		assert.deepStrictEqual(terminal.getViewport(), ["head", "inserted", "tail", "", "", ""]);
+
+		tui.stop();
+	});
+
 	it("appends after a shrink without another full redraw once the viewport is reset", async () => {
 		const terminal = new VirtualTerminal(20, 5);
 		const tui = new TUI(terminal);
