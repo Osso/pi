@@ -199,6 +199,7 @@ const DEFAULT_AGENT_PROFILES: Record<string, AgentProfileSettings> = {
 	explore: { model: "openai/gpt-5-mini", thinkingLevel: "low" },
 	implement: { model: "openai/gpt-5.5", thinkingLevel: "medium" },
 	verifier: { model: "openai/gpt-5-mini", thinkingLevel: "low" },
+	"documentation-update": { model: "openai/gpt-5-mini", thinkingLevel: "low" },
 	reviewer: { model: "openai/gpt-5.5", thinkingLevel: "medium" },
 };
 

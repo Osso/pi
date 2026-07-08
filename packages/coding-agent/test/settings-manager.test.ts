@@ -143,6 +143,10 @@ describe("SettingsManager", () => {
 				model: "openai/gpt-5-mini",
 				thinkingLevel: "low",
 			});
+			expect(settingsManager.getAgentProfile("documentation-update")).toEqual({
+				model: "openai/gpt-5-mini",
+				thinkingLevel: "low",
+			});
 			expect(settingsManager.getAgentProfile("reviewer")).toEqual({
 				model: "openai/gpt-5.5",
 				thinkingLevel: "medium",

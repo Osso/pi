@@ -156,6 +156,19 @@ describe("buildSystemPrompt", () => {
 				'Before claiming work is fixed, tested, passing, or complete, you must use spawn_agent with agentType "verifier" to run proof commands, unless the user explicitly asks you not to delegate.',
 			);
 		});
+
+		test("recommends documentation-update agents for documentation-impacting changes", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["spawn_agent"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				'For code changes that affect user-facing behavior, public APIs, CLI output, configuration, specs, or changelog-worthy behavior, use spawn_agent with agentType "documentation-update" to audit and update relevant docs, specs, or changelogs before final completion.',
+			);
+		});
 	});
 
 	describe("prompt guidelines", () => {

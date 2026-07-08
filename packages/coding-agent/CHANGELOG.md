@@ -16,8 +16,8 @@
 - Added `pi.restart(...)` to Hostrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
-- Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, and `reviewer` profiles.
-- Added core system-prompt delegation rules requiring `explore` agents for codebase research and `verifier` agents before completion claims when `spawn_agent` is available.
+- Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles.
+- Added core system-prompt delegation rules requiring `explore` agents for codebase research, recommending `documentation-update` agents for documentation-impacting changes, and requiring `verifier` agents before completion claims when `spawn_agent` is available.
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
 - Added `Ctrl+B` backgrounding for running bash tool calls, moving detached commands into `/jobs` with log artifacts and `cancel_agent` support.
 - Added `Ctrl+B` backgrounding for running Pyrun evaluations, moving detached evaluations into `/jobs` with log artifacts.

@@ -140,6 +140,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			'Before claiming work is fixed, tested, passing, or complete, you must use spawn_agent with agentType "verifier" to run proof commands, unless the user explicitly asks you not to delegate.',
 		);
 		addGuideline(
+			'For code changes that affect user-facing behavior, public APIs, CLI output, configuration, specs, or changelog-worthy behavior, use spawn_agent with agentType "documentation-update" to audit and update relevant docs, specs, or changelogs before final completion.',
+		);
+		addGuideline(
+			"Documentation updates do not replace verification; still use a verifier before claiming work is fixed, tested, passing, or complete.",
+		);
+		addGuideline(
 			'For final code review or second opinions on non-trivial changes, use spawn_agent with agentType "reviewer".',
 		);
 	}
