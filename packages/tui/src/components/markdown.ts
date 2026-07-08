@@ -4,6 +4,19 @@ import type { Component } from "../tui.ts";
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
+const HTML_COMMENT_ONLY_REGEX = /^<!--[\s\S]*-->$/;
+
+function isHtmlCommentOnly(html: string): boolean {
+	return HTML_COMMENT_ONLY_REGEX.test(html.trim());
+}
+
+function getTokenRawHtml(token: Token): string | undefined {
+	if (!("raw" in token) || typeof token.raw !== "string") {
+		return undefined;
+	}
+
+	return token.raw;
+}
 
 class StrictStrikethroughTokenizer extends Tokenizer {
 	override del(src: string): Tokens.Del | undefined {
@@ -467,12 +480,14 @@ export class Markdown implements Component {
 				}
 				break;
 
-			case "html":
-				// Render HTML as plain text (escaped for terminal)
-				if ("raw" in token && typeof token.raw === "string") {
-					lines.push(this.applyDefaultStyle(token.raw.trim()));
+			case "html": {
+				// Render HTML as plain text (escaped for terminal), but keep HTML comments invisible.
+				const rawHtml = getTokenRawHtml(token);
+				if (rawHtml && !isHtmlCommentOnly(rawHtml)) {
+					lines.push(this.applyDefaultStyle(rawHtml.trim()));
 				}
 				break;
+			}
 
 			case "space":
 				// Space tokens represent blank lines in markdown
@@ -566,12 +581,14 @@ export class Markdown implements Component {
 					break;
 				}
 
-				case "html":
-					// Render inline HTML as plain text
-					if ("raw" in token && typeof token.raw === "string") {
-						result += applyTextWithNewlines(token.raw);
+				case "html": {
+					// Render inline HTML as plain text, but keep HTML comments invisible.
+					const rawHtml = getTokenRawHtml(token);
+					if (rawHtml && !isHtmlCommentOnly(rawHtml)) {
+						result += applyTextWithNewlines(rawHtml);
 					}
 					break;
+				}
 
 				default:
 					// Handle any other inline token types as plain text

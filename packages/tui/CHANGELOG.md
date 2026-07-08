@@ -6,6 +6,10 @@
 
 - `fuzzyFilter`'s `getText` may now return multiple candidate strings; each query token is scored against every candidate independently (best score wins) so a token cannot match by spanning two candidates.
 
+### Fixed
+
+- Hide HTML comment-only tokens in the TUI Markdown renderer so literal HTML comments like `<!-- -->` are not rendered to the terminal. Non-comment HTML remains rendered as plain text. Added regression tests to cover comment hiding and plain-text behavior.
+
 ## [0.80.3] - 2026-06-30
 
 ### Added

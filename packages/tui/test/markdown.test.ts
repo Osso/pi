@@ -36,6 +36,26 @@ function stripAnsi(line: string): string {
 }
 
 describe("Markdown component", () => {
+	describe("HTML", () => {
+		it("should hide HTML comments", () => {
+			const markdown = new Markdown("alpha\n\n<!-- -->\n\nbeta", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+
+			assert.ok(lines.includes("alpha"), "Should preserve content before the comment");
+			assert.ok(lines.includes("beta"), "Should preserve content after the comment");
+			assert.ok(!lines.some((line) => line.includes("<!--")), "Should not render HTML comments");
+		});
+
+		it("should render non-comment HTML as plain text", () => {
+			const markdown = new Markdown("<span>visible</span>", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["<span>visible</span>"]);
+		});
+	});
+
 	describe("Lists", () => {
 		it("should render simple nested list", () => {
 			const markdown = new Markdown(
