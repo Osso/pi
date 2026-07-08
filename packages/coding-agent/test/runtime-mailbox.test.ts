@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
+import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	claimRuntimeMailboxMessages,
@@ -584,7 +584,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("sends a non-expiring desktop notification when a dispatched child waits for input", async () => {
+	it("sends a persistent desktop notification when a dispatched child waits for input", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -617,7 +617,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(desktopNotifications).toEqual([
 			{
 				body: "Worker is waiting for input.",
-				expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+				expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 				title: "Pi agent needs input",
 			},
 		]);

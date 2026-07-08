@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 
 export const DEFAULT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS = -1;
 export const NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS = 0;
+export const PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS = 999_999;
 
 export interface DesktopNotification {
 	body: string;

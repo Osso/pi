@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
+import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { createAskQuestionsToolDefinition } from "../src/core/tools/ask-questions.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
@@ -136,7 +136,7 @@ describe("ask_questions tool", () => {
 		expect(result.details?.answers).toEqual({ "Which follow-ups should be included?": "Tests, Docs" });
 	});
 
-	it("sends a non-expiring desktop notification while waiting for answers", async () => {
+	it("sends a persistent desktop notification while waiting for answers", async () => {
 		const close = vi.fn();
 		desktopNotifier.mockReturnValue({ close });
 		const tool = createAskQuestionsToolDefinition();
@@ -153,7 +153,7 @@ describe("ask_questions tool", () => {
 		expect(result.details?.cancelled).toBe(false);
 		expect(desktopNotifier).toHaveBeenCalledWith({
 			body: "Pi is waiting for your answer.",
-			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+			expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 			title: "Pi question needs input",
 			urgency: "normal",
 		});

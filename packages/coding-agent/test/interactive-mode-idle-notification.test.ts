@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
-import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
+import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
@@ -123,14 +123,14 @@ describe("InteractiveMode idle desktop notifications", () => {
 		desktopNotifier.mockReset();
 	});
 
-	it("sends a non-expiring desktop notification after a final agent_end", async () => {
+	it("sends a persistent desktop notification after a final agent_end", async () => {
 		const context = createContext();
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_end", messages: [], willRetry: false });
 
 		expect(desktopNotifier).toHaveBeenCalledWith({
 			body: "Pi is idle and ready for your next message.",
-			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+			expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 			title: "Pi response complete",
 			urgency: "normal",
 		});

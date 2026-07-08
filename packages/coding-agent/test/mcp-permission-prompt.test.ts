@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
+import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import type { ToolCallEvent } from "../src/core/extensions/types.ts";
 import {
 	createPermissionPromptHandler,
@@ -110,7 +110,7 @@ describe("createPermissionPromptHandler", () => {
 
 		expect(desktopNotifier).toHaveBeenCalledWith({
 			body: "Permission approval needed for bash in /repo.",
-			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+			expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 			title: "Pi permission approval needed",
 		});
 		expect(callTool).toHaveBeenCalledTimes(1);

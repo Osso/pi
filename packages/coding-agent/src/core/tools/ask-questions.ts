@@ -3,7 +3,7 @@ import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import {
 	type DesktopNotificationHandle,
-	NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 	sendDesktopNotification,
 } from "../desktop-notification.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
@@ -245,7 +245,7 @@ function notifyAskQuestionsWaiting(questionCount: number): DesktopNotificationHa
 	try {
 		return sendDesktopNotification({
 			body: formatAskQuestionsNotificationBody(questionCount),
-			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+			expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 			title: ASK_QUESTIONS_NOTIFICATION_TITLE,
 			urgency: "normal",
 		});

@@ -18,7 +18,8 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 - [x] Support multi-select questions and return comma-separated selected labels.
 - [x] Return a cancelled result if the user cancels before all questions are answered.
 - [x] Return an error outside interactive TUI mode instead of hanging.
-- [x] Send a non-expiring desktop notification while waiting for answers and close it after the question flow answers or cancels.
+- [x] Send a persistent desktop notification while waiting for answers and close it after the question flow answers or cancels.
+  Persistent actionable notifications use a large non-zero timeout (`PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS`) because the live notification daemon treats `0` as too short; Pi still closes them explicitly by handle.
 
 ### Prompting and rendering
 

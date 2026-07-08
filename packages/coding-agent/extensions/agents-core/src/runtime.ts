@@ -9,7 +9,7 @@ import {
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
 import {
-	NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 	sendDesktopNotification,
 	toDesktopNotificationHandle,
 	type DesktopNotification,
@@ -1996,7 +1996,7 @@ function notifyWaitingAgent(
 		return toDesktopNotificationHandle(
 			desktopNotifier({
 				body: message.body ?? `${message.fromAgentId} is waiting for input.`,
-				expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+				expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 				title: "Pi agent needs input",
 			}),
 		);

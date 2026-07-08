@@ -1,7 +1,7 @@
 import {
 	type DesktopNotificationHandle,
 	type DesktopNotifier,
-	NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 	toDesktopNotificationHandle,
 } from "../desktop-notification.ts";
 import type { ToolCallEvent, ToolCallEventResult } from "../extensions/types.ts";
@@ -132,7 +132,7 @@ function notifyPermissionPrompt(
 		return toDesktopNotificationHandle(
 			desktopNotifier({
 				body: `Permission approval needed for ${event.toolName} in ${cwd}.`,
-				expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+				expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 				title: "Pi permission approval needed",
 			}),
 		);
