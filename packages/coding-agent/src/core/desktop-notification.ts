@@ -2,7 +2,9 @@ import { spawn } from "node:child_process";
 
 export interface DesktopNotification {
 	body: string;
+	expireTimeMs?: number;
 	title: string;
+	urgency?: "critical" | "low" | "normal";
 }
 
 export interface DesktopNotificationHandle {
@@ -26,9 +28,18 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 	}
 
 	const pendingNotification = createPendingDesktopNotification();
+	const expireTimeMs = notification.expireTimeMs ?? 0;
+	const urgency = notification.urgency ?? "critical";
 	const child = spawn(
 		"notify-send",
-		["--print-id", "--app-name=Pi", "--expire-time=0", "--urgency=critical", notification.title, notification.body],
+		[
+			"--print-id",
+			"--app-name=Pi",
+			`--expire-time=${expireTimeMs}`,
+			`--urgency=${urgency}`,
+			notification.title,
+			notification.body,
+		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
 	);
 	let output = "";

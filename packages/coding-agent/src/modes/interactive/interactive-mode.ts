@@ -65,6 +65,7 @@ import {
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type { CompactionSourceInfo } from "../../core/compaction/index.ts";
+import { sendDesktopNotification } from "../../core/desktop-notification.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -118,6 +119,7 @@ import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
+import { createClipboardTempFileTracker } from "../../utils/clipboard-temp-files.ts";
 import { closeWatcher, watchWithErrorHandler } from "../../utils/fs-watch.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
@@ -370,6 +372,7 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
+	private clipboardTempFiles = createClipboardTempFileTracker();
 	private loadingAnimation: Loader | undefined = undefined;
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
@@ -1015,6 +1018,7 @@ export class InteractiveMode {
 			const userInput = await this.getUserInput();
 			try {
 				await this.session.prompt(userInput);
+				this.clipboardTempFiles.cleanupReferencedIn(userInput);
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -3060,6 +3064,22 @@ export class InteractiveMode {
 		return true;
 	}
 
+	private notifyResponseComplete(event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
+		if (event.willRetry) {
+			return;
+		}
+		try {
+			sendDesktopNotification({
+				body: "Pi is idle and ready for your next message.",
+				expireTimeMs: 0,
+				title: "Pi response complete",
+				urgency: "normal",
+			});
+		} catch (error) {
+			console.error("Failed to send response-complete desktop notification:", error);
+		}
+	}
+
 	private async handleClipboardImagePaste(): Promise<void> {
 		try {
 			const image = await readClipboardImage();
@@ -3073,6 +3093,7 @@ export class InteractiveMode {
 			const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
 			const filePath = path.join(tmpDir, fileName);
 			fs.writeFileSync(filePath, Buffer.from(image.bytes));
+			this.clipboardTempFiles.track(filePath);
 
 			// Insert file path directly
 			this.editor.insertTextAtCursor?.(filePath);
@@ -3583,6 +3604,7 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
+				this.notifyResponseComplete(event);
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
 				this.stopToolWaitingTimerIfIdle();
@@ -6653,6 +6675,7 @@ export class InteractiveMode {
 		this.cancelStreamingUpdateRender();
 		this.disposeActiveBashComponents();
 		this.clearPendingToolComponents();
+		this.clipboardTempFiles.cleanupAll();
 		if (this.isInitialized) {
 			this.ui.stop();
 			this.isInitialized = false;
