@@ -4,6 +4,7 @@
  */
 
 import * as crypto from "node:crypto";
+import type { FSWatcher } from "node:fs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -117,6 +118,7 @@ import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
+import { closeWatcher, watchWithErrorHandler } from "../../utils/fs-watch.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
@@ -126,6 +128,7 @@ import { ensureTool } from "../../utils/tools-manager.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
 
 const MAX_AGENT_LOG_VIEW_BYTES = 32 * 1024;
+const CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS = 50;
 
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
@@ -467,6 +470,10 @@ export class InteractiveMode {
 	private themeController: InteractiveThemeController;
 	private multiAgentStore: MultiAgentStore | undefined;
 	private childViewSessionManager: SessionManager | undefined;
+	private childViewAgentId: string | undefined;
+	private childViewTranscriptPath: string | undefined;
+	private childViewTranscriptWatcher: FSWatcher | null = null;
+	private childViewTranscriptReloadTimer: ReturnType<typeof setTimeout> | undefined;
 	private unregisterAgentSlotInputHandler: (() => void) | undefined;
 	private terminalCurrentDirectory: string | undefined;
 
@@ -2771,7 +2778,7 @@ export class InteractiveMode {
 		const previousSelectedAgentId = this.multiAgentStore?.getSelectedAgentId();
 		if (agentId === "main") {
 			this.multiAgentStore?.clearSelectedAgentView();
-			this.childViewSessionManager = undefined;
+			this.clearChildAgentView();
 			this.chatContainer.clear();
 			this.renderInitialMessages();
 			this.updateSelectedAgentSelectionWidgets();
@@ -2809,14 +2816,77 @@ export class InteractiveMode {
 
 	private openChildAgentView(agent: AgentSnapshot): boolean {
 		const transcriptPath = agent.transcript?.path;
+		this.clearChildAgentView();
+		this.childViewAgentId = agent.id;
+		this.childViewTranscriptPath = transcriptPath;
 		if (!transcriptPath || !fs.existsSync(transcriptPath)) {
-			this.childViewSessionManager = undefined;
 			this.renderLiveAgentPlaceholder(agent, transcriptPath);
 			return true;
 		}
 
 		this.childViewSessionManager = SessionManager.open(transcriptPath, this.sessionManager.getSessionDir());
+		this.watchSelectedAgentTranscript(transcriptPath);
 		return this.renderSelectedAgentView();
+	}
+
+	private clearChildAgentView(): void {
+		this.childViewSessionManager = undefined;
+		this.childViewAgentId = undefined;
+		this.childViewTranscriptPath = undefined;
+		if (this.childViewTranscriptReloadTimer) {
+			clearTimeout(this.childViewTranscriptReloadTimer);
+			this.childViewTranscriptReloadTimer = undefined;
+		}
+		closeWatcher(this.childViewTranscriptWatcher);
+		this.childViewTranscriptWatcher = null;
+	}
+
+	private watchSelectedAgentTranscript(transcriptPath: string): void {
+		this.childViewTranscriptWatcher = watchWithErrorHandler(
+			transcriptPath,
+			() => this.scheduleSelectedAgentTranscriptReload(),
+			() => {
+				closeWatcher(this.childViewTranscriptWatcher);
+				this.childViewTranscriptWatcher = null;
+			},
+		);
+	}
+
+	private scheduleSelectedAgentTranscriptReload(): void {
+		this.cancelSelectedAgentTranscriptReload();
+		this.childViewTranscriptReloadTimer = setTimeout(
+			() => this.reloadSelectedAgentTranscript(),
+			CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS,
+		);
+	}
+
+	private cancelSelectedAgentTranscriptReload(): void {
+		if (!this.childViewTranscriptReloadTimer) {
+			return;
+		}
+		clearTimeout(this.childViewTranscriptReloadTimer);
+		this.childViewTranscriptReloadTimer = undefined;
+	}
+
+	private reloadSelectedAgentTranscript(): void {
+		this.childViewTranscriptReloadTimer = undefined;
+		if (!this.childViewAgentId || !this.childViewTranscriptPath) {
+			return;
+		}
+		if (this.multiAgentStore?.getSelectedAgentId() !== this.childViewAgentId) {
+			return;
+		}
+		if (!fs.existsSync(this.childViewTranscriptPath)) {
+			return;
+		}
+
+		this.childViewSessionManager = SessionManager.open(
+			this.childViewTranscriptPath,
+			this.sessionManager.getSessionDir(),
+		);
+		if (this.renderSelectedAgentView()) {
+			this.ui.requestRender();
+		}
 	}
 
 	private findReadableAgentLogPath(agent: AgentSnapshot): string | undefined {

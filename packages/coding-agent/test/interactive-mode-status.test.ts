@@ -151,6 +151,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 
 interface InteractiveModeKeyHandlerInternals {
 	addMessageToChat(this: unknown, message: unknown, options?: { populateHistory?: boolean }): void;
+	clearChildAgentView(this: unknown): void;
 	currentFooter(this: unknown): Component & { dispose?(): void };
 	getUserMessageText(this: unknown, message: unknown): string;
 	registerAgentSlotKeyHandlers(this: unknown): void;
@@ -161,6 +162,7 @@ interface InteractiveModeKeyHandlerInternals {
 	findReadableAgentLogPath(this: unknown, agent: unknown): string | undefined;
 	readAgentLogPreview(this: unknown, logPath: string): string;
 	readAgentLogPreviewUnchecked(this: unknown, logPath: string): string;
+	reloadSelectedAgentTranscript(this: unknown): void;
 	renderLiveAgentPlaceholder(this: unknown, agent: unknown, transcriptPath: string | undefined): void;
 	renderSelectedAgentView(this: unknown): boolean;
 	renderSessionContext(
@@ -181,6 +183,7 @@ interface InteractiveModeKeyHandlerInternals {
 	showStatus(this: unknown, message: string): void;
 	updateSelectedAgentBanner(this: unknown): void;
 	updateSelectedAgentSelectionWidgets(this: unknown): void;
+	watchSelectedAgentTranscript(this: unknown, transcriptPath: string): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	resetExtensionUI(this: unknown): void;
@@ -197,7 +200,10 @@ type TranscriptSwitchFixture = {
 		addMessageToChat: typeof interactiveModeKeyHandlers.addMessageToChat;
 		addRenderedMessageToEditorHistory: () => void;
 		chatContainer: Container;
+		childViewAgentId?: string;
 		childViewSessionManager?: SessionManager;
+		childViewTranscriptPath?: string;
+		clearChildAgentView: typeof interactiveModeKeyHandlers.clearChildAgentView;
 		footer: { invalidate: ReturnType<typeof vi.fn> };
 		getMarkdownThemeWithSettings: () => undefined;
 		getRegisteredToolDefinition: (name: string) => ToolDefinition | undefined;
@@ -210,6 +216,7 @@ type TranscriptSwitchFixture = {
 		findReadableAgentLogPath: typeof interactiveModeKeyHandlers.findReadableAgentLogPath;
 		readAgentLogPreview: typeof interactiveModeKeyHandlers.readAgentLogPreview;
 		readAgentLogPreviewUnchecked: typeof interactiveModeKeyHandlers.readAgentLogPreviewUnchecked;
+		reloadSelectedAgentTranscript: typeof interactiveModeKeyHandlers.reloadSelectedAgentTranscript;
 		renderLiveAgentPlaceholder: typeof interactiveModeKeyHandlers.renderLiveAgentPlaceholder;
 		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
 		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
@@ -225,6 +232,7 @@ type TranscriptSwitchFixture = {
 		updateEditorBorderColor: ReturnType<typeof vi.fn>;
 		updateSelectedAgentBanner: typeof interactiveModeKeyHandlers.updateSelectedAgentBanner;
 		updateSelectedAgentSelectionWidgets: typeof interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets;
+		watchSelectedAgentTranscript: ReturnType<typeof vi.fn>;
 	};
 	store: MultiAgentStore;
 };
@@ -256,7 +264,10 @@ function createTranscriptSwitchFixture(options: {
 		addMessageToChat: interactiveModeKeyHandlers.addMessageToChat,
 		addRenderedMessageToEditorHistory: () => {},
 		chatContainer: new Container(),
+		childViewAgentId: undefined,
 		childViewSessionManager: undefined,
+		childViewTranscriptPath: undefined,
+		clearChildAgentView: interactiveModeKeyHandlers.clearChildAgentView,
 		footer: { invalidate: vi.fn() },
 		getMarkdownThemeWithSettings: () => undefined,
 		getRegisteredToolDefinition: () => undefined,
@@ -266,6 +277,7 @@ function createTranscriptSwitchFixture(options: {
 		renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
 		renderProjectTrustWarningIfNeeded: () => {},
 		openChildAgentView: interactiveModeKeyHandlers.openChildAgentView,
+		reloadSelectedAgentTranscript: interactiveModeKeyHandlers.reloadSelectedAgentTranscript,
 		findReadableAgentLogPath: interactiveModeKeyHandlers.findReadableAgentLogPath,
 		readAgentLogPreview: interactiveModeKeyHandlers.readAgentLogPreview,
 		readAgentLogPreviewUnchecked: interactiveModeKeyHandlers.readAgentLogPreviewUnchecked,
@@ -284,6 +296,7 @@ function createTranscriptSwitchFixture(options: {
 		updateEditorBorderColor: vi.fn(),
 		updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 		updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+		watchSelectedAgentTranscript: vi.fn(),
 	};
 	return {
 		childAgentId: spawned.agent.id,
@@ -655,6 +668,27 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
+	test("reloads the selected child transcript when new messages are appended", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			const transcriptPath = fixture.store.getAgent(fixture.childAgentId)?.transcript?.path;
+			if (!transcriptPath) {
+				throw new Error("expected child transcript path");
+			}
+
+			SessionManager.open(transcriptPath).appendMessage(fauxAssistantMessage("new child reply"));
+			interactiveModeKeyHandlers.reloadSelectedAgentTranscript.call(fixture.fakeThis);
+
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("child reply");
+			expect(output).toContain("new child reply");
+			expect(fixture.fakeThis.ui.requestRender).toHaveBeenCalled();
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
 	test("child transcript tool components render with the child session cwd", () => {
 		const fixture = createTranscriptSwitchFixture({ childCwd: "/child-repo", withChildPath: true });
 		let renderedToolCwd: string | undefined;
@@ -804,7 +838,10 @@ describe("InteractiveMode key handlers", () => {
 				addMessageToChat: interactiveModeKeyHandlers.addMessageToChat,
 				addRenderedMessageToEditorHistory: () => {},
 				chatContainer: new Container(),
+				childViewAgentId: previous.agent.id,
 				childViewSessionManager: previousSession,
+				childViewTranscriptPath: previousSession.getSessionFile(),
+				clearChildAgentView: interactiveModeKeyHandlers.clearChildAgentView,
 				footer: { invalidate: vi.fn() },
 				getMarkdownThemeWithSettings: () => undefined,
 				getRegisteredToolDefinition: () => undefined,
@@ -831,6 +868,7 @@ describe("InteractiveMode key handlers", () => {
 				updateEditorBorderColor: vi.fn(),
 				updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 				updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+				watchSelectedAgentTranscript: vi.fn(),
 			};
 			interactiveModeKeyHandlers.renderSelectedAgentView.call(fakeThis);
 
@@ -902,6 +940,7 @@ describe("InteractiveMode key handlers", () => {
 		store.selectActiveAgentTargetWithStatus(first.agent.id);
 		const fakeThis = {
 			chatContainer: { clear: vi.fn() },
+			clearChildAgentView: vi.fn(),
 			keybindings: { matches: (data: string, action: string) => action === "app.agent.slot1" && data === "\x1b1" },
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
