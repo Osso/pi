@@ -443,6 +443,11 @@ export class SettingsManager {
 			}
 		}
 
+		// Migrate legacy LLM-approved preset to behavior-preserving split preset
+		if (settings.approvalPreset === "llm-approved") {
+			settings.approvalPreset = "llm-approved-deny";
+		}
+
 		// Migrate retry.maxDelayMs -> retry.provider.maxRetryDelayMs
 		if (
 			"retry" in settings &&

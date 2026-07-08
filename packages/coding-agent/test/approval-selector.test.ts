@@ -17,7 +17,7 @@ describe("approval and sandbox selectors", () => {
 
 	it("renders approval presets with the active preset marked", () => {
 		const selector = new ApprovalSelectorComponent({
-			currentPreset: "llm-approved",
+			currentPreset: "llm-approved-deny",
 			onCancel: () => {},
 			onSelect: () => {},
 		});
@@ -26,7 +26,8 @@ describe("approval and sandbox selectors", () => {
 
 		expect(output).toContain("Approval presets");
 		expect(output).toContain("Ask Me");
-		expect(output).toContain("LLM Approved ✓");
+		expect(output).toContain("LLM Approved (and deny) ✓");
+		expect(output).toContain("LLM Approved (and ask)");
 		expect(output).toContain("Never Ask/Deny");
 		expect(output).toContain("Auto Approve");
 	});
@@ -43,7 +44,7 @@ describe("approval and sandbox selectors", () => {
 		selector.handleInput("\t");
 		selector.handleInput("\n");
 
-		expect(onSelect).toHaveBeenCalledWith({ preset: "llm-approved", scope: "project" });
+		expect(onSelect).toHaveBeenCalledWith({ preset: "llm-approved-deny", scope: "project" });
 	});
 
 	it("renders sandbox profiles without approval-policy labels", () => {

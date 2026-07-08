@@ -1,6 +1,6 @@
 import type { ApprovalPolicy } from "./policy.ts";
 
-export type ApprovalPresetReviewer = "human" | "llm" | "none";
+export type ApprovalPresetReviewer = "human" | "llm-deny" | "llm-ask" | "none";
 
 export type ApprovalPreset = {
 	name: string;
@@ -16,7 +16,8 @@ export type SandboxProfile = {
 
 export const APPROVAL_PRESETS = [
 	{ name: "ask-me", label: "Ask Me", policy: "on-request", reviewer: "human" },
-	{ name: "llm-approved", label: "LLM Approved", policy: "on-request", reviewer: "llm" },
+	{ name: "llm-approved-deny", label: "LLM Approved (and deny)", policy: "on-request", reviewer: "llm-deny" },
+	{ name: "llm-approved-ask", label: "LLM Approved (and ask)", policy: "on-request", reviewer: "llm-ask" },
 	{ name: "never-ask-deny", label: "Never Ask/Deny", policy: "never", reviewer: "none" },
 	{ name: "auto-approve", label: "Auto Approve", policy: "auto-approve", reviewer: "none" },
 ] as const satisfies ReadonlyArray<ApprovalPreset>;

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { parseArgs } from "../src/cli/args.ts";
 
 type ParsedApprovalArgs = ReturnType<typeof parseArgs> & {
-	approvalPreset?: "ask-me" | "llm-approved" | "never-ask-deny" | "auto-approve";
+	approvalPreset?: "ask-me" | "llm-approved-deny" | "llm-approved-ask" | "never-ask-deny" | "auto-approve";
 };
 
 function parseApprovalArgs(args: string[]): ParsedApprovalArgs {
@@ -388,13 +388,22 @@ describe("parseArgs", () => {
 	});
 
 	describe("approval policy flags", () => {
-		test("parses explicit never and auto-approve presets as distinct values", () => {
+		test("parses explicit approval presets as distinct values", () => {
+			const llmDeny = parseApprovalArgs(["--approval-preset", "llm-approved-deny"]);
+			const llmAsk = parseApprovalArgs(["--approval-preset", "llm-approved-ask"]);
 			const never = parseApprovalArgs(["--approval-preset", "never-ask-deny"]);
 			const autoApprove = parseApprovalArgs(["--approval-preset", "auto-approve"]);
 
+			expect(llmDeny.approvalPreset).toBe("llm-approved-deny");
+			expect(llmAsk.approvalPreset).toBe("llm-approved-ask");
 			expect(never.approvalPreset).toBe("never-ask-deny");
 			expect(autoApprove.approvalPreset).toBe("auto-approve");
-			expect(never.approvalPreset).not.toBe(autoApprove.approvalPreset);
+			expect(
+				new Set([llmDeny.approvalPreset, llmAsk.approvalPreset, never.approvalPreset, autoApprove.approvalPreset])
+					.size,
+			).toBe(4);
+			expect(llmDeny.unknownFlags.has("approval-preset")).toBe(false);
+			expect(llmAsk.unknownFlags.has("approval-preset")).toBe(false);
 			expect(never.unknownFlags.has("approval-preset")).toBe(false);
 			expect(autoApprove.unknownFlags.has("approval-preset")).toBe(false);
 		});

@@ -12,6 +12,7 @@ describe("approval hook compatibility", () => {
 
 	it("reviewed approval presets map to bypassPermissions=false", () => {
 		expect(approvalPresetToBypassPermissions("ask-me")).toBe(false);
-		expect(approvalPresetToBypassPermissions("llm-approved")).toBe(false);
+		expect(approvalPresetToBypassPermissions("llm-approved-deny")).toBe(false);
+		expect(approvalPresetToBypassPermissions("llm-approved-ask")).toBe(false);
 	});
 });

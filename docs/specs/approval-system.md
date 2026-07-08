@@ -36,11 +36,12 @@ Implementation details belong in
   `tool_call` hook and `ui.confirm`.
 - [x] Support LLM-approved approvals as `on-request` with the reviewer set to
   the auto-reviewer path (a permissive guardian LLM call that pre-approves
-  ordinary bounded-risk coding-agent work and denies only catastrophic,
-  credential-exposing, irreversible data-loss, system-damaging, or unrelated
-  external-side-effect actions).
-- [x] Expose LLM-approved mode as an explicit choice in the `/approvals` preset
-  selector, distinct from `never` and `auto-approve`.
+  ordinary bounded-risk coding-agent work). `LLM Approved (and deny)` denies
+  catastrophic, credential-exposing, irreversible data-loss, system-damaging,
+  or unrelated external-side-effect actions; `LLM Approved (and ask)` escalates
+  those cases to the human reviewer.
+- [x] Expose LLM-approved deny and LLM-approved ask modes as explicit choices
+  in the `/approvals` preset selector, distinct from `never` and `auto-approve`.
 - [x] Skip the LLM-approved reviewer when the action has already been approved
   by a hook (`tool_call` handler returned no block), a cached rule, or an
   explicit policy decision — hook `allow` short-circuits both human and LLM
@@ -55,7 +56,8 @@ Implementation details belong in
 
 - [x] Register `/approvals` as a slash command that opens an approval preset
   selector; choices must include at least: Ask Me (on-request/human),
-  LLM Approved (on-request/auto-reviewer), Never Ask/Deny (never), and
+  LLM Approved (and deny) (on-request/auto-reviewer), LLM Approved (and ask)
+  (on-request/auto-reviewer with human escalation), Never Ask/Deny (never), and
   Auto Approve (auto-approve).
 - [x] Register `/sandbox` as a slash command that opens a sandbox/profile
   selector without changing approval policy; choices must include at least:
@@ -65,6 +67,8 @@ Implementation details belong in
   sandbox access are separate concerns.
 - [x] Persist the selected approval preset to `.pi/settings.json` (project) or
   `~/.config/pi/agent/settings.json` (global) when the user saves from the selector.
+- [x] Migrate legacy persisted `llm-approved` preset values to
+  `llm-approved-deny` to preserve existing autonomous-deny behavior.
 
 ### Hook compatibility
 
@@ -102,8 +106,9 @@ Implementation details belong in
   `approvalPolicy`, and scoped sandbox profile serialization.
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
-  allow/deny. The prompt explicitly allows bounded local coding work and
-  temporary workspace/cache cleanup such as deleting files under `/tmp`.
+  allow/deny or allow/ask depending on the selected preset. The prompt explicitly
+  allows bounded local coding work and temporary workspace/cache cleanup such as
+  deleting files under `/tmp`.
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
   approval flow: check policy and route `on-request` calls to the configured
   reviewer.

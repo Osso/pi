@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { buildAutoReviewerPrompt, parseAutoReviewerDecision } from "../src/core/permissions/auto-reviewer.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+	buildAutoReviewerPrompt,
+	parseAutoReviewerDecision,
+	reviewToolCallWithAutoReviewer,
+} from "../src/core/permissions/auto-reviewer.ts";
 
 describe("approval auto reviewer", () => {
 	it("builds a guardian prompt with the tool call context and JSON-only response contract", () => {
@@ -33,16 +37,34 @@ describe("approval auto reviewer", () => {
 		).toEqual({ behavior: "allow" });
 	});
 
-	it("parses deny responses with a non-empty message", () => {
+	it("parses deny and ask responses with a non-empty message", () => {
 		expect(parseAutoReviewerDecision({ behavior: "deny", message: "destructive command" })).toEqual({
 			behavior: "deny",
 			message: "destructive command",
 		});
+		expect(parseAutoReviewerDecision({ behavior: "ask", message: "needs supervision" })).toEqual({
+			behavior: "ask",
+			message: "needs supervision",
+		});
+	});
+
+	it("escalates ask decisions to the supplied human reviewer", async () => {
+		const humanReviewer = vi.fn(async () => ({ block: true, reason: "user denied" }));
+
+		await expect(
+			reviewToolCallWithAutoReviewer(
+				{ cwd: "/repo", input: {}, toolCallId: "call-1", toolName: "bash" },
+				async () => ({ behavior: "ask", message: "needs supervision" }),
+				{ onAsk: humanReviewer },
+			),
+		).resolves.toEqual({ block: true, reason: "user denied" });
+		expect(humanReviewer).toHaveBeenCalledWith("needs supervision");
 	});
 
 	it("rejects malformed reviewer responses", () => {
 		expect(parseAutoReviewerDecision("not json")).toBeUndefined();
 		expect(parseAutoReviewerDecision({ behavior: "deny", message: "" })).toBeUndefined();
+		expect(parseAutoReviewerDecision({ behavior: "ask", message: "" })).toBeUndefined();
 		expect(parseAutoReviewerDecision({ behavior: "rewrite", message: "try this instead" })).toBeUndefined();
 		expect(parseAutoReviewerDecision({ content: [{ type: "image", text: '{"behavior":"allow"}' }] })).toBeUndefined();
 	});

@@ -28,17 +28,25 @@ describe("approval slash commands", () => {
 	it("keeps approval presets distinct from sandbox profiles", () => {
 		expect(APPROVAL_PRESETS.map((preset) => preset.name)).toEqual([
 			"ask-me",
-			"llm-approved",
+			"llm-approved-deny",
+			"llm-approved-ask",
 			"never-ask-deny",
 			"auto-approve",
 		]);
 		expect(APPROVAL_PRESETS.map((preset) => preset.policy)).toEqual([
 			"on-request",
 			"on-request",
+			"on-request",
 			"never",
 			"auto-approve",
 		]);
-		expect(APPROVAL_PRESETS.map((preset) => preset.reviewer)).toEqual(["human", "llm", "none", "none"]);
+		expect(APPROVAL_PRESETS.map((preset) => preset.reviewer)).toEqual([
+			"human",
+			"llm-deny",
+			"llm-ask",
+			"none",
+			"none",
+		]);
 
 		expect(SANDBOX_PROFILES.map((profile) => profile.name)).toEqual(["read-only", "workspace-write", "full-access"]);
 		expect(SANDBOX_PROFILES.every((profile) => !("policy" in profile))).toBe(true);

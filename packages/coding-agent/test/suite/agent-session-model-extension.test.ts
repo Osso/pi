@@ -902,7 +902,7 @@ describe("AgentSession model and extension characterization", () => {
 			},
 		};
 		const harness = await createHarness({
-			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved" },
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
@@ -921,6 +921,46 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("llm denied");
 	});
 
+	it("escalates LLM-approved ask decisions to native approval", async () => {
+		let toolExecutions = 0;
+		const select = vi.fn(async () => "Allow once");
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				toolExecutions++;
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-ask" },
+			tools: [echoTool],
+			uiContext: createConfirmUiContext(vi.fn(), select),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage('{"behavior":"ask","message":"needs supervision"}'),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(toolExecutions).toBe(1);
+		expect(select).toHaveBeenCalledWith(expect.stringContaining("Reason: needs supervision"), [
+			"Allow once",
+			"Allow always",
+			"Deny",
+		]);
+		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
 	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {
 		let autoReviewerCalls = 0;
 		const echoTool: AgentTool = {
@@ -936,7 +976,7 @@ describe("AgentSession model and extension characterization", () => {
 		const harness = await createHarness({
 			settings: {
 				approvalPolicy: "on-request",
-				approvalPreset: "llm-approved",
+				approvalPreset: "llm-approved-deny",
 				permissionPromptTool: "mcp__approval__prompt",
 				permissionRules: { allow: { echo: ['{"text":"hello"}'] } },
 			},
@@ -973,7 +1013,7 @@ describe("AgentSession model and extension characterization", () => {
 			},
 		};
 		const harness = await createHarness({
-			settings: { approvalPolicy: "never", approvalPreset: "llm-approved" },
+			settings: { approvalPolicy: "never", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
@@ -1008,7 +1048,7 @@ describe("AgentSession model and extension characterization", () => {
 			},
 		};
 		const harness = await createHarness({
-			settings: { approvalPolicy: "auto-approve", approvalPreset: "llm-approved" },
+			settings: { approvalPolicy: "auto-approve", approvalPreset: "llm-approved-deny" },
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
@@ -1091,6 +1131,7 @@ describe("AgentSession model and extension characterization", () => {
 		]);
 		expect(desktopNotifier).toHaveBeenCalledWith({
 			body: expect.stringMatching(/^Permission approval needed for echo in .*\.$/),
+			expireTimeMs: 999999,
 			title: "Pi permission approval needed",
 		});
 		expect(getAssistantTexts(harness)).toContain("approved");

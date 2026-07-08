@@ -30,9 +30,9 @@ export async function orchestrateToolApproval(
 		return options.hookReviewer();
 	}
 
-	if (options.reviewer) {
-		return options.reviewer();
+	if (options.llmReviewer) {
+		return options.llmReviewer();
 	}
 
-	return options.llmReviewer?.();
+	return options.reviewer?.();
 }

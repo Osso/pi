@@ -5,6 +5,7 @@ export type AutoReviewerPromptInput = {
 	toolCallId: string;
 	input: Record<string, unknown>;
 	cwd: string;
+	escalation?: "deny" | "ask";
 };
 
 export type AutoReviewerDecision =
@@ -12,11 +13,15 @@ export type AutoReviewerDecision =
 			behavior: "allow";
 	  }
 	| {
-			behavior: "deny";
+			behavior: "deny" | "ask";
 			message: string;
 	  };
 
 export type AutoReviewerModelCall = (prompt: string) => Promise<unknown>;
+
+export type AutoReviewerOptions = {
+	onAsk?: (reason: string) => Promise<ToolCallEventResult | undefined>;
+};
 
 export function buildAutoReviewerPrompt(input: AutoReviewerPromptInput): string {
 	return [
@@ -24,10 +29,14 @@ export function buildAutoReviewerPrompt(input: AutoReviewerPromptInput): string 
 		"Approve ordinary bounded-risk coding-agent work that is related to the user's task.",
 		"Be permissive for routine code edits, builds, tests, package-manager reads, local inspection, and cleanup with bounded scope.",
 		"Allow temporary workspace or cache cleanup, including deleting files under /tmp.",
-		"Deny only actions likely to trash the laptop, cause irreversible user-data or system damage, expose credentials, or perform unrelated external side effects.",
+		input.escalation === "ask"
+			? "Ask a human only for actions likely to trash the laptop, cause irreversible user-data or system damage, expose credentials, or perform unrelated external side effects."
+			: "Deny only actions likely to trash the laptop, cause irreversible user-data or system damage, expose credentials, or perform unrelated external side effects.",
 		"When risk is ordinary, local, reversible, or limited to temporary/cache/workspace files, approve.",
 		"Respond with exactly one JSON object and no markdown.",
-		'Allowed responses: {"behavior":"allow"} or {"behavior":"deny","message":"short reason"}.',
+		input.escalation === "ask"
+			? 'Allowed responses: {"behavior":"allow"} or {"behavior":"ask","message":"short reason"}.'
+			: 'Allowed responses: {"behavior":"allow"} or {"behavior":"deny","message":"short reason"}.',
 		"",
 		`Tool call id: ${input.toolCallId}`,
 		`Tool name: ${input.toolName}`,
@@ -47,8 +56,12 @@ export function parseAutoReviewerDecision(rawResponse: unknown): AutoReviewerDec
 		return { behavior: "allow" };
 	}
 
-	if (response.behavior === "deny" && typeof response.message === "string" && response.message.length > 0) {
-		return { behavior: "deny", message: response.message };
+	if (
+		(response.behavior === "deny" || response.behavior === "ask") &&
+		typeof response.message === "string" &&
+		response.message.length > 0
+	) {
+		return { behavior: response.behavior, message: response.message };
 	}
 
 	return undefined;
@@ -57,6 +70,7 @@ export function parseAutoReviewerDecision(rawResponse: unknown): AutoReviewerDec
 export async function reviewToolCallWithAutoReviewer(
 	input: AutoReviewerPromptInput,
 	callModel: AutoReviewerModelCall,
+	options: AutoReviewerOptions = {},
 ): Promise<ToolCallEventResult | undefined> {
 	const response = await callModel(buildAutoReviewerPrompt(input));
 	const decision = parseAutoReviewerDecision(response);
@@ -65,7 +79,13 @@ export async function reviewToolCallWithAutoReviewer(
 	}
 
 	if (decision.behavior === "deny") {
-		return { block: true, reason: decision.message };
+		return input.escalation === "ask" && options.onAsk
+			? options.onAsk(decision.message)
+			: { block: true, reason: decision.message };
+	}
+
+	if (decision.behavior === "ask") {
+		return options.onAsk ? options.onAsk(decision.message) : { block: true, reason: decision.message };
 	}
 
 	return undefined;

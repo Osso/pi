@@ -205,17 +205,23 @@ describe("SettingsManager", () => {
 			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).approvalPolicy).toBe("auto-approve");
 		});
 
+		it("migrates legacy LLM-approved preset to behavior-preserving deny preset", () => {
+			const settingsManager = SettingsManager.inMemory({ approvalPreset: "llm-approved" as never });
+
+			expect(settingsManager.getApprovalPreset()).toBe("llm-approved-deny");
+		});
+
 		it("persists approval preset identity alongside derived policy", async () => {
 			const settingsPath = join(agentDir, "settings.json");
 			const settingsManager = SettingsManager.create(projectDir, agentDir);
 
-			settingsManager.setApprovalPreset("llm-approved");
+			settingsManager.setApprovalPreset("llm-approved-ask");
 			await settingsManager.flush();
 
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-			expect(savedSettings.approvalPreset).toBe("llm-approved");
+			expect(savedSettings.approvalPreset).toBe("llm-approved-ask");
 			expect(savedSettings.approvalPolicy).toBe("on-request");
-			expect(settingsManager.getApprovalPreset()).toBe("llm-approved");
+			expect(settingsManager.getApprovalPreset()).toBe("llm-approved-ask");
 		});
 
 		it("can persist approval preset selection to project settings", async () => {

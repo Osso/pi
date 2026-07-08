@@ -90,6 +90,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
+import type { ApprovalReviewerResult as ExtensionApprovalReviewerResult } from "./extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
@@ -746,18 +747,9 @@ export class AgentSession {
 		}
 
 		return async () => {
-			if (runner.hasApprovalReviewers()) {
-				const reviewerResult = await runner.emitApprovalReviewers(event);
-				if (reviewerResult?.action === "allow") {
-					return undefined;
-				}
-				if (reviewerResult?.action === "deny") {
-					return { block: true, reason: reviewerResult.reason };
-				}
-				if (reviewerResult?.action === "ask") {
-					const humanReviewer = this._createToolApprovalHumanReviewer(event, runner);
-					return humanReviewer?.() ?? { block: true, reason: reviewerResult.reason ?? "Approval required" };
-				}
+			const approvalReviewerResult = await this._reviewRegisteredApprovalReviewers(event, runner);
+			if (approvalReviewerResult) {
+				return approvalReviewerResult;
 			}
 
 			const permissionPromptResult = await createPermissionPromptHandler({
@@ -792,6 +784,37 @@ export class AgentSession {
 		};
 	}
 
+	private async _reviewRegisteredApprovalReviewers(
+		event: ToolCallEvent,
+		runner: ExtensionRunner,
+	): Promise<ToolCallEventResult | undefined> {
+		if (!runner.hasApprovalReviewers()) {
+			return undefined;
+		}
+
+		const reviewerResult = await runner.emitApprovalReviewers(event);
+		return this._toToolCallResultFromApprovalReviewer(event, runner, reviewerResult);
+	}
+
+	private async _toToolCallResultFromApprovalReviewer(
+		event: ToolCallEvent,
+		runner: ExtensionRunner,
+		reviewerResult: ExtensionApprovalReviewerResult | undefined,
+	): Promise<ToolCallEventResult | undefined> {
+		if (!reviewerResult || reviewerResult.action === "allow") {
+			return undefined;
+		}
+
+		if (reviewerResult.action === "deny") {
+			return { block: true, reason: reviewerResult.reason };
+		}
+
+		const humanReviewer = this._createToolApprovalHumanReviewer(event, runner, reviewerResult.reason);
+		return humanReviewer
+			? await humanReviewer()
+			: { block: true, reason: reviewerResult.reason ?? "Approval required" };
+	}
+
 	private _resolvePermissionPromptTool(): string | undefined {
 		if (this._permissionPromptTool) {
 			return this._permissionPromptTool;
@@ -807,15 +830,18 @@ export class AgentSession {
 	private _createToolApprovalHumanReviewer(
 		event: ToolCallEvent,
 		runner: ExtensionRunner,
+		reason?: string,
 	): ApprovalReviewer | undefined {
-		if (this.settingsManager.getApprovalPreset() !== "ask-me" || !runner.hasUI()) {
+		const approvalPreset = this.settingsManager.getApprovalPreset();
+		if ((approvalPreset !== "ask-me" && approvalPreset !== "llm-approved-ask") || !runner.hasUI()) {
 			return undefined;
 		}
 
 		return async () => {
+			const reasonText = reason ? `\nReason: ${reason}` : "";
 			const selection = await runner
 				.getUIContext()
-				.select(`Approve ${event.toolName}?\n${JSON.stringify(event.input, null, 2)}`, [
+				.select(`Approve ${event.toolName}?${reasonText}\n${JSON.stringify(event.input, null, 2)}`, [
 					"Allow once",
 					"Allow always",
 					"Deny",
@@ -853,7 +879,8 @@ export class AgentSession {
 	}
 
 	private _createToolApprovalLlmReviewer(event: ToolCallEvent): ApprovalReviewer | undefined {
-		if (this.settingsManager.getApprovalPreset() !== "llm-approved") {
+		const approvalPreset = this.settingsManager.getApprovalPreset();
+		if (approvalPreset !== "llm-approved-deny" && approvalPreset !== "llm-approved-ask") {
 			return undefined;
 		}
 
@@ -861,6 +888,7 @@ export class AgentSession {
 			reviewToolCallWithAutoReviewer(
 				{
 					cwd: this._cwd,
+					escalation: approvalPreset === "llm-approved-ask" ? "ask" : "deny",
 					input: event.input,
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
@@ -872,6 +900,12 @@ export class AgentSession {
 						tools: [],
 					});
 					return stream.result();
+				},
+				{
+					onAsk: async (reason) => {
+						const humanReviewer = this._createToolApprovalHumanReviewer(event, this._extensionRunner, reason);
+						return humanReviewer ? await humanReviewer() : { block: true, reason };
+					},
 				},
 			);
 	}
