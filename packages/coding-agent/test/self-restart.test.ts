@@ -10,6 +10,7 @@ import {
 	ENV_SELF_RESTART_SESSION,
 	restartCurrentProcess,
 	spawnSelfRestart,
+	waitForSelfRestartParentExit,
 } from "../src/core/self-restart.ts";
 import type { SessionManager } from "../src/core/session-manager.ts";
 
@@ -183,6 +184,47 @@ describe("self restart request", () => {
 		});
 
 		expect(notices).toEqual([`Restarted. PID 1234 -> ${process.pid}.`]);
+	});
+
+	it("waits for the old parent process before continuing restarted startup", async () => {
+		let aliveChecks = 0;
+		let sleeps = 0;
+
+		await waitForSelfRestartParentExit({
+			env: {
+				[ENV_SELF_RESTART_REQUEST]: "1",
+				[ENV_SELF_RESTART_OLD_PID]: "1234",
+			},
+			isProcessAlive: (pid) => {
+				expect(pid).toBe(1234);
+				aliveChecks += 1;
+				return aliveChecks < 3;
+			},
+			now: () => sleeps,
+			sleep: async (ms) => {
+				expect(ms).toBe(25);
+				sleeps += 1;
+			},
+		});
+
+		expect(aliveChecks).toBe(3);
+		expect(sleeps).toBe(2);
+	});
+
+	it("skips parent exit wait when no self-restart request is active", async () => {
+		let aliveChecks = 0;
+
+		await waitForSelfRestartParentExit({
+			env: {
+				[ENV_SELF_RESTART_OLD_PID]: "1234",
+			},
+			isProcessAlive: () => {
+				aliveChecks += 1;
+				return true;
+			},
+		});
+
+		expect(aliveChecks).toBe(0);
 	});
 
 	it("spawns a replacement process without waiting and exits the original process", async () => {

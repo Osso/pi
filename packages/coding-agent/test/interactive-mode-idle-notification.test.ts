@@ -13,6 +13,10 @@ vi.mock("../src/core/desktop-notification.ts", async (importOriginal) => {
 });
 
 type HandleEventContext = {
+	clearPendingToolComponents(): void;
+	closeResponseCompleteNotification(): void;
+	defaultEditor: { onEscape?: () => void };
+	defaultWorkingMessage: string;
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
 	footer: { invalidate(): void };
@@ -20,22 +24,55 @@ type HandleEventContext = {
 	loadingAnimation: undefined;
 	multiAgentStore: undefined;
 	pendingTools: Map<string, { dispose(): void }>;
+	retryCountdown: undefined;
+	retryEscapeHandler: undefined;
+	retryLoader: undefined;
 	runtimeHost: { session: { settingsManager: { getShowTerminalProgress(): boolean } } };
 	shutdownRequested: boolean;
-	statusContainer: { clear(): void };
+	setDefaultWorkingMessage(message: string): void;
+	statusContainer: { addChild(component: unknown): void; clear(): void };
+	stopToolWaitingTimerIfIdle(): void;
+	stopWorkingLoader(): void;
 	streamingComponent: undefined;
 	streamingMessage: undefined;
 	ui: { requestRender(): void; terminal: { setProgress(progress: boolean): void } };
+	workingVisible: boolean;
+};
+
+type SubmitContext = {
+	closeResponseCompleteNotification(): void;
+	defaultEditor: { onSubmit?: (text: string) => Promise<void> };
+	editor: {
+		addToHistory?: (text: string) => void;
+		setText: (text: string) => void;
+	};
+	flushPendingBashComponents: () => void;
+	onInputCallback?: (text: string) => void;
+	pendingUserInputs: string[];
+	session: {
+		isBashRunning: boolean;
+		isCompacting: boolean;
+		isStreaming: boolean;
+		continue: () => Promise<void>;
+		prompt: (text: string, options?: unknown) => Promise<void>;
+	};
+	showSettingsSelector: () => void;
 };
 
 type InteractiveModePrototype = {
+	closeResponseCompleteNotification(this: { responseCompleteNotification?: { close(): void } }): void;
 	handleEvent(this: HandleEventContext, event: AgentSessionEvent): Promise<void>;
+	setupEditorSubmitHandler(this: SubmitContext): void;
 };
 
 const interactiveModePrototype = InteractiveMode.prototype as unknown as InteractiveModePrototype;
 
 function createContext(): HandleEventContext {
 	const context = Object.create(InteractiveMode.prototype) as HandleEventContext;
+	context.clearPendingToolComponents = vi.fn();
+	context.closeResponseCompleteNotification = vi.fn();
+	context.defaultEditor = {};
+	context.defaultWorkingMessage = "Thinking...";
 	context.executingToolNames = new Map();
 	context.executingToolStartedAt = new Map();
 	context.footer = { invalidate: vi.fn() };
@@ -43,13 +80,41 @@ function createContext(): HandleEventContext {
 	context.loadingAnimation = undefined;
 	context.multiAgentStore = undefined;
 	context.pendingTools = new Map();
+	context.retryCountdown = undefined;
+	context.retryEscapeHandler = undefined;
+	context.retryLoader = undefined;
 	context.runtimeHost = { session: { settingsManager: { getShowTerminalProgress: () => false } } };
+	context.setDefaultWorkingMessage = vi.fn();
 	context.shutdownRequested = false;
-	context.statusContainer = { clear: vi.fn() };
+	context.statusContainer = { addChild: vi.fn(), clear: vi.fn() };
+	context.stopToolWaitingTimerIfIdle = vi.fn();
+	context.stopWorkingLoader = vi.fn();
 	context.streamingComponent = undefined;
 	context.streamingMessage = undefined;
 	context.ui = { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } };
+	context.workingVisible = false;
 	return context;
+}
+
+function createSubmitContext(): SubmitContext {
+	return {
+		closeResponseCompleteNotification: vi.fn(),
+		defaultEditor: {},
+		editor: {
+			addToHistory: vi.fn(),
+			setText: vi.fn(),
+		},
+		flushPendingBashComponents: vi.fn(),
+		pendingUserInputs: [],
+		session: {
+			isBashRunning: false,
+			isCompacting: false,
+			isStreaming: false,
+			continue: vi.fn(async () => {}),
+			prompt: vi.fn(async () => {}),
+		},
+		showSettingsSelector: vi.fn(),
+	};
 }
 
 describe("InteractiveMode idle desktop notifications", () => {
@@ -68,6 +133,33 @@ describe("InteractiveMode idle desktop notifications", () => {
 			title: "Pi response complete",
 			urgency: "normal",
 		});
+	});
+
+	it("closes the stored idle notification handle", () => {
+		const close = vi.fn();
+		const context = { responseCompleteNotification: { close } };
+
+		interactiveModePrototype.closeResponseCompleteNotification.call(context);
+
+		expect(close).toHaveBeenCalledTimes(1);
+		expect(context.responseCompleteNotification).toBeUndefined();
+	});
+
+	it("closes the idle notification when the user submits another prompt", async () => {
+		const context = createSubmitContext();
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" next prompt ");
+
+		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes the idle notification when the agent starts again", async () => {
+		const context = createContext();
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
+
+		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not notify while the agent is about to retry", async () => {

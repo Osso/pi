@@ -260,6 +260,7 @@ export class AgentSessionRuntime {
 		const currentSessionFile = currentSessionManager.getSessionFile();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
+			this.beforeSessionInvalidate?.();
 			await this.processRestarter({
 				sessionFile: currentSessionFile,
 				prompt: options.notice,

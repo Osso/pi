@@ -7,6 +7,9 @@ export const ENV_SELF_RESTART_REQUEST = "PI_SELF_RESTART_REQUEST";
 export const ENV_SELF_RESTART_SESSION = "PI_SELF_RESTART_SESSION";
 export const ENV_SELF_RESTART_PROMPT = "PI_SELF_RESTART_PROMPT";
 export const ENV_SELF_RESTART_OLD_PID = "PI_SELF_RESTART_OLD_PID";
+const SELF_RESTART_PARENT_EXIT_TIMEOUT_MS = 5000;
+const SELF_RESTART_PARENT_EXIT_POLL_MS = 25;
+
 export interface SelfRestartRequest {
 	sessionFile: string;
 	prompt?: string;
@@ -37,6 +40,47 @@ export type ProcessRestarter = (
 	request: SelfRestartRequest,
 	dependencies?: RestartCurrentProcessDependencies,
 ) => Promise<never>;
+
+interface WaitForSelfRestartParentExitDependencies {
+	env?: NodeJS.ProcessEnv;
+	isProcessAlive?: (pid: number) => boolean;
+	now?: () => number;
+	sleep?: (ms: number) => Promise<void>;
+}
+
+function defaultIsProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function waitForSelfRestartParentExit(
+	dependencies: WaitForSelfRestartParentExitDependencies = {},
+): Promise<void> {
+	const env = dependencies.env ?? process.env;
+	if (env[ENV_SELF_RESTART_REQUEST] !== "1") {
+		return;
+	}
+	const oldPid = Number(env[ENV_SELF_RESTART_OLD_PID]);
+	if (!Number.isSafeInteger(oldPid) || oldPid <= 0) {
+		return;
+	}
+
+	const isProcessAlive = dependencies.isProcessAlive ?? defaultIsProcessAlive;
+	const now = dependencies.now ?? Date.now;
+	const wait = dependencies.sleep ?? sleep;
+	const deadline = now() + SELF_RESTART_PARENT_EXIT_TIMEOUT_MS;
+	while (isProcessAlive(oldPid) && now() < deadline) {
+		await wait(SELF_RESTART_PARENT_EXIT_POLL_MS);
+	}
+}
 
 export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = process.env): void {
 	if (env[ENV_SELF_RESTART_REQUEST] !== "1") {

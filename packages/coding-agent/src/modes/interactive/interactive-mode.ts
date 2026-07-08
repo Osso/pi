@@ -65,7 +65,7 @@ import {
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type { CompactionSourceInfo } from "../../core/compaction/index.ts";
-import { sendDesktopNotification } from "../../core/desktop-notification.ts";
+import { type DesktopNotificationHandle, sendDesktopNotification } from "../../core/desktop-notification.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -373,6 +373,7 @@ export class InteractiveMode {
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
 	private clipboardTempFiles = createClipboardTempFileTracker();
+	private responseCompleteNotification: DesktopNotificationHandle | undefined;
 	private loadingAnimation: Loader | undefined = undefined;
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
@@ -3068,8 +3069,9 @@ export class InteractiveMode {
 		if (event.willRetry) {
 			return;
 		}
+		this.closeResponseCompleteNotification();
 		try {
-			sendDesktopNotification({
+			this.responseCompleteNotification = sendDesktopNotification({
 				body: "Pi is idle and ready for your next message.",
 				expireTimeMs: 0,
 				title: "Pi response complete",
@@ -3077,6 +3079,16 @@ export class InteractiveMode {
 			});
 		} catch (error) {
 			console.error("Failed to send response-complete desktop notification:", error);
+		}
+	}
+
+	private closeResponseCompleteNotification(): void {
+		const notification = this.responseCompleteNotification;
+		this.responseCompleteNotification = undefined;
+		try {
+			notification?.close();
+		} catch (error) {
+			console.error("Failed to close response-complete desktop notification:", error);
 		}
 	}
 
@@ -3107,6 +3119,8 @@ export class InteractiveMode {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			text = text.trim();
 			if (!text) return;
+
+			this.closeResponseCompleteNotification();
 
 			if (text.startsWith("/")) {
 				this.editor.addToHistory?.(text);
@@ -3441,6 +3455,7 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
+				this.closeResponseCompleteNotification();
 				this.clearPendingToolComponents();
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
@@ -6675,6 +6690,7 @@ export class InteractiveMode {
 		this.cancelStreamingUpdateRender();
 		this.disposeActiveBashComponents();
 		this.clearPendingToolComponents();
+		this.closeResponseCompleteNotification();
 		this.clipboardTempFiles.cleanupAll();
 		if (this.isInitialized) {
 			this.ui.stop();
