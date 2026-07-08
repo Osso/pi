@@ -23,6 +23,19 @@ describe("interactive raw mode startup errors", () => {
 		expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to enable terminal raw mode"));
 	});
 
+	test("runs terminal-error cleanup when raw mode startup fails", async () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const cleanup = vi.fn();
+
+		const handled = await runInteractiveActionOrReportTerminalError(async () => {
+			throw new TerminalRawModeError(true, new Error("setRawMode failed with errno: 5"));
+		}, cleanup);
+
+		expect(handled).toBe(false);
+		expect(cleanup).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to enable terminal raw mode"));
+	});
+
 	test("reports plain raw mode errno errors without rethrowing", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

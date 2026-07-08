@@ -297,7 +297,10 @@ function validateSessionIdFlags(parsed: Args): void {
 	}
 }
 
-export async function runInteractiveActionOrReportTerminalError(action: () => Promise<void>): Promise<boolean> {
+export async function runInteractiveActionOrReportTerminalError(
+	action: () => Promise<void>,
+	onTerminalError?: () => void,
+): Promise<boolean> {
 	try {
 		await action();
 		return true;
@@ -306,6 +309,7 @@ export async function runInteractiveActionOrReportTerminalError(action: () => Pr
 		if (error instanceof Error && isTerminalRawModeFailure(error)) {
 			console.error(chalk.red(`Error: ${error.message}`));
 			process.exitCode = 1;
+			onTerminalError?.();
 			return false;
 		}
 		throw error;
@@ -1022,7 +1026,13 @@ export async function main(args: string[], options?: MainOptions) {
 		});
 		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);
 		if (startupBenchmark) {
-			if (!(await runInteractiveActionOrReportTerminalError(() => interactiveMode.init()))) return;
+			if (
+				!(await runInteractiveActionOrReportTerminalError(
+					() => interactiveMode.init(),
+					() => process.exit(1),
+				))
+			)
+				return;
 			time("interactiveMode.init");
 			// Give the TUI's stdin handler a brief chance to consume terminal query replies
 			// (Kitty keyboard protocol, device attributes, cell size) before restoring the terminal.
@@ -1040,7 +1050,13 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 
 		printTimings();
-		if (!(await runInteractiveActionOrReportTerminalError(() => interactiveMode.run()))) return;
+		if (
+			!(await runInteractiveActionOrReportTerminalError(
+				() => interactiveMode.run(),
+				() => process.exit(1),
+			))
+		)
+			return;
 	} else {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
