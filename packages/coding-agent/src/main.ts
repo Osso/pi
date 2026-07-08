@@ -19,6 +19,7 @@ import agentsCoreExtension, {
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
+import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
@@ -607,6 +608,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("effort", effortExtension),
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("hostrun", (pi) => hostrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
+		firstPartyExtensionFactory("bwrap", (pi) => bwrapExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
 		firstPartyExtensionFactory("pyrun", (pi) => pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),

@@ -536,7 +536,14 @@ export class SettingsManager {
 	}
 
 	getSandboxProfile(): SandboxProfileName {
-		return isSandboxProfileName(this.settings.sandboxProfile) ? this.settings.sandboxProfile : "workspace-write";
+		return this.getExplicitSandboxProfile() ?? "workspace-write";
+	}
+
+	getExplicitSandboxProfile(): SandboxProfileName | undefined {
+		if (isSandboxProfileName(this.projectSettings.sandboxProfile)) {
+			return this.projectSettings.sandboxProfile;
+		}
+		return isSandboxProfileName(this.globalSettings.sandboxProfile) ? this.globalSettings.sandboxProfile : undefined;
 	}
 
 	setSandboxProfile(profileName: SandboxProfileName, scope: SettingsScope = "global"): void {

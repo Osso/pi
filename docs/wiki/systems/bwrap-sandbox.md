@@ -4,7 +4,7 @@ The bwrap sandbox backend lives under `packages/coding-agent/extensions/bwrap/`.
 
 ## Sandbox shape
 
-For sandbox-required profiles (`read-only`, `workspace-write`), the backend builds a bubblewrap command that:
+For explicit sandbox-required profiles (`read-only`, `workspace-write`), the backend builds a bubblewrap command that:
 
 - bind-mounts only required runtime paths (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, and `/nix` when present) plus explicit language/runtime support paths read-only;
 - does not bind host `/`, `/home`, `/syncthing`, `/run`, or `/var` into the sandbox by default;
@@ -14,7 +14,7 @@ For sandbox-required profiles (`read-only`, `workspace-write`), the backend buil
 - shares the host network namespace, because this backend currently targets filesystem isolation only;
 - uses `--clearenv` and a filtered environment (`HOME`, `PATH`, locale, terminal hints, and explicit `PYTHONPATH`) instead of inheriting provider keys or host credential variables.
 
-`full-access` resolves to no sandbox profile, so the extension delegates to local tool implementations.
+`full-access` and a missing explicit sandbox setting resolve to no sandbox profile, so the extension delegates to local tool implementations.
 
 ## Tool routing
 
@@ -24,4 +24,4 @@ The extension overrides the built-in file tools with same-name tool registration
 
 ## Loading
 
-The package is first-party but opt-in. It is not included in Pi's default extension factory list, so systems without `bwrap` still start normally. Load it through normal extension package discovery, for example by adding `packages/coding-agent/extensions/bwrap/` or its `src/index.ts` entry point to `settings.json` `extensions`, or by installing/enabling it as a Pi extension package.
+The package is a default first-party extension, but enforcement is inactive until `sandboxProfile` is explicitly set in global or project settings. Systems without `bwrap` still start normally unless the user has selected `read-only` or `workspace-write`. Selecting `full-access` explicitly disables bwrap enforcement.

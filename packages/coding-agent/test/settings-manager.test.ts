@@ -231,10 +231,38 @@ describe("SettingsManager", () => {
 	});
 
 	describe("sandbox profile", () => {
-		it("defaults to workspace-write", () => {
+		it("defaults to workspace-write without an explicit sandbox profile", () => {
 			const settingsManager = SettingsManager.inMemory();
 
 			expect(settingsManager.getSandboxProfile()).toBe("workspace-write");
+			expect(settingsManager.getExplicitSandboxProfile()).toBeUndefined();
+		});
+
+		it("reports explicit sandbox profile after selection", () => {
+			const settingsManager = SettingsManager.inMemory();
+
+			settingsManager.setSandboxProfile("read-only");
+
+			expect(settingsManager.getSandboxProfile()).toBe("read-only");
+			expect(settingsManager.getExplicitSandboxProfile()).toBe("read-only");
+		});
+
+		it("loads explicit sandbox profile from global settings", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ sandboxProfile: "workspace-write" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			expect(settingsManager.getExplicitSandboxProfile()).toBe("workspace-write");
+		});
+
+		it("lets explicit project sandbox profile override global settings", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ sandboxProfile: "read-only" }));
+			storage.withLock("project", () => JSON.stringify({ sandboxProfile: "full-access" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			expect(settingsManager.getSandboxProfile()).toBe("full-access");
+			expect(settingsManager.getExplicitSandboxProfile()).toBe("full-access");
 		});
 
 		it("persists sandbox profile without changing approval policy", async () => {

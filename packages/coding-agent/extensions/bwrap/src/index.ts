@@ -3,13 +3,13 @@ import { dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "../../../src/index.ts";
 import {
-	createBashTool,
-	createEditTool,
-	createFindTool,
-	createGrepTool,
-	createLsTool,
-	createReadTool,
-	createWriteTool,
+	createBashToolDefinition,
+	createEditToolDefinition,
+	createFindToolDefinition,
+	createGrepToolDefinition,
+	createLsToolDefinition,
+	createReadToolDefinition,
+	createWriteToolDefinition,
 	formatSize,
 	truncateHead,
 	type EditOperations,
@@ -28,9 +28,9 @@ import {
 	resolveBwrapSandboxProfile,
 	type BwrapSandboxProfile,
 } from "./backend.ts";
-import { createPyrunEvalExecutor, type PyrunPiRequestDispatcher } from "../pyrun/src/eval-tool.ts";
-import { createPyrunPiDispatcher, createPyrunToolDefinition } from "../pyrun/src/index.ts";
-import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../pyrun/src/runner.ts";
+import { createPyrunEvalExecutor, type PyrunPiRequestDispatcher } from "../../pyrun/src/eval-tool.ts";
+import { createPyrunPiDispatcher, createPyrunToolDefinition } from "../../pyrun/src/index.ts";
+import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../../pyrun/src/runner.ts";
 
 interface BwrapExtensionOptions {
 	bwrapCommand?: string;
@@ -59,7 +59,7 @@ const DEFAULT_MAX_BYTES = 10 * 1024;
 const FS_WORKER_PATH = `${dirname(fileURLToPath(import.meta.url))}/fs-worker.cjs`;
 
 function getProfile(ctx: ExtensionContext): SandboxProfileName {
-	return ctx.settingsManager?.getSandboxProfile() ?? "workspace-write";
+	return ctx.settingsManager?.getExplicitSandboxProfile() ?? "full-access";
 }
 
 function getSandboxProfile(ctx: ExtensionContext): BwrapSandboxProfile | undefined {
@@ -277,13 +277,13 @@ function createPyrunExecutorManager(pi: ExtensionAPI, bwrapCommand: string, opti
 export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtensionOptions = {}) {
 	const bwrapCommand = options.bwrapCommand ?? DEFAULT_BWRAP_COMMAND;
 	const localCwd = process.cwd();
-	const localRead = createReadTool(localCwd);
-	const localWrite = createWriteTool(localCwd);
-	const localEdit = createEditTool(localCwd);
-	const localBash = createBashTool(localCwd);
-	const localGrep = createGrepTool(localCwd);
-	const localFind = createFindTool(localCwd);
-	const localLs = createLsTool(localCwd);
+	const localRead = createReadToolDefinition(localCwd);
+	const localWrite = createWriteToolDefinition(localCwd);
+	const localEdit = createEditToolDefinition(localCwd);
+	const localBash = createBashToolDefinition(localCwd);
+	const localGrep = createGrepToolDefinition(localCwd);
+	const localFind = createFindToolDefinition(localCwd);
+	const localLs = createLsToolDefinition(localCwd);
 	const pyrunManager = createPyrunExecutorManager(pi, bwrapCommand, options);
 
 	function sandboxParams(ctx: ExtensionContext): { bwrapCommand: string; cwd: string; profile: BwrapSandboxProfile } | undefined {
@@ -328,7 +328,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
 			if (!sandbox) return localRead.execute(id, params, signal, onUpdate, ctx);
-			return createReadTool(ctx.cwd, { operations: createReadOperations(sandbox) }).execute(id, params, signal, onUpdate, ctx);
+			return createReadToolDefinition(ctx.cwd, { operations: createReadOperations(sandbox) }).execute(
+				id,
+				params,
+				signal,
+				onUpdate,
+				ctx,
+			);
 		},
 	});
 
@@ -337,7 +343,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
 			if (!sandbox) return localWrite.execute(id, params, signal, onUpdate, ctx);
-			return createWriteTool(ctx.cwd, { operations: createWriteOperations(sandbox) }).execute(id, params, signal, onUpdate, ctx);
+			return createWriteToolDefinition(ctx.cwd, { operations: createWriteOperations(sandbox) }).execute(
+				id,
+				params,
+				signal,
+				onUpdate,
+				ctx,
+			);
 		},
 	});
 
@@ -346,7 +358,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
 			if (!sandbox) return localEdit.execute(id, params, signal, onUpdate, ctx);
-			return createEditTool(ctx.cwd, { operations: createEditOperations(sandbox) }).execute(id, params, signal, onUpdate, ctx);
+			return createEditToolDefinition(ctx.cwd, { operations: createEditOperations(sandbox) }).execute(
+				id,
+				params,
+				signal,
+				onUpdate,
+				ctx,
+			);
 		},
 	});
 
@@ -355,7 +373,7 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
 			if (!sandbox) return localBash.execute(id, params, signal, onUpdate, ctx);
-			return createBashTool(ctx.cwd, {
+			return createBashToolDefinition(ctx.cwd, {
 				operations: createSandboxedBashOperations({ bwrapCommand, profile: sandbox.profile }),
 			}).execute(id, params, signal, onUpdate, ctx);
 		},
@@ -366,7 +384,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
 			if (!sandbox) return localLs.execute(id, params, signal, onUpdate, ctx);
-			return createLsTool(ctx.cwd, { operations: createLsOperations(sandbox) }).execute(id, params, signal, onUpdate, ctx);
+			return createLsToolDefinition(ctx.cwd, { operations: createLsOperations(sandbox) }).execute(
+				id,
+				params,
+				signal,
+				onUpdate,
+				ctx,
+			);
 		},
 	});
 
@@ -375,7 +399,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
 			if (!sandbox) return localFind.execute(id, params, signal, onUpdate, ctx);
-			return createFindTool(ctx.cwd, { operations: createFindOperations(sandbox) }).execute(id, params, signal, onUpdate, ctx);
+			return createFindToolDefinition(ctx.cwd, { operations: createFindOperations(sandbox) }).execute(
+				id,
+				params,
+				signal,
+				onUpdate,
+				ctx,
+			);
 		},
 	});
 

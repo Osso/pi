@@ -1,6 +1,6 @@
 # Bubblewrap sandbox backend
 
-Module boundary: opt-in first-party extension package.
+Module boundary: default-loaded first-party extension package.
 
 The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers through a `bwrap` process while leaving the host Pi process outside the sandbox. How it works belongs in [../wiki/systems/bwrap-sandbox.md](../wiki/systems/bwrap-sandbox.md).
 
@@ -8,8 +8,8 @@ The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers 
 
 ### Profile behavior
 
-- [x] Treat `read-only` and `workspace-write` as sandbox-required profiles.
-- [x] Treat `full-access` as unsandboxed/bypass mode.
+- [x] Treat explicit `read-only` and `workspace-write` settings as sandbox-required profiles.
+- [x] Treat `full-access` and missing explicit sandbox settings as unsandboxed/bypass mode.
 - [x] Fail closed when a sandbox-required profile is active and `bwrap` is unavailable.
 
 ### Filesystem isolation
@@ -48,7 +48,7 @@ The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers 
 ## Known gaps (current cycle)
 
 - [ ] Add integration tests that execute fake or real bwrap for routed tool execution without requiring host-specific bubblewrap availability.
-- [x] Keep the first-party bwrap extension opt-in so default startup does not fail on systems without bubblewrap.
+- [x] Load the first-party bwrap extension by default while keeping enforcement inactive until the user explicitly chooses a sandbox profile, so default startup does not fail on systems without bubblewrap.
 
 ## Out of scope
 

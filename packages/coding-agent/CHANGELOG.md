@@ -27,7 +27,7 @@
 - Added `/continue` to continue the current transcript without adding a user message.
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
-- Added an opt-in first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and Pyrun workers through sandbox profiles.
+- Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and Pyrun workers through explicitly selected sandbox profiles.
 
 ### Changed
 
