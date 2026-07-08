@@ -76,7 +76,7 @@ async function runJsonInSandbox<T>(params: {
 		bwrapCommand: params.bwrapCommand,
 		command: [process.execPath, FS_WORKER_PATH, params.operation, JSON.stringify(workerPayload)],
 		cwd: params.cwd,
-		extraReadOnlyPaths: [dirname(FS_WORKER_PATH)],
+		extraReadOnlyPaths: [process.execPath, dirname(FS_WORKER_PATH)],
 		profile: params.profile,
 	});
 	return new Promise((resolvePromise, reject) => {
