@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { transformMessages } from "../src/api/transform-messages.ts";
-import type { AssistantMessage, Message, Model, ToolCall } from "../src/types.ts";
+import type { AssistantMessage, Message, Model, ToolCall, ToolResultMessage } from "../src/types.ts";
 
 // Normalize function matching what anthropic.ts uses
 function anthropicNormalizeToolCallId(
@@ -131,6 +131,53 @@ describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 		const toolCall = assistantMsg.content.find((b) => b.type === "toolCall") as ToolCall;
 
 		expect(toolCall.thoughtSignature).toBeUndefined();
+	});
+
+	it("normalizes invalid tool IDs even when replaying the same Anthropic model", () => {
+		const model = makeCopilotClaudeModel();
+		const messages: Message[] = [
+			{ role: "user", content: "read the file", timestamp: Date.now() },
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call_123|fc_123",
+						name: "read",
+						arguments: { path: "README.md" },
+					},
+				],
+				api: model.api,
+				provider: model.provider,
+				model: model.id,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call_123|fc_123",
+				toolName: "read",
+				content: [{ type: "text", text: "done" }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = transformMessages(messages, model, anthropicNormalizeToolCallId);
+		const assistantMsg = result.find((m) => m.role === "assistant") as AssistantMessage;
+		const toolCall = assistantMsg.content.find((b) => b.type === "toolCall") as ToolCall;
+		const toolResult = result.find((m) => m.role === "toolResult") as ToolResultMessage;
+
+		expect(toolCall.id).toBe("call_123_fc_123");
+		expect(toolResult.toolCallId).toBe("call_123_fc_123");
 	});
 
 	it("adds synthetic tool results for trailing orphaned tool calls", () => {
