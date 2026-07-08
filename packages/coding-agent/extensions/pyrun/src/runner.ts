@@ -56,12 +56,15 @@ export interface PyrunRunnerOptions {
 	args?: string[];
 	command?: string;
 	env?: NodeJS.ProcessEnv;
+	inheritEnv?: boolean;
 }
 
 export interface PyrunRunnerResolutionOptions {
 	env?: NodeJS.ProcessEnv;
 	exists?: (path: string) => boolean;
 }
+
+type ResolvedPyrunRunnerOptions = Required<Omit<PyrunRunnerOptions, "inheritEnv">>;
 
 function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	if (!value) {
@@ -81,7 +84,7 @@ function hasLocalPyrunCheckout(exists: (path: string) => boolean): boolean {
 	return localPyrunPackagePaths.some((path) => exists(path));
 }
 
-export function resolvePyrunRunnerOptions(resolution: PyrunRunnerResolutionOptions = {}): Required<PyrunRunnerOptions> {
+export function resolvePyrunRunnerOptions(resolution: PyrunRunnerResolutionOptions = {}): ResolvedPyrunRunnerOptions {
 	const env = resolution.env ?? process.env;
 	const args = parseRunnerArgs(env.PI_PYRUN_RUNNER_ARGS);
 	const commandOverride = env.PI_PYRUN_RUNNER_COMMAND ?? env.PI_PYRUN_RUNNER;
@@ -156,7 +159,7 @@ export class PyrunRunnerClient {
 			env: { ...resolvedOptions.env, ...this.options.env },
 		};
 		const child = spawn(options.command, options.args, {
-			env: { ...process.env, ...options.env },
+			env: options.inheritEnv === false ? options.env : { ...process.env, ...options.env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		this.process = child;

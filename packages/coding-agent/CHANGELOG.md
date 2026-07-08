@@ -27,6 +27,7 @@
 - Added `/continue` to continue the current transcript without adding a user message.
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
+- Added an opt-in first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and Pyrun workers through sandbox profiles.
 
 ### Changed
 
@@ -37,6 +38,7 @@
 
 ### Fixed
 
+- Fixed the bwrap sandbox backend to avoid mounting host `/`, clear inherited environments, enforce workspace containment in file workers, disable sandboxed Pyrun host bridge capabilities, and fail closed with a tool gate when `bwrap` is unavailable.
 - Fixed `web_search` to use OpenAI's hosted search tool in the main Responses request, request live results, and abort stalled fallback requests with a clear timeout error while preserving user cancellation.
 - Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.
 - Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.

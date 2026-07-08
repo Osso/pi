@@ -3,7 +3,7 @@ import { existsSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
@@ -12,7 +12,11 @@ import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import { resolvePath } from "../../../src/utils/paths.ts";
 import { createPyrunEvalExecutor, type PyrunEvalParams, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
-import { PyrunRunnerClient } from "./runner.ts";
+import {
+	PyrunRunnerClient,
+	type CanonicalPyrunEvalResult,
+	type CanonicalPyrunProgressUpdate,
+} from "./runner.ts";
 
 export interface PyrunBackgroundJobsOptions {
 	store: MultiAgentStore;
@@ -43,7 +47,7 @@ interface DetachablePyrunEvaluationOptions {
 	ctx: ExtensionContext;
 	onBackgroundSettled?: () => void;
 	onDetached?: () => void;
-	onUpdate?: (partialResult: AgentToolResult<unknown>) => void;
+	onUpdate?: (partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void;
 	params: PyrunEvalParams;
 	signal: AbortSignal | undefined;
 	store: MultiAgentStore;
@@ -55,6 +59,11 @@ interface MirroredAbortController {
 }
 
 const PYRUN_PROMPT_SNIPPET = "Evaluate Python through the canonical Pyrun JSONL runtime adapter";
+
+const pyrunEvalSchema = Type.Object({
+	code: Type.String({ description: "Python source to evaluate." }),
+	session_id: Type.Optional(Type.String({ description: "Pyrun session id. Defaults to this Pi session." })),
+});
 
 const PYRUN_PROMPT_GUIDELINES = [
 	"Pyrun evaluates Python code in a persistent Python session with a persistent ctx object.",
@@ -238,7 +247,7 @@ function createPyrunExecutorState(dispatchPiRequest: PyrunPiRequestDispatcher): 
 	return { evaluate: createPyrunEvalExecutor(runner, dispatchPiRequest), runner };
 }
 
-function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
+export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal) => {
 		if (request.method === "models.scoped") return listScopedModels(ctx);
 		if (request.method === "tools.call") return callActiveTool(request.params, pi, signal);
@@ -484,21 +493,30 @@ function runDetachablePyrunEvaluation(options: DetachablePyrunEvaluationOptions)
 	return Promise.race([evaluation, detachedResult]);
 }
 
-export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
-	const dispatchPiRequest = createPyrunPiDispatcher(pi, options);
-	let executor = createPyrunExecutorState(dispatchPiRequest);
+export type PyrunToolEvaluator = (
+	params: PyrunEvalParams,
+	ctx: ExtensionContext,
+	onUpdate: ((partialResult: AgentToolResult<unknown>) => void) | undefined,
+	signal: AbortSignal | undefined,
+) => Promise<AgentToolResult<unknown>>;
 
-	pi.registerTool({
+export interface PyrunToolDefinitionOptions {
+	promptGuidelines?: string[];
+	promptSnippet?: string;
+}
+
+export function createPyrunToolDefinition(
+	evaluate: PyrunToolEvaluator,
+	options: PyrunToolDefinitionOptions = {},
+): ToolDefinition<typeof pyrunEvalSchema, unknown> {
+	return {
 		name: "pyrun_eval",
 		label: "Pyrun Eval",
 		description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.",
-		promptSnippet: PYRUN_PROMPT_SNIPPET,
-		promptGuidelines: PYRUN_PROMPT_GUIDELINES,
+		promptSnippet: options.promptSnippet ?? PYRUN_PROMPT_SNIPPET,
+		promptGuidelines: options.promptGuidelines ?? PYRUN_PROMPT_GUIDELINES,
 		approvalRequired: true,
-		parameters: Type.Object({
-			code: Type.String({ description: "Python source to evaluate." }),
-			session_id: Type.Optional(Type.String({ description: "Pyrun session id. Defaults to this Pi session." })),
-		}),
+		parameters: pyrunEvalSchema,
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			const sessionId = readStringArg(args, "session_id");
@@ -517,15 +535,30 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			return text;
 		},
 		execute: async (_toolCallId, params, signal, onUpdate, ctx) => {
+			const pyrunParams = params as PyrunEvalParams;
 			onUpdate?.({
-				content: [{ type: "text", text: params.code }],
-				details: { executed: params.code, type: "running" },
+				content: [{ type: "text", text: pyrunParams.code }],
+				details: { executed: pyrunParams.code, type: "running" },
 			});
+			return evaluate(pyrunParams, ctx, onUpdate, signal);
+		},
+	};
+}
+
+export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
+	const dispatchPiRequest = createPyrunPiDispatcher(pi, options);
+	let executor = createPyrunExecutorState(dispatchPiRequest);
+
+	pi.registerTool(
+		createPyrunToolDefinition(async (params, ctx, onUpdate, signal) => {
 			const store = options.backgroundJobs?.store ?? ctx.multiAgentStore;
 			const detachRegistry = options.detachRegistry ?? ctx.toolDetachRegistry;
 			const activeExecutor = executor;
+			const typedOnUpdate = onUpdate as
+				| ((partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void)
+				| undefined;
 			if (!store || !detachRegistry) {
-				return activeExecutor.evaluate(params, ctx, onUpdate, signal);
+				return activeExecutor.evaluate(params, ctx, typedOnUpdate, signal);
 			}
 			return runDetachablePyrunEvaluation({
 				detachRegistry,
@@ -537,11 +570,11 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 						executor = createPyrunExecutorState(dispatchPiRequest);
 					}
 				},
-				onUpdate,
+				onUpdate: typedOnUpdate,
 				params,
 				signal,
 				store,
 			});
-		},
-	});
+		}),
+	);
 }

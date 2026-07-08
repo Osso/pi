@@ -5,8 +5,9 @@ import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
+import { createPyrunEvalExecutor } from "../extensions/pyrun/src/eval-tool.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
-import { resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
+import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
@@ -148,6 +149,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 
 	return {
 		compactRequests,
+		evaluateContext: ctx,
 		enqueuedMessages,
 		restartRequests,
 		switchedSessions,
@@ -217,6 +219,12 @@ async function readNextLine() {
 
 async function resultFor(request) {
   const sessionId = request.session_id ?? "default";
+  if (request.code === "env.secret") {
+    return { type: "completed", executed: request.code, value: process.env.PI_TEST_SECRET ?? null };
+  }
+  if (request.code === "bridge.enabled") {
+    return { type: "completed", executed: request.code, value: request.pi_bridge === true };
+  }
   if (request.code === "ctx['count'] = 41\\nctx['count']") {
     sessionValues.set(sessionId, 41);
     return { type: "completed", executed: request.code, value: 41 };
@@ -539,6 +547,36 @@ describe("pyrun extension", () => {
 		const options = resolvePyrunRunnerOptions({ env: {}, exists: () => false });
 
 		expect(options).toEqual({ args: [], command: "pyrun-jsonl", env: {} });
+	});
+
+	it("can start the Pyrun runner without inheriting process.env", async () => {
+		const previousSecret = process.env.PI_TEST_SECRET;
+		process.env.PI_TEST_SECRET = "host-secret";
+		const runner = new PyrunRunnerClient({
+			args: [writeFakePyrunRunner(tempDir)],
+			command: process.execPath,
+			env: {},
+			inheritEnv: false,
+		});
+		try {
+			const result = await runner.evaluate({ code: "env.secret" });
+			expect(result.value).toBeNull();
+		} finally {
+			runner.dispose();
+			if (previousSecret === undefined) delete process.env.PI_TEST_SECRET;
+			else process.env.PI_TEST_SECRET = previousSecret;
+		}
+	});
+
+	it("can evaluate Pyrun with the Pi bridge disabled", async () => {
+		const runner = new PyrunRunnerClient({ args: [writeFakePyrunRunner(tempDir)], command: process.execPath });
+		try {
+			const evaluate = createPyrunEvalExecutor(runner, undefined, { enablePiBridge: false });
+			const result = await evaluate({ code: "bridge.enabled" }, createPyrunHarness().evaluateContext);
+			expect(result.details.value).toBe(false);
+		} finally {
+			runner.dispose();
+		}
 	});
 
 	it("renders only the Pyrun title before execution starts", () => {

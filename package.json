@@ -10,6 +10,7 @@
 		"packages/coding-agent/examples/extensions/sandbox",
 		"packages/coding-agent/examples/extensions/gondolin",
 		"packages/coding-agent/extensions/approval-controls",
+		"packages/coding-agent/extensions/bwrap",
 		"packages/coding-agent/extensions/agent-viewer",
 		"packages/coding-agent/extensions/agents-core",
 		"packages/coding-agent/extensions/codex-usage",

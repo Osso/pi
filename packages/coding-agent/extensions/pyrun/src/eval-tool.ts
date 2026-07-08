@@ -139,22 +139,38 @@ function createPiCapabilitySnapshot(ctx: PyrunEvalContext): PyrunPiCapabilitySna
 	};
 }
 
-export function createPyrunEvalExecutor(runner: PyrunRunnerClient, dispatchPiRequest?: PyrunPiRequestDispatcher) {
+export interface PyrunEvalExecutorOptions {
+	enablePiBridge?: boolean;
+}
+
+export function createPyrunEvalExecutor(
+	runner: PyrunRunnerClient,
+	dispatchPiRequest?: PyrunPiRequestDispatcher,
+	options: PyrunEvalExecutorOptions = {},
+) {
 	return async (
 		params: PyrunEvalParams,
 		ctx: ExtensionContext,
 		onUpdate?: (partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void,
 		signal?: AbortSignal,
 	): Promise<AgentToolResult<CanonicalPyrunEvalResult>> => {
-		const onPiRequest: PyrunPiRequestHandler = async (request) => {
-			if (!dispatchPiRequest) {
-				throw new Error(`Pi capability is unavailable: ${request.method}`);
-			}
-			return dispatchPiRequest(request, ctx, signal);
-		};
+		const piBridgeEnabled = options.enablePiBridge ?? true;
+		const onPiRequest: PyrunPiRequestHandler | undefined = piBridgeEnabled
+			? async (request) => {
+					if (!dispatchPiRequest) {
+						throw new Error(`Pi capability is unavailable: ${request.method}`);
+					}
+					return dispatchPiRequest(request, ctx, signal);
+				}
+			: undefined;
 		let streamedConsoleText = "";
 		const result = await runner.evaluate(
-			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true, stream_console: true },
+			{
+				...params,
+				pi: piBridgeEnabled ? createPiCapabilitySnapshot(ctx) : undefined,
+				pi_bridge: piBridgeEnabled,
+				stream_console: true,
+			},
 			(update) => {
 				const formattedProgressText = formatProgressText(update);
 				const progressText =
