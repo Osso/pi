@@ -1712,6 +1712,10 @@ export class AgentSession {
 
 		this._flushPendingBashMessages();
 
+		if (this.messages.length === 0) {
+			return;
+		}
+
 		this.validateModelAuthentication();
 
 		const lastAssistant = this._findLastAssistantMessage();

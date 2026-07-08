@@ -28,6 +28,18 @@ describe("AgentSession prompt characterization", () => {
 		}
 	});
 
+	it("does not start a continuation for an empty transcript", async () => {
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+
+		harness.setResponses([fauxAssistantMessage("unexpected")]);
+
+		await harness.session.continue();
+
+		expect(harness.session.messages).toEqual([]);
+		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
 	it("prompts while idle and records a single text response", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
