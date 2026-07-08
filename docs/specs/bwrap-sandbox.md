@@ -24,10 +24,7 @@ The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers 
 
 - [x] Route built-in `read`, `write`, `edit`, `ls`, `find`, and `grep` through the bwrap backend when sandboxed.
 - [x] Route built-in `bash` and interactive `user_bash` through the bwrap backend when sandboxed.
-- [x] Route `pyrun_eval` through a persistent bwrap-hosted Pyrun runner when sandboxed.
-- [x] Start sandboxed Pyrun without inheriting `process.env`.
-- [x] Disable the Pyrun Pi bridge while Pyrun runs in a sandboxed profile.
-- [x] Restart the persistent Pyrun runner when sandbox profile or cwd changes.
+- [x] Block `pyrun_eval` while a sandbox-required profile is active, until Pyrun can share a sandbox runner without conflicting with the first-party Pyrun tool registration.
 - [x] Register a hard tool gate so sandbox-required profiles cannot silently proceed unsandboxed when `bwrap` is unavailable.
 
 ## How it works
@@ -37,8 +34,7 @@ The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers 
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/bwrap/src/backend.ts` — builds and executes bubblewrap invocations for sandbox-required profiles.
-- `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; overrides file tools, bash/user_bash, and `pyrun_eval`.
-- `packages/coding-agent/extensions/pyrun/src/index.ts` — exports reusable Pyrun tool construction so the bwrap extension can preserve Pyrun prompt/rendering behavior.
+- `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; overrides file tools and bash/user_bash, and blocks `pyrun_eval` while sandboxed.
 
 ## Tests asserting this spec
 

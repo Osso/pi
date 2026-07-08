@@ -28,13 +28,9 @@ import {
 	resolveBwrapSandboxProfile,
 	type BwrapSandboxProfile,
 } from "./backend.ts";
-import { createPyrunEvalExecutor, type PyrunPiRequestDispatcher } from "../../pyrun/src/eval-tool.ts";
-import { createPyrunPiDispatcher, createPyrunToolDefinition } from "../../pyrun/src/index.ts";
-import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../../pyrun/src/runner.ts";
 
 interface BwrapExtensionOptions {
 	bwrapCommand?: string;
-	piRequestHandlers?: PyrunPiRequestDispatcher[];
 }
 
 interface JsonCommandResult<T> {
@@ -64,10 +60,6 @@ function getProfile(ctx: ExtensionContext): SandboxProfileName {
 
 function getSandboxProfile(ctx: ExtensionContext): BwrapSandboxProfile | undefined {
 	return resolveBwrapSandboxProfile(getProfile(ctx));
-}
-
-function profileKey(ctx: ExtensionContext): string {
-	return `${getProfile(ctx)}:${ctx.cwd}`;
 }
 
 async function runJsonInSandbox<T>(params: {
@@ -224,56 +216,6 @@ async function executeSandboxedGrep(
 	return { content: [{ type: "text", text }], details: Object.keys(details).length > 0 ? details : undefined };
 }
 
-const SANDBOXED_PYRUN_PROMPT_GUIDELINES = [
-	"Pyrun evaluates Python code in a persistent Python session inside the active bubblewrap sandbox.",
-	"The sandboxed Pyrun runner has no Pi bridge capabilities; pi.tools.call, pi.commands.run, pi.sessions.resume, pi.restart, pi.agents, and message helpers are unavailable.",
-	"Use ordinary Python and subprocesses within the sandbox-visible workspace only.",
-];
-
-function createPyrunExecutorManager(pi: ExtensionAPI, bwrapCommand: string, options: BwrapExtensionOptions) {
-	const dispatchPiRequest = createPyrunPiDispatcher(pi, { piRequestHandlers: options.piRequestHandlers });
-	let activeKey: string | undefined;
-	let activeRunner: PyrunRunnerClient | undefined;
-	return {
-		dispose: () => {
-			activeRunner?.dispose();
-			activeRunner = undefined;
-			activeKey = undefined;
-		},
-		evaluatorFor: (ctx: ExtensionContext) => {
-			const profile = getSandboxProfile(ctx);
-			const key = profileKey(ctx);
-			if (activeRunner && activeKey === key) {
-				return createPyrunEvalExecutor(activeRunner, profile ? undefined : dispatchPiRequest, {
-					enablePiBridge: !profile,
-				});
-			}
-			activeRunner?.dispose();
-			const resolvedRunner = resolvePyrunRunnerOptions();
-			if (profile) {
-				const invocation = buildBwrapInvocation({
-					bwrapCommand,
-					command: [resolvedRunner.command, ...resolvedRunner.args],
-					cwd: ctx.cwd,
-					env: resolvedRunner.env,
-					extraReadOnlyPaths: resolvedRunner.env.PYTHONPATH ? [resolvedRunner.env.PYTHONPATH] : [],
-					profile,
-				});
-				activeRunner = new PyrunRunnerClient({
-					args: invocation.argv,
-					command: bwrapCommand,
-					env: invocation.env,
-					inheritEnv: false,
-				});
-			} else {
-				activeRunner = new PyrunRunnerClient();
-			}
-			activeKey = key;
-			return createPyrunEvalExecutor(activeRunner, profile ? undefined : dispatchPiRequest, { enablePiBridge: !profile });
-		},
-	};
-}
-
 export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtensionOptions = {}) {
 	const bwrapCommand = options.bwrapCommand ?? DEFAULT_BWRAP_COMMAND;
 	const localCwd = process.cwd();
@@ -284,8 +226,6 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 	const localGrep = createGrepToolDefinition(localCwd);
 	const localFind = createFindToolDefinition(localCwd);
 	const localLs = createLsToolDefinition(localCwd);
-	const pyrunManager = createPyrunExecutorManager(pi, bwrapCommand, options);
-
 	function sandboxParams(ctx: ExtensionContext): { bwrapCommand: string; cwd: string; profile: BwrapSandboxProfile } | undefined {
 		const profile = getSandboxProfile(ctx);
 		return profile ? { bwrapCommand, cwd: ctx.cwd, profile } : undefined;
@@ -319,8 +259,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		}
 	});
 
-	pi.on("session_shutdown", () => {
-		pyrunManager.dispose();
+	pi.registerToolGate((event, ctx) => {
+		const profile = getSandboxProfile(ctx);
+		if (!profile || event.toolName !== "pyrun_eval") return;
+		return {
+			block: true,
+			reason: `pyrun_eval is disabled while bwrap sandbox profile ${profile} is active`,
+		};
 	});
 
 	pi.registerTool({
@@ -416,16 +361,6 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 			if (!sandbox) return localGrep.execute("grep", params, signal, _onUpdate, ctx);
 			return executeSandboxedGrep(sandbox, params, signal);
 		},
-	});
-
-	pi.registerTool({
-		...createPyrunToolDefinition(
-			async (params, ctx, onUpdate, signal) => {
-				const evaluator = pyrunManager.evaluatorFor(ctx);
-				return evaluator(params, ctx, onUpdate, signal);
-			},
-			{ promptGuidelines: SANDBOXED_PYRUN_PROMPT_GUIDELINES },
-		),
 	});
 
 	pi.on("user_bash", async (_event, ctx) => {

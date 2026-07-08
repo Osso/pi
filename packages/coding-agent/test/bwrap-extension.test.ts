@@ -33,12 +33,12 @@ function createContext(settingsManager: SettingsManager): ExtensionContext {
 	return { cwd: "/repo", settingsManager } as unknown as ExtensionContext;
 }
 
-function createToolCallEvent(): ToolCallEvent {
+function createToolCallEvent(toolName: string = "read"): ToolCallEvent {
 	return {
 		bypassPermissions: false,
 		input: { path: "file.txt" },
 		toolCallId: "tool-call-1",
-		toolName: "read",
+		toolName,
 		type: "tool_call",
 	};
 }
@@ -217,6 +217,24 @@ describe("bwrap sandbox backend", () => {
 		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "full-access" });
 
 		const result = toolGates[0]?.(createToolCallEvent(), createContext(settingsManager));
+
+		expect(result).toBeUndefined();
+	});
+
+	it("blocks Pyrun while a sandboxed profile is active", () => {
+		const { toolGates } = createBwrapHarness("bwrap");
+		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "read-only" });
+
+		const result = toolGates[1]?.(createToolCallEvent("pyrun_eval"), createContext(settingsManager));
+
+		expect(result).toMatchObject({ block: true, reason: expect.stringMatching(/pyrun_eval is disabled/) });
+	});
+
+	it("does not block Pyrun in full-access", () => {
+		const { toolGates } = createBwrapHarness("bwrap");
+		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "full-access" });
+
+		const result = toolGates[1]?.(createToolCallEvent("pyrun_eval"), createContext(settingsManager));
 
 		expect(result).toBeUndefined();
 	});

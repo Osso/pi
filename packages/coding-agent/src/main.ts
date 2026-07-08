@@ -608,7 +608,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("effort", effortExtension),
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("hostrun", (pi) => hostrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
-		firstPartyExtensionFactory("bwrap", (pi) => bwrapExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
+		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		firstPartyExtensionFactory("pyrun", (pi) => pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),

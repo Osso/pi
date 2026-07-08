@@ -20,7 +20,7 @@ For explicit sandbox-required profiles (`read-only`, `workspace-write`), the bac
 
 The extension overrides the built-in file tools with same-name tool registrations, following the Gondolin extension pattern. File operations execute small Node workers inside bwrap to preserve the built-in result shapes while keeping filesystem access inside the sandbox. The worker rejects lexical path escapes and symlinks that resolve outside the active workspace for read/write/stat/readdir/access/find/grep operations. `bash` and `user_bash` use a `BashOperations` backend that spawns the requested shell command through bwrap.
 
-`pyrun_eval` reuses the first-party Pyrun tool definition and creates a `PyrunRunnerClient` whose command is bwrap and whose argv ends in the canonical Pyrun runner command. The extension keeps one persistent runner per active profile/cwd key and disposes/restarts it when that key changes. The sandboxed Pyrun path starts the bwrap runner with `process.env` inheritance disabled and disables the Pi bridge, so Python code cannot call host Pi capabilities such as `pi.tools.call`, `pi.commands.run`, session switching, restart, or agent/message helpers from inside the sandbox.
+`pyrun_eval` remains owned by the first-party Pyrun extension. While a sandbox-required profile is active, the bwrap extension blocks `pyrun_eval` with a hard tool gate instead of allowing unsandboxed Python to run or registering a duplicate `pyrun_eval` tool. A future integration needs a shared sandbox runner hook so Pyrun can execute inside bwrap without conflicting with the first-party tool registration.
 
 ## Loading
 
