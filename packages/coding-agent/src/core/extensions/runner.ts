@@ -614,6 +614,10 @@ export class ExtensionRunner {
 		return this.extensions.some((extension) => extension.approvalReviewers.length > 0);
 	}
 
+	hasToolGates(): boolean {
+		return this.extensions.some((extension) => extension.toolGates.length > 0);
+	}
+
 	getMessageRenderer(customType: string): MessageRenderer | undefined {
 		for (const ext of this.extensions) {
 			const renderer = ext.messageRenderers.get(customType);
@@ -1034,6 +1038,21 @@ export class ExtensionRunner {
 		}
 
 		return result;
+	}
+
+	async emitToolGates(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
+		const ctx = this.createContext();
+
+		for (const ext of this.extensions) {
+			for (const gate of ext.toolGates) {
+				const result = await gate(event, ctx);
+				if (result?.block) {
+					return result;
+				}
+			}
+		}
+
+		return undefined;
 	}
 
 	async emitApprovalReviewers(event: ToolCallEvent): Promise<ApprovalReviewerResult | undefined> {

@@ -253,6 +253,11 @@ function createExtensionAPI(
 			extension.approvalReviewers.push(reviewer);
 		},
 
+		registerToolGate(gate): void {
+			runtime.assertActive();
+			extension.toolGates.push(gate);
+		},
+
 		registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">): void {
 			runtime.assertActive();
 			extension.commands.set(name, {
@@ -450,6 +455,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		sourceInfo: createSyntheticSourceInfo(extensionPath, { source, baseDir }),
 		handlers: new Map(),
 		approvalReviewers: [],
+		toolGates: [],
 		tools: new Map(),
 		messageRenderers: new Map(),
 		entryRenderers: new Map(),

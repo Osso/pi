@@ -647,6 +647,11 @@ export class AgentSession {
 				bypassPermissions: approvalPresetToBypassPermissions(this.settingsManager.getApprovalPreset()),
 				input: args as Record<string, unknown>,
 			} as const;
+			const gateResult = await this._reviewToolGates(event, runner);
+			if (gateResult?.block) {
+				return gateResult;
+			}
+
 			const approvalRequired = this._toolDefinitions.get(toolCall.name)?.definition.approvalRequired ?? true;
 			const policy = this.settingsManager.getApprovalPolicy();
 			const autoApproveReviewResult =
@@ -692,6 +697,24 @@ export class AgentSession {
 				isError: hookResult.isError ?? isError,
 			};
 		};
+	}
+
+	private async _reviewToolGates(
+		event: ToolCallEvent,
+		runner: ExtensionRunner,
+	): Promise<ToolCallEventResult | undefined> {
+		if (!runner.hasToolGates()) {
+			return undefined;
+		}
+
+		try {
+			return await runner.emitToolGates(event);
+		} catch (err) {
+			if (err instanceof Error) {
+				throw err;
+			}
+			throw new Error(`Extension failed, blocking execution: ${String(err)}`);
+		}
 	}
 
 	private async _reviewAutoApprovedToolCall(

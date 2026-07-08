@@ -96,6 +96,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
 		expect(result.stdout).toContain("run-plan");
+		expect(result.stdout).toContain("safe");
 	});
 
 	it("skips first-party extensions disabled in settings", async () => {
@@ -144,6 +145,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
 		expect(result.stdout).toContain("run-plan");
+		expect(result.stdout).toContain("safe");
 		expect(result.stdout).toContain("project.ts");
 	});
 
@@ -159,6 +161,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
 		expect(result.stdout).toContain("run-plan");
+		expect(result.stdout).toContain("safe");
 	});
 
 	it("keeps first-party extensions when project extensions are untrusted", async () => {
@@ -173,6 +176,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
 		expect(result.stdout).toContain("run-plan");
+		expect(result.stdout).toContain("safe");
 		expect(result.stdout).not.toContain("project.ts");
 	});
 

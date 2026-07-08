@@ -1456,6 +1456,22 @@ const label = ctx.sessionManager.getLabel(entryId);
 
 Labels persist in the session and survive restarts. Use them to mark important points (turns, checkpoints) in the conversation tree.
 
+### pi.registerToolGate(gate)
+
+Register an unconditional tool-call gate. Tool gates run before approval policy shortcuts, approval reviewers, permission-prompt tools, and ordinary `tool_call` handlers. Use them for hard capability restrictions that must still apply when a tool is auto-approved or marks `approvalRequired: false`.
+
+Return `{ block: true, reason }` to block the tool. Return `undefined` to allow normal approval and `tool_call` processing to continue.
+
+```typescript
+pi.registerToolGate((event) => {
+  if (event.toolName !== "web_search" && event.toolName !== "ask_questions") {
+    return { block: true, reason: `Tool blocked: ${event.toolName}` };
+  }
+});
+```
+
+Use ordinary `pi.on("tool_call", ...)` when you want approval-aware rewrites or prompts. Use `registerToolGate()` only for restrictions that must not be bypassed by approval settings.
+
 ### pi.registerCommand(name, options)
 
 Register a command.

@@ -962,6 +962,11 @@ export type ApprovalReviewer = (
 	ctx: ExtensionContext,
 ) => Promise<ApprovalReviewerResult | undefined> | ApprovalReviewerResult | undefined;
 
+export type ToolGate = (
+	event: ToolCallEvent,
+	ctx: ExtensionContext,
+) => Promise<ToolCallEventResult | undefined> | ToolCallEventResult | undefined;
+
 interface ToolResultEventBase {
 	type: "tool_result";
 	toolCallId: string;
@@ -1299,6 +1304,11 @@ export interface ExtensionAPI {
 	 * Reviewers can allow, deny, ask for native approval, or rewrite tool input.
 	 */
 	registerApprovalReviewer(reviewer: ApprovalReviewer): void;
+	/**
+	 * Register an unconditional tool gate that runs before approval policy shortcuts.
+	 * Use this for hard capability restrictions rather than ordinary approval prompts.
+	 */
+	registerToolGate(gate: ToolGate): void;
 
 	// =========================================================================
 	// Command, Shortcut, Flag Registration
@@ -1741,6 +1751,7 @@ export interface Extension {
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	approvalReviewers: ApprovalReviewer[];
+	toolGates: ToolGate[];
 	tools: Map<string, RegisteredTool>;
 	messageRenderers: Map<string, MessageRenderer>;
 	entryRenderers?: Map<string, EntryRenderer>;

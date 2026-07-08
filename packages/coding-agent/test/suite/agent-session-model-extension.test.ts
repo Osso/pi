@@ -19,12 +19,14 @@ vi.mock("../../src/core/desktop-notification.ts", async (importOriginal) => {
 
 import claudeBashHookExtension from "../../extensions/claude-bash-hook/src/index.ts";
 import hostrunExtension from "../../extensions/hostrun/src/index.ts";
+import safeExtension from "../../extensions/safe/src/index.ts";
 import {
 	type BuildSystemPromptOptions,
 	type ExtensionAPI,
 	type ExtensionUIContext,
 	isToolCallEventType,
 	type ToolCallEvent,
+	type ToolDefinition,
 } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.ts";
 
@@ -404,6 +406,95 @@ describe("AgentSession model and extension characterization", () => {
 
 		expect(laterHandlerCalls).toBe(0);
 		expect(getAssistantTexts(harness)).toContain("first handler blocked");
+	});
+
+	it("blocks non-allowlisted tools before auto-approve can execute them", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "auto-approve", approvalPreset: "auto-approve" },
+			tools: [echoTool],
+			extensionFactories: [safeExtension],
+			uiContext: createConfirmUiContext(vi.fn()),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("/safe on");
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("Safe mode blocks tool: echo");
+	});
+
+	it("blocks non-allowlisted tools that opt out of approval", async () => {
+		const echoTool: ToolDefinition = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			approvalRequired: false,
+			execute: async () => {
+				throw new Error("tool should have been blocked");
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "never", approvalPreset: "never-ask-deny" },
+			extensionFactories: [safeExtension, (pi) => pi.registerTool(echoTool)],
+			uiContext: createConfirmUiContext(vi.fn()),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("/safe on");
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("Safe mode blocks tool: echo");
+	});
+
+	it("blocks non-allowlisted tools before approval reviewers can allow them", async () => {
+		useFakeClaudeBashHook({
+			permissionDecision: "allow",
+			permissionDecisionReason: "safe",
+			updatedInput: { command: "printf hook-approved" },
+		});
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
+			extensionFactories: [claudeBashHookExtension, safeExtension],
+			uiContext: createConfirmUiContext(vi.fn(async () => false)),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "printf original" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("/safe on");
+		await harness.session.prompt("hi");
+
+		expect(getAssistantTexts(harness)).toContain("Safe mode blocks tool: bash");
+		expect(getAssistantTexts(harness)).not.toContain("hook-approved");
 	});
 
 	it("blocks execution when a tool_call handler throws a non-Error value", async () => {

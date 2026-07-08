@@ -33,6 +33,7 @@ import loopExtension from "../extensions/loop/src/index.ts";
 import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
+import safeExtension from "../extensions/safe/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import sessionIdExtension from "../extensions/session-id/src/index.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
@@ -610,6 +611,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
+		firstPartyExtensionFactory("safe", safeExtension),
 		firstPartyExtensionFactory("self-restart", selfRestartExtension),
 		firstPartyExtensionFactory("session-id", sessionIdExtension),
 	];
