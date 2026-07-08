@@ -271,9 +271,16 @@ describe("Agent.continue() with faux provider", () => {
 			await expect(agent.continue()).rejects.toThrow("No messages to continue from");
 		});
 
-		it("throws when last message is assistant", async () => {
+		it("continues when last message is assistant", async () => {
 			const faux = createFauxRegistration();
 			const model = faux.getModel();
+			let sawAssistantContext = false;
+			faux.setResponses([
+				(context) => {
+					sawAssistantContext = context.messages.at(-1)?.role === "assistant";
+					return fauxAssistantMessage("continued");
+				},
+			]);
 			const agent = new Agent({
 				initialState: {
 					systemPrompt: "Test",
@@ -300,7 +307,14 @@ describe("Agent.continue() with faux provider", () => {
 			};
 			agent.state.messages = [assistantMessage];
 
-			await expect(agent.continue()).rejects.toThrow("Cannot continue from message role: assistant");
+			await agent.continue();
+
+			expect(sawAssistantContext).toBe(true);
+			expect(agent.state.messages).toHaveLength(2);
+			expect(agent.state.messages[1]?.role).toBe("assistant");
+			const continuedMessage = agent.state.messages[1];
+			if (continuedMessage?.role !== "assistant") throw new Error("Expected assistant message");
+			expect(getTextContent(continuedMessage)).toBe("continued");
 		});
 	});
 

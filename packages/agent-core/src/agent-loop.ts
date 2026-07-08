@@ -55,11 +55,6 @@ export function agentLoop(
 
 /**
  * Continue an agent loop from the current context without adding a new message.
- * Used for retries - context already has user message or tool results.
- *
- * **Important:** The last message in context must convert to a `user` or `toolResult` message
- * via `convertToLlm`. If it doesn't, the LLM provider will reject the request.
- * This cannot be validated here since `convertToLlm` is only called once per turn.
  */
 export function agentLoopContinue(
 	context: AgentContext,
@@ -69,10 +64,6 @@ export function agentLoopContinue(
 ): EventStream<AgentEvent, AgentMessage[]> {
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
-	}
-
-	if (context.messages[context.messages.length - 1].role === "assistant") {
-		throw new Error("Cannot continue from message role: assistant");
 	}
 
 	const stream = createAgentStream();
@@ -126,10 +117,6 @@ export async function runAgentLoopContinue(
 ): Promise<AgentMessage[]> {
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
-	}
-
-	if (context.messages[context.messages.length - 1].role === "assistant") {
-		throw new Error("Cannot continue from message role: assistant");
 	}
 
 	const newMessages: AgentMessage[] = [];

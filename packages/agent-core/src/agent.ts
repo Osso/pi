@@ -367,8 +367,6 @@ export class Agent {
 				await this.runPromptMessages(queuedFollowUps);
 				return;
 			}
-
-			throw new Error("Cannot continue from message role: assistant");
 		}
 
 		await this.runContinuation();

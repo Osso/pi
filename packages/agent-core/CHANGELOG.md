@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Fixed `Agent.continue()` to allow continuing transcripts whose last message is an assistant message.
 - Fixed harness compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
 - Fixed harness split-turn compaction to serialize summary requests so single-concurrency providers are not asked to run overlapping generations ([#5536](https://github.com/earendil-works/pi/issues/5536)).
 

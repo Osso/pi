@@ -40,6 +40,21 @@ describe("AgentSession prompt characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
+	it("continues after a completed assistant response without queued messages", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const initialAssistant = fauxAssistantMessage("done");
+		harness.session.agent.state.messages = [initialAssistant];
+		harness.setResponses([fauxAssistantMessage("continued")]);
+
+		await harness.session.continue();
+
+		expect(harness.session.messages).toHaveLength(2);
+		expect(harness.session.messages[0]).toEqual(initialAssistant);
+		expect(getMessageText(harness.session.messages[1])).toBe("continued");
+		expect(harness.getPendingResponseCount()).toBe(0);
+	});
+
 	it("prompts while idle and records a single text response", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
