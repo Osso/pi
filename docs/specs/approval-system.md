@@ -57,6 +57,8 @@ Implementation details belong in
   `~/.config/pi/agent/approval-memory.jsonl` into LLM approval prompts.
 - [x] Allow the LLM approval reviewer to suggest structured persistent memory
   records; Pi validates bounded fields before appending them to the JSONL file.
+- [x] Support an optional `approvalReviewerModel` setting so LLM approval review
+  can use a dedicated model; if configured and unresolved, approval fails closed.
 
 ### Presets and slash commands
 
@@ -109,7 +111,8 @@ Implementation details belong in
   sandbox profile metadata used by command selectors.
 - `packages/coding-agent/src/core/settings-manager.ts` — approval policy settings
   read/write helpers, including `approvalPreset` identity plus derived
-  `approvalPolicy`, and scoped sandbox profile serialization.
+  `approvalPolicy`, optional `approvalReviewerModel`, and scoped sandbox profile
+  serialization.
 - `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny or allow/ask depending on the selected preset. The prompt explicitly

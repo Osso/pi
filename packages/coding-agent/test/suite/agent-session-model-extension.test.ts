@@ -1051,6 +1051,81 @@ describe("AgentSession model and extension characterization", () => {
 		expect(readFileSync(join(harness.tempDir, "approval-memory.jsonl"), "utf-8")).toContain("echo hello");
 	});
 
+	it("uses configured approval reviewer model instead of the active session model", async () => {
+		const approvalModels: string[] = [];
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-main", name: "Main", reasoning: true },
+				{ id: "faux-reviewer", name: "Reviewer", reasoning: false },
+			],
+			settings: {
+				approvalPolicy: "on-request",
+				approvalPreset: "llm-approved-deny",
+				approvalReviewerModel: "faux/faux-reviewer",
+			},
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(_context, _options, _state, model) => {
+				approvalModels.push(`${model.provider}/${model.id}`);
+				return fauxAssistantMessage('{"behavior":"allow"}');
+			},
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(harness.session.model?.id).toBe("faux-main");
+		expect(approvalModels).toEqual(["faux/faux-reviewer"]);
+	});
+
+	it("fails closed when configured approval reviewer model cannot be resolved", async () => {
+		let toolExecutions = 0;
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				toolExecutions++;
+				return { content: [{ type: "text", text: "executed" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			settings: {
+				approvalPolicy: "on-request",
+				approvalPreset: "llm-approved-deny",
+				approvalReviewerModel: "faux/missing",
+			},
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(toolExecutions).toBe(0);
+		expect(getAssistantTexts(harness).join("\n")).toContain("Approval reviewer model not found: faux/missing");
+	});
+
 	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {
 		let autoReviewerCalls = 0;
 		const echoTool: AgentTool = {

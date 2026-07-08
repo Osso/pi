@@ -94,7 +94,7 @@ import type { ApprovalReviewerResult as ExtensionApprovalReviewerResult } from "
 import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
-import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
+import { parseModelPattern, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type { AgentLifecycleState, MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	type ApprovalRecentDecision,
@@ -895,8 +895,15 @@ export class AgentSession {
 			return undefined;
 		}
 
-		return async () =>
-			reviewToolCallWithAutoReviewer(
+		return async () => {
+			let approvalReviewerModel: Model<any>;
+			try {
+				approvalReviewerModel = await this._resolveApprovalReviewerModel();
+			} catch (error) {
+				return { block: true, reason: error instanceof Error ? error.message : String(error) };
+			}
+
+			return reviewToolCallWithAutoReviewer(
 				{
 					cwd: this._cwd,
 					escalation: approvalPreset === "llm-approved-ask" ? "ask" : "deny",
@@ -907,7 +914,7 @@ export class AgentSession {
 					toolName: event.toolName,
 				},
 				async (prompt) => {
-					const stream = await this.agent.streamFn(this.agent.state.model, {
+					const stream = await this.agent.streamFn(approvalReviewerModel, {
 						messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
 						systemPrompt: "",
 						tools: [],
@@ -923,6 +930,28 @@ export class AgentSession {
 					recordMemorySuggestion: (memory) => appendApprovalMemory(this._agentDir, memory),
 				},
 			);
+		};
+	}
+
+	private async _resolveApprovalReviewerModel(): Promise<Model<any>> {
+		const modelReference = this.settingsManager.getMergedSettings().approvalReviewerModel;
+		if (!modelReference) {
+			return this.agent.state.model;
+		}
+
+		const parsed = parseModelPattern(modelReference, this._modelRegistry.getAll());
+		if (!parsed.model) {
+			throw new Error(`Approval reviewer model not found: ${modelReference}`);
+		}
+
+		const auth = await this._modelRegistry.getApiKeyAndHeaders(parsed.model);
+		if (!auth.ok) {
+			throw new Error(
+				`Approval reviewer model auth unavailable for ${parsed.model.provider}/${parsed.model.id}: ${auth.error}`,
+			);
+		}
+
+		return parsed.model;
 	}
 
 	private _recordApprovalDecision(decision: ApprovalRecentDecision): void {
