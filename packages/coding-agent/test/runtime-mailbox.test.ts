@@ -10,6 +10,7 @@ import {
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
+	markMultiAgentMailboxMessageDelivered,
 	readRuntimeMailboxMessage,
 	upsertMultiAgentMailboxMessage,
 	writeSessionMetadata,
@@ -913,6 +914,38 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		expect(getUserTexts(harness)).toEqual(["hello", runtimeMailboxPrompt("Child finished tests")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
+	it("silently consumes transport rows whose store message was already delivered", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("initial reply")]);
+		const sessionPath = "/sessions/runtime-test-sender.jsonl";
+		const messageId = "runtime_test_delivered_message";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "Already delivered stale message",
+			fromAgentId: "agent_1",
+			id: messageId,
+			kind: "system",
+			status: "pending",
+			toAgentId: "main",
+		});
+		markMultiAgentMailboxMessageDelivered(controlDbPath, sessionPath, messageId);
+		const runtimeMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+			storeRef: { messageId, sessionPath },
+		});
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual(["hello"]);
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
 	});
 
 	it("marks runtime mailbox steer delivery and completion in the parent store", async () => {

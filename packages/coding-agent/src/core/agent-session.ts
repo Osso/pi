@@ -106,8 +106,10 @@ import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.t
 import {
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
+	consumeRuntimeMailboxMessageByStoreRef,
 	failRuntimeMailboxMessage,
 	getControlDbPath,
+	getMultiAgentMailboxMessageStatus,
 	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxMessage,
@@ -2054,6 +2056,9 @@ export class AgentSession {
 
 			let queued = false;
 			for (const message of claimed) {
+				if (this._consumeResolvedStoreMailboxMessage(controlDbPath, message)) {
+					continue;
+				}
 				const prompt = formatRuntimeMailboxPrompt(message, recipient.sessionId);
 				try {
 					if (options.triggerIfIdle && !this.isStreaming) {
@@ -2077,6 +2082,21 @@ export class AgentSession {
 		} finally {
 			this._runtimeMailboxDrainInProgress = false;
 		}
+	}
+
+	private _consumeResolvedStoreMailboxMessage(controlDbPath: string, message: RuntimeMailboxMessage): boolean {
+		const storeRef = message.storeRef;
+		if (!storeRef) {
+			return false;
+		}
+
+		const storeStatus = getMultiAgentMailboxMessageStatus(controlDbPath, storeRef.sessionPath, storeRef.messageId);
+		if (storeStatus === "pending") {
+			return false;
+		}
+
+		consumeRuntimeMailboxMessageByStoreRef(controlDbPath, storeRef);
+		return true;
 	}
 
 	// Transport delivery is the only delivery, so the store record transitions to

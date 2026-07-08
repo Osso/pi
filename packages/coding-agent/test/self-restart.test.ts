@@ -73,7 +73,7 @@ describe("self restart request", () => {
 		expect(args.sessionId).toBeUndefined();
 	});
 
-	it("keeps the parent process alive until the restarted child exits", async () => {
+	it("can keep the parent process alive until the restarted child exits", async () => {
 		const child = new EventEmitter() as EventEmitter & { unref: () => void };
 		let spawnArgs: readonly string[] | undefined;
 		let spawnOptions: { cwd?: string; env?: NodeJS.ProcessEnv; stdio?: unknown } | undefined;
@@ -185,15 +185,17 @@ describe("self restart request", () => {
 		expect(notices).toEqual([`Restarted. PID 1234 -> ${process.pid}.`]);
 	});
 
-	it("spawns a replacement process and exits the original process", async () => {
+	it("spawns a replacement process without waiting and exits the original process", async () => {
 		const calls: string[] = [];
+		const waitForExitValues: (boolean | undefined)[] = [];
 
 		await expect(
 			restartCurrentProcess(
 				{ sessionFile: "/tmp/session.jsonl", prompt: "Restarted." },
 				{
-					spawnSelfRestart: async (request) => {
+					spawnSelfRestart: async (request, restartDependencies) => {
 						calls.push(`${request.sessionFile}:${request.prompt}:${request.oldPid}`);
+						waitForExitValues.push(restartDependencies?.waitForExit);
 						return 0;
 					},
 					exit: (code) => {
@@ -204,5 +206,6 @@ describe("self restart request", () => {
 		).rejects.toThrow("exit:0");
 
 		expect(calls).toEqual([`/tmp/session.jsonl:Restarted.:${process.pid}`]);
+		expect(waitForExitValues).toEqual([false]);
 	});
 });

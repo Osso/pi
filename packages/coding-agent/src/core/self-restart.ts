@@ -30,7 +30,7 @@ interface SelfRestartDependencies {
 
 export interface RestartCurrentProcessDependencies {
 	exit?: (code: number) => never;
-	spawnSelfRestart?: (request: SelfRestartRequest) => Promise<number>;
+	spawnSelfRestart?: (request: SelfRestartRequest, dependencies?: SelfRestartDependencies) => Promise<number>;
 }
 
 export type ProcessRestarter = (
@@ -86,7 +86,7 @@ export async function restartCurrentProcess(
 	const restartRequest = { ...request, oldPid: process.pid };
 	const exit = dependencies.exit ?? process.exit;
 	const spawnRestart = dependencies.spawnSelfRestart ?? spawnSelfRestart;
-	const exitCode = await spawnRestart(restartRequest);
+	const exitCode = await spawnRestart(restartRequest, { waitForExit: false });
 	exit(exitCode);
 	throw new Error("process.exit returned after spawning restart process");
 }

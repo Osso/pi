@@ -1106,6 +1106,24 @@ export function upsertMultiAgentMailboxMessage(
 	upsertMultiAgentRow(controlDbPath, "multi_agent_mailbox_messages", "message_id", sessionPath, id, data);
 }
 
+export function getMultiAgentMailboxMessageStatus(
+	controlDbPath: string,
+	sessionPath: string,
+	messageId: string,
+): string | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+			.get(sessionPath, messageId) as { data: string } | undefined;
+		if (!row) {
+			return undefined;
+		}
+
+		const parsed = parseJsonObject(row.data);
+		return typeof parsed?.status === "string" ? parsed.status : undefined;
+	});
+}
+
 export function markMultiAgentMailboxMessageDelivered(
 	controlDbPath: string,
 	sessionPath: string,
