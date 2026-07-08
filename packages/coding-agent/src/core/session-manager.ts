@@ -497,6 +497,17 @@ function truncateMessageToFit(message: AgentMessage, newerMessages: AgentMessage
 	return best;
 }
 
+function removeLeadingToolResults(messages: AgentMessage[]): AgentMessage[] {
+	const firstNonToolResultIndex = messages.findIndex((message) => message.role !== "toolResult");
+	if (firstNonToolResultIndex === -1) {
+		return [];
+	}
+	if (firstNonToolResultIndex === 0) {
+		return messages;
+	}
+	return messages.slice(firstNonToolResultIndex);
+}
+
 function buildCappedKeptMessages(entries: SessionEntry[]): AgentMessage[] {
 	const keptMessages: AgentMessage[] = [];
 	for (const entry of [...entries].reverse()) {
@@ -517,7 +528,7 @@ function buildCappedKeptMessages(entries: SessionEntry[]): AgentMessage[] {
 		}
 		break;
 	}
-	return keptMessages;
+	return removeLeadingToolResults(keptMessages);
 }
 
 function collectKeptEntries(path: SessionEntry[], compaction: CompactionEntry, compactionIdx: number): SessionEntry[] {

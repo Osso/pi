@@ -1,3 +1,4 @@
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
 	type BranchSummaryEntry,
@@ -11,30 +12,70 @@ import {
 	type ThinkingLevelChangeEntry,
 } from "../../src/core/session-manager.ts";
 
+function assistantMessage(
+	text: string,
+	content: AssistantMessage["content"] = [{ type: "text", text }],
+): AssistantMessage {
+	return {
+		role: "assistant",
+		content,
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "claude-test",
+		usage: {
+			input: 1,
+			output: 1,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 2,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: 1,
+	};
+}
+
 function msg(id: string, parentId: string | null, role: "user" | "assistant", text: string): SessionMessageEntry {
 	const base = { type: "message" as const, id, parentId, timestamp: "2025-01-01T00:00:00Z" };
 	if (role === "user") {
 		return { ...base, message: { role, content: text, timestamp: 1 } };
 	}
+	return { ...base, message: assistantMessage(text) };
+}
+
+function toolCallMsg(id: string, parentId: string | null, toolCallId: string, thinking: string): SessionMessageEntry {
 	return {
-		...base,
+		type: "message",
+		id,
+		parentId,
+		timestamp: "2025-01-01T00:00:00Z",
 		message: {
-			role,
-			content: [{ type: "text", text }],
-			api: "anthropic-messages",
-			provider: "anthropic",
-			model: "claude-test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "stop",
-			timestamp: 1,
+			...assistantMessage(""),
+			content: [
+				{ type: "thinking", thinking, thinkingSignature: "sig" },
+				{ type: "text", text: "" },
+				{ type: "toolCall", id: toolCallId, name: "pyrun_eval", arguments: { code: "print('ok')" } },
+			],
+			stopReason: "toolUse",
 		},
+	};
+}
+
+function toolResultMsg(id: string, parentId: string | null, toolCallId: string): SessionMessageEntry {
+	const message: ToolResultMessage<unknown> = {
+		role: "toolResult",
+		toolCallId,
+		toolName: "pyrun_eval",
+		content: [{ type: "text", text: "ok" }],
+		isError: false,
+		timestamp: 1,
+	};
+	return {
+		type: "message",
+		id,
+		parentId,
+		timestamp: "2025-01-01T00:00:00Z",
+		message,
 	};
 }
 
@@ -205,6 +246,36 @@ describe("buildSessionContext", () => {
 			const ctx = buildSessionContext(entries);
 			expect(ctx.thinkingLevel).toBe("high");
 			expect(ctx.messages.map((message) => message.role)).toEqual(["compactionSummary", "user"]);
+		});
+
+		it("does not keep an orphaned tool result when the capped pre-compaction suffix drops its tool call", () => {
+			const toolCallId = "call_with_openai_id|fc_123";
+			const entries: SessionEntry[] = [
+				msg("1", null, "user", "start"),
+				toolCallMsg("2", "1", toolCallId, "x".repeat(25_000)),
+				toolResultMsg("3", "2", toolCallId),
+				msg("4", "3", "assistant", "done"),
+				compaction("5", "4", "Summary", "1"),
+			];
+
+			const ctx = buildSessionContext(entries);
+
+			expect(ctx.messages.map((message) => message.role)).toEqual(["compactionSummary", "assistant"]);
+			expect(ctx.messages[1]).toMatchObject({ role: "assistant", content: [{ type: "text", text: "done" }] });
+		});
+
+		it("drops the capped pre-compaction suffix when every retained message is an orphaned tool result", () => {
+			const toolCallId = "call_with_openai_id|fc_123";
+			const entries: SessionEntry[] = [
+				msg("1", null, "user", "start"),
+				toolCallMsg("2", "1", toolCallId, "x".repeat(25_000)),
+				toolResultMsg("3", "2", toolCallId),
+				compaction("4", "3", "Summary", "1"),
+			];
+
+			const ctx = buildSessionContext(entries);
+
+			expect(ctx.messages.map((message) => message.role)).toEqual(["compactionSummary"]);
 		});
 	});
 
