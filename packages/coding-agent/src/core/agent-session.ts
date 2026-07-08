@@ -1599,13 +1599,47 @@ export class AgentSession {
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		try {
 			await this.agent.prompt(messages);
-			while (await this._handlePostAgentRun()) {
-				await this.agent.continue();
-			}
+			await this._continuePostAgentRuns();
 		} finally {
 			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 		}
+	}
+
+	private async _runAgentContinuation(): Promise<void> {
+		try {
+			await this.agent.continue();
+			await this._continuePostAgentRuns();
+		} finally {
+			this._systemPromptOverride = undefined;
+			this._flushPendingBashMessages();
+		}
+	}
+
+	private async _continuePostAgentRuns(): Promise<void> {
+		while (await this._handlePostAgentRun()) {
+			await this.agent.continue();
+		}
+	}
+
+	private validateModelAuthentication(): void {
+		if (!this.model) {
+			throw new Error(formatNoModelSelectedMessage());
+		}
+
+		if (this._modelRegistry.hasConfiguredAuth(this.model)) {
+			return;
+		}
+
+		const isOAuth = this._modelRegistry.isUsingOAuth(this.model);
+		if (isOAuth) {
+			throw new Error(
+				`Authentication failed for "${this.model.provider}". ` +
+					`Credentials may have expired or network is unavailable. ` +
+					`Run '/login ${this.model.provider}' to re-authenticate.`,
+			);
+		}
+		throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
 	}
 
 	private async _handlePostAgentRun(): Promise<boolean> {
@@ -1640,6 +1674,31 @@ export class AgentSession {
 		}
 
 		return this._drainRuntimeMailboxMessages({ triggerIfIdle: false });
+	}
+
+	/**
+	 * Continue the agent from the current transcript without adding a user message.
+	 * @throws Error if streaming, no model is selected, or no API key is available
+	 */
+	async continue(): Promise<void> {
+		if (this.isStreaming) {
+			throw new Error("Agent is already processing. Wait for completion before continuing.");
+		}
+
+		this._flushPendingBashMessages();
+
+		this.validateModelAuthentication();
+
+		const lastAssistant = this._findLastAssistantMessage();
+		if (lastAssistant) {
+			await this._checkCompaction(lastAssistant, false);
+		}
+
+		try {
+			await this._runAgentContinuation();
+		} finally {
+			this._completeRuntimeMailboxSteeringTurn(this.messages);
+		}
 	}
 
 	/**
@@ -1716,21 +1775,7 @@ export class AgentSession {
 			this._flushPendingBashMessages();
 
 			// Validate model
-			if (!this.model) {
-				throw new Error(formatNoModelSelectedMessage());
-			}
-
-			if (!this._modelRegistry.hasConfiguredAuth(this.model)) {
-				const isOAuth = this._modelRegistry.isUsingOAuth(this.model);
-				if (isOAuth) {
-					throw new Error(
-						`Authentication failed for "${this.model.provider}". ` +
-							`Credentials may have expired or network is unavailable. ` +
-							`Run '/login ${this.model.provider}' to re-authenticate.`,
-					);
-				}
-				throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
-			}
+			this.validateModelAuthentication();
 
 			// Check if we need to compact before sending (catches aborted responses).
 			// The user's new prompt is sent below, so do not call agent.continue() here.

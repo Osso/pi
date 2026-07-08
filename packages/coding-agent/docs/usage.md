@@ -42,7 +42,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/resume` | Pick from previous sessions |
 | `/agents` | Open agent switcher |
 | `/new` | Start a new session |
-| `/continue` | Send `continue` to resume interrupted work |
+| `/continue` | Continue the current transcript without adding a user message |
 | `/name <name>` | Set session display name |
 | `/session` | Show session file, ID, messages, tokens, and cost |
 | `/tree` | Jump to any point in the session and continue from there |
@@ -92,7 +92,7 @@ Useful session commands:
 - `/fork` creates a new session from an earlier user message.
 - `/clone` duplicates the current active branch into a new session file.
 - `/compact` summarizes older messages to free context.
-- `/continue` sends `continue` to resume interrupted work.
+- `/continue` continues from the current transcript without adding a user message.
 
 See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 

@@ -20,8 +20,10 @@ type SubmitContext = {
 		isCompacting: boolean;
 		isStreaming: boolean;
 		isBashRunning: boolean;
+		continue: () => Promise<void>;
 		prompt: (text: string, options?: unknown) => Promise<void>;
 	};
+	cancelStreamingAndSubmitQueuedMessages: () => Promise<void>;
 	flushPendingBashComponents: () => void;
 	onInputCallback?: (text: string) => void;
 	pendingUserInputs: string[];
@@ -63,8 +65,10 @@ function createSubmitContext(): SubmitContext {
 			isCompacting: false,
 			isStreaming: false,
 			isBashRunning: false,
+			continue: vi.fn(async () => {}),
 			prompt: vi.fn(async () => {}),
 		},
+		cancelStreamingAndSubmitQueuedMessages: vi.fn(async () => {}),
 		flushPendingBashComponents: vi.fn(),
 		pendingUserInputs: [],
 		showSettingsSelector: vi.fn(),
@@ -104,6 +108,33 @@ describe("InteractiveMode startup input", () => {
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("/settings");
 		expect(context.showSettingsSelector).toHaveBeenCalledTimes(1);
 		expect(context.editor.setText).toHaveBeenCalledWith("");
+	});
+
+	it("continues the current transcript without submitting a user message", async () => {
+		const context = createSubmitContext();
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" /continue ");
+
+		expect(context.editor.addToHistory).toHaveBeenCalledWith("/continue");
+		expect(context.editor.setText).toHaveBeenCalledWith("");
+		expect(context.session.continue).toHaveBeenCalledTimes(1);
+		expect(context.pendingUserInputs).toEqual([]);
+		expect(context.session.prompt).not.toHaveBeenCalled();
+	});
+
+	it("submits queued and current messages for /continue while streaming", async () => {
+		const context = createSubmitContext();
+		context.session.isStreaming = true;
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" /continue ");
+
+		expect(context.editor.addToHistory).toHaveBeenCalledWith("/continue");
+		expect(context.editor.setText).not.toHaveBeenCalled();
+		expect(context.cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+		expect(context.session.continue).not.toHaveBeenCalled();
+		expect(context.session.prompt).not.toHaveBeenCalled();
 	});
 
 	it("returns queued startup input before installing a new input callback", async () => {
