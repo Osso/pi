@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
+import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
@@ -129,7 +130,7 @@ describe("InteractiveMode idle desktop notifications", () => {
 
 		expect(desktopNotifier).toHaveBeenCalledWith({
 			body: "Pi is idle and ready for your next message.",
-			expireTimeMs: 0,
+			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
 			title: "Pi response complete",
 			urgency: "normal",
 		});

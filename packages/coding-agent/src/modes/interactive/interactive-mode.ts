@@ -65,7 +65,11 @@ import {
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type { CompactionSourceInfo } from "../../core/compaction/index.ts";
-import { type DesktopNotificationHandle, sendDesktopNotification } from "../../core/desktop-notification.ts";
+import {
+	type DesktopNotificationHandle,
+	NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+	sendDesktopNotification,
+} from "../../core/desktop-notification.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -3111,7 +3115,7 @@ export class InteractiveMode {
 		try {
 			this.responseCompleteNotification = sendDesktopNotification({
 				body: "Pi is idle and ready for your next message.",
-				expireTimeMs: 0,
+				expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
 				title: "Pi response complete",
 				urgency: "normal",
 			});

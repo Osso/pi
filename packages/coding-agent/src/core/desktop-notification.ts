@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 
+export const DEFAULT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS = -1;
+export const NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS = 0;
+
 export interface DesktopNotification {
 	body: string;
 	expireTimeMs?: number;
@@ -28,7 +31,7 @@ export function sendDesktopNotification(notification: DesktopNotification): Desk
 	}
 
 	const pendingNotification = createPendingDesktopNotification();
-	const expireTimeMs = notification.expireTimeMs ?? 0;
+	const expireTimeMs = notification.expireTimeMs ?? DEFAULT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS;
 	const urgency = notification.urgency ?? "critical";
 	const child = spawn(
 		"notify-send",

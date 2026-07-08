@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
 import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	claimRuntimeMailboxMessages,
@@ -616,6 +617,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(desktopNotifications).toEqual([
 			{
 				body: "Worker is waiting for input.",
+				expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
 				title: "Pi agent needs input",
 			},
 		]);
