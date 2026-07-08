@@ -1,7 +1,7 @@
 # Self Restart
 
 Self restart lets an agent ask Pi to tear down the current in-process session
-runtime or, in interactive mode, exit and spawn a fresh Pi process from the same
+runtime or, in interactive mode, exec a fresh Pi process image from the same
 session file with a restart notice added to the resumed conversation. How the
 runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 
@@ -12,10 +12,19 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Expose a command-context `restart()` action to extensions.
 - [x] Emit `session_shutdown` and `session_start` lifecycle events with reason
   `restart` while preserving the same session file.
-- [x] Let interactive mode spawn a fresh Pi process directly with the same argv
-  and an environment restart request that resumes the current session.
+- [x] Let interactive mode replace the current Pi process in place via
+  `process.execve` with the same argv and an environment restart request that
+  resumes the current session. exec-in-place keeps the pid, controlling
+  terminal, and foreground process group, so the restarted TUI can enable raw
+  mode under shell job control (a spawned replacement whose parent exits lands
+  in an orphaned background process group where `tcsetattr` fails with EIO).
+- [x] Consume the restart request environment variables at startup and discard
+  requests whose old pid matches neither the current process nor the parent,
+  so leaked variables cannot redirect Pi processes spawned later (for example
+  sub-agents).
 - [x] Do not provide wrapper request-file or restart-exit-code fallback paths;
-  process self restart always uses direct child process spawn.
+  process self restart execs in place, with a direct child process spawn
+  handoff only where `process.execve` is unavailable (Windows, Node < 23.11).
 - [x] Let an external supervisor restart interactive mode by sending `SIGHUP`, using the same
   persisted-session process handoff as `restart_self`.
 
@@ -41,7 +50,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - `packages/coding-agent/src/core/extensions/types.ts` — extension API and
   lifecycle reason types.
 - `packages/coding-agent/src/core/self-restart.ts` — process restart request
-  environment handling and child process spawn.
+  environment handling and exec-in-place restart.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` —
   interactive terminal shutdown and process handoff.
 

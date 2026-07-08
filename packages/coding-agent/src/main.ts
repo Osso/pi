@@ -67,7 +67,12 @@ import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import { type CreateAgentSessionOptions, createAgentSession } from "./core/sdk.ts";
-import { appendSelfRestartNotice, applySelfRestartRequest, waitForSelfRestartParentExit } from "./core/self-restart.ts";
+import {
+	appendSelfRestartNotice,
+	applySelfRestartRequest,
+	consumeSelfRestartRequest,
+	waitForSelfRestartParentExit,
+} from "./core/self-restart.ts";
 import { claimLatestIncomingMessage, getControlDbPath } from "./core/session-control-db.ts";
 import {
 	formatMissingSessionCwdPrompt,
@@ -667,8 +672,9 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	const parsed = parseArgs(args);
-	applySelfRestartRequest(parsed);
-	await waitForSelfRestartParentExit();
+	const selfRestartHandoff = consumeSelfRestartRequest();
+	applySelfRestartRequest(parsed, selfRestartHandoff);
+	await waitForSelfRestartParentExit(selfRestartHandoff);
 	let extensionFactories: ExtensionFactory[] = [];
 	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(() => extensionFactories);
 	extensionFactories = parsed.noExtensions
@@ -752,7 +758,7 @@ export async function main(args: string[], options?: MainOptions) {
 	const controlDbPath = getControlDbPath(agentDir);
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
 	sessionManager.setMetadataControlDbPath(controlDbPath);
-	appendSelfRestartNotice(sessionManager);
+	appendSelfRestartNotice(sessionManager, selfRestartHandoff);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
 	if (missingSessionCwdIssue) {
 		if (appMode === "interactive") {

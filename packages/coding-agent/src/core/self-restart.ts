@@ -16,22 +16,40 @@ export interface SelfRestartRequest {
 	oldPid?: number;
 }
 
-interface RestartChildProcess extends EventEmitter {
-	unref?: () => void;
+/**
+ * Restart request consumed from the environment at startup. `oldPid` equals the
+ * current pid after an exec-in-place restart and the parent pid after a spawn
+ * handoff on platforms without process.execve.
+ */
+export interface SelfRestartHandoff {
+	sessionFile: string;
+	prompt?: string;
+	oldPid?: number;
 }
 
-interface SelfRestartDependencies {
+type ExecveFunction = (file: string, args?: readonly string[], env?: NodeJS.ProcessEnv) => void;
+
+interface RestartTargetDependencies {
+	argv?: readonly string[];
+	argv0?: string;
+	execArgv?: readonly string[];
+}
+
+interface SelfRestartDependencies extends RestartTargetDependencies {
 	spawn?: (
 		command: string,
 		args: readonly string[],
 		options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" },
 	) => RestartChildProcess;
-	argv?: readonly string[];
-	execArgv?: readonly string[];
 	waitForExit?: boolean;
 }
 
-export interface RestartCurrentProcessDependencies {
+interface RestartChildProcess extends EventEmitter {
+	unref?: () => void;
+}
+
+export interface RestartCurrentProcessDependencies extends RestartTargetDependencies {
+	execve?: ExecveFunction;
 	exit?: (code: number) => never;
 	spawnSelfRestart?: (request: SelfRestartRequest, dependencies?: SelfRestartDependencies) => Promise<number>;
 }
@@ -42,7 +60,7 @@ export type ProcessRestarter = (
 ) => Promise<never>;
 
 interface WaitForSelfRestartParentExitDependencies {
-	env?: NodeJS.ProcessEnv;
+	currentPid?: number;
 	isProcessAlive?: (pid: number) => boolean;
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
@@ -61,15 +79,51 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Reads and removes the self-restart request from the environment. Consuming
+ * eagerly keeps the request variables out of every child process the restarted
+ * Pi spawns, so a sub-agent Pi cannot mistake the leaked request for its own.
+ *
+ * A request whose old pid matches neither the current process (exec-in-place)
+ * nor the parent process (spawn handoff) leaked from an unrelated process and
+ * is discarded.
+ */
+export function consumeSelfRestartRequest(
+	env: NodeJS.ProcessEnv = process.env,
+	currentPid: number = process.pid,
+	parentPid: number = process.ppid,
+): SelfRestartHandoff | undefined {
+	const requested = env[ENV_SELF_RESTART_REQUEST] === "1";
+	const sessionFile = env[ENV_SELF_RESTART_SESSION];
+	const prompt = env[ENV_SELF_RESTART_PROMPT];
+	const oldPidRaw = env[ENV_SELF_RESTART_OLD_PID];
+	delete env[ENV_SELF_RESTART_REQUEST];
+	delete env[ENV_SELF_RESTART_SESSION];
+	delete env[ENV_SELF_RESTART_PROMPT];
+	delete env[ENV_SELF_RESTART_OLD_PID];
+
+	if (!requested || !sessionFile) {
+		return undefined;
+	}
+	let oldPid: number | undefined;
+	if (oldPidRaw) {
+		oldPid = Number(oldPidRaw);
+		const isValidPid = Number.isSafeInteger(oldPid) && oldPid > 0;
+		const isOwnRestart = oldPid === currentPid || oldPid === parentPid;
+		if (!isValidPid || !isOwnRestart) {
+			return undefined;
+		}
+	}
+	return { sessionFile, prompt: prompt || undefined, oldPid };
+}
+
 export async function waitForSelfRestartParentExit(
+	handoff: SelfRestartHandoff | undefined,
 	dependencies: WaitForSelfRestartParentExitDependencies = {},
 ): Promise<void> {
-	const env = dependencies.env ?? process.env;
-	if (env[ENV_SELF_RESTART_REQUEST] !== "1") {
-		return;
-	}
-	const oldPid = Number(env[ENV_SELF_RESTART_OLD_PID]);
-	if (!Number.isSafeInteger(oldPid) || oldPid <= 0) {
+	const oldPid = handoff?.oldPid;
+	const currentPid = dependencies.currentPid ?? process.pid;
+	if (!oldPid || oldPid === currentPid) {
 		return;
 	}
 
@@ -82,52 +136,56 @@ export async function waitForSelfRestartParentExit(
 	}
 }
 
-export function applySelfRestartRequest(parsed: Args, env: NodeJS.ProcessEnv = process.env): void {
-	if (env[ENV_SELF_RESTART_REQUEST] !== "1") {
-		return;
-	}
-	const oldPid = env[ENV_SELF_RESTART_OLD_PID];
-	if (oldPid && oldPid !== process.ppid.toString()) {
-		return;
-	}
-	const sessionFile = env[ENV_SELF_RESTART_SESSION];
-	if (!sessionFile) {
+export function applySelfRestartRequest(parsed: Args, handoff: SelfRestartHandoff | undefined): void {
+	if (!handoff) {
 		return;
 	}
 
-	parsed.session = sessionFile;
+	parsed.session = handoff.sessionFile;
 	parsed.resume = false;
 	parsed.continue = true;
 	parsed.fork = undefined;
 	parsed.noSession = false;
 	parsed.sessionId = undefined;
 	parsed.fileArgs = [];
-	const prompt = env[ENV_SELF_RESTART_PROMPT];
-	parsed.messages = prompt ? [prompt] : [];
+	parsed.messages = handoff.prompt ? [handoff.prompt] : [];
 }
 
-export function appendSelfRestartNotice(sessionManager: SessionManager, env: NodeJS.ProcessEnv = process.env): void {
-	const prompt = env[ENV_SELF_RESTART_PROMPT];
-	if (!prompt) {
+export function appendSelfRestartNotice(sessionManager: SessionManager, handoff: SelfRestartHandoff | undefined): void {
+	if (!handoff?.prompt) {
 		return;
 	}
 
-	sessionManager.appendCustomMessageEntry("self_restart", formatRestartNotice(prompt, env), true);
+	sessionManager.appendCustomMessageEntry("self_restart", formatRestartNotice(handoff), true);
 }
 
-function formatRestartNotice(prompt: string, env: NodeJS.ProcessEnv): string {
-	const oldPid = env[ENV_SELF_RESTART_OLD_PID];
-	if (!oldPid) {
-		return `${prompt} New PID: ${process.pid}.`;
+function formatRestartNotice(handoff: SelfRestartHandoff): string {
+	if (!handoff.oldPid || handoff.oldPid === process.pid) {
+		return `${handoff.prompt} PID: ${process.pid}.`;
 	}
-	return `${prompt} PID ${oldPid} -> ${process.pid}.`;
+	return `${handoff.prompt} PID ${handoff.oldPid} -> ${process.pid}.`;
 }
 
+/**
+ * Replaces the current process image via execve, or hands off to a spawned
+ * replacement on platforms without process.execve (Windows, Node < 23.11).
+ *
+ * exec-in-place is required under shell job control: a spawned replacement
+ * whose parent exits lands in an orphaned background process group, where
+ * tcsetattr (raw mode) always fails with EIO. exec keeps the pid, the
+ * foreground process group, and the controlling terminal.
+ */
 export async function restartCurrentProcess(
 	request: SelfRestartRequest,
 	dependencies: RestartCurrentProcessDependencies = {},
 ): Promise<never> {
 	const restartRequest = { ...request, oldPid: process.pid };
+	const execve = "execve" in dependencies ? dependencies.execve : process.execve;
+	if (typeof execve === "function") {
+		execSelfRestart(restartRequest, execve, dependencies);
+		throw new Error("execve returned after replacing the process image");
+	}
+
 	const exit = dependencies.exit ?? process.exit;
 	const spawnRestart = dependencies.spawnSelfRestart ?? spawnSelfRestart;
 	const exitCode = await spawnRestart(restartRequest, { waitForExit: false });
@@ -147,6 +205,27 @@ function getSelfRestartArgs(execArgv: readonly string[], argv: readonly string[]
 	return [...execArgv, ...scriptArgs];
 }
 
+function buildSelfRestartEnv(request: SelfRestartRequest): NodeJS.ProcessEnv {
+	return {
+		...process.env,
+		[ENV_SELF_RESTART_REQUEST]: "1",
+		[ENV_SELF_RESTART_SESSION]: request.sessionFile,
+		[ENV_SELF_RESTART_PROMPT]: request.prompt ?? "",
+		[ENV_SELF_RESTART_OLD_PID]: request.oldPid?.toString() ?? process.pid.toString(),
+	};
+}
+
+function execSelfRestart(
+	request: SelfRestartRequest,
+	execve: ExecveFunction,
+	dependencies: RestartTargetDependencies,
+): void {
+	const argv = dependencies.argv ?? process.argv;
+	const execArgv = dependencies.execArgv ?? process.execArgv;
+	const argv0 = dependencies.argv0 ?? process.argv0;
+	execve(process.execPath, [argv0, ...getSelfRestartArgs(execArgv, argv)], buildSelfRestartEnv(request));
+}
+
 export function spawnSelfRestart(
 	request: SelfRestartRequest,
 	dependencies: SelfRestartDependencies = {},
@@ -156,13 +235,7 @@ export function spawnSelfRestart(
 	const execArgv = dependencies.execArgv ?? process.execArgv;
 	const child = spawnProcess(process.execPath, getSelfRestartArgs(execArgv, argv), {
 		cwd: process.cwd(),
-		env: {
-			...process.env,
-			[ENV_SELF_RESTART_REQUEST]: "1",
-			[ENV_SELF_RESTART_SESSION]: request.sessionFile,
-			[ENV_SELF_RESTART_PROMPT]: request.prompt ?? "",
-			[ENV_SELF_RESTART_OLD_PID]: request.oldPid?.toString() ?? process.pid.toString(),
-		},
+		env: buildSelfRestartEnv(request),
 		stdio: "inherit",
 	});
 	if (dependencies.waitForExit === false) {
