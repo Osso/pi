@@ -131,6 +131,7 @@ function buildSandboxEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv 
 	};
 	if (env?.PYTHONPATH) sandboxEnv.PYTHONPATH = env.PYTHONPATH;
 	if (env?.TERM) sandboxEnv.TERM = env.TERM;
+	sandboxEnv.USER = env?.USER ?? process.env.USER;
 	return sandboxEnv;
 }
 

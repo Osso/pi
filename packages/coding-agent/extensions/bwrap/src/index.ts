@@ -74,9 +74,9 @@ async function runJsonInSandbox<T>(params: {
 	const workerPayload = { ...params.payload, workspace: params.cwd };
 	const invocation = buildBwrapInvocation({
 		bwrapCommand: params.bwrapCommand,
-		command: [process.execPath, FS_WORKER_PATH, params.operation, JSON.stringify(workerPayload)],
+		command: ["node", FS_WORKER_PATH, params.operation, JSON.stringify(workerPayload)],
 		cwd: params.cwd,
-		extraReadOnlyPaths: [process.execPath, dirname(FS_WORKER_PATH)],
+		extraReadOnlyPaths: [dirname(FS_WORKER_PATH)],
 		profile: params.profile,
 	});
 	return new Promise((resolvePromise, reject) => {

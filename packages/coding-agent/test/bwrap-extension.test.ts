@@ -137,6 +137,7 @@ describe("bwrap sandbox backend", () => {
 		expect(invocation.env.ANTHROPIC_API_KEY).toBeUndefined();
 		expect(invocation.env.PATH).toBe("/custom/bin");
 		expect(invocation.env.PYTHONPATH).toBe("/workspace/pyrun");
+		expect(invocation.env.USER).toBe(process.env.USER);
 	});
 
 	it("worker rejects file operations outside the workspace root", () => {
