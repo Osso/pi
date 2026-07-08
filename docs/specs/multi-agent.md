@@ -99,6 +99,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       processes do not deliver the same message twice.
 - [x] Claimed messages are marked delivered only after the recipient successfully enqueues the
       follow-up input; failed enqueue leaves an inspectable pending/failed message state.
+- [x] If idle delivery races with an active prompt (the recipient is already processing a prompt and cannot accept a follow-up), claimed transport rows are released back to pending for bounded redelivery instead of being marked failed; this prevents spurious failures and preserves at-least-once delivery semantics.
 - [x] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
       messages are no longer actionable.
 - [x] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the

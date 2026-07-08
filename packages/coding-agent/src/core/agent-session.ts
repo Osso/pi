@@ -122,6 +122,7 @@ import {
 	recordPromptHistoryEntry,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
+	releaseRuntimeMailboxMessageClaim,
 	removeNamedSession,
 	setNamedSession,
 	writeLastMessage,
@@ -428,6 +429,10 @@ function formatRuntimeMailboxArtifactReference(
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function isSessionBusyPromptError(error: unknown): boolean {
+	return errorMessage(error).startsWith("Agent is already processing a prompt.");
 }
 
 // ============================================================================
@@ -2128,6 +2133,10 @@ export class AgentSession {
 					}
 					markRuntimeMailboxMessageDelivered(controlDbPath, message.id);
 				} catch (error) {
+					if (isSessionBusyPromptError(error)) {
+						releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
+						continue;
+					}
 					if (message.kind === "steer") {
 						this._failStoreSteeringDelivery(message, error);
 					}

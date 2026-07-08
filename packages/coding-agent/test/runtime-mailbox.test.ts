@@ -918,6 +918,34 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("keeps runtime mailbox messages pending when idle delivery races with an active prompt", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Child finished during a provider timeout",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+			prompt(text: string, options?: unknown): Promise<void>;
+		};
+		drainableSession.prompt = async () => {
+			throw new Error(
+				"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+			);
+		};
+
+		const queued = await drainableSession._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+
+		expect(queued).toBe(false);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
+	});
+
 	it("silently consumes transport rows whose store message was already delivered", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

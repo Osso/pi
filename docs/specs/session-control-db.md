@@ -12,6 +12,7 @@ reply without changing the JSONL transcript format. How it works lives in
   messages.
 - [x] Allow a claimed incoming message to be marked completed after it is
   submitted to the agent.
+- [x] Allow a claimed runtime mailbox transport row to be released back to pending when delivery races with an active prompt, enabling bounded redelivery and avoiding spurious failures during concurrent delivery attempts.
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control last`, and `pi control path` so
   harnesses use the CLI instead of writing SQLite directly.

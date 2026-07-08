@@ -487,6 +487,19 @@ export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: nu
 	});
 }
 
+export function releaseRuntimeMailboxMessageClaim(controlDbPath: string, id: number): void {
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		db.prepare(
+			`
+			UPDATE runtime_mailbox_messages
+			SET status = 'pending', claimed_at = NULL, updated_at = ?
+			WHERE id = ? AND status = 'claimed'
+			`,
+		).run(now, id);
+	});
+}
+
 export function failRuntimeMailboxMessage(controlDbPath: string, id: number, errorMessage: string): void {
 	withControlDb(controlDbPath, (db) => {
 		db.prepare(
