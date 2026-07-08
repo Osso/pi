@@ -51,6 +51,12 @@ Implementation details belong in
 - [x] Tools can opt out of generic wrapper approval with `approvalRequired:
   false` only when they gate their own host effects internally; those calls skip
   hook, human, and LLM reviewers at the wrapper layer.
+- [x] Include the last 30 LLM approval decisions from the current session in
+  future LLM approval prompts to improve consistency within the same session.
+- [x] Load structured persistent approval memory from
+  `~/.config/pi/agent/approval-memory.jsonl` into LLM approval prompts.
+- [x] Allow the LLM approval reviewer to suggest structured persistent memory
+  records; Pi validates bounded fields before appending them to the JSONL file.
 
 ### Presets and slash commands
 
@@ -108,10 +114,14 @@ Implementation details belong in
   reviewer: builds guardian prompt, calls the model, interprets the result as
   allow/deny or allow/ask depending on the selected preset. The prompt explicitly
   allows bounded local coding work and temporary workspace/cache cleanup such as
-  deleting files under `/tmp`.
+  deleting files under `/tmp`, and includes current-session approval history plus
+  persistent approval memory.
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
   approval flow: check policy and route `on-request` calls to the configured
   reviewer.
+- `packages/coding-agent/src/core/permissions/approval-memory.ts` — validates,
+  loads, and appends structured persistent approval memory records in
+  `approval-memory.jsonl` under the active agent config directory.
 - `packages/coding-agent/extensions/approval-controls/src/index.ts` — registers
   `/approvals` and `/sandbox` commands.
 - `packages/coding-agent/src/core/extensions/types.ts` and
@@ -141,7 +151,10 @@ Implementation details belong in
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
 - `packages/coding-agent/test/approval-auto-reviewer.test.ts` — LLM-approved
-  reviewer prompt contract and result parser.
+  reviewer prompt contract, result parser, session-history prompt context, and
+  memory suggestion callbacks.
+- `packages/coding-agent/test/approval-memory.test.ts` — persistent approval
+  memory validation and JSONL load/append behavior.
 - `packages/coding-agent/test/approval-selector.test.ts` — red tests for
   `/approvals` and `/sandbox` selector rendering and selection behavior.
 
@@ -163,6 +176,8 @@ Implementation details belong in
   approval policy.
 - [x] Add selector UI tests for `/approvals` and `/sandbox`.
 - [x] Add failing tests for LLM-approved auto-reviewer prompt/result parsing.
+- [x] Add tests for current-session approval history and persistent approval
+  memory in LLM approval prompts.
 
 ## Out of scope
 

@@ -32,6 +32,7 @@
 ### Changed
 
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
+- Changed LLM approval prompts to include recent session approval decisions and structured persistent approval memory from `~/.config/pi/agent/approval-memory.jsonl`.
 - Changed `/goal <objective>` to replace the active goal by default and removed the replacement flag.
 - Changed the LLM-approved tool reviewer to allow bounded-risk coding-agent commands, including `/tmp` cleanup, while still denying catastrophic system, credential, irreversible data-loss, or unrelated external-side-effect actions.
 - Changed the `pi -r` and `/resume` session selector default sort to recent sessions.

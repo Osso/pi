@@ -96,6 +96,11 @@ import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryM
 import type { ModelRegistry } from "./model-registry.ts";
 import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type { AgentLifecycleState, MultiAgentStore } from "./multi-agent-store.ts";
+import {
+	type ApprovalRecentDecision,
+	appendApprovalMemory,
+	loadApprovalMemory,
+} from "./permissions/approval-memory.ts";
 import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
@@ -488,6 +493,7 @@ export class AgentSession {
 	private _excludedToolNames?: Set<string>;
 	private _permissionPromptTool?: string;
 	private _permissionRuleStore: PermissionRuleStore;
+	private readonly _recentApprovalDecisions: ApprovalRecentDecision[] = [];
 	private _agentDir: string;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
@@ -890,6 +896,8 @@ export class AgentSession {
 					cwd: this._cwd,
 					escalation: approvalPreset === "llm-approved-ask" ? "ask" : "deny",
 					input: event.input,
+					persistentMemory: loadApprovalMemory(this._agentDir),
+					recentDecisions: this._recentApprovalDecisions,
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
 				},
@@ -906,8 +914,17 @@ export class AgentSession {
 						const humanReviewer = this._createToolApprovalHumanReviewer(event, this._extensionRunner, reason);
 						return humanReviewer ? await humanReviewer() : { block: true, reason };
 					},
+					recordDecision: (decision) => this._recordApprovalDecision(decision),
+					recordMemorySuggestion: (memory) => appendApprovalMemory(this._agentDir, memory),
 				},
 			);
+	}
+
+	private _recordApprovalDecision(decision: ApprovalRecentDecision): void {
+		this._recentApprovalDecisions.push(decision);
+		if (this._recentApprovalDecisions.length > 30) {
+			this._recentApprovalDecisions.shift();
+		}
 	}
 
 	private _installAgentNextTurnRefresh(): void {

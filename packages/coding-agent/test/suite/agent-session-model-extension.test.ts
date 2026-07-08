@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -959,6 +959,96 @@ describe("AgentSession model and extension characterization", () => {
 			"Deny",
 		]);
 		expect(getAssistantTexts(harness)).toContain("hello");
+	});
+
+	it("feeds prior session LLM approval decisions into later LLM approval prompts", async () => {
+		let secondApprovalPrompt = "";
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "first" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage('{"behavior":"allow"}'),
+			fauxAssistantMessage("first done"),
+			fauxAssistantMessage([fauxToolCall("echo", { text: "second" })], { stopReason: "toolUse" }),
+			(context) => {
+				secondApprovalPrompt = getMessageText(context.messages.at(-1));
+				return fauxAssistantMessage('{"behavior":"allow"}');
+			},
+			fauxAssistantMessage("second done"),
+		]);
+
+		await harness.session.prompt("first");
+		await harness.session.prompt("second");
+
+		expect(secondApprovalPrompt).toContain("Recent session approval decisions:");
+		expect(secondApprovalPrompt).toContain('"inputSummary": "{\\"text\\":\\"first\\"}"');
+	});
+
+	it("loads persistent approval memory and stores bounded memory suggestions", async () => {
+		let approvalPrompt = "";
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => {
+				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
+				return { content: [{ type: "text", text }], details: { text } };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			tools: [echoTool],
+		});
+		harnesses.push(harness);
+		writeFileSync(
+			join(harness.tempDir, "approval-memory.jsonl"),
+			`${JSON.stringify({
+				decision: "allow",
+				pattern: "echo safe text",
+				reason: "Echoing safe text is bounded",
+				scope: "local-echo",
+				toolName: "echo",
+			})}\n`,
+		);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			(context) => {
+				approvalPrompt = getMessageText(context.messages.at(-1));
+				return fauxAssistantMessage(
+					JSON.stringify({
+						behavior: "allow",
+						memorySuggestion: {
+							decision: "allow",
+							pattern: "echo hello",
+							reason: "Echo hello is bounded",
+							scope: "local-echo",
+							toolName: "echo",
+						},
+					}),
+				);
+			},
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(approvalPrompt).toContain("Persistent approval memory:");
+		expect(approvalPrompt).toContain("Echoing safe text is bounded");
+		expect(readFileSync(join(harness.tempDir, "approval-memory.jsonl"), "utf-8")).toContain("echo hello");
 	});
 
 	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {

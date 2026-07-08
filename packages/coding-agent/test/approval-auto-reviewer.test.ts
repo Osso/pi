@@ -28,6 +28,38 @@ describe("approval auto reviewer", () => {
 		expect(prompt).toContain("unrelated external side effects");
 	});
 
+	it("includes recent session decisions and persistent memory in the guardian prompt", () => {
+		const prompt = buildAutoReviewerPrompt({
+			cwd: "/repo/project",
+			input: { command: "npm test" },
+			persistentMemory: [
+				{
+					decision: "allow",
+					pattern: "npm test",
+					reason: "Project-local tests are bounded validation",
+					scope: "local-validation",
+					toolName: "bash",
+				},
+			],
+			recentDecisions: [
+				{
+					decision: "deny",
+					inputSummary: '{"command":"rm -rf ~"}',
+					reason: "destructive home deletion",
+					toolName: "bash",
+				},
+			],
+			toolCallId: "tool-call-1",
+			toolName: "bash",
+		});
+
+		expect(prompt).toContain("Recent session approval decisions:");
+		expect(prompt).toContain("destructive home deletion");
+		expect(prompt).toContain("Persistent approval memory:");
+		expect(prompt).toContain("Project-local tests are bounded validation");
+		expect(prompt).toContain("You may include an optional memorySuggestion");
+	});
+
 	it("parses allow responses from direct JSON and text content", () => {
 		expect(parseAutoReviewerDecision({ behavior: "allow" })).toEqual({ behavior: "allow" });
 		expect(
@@ -48,6 +80,30 @@ describe("approval auto reviewer", () => {
 		});
 	});
 
+	it("parses bounded persistent memory suggestions", () => {
+		expect(
+			parseAutoReviewerDecision({
+				behavior: "allow",
+				memorySuggestion: {
+					decision: "allow",
+					pattern: "npm run check",
+					reason: "Project check is bounded validation",
+					scope: "local-validation",
+					toolName: "bash",
+				},
+			}),
+		).toEqual({
+			behavior: "allow",
+			memorySuggestion: {
+				decision: "allow",
+				pattern: "npm run check",
+				reason: "Project check is bounded validation",
+				scope: "local-validation",
+				toolName: "bash",
+			},
+		});
+	});
+
 	it("escalates ask decisions to the supplied human reviewer", async () => {
 		const humanReviewer = vi.fn(async () => ({ block: true, reason: "user denied" }));
 
@@ -59,6 +115,41 @@ describe("approval auto reviewer", () => {
 			),
 		).resolves.toEqual({ block: true, reason: "user denied" });
 		expect(humanReviewer).toHaveBeenCalledWith("needs supervision");
+	});
+
+	it("records decisions and memory suggestions through callbacks", async () => {
+		const recordDecision = vi.fn();
+		const recordMemorySuggestion = vi.fn();
+
+		await expect(
+			reviewToolCallWithAutoReviewer(
+				{ cwd: "/repo", input: { command: "npm run check" }, toolCallId: "call-1", toolName: "bash" },
+				async () => ({
+					behavior: "allow",
+					memorySuggestion: {
+						decision: "allow",
+						pattern: "npm run check",
+						reason: "Project check is bounded validation",
+						scope: "local-validation",
+						toolName: "bash",
+					},
+				}),
+				{ recordDecision, recordMemorySuggestion },
+			),
+		).resolves.toBeUndefined();
+		expect(recordDecision).toHaveBeenCalledWith({
+			decision: "allow",
+			inputSummary: '{"command":"npm run check"}',
+			reason: undefined,
+			toolName: "bash",
+		});
+		expect(recordMemorySuggestion).toHaveBeenCalledWith({
+			decision: "allow",
+			pattern: "npm run check",
+			reason: "Project check is bounded validation",
+			scope: "local-validation",
+			toolName: "bash",
+		});
 	});
 
 	it("rejects malformed reviewer responses", () => {
