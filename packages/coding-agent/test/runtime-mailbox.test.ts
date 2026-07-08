@@ -5,6 +5,8 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
+	claimRuntimeMailboxMessages,
+	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
@@ -796,7 +798,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("Hostrun agents.wait leaves the mirrored completion notification in the runtime mailbox", async () => {
+	it("Hostrun agents.wait consumes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -823,10 +825,10 @@ describe("runtime SQLite mailbox delivery", () => {
 		const waited = await handler({ method: "agents.wait", params: { agentId: spawned.agent.id } }, ctx, undefined);
 
 		expect(waited).toBeNull();
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
 	});
 
-	it("wait_agent leaves the mirrored completion notification in the runtime mailbox", async () => {
+	it("wait_agent consumes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -860,8 +862,36 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		const waited = await waitAgent.execute("wait", { agentId }, undefined, undefined, ctx);
 
-		expect(waited).toEqual({ content: [], details: {} });
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
+		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed" });
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
+	});
+
+	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const sessionPath = "/sessions/runtime-test-sender.jsonl";
+		const messageId = "completion-message";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "Worker completed: tests passed",
+			fromAgentId: "agent_1",
+			id: messageId,
+			kind: "system",
+			status: "pending",
+			toAgentId: "main",
+		});
+		const runtimeMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "system",
+			recipient: { agentId: null, sessionId: "parent-session" },
+			sender: { agentId: "agent_1", sessionId: "parent-session" },
+			storeRef: { messageId, sessionPath },
+		});
+
+		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		expect(claimed).toHaveLength(1);
+
+		consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath });
+
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
 	});
 
 	it("drains claimed runtime mailbox messages at the end of a turn", async () => {

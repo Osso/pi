@@ -410,7 +410,7 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 				`
 				UPDATE runtime_mailbox_messages
 				SET status = 'delivered', delivered_at = ?, updated_at = ?
-				WHERE status = 'pending'
+				WHERE status IN ('pending', 'claimed')
 					AND store_session_path = ?
 					AND store_message_id = ?
 				`,

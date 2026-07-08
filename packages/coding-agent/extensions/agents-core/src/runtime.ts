@@ -605,7 +605,7 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.wait") {
-			await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal);
+			await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal, ctx);
 			return null;
 		}
 
