@@ -311,7 +311,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			};
 		}
 
-		if (!options.force && textBeforeCursor.startsWith("/")) {
+		if (textBeforeCursor.startsWith("/")) {
 			const spaceIndex = textBeforeCursor.indexOf(" ");
 
 			if (spaceIndex === -1) {
@@ -349,19 +349,20 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 				const name = "name" in cmd ? cmd.name : cmd.value;
 				return name === commandName;
 			});
-			if (!command || !("getArgumentCompletions" in command) || !command.getArgumentCompletions) {
-				return null;
+			if (command && "getArgumentCompletions" in command && command.getArgumentCompletions) {
+				const argumentSuggestions = await command.getArgumentCompletions(argumentText);
+				if (!Array.isArray(argumentSuggestions) || argumentSuggestions.length === 0) {
+					return null;
+				}
+				return {
+					items: argumentSuggestions,
+					prefix: argumentText,
+				};
 			}
 
-			const argumentSuggestions = await command.getArgumentCompletions(argumentText);
-			if (!Array.isArray(argumentSuggestions) || argumentSuggestions.length === 0) {
+			if (!options.force) {
 				return null;
 			}
-
-			return {
-				items: argumentSuggestions,
-				prefix: argumentText,
-			};
 		}
 
 		const pathMatch = this.extractPathPrefix(textBeforeCursor, options.force ?? false);

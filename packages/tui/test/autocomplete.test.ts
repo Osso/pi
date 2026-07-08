@@ -98,6 +98,46 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.strictEqual(result, null, "Should not trigger for slash commands");
 		});
 
+		it("uses slash command argument completions when forced", async () => {
+			const provider = new CombinedAutocompleteProvider(
+				[
+					{
+						name: "cd",
+						getArgumentCompletions: () => [{ value: "src/", label: "src/" }],
+					},
+				],
+				"/tmp",
+			);
+			const line = "/cd s";
+
+			const result = await getSuggestions(provider, [line], 0, line.length, true);
+
+			assert.deepStrictEqual(result, { items: [{ value: "src/", label: "src/" }], prefix: "s" });
+		});
+
+		it("does not fall back to file completion when command argument completions are empty", async () => {
+			const baseDir = mkdtempSync(join(tmpdir(), "pi-autocomplete-cd-"));
+			try {
+				writeFileSync(join(baseDir, "src.txt"), "not a directory");
+				const provider = new CombinedAutocompleteProvider(
+					[
+						{
+							name: "cd",
+							getArgumentCompletions: () => [],
+						},
+					],
+					baseDir,
+				);
+				const line = "/cd s";
+
+				const result = await getSuggestions(provider, [line], 0, line.length, true);
+
+				assert.strictEqual(result, null);
+			} finally {
+				rmSync(baseDir, { recursive: true, force: true });
+			}
+		});
+
 		it("triggers for absolute paths after slash command argument", async () => {
 			const provider = new CombinedAutocompleteProvider([], "/tmp");
 			const lines = ["/command /"];

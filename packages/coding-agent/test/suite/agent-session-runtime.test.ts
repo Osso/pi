@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
@@ -34,6 +34,11 @@ describe("AgentSessionRuntime characterization", () => {
 			await cleanups.pop()?.();
 		}
 	});
+
+	function defaultSessionDir(cwd: string, agentDir: string): string {
+		const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+		return join(agentDir, "sessions", safePath);
+	}
 
 	async function createRuntimeForTest(
 		extensionFactory: ExtensionFactory,
@@ -105,7 +110,7 @@ describe("AgentSessionRuntime characterization", () => {
 		const runtime = await createAgentSessionRuntime(createRuntime, {
 			cwd: tempDir,
 			agentDir: tempDir,
-			sessionManager: SessionManager.create(tempDir),
+			sessionManager: SessionManager.create(tempDir, defaultSessionDir(tempDir, tempDir)),
 		});
 		await runtime.session.bindExtensions({});
 
@@ -119,6 +124,28 @@ describe("AgentSessionRuntime characterization", () => {
 
 		return { runtime, faux, tempDir };
 	}
+
+	it("relocates the active session to a new cwd and adds a context note", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
+		const targetCwd = join(tempDir, "target");
+		mkdirSync(targetCwd, { recursive: true });
+		const originalSessionFile = runtime.session.sessionManager.getSessionFile();
+		const rebindCalls: string[] = [];
+		runtime.setRebindSession(async (session) => {
+			rebindCalls.push(session.sessionManager.getCwd());
+		});
+
+		await runtime.relocate(targetCwd);
+
+		expect(runtime.cwd).toBe(targetCwd);
+		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
+		expect(runtime.session.sessionManager.getSessionFile()).not.toBe(originalSessionFile);
+		expect(existsSync(originalSessionFile!)).toBe(false);
+		expect(rebindCalls).toEqual([targetCwd]);
+		const sessionText = readFileSync(runtime.session.sessionManager.getSessionFile()!, "utf8");
+		expect(sessionText).toContain(`"cwd":"${targetCwd}"`);
+		expect(sessionText).toContain("Working directory changed from");
+	});
 
 	it("delegates process restart requests to the process restarter", async () => {
 		const { runtime } = await createRuntimeForTest(() => {});

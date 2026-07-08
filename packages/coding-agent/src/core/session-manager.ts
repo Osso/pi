@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import {
 	appendFileSync,
 	closeSync,
+	copyFileSync,
 	createReadStream,
 	existsSync,
 	mkdirSync,
@@ -11,10 +12,11 @@ import {
 	readdirSync,
 	readSync,
 	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "fs";
 import { readdir, stat } from "fs/promises";
-import { join, resolve } from "path";
+import { basename, join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
@@ -30,6 +32,7 @@ import {
 	listSessionMetadata,
 	readSessionGoal,
 	readSessionMetadata,
+	relocateSessionControlData,
 	type SessionMetadata,
 	type WritableSessionMetadata,
 	writeSessionGoal,
@@ -175,6 +178,13 @@ export interface SessionTreeNode {
 	label?: string;
 	/** Timestamp of the latest label change for this entry, if any */
 	labelTimestamp?: string;
+}
+
+interface SessionRelocationPlan {
+	targetSessionDir: string;
+	destination: string | undefined;
+	oldSessionFile: string | undefined;
+	shouldCopyExistingFile: boolean;
 }
 
 export interface SessionContext {
@@ -1229,6 +1239,94 @@ export class SessionManager {
 
 	usesDefaultSessionDir(): boolean {
 		return this.sessionDir === getDefaultSessionDirPath(this.cwd);
+	}
+
+	relocate(targetCwd: string, agentDir: string = getDefaultAgentDir()): void {
+		const resolvedTargetCwd = resolvePath(targetCwd);
+		const header = this.requireSessionHeader();
+		const plan = this.planRelocation(resolvedTargetCwd, agentDir);
+
+		this.ensureRelocationDestinationAvailable(plan);
+		this.copyRelocatedSessionFile(plan);
+		this.relocateControlData(plan);
+		this.applyRelocation(resolvedTargetCwd, header, plan);
+		this.removeRelocatedSourceFile(plan);
+		this.writeMetadataSnapshot();
+	}
+
+	private requireSessionHeader(): SessionHeader {
+		const header = this.fileEntries.find((entry) => entry.type === "session") as SessionHeader | undefined;
+		if (!header) {
+			throw new Error("Cannot relocate session without a session header");
+		}
+		return header;
+	}
+
+	private planRelocation(resolvedTargetCwd: string, agentDir: string): SessionRelocationPlan {
+		const oldSessionFile = this.sessionFile;
+		const shouldMoveToTargetDefaultDir =
+			this.persist && this.sessionDir === getDefaultSessionDirPath(this.cwd, agentDir);
+		const targetSessionDir = shouldMoveToTargetDefaultDir
+			? getDefaultSessionDir(resolvedTargetCwd, agentDir)
+			: this.sessionDir;
+		const destination = this.resolveRelocatedSessionFile(
+			oldSessionFile,
+			shouldMoveToTargetDefaultDir,
+			targetSessionDir,
+		);
+		return {
+			targetSessionDir,
+			destination,
+			oldSessionFile,
+			shouldCopyExistingFile:
+				destination !== undefined && oldSessionFile !== undefined && destination !== oldSessionFile,
+		};
+	}
+
+	private resolveRelocatedSessionFile(
+		oldSessionFile: string | undefined,
+		shouldMoveToTargetDefaultDir: boolean,
+		targetSessionDir: string,
+	): string | undefined {
+		if (!this.persist || !oldSessionFile) {
+			return undefined;
+		}
+		return shouldMoveToTargetDefaultDir ? join(targetSessionDir, basename(oldSessionFile)) : oldSessionFile;
+	}
+
+	private ensureRelocationDestinationAvailable(plan: SessionRelocationPlan): void {
+		if (plan.shouldCopyExistingFile && plan.destination && existsSync(plan.destination)) {
+			throw new Error(`Cannot relocate session: destination already exists: ${plan.destination}`);
+		}
+	}
+
+	private copyRelocatedSessionFile(plan: SessionRelocationPlan): void {
+		if (plan.shouldCopyExistingFile && plan.oldSessionFile && plan.destination && existsSync(plan.oldSessionFile)) {
+			copyFileSync(plan.oldSessionFile, plan.destination);
+		}
+	}
+
+	private relocateControlData(plan: SessionRelocationPlan): void {
+		if (this.metadataControlDbPath && plan.oldSessionFile && plan.destination) {
+			relocateSessionControlData(this.metadataControlDbPath, plan.oldSessionFile, plan.destination);
+		}
+	}
+
+	private applyRelocation(resolvedTargetCwd: string, header: SessionHeader, plan: SessionRelocationPlan): void {
+		this.cwd = resolvedTargetCwd;
+		this.sessionDir = plan.targetSessionDir;
+		header.cwd = resolvedTargetCwd;
+		if (plan.destination) {
+			this.sessionFile = plan.destination;
+			this._rewriteFile();
+			this.flushed = true;
+		}
+	}
+
+	private removeRelocatedSourceFile(plan: SessionRelocationPlan): void {
+		if (plan.shouldCopyExistingFile && plan.oldSessionFile && existsSync(plan.oldSessionFile)) {
+			unlinkSync(plan.oldSessionFile);
+		}
 	}
 
 	getSessionId(): string {

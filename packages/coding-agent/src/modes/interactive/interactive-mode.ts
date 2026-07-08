@@ -86,6 +86,7 @@ import {
 	formatInactiveAgentSelectionMessage,
 	type MultiAgentStore,
 } from "../../core/multi-agent-store.ts";
+import { parseCommandArgs } from "../../core/prompt-templates.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { restartCurrentProcess } from "../../core/self-restart.ts";
@@ -117,7 +118,7 @@ import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelo
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { parseGitUrl } from "../../utils/git.ts";
-import { getCwdRelativePath } from "../../utils/paths.ts";
+import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-current-directory.ts";
@@ -590,6 +591,13 @@ export class InteractiveMode {
 			description: command.description,
 		}));
 
+		const cdCommand = slashCommands.find((command) => command.name === "cd");
+		if (cdCommand) {
+			cdCommand.argumentHint = "<path>";
+			cdCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] =>
+				this.getDirectoryCompletions(prefix);
+		}
+
 		const modelCommand = slashCommands.find((command) => command.name === "model");
 		if (modelCommand) {
 			modelCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
@@ -659,6 +667,71 @@ export class InteractiveMode {
 			this.sessionManager.getCwd(),
 			this.fdPath,
 		);
+	}
+
+	private getDirectoryCompletions(prefix: string): AutocompleteItem[] {
+		const quoted = prefix.startsWith('"');
+		const rawPrefix = quoted ? prefix.slice(1) : prefix;
+		const normalizedPrefix = rawPrefix.split(path.sep).join("/");
+		const rootCompletion = this.directoryRootCompletion(normalizedPrefix, quoted);
+		if (rootCompletion) {
+			return [rootCompletion];
+		}
+		const endsWithSlash = normalizedPrefix.endsWith("/");
+		const typedDir = endsWithSlash ? normalizedPrefix : path.posix.dirname(normalizedPrefix);
+		const typedName = endsWithSlash || normalizedPrefix === "" ? "" : path.posix.basename(normalizedPrefix);
+		const displayDir = typedDir === "." ? "" : typedDir;
+		const searchDir = resolvePath(displayDir || ".", this.sessionManager.getCwd());
+
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(searchDir, { withFileTypes: true });
+		} catch {
+			return [];
+		}
+
+		return entries
+			.filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(typedName.toLowerCase()))
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((entry) => this.directoryCompletionItem(entry.name, displayDir, quoted));
+	}
+
+	private directoryRootCompletion(normalizedPrefix: string, quoted: boolean): AutocompleteItem | undefined {
+		if (normalizedPrefix === "~") {
+			return this.directoryCompletionValue("~/", quoted, "~/");
+		}
+		if (normalizedPrefix === "..") {
+			return this.directoryCompletionValue("../", quoted, "../");
+		}
+		if (normalizedPrefix === ".") {
+			return this.directoryCompletionValue("./", quoted, "./");
+		}
+		return undefined;
+	}
+
+	private directoryCompletionItem(entryName: string, displayDir: string, quoted: boolean): AutocompleteItem {
+		const displayPath = this.joinDisplayDirectory(displayDir, entryName);
+		return this.directoryCompletionValue(displayPath, quoted, `${entryName}/`);
+	}
+
+	private directoryCompletionValue(displayPath: string, quoted: boolean, label: string): AutocompleteItem {
+		const needsQuote = quoted || /\s/.test(displayPath);
+		const escapedPath = displayPath.replace(/"/g, '\\"');
+		const value = needsQuote ? `"${escapedPath}"` : displayPath;
+		return { value, label };
+	}
+
+	private joinDisplayDirectory(displayDir: string, entryName: string): string {
+		if (displayDir === "/") {
+			return `/${entryName}/`;
+		}
+		if (displayDir.endsWith("/")) {
+			return `${displayDir}${entryName}/`;
+		}
+		if (displayDir) {
+			return `${displayDir}/${entryName}/`;
+		}
+		return `${entryName}/`;
 	}
 
 	private setupAutocompleteProvider(): void {
@@ -2985,6 +3058,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/cd" || text.startsWith("/cd ")) {
+				await this.handleCdCommand(text);
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/name" || text.startsWith("/name ")) {
 				this.handleNameCommand(text);
 				this.editor.setText("");
@@ -5023,6 +5101,25 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector.getMessageList() };
 		});
+	}
+
+	private async handleCdCommand(text: string): Promise<void> {
+		const args = parseCommandArgs(text.slice(3).trim());
+		if (args.length !== 1) {
+			this.showError("Usage: /cd <path>");
+			return;
+		}
+
+		const targetCwd = resolvePath(args[0], this.sessionManager.getCwd());
+		try {
+			await this.runtimeHost.relocate(targetCwd, {
+				projectTrustContext: this.createProjectTrustContext(targetCwd),
+			});
+			this.renderCurrentSessionState();
+			this.showStatus(`Changed working directory to ${this.sessionManager.getCwd()}`);
+		} catch (error: unknown) {
+			this.showError(error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	private async handleCloneCommand(): Promise<void> {

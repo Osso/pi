@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { resolvePath } from "../utils/paths.ts";
 import type { AgentSession } from "./agent-session.ts";
@@ -215,6 +215,43 @@ export class AgentSessionRuntime {
 		);
 		await this.finishSessionReplacement(options?.withSession);
 		return { cancelled: false };
+	}
+
+	private resolveExistingDirectory(inputPath: string): string {
+		const resolvedPath = resolvePath(inputPath, this.cwd);
+		if (!existsSync(resolvedPath)) {
+			throw new Error(`Directory does not exist: ${resolvedPath}`);
+		}
+		if (!statSync(resolvedPath).isDirectory()) {
+			throw new Error(`Not a directory: ${resolvedPath}`);
+		}
+		return resolvedPath;
+	}
+
+	async relocate(targetCwd: string, options?: { projectTrustContext?: ProjectTrustContext }): Promise<void> {
+		const resolvedTargetCwd = this.resolveExistingDirectory(targetCwd);
+		const previousCwd = this.cwd;
+		const previousSessionFile = this.session.sessionFile;
+		const sessionManager = this.session.sessionManager;
+		sessionManager.relocate(resolvedTargetCwd, this.services.agentDir);
+		sessionManager.appendCustomMessageEntry(
+			"cwd_changed",
+			`Working directory changed from ${previousCwd} to ${resolvedTargetCwd}.`,
+			true,
+			{ previousCwd, cwd: resolvedTargetCwd },
+		);
+
+		await this.teardownCurrent("resume", sessionManager.getSessionFile());
+		this.apply(
+			await this.createRuntime({
+				cwd: sessionManager.getCwd(),
+				agentDir: this.services.agentDir,
+				sessionManager,
+				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
+				projectTrustContext: options?.projectTrustContext,
+			}),
+		);
+		await this.finishSessionReplacement();
 	}
 
 	async restart(options?: { notice?: string; process?: boolean }): Promise<void> {

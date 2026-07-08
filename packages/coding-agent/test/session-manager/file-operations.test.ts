@@ -1,9 +1,33 @@
 import { constants as bufferConstants } from "buffer";
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "fs";
+import {
+	appendFileSync,
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+	writeSync,
+} from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../../src/core/session-control-db.ts";
+import {
+	consumeRuntimeMailboxMessageByStoreRef,
+	enqueueRuntimeMailboxMessage,
+	getControlDbPath,
+	listNamedSessions,
+	readMultiAgentState,
+	readSessionGoal,
+	readSessionMetadata,
+	setNamedSession,
+	upsertMultiAgentAgent,
+	upsertMultiAgentArtifact,
+	upsertMultiAgentMailboxMessage,
+	writeMultiAgentCounters,
+	writeSessionMetadata,
+} from "../../src/core/session-control-db.ts";
 import { findMostRecentSession, loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
 
 describe("loadEntriesFromFile", () => {
@@ -174,6 +198,113 @@ describe("findMostRecentSession", () => {
 
 		expect(findMostRecentSession(tempDir, projectA)).toBe(fileA);
 		expect(findMostRecentSession(tempDir, projectB)).toBe(fileB);
+	});
+});
+
+describe("SessionManager relocate", () => {
+	let tempDir: string;
+	let projectA: string;
+	let projectB: string;
+	let agentDir: string;
+
+	beforeEach(() => {
+		tempDir = join(tmpdir(), `session-relocate-test-${Date.now()}`);
+		projectA = join(tempDir, "project-a");
+		projectB = join(tempDir, "project-b");
+		agentDir = join(tempDir, "agent");
+		mkdirSync(projectA, { recursive: true });
+		mkdirSync(projectB, { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	function defaultSessionDir(cwd: string): string {
+		const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+		return join(agentDir, "sessions", safePath);
+	}
+
+	it("moves a default-session-dir session to the target cwd storage and updates its header", () => {
+		const sourceSessionDir = defaultSessionDir(projectA);
+		const controlDbPath = getControlDbPath(agentDir);
+		const session = SessionManager.create(projectA, sourceSessionDir, {
+			isSubagent: true,
+			subagentName: "worker",
+		});
+		session.setMetadataControlDbPath(controlDbPath);
+		const sourceFile = session.getSessionFile();
+		expect(sourceFile).toBeDefined();
+
+		session.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+		session.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "world" }],
+			stopReason: "stop",
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			timestamp: 2,
+		});
+
+		session.setSessionGoalJson(JSON.stringify({ objective: "keep goal" }));
+		setNamedSession(controlDbPath, sourceFile!, "Keep name");
+		upsertMultiAgentAgent(controlDbPath, sourceFile!, "agent_1", { id: "agent_1" });
+		upsertMultiAgentArtifact(controlDbPath, sourceFile!, "artifact_1", { id: "artifact_1" });
+		upsertMultiAgentMailboxMessage(controlDbPath, sourceFile!, "message_1", {
+			messageId: "message_1",
+			status: "pending",
+		});
+		writeMultiAgentCounters(controlDbPath, sourceFile!, {
+			nextAgentNumber: 2,
+			nextArtifactNumber: 3,
+			nextMessageNumber: 4,
+		});
+		enqueueRuntimeMailboxMessage(controlDbPath, {
+			recipient: { sessionId: "recipient", agentId: "agent_1" },
+			sender: { sessionId: "sender", agentId: null },
+			kind: "message",
+			storeRef: { sessionPath: sourceFile!, messageId: "message_1" },
+		});
+		session.relocate(projectB, agentDir);
+
+		const movedFile = session.getSessionFile();
+		expect(movedFile).toBe(join(defaultSessionDir(projectB), basename(sourceFile!)));
+		expect(existsSync(sourceFile!)).toBe(false);
+		expect(existsSync(movedFile!)).toBe(true);
+		expect(session.getCwd()).toBe(projectB);
+
+		const header = JSON.parse(readFileSync(movedFile!, "utf8").split("\n")[0]!) as { cwd: string };
+		expect(header.cwd).toBe(projectB);
+		expect(SessionManager.open(movedFile!).getCwd()).toBe(projectB);
+		expect(readSessionMetadata(controlDbPath, sourceFile!)).toBeUndefined();
+		const movedMetadata = readSessionMetadata(controlDbPath, movedFile!);
+		expect(movedMetadata).toMatchObject({ isSubagent: true, subagentName: "worker" });
+		expect(readSessionGoal(controlDbPath, movedFile!)).toBe(JSON.stringify({ objective: "keep goal" }));
+		expect(listNamedSessions(controlDbPath)).toEqual([
+			{ sessionPath: movedFile!, name: "Keep name", updatedAt: expect.any(String) },
+		]);
+		expect(readMultiAgentState(controlDbPath, sourceFile!)).toBeUndefined();
+		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual({
+			agents: [{ id: "agent_1" }],
+			artifacts: [{ id: "artifact_1" }],
+			mailboxMessages: [{ messageId: "message_1", status: "pending" }],
+			counters: { nextAgentNumber: 2, nextArtifactNumber: 3, nextMessageNumber: 4 },
+		});
+		expect(
+			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: sourceFile!, messageId: "message_1" }),
+		).toBe(0);
+		expect(
+			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: movedFile!, messageId: "message_1" }),
+		).toBe(1);
 	});
 });
 

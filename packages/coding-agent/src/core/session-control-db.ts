@@ -804,6 +804,70 @@ export function listNamedSessions(controlDbPath: string): NamedSession[] {
 	});
 }
 
+export function relocateSessionControlData(
+	controlDbPath: string,
+	oldSessionPath: string,
+	newSessionPath: string,
+): void {
+	if (oldSessionPath === newSessionPath) {
+		return;
+	}
+
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
+			relocateSessionPathPrimaryKey(db, "named_sessions", oldSessionPath, newSessionPath, now);
+			relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
+			relocateMultiAgentSessionRows(db, "multi_agent_artifacts", oldSessionPath, newSessionPath, now);
+			relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
+			relocateSessionPathPrimaryKey(db, "multi_agent_counters", oldSessionPath, newSessionPath, now);
+			db.prepare(
+				`
+				UPDATE runtime_mailbox_messages
+				SET store_session_path = ?, updated_at = ?
+				WHERE store_session_path = ?
+				`,
+			).run(newSessionPath, now, oldSessionPath);
+			db.exec("COMMIT");
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+function relocateSessionPathPrimaryKey(
+	db: SqliteDatabase,
+	table: string,
+	oldSessionPath: string,
+	newSessionPath: string,
+	now: string,
+): void {
+	db.prepare(`DELETE FROM ${table} WHERE session_path = ?`).run(newSessionPath);
+	db.prepare(`UPDATE ${table} SET session_path = ?, updated_at = ? WHERE session_path = ?`).run(
+		newSessionPath,
+		now,
+		oldSessionPath,
+	);
+}
+
+function relocateMultiAgentSessionRows(
+	db: SqliteDatabase,
+	table: "multi_agent_agents" | "multi_agent_artifacts" | "multi_agent_mailbox_messages",
+	oldSessionPath: string,
+	newSessionPath: string,
+	now: string,
+): void {
+	db.prepare(`DELETE FROM ${table} WHERE session_path = ?`).run(newSessionPath);
+	db.prepare(`UPDATE ${table} SET session_path = ?, updated_at = ? WHERE session_path = ?`).run(
+		newSessionPath,
+		now,
+		oldSessionPath,
+	);
+}
+
 export function writeSessionMetadata(controlDbPath: string, metadata: WritableSessionMetadata): void {
 	withControlDb(controlDbPath, (db) => {
 		const metadataName = metadata.name ?? readNamedSessionName(db, metadata.sessionPath);
