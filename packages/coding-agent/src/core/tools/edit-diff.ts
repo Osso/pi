@@ -71,6 +71,15 @@ interface MatchedEdit {
 
 type TextReplacement = Pick<MatchedEdit, "matchIndex" | "matchLength" | "newText">;
 
+const DEFAULT_DUPLICATE_CONTEXT_MATCHES = 5;
+const DEFAULT_DUPLICATE_CONTEXT_LINES = 2;
+const DEFAULT_CONTEXT_LINE_MAX_LENGTH = 160;
+
+type TextOccurrence = {
+	index: number;
+	length: number;
+};
+
 function getLineSpans(content: string): LineSpan[] {
 	let offset = 0;
 	return splitLinesWithEndings(content).map((line) => {
@@ -248,10 +257,78 @@ export function stripBom(content: string): { bom: string; text: string } {
 	return content.startsWith("\uFEFF") ? { bom: "\uFEFF", text: content.slice(1) } : { bom: "", text: content };
 }
 
+function findTextOccurrences(content: string, oldText: string): TextOccurrence[] {
+	if (oldText.length === 0) {
+		return [];
+	}
+
+	const occurrences: TextOccurrence[] = [];
+	let startIndex = 0;
+	while (startIndex <= content.length) {
+		const index = content.indexOf(oldText, startIndex);
+		if (index === -1) {
+			break;
+		}
+		occurrences.push({ index, length: oldText.length });
+		startIndex = index + oldText.length;
+	}
+	return occurrences;
+}
+
 function countOccurrences(content: string, oldText: string): number {
 	const fuzzyContent = normalizeForFuzzyMatch(content);
 	const fuzzyOldText = normalizeForFuzzyMatch(oldText);
-	return fuzzyContent.split(fuzzyOldText).length - 1;
+	return findTextOccurrences(fuzzyContent, fuzzyOldText).length;
+}
+
+function getLineNumberAtOffset(content: string, offset: number): number {
+	let lineNumber = 1;
+	for (let i = 0; i < offset; i++) {
+		if (content[i] === "\n") {
+			lineNumber++;
+		}
+	}
+	return lineNumber;
+}
+
+function truncateContextLine(line: string, maxLength = DEFAULT_CONTEXT_LINE_MAX_LENGTH): string {
+	if (line.length <= maxLength) {
+		return line;
+	}
+	return `${line.slice(0, maxLength - 1)}…`;
+}
+
+function formatDuplicateMatchContexts(
+	content: string,
+	oldText: string,
+	maxMatches = DEFAULT_DUPLICATE_CONTEXT_MATCHES,
+	contextLines = DEFAULT_DUPLICATE_CONTEXT_LINES,
+): string {
+	const occurrences = findTextOccurrences(content, oldText);
+	if (occurrences.length === 0) {
+		return "";
+	}
+
+	const lines = content.split("\n");
+	const lineNumberWidth = String(lines.length).length;
+	const shownOccurrences = occurrences.slice(0, maxMatches);
+	const blocks = shownOccurrences.map((occurrence, occurrenceIndex) => {
+		const startLine = getLineNumberAtOffset(content, occurrence.index);
+		const endLine = getLineNumberAtOffset(content, occurrence.index + Math.max(occurrence.length - 1, 0));
+		const firstContextLine = Math.max(1, startLine - contextLines);
+		const lastContextLine = Math.min(lines.length, endLine + contextLines);
+		const context: string[] = [];
+		for (let lineNumber = firstContextLine; lineNumber <= lastContextLine; lineNumber++) {
+			const marker = lineNumber >= startLine && lineNumber <= endLine ? ">" : " ";
+			const paddedLineNumber = String(lineNumber).padStart(lineNumberWidth, " ");
+			context.push(`${marker} ${paddedLineNumber}: ${truncateContextLine(lines[lineNumber - 1] ?? "")}`);
+		}
+		return `${occurrenceIndex + 1}) line ${startLine}\n${context.join("\n")}`;
+	});
+
+	const omittedCount = occurrences.length - shownOccurrences.length;
+	const omitted = omittedCount > 0 ? `\n... ${omittedCount} more match(es) omitted.` : "";
+	return `\n\nDuplicate match context:\n${blocks.join("\n\n")}${omitted}`;
 }
 
 function getNotFoundError(path: string, editIndex: number, totalEdits: number): Error {
@@ -265,14 +342,22 @@ function getNotFoundError(path: string, editIndex: number, totalEdits: number): 
 	);
 }
 
-function getDuplicateError(path: string, editIndex: number, totalEdits: number, occurrences: number): Error {
+function getDuplicateError(
+	path: string,
+	editIndex: number,
+	totalEdits: number,
+	occurrences: number,
+	content: string,
+	oldText: string,
+): Error {
+	const context = formatDuplicateMatchContexts(content, oldText);
 	if (totalEdits === 1) {
 		return new Error(
-			`Found ${occurrences} occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.`,
+			`Found ${occurrences} occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.${context}`,
 		);
 	}
 	return new Error(
-		`Found ${occurrences} occurrences of edits[${editIndex}] in ${path}. Each oldText must be unique. Please provide more context to make it unique.`,
+		`Found ${occurrences} occurrences of edits[${editIndex}] in ${path}. Each oldText must be unique. Please provide more context to make it unique.${context}`,
 	);
 }
 
@@ -331,7 +416,7 @@ export function applyEditsToNormalizedContent(
 
 		const occurrences = countOccurrences(replacementBaseContent, edit.oldText);
 		if (occurrences > 1) {
-			throw getDuplicateError(path, i, normalizedEdits.length, occurrences);
+			throw getDuplicateError(path, i, normalizedEdits.length, occurrences, replacementBaseContent, edit.oldText);
 		}
 
 		matchedEdits.push({
