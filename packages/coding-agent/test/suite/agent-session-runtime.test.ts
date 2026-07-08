@@ -162,9 +162,12 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(calls).toEqual([{ sessionFile: runtime.session.sessionManager.getSessionFile(), prompt: "Restarted." }]);
 	});
 
-	it("runs synchronous invalidation cleanup before spawning a process restart", async () => {
+	it("runs terminal teardown before invalidation cleanup and process restart", async () => {
 		const { runtime } = await createRuntimeForTest(() => {});
 		const order: string[] = [];
+		runtime.setBeforeProcessRestart(async () => {
+			order.push("beforeProcessRestart");
+		});
 		runtime.setBeforeSessionInvalidate(() => {
 			order.push("beforeSessionInvalidate");
 		});
@@ -175,7 +178,7 @@ describe("AgentSessionRuntime characterization", () => {
 
 		await expect(runtime.restart({ process: true })).rejects.toThrow("process restart requested");
 
-		expect(order).toEqual(["beforeSessionInvalidate", "processRestarter"]);
+		expect(order).toEqual(["beforeProcessRestart", "beforeSessionInvalidate", "processRestarter"]);
 	});
 
 	it("persists message_end assistant replacements to the session manager", async () => {

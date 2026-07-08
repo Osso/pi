@@ -65,6 +65,7 @@ function extractUserMessageText(content: string | Array<{ type: string; text?: s
  */
 export class AgentSessionRuntime {
 	private rebindSession?: (session: AgentSession) => Promise<void>;
+	private beforeProcessRestart?: () => Promise<void> | void;
 	private beforeSessionInvalidate?: () => void;
 	private _session: AgentSession;
 	private _services: AgentSessionServices;
@@ -121,6 +122,10 @@ export class AgentSessionRuntime {
 	 */
 	setBeforeSessionInvalidate(beforeSessionInvalidate?: () => void): void {
 		this.beforeSessionInvalidate = beforeSessionInvalidate;
+	}
+
+	setBeforeProcessRestart(beforeProcessRestart?: () => Promise<void> | void): void {
+		this.beforeProcessRestart = beforeProcessRestart;
 	}
 
 	setProcessRestarter(processRestarter: ProcessRestarter): void {
@@ -260,6 +265,7 @@ export class AgentSessionRuntime {
 		const currentSessionFile = currentSessionManager.getSessionFile();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
+			await this.beforeProcessRestart?.();
 			this.beforeSessionInvalidate?.();
 			await this.processRestarter({
 				sessionFile: currentSessionFile,

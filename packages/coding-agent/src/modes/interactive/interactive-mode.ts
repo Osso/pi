@@ -500,6 +500,7 @@ export class InteractiveMode {
 		this.options = options;
 		this.autoTrustOnReloadCwd = options.autoTrustOnReloadCwd;
 		this.multiAgentStore = options.multiAgentStore;
+		this.runtimeHost.setBeforeProcessRestart(() => this.stopInteractiveTerminalForProcessRestart());
 		this.runtimeHost.setBeforeSessionInvalidate(() => {
 			this.resetExtensionUI();
 		});
@@ -4140,16 +4141,22 @@ export class InteractiveMode {
 		process.exit(0);
 	}
 
+	private async stopInteractiveTerminalForProcessRestart(): Promise<void> {
+		this.themeController.disableAutoSync();
+		await this.ui.terminal.drainInput(1000);
+		this.stop();
+	}
+
 	private async restartProcess(options?: { fromSignal?: boolean; notice?: string }): Promise<void> {
 		const sessionFile = this.session.sessionFile;
 		if (!sessionFile) {
 			throw new Error("Cannot restart without a persisted session file");
 		}
 
-		this.themeController.disableAutoSync();
-		if (!options?.fromSignal) {
-			await this.ui.terminal.drainInput(1000);
-			this.stop();
+		if (options?.fromSignal) {
+			this.themeController.disableAutoSync();
+		} else {
+			await this.stopInteractiveTerminalForProcessRestart();
 		}
 		const notice = options?.notice;
 		await restartCurrentProcess({ sessionFile, prompt: notice });
