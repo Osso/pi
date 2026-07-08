@@ -264,7 +264,7 @@ async function resultFor(request) {
       type: "completed",
       executed: request.code,
       console: ["OUT"],
-      value: { stdout: "OUT\\n", stderr: "", exit_code: 0, upstream_results: [] }
+      value: 0
     };
   }
   if (request.code === "command.failed") {
@@ -272,7 +272,7 @@ async function resultFor(request) {
       type: "completed",
       executed: request.code,
       console: ["tail error"],
-      value: { stdout: "full out\\n", stderr: "full error\\n", exit_code: 2, upstream_results: [] }
+      value: 2
     };
   }
   if (request.code === "print.streaming()") {
@@ -678,25 +678,25 @@ describe("pyrun extension", () => {
 		});
 	});
 
-	it("omits successful command result JSON when command output is already shown", async () => {
+	it("shows the run command exit code after command output", async () => {
 		const harness = createPyrunHarness();
 
 		const result = await harness.evaluate({ code: "command.result" });
 
 		expect(result.content[0]).toEqual({
 			type: "text",
-			text: "command.result\n\nOUT",
+			text: "command.result\n\nOUT\n0",
 		});
 	});
 
-	it("summarizes failed command results without repeating full logs", async () => {
+	it("shows failed run command output and numeric exit code", async () => {
 		const harness = createPyrunHarness();
 
 		const result = await harness.evaluate({ code: "command.failed" });
 
 		expect(result.content[0]).toEqual({
 			type: "text",
-			text: "command.failed\n\ntail error\nexit code 2",
+			text: "command.failed\n\ntail error\n2",
 		});
 	});
 

@@ -25,7 +25,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/src/core/tool-detach-registry.ts` — shared in-flight tool detach registry.
 - `packages/coding-agent/src/core/agent-session.ts` — owns the session detach registry and exposes it to base tools and extensions.
 - `packages/coding-agent/src/core/tools/bash.ts` — registers bash commands as detachable and tracks detached subprocesses.
-- `packages/coding-agent/extensions/pyrun/src/index.ts` — registers Pyrun evaluations as detachable and tracks detached evaluations.
+- `packages/coding-agent/extensions/pyrun/src/index.ts` — registers Pyrun evaluations as detachable and tracks detached evaluations. Pyrun command guidance treats `run.*` as exit-code-only and `cli.*` as the captured `CommandResult` API.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — binds the background action to the active session registry.
 
 ## Tests asserting this spec
