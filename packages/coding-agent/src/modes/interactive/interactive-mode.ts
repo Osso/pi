@@ -2967,12 +2967,6 @@ export class InteractiveMode {
 				await this.handleModelCommand(searchTerm);
 				return;
 			}
-			if (text === "/effort" || text.startsWith("/effort ")) {
-				const effort = text.startsWith("/effort ") ? text.slice(8).trim() : undefined;
-				this.editor.setText("");
-				this.handleEffortCommand(effort);
-				return;
-			}
 			if (text === "/export" || text.startsWith("/export ")) {
 				await this.handleExportCommand(text);
 				this.editor.setText("");
@@ -4173,28 +4167,6 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 			this.showStatus(`Thinking level: ${newLevel}`);
 		}
-	}
-
-	private handleEffortCommand(effortText: string | undefined): void {
-		const availableLevels = this.session.getAvailableThinkingLevels();
-		const currentLevel = this.session.thinkingLevel || "off";
-
-		if (!effortText) {
-			this.showStatus(`Effort: ${currentLevel} (available: ${availableLevels.join(", ")})`);
-			return;
-		}
-
-		const normalizedLevel = effortText.toLowerCase();
-		const selectedLevel = availableLevels.find((level) => level === normalizedLevel);
-		if (!selectedLevel) {
-			this.showError(`Invalid effort "${effortText}". Available: ${availableLevels.join(", ")}`);
-			return;
-		}
-
-		this.session.setThinkingLevel(selectedLevel);
-		this.footer.invalidate();
-		this.updateEditorBorderColor();
-		this.showStatus(`Effort: ${this.session.thinkingLevel}`);
 	}
 
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {

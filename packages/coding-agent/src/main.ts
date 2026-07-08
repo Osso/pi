@@ -26,6 +26,7 @@ import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
 import codexWebSearchExtension from "../extensions/codex-web-search/src/index.ts";
 import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import docsTreeContextExtension from "../extensions/docs-tree-context/src/index.ts";
+import effortExtension from "../extensions/effort/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
@@ -602,6 +603,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("default-footer", (pi) =>
 			defaultFooterExtension(pi, { multiAgentStore: firstPartyMultiAgentStore }),
 		),
+		firstPartyExtensionFactory("effort", effortExtension),
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("hostrun", (pi) => hostrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
 		firstPartyExtensionFactory("pyrun", (pi) => pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
