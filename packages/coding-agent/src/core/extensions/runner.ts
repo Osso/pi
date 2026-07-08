@@ -2,7 +2,7 @@
  * Extension runner - executes extensions and manages their lifecycle.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type { KeyId } from "@earendil-works/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
@@ -300,6 +300,7 @@ export class ExtensionRunner {
 	private settingsManager: SettingsManager | undefined;
 	private errorListeners: Set<ExtensionErrorListener> = new Set();
 	private getModel: () => Model<any> | undefined = () => undefined;
+	private getThinkingLevelFn: () => ThinkingLevel = () => "off";
 	private isIdleFn: () => boolean = () => true;
 	private isProjectTrustedFn: () => boolean = () => true;
 	private getSignalFn: () => AbortSignal | undefined = () => undefined;
@@ -378,6 +379,7 @@ export class ExtensionRunner {
 
 		// Context actions (required)
 		this.getModel = contextActions.getModel;
+		this.getThinkingLevelFn = contextActions.getThinkingLevel ?? (() => "off");
 		this.getFooterData = contextActions.getFooterData ?? (() => undefined);
 		this.isIdleFn = contextActions.isIdle;
 		this.isProjectTrustedFn = contextActions.isProjectTrusted;
@@ -756,6 +758,10 @@ export class ExtensionRunner {
 			get model() {
 				runner.assertActive();
 				return getModel();
+			},
+			getThinkingLevel: () => {
+				runner.assertActive();
+				return runner.getThinkingLevelFn();
 			},
 			getScopedModels: () => {
 				runner.assertActive();

@@ -3283,6 +3283,7 @@ export class AgentSession {
 			},
 			{
 				getModel: () => this.model,
+				getThinkingLevel: () => this.thinkingLevel,
 				getScopedModels: () => this.scopedModels,
 				getFooterData: () => this._extensionFooterData,
 				isIdle: () => !this.isStreaming,

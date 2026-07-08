@@ -339,6 +339,8 @@ export interface ExtensionContext {
 	toolDetachRegistry?: ToolDetachRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
+	/** Current thinking/effort level for the selected model, when available. */
+	getThinkingLevel?: () => ThinkingLevel;
 	/** Current scoped models used for model cycling, when available. */
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
@@ -1675,6 +1677,7 @@ export interface ExtensionActions {
  */
 export interface ExtensionContextActions {
 	getModel: () => Model<any> | undefined;
+	getThinkingLevel?: () => ThinkingLevel;
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	getFooterData?: () => ReadonlyFooterDataProvider | undefined;
 	isIdle: () => boolean;

@@ -150,4 +150,17 @@ describe("FooterComponent width handling", () => {
 		const statsLine = stripAnsi(footer.render(120)[1]);
 		expect(statsLine).toContain("CH25.0%");
 	});
+
+	it("shows effort next to reasoning models", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "effort-model",
+			reasoning: true,
+			thinkingLevel: "medium",
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+		expect(statsLine).toContain("effort-model • effort medium");
+	});
 });

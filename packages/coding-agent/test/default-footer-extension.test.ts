@@ -37,6 +37,7 @@ function createContext(usage: AssistantUsage, usingOAuth = false): ExtensionCont
 			getSessionName: () => "",
 		},
 		getContextUsage: () => ({ contextWindow: 272_000, percent: 60.9 }),
+		getThinkingLevel: () => "off",
 	} as unknown as ExtensionContext;
 }
 
@@ -171,5 +172,21 @@ describe("default footer extension", () => {
 		const line = stripAnsi(component?.render(160)[1] ?? "");
 
 		expect(line).toContain("selected #2 Second waiting for input");
+	});
+
+	it("shows effort next to reasoning models", () => {
+		initTheme(undefined, false);
+		const footer = createDefaultFooterComponent({
+			ctx: {
+				...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+				model: { id: "reasoner", provider: "test", contextWindow: 200_000, reasoning: true },
+				getThinkingLevel: () => "high",
+			} as unknown as ExtensionContext,
+			footerData: createFooterData(),
+			theme,
+		});
+
+		const line = stripAnsi(footer.render(120)[1] ?? "");
+		expect(line).toContain("reasoner • effort high");
 	});
 });

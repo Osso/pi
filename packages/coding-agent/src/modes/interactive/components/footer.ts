@@ -182,12 +182,11 @@ export class FooterComponent implements Component {
 		// Calculate available space for padding (minimum 2 spaces between stats and model)
 		const minPadding = 2;
 
-		// Add thinking level indicator if model supports reasoning
+		// Add effort indicator if model supports reasoning
 		let rightSideWithoutProvider = modelName;
 		if (state.model?.reasoning) {
-			const thinkingLevel = state.thinkingLevel || "off";
-			rightSideWithoutProvider =
-				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
+			const effortLevel = state.thinkingLevel || "off";
+			rightSideWithoutProvider = `${modelName} • effort ${effortLevel}`;
 		}
 
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room

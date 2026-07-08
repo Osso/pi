@@ -169,10 +169,11 @@ function formatStats(input: DefaultFooterComponentInput): string {
 
 function formatRightSide(input: DefaultFooterComponentInput): string {
 	const modelName = input.ctx.model?.id || "no-model";
+	const effortSuffix = input.ctx.model?.reasoning ? ` • effort ${input.ctx.getThinkingLevel?.() ?? "off"}` : "";
 	if (input.footerData.getAvailableProviderCount() > 1 && input.ctx.model) {
-		return `(${input.ctx.model.provider}) ${modelName}`;
+		return `(${input.ctx.model.provider}) ${modelName}${effortSuffix}`;
 	}
-	return modelName;
+	return `${modelName}${effortSuffix}`;
 }
 
 function formatStatsLine(input: DefaultFooterComponentInput, width: number): string {
