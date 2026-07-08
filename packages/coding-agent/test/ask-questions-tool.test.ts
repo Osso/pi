@@ -160,6 +160,50 @@ describe("ask_questions tool", () => {
 		expect(close).toHaveBeenCalledOnce();
 	});
 
+	it("closes the desktop notification when questions are cancelled", async () => {
+		const close = vi.fn();
+		desktopNotifier.mockReturnValue({ close });
+		const tool = createAskQuestionsToolDefinition();
+		const ctx = setup({ selectChoices: ["Cancel"] });
+
+		const result = await tool.execute(
+			"call-notify-cancel",
+			{ questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+			undefined,
+			undefined,
+			ctx,
+		);
+
+		expect(result.details?.cancelled).toBe(true);
+		expect(desktopNotifier).toHaveBeenCalledOnce();
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("does not expose question or option text in the desktop notification", async () => {
+		desktopNotifier.mockReturnValue(undefined);
+		const tool = createAskQuestionsToolDefinition();
+		const ctx = setup({ selectChoices: ["1. Ship secret option"] });
+
+		await tool.execute(
+			"call-notify-redacted",
+			{
+				questions: [
+					{
+						question: "Should we use token secret-question-token?",
+						options: [{ label: "Ship secret option" }, { label: "Hide secret option" }],
+					},
+				],
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
+
+		const notification = desktopNotifier.mock.calls[0]?.[0];
+		expect(notification?.body).not.toContain("secret-question-token");
+		expect(notification?.body).not.toContain("secret option");
+	});
+
 	it("rejects duplicate option labels", async () => {
 		const tool = createAskQuestionsToolDefinition();
 		const ctx = setup({ selectChoices: [] });
