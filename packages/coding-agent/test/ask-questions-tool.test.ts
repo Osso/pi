@@ -1,5 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS } from "../src/core/desktop-notification.ts";
 import { createAskQuestionsToolDefinition } from "../src/core/tools/ask-questions.ts";
+
+const desktopNotifier = vi.hoisted(() => vi.fn());
+
+vi.mock("../src/core/desktop-notification.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/core/desktop-notification.ts")>();
+	return {
+		...actual,
+		sendDesktopNotification: desktopNotifier,
+	};
+});
+
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import type { ExtensionContext } from "../src/index.ts";
 
@@ -18,6 +30,10 @@ function setup(options: { selectChoices: Array<string | undefined>; inputChoices
 }
 
 describe("ask_questions tool", () => {
+	beforeEach(() => {
+		desktopNotifier.mockReset();
+	});
+
 	it("is registered as a default active built-in tool", () => {
 		const tools = createAllToolDefinitions(process.cwd());
 
@@ -118,6 +134,30 @@ describe("ask_questions tool", () => {
 		);
 
 		expect(result.details?.answers).toEqual({ "Which follow-ups should be included?": "Tests, Docs" });
+	});
+
+	it("sends a non-expiring desktop notification while waiting for answers", async () => {
+		const close = vi.fn();
+		desktopNotifier.mockReturnValue({ close });
+		const tool = createAskQuestionsToolDefinition();
+		const ctx = setup({ selectChoices: ["1. Yes"] });
+
+		const result = await tool.execute(
+			"call-notify",
+			{ questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+			undefined,
+			undefined,
+			ctx,
+		);
+
+		expect(result.details?.cancelled).toBe(false);
+		expect(desktopNotifier).toHaveBeenCalledWith({
+			body: "Pi is waiting for your answer.",
+			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+			title: "Pi question needs input",
+			urgency: "normal",
+		});
+		expect(close).toHaveBeenCalledOnce();
 	});
 
 	it("rejects duplicate option labels", async () => {

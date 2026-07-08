@@ -1,6 +1,11 @@
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
+import {
+	type DesktopNotificationHandle,
+	NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+	sendDesktopNotification,
+} from "../desktop-notification.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 
 const MIN_OPTIONS = 2;
@@ -9,6 +14,7 @@ const MAX_QUESTIONS = 4;
 const OTHER_LABEL = "Other";
 const DONE_LABEL = "Done";
 const CANCEL_LABEL = "Cancel";
+const ASK_QUESTIONS_NOTIFICATION_TITLE = "Pi question needs input";
 
 const questionOptionSchema = Type.Object({
 	label: Type.String({
@@ -231,6 +237,32 @@ function answeredResult(params: AskQuestionsToolInput, answers: Record<string, s
 	};
 }
 
+function formatAskQuestionsNotificationBody(questionCount: number): string {
+	return questionCount === 1 ? "Pi is waiting for your answer." : "Pi is waiting for your answers.";
+}
+
+function notifyAskQuestionsWaiting(questionCount: number): DesktopNotificationHandle | undefined {
+	try {
+		return sendDesktopNotification({
+			body: formatAskQuestionsNotificationBody(questionCount),
+			expireTimeMs: NEVER_EXPIRE_DESKTOP_NOTIFICATION_MS,
+			title: ASK_QUESTIONS_NOTIFICATION_TITLE,
+			urgency: "normal",
+		});
+	} catch (error) {
+		console.error("Failed to send ask_questions desktop notification:", error);
+		return undefined;
+	}
+}
+
+function closeAskQuestionsNotification(notification: DesktopNotificationHandle | undefined): void {
+	try {
+		notification?.close();
+	} catch (error) {
+		console.error("Failed to close ask_questions desktop notification:", error);
+	}
+}
+
 export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQuestionsSchema, AskQuestionsToolDetails> {
 	return {
 		name: "ask_questions",
@@ -250,13 +282,18 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!ctx.hasUI || ctx.mode !== "tui") return unavailableResult(params);
 			validateQuestions(params.questions);
-			const answers: Record<string, string> = {};
-			for (const question of params.questions) {
-				const answer = await askQuestion(ctx, question);
-				if (answer === undefined) return cancelledResult(params, answers);
-				answers[question.question] = answer;
+			const notification = notifyAskQuestionsWaiting(params.questions.length);
+			try {
+				const answers: Record<string, string> = {};
+				for (const question of params.questions) {
+					const answer = await askQuestion(ctx, question);
+					if (answer === undefined) return cancelledResult(params, answers);
+					answers[question.question] = answer;
+				}
+				return answeredResult(params, answers);
+			} finally {
+				closeAskQuestionsNotification(notification);
 			}
-			return answeredResult(params, answers);
 		},
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);

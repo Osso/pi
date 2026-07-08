@@ -18,6 +18,7 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 - [x] Support multi-select questions and return comma-separated selected labels.
 - [x] Return a cancelled result if the user cancels before all questions are answered.
 - [x] Return an error outside interactive TUI mode instead of hanging.
+- [x] Send a non-expiring desktop notification while waiting for answers and close it after the question flow answers or cancels.
 
 ### Prompting and rendering
 
@@ -41,7 +42,7 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/ask-questions-tool.test.ts`
+- `packages/coding-agent/test/ask-questions-tool.test.ts` — default registration, validation, single-select, multi-select, custom answers, cancellation, non-TUI failure, and desktop notification lifecycle.
 - `packages/coding-agent/test/plan-mode-extension.test.ts`
 
 ## Known gaps (current cycle)
