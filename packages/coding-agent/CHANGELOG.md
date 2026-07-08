@@ -64,6 +64,7 @@
 - Fixed the edit tool schema to allow model-invented extra replacement fields instead of rejecting otherwise valid edits ([#6278](https://github.com/earendil-works/pi/issues/6278)).
 - Fixed Pyrun and Hostrun evaluation output to omit noisy `Result:` labels and null result values.
 - Fixed `wait_agent` to wait for active detached tool jobs that update the multi-agent store without a child dispatch.
+- Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
 
 ### Removed
 

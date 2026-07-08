@@ -187,6 +187,7 @@ interface InteractiveModeKeyHandlerInternals {
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	resetExtensionUI(this: unknown): void;
+	cancelSelectedAgentTurn(this: unknown): boolean;
 	cancelStreamingAndSubmitQueuedMessages(this: unknown): Promise<void>;
 	setupKeyHandlers(this: unknown): void;
 }
@@ -419,6 +420,75 @@ describe("InteractiveMode key handlers", () => {
 		expect(normalizeRenderedOutput(banner)).toContain("starting");
 	});
 
+	test("escape while viewing an active child agent cancels that agent", () => {
+		const actions = new Map<string, () => void>();
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Scout",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected running transition");
+		}
+		store.selectAgentView(spawned.agent.id);
+		const abortChild = vi.fn();
+		store.registerAgentAbortHandler(spawned.agent.id, abortChild);
+		const fakeThis = {
+			defaultEditor: {
+				onEscape: undefined as (() => void) | undefined,
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			editor: { getText: () => "", setText: vi.fn() },
+			multiAgentStore: store,
+			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			footer: { invalidate: vi.fn() },
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			registerGlobalAgentSlotInputHandler: vi.fn(),
+			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
+			settingsManager: { getDoubleEscapeAction: () => "none" },
+			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cancelSelectedAgentTurn: interactiveModeKeyHandlers.cancelSelectedAgentTurn,
+			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
+			cycleModel: vi.fn(),
+			cycleThinkingLevel: vi.fn(),
+			handleClearCommand: vi.fn(),
+			handleCtrlC: vi.fn(),
+			handleCtrlD: vi.fn(),
+			handleCtrlZ: vi.fn(),
+			handleDebugCommand: vi.fn(),
+			handleDequeue: vi.fn(),
+			handleFollowUp: vi.fn(),
+			handleClipboardImagePaste: vi.fn(),
+			openExternalEditor: vi.fn(),
+			restoreQueuedMessagesToEditor: vi.fn(),
+			showModelSelector: vi.fn(),
+			showSessionSelector: vi.fn(),
+			showStatus: vi.fn(),
+			showTreeSelector: vi.fn(),
+			showUserMessageSelector: vi.fn(),
+			toggleThinkingBlockVisibility: vi.fn(),
+			toggleToolOutputExpansion: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
+			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
+		};
+
+		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
+		fakeThis.defaultEditor.onEscape?.();
+
+		expect(abortChild).toHaveBeenCalledTimes(1);
+		expect(store.getAgent(spawned.agent.id)?.lifecycle).toBe("aborted");
+		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(fakeThis.cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
 	test("escape while streaming cancels and submits queued messages", () => {
 		const actions = new Map<string, () => void>();
 		const fakeThis = {
@@ -433,6 +503,7 @@ describe("InteractiveMode key handlers", () => {
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: true },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cancelSelectedAgentTurn: vi.fn(() => false),
 			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
 			cycleModel: vi.fn(),
 			cycleThinkingLevel: vi.fn(),
@@ -509,6 +580,7 @@ describe("InteractiveMode key handlers", () => {
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cancelSelectedAgentTurn: vi.fn(() => false),
 			cycleModel: vi.fn(),
 			cycleThinkingLevel: vi.fn(),
 			handleClearCommand: vi.fn(),
@@ -581,6 +653,7 @@ describe("InteractiveMode key handlers", () => {
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cancelSelectedAgentTurn: vi.fn(() => false),
 			cycleModel: vi.fn(),
 			cycleThinkingLevel: vi.fn(),
 			handleClearCommand: vi.fn(),

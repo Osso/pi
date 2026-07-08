@@ -25,7 +25,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `aborted`. The state graph, state meanings, and restore-time rewrite rules live in
       [agent-lifecycle.md](agent-lifecycle.md).
 - [x] Commands that mutate agent state carry an expected revision and fail with a conflict when
-      the caller is acting on stale state.
+      the caller is acting on stale state. Model-facing tools may derive the current revision
+      internally before calling core store operations when exposing the revision would make the
+      tool awkward to use.
 - [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
@@ -160,6 +162,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
 - [x] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
 - [x] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
+- [x] Escape cancels the currently viewed active child-agent turn before falling back to main-thread
+      cancellation or idle Escape behavior.
 - [x] TUI controls show stale-revision conflicts and require the user or caller to retry against
       the latest snapshot.
 

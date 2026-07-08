@@ -2978,6 +2978,40 @@ export class InteractiveMode {
 		}
 	}
 
+	private cancelSelectedAgentTurn(): boolean {
+		const store = this.multiAgentStore;
+		const selectedAgentId = store?.getSelectedAgentId();
+		if (!store || !selectedAgentId) {
+			return false;
+		}
+
+		const agent = store.getAgent(selectedAgentId);
+		if (!agent) {
+			return false;
+		}
+
+		const isInterruptible =
+			agent.lifecycle === "starting" ||
+			agent.lifecycle === "running" ||
+			agent.lifecycle === "steering_pending" ||
+			agent.lifecycle === "cancelling";
+		if (!isInterruptible) {
+			return false;
+		}
+
+		const cancelled = store.transitionAgent(agent.id, agent.revision, "aborted");
+		if (!cancelled.ok) {
+			this.showStatus(`Could not cancel ${agent.displayName}: ${cancelled.error}`);
+			this.ui.requestRender();
+			return true;
+		}
+
+		store.abortAgentHandle(agent.id);
+		this.updateSelectedAgentSelectionWidgets();
+		this.showStatus(`Cancelled ${agent.displayName}.`);
+		return true;
+	}
+
 	private updateSelectedAgentBanner(): void {
 		this.selectedAgentBanner.invalidate();
 	}
@@ -2986,6 +3020,9 @@ export class InteractiveMode {
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
 		this.defaultEditor.onEscape = () => {
+			if (this.cancelSelectedAgentTurn()) {
+				return;
+			}
 			if (this.session.isStreaming) {
 				void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
 					this.showError(error instanceof Error ? error.message : String(error));
