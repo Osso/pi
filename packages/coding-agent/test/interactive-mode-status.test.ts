@@ -1374,7 +1374,7 @@ describe("InteractiveMode.setupAutocompleteProvider", () => {
 });
 
 describe("InteractiveMode.createBaseAutocompleteProvider", () => {
-	test("matches model command arguments across provider/model order", async () => {
+	test("matches model command arguments across provider/model fragments", async () => {
 		type TestModel = { id: string; provider: string; name: string };
 		type FakeInteractiveMode = {
 			session: {
@@ -1414,15 +1414,24 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 		};
 
 		const provider = createBaseAutocompleteProvider.call(fakeThis);
-		const line = "/model codexgpt";
-		const suggestions = await provider.getSuggestions([line], 0, line.length, {
-			signal: new AbortController().signal,
-		});
+		const suggest = async (line: string) =>
+			(
+				await provider.getSuggestions([line], 0, line.length, {
+					signal: new AbortController().signal,
+				})
+			)?.items.map((item) => item.value);
 
-		expect(suggestions?.items.map((item) => item.value)).toEqual([
-			"openai-codex/gpt-5.5",
-			"github-copilot/gpt-5.2-codex",
-		]);
+		// A concatenated provider+model fragment matches the provider whose
+		// provider/id reads in that order, and only that one.
+		expect(await suggest("/model codexgpt")).toEqual(["openai-codex/gpt-5.5"]);
+
+		// Space-separated fragments match either field order, ranking the
+		// exact provider ("codex" + "gpt") ahead of the reverse-order id match.
+		expect(await suggest("/model codex gpt")).toEqual(["openai-codex/gpt-5.5", "github-copilot/gpt-5.2-codex"]);
+
+		// A version that does not exist must not fuzzily match a nearby version
+		// (no candidates match, so the provider yields no suggestions).
+		expect(await suggest("/model gpt-5.4")).toBeUndefined();
 	});
 });
 

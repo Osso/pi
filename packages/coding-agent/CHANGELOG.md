@@ -38,6 +38,7 @@
 
 ### Fixed
 
+- Fixed `/model` selector filtering matching unrelated models (e.g. typing `gpt-5.5` returning `gpt-5.4`, `gemini`, and `glm`): each query token is now scored against distinct candidate fields instead of one search string that duplicated the provider and id, so a token can no longer match by spanning repeated copies. Provider-priority ranking and space-separated fragment queries are preserved.
 - Fixed the bwrap sandbox backend to avoid mounting host `/`, clear inherited environments, enforce workspace containment in file workers, block Pyrun while sandboxed, and fail closed with a tool gate when `bwrap` is unavailable.
 - Fixed `web_search` to use OpenAI's hosted search tool in the main Responses request, request live results, and abort stalled fallback requests with a clear timeout error while preserving user cancellation.
 - Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.

@@ -165,7 +165,7 @@ import { type FilterMode, TreeSelectorComponent } from "./components/tree-select
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
-import { getModelSearchText } from "./model-search.ts";
+import { getModelSearchCandidates } from "./model-search.ts";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -630,7 +630,7 @@ export class InteractiveMode {
 				}));
 
 				// Fuzzy filter by model ID + provider in either order.
-				const filtered = fuzzyFilter(items, prefix, getModelSearchText);
+				const filtered = fuzzyFilter(items, prefix, getModelSearchCandidates);
 
 				if (filtered.length === 0) return null;
 

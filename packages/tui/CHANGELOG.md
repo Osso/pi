@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `fuzzyFilter`'s `getText` may now return multiple candidate strings; each query token is scored against every candidate independently (best score wins) so a token cannot match by spanning two candidates.
+
 ## [0.80.3] - 2026-06-30
 
 ### Added

@@ -109,4 +109,27 @@ describe("fuzzyFilter", () => {
 
 		assert.deepStrictEqual(result, [item]);
 	});
+
+	it("matches a token against any single candidate string", () => {
+		const items = [{ id: "gpt-5.4", provider: "openai-codex" }];
+		const getCandidates = (m: { id: string; provider: string }) => [m.id, `${m.provider}/${m.id}`];
+
+		// Matches the bare id.
+		assert.deepStrictEqual(fuzzyFilter(items, "gpt-5.4", getCandidates), items);
+		// Matches the provider-qualified candidate.
+		assert.deepStrictEqual(fuzzyFilter(items, "openai/gpt", getCandidates), items);
+	});
+
+	it("does not let a token span two candidates", () => {
+		// The query's trailing "5" must not be satisfied by a second candidate;
+		// "gpt-5.5" should not match a model whose only version is 5.4.
+		const items = [{ id: "gpt-5.4", provider: "openai-codex" }];
+		const getCandidates = (m: { id: string; provider: string }) => [
+			m.id,
+			`${m.provider}/${m.id}`,
+			`${m.provider} ${m.id}`,
+		];
+
+		assert.deepStrictEqual(fuzzyFilter(items, "gpt-5.5", getCandidates), []);
+	});
 });
