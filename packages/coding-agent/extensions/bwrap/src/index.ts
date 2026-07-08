@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { dirname, extname } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "../../../src/index.ts";
 import {
@@ -52,7 +53,15 @@ interface GrepResult {
 const DEFAULT_BWRAP_COMMAND = process.env.PI_BWRAP_COMMAND ?? "bwrap";
 const DEFAULT_GREP_LIMIT = 100;
 const DEFAULT_MAX_BYTES = 10 * 1024;
-const FS_WORKER_PATH = `${dirname(fileURLToPath(import.meta.url))}/fs-worker.cjs`;
+const SOURCE_FS_WORKER_PATH = `${dirname(fileURLToPath(import.meta.url))}/fs-worker.cjs`;
+const FS_WORKER_PATH = resolveFsWorkerPath();
+
+function resolveFsWorkerPath(): string {
+	if (existsSync(SOURCE_FS_WORKER_PATH)) {
+		return SOURCE_FS_WORKER_PATH;
+	}
+	return join(dirname(process.execPath), "fs-worker.cjs");
+}
 
 function getProfile(ctx: ExtensionContext): SandboxProfileName {
 	return ctx.settingsManager?.getExplicitSandboxProfile() ?? "full-access";

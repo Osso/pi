@@ -5001,6 +5001,19 @@ export class InteractiveMode {
 		});
 	}
 
+	private updateBwrapStatusForSandboxProfile(): void {
+		const profile = this.settingsManager.getExplicitSandboxProfile();
+		if (!profile || profile === "full-access") {
+			this.setExtensionStatus("bwrap", theme.fg("muted", "bwrap: full access"));
+			return;
+		}
+		const bwrapAvailable = spawnSync("bwrap", ["--version"], { stdio: "ignore" }).status === 0;
+		this.setExtensionStatus(
+			"bwrap",
+			bwrapAvailable ? theme.fg("accent", `bwrap: ${profile}`) : theme.fg("error", "bwrap unavailable"),
+		);
+	}
+
 	private showSandboxSelector(): void {
 		this.showSelector((done) => {
 			const selector = new SandboxSelectorComponent({
@@ -5008,9 +5021,8 @@ export class InteractiveMode {
 				onSelect: (selection) => {
 					this.settingsManager.setSandboxProfile(selection.profile, selection.scope);
 					done();
-					this.showStatus(
-						`Saved sandbox profile to ${selection.scope} settings. Restart pi for this to take effect.`,
-					);
+					this.updateBwrapStatusForSandboxProfile();
+					this.showStatus(`Saved sandbox profile to ${selection.scope} settings.`);
 				},
 				onCancel: () => {
 					done();
