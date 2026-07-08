@@ -391,6 +391,11 @@ describe("multi-agent extension tools", () => {
 			"steer_agent",
 			"wait_agent",
 		]);
+		const cancelTool = harness.tools.get("cancel_agent");
+		if (!cancelTool) throw new Error("expected cancel_agent tool");
+		const cancelParameters = cancelTool.parameters as { properties: Record<string, unknown>; required?: string[] };
+		expect(Object.keys(cancelParameters.properties)).toEqual(["agentId", "reason"]);
+		expect(cancelParameters.required).toEqual(["agentId"]);
 	});
 
 	it("does not route multi-agent orchestration tools through generic approval", () => {
@@ -481,7 +486,6 @@ describe("multi-agent extension tools", () => {
 			if (!agentBeforeCancel) throw new Error("expected attached agent");
 			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 				agentId: attached.details.agent.id,
-				expectedRevision: agentBeforeCancel.revision,
 				reason: "stop saved work",
 			});
 
@@ -566,7 +570,6 @@ describe("multi-agent extension tools", () => {
 			}
 			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 				agentId: running.id,
-				expectedRevision: running.revision,
 				reason: "user requested",
 			});
 
@@ -1205,7 +1208,6 @@ describe("multi-agent extension tools", () => {
 		const [agent] = harness.store.listAgents();
 		await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: agent.id,
-			expectedRevision: agent.revision,
 			reason: "user requested",
 		});
 
@@ -1234,7 +1236,6 @@ describe("multi-agent extension tools", () => {
 		}
 		await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: current.id,
-			expectedRevision: current.revision,
 			reason: "user requested",
 		});
 
@@ -1337,7 +1338,6 @@ describe("multi-agent extension tools", () => {
 		if (!current) throw new Error("expected spawned agent");
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: current.id,
-			expectedRevision: current.revision,
 			reason: "stop hostrun child",
 		});
 
@@ -1345,7 +1345,7 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "aborted" });
 	});
 
-	it("keeps spawn_agent returned revision usable after child transcript metadata attaches", async () => {
+	it("cancels after child transcript metadata attaches without caller revision", async () => {
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
 			messages: [],
@@ -1367,7 +1367,6 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.getAgent(spawned.details.agent.id)?.transcript).toBeDefined();
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: spawned.details.agent.id,
-			expectedRevision: spawned.details.agent.revision,
 			reason: "user requested",
 		});
 
@@ -1377,7 +1376,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("does not abort a /bg child session when cancel uses a stale revision", async () => {
+	it("cancels a /bg child session without caller revision", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
@@ -1392,13 +1391,12 @@ describe("multi-agent extension tools", () => {
 		const [agent] = harness.store.listAgents();
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: agent.id,
-			expectedRevision: agent.revision - 1,
-			reason: "stale",
+			reason: "user requested",
 		});
 
-		expect(cancelled.details.agent).toMatchObject({ id: agent.id, revision: agent.revision });
-		expect(abort).not.toHaveBeenCalled();
-		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "running" });
+		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "aborted" });
+		expect(abort).toHaveBeenCalledTimes(1);
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
 	});
 
 	it("lists only background jobs in /jobs", async () => {
@@ -1946,7 +1944,6 @@ describe("multi-agent extension tools", () => {
 
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: agent.id,
-			expectedRevision: agent.revision,
 			reason: "user stopped it",
 		});
 		expect(cancelled.details.agent).toMatchObject({

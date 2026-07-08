@@ -92,14 +92,12 @@ const waitAgentSchema = Type.Object({
 
 const cancelAgentSchema = Type.Object({
 	agentId: Type.String(),
-	expectedRevision: Type.Number(),
 	reason: Type.Optional(Type.String()),
 });
 
 const steerAgentSchema = Type.Object({
 	agentId: Type.String(),
 	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
-	expectedRevision: Type.Number(),
 	message: Type.String(),
 	fromAgentId: Type.Optional(Type.String()),
 	targetCheckpoint: Type.Optional(checkpointSchema),
@@ -1871,7 +1869,15 @@ function cancelAgent(
 	handles: BackgroundSessionHandles | undefined,
 	params: CancelAgentParams,
 ): AgentToolResult<AgentToolDetails> {
-	const cancelled = store.transitionAgent(params.agentId, params.expectedRevision, "aborted");
+	const current = store.getAgent(params.agentId);
+	if (!current) {
+		return errorResult(`Could not cancel ${params.agentId}: agent_not_found`, {
+			agent: emptyAgent(params.agentId),
+			reason: params.reason,
+		});
+	}
+
+	const cancelled = store.transitionAgent(params.agentId, current.revision, "aborted");
 	if (!cancelled.ok) {
 		return errorResult(`Could not cancel ${params.agentId}: ${cancelled.error}`, {
 			agent: "current" in cancelled ? cancelled.current : emptyAgent(params.agentId),
@@ -1941,7 +1947,15 @@ function steerAgent(
 			message: emptyMessage(params.agentId, params.message),
 		});
 	}
-	const steered = store.sendSteering(params.agentId, params.expectedRevision, {
+	const current = store.getAgent(params.agentId);
+	if (!current) {
+		return errorResult(`Could not steer ${params.agentId}: not_found`, {
+			agent: emptyAgent(params.agentId),
+			message: emptyMessage(params.agentId, params.message),
+		});
+	}
+
+	const steered = store.sendSteering(params.agentId, current.revision, {
 		artifactRefs: params.artifactRefs,
 		body: params.message,
 		fromAgentId: senderId,
@@ -2409,7 +2423,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		defineTool({
 			name: "cancel_agent",
 			label: "Cancel Agent",
-			description: "Cancel an agent through the multi-agent store with revision checking.",
+			description: "Cancel an agent through the multi-agent store using the current store revision.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
 			execute: async (_toolCallId, params) => cancelAgent(store, backgroundSessions, params),

@@ -148,9 +148,11 @@ inline child output is excluded from core snapshots and UI projections.
 ### Revisions
 
 Every state mutation increments the target agent revision. Commands that mutate a specific agent
-and accept caller-supplied concurrency guards must include `expectedRevision`. `send_agent_message`
-derives its sender from the current session instead of accepting caller-supplied sender/revision
-fields. If an `expectedRevision` guard does not match, the store returns:
+and accept caller-supplied concurrency guards must include `expectedRevision`. Model-facing tools may
+derive the current revision internally when exposing it would make the tool awkward; `cancel_agent`
+derives the current revision before aborting. `send_agent_message` derives its sender from the
+current session instead of accepting caller-supplied sender/revision fields. If an
+`expectedRevision` guard does not match, the store returns:
 
 ```ts
 {
@@ -206,7 +208,7 @@ The first store-level commands:
 | `sendMailboxMessage(input)` | creates message | Used for supervisor contact and peer messages. |
 | `sendSteering(id, expectedRevision, message, target?)` | creates steering message and marks pending | Does not edit prompt buffer. |
 | `ackSteering(id, messageId, expectedRevision, status)` | updates steering status | Status: accepted, rejected, delivered, failed. |
-| `cancelAgent(id, expectedRevision, reason?)` | moves to `cancelling` or terminal | Runtime handle performs actual abort later. |
+| `cancelAgent(id, reason?)` | derives the current revision, then moves to `cancelling` or terminal | Runtime handle performs actual abort later. |
 | `recordArtifact(input)` | creates artifact pointer | Stores metadata/pointer, not full large output. |
 | `listAgents(filter?)` | none | Snapshot projection. |
 | `getAgent(id)` | none | Snapshot projection. |

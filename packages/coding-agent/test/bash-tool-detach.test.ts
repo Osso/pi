@@ -251,7 +251,7 @@ describe("bash tool background detach", () => {
 		expect(Number.isInteger(pid)).toBe(true);
 		const cancelled = await cancelAgent.execute(
 			"cancel-detached-bash",
-			{ agentId: job.id, expectedRevision: job.revision, reason: "test" },
+			{ agentId: job.id, reason: "test" },
 			undefined,
 			undefined,
 			{ cwd, hasUI: false, mode: "print" } as ExtensionContext,
