@@ -38,6 +38,15 @@ describe("provider retry classification", () => {
 				fauxAssistantMessage("", { stopReason: "error", errorMessage: "524 status code (no body)" }),
 			),
 		).toBe(true);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage:
+						"The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
+				}),
+			),
+		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
 	});
 });

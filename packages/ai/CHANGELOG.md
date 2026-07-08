@@ -14,6 +14,7 @@
 - Fixed DS4 server context overflow detection for `Prompt has ... tokens, but the configured context size is ... tokens` errors ([#6262](https://github.com/earendil-works/pi/issues/6262)).
 - Fixed OpenAI Codex WebSocket sessions to rotate cached connections before the backend's 60-minute limit, avoiding connection-limit failures on long sessions ([#6268](https://github.com/earendil-works/pi/issues/6268)).
 - Fixed retry classification for Cloudflare 524 timeout responses ([#6239](https://github.com/earendil-works/pi/issues/6239)).
+- Fixed retry classification to treat Bun/undici fetch socket-close messages (for example: "The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()") as retryable, avoiding misclassification of transport-level socket closes.
 - Fixed OpenAI Codex streams to time out stalled SSE body reads and use native WebSocket pings when available, avoiding hung sessions after sleep or dropped connections.
 
 ### Added
