@@ -9,9 +9,9 @@ The resident Architect is a separate Pi process launched as a systemd user servi
 The first read produces an initial session-state observation. Later reads produce an observation only when either:
 
 - the ordered session snapshot changes, including goal JSON; or
-- a newly observed shared-channel message from a main session contains the standalone word `architect`.
+- a newly observed shared-channel message from a main session begins `Architect:`.
 
-Messages sent by a subagent or by the Architect itself are not Architect requests. This prevents the Architect's own advice from retriggering itself. Routine unchanged observations do not call the model. The prompt contains the structured snapshot; it asks the model to use `list_sessions` only when that snapshot is insufficient.
+Messages sent by a subagent or by the Architect itself are not Architect requests. Incidental mentions such as `Re architect blocker` are also ignored; requests must begin `Architect:`. This prevents advice and surrounding discussion from retriggering the Architect. Routine unchanged observations do not call the model. The prompt contains the structured snapshot; it asks the model to use `list_sessions` only when that snapshot is insufficient.
 
 ## Advisor session and policy
 

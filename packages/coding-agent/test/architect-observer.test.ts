@@ -65,7 +65,8 @@ describe("architect observer", () => {
 		const messages: ArchitectChannelMessage[] = [
 			{ body: "Architect: ignore this", id: 5, senderAgentId: "agent_1", senderSessionId: "child" },
 			{ body: "Architect: this is already known", id: 6, senderAgentId: null, senderSessionId: "architect" },
-			{ body: "normal update", id: 7, senderAgentId: null, senderSessionId: "other-main" },
+			{ body: "Re architect blocker: already confirmed", id: 7, senderAgentId: null, senderSessionId: "other-main" },
+			{ body: "normal update", id: 8, senderAgentId: null, senderSessionId: "other-main" },
 		];
 
 		expect(createArchitectObservation(previous, [session], messages)).toBeUndefined();

@@ -9,7 +9,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 ### Observation
 
 - [x] Poll the control SQLite snapshot every 30 seconds without prompting the model when state is unchanged.
-- [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel message mentioning `architect`.
+- [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel request beginning `Architect:`.
 - [x] Ignore subagent and Architect-originated channel posts as architect requests.
 - [x] Open observer state through SQLite read-only access without applying writer-oriented database configuration.
 

@@ -66,7 +66,7 @@ export function createArchitectObservation(
 		(message) =>
 			message.senderAgentId === null &&
 			message.senderSessionId !== ARCHITECT_SESSION_ID &&
-			/\barchitect\b/i.test(message.body),
+			/^\s*architect\s*:/i.test(message.body),
 	);
 	if (requests.length > 0) {
 		return { reason: "architect_request", requests, sessions };
