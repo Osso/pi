@@ -24,6 +24,12 @@ export function blockArchitectGlobalBroadcast(event: {
 	if (event.toolName === "channel_post") {
 		return { block: true, reason: "Pi Architect must target one affected session with broadcast, not channel_post." };
 	}
+	if (event.toolName === "list_sessions") {
+		return {
+			block: true,
+			reason: "Pi Architect must use its bounded structured observer snapshot, not list_sessions.",
+		};
+	}
 	if (event.toolName !== "broadcast") return undefined;
 	const sessionIds =
 		typeof event.input === "object" && event.input !== null && "session_ids" in event.input

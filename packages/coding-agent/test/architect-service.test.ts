@@ -8,11 +8,19 @@ import {
 	runArchitectCycle,
 	waitForArchitectInterval,
 } from "../src/architect/main.ts";
+import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
 
 const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
 const serviceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
 
 describe("resident architect service", () => {
+	it("uses the structured observer snapshot instead of list_sessions", () => {
+		const prompt = buildArchitectPrompt({ reason: "session_state_changed", requests: [], sessions: [] });
+
+		expect(prompt).not.toContain("list_sessions");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not call list_sessions");
+	});
+
 	it("uses the read-only Bubblewrap profile", () => {
 		expect(createArchitectSettingsManager().getExplicitSandboxProfile()).toBe("read-only");
 	});
@@ -20,6 +28,7 @@ describe("resident architect service", () => {
 	it("blocks global fanout while permitting one targeted session delivery", () => {
 		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "channel_post" })).toMatchObject({ block: true });
 		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "broadcast" })).toMatchObject({ block: true });
+		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "list_sessions" })).toMatchObject({ block: true });
 		expect(
 			blockArchitectGlobalBroadcast({ input: { session_ids: ["affected-session"] }, toolName: "broadcast" }),
 		).toBeUndefined();
