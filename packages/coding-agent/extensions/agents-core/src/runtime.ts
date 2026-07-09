@@ -2119,8 +2119,10 @@ function mirrorLifecycleRuntimeMailboxMessage(
 	});
 }
 
-function isRuntimeMirroredLifecycle(lifecycle: AgentLifecycleState): lifecycle is "completed" | "waiting_for_input" {
-	return lifecycle === "completed" || lifecycle === "waiting_for_input";
+function isRuntimeMirroredLifecycle(
+	lifecycle: AgentLifecycleState,
+): lifecycle is "completed" | "failed" | "waiting_for_input" {
+	return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "waiting_for_input";
 }
 
 function mirrorRuntimeMailboxMessage(

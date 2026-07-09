@@ -54,6 +54,7 @@
 - Fixed permission approval prompts to send non-expiring desktop notifications without exposing raw tool input.
 - Fixed child agents waiting for input to create persistent parent notifications and non-expiring desktop notifications for Quickshell-compatible notification daemons.
 - Fixed interactive terminal cwd tracking to emit OSC 7 for the active Pi session cwd, so new Ghostty tabs inherit restored or switched session directories.
+- Fixed child-agent startup failures to notify the parent session instead of leaving failed spawned agents silent.
 - Fixed child-agent completion notifications to wake an idle parent session without waiting for another user prompt.
 - Fixed child-agent completion notifications to use completed lifecycle mailbox messages instead of `waiting_for_input` idle notices.
 - Fixed default extension footers to detach before session replacement invalidates their extension context.

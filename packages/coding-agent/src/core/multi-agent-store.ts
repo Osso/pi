@@ -189,6 +189,8 @@ export interface TransitionAgentDetails {
 	result?: AgentResult;
 }
 
+type AgentLifecycleNotificationLifecycle = "completed" | "failed" | "waiting_for_input";
+
 interface AgentLifecycleNotificationInput {
 	artifactIds?: string[];
 	body: string;
@@ -285,6 +287,7 @@ export interface MultiAgentProjectionSnapshot {
 }
 
 const COMPLETION_NOTIFICATION_THREAD_PREFIX = "agent-completed";
+const FAILED_NOTIFICATION_THREAD_PREFIX = "agent-failed";
 const WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX = "agent-waiting-for-input";
 const MAIN_THREAD_AGENT_ID = "main";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
@@ -429,11 +432,15 @@ export class MultiAgentStore {
 		}
 
 		const shouldNotifyCompletion = requested === "completed" && current.lifecycle !== "completed";
+		const shouldNotifyFailure = requested === "failed" && current.lifecycle !== "failed";
 		const shouldNotifyWaitingForInput =
 			requested === "waiting_for_input" && current.lifecycle !== "waiting_for_input";
 		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
 		if (shouldNotifyCompletion) {
 			this.recordCompletionNotification(updated);
+		}
+		if (shouldNotifyFailure) {
+			this.recordFailureNotification(updated);
 		}
 		if (shouldNotifyWaitingForInput) {
 			this.recordWaitingForInputNotification(updated);
@@ -596,7 +603,7 @@ export class MultiAgentStore {
 
 	listPendingLifecycleNotificationsForAgent(
 		agentId: string,
-		lifecycle: "completed" | "waiting_for_input",
+		lifecycle: AgentLifecycleNotificationLifecycle,
 	): AgentMailboxMessage[] {
 		return Array.from(this.mailboxMessages.values())
 			.filter((message) => isPendingLifecycleNotification(message, agentId, lifecycle))
@@ -1185,6 +1192,17 @@ export class MultiAgentStore {
 		});
 	}
 
+	private recordFailureNotification(agent: AgentNode): void {
+		if (this.hasPendingLifecycleNotification(agent.id, "failed")) {
+			return;
+		}
+
+		this.recordLifecycleNotification(agent, {
+			body: formatFailureNotificationBody(agent),
+			threadId: failedNotificationThreadId(agent.id),
+		});
+	}
+
 	private recordWaitingForInputNotification(agent: AgentNode): void {
 		if (this.hasPendingLifecycleNotification(agent.id, "waiting_for_input")) {
 			return;
@@ -1235,7 +1253,7 @@ export class MultiAgentStore {
 		}
 	}
 
-	private hasPendingLifecycleNotification(agentId: string, lifecycle: "completed" | "waiting_for_input"): boolean {
+	private hasPendingLifecycleNotification(agentId: string, lifecycle: AgentLifecycleNotificationLifecycle): boolean {
 		for (const message of this.mailboxMessages.values()) {
 			if (isPendingLifecycleNotification(message, agentId, lifecycle)) {
 				return true;
@@ -1306,6 +1324,10 @@ function completionNotificationThreadId(agentId: string): string {
 	return `${COMPLETION_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
 }
 
+function failedNotificationThreadId(agentId: string): string {
+	return `${FAILED_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
+}
+
 function waitingForInputNotificationThreadId(agentId: string): string {
 	return `${WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
 }
@@ -1317,7 +1339,7 @@ function isPendingCompletionNotification(message: AgentMailboxMessage, agentId: 
 function isPendingLifecycleNotification(
 	message: AgentMailboxMessage,
 	agentId: string,
-	lifecycle: "completed" | "waiting_for_input",
+	lifecycle: AgentLifecycleNotificationLifecycle,
 ): boolean {
 	const isFromAgent = message.fromAgentId === agentId;
 	const isLifecycleNotice =
@@ -1325,15 +1347,25 @@ function isPendingLifecycleNotification(
 	return isFromAgent && isLifecycleNotice && message.status === "pending";
 }
 
-function lifecycleNotificationThreadId(agentId: string, lifecycle: "completed" | "waiting_for_input"): string {
-	return lifecycle === "completed"
-		? completionNotificationThreadId(agentId)
-		: waitingForInputNotificationThreadId(agentId);
+function lifecycleNotificationThreadId(agentId: string, lifecycle: AgentLifecycleNotificationLifecycle): string {
+	switch (lifecycle) {
+		case "completed":
+			return completionNotificationThreadId(agentId);
+		case "failed":
+			return failedNotificationThreadId(agentId);
+		case "waiting_for_input":
+			return waitingForInputNotificationThreadId(agentId);
+	}
 }
 
 function formatCompletionNotificationBody(agent: AgentNode): string {
 	const summary = agent.result?.summary?.trim();
 	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
+}
+
+function formatFailureNotificationBody(agent: AgentNode): string {
+	const errorMessage = agent.error?.message.trim();
+	return errorMessage ? `${agent.displayName} failed: ${errorMessage}` : `${agent.displayName} failed.`;
 }
 
 function formatWaitingForInputNotificationBody(agent: AgentNode): string {

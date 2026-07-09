@@ -630,6 +630,46 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("reports failed child session startup through the runtime mailbox", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-failed-child-session-"));
+		try {
+			const supervisorSessionId = "019f29f4-0000-7000-8000-000000000105";
+			const supervisorSession = SessionManager.create("/repo", tempDir, { id: supervisorSessionId });
+			const controlDbPath = getControlDbPath(tempDir);
+			supervisorSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
+			const createChildSession: ChildAgentSessionFactory = async () => {
+				throw new Error("startup auth failed");
+			};
+			const harness = createMultiAgentHarness({
+				createChildSession,
+				ctx: { controlDbPath, sessionManager: supervisorSession },
+				store,
+			});
+
+			const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Failing worker",
+				prompt: "start",
+			});
+			const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+			expect(waited).toMatchObject({
+				error: { message: "startup auth failed" },
+				lifecycle: "failed",
+			});
+			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+				{
+					body: "Failing worker failed: startup auth failed",
+					recipient: { agentId: null, sessionId: supervisorSessionId },
+					sender: { agentId: spawned.details.agent.id, sessionId: supervisorSessionId },
+				},
+			]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("references persisted store rows from mirrored runtime mailbox messages", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-mailbox-store-ref-"));
 		try {
