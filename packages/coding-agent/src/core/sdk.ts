@@ -31,8 +31,11 @@ import {
 	createFindTool,
 	createGrepTool,
 	createLsTool,
+	createOutlineTool,
 	createReadOnlyTools,
 	createReadTool,
+	createReferencesTool,
+	createSymbolTool,
 	createWriteTool,
 	DEFAULT_ACTIVE_TOOL_NAMES,
 	withFileMutationQueue,
@@ -139,6 +142,9 @@ export {
 	createGrepTool,
 	createFindTool,
 	createLsTool,
+	createOutlineTool,
+	createSymbolTool,
+	createReferencesTool,
 };
 
 // Helper Functions

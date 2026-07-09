@@ -15,6 +15,21 @@ export {
 	createLocalBashOperations,
 } from "./bash.ts";
 export {
+	type CodeIndexCommandResult,
+	type CodeIndexOperations,
+	type CodeIndexToolDetails,
+	type CodeIndexToolOptions,
+	createOutlineTool,
+	createOutlineToolDefinition,
+	createReferencesTool,
+	createReferencesToolDefinition,
+	createSymbolTool,
+	createSymbolToolDefinition,
+	type OutlineToolInput,
+	type ReferencesToolInput,
+	type SymbolToolInput,
+} from "./code-index.ts";
+export {
 	createEditTool,
 	createEditToolDefinition,
 	type EditOperations,
@@ -82,6 +97,15 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
+import {
+	type CodeIndexToolOptions,
+	createOutlineTool,
+	createOutlineToolDefinition,
+	createReferencesTool,
+	createReferencesToolDefinition,
+	createSymbolTool,
+	createSymbolToolDefinition,
+} from "./code-index.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
@@ -93,7 +117,19 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "resume_session" | "ask_questions";
+export type ToolName =
+	| "read"
+	| "bash"
+	| "edit"
+	| "write"
+	| "grep"
+	| "find"
+	| "ls"
+	| "outline"
+	| "symbol"
+	| "references"
+	| "resume_session"
+	| "ask_questions";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -102,6 +138,9 @@ export const allToolNames: Set<ToolName> = new Set([
 	"grep",
 	"find",
 	"ls",
+	"outline",
+	"symbol",
+	"references",
 	"resume_session",
 	"ask_questions",
 ]);
@@ -113,6 +152,9 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"grep",
 	"find",
 	"ls",
+	"outline",
+	"symbol",
+	"references",
 	"resume_session",
 	"ask_questions",
 ];
@@ -125,6 +167,7 @@ export interface ToolsOptions {
 	grep?: GrepToolOptions;
 	find?: FindToolOptions;
 	ls?: LsToolOptions;
+	codeIndex?: CodeIndexToolOptions;
 }
 
 export function createToolDefinition(toolName: ToolName, cwd: string, options?: ToolsOptions): ToolDef {
@@ -143,6 +186,12 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createFindToolDefinition(cwd, options?.find);
 		case "ls":
 			return createLsToolDefinition(cwd, options?.ls);
+		case "outline":
+			return createOutlineToolDefinition(cwd, options?.codeIndex);
+		case "symbol":
+			return createSymbolToolDefinition(cwd, options?.codeIndex);
+		case "references":
+			return createReferencesToolDefinition(cwd, options?.codeIndex);
 		case "resume_session":
 			return createResumeSessionToolDefinition();
 		case "ask_questions":
@@ -168,6 +217,12 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createFindTool(cwd, options?.find);
 		case "ls":
 			return createLsTool(cwd, options?.ls);
+		case "outline":
+			return createOutlineTool(cwd, options?.codeIndex);
+		case "symbol":
+			return createSymbolTool(cwd, options?.codeIndex);
+		case "references":
+			return createReferencesTool(cwd, options?.codeIndex);
 		case "resume_session":
 			return wrapToolDefinition(createResumeSessionToolDefinition());
 		case "ask_questions":
@@ -192,6 +247,9 @@ export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOption
 		createGrepToolDefinition(cwd, options?.grep),
 		createFindToolDefinition(cwd, options?.find),
 		createLsToolDefinition(cwd, options?.ls),
+		createOutlineToolDefinition(cwd, options?.codeIndex),
+		createSymbolToolDefinition(cwd, options?.codeIndex),
+		createReferencesToolDefinition(cwd, options?.codeIndex),
 	];
 }
 
@@ -204,6 +262,9 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		grep: createGrepToolDefinition(cwd, options?.grep),
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
+		outline: createOutlineToolDefinition(cwd, options?.codeIndex),
+		symbol: createSymbolToolDefinition(cwd, options?.codeIndex),
+		references: createReferencesToolDefinition(cwd, options?.codeIndex),
 		resume_session: createResumeSessionToolDefinition(),
 		ask_questions: createAskQuestionsToolDefinition(),
 	};
@@ -224,6 +285,9 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 		createGrepTool(cwd, options?.grep),
 		createFindTool(cwd, options?.find),
 		createLsTool(cwd, options?.ls),
+		createOutlineTool(cwd, options?.codeIndex),
+		createSymbolTool(cwd, options?.codeIndex),
+		createReferencesTool(cwd, options?.codeIndex),
 	];
 }
 
@@ -236,6 +300,9 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd, options?.grep),
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
+		outline: createOutlineTool(cwd, options?.codeIndex),
+		symbol: createSymbolTool(cwd, options?.codeIndex),
+		references: createReferencesTool(cwd, options?.codeIndex),
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
 		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
 	};

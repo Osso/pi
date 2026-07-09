@@ -68,6 +68,7 @@ import type { EditToolDetails } from "../tools/edit.ts";
 import type {
 	BashToolDetails,
 	BashToolInput,
+	CodeIndexToolDetails,
 	EditToolInput,
 	FindToolDetails,
 	FindToolInput,
@@ -75,8 +76,11 @@ import type {
 	GrepToolInput,
 	LsToolDetails,
 	LsToolInput,
+	OutlineToolInput,
 	ReadToolDetails,
 	ReadToolInput,
+	ReferencesToolInput,
+	SymbolToolInput,
 	WriteToolInput,
 } from "../tools/index.ts";
 
@@ -931,6 +935,21 @@ export interface LsToolCallEvent extends ToolCallEventBase {
 	input: LsToolInput;
 }
 
+export interface OutlineToolCallEvent extends ToolCallEventBase {
+	toolName: "outline";
+	input: OutlineToolInput;
+}
+
+export interface SymbolToolCallEvent extends ToolCallEventBase {
+	toolName: "symbol";
+	input: SymbolToolInput;
+}
+
+export interface ReferencesToolCallEvent extends ToolCallEventBase {
+	toolName: "references";
+	input: ReferencesToolInput;
+}
+
 export interface CustomToolCallEvent extends ToolCallEventBase {
 	toolName: string;
 	input: Record<string, unknown>;
@@ -950,6 +969,9 @@ export type ToolCallEvent =
 	| GrepToolCallEvent
 	| FindToolCallEvent
 	| LsToolCallEvent
+	| OutlineToolCallEvent
+	| SymbolToolCallEvent
+	| ReferencesToolCallEvent
 	| CustomToolCallEvent;
 
 export type ApprovalReviewerResult =
@@ -1010,6 +1032,21 @@ export interface LsToolResultEvent extends ToolResultEventBase {
 	details: LsToolDetails | undefined;
 }
 
+export interface OutlineToolResultEvent extends ToolResultEventBase {
+	toolName: "outline";
+	details: CodeIndexToolDetails | undefined;
+}
+
+export interface SymbolToolResultEvent extends ToolResultEventBase {
+	toolName: "symbol";
+	details: CodeIndexToolDetails | undefined;
+}
+
+export interface ReferencesToolResultEvent extends ToolResultEventBase {
+	toolName: "references";
+	details: CodeIndexToolDetails | undefined;
+}
+
 export interface CustomToolResultEvent extends ToolResultEventBase {
 	toolName: string;
 	details: unknown;
@@ -1024,6 +1061,9 @@ export type ToolResultEvent =
 	| GrepToolResultEvent
 	| FindToolResultEvent
 	| LsToolResultEvent
+	| OutlineToolResultEvent
+	| SymbolToolResultEvent
+	| ReferencesToolResultEvent
 	| CustomToolResultEvent;
 
 // Type guards for ToolResultEvent
@@ -1047,6 +1087,15 @@ export function isFindToolResult(e: ToolResultEvent): e is FindToolResultEvent {
 }
 export function isLsToolResult(e: ToolResultEvent): e is LsToolResultEvent {
 	return e.toolName === "ls";
+}
+export function isOutlineToolResult(e: ToolResultEvent): e is OutlineToolResultEvent {
+	return e.toolName === "outline";
+}
+export function isSymbolToolResult(e: ToolResultEvent): e is SymbolToolResultEvent {
+	return e.toolName === "symbol";
+}
+export function isReferencesToolResult(e: ToolResultEvent): e is ReferencesToolResultEvent {
+	return e.toolName === "references";
 }
 
 /**
@@ -1076,6 +1125,9 @@ export function isToolCallEventType(toolName: "write", event: ToolCallEvent): ev
 export function isToolCallEventType(toolName: "grep", event: ToolCallEvent): event is GrepToolCallEvent;
 export function isToolCallEventType(toolName: "find", event: ToolCallEvent): event is FindToolCallEvent;
 export function isToolCallEventType(toolName: "ls", event: ToolCallEvent): event is LsToolCallEvent;
+export function isToolCallEventType(toolName: "outline", event: ToolCallEvent): event is OutlineToolCallEvent;
+export function isToolCallEventType(toolName: "symbol", event: ToolCallEvent): event is SymbolToolCallEvent;
+export function isToolCallEventType(toolName: "references", event: ToolCallEvent): event is ReferencesToolCallEvent;
 export function isToolCallEventType<TName extends string, TInput extends Record<string, unknown>>(
 	toolName: TName,
 	event: ToolCallEvent,
