@@ -960,6 +960,33 @@ describe("runtime SQLite mailbox delivery", () => {
 		).toBe(messageId);
 	});
 
+	it("skips shared channel messages posted by subagent senders", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		initializeSharedChannelCursorAtTail(controlDbPath, {
+			agentId: null,
+			sessionId: harness.sessionManager.getSessionId(),
+		});
+		const messageId = postSharedChannelMessage(controlDbPath, {
+			body: "old subagent pong",
+			sender: { agentId: "agent_4", sessionId: "sender-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const queued = await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+
+		expect(queued).toBe(false);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(
+			readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: harness.sessionManager.getSessionId() }),
+		).toBe(messageId);
+	});
+
 	it("does not drain shared channel messages in subagent sessions by default", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

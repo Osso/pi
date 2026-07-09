@@ -426,6 +426,10 @@ function isOwnSharedChannelMessage(message: SharedChannelMessage, recipient: Run
 	return message.sender.sessionId === recipient.sessionId && message.sender.agentId === recipient.agentId;
 }
 
+function isSubagentSharedChannelMessage(message: SharedChannelMessage): boolean {
+	return message.sender.agentId !== null;
+}
+
 function formatRuntimeMailboxArtifacts(message: RuntimeMailboxMessage): string[] {
 	const artifactIds = message.artifactIds?.map((artifactId) => `- ${artifactId}`) ?? [];
 	const artifactRefs = message.artifactRefs?.map(formatRuntimeMailboxArtifactReference) ?? [];
@@ -2260,7 +2264,7 @@ export class AgentSession {
 		message: SharedChannelMessage,
 		options: { triggerIfIdle: boolean },
 	): Promise<"busy" | "delivered" | "queued"> {
-		if (isOwnSharedChannelMessage(message, recipient)) {
+		if (isOwnSharedChannelMessage(message, recipient) || isSubagentSharedChannelMessage(message)) {
 			advanceSharedChannelCursor(controlDbPath, recipient, message.id);
 			return "delivered";
 		}

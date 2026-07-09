@@ -47,6 +47,7 @@
 
 ### Fixed
 
+- Fixed shared-channel delivery to ignore and mark seen posts from subagent senders, preventing stale subagent processes from flooding main sessions.
 - Fixed `pi -r` and `/resume` to hide sessions that have no messages.
 - Fixed `/continue` to submit completed assistant-ending transcripts for continuation and avoid errors on empty transcripts.
 - Fixed compacted session context replay to drop retained orphan tool results when their tool-call messages were removed by the pre-compaction suffix byte cap.

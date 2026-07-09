@@ -23,6 +23,7 @@ once needed.
 - [x] Channel prompts are clearly tagged as shared-channel input and include sender session/agent.
 - [x] The cursor advances after successful delivery.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
+- [x] Messages posted by subagents are skipped and marked seen, preventing old-process subagent traffic from flooding main sessions.
 - [x] Busy/streaming sessions do not drain channel messages until a later idle drain.
 
 ### Tool surface
