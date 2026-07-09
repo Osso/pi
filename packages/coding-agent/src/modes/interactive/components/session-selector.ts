@@ -19,7 +19,13 @@ import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, keyText } from "./keybinding-hints.ts";
-import { filterAndSortSessions, hasSessionName, type NameFilter, type SortMode } from "./session-selector-search.ts";
+import {
+	filterAndSortSessions,
+	hasSessionMessages,
+	hasSessionName,
+	type NameFilter,
+	type SortMode,
+} from "./session-selector-search.ts";
 
 type SessionScope = "current" | "all";
 
@@ -373,8 +379,11 @@ class SessionList implements Component, Focusable {
 
 	private filterSessions(query: string): void {
 		const trimmed = query.trim();
+		const sessionsWithMessages = this.allSessions.filter((session) => hasSessionMessages(session));
 		const nameFiltered =
-			this.nameFilter === "all" ? this.allSessions : this.allSessions.filter((session) => hasSessionName(session));
+			this.nameFilter === "all"
+				? sessionsWithMessages
+				: sessionsWithMessages.filter((session) => hasSessionName(session));
 
 		if (this.sortMode === "threaded" && !trimmed) {
 			// Threaded mode without search: show tree structure

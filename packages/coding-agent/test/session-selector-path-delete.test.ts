@@ -192,6 +192,30 @@ describe("session selector path/delete interactions", () => {
 		expect(confirmationChanges).toEqual([sessions[0]!.path]);
 	});
 
+	it("does not select sessions with no messages", async () => {
+		const empty = makeSession({ id: "empty", messageCount: 0, firstMessage: "(no messages)", allMessagesText: "" });
+		const normal = makeSession({ id: "normal", firstMessage: "hello", allMessagesText: "hello" });
+		const sessions = [empty, normal];
+		let selectedPath: string | null = null;
+
+		const selector = new SessionSelectorComponent(
+			async () => sessions,
+			async () => [],
+			(path) => {
+				selectedPath = path;
+			},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+		);
+		await flushPromises();
+
+		selector.getSessionList().handleInput("\r");
+
+		expect(selectedPath).toBe(normal.path);
+	});
+
 	it("enters confirmation mode on Ctrl+Backspace when search query is empty", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 

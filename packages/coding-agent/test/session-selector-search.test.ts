@@ -125,6 +125,26 @@ describe("session selector search", () => {
 		expect(result).toEqual([]);
 	});
 
+	it("excludes sessions with no messages", () => {
+		const sessions: SessionInfo[] = [
+			makeSession({
+				id: "empty",
+				name: "Important Empty Session",
+				modified: new Date("2026-01-03T00:00:00.000Z"),
+				messageCount: 0,
+				allMessagesText: "",
+			}),
+			makeSession({
+				id: "normal",
+				modified: new Date("2026-01-02T00:00:00.000Z"),
+				allMessagesText: "real conversation",
+			}),
+		];
+
+		const result = filterAndSortSessions(sessions, "", "recent");
+		expect(result.map((session) => session.id)).toEqual(["normal"]);
+	});
+
 	describe("name filter", () => {
 		const sessions: SessionInfo[] = [
 			makeSession({

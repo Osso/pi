@@ -43,6 +43,7 @@
 
 ### Fixed
 
+- Fixed `pi -r` and `/resume` to hide sessions that have no messages.
 - Fixed `/continue` to submit completed assistant-ending transcripts for continuation and avoid errors on empty transcripts.
 - Fixed compacted session context replay to drop retained orphan tool results when their tool-call messages were removed by the pre-compaction suffix byte cap.
 - Fixed `/model` selector filtering matching unrelated models (e.g. typing `gpt-5.5` returning `gpt-5.4`, `gemini`, and `glm`): each query token is now scored against distinct candidate fields instead of one search string that duplicated the provider and id, so a token can no longer match by spanning repeated copies. Provider-priority ranking and space-separated fragment queries are preserved.

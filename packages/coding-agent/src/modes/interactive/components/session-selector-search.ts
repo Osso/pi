@@ -31,7 +31,12 @@ export function hasSessionName(session: SessionInfo): boolean {
 	return Boolean(session.name?.trim());
 }
 
+export function hasSessionMessages(session: SessionInfo): boolean {
+	return session.messageCount > 0;
+}
+
 function matchesNameFilter(session: SessionInfo, filter: NameFilter): boolean {
+	if (!hasSessionMessages(session)) return false;
 	if (filter === "all") return true;
 	return hasSessionName(session);
 }
@@ -159,8 +164,7 @@ export function filterAndSortSessions(
 	sortMode: SortMode,
 	nameFilter: NameFilter = "all",
 ): SessionInfo[] {
-	const nameFiltered =
-		nameFilter === "all" ? sessions : sessions.filter((session) => matchesNameFilter(session, nameFilter));
+	const nameFiltered = sessions.filter((session) => matchesNameFilter(session, nameFilter));
 	const trimmed = query.trim();
 	if (!trimmed) return nameFiltered;
 
