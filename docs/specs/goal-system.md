@@ -17,11 +17,13 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective.
 - [x] `/goal resume` resumes a paused objective without replacing it.
 - [x] `/goal clear` removes the active objective.
-- [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted.
+- [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted, including `spawn_agent` prompts that seed production child goals.
 - [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) and the replacement flag (`--replace`) are rejected with a visible error and are not persisted.
 - [x] At most one active goal exists per session at a time; separate sessions and subagents in the same project can have distinct active goals.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
 - [x] Normal forked sessions inherit the parent goal when no goal exists yet; subagent sessions do not inherit the parent goal and may set an independent goal.
+- [x] Production-created `spawn_agent` child sessions receive a fresh, non-empty session-local goal from the trimmed prompt before their first model turn; blank `spawn_agent` prompts are rejected without creating an agent record.
+- [x] Production-created `/bg` child jobs receive a fresh, non-empty session-local goal from the trimmed background prompt before their first model turn.
 - [x] Corrupt or malformed goal JSON is handled as "no active goal" without crashing the command or turn hook.
 - [x] Completed goals are not treated as active by `/goal`, startup notifications, continuation, or context injection.
 - [x] Paused goals remain visible in `/goal`, startup notifications, and the footer, but do not inject context or continue automatically until `/goal resume` clears the paused state.
@@ -80,3 +82,4 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - Deploy/test/lint/coverage/Sentry acceptance gates. Those belong to project-specific workflows and skills, not to codex-style `/goal`.
 - Multi-goal stacks or cross-project goals — one active goal per session for now.
 - Automatic remediation — continuation keeps working toward the objective, but the goal system itself does not fix failed work.
+- Goal seeding outside production-created child sessions: externally supplied dispatchers, store-only agent records, and attached/resumed sessions preserve their existing lifecycle semantics. `/bg` child jobs are production-created child sessions and are included.

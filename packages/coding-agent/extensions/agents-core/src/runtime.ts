@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -42,6 +43,8 @@ import {
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
+
+const MAX_GOAL_OBJECTIVE_CHARS = 4000;
 
 const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -200,6 +203,16 @@ export interface ChildAgentSession {
 }
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
+
+const productionChildSessionFactoryMarker = Symbol("productionChildSessionFactory");
+
+type ProductionChildAgentSessionFactory = ChildAgentSessionFactory & {
+	[productionChildSessionFactoryMarker]: true;
+};
+
+type GoalObjectiveValidation =
+	| { objective: string; ok: true }
+	| { length: number; ok: false; reason: "empty" | "too_long" };
 
 export interface AttachedSessionDispatchInput extends ChildAgentDispatchInput {
 	sessionPath: string;
@@ -391,6 +404,35 @@ function notifyBackgroundDispatch(
 	});
 }
 
+function validateGoalObjective(prompt: string): GoalObjectiveValidation {
+	const objective = prompt.trim();
+	if (!objective) {
+		return { length: 0, ok: false, reason: "empty" };
+	}
+	if (objective.length > MAX_GOAL_OBJECTIVE_CHARS) {
+		return { length: objective.length, ok: false, reason: "too_long" };
+	}
+	return { objective, ok: true };
+}
+
+function isProductionChildSessionFactory(
+	factory: ChildAgentSessionFactory | undefined,
+): factory is ProductionChildAgentSessionFactory {
+	return (factory as Partial<ProductionChildAgentSessionFactory> | undefined)?.[productionChildSessionFactoryMarker] === true;
+}
+
+function spawnPromptValidationMessage(validation: Exclude<GoalObjectiveValidation, { ok: true }>): string {
+	return validation.reason === "empty"
+		? "spawn_agent requires a non-empty prompt"
+		: `spawn_agent prompt too long (${validation.length} > ${MAX_GOAL_OBJECTIVE_CHARS} chars)`;
+}
+
+function backgroundPromptValidationMessage(validation: Exclude<GoalObjectiveValidation, { ok: true }>): string {
+	return validation.reason === "empty"
+		? "Usage: /bg <prompt>"
+		: `Objective too long (${validation.length} > ${MAX_GOAL_OBJECTIVE_CHARS} chars)`;
+}
+
 function startBackgroundDispatch(
 	background: BackgroundDispatchContext,
 	agent: AgentSnapshot,
@@ -426,9 +468,12 @@ function startBackgroundDispatch(
 
 function backgroundCommand(background: BackgroundDispatchContext, args: string, ctx: ExtensionCommandContext): void {
 	const prompt = args.trim();
-	if (!prompt) {
-		ctx.ui.notify("Usage: /bg <prompt>", "error");
-		return;
+	if (isProductionChildSessionFactory(background.createChildSession)) {
+		const validation = validateGoalObjective(prompt);
+		if (!validation.ok) {
+			ctx.ui.notify(backgroundPromptValidationMessage(validation), "error");
+			return;
+		}
 	}
 
 	const spawned = background.store.spawnAgent({
@@ -470,7 +515,11 @@ function getSessionTranscriptMetadata(
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
-	return async ({ agent, ctx }) => {
+	const factory: ProductionChildAgentSessionFactory = async ({ agent, ctx, prompt }) => {
+		const validation = validateGoalObjective(prompt);
+		if (!validation.ok) {
+			throw new Error(spawnPromptValidationMessage(validation));
+		}
 		const parentSessionFile = ctx.sessionManager.getSessionFile();
 		const parentSession = parentSessionFile ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
@@ -497,9 +546,31 @@ export function createProductionChildAgentSessionFactory(
 			thinkingLevel: profile.thinkingLevel,
 		});
 
+		seedChildSessionGoal(sessionManager, agent.cwd, prompt);
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
 		return result.session;
 	};
+	factory[productionChildSessionFactoryMarker] = true;
+	return factory;
+}
+
+function seedChildSessionGoal(sessionManager: SessionManager, cwd: string, prompt: string): void {
+	const objective = prompt.trim();
+	sessionManager.setSessionGoalJson(
+		`${JSON.stringify({ branch: currentBranch(cwd), createdAt: new Date().toISOString(), objective })}\n`,
+	);
+}
+
+function currentBranch(cwd: string): string {
+	try {
+		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+			cwd,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch {
+		return "(no branch)";
+	}
 }
 
 export function createProductionAttachedSessionFactory(
@@ -791,6 +862,16 @@ async function spawnAgent(
 	pi?: ExtensionAPI,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+	if (isProductionChildSessionFactory(createChildSession)) {
+		const validation = validateGoalObjective(params.prompt);
+		if (!validation.ok) {
+			return errorResult(spawnPromptValidationMessage(validation), {
+				agent: emptyAgent("spawn_agent"),
+				dispatched: false,
+				prompt: params.prompt,
+			});
+		}
+	}
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);

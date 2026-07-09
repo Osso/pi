@@ -2687,6 +2687,250 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("seeds a session-local goal from the spawn prompt before the child starts", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		parentHarness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "parent objective", branch: "test", createdAt: "2026-01-01T00:00:00.000Z" }),
+		);
+		let childGoalBeforePrompt: string | undefined;
+		let childSessionManager: SessionManager | undefined;
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					childSessionManager = options.sessionManager;
+					return {
+						session: {
+							messages: [],
+							prompt: async () => {
+								childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
+							},
+						},
+					};
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "  Map the child scope  ",
+		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(JSON.parse(childGoalBeforePrompt ?? "{}")).toMatchObject({ objective: "Map the child scope" });
+		expect(JSON.parse(parentHarness.sessionManager.getSessionGoalJson() ?? "{}")).toMatchObject({
+			objective: "parent objective",
+		});
+	});
+
+	it("seeds a session-local goal for production /bg child jobs", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		let childGoalBeforePrompt: string | undefined;
+		let childSessionManager: SessionManager | undefined;
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					childSessionManager = options.sessionManager;
+					return {
+						session: {
+							messages: [],
+							prompt: async () => {
+								childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
+							},
+						},
+					};
+				},
+			}),
+		});
+
+		await harness.command("bg", "  Audit current test failures  ", {
+			model: parentHarness.getModel(),
+			modelRegistry: parentHarness.session.modelRegistry,
+			sessionManager: parentHarness.sessionManager,
+		});
+		const [agent] = harness.store.listAgents();
+		if (!agent) {
+			throw new Error("expected background agent");
+		}
+		await waitForTerminalAgent(harness, agent.id);
+
+		expect(JSON.parse(childGoalBeforePrompt ?? "{}")).toMatchObject({ objective: "Audit current test failures" });
+	});
+
+	it("rejects oversized /bg prompts without creating production child agents", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const notifications: Array<{ level?: string; message: string }> = [];
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async () => {
+					throw new Error("should not create a child session");
+				},
+			}),
+		});
+
+		await harness.command("bg", "x".repeat(4001), {
+			model: parentHarness.getModel(),
+			modelRegistry: parentHarness.session.modelRegistry,
+			sessionManager: parentHarness.sessionManager,
+			ui: { notify: (message, level) => notifications.push({ level, message }) },
+		});
+
+		expect(notifications).toEqual([{ level: "error", message: "Objective too long (4001 > 4000 chars)" }]);
+		expect(harness.store.listAgents()).toEqual([]);
+	});
+
+	it("preserves the original prompt for custom dispatchers", async () => {
+		let dispatchedPrompt: string | undefined;
+		const dispatcher: ChildAgentDispatcher = async ({ prompt }) => {
+			dispatchedPrompt = prompt;
+			return { lifecycle: "completed" };
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt: "  Preserve spacing  " });
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(dispatchedPrompt).toBe("  Preserve spacing  ");
+	});
+
+	it("preserves oversized prompts for store-only agents", async () => {
+		const harness = createMultiAgentHarness();
+		const prompt = "x".repeat(4001);
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt });
+
+		expect(spawned.details).toMatchObject({ dispatched: false, prompt });
+		expect(harness.store.listAgents()).toHaveLength(1);
+	});
+
+	it("rejects oversized prompts before creating production child agents", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async () => {
+					throw new Error("should not create a child session");
+				},
+			}),
+		});
+
+		const spawned = await harness.call("spawn_agent", { prompt: "x".repeat(4001) });
+
+		expect(spawned.content).toEqual([{ text: "spawn_agent prompt too long (4001 > 4000 chars)", type: "text" }]);
+		expect(harness.store.listAgents()).toEqual([]);
+	});
+
+	it("rejects invalid direct production factory prompts before session creation", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-07-09T00:00:00.000Z" });
+		const agent = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		const createSession = vi.fn();
+		const factory = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			createSession,
+		});
+
+		await expect(
+			factory({
+				agent,
+				ctx: {
+					model: parentHarness.getModel(),
+					modelRegistry: parentHarness.session.modelRegistry,
+					sessionManager: parentHarness.sessionManager,
+				} as unknown as ExtensionContext,
+				prompt: " ",
+			}),
+		).rejects.toThrow("spawn_agent requires a non-empty prompt");
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
+	it("injects the seeded goal before the production child's first model turn", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		parentHarness.setResponses([fauxAssistantMessage("child done")]);
+		let firstSystemPrompt: string | undefined;
+		const captureFirstTurnSystemPrompt: ExtensionFactory = (pi) => {
+			pi.on("before_agent_start", (event) => {
+				firstSystemPrompt = (event as { systemPrompt?: string }).systemPrompt;
+			});
+		};
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				extensionFactories: [goalExtension, captureFirstTurnSystemPrompt],
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
+					return { session: result.session };
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt: "Anchor first child turn" });
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(firstSystemPrompt).toContain("Long-running objective: Anchor first child turn");
+	});
+
+	it("rejects blank prompts before creating production child agents", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async () => {
+					throw new Error("should not create a child session");
+				},
+			}),
+		});
+
+		const spawned = await harness.call("spawn_agent", { prompt: "  " });
+
+		expect(spawned.content).toEqual([{ text: "spawn_agent requires a non-empty prompt", type: "text" }]);
+		expect(harness.store.listAgents()).toEqual([]);
+	});
+
 	it("loads goal tools into production child sessions without mutating the parent goal", async () => {
 		const parentHarness = await createHarness({ extensionFactories: [goalExtension] });
 		childHarnesses.push(parentHarness);
