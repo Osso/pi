@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added built-in `channel_post` for the global SQLite-backed shared channel with per-main-session cursors and idle delivery.
 - Added built-in `list_sessions` and `broadcast` tools with control-DB session health, sticky dead checks, and runtime mailbox delivery.

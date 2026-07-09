@@ -73,7 +73,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.compact(...) to trigger Pi session compaction from Pyrun.",
 	"Use pi.restart(...) to restart Pi and resume the same session from Pyrun.",
 	"Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
-	"Use pi.models.scoped() to list the current session scoped models for model cycling.",
+	"Use pi.models.scoped() to list the current session scoped models for model cycling and pi.models.set(provider, model_id, thinking_level=None) to switch the current session model.",
 	"Use pi.tools.call(name, params) to call active Pi tools from Pyrun, and pi.web_search(query) as a web_search shortcut.",
 	"Use pi.commands.list() to list slash commands and pi.commands.run(name, args=\"\") to run registered slash commands from Pyrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait(...) is synchronization-only and returns no agent output.",
@@ -251,20 +251,46 @@ function createPyrunExecutorState(dispatchPiRequest: PyrunPiRequestDispatcher): 
 
 export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal) => {
-		if (request.method === "models.scoped") return listScopedModels(ctx);
-		if (request.method === "tools.call") return callActiveTool(request.params, pi, signal);
-		if (request.method === "commands.list") return pi.getCommands();
-		if (request.method === "commands.run") return callCommand(request.params, pi);
-		if (request.method === "compact") return triggerCompact(request.params, ctx);
-		if (request.method === "messages.enqueue") return enqueueMessage(request.params, pi);
-		if (request.method === "restart") return triggerRestart(request.params, ctx);
-		if (request.method === "sessions.resume") return triggerSessionResume(request.params, ctx);
+		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal);
+		if (builtIn.handled) return builtIn.result;
 		for (const handler of options.piRequestHandlers ?? []) {
 			const result = await handler(request, ctx, signal);
 			if (result !== undefined) return result;
 		}
 		throw new Error(`Pi capability is unavailable: ${request.method}`);
 	};
+}
+
+type BuiltinPyrunRequestResult = { handled: false } | { handled: true; result: unknown };
+
+async function dispatchBuiltinPyrunRequest(
+	request: { method: string; params: unknown },
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+): Promise<BuiltinPyrunRequestResult> {
+	switch (request.method) {
+		case "models.scoped":
+			return { handled: true, result: listScopedModels(ctx) };
+		case "models.set":
+			return { handled: true, result: await setSessionModel(request.params, pi, ctx) };
+		case "tools.call":
+			return { handled: true, result: await callActiveTool(request.params, pi, signal) };
+		case "commands.list":
+			return { handled: true, result: pi.getCommands() };
+		case "commands.run":
+			return { handled: true, result: await callCommand(request.params, pi) };
+		case "compact":
+			return { handled: true, result: triggerCompact(request.params, ctx) };
+		case "messages.enqueue":
+			return { handled: true, result: enqueueMessage(request.params, pi) };
+		case "restart":
+			return { handled: true, result: await triggerRestart(request.params, ctx) };
+		case "sessions.resume":
+			return { handled: true, result: await triggerSessionResume(request.params, ctx) };
+		default:
+			return { handled: false };
+	}
 }
 
 function listScopedModels(ctx: ExtensionContext): Array<{
@@ -279,6 +305,62 @@ function listScopedModels(ctx: ExtensionContext): Array<{
 		provider: scoped.model.provider,
 		...(scoped.thinkingLevel ? { thinkingLevel: scoped.thinkingLevel } : {}),
 	}));
+}
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+type PyrunThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+function isPyrunThinkingLevel(value: string): value is PyrunThinkingLevel {
+	return (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+async function setSessionModel(
+	params: unknown,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): Promise<{ model: Awaited<ReturnType<ExtensionContext["modelRegistry"]["getAvailable"]>>[number]; thinkingLevel?: string }> {
+	const request = normalizeSetModelParams(params);
+	const model = ctx.modelRegistry
+		.getAvailable()
+		.find((candidate) => candidate.provider === request.provider && candidate.id === request.id);
+	if (!model) {
+		throw new Error(`Model not found or not authenticated: ${request.provider}/${request.id}`);
+	}
+	if (!(await pi.setModel(model))) {
+		throw new Error(`No API key for ${request.provider}/${request.id}`);
+	}
+	if (request.thinkingLevel) {
+		pi.setThinkingLevel(request.thinkingLevel);
+	}
+	return { model, ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}) };
+}
+
+function normalizeSetModelParams(params: unknown): {
+	id: string;
+	provider: string;
+	thinkingLevel?: PyrunThinkingLevel;
+} {
+	if (!params || typeof params !== "object") {
+		throw new Error("pi.models.set requires { provider, id, thinkingLevel? }");
+	}
+	const record = params as { id?: unknown; provider?: unknown; thinkingLevel?: unknown };
+	if (typeof record.provider !== "string" || record.provider.trim() === "") {
+		throw new Error("pi.models.set requires a non-empty provider");
+	}
+	if (typeof record.id !== "string" || record.id.trim() === "") {
+		throw new Error("pi.models.set requires a non-empty id");
+	}
+	if (
+		record.thinkingLevel !== undefined &&
+		(typeof record.thinkingLevel !== "string" || !isPyrunThinkingLevel(record.thinkingLevel))
+	) {
+		throw new Error("pi.models.set thinkingLevel must be off, minimal, low, medium, high, or xhigh");
+	}
+	return {
+		provider: record.provider.trim(),
+		id: record.id.trim(),
+		...(record.thinkingLevel ? { thinkingLevel: record.thinkingLevel } : {}),
+	};
 }
 
 async function callActiveTool(params: unknown, pi: ExtensionAPI, signal: AbortSignal | undefined): Promise<unknown> {

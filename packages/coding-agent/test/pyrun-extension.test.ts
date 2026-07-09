@@ -62,6 +62,7 @@ interface PyrunProgressDetails {
 type PyrunHarnessOptions = PyrunExtensionOptions & {
 	callCommand?: ExtensionAPI["callCommand"];
 	callTool?: ExtensionAPI["callTool"];
+	setModel?: ExtensionAPI["setModel"];
 };
 
 type PyrunTool = {
@@ -81,12 +82,20 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	const compactRequests: unknown[] = [];
 	const enqueuedMessages: Array<{ content: unknown; options: unknown }> = [];
 	const restartRequests: unknown[] = [];
+	const selectedModels: unknown[] = [];
 	const switchedSessions: string[] = [];
 
 	const pi = {
 		callCommand: options.callCommand ?? (async () => undefined),
 		callTool: options.callTool ?? (async () => ({ content: [], details: undefined })),
 		getCommands: () => [{ name: "usage", source: "extension" }],
+		setModel:
+			options.setModel ??
+			(async (model: unknown) => {
+				selectedModels.push(model);
+				return true;
+			}),
+		setThinkingLevel: () => {},
 		registerTool(tool: ToolDefinition) {
 			if (tool.name === "pyrun_eval") {
 				pyrunDefinition = tool;
@@ -129,6 +138,11 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		hasUI: false,
 		mode: "tui",
 		model: { id: "faux/model" },
+		modelRegistry: {
+			getAvailable: () => [
+				{ id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai-codex", reasoning: true },
+			],
+		},
 		getScopedModels: () => [],
 		restart: async (request: unknown) => {
 			restartRequests.push(request);
@@ -152,6 +166,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		evaluateContext: ctx,
 		enqueuedMessages,
 		restartRequests,
+		selectedModels,
 		switchedSessions,
 		toolDefinition: pyrunDefinition,
 		evaluate: (
@@ -330,6 +345,11 @@ async function resultFor(request) {
   }
   if (request.code === "pi.models.scoped()") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "models.scoped", params: null }) + "\\n");
+    const response = await readNextResponse();
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.models.set('openai-codex', 'gpt-5.6-terra', 'medium')") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "models.set", params: { provider: "openai-codex", id: "gpt-5.6-terra", thinkingLevel: "medium" } }) + "\\n");
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
@@ -738,6 +758,22 @@ describe("pyrun extension", () => {
 		expect(result.details.value).toEqual([
 			{ id: "gpt-5.5", name: "GPT-5.5", provider: "openai-codex", thinkingLevel: "high" },
 			{ id: "claude-opus-4-8", provider: "anthropic" },
+		]);
+	});
+
+	it("sets an available model and optional thinking level through the Pi bridge", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({
+			code: "pi.models.set('openai-codex', 'gpt-5.6-terra', 'medium')",
+		});
+
+		expect(result.details.value).toEqual({
+			model: { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai-codex", reasoning: true },
+			thinkingLevel: "medium",
+		});
+		expect(harness.selectedModels).toEqual([
+			{ id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai-codex", reasoning: true },
 		]);
 	});
 
