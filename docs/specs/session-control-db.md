@@ -29,6 +29,8 @@ reply without changing the JSONL transcript format. How it works lives in
       `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
 - [x] Store per-session health state (`session_health`) for sticky liveness checks used by
       `list_sessions` and `broadcast`, including agent generation and last check fields.
+- [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
+      sessions can catch up from an append-only global coordination log.
 - [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
       (`store_session_path`, `store_message_id`) is required at enqueue, reads resolve
       body/artifact payloads from `multi_agent_mailbox_messages`, and enqueue is idempotent per
@@ -55,6 +57,8 @@ reply without changing the JSONL transcript format. How it works lives in
   API, and session metadata API.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.
+- `packages/coding-agent/src/core/tools/channel-post.ts` — built-in tool that appends to the
+  shared channel.
 - `packages/coding-agent/src/cli/control-command.ts` — `pi control` command
   parser and output.
 - `packages/coding-agent/src/main.ts` — claims a pending incoming message before

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	advanceSharedChannelCursor,
 	claimLatestIncomingMessage,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
@@ -13,16 +14,20 @@ import {
 	enqueueRuntimeMailboxMessage,
 	failRuntimeMailboxMessage,
 	getControlDbPath,
+	initializeSharedChannelCursorAtTail,
 	listNamedSessions,
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
+	listSharedChannelMessagesAfter,
 	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
+	postSharedChannelMessage,
 	readIncomingMessageStatus,
 	readLastMessage,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
 	readSessionMetadata,
+	readSharedChannelCursor,
 	recoverStaleRuntimeMailboxClaims,
 	removeNamedSession,
 	setNamedSession,
@@ -160,6 +165,51 @@ describe("session control DB", () => {
 		const results = await Promise.all(workers);
 		expect(results).toHaveLength(4);
 		expect(listSessionMetadata(controlDbPath)).toHaveLength(1);
+	});
+
+	it("stores shared channel messages behind per-recipient cursors", () => {
+		const first = postSharedChannelMessage(controlDbPath, {
+			body: "first note",
+			sender: { agentId: null, sessionId: "sender-session" },
+		});
+		const second = postSharedChannelMessage(controlDbPath, {
+			body: "second note",
+			sender: { agentId: "agent_1", sessionId: "sender-session" },
+		});
+
+		expect(second).toBeGreaterThan(first);
+		expect(listSharedChannelMessagesAfter(controlDbPath, 0)).toMatchObject([
+			{
+				body: "first note",
+				id: first,
+				sender: { agentId: null, sessionId: "sender-session" },
+			},
+			{
+				body: "second note",
+				id: second,
+				sender: { agentId: "agent_1", sessionId: "sender-session" },
+			},
+		]);
+
+		advanceSharedChannelCursor(controlDbPath, { agentId: null, sessionId: "recipient-session" }, first);
+		expect(readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: "recipient-session" })).toBe(first);
+		expect(listSharedChannelMessagesAfter(controlDbPath, first)).toMatchObject([{ id: second }]);
+	});
+
+	it("initializes new shared channel cursors at the current tail", () => {
+		const first = postSharedChannelMessage(controlDbPath, {
+			body: "old note",
+			sender: { agentId: null, sessionId: "sender-session" },
+		});
+
+		const cursor = initializeSharedChannelCursorAtTail(controlDbPath, {
+			agentId: null,
+			sessionId: "new-session",
+		});
+
+		expect(cursor).toBe(first);
+		expect(readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: "new-session" })).toBe(first);
+		expect(listSharedChannelMessagesAfter(controlDbPath, cursor)).toEqual([]);
 	});
 
 	it("claims only the latest pending incoming message", () => {

@@ -20,6 +20,11 @@ export {
 	createBroadcastToolDefinition,
 } from "./broadcast.ts";
 export {
+	type ChannelPostToolDetails,
+	type ChannelPostToolInput,
+	createChannelPostToolDefinition,
+} from "./channel-post.ts";
+export {
 	type CodeIndexCommandResult,
 	type CodeIndexOperations,
 	type CodeIndexToolDetails,
@@ -108,6 +113,7 @@ import type { ToolDefinition } from "../extensions/types.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
 import { createBroadcastToolDefinition } from "./broadcast.ts";
+import { createChannelPostToolDefinition } from "./channel-post.ts";
 import {
 	type CodeIndexToolOptions,
 	createOutlineTool,
@@ -143,6 +149,7 @@ export type ToolName =
 	| "resume_session"
 	| "list_sessions"
 	| "broadcast"
+	| "channel_post"
 	| "ask_questions";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
@@ -158,6 +165,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"resume_session",
 	"list_sessions",
 	"broadcast",
+	"channel_post",
 	"ask_questions",
 ]);
 export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
@@ -174,6 +182,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"resume_session",
 	"list_sessions",
 	"broadcast",
+	"channel_post",
 	"ask_questions",
 ];
 
@@ -216,6 +225,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createListSessionsToolDefinition();
 		case "broadcast":
 			return createBroadcastToolDefinition();
+		case "channel_post":
+			return createChannelPostToolDefinition();
 		case "ask_questions":
 			return createAskQuestionsToolDefinition();
 		default:
@@ -251,6 +262,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return wrapToolDefinition(createListSessionsToolDefinition());
 		case "broadcast":
 			return wrapToolDefinition(createBroadcastToolDefinition());
+		case "channel_post":
+			return wrapToolDefinition(createChannelPostToolDefinition());
 		case "ask_questions":
 			return wrapToolDefinition(createAskQuestionsToolDefinition());
 		default:
@@ -294,6 +307,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		resume_session: createResumeSessionToolDefinition(),
 		list_sessions: createListSessionsToolDefinition(),
 		broadcast: createBroadcastToolDefinition(),
+		channel_post: createChannelPostToolDefinition(),
 		ask_questions: createAskQuestionsToolDefinition(),
 	};
 }
@@ -334,6 +348,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
 		list_sessions: wrapToolDefinition(createListSessionsToolDefinition()),
 		broadcast: wrapToolDefinition(createBroadcastToolDefinition()),
+		channel_post: wrapToolDefinition(createChannelPostToolDefinition()),
 		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
 	};
 }

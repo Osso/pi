@@ -110,20 +110,25 @@ import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 
 import {
+	advanceSharedChannelCursor,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
 	failRuntimeMailboxMessage,
 	getControlDbPath,
 	getMultiAgentMailboxMessageStatus,
+	initializeSharedChannelCursorAtTail,
+	listSharedChannelMessagesAfter,
 	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
+	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
 	recordPromptHistoryEntry,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
 	releaseRuntimeMailboxMessageClaim,
 	removeNamedSession,
+	type SharedChannelMessage,
 	setNamedSession,
 	writeLastMessage,
 } from "./session-control-db.ts";
@@ -406,6 +411,21 @@ function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSes
 	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
 }
 
+function formatSharedChannelPrompt(message: SharedChannelMessage, recipientSessionId: string): string {
+	const senderSession = message.sender.sessionId || "unknown-session";
+	const senderAgent = message.sender.agentId || "main";
+	const body = message.body.trim() || "No message body.";
+	const senderLines =
+		senderSession === recipientSessionId
+			? [`- agent: ${senderAgent}`]
+			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
+	return ["From shared channel:", ...senderLines, "", "Message:", body].join("\n");
+}
+
+function isOwnSharedChannelMessage(message: SharedChannelMessage, recipient: RuntimeMailboxAddress): boolean {
+	return message.sender.sessionId === recipient.sessionId && message.sender.agentId === recipient.agentId;
+}
+
 function formatRuntimeMailboxArtifacts(message: RuntimeMailboxMessage): string[] {
 	const artifactIds = message.artifactIds?.map((artifactId) => `- ${artifactId}`) ?? [];
 	const artifactRefs = message.artifactRefs?.map(formatRuntimeMailboxArtifactReference) ?? [];
@@ -514,6 +534,7 @@ export class AgentSession {
 	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
 	private _runtimeMailboxSignalHandler?: () => void;
 	private _runtimeMailboxDrainInProgress = false;
+	private _sharedChannelDrainInProgress = false;
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
 
 	// Model registry for API key resolution
@@ -1783,7 +1804,7 @@ export class AgentSession {
 			return true;
 		}
 
-		return this._drainRuntimeMailboxMessages({ triggerIfIdle: false });
+		return this._drainRuntimeCoordinationMessages({ triggerIfIdle: false });
 	}
 
 	/**
@@ -2119,6 +2140,12 @@ export class AgentSession {
 		return this._multiAgentAgentId ?? null;
 	}
 
+	private async _drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
+		const channelQueued = await this._drainSharedChannelMessages(options);
+		return mailboxQueued || channelQueued;
+	}
+
 	private async _drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
 		if (this._runtimeMailboxDrainInProgress) {
 			return false;
@@ -2176,6 +2203,84 @@ export class AgentSession {
 		} finally {
 			this._runtimeMailboxDrainInProgress = false;
 		}
+	}
+
+	private async _drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+		if (this._sharedChannelDrainInProgress) {
+			return false;
+		}
+		if (options.triggerIfIdle && this.isStreaming) {
+			return false;
+		}
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!controlDbPath) {
+			return false;
+		}
+		this._sharedChannelDrainInProgress = true;
+		try {
+			return await this._drainSharedChannelMessagesFromDb(controlDbPath, options);
+		} finally {
+			this._sharedChannelDrainInProgress = false;
+		}
+	}
+
+	private async _drainSharedChannelMessagesFromDb(
+		controlDbPath: string,
+		options: { triggerIfIdle: boolean },
+	): Promise<boolean> {
+		const recipient = this._sharedChannelRecipient();
+		const cursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		const messages = listSharedChannelMessagesAfter(controlDbPath, cursor);
+		let queued = false;
+		for (const message of messages) {
+			const outcome = await this._deliverSharedChannelMessage(controlDbPath, recipient, message, options);
+			if (outcome === "busy") {
+				break;
+			}
+			if (outcome === "queued") {
+				queued = true;
+			}
+		}
+		return queued;
+	}
+
+	private _sharedChannelRecipient(): RuntimeMailboxAddress {
+		return {
+			agentId: this._getRuntimeMailboxAgentId(),
+			sessionId: this.sessionId,
+		};
+	}
+
+	private async _deliverSharedChannelMessage(
+		controlDbPath: string,
+		recipient: RuntimeMailboxAddress,
+		message: SharedChannelMessage,
+		options: { triggerIfIdle: boolean },
+	): Promise<"busy" | "delivered" | "queued"> {
+		if (isOwnSharedChannelMessage(message, recipient)) {
+			advanceSharedChannelCursor(controlDbPath, recipient, message.id);
+			return "delivered";
+		}
+		try {
+			const prompt = formatSharedChannelPrompt(message, recipient.sessionId);
+			const queued = await this._sendSharedChannelPrompt(prompt, options);
+			advanceSharedChannelCursor(controlDbPath, recipient, message.id);
+			return queued ? "queued" : "delivered";
+		} catch (error) {
+			if (isSessionBusyPromptError(error)) {
+				return "busy";
+			}
+			throw error;
+		}
+	}
+
+	private async _sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean> {
+		if (options.triggerIfIdle && !this.isStreaming) {
+			await this.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
+			return false;
+		}
+		await this._queueFollowUp(prompt);
+		return true;
 	}
 
 	private _consumeResolvedStoreMailboxMessage(controlDbPath: string, message: RuntimeMailboxMessage): boolean {
@@ -2256,8 +2361,8 @@ export class AgentSession {
 		}
 		cleanupRuntimeMailboxMessages(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
-			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true }).catch((error: unknown) => {
-				console.error("Failed to drain runtime mailbox messages:", error);
+			void this._drainRuntimeCoordinationMessages({ triggerIfIdle: true }).catch((error: unknown) => {
+				console.error("Failed to drain runtime coordination messages:", error);
 			});
 		}, RUNTIME_MAILBOX_POLL_INTERVAL_MS);
 	}
@@ -2278,6 +2383,8 @@ export class AgentSession {
 		installRuntimeMailboxSignalKeepalive();
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
 		const agentId = this._getRuntimeMailboxAgentId();
+		const recipient = { agentId, sessionId: this.sessionId };
+		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		if (agentId) {
 			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
 		}
@@ -2285,8 +2392,8 @@ export class AgentSession {
 			return;
 		}
 		this._runtimeMailboxSignalHandler = () => {
-			void this._drainRuntimeMailboxMessages({ triggerIfIdle: true }).catch((error: unknown) => {
-				console.error("Failed to drain runtime mailbox messages:", error);
+			void this._drainRuntimeCoordinationMessages({ triggerIfIdle: true }).catch((error: unknown) => {
+				console.error("Failed to drain runtime coordination messages:", error);
 			});
 		};
 		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);

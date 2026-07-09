@@ -54,6 +54,7 @@ describe("regression #5109: exclude tools", () => {
 				"ask_questions",
 				"bash",
 				"broadcast",
+				"channel_post",
 				"dynamic_tool",
 				"edit",
 				"find",

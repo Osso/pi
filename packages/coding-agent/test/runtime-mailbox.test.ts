@@ -10,9 +10,12 @@ import {
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
+	initializeSharedChannelCursorAtTail,
 	listRuntimeMailboxMessages,
 	markMultiAgentMailboxMessageDelivered,
+	postSharedChannelMessage,
 	readRuntimeMailboxMessage,
+	readSharedChannelCursor,
 	upsertMultiAgentMailboxMessage,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -78,6 +81,10 @@ function delay(ms: number): Promise<void> {
 
 function runtimeMailboxPrompt(body: string): string {
 	return ["From:", "- session: child-session", "- agent: agent_1", "", "Message:", body].join("\n");
+}
+
+function sharedChannelPrompt(body: string): string {
+	return ["From shared channel:", "- session: sender-session", "- agent: main", "", "Message:", body].join("\n");
 }
 
 function collectMultiAgentTools(
@@ -895,6 +902,62 @@ describe("runtime SQLite mailbox delivery", () => {
 		consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath });
 
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
+	});
+
+	it("drains shared channel messages while idle and advances the cursor", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("channel reply")]);
+		initializeSharedChannelCursorAtTail(controlDbPath, {
+			agentId: null,
+			sessionId: harness.sessionManager.getSessionId(),
+		});
+		const messageId = postSharedChannelMessage(controlDbPath, {
+			body: "Shared status?",
+			sender: { agentId: null, sessionId: "sender-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const queued = await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		await harness.session.agent.waitForIdle();
+
+		expect(queued).toBe(false);
+		expect(getUserTexts(harness)).toEqual([sharedChannelPrompt("Shared status?")]);
+		expect(
+			readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: harness.sessionManager.getSessionId() }),
+		).toBe(messageId);
+	});
+
+	it("does not deliver shared channel messages posted by the same recipient", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		initializeSharedChannelCursorAtTail(controlDbPath, {
+			agentId: null,
+			sessionId: harness.sessionManager.getSessionId(),
+		});
+		const messageId = postSharedChannelMessage(controlDbPath, {
+			body: "self note",
+			sender: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const queued = await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+
+		expect(queued).toBe(false);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(
+			readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: harness.sessionManager.getSessionId() }),
+		).toBe(messageId);
 	});
 
 	it("drains claimed runtime mailbox messages at the end of a turn", async () => {

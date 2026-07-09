@@ -40,6 +40,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |
 | Resume session tool (`resume_session`) | [`resume-session-tool.md`](resume-session-tool.md) | **BUILD** (done) | Built-in tool for explicit main-thread session replacement with optional starter prompt. |
 | Session directory tools (`list_sessions`, `broadcast`) | [`session-directory-tools.md`](session-directory-tools.md) | **BUILD** (done) | Inventory + sticky-health eligibility and message fanout across sessions. |
+| Shared channel (`channel_post`) | [`shared-channel.md`](shared-channel.md) | **BUILD** (done) | Single SQLite-backed global coordination log with per-session cursors and idle drain delivery. |
 | Compaction length-retry | [`compaction-length-retry.md`](compaction-length-retry.md) | **BUILD** (done) | Threshold auto-compaction resumes a `"length"`-truncated turn once instead of idling. |
 | TUI customization | [`tui-customization.md`](tui-customization.md) | **NATIVE** | Themes, keybindings, `registerShortcut`, header/footer/widget/editor swap, `ui.custom()`. |
 

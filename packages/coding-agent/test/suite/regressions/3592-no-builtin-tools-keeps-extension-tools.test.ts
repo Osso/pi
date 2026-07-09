@@ -82,6 +82,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 			"ask_questions",
 			"bash",
 			"broadcast",
+			"channel_post",
 			"dynamic_tool",
 			"edit",
 			"find",

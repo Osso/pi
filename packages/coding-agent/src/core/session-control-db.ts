@@ -43,6 +43,18 @@ export interface RuntimeMailboxStoreRef {
 	messageId: string;
 }
 
+export interface SharedChannelMessage {
+	id: number;
+	sender: RuntimeMailboxAddress;
+	body: string;
+	createdAt: string;
+}
+
+export interface PostSharedChannelMessageInput {
+	sender: RuntimeMailboxAddress;
+	body: string;
+}
+
 export interface EnqueueRuntimeMailboxMessageInput {
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
@@ -135,6 +147,18 @@ type SessionHealthRow = {
 	checked_generation: number | null;
 	check_latency_ms: number | null;
 	updated_at: string;
+};
+
+type SharedChannelMessageRow = {
+	id: number;
+	sender_session_id: string;
+	sender_agent_id: string | null;
+	body: string;
+	created_at: string;
+};
+
+type SharedChannelCursorRow = {
+	last_seen_id: number;
 };
 
 type IncomingStatusRow = {
@@ -507,6 +531,125 @@ export function listRuntimeMailboxListeners(
 			updatedAt: row.updated_at,
 		}));
 	});
+}
+
+export function postSharedChannelMessage(controlDbPath: string, input: PostSharedChannelMessageInput): number {
+	const body = input.body.trim();
+	if (!body) {
+		throw new Error("shared channel message body must be non-empty");
+	}
+	return withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		const result = db
+			.prepare(
+				`
+				INSERT INTO shared_channel_messages (sender_session_id, sender_agent_id, body, created_at)
+				VALUES (?, ?, ?, ?)
+				`,
+			)
+			.run(input.sender.sessionId, input.sender.agentId, body, now);
+		return Number(result.lastInsertRowid);
+	});
+}
+
+export function listSharedChannelMessagesAfter(
+	controlDbPath: string,
+	lastSeenId: number,
+	limit = 20,
+): SharedChannelMessage[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`
+				SELECT id, sender_session_id, sender_agent_id, body, created_at
+				FROM shared_channel_messages
+				WHERE id > ?
+				ORDER BY id ASC
+				LIMIT ?
+				`,
+			)
+			.all(lastSeenId, limit) as SharedChannelMessageRow[];
+		return rows.map(sharedChannelMessageFromRow);
+	});
+}
+
+export function readSharedChannelCursor(controlDbPath: string, recipient: RuntimeMailboxAddress): number | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare(
+				`
+				SELECT last_seen_id
+				FROM shared_channel_cursors
+				WHERE session_id = ? AND agent_id_key = ?
+				`,
+			)
+			.get(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId)) as SharedChannelCursorRow | undefined;
+		return row?.last_seen_id;
+	});
+}
+
+export function initializeSharedChannelCursorAtTail(controlDbPath: string, recipient: RuntimeMailboxAddress): number {
+	return withControlDb(controlDbPath, (db) => {
+		const existing = readSharedChannelCursorRow(db, recipient);
+		if (existing !== undefined) {
+			return existing;
+		}
+		const tail = readSharedChannelTail(db);
+		writeSharedChannelCursorRow(db, recipient, tail);
+		return tail;
+	});
+}
+
+export function advanceSharedChannelCursor(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	lastSeenId: number,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		writeSharedChannelCursorRow(db, recipient, lastSeenId);
+	});
+}
+
+function readSharedChannelCursorRow(db: SqliteDatabase, recipient: RuntimeMailboxAddress): number | undefined {
+	const row = db
+		.prepare(
+			`
+			SELECT last_seen_id
+			FROM shared_channel_cursors
+			WHERE session_id = ? AND agent_id_key = ?
+			`,
+		)
+		.get(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId)) as SharedChannelCursorRow | undefined;
+	return row?.last_seen_id;
+}
+
+function readSharedChannelTail(db: SqliteDatabase): number {
+	const row = db.prepare("SELECT COALESCE(MAX(id), 0) AS tail FROM shared_channel_messages").get() as
+		| { tail: number }
+		| undefined;
+	return row?.tail ?? 0;
+}
+
+function writeSharedChannelCursorRow(db: SqliteDatabase, recipient: RuntimeMailboxAddress, lastSeenId: number): void {
+	const now = new Date().toISOString();
+	db.prepare(
+		`
+		INSERT INTO shared_channel_cursors (session_id, agent_id_key, last_seen_id, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(session_id, agent_id_key) DO UPDATE SET
+			last_seen_id = MAX(shared_channel_cursors.last_seen_id, excluded.last_seen_id),
+			updated_at = excluded.updated_at
+		`,
+	).run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), lastSeenId, now);
+}
+
+function sharedChannelMessageFromRow(row: SharedChannelMessageRow): SharedChannelMessage {
+	return {
+		body: row.body,
+		createdAt: row.created_at,
+		id: row.id,
+		sender: { agentId: row.sender_agent_id, sessionId: row.sender_session_id },
+	};
 }
 
 export function readSessionHealth(controlDbPath: string, sessionId: string): SessionHealthRecord | undefined {
@@ -1681,6 +1824,25 @@ function initializeSchema(db: SqliteDatabase): void {
 			checked_generation INTEGER,
 			check_latency_ms INTEGER,
 			updated_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS shared_channel_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sender_session_id TEXT NOT NULL,
+			sender_agent_id TEXT,
+			body TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS shared_channel_messages_id_idx
+		ON shared_channel_messages(id);
+
+		CREATE TABLE IF NOT EXISTS shared_channel_cursors (
+			session_id TEXT NOT NULL,
+			agent_id_key TEXT NOT NULL,
+			last_seen_id INTEGER NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (session_id, agent_id_key)
 		);
 	`);
 	addMissingSessionMetadataColumns(db);
