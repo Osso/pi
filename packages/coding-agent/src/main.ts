@@ -37,6 +37,7 @@ import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import safeExtension from "../extensions/safe/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import sessionIdExtension from "../extensions/session-id/src/index.ts";
+import { runArchitectService } from "./architect/main.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -629,6 +630,10 @@ function createFirstPartyExtensionFactories(
 }
 
 export async function main(args: string[], options?: MainOptions) {
+	if (args.length === 1 && args[0] === "architect") {
+		await runArchitectService();
+		return;
+	}
 	resetTimings();
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (offlineMode) {

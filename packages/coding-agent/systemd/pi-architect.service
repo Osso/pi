@@ -5,7 +5,7 @@ After=default.target
 [Service]
 Type=exec
 WorkingDirectory=%h
-ExecStart=%h/Repos/pi/node_modules/.bin/jiti %h/Repos/pi/packages/coding-agent/src/architect/main.ts
+ExecStart=%h/.local/bin/pi architect
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

@@ -13,7 +13,7 @@ import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "./prompt.ts";
 const OBSERVER_INTERVAL_MS = 30_000;
 const ARCHITECT_SESSION_ID = "architect";
 
-async function main(): Promise<void> {
+export async function runArchitectService(): Promise<void> {
 	const agentDir = getAgentDir();
 	const cwd = process.env.HOME ?? process.cwd();
 	const sessionDir = join(agentDir, "architect-sessions");
@@ -62,8 +62,3 @@ async function main(): Promise<void> {
 		await new Promise<void>((resolve) => setTimeout(resolve, OBSERVER_INTERVAL_MS));
 	}
 }
-
-void main().catch((error: unknown) => {
-	console.error(error);
-	process.exitCode = 1;
-});
