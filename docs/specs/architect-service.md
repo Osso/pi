@@ -1,50 +1,56 @@
 # Resident Architect Service
 
-The resident Architect is a systemd-supervised Sol advisor that maintains cross-session context and posts evidence-backed coordination advice. It is not a dispatcher or remediation agent. Implementation details live in `docs/wiki/systems/architect-service.md` when needed.
+Module boundary: core resident SDK service.
+
+The resident Architect is a systemd-supervised Sol advisor that preserves a dedicated cross-session transcript and sends evidence-backed coordination advice only to the affected session. It is not a dispatcher or remediation agent. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
 
 ## What it must do
 
 ### Observation
 
-- [x] Poll relevant Pi session and shared-channel state every 30 seconds without prompting the model on unchanged state.
-- [x] Prompt Sol on the initial session snapshot, material session/goal changes, or an explicit main-session channel message mentioning `architect`.
-- [x] Ignore subagent channel posts as architect requests.
-- [ ] Read observer state from SQLite without applying writer-oriented database configuration.
+- [x] Poll the control SQLite snapshot every 30 seconds without prompting the model when state is unchanged.
+- [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel message mentioning `architect`.
+- [x] Ignore subagent and Architect-originated channel posts as architect requests.
+- [x] Open observer state through SQLite read-only access without applying writer-oriented database configuration.
 
 ### Advice
 
-- [ ] Keep normal Pi tools available while readonly bwrap isolates file/Pyrun/bash workers.
-- [ ] Post only evidence-backed drift, conflict, or blocker advice through `channel_post`.
-- [ ] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
+- [x] Keep the standard Pi tool set available while the `read-only` bwrap profile routes file and shell workers through Bubblewrap; `pyrun_eval` is blocked rather than sandboxed.
+- [x] Send only evidence-backed drift, conflict, or blocker advice to the affected session through targeted `broadcast`; block global `channel_post` fanout.
+- [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 
 ### Service lifecycle
 
-- [ ] Run as a systemd user service using `openai-codex/gpt-5.6-sol`.
-- [ ] Preserve a dedicated architect session transcript across restarts while using normal shared Pi state.
-- [ ] Install, enable, start, and verify the service through deployment.
+- [x] Run `~/.local/bin/pi architect` as a systemd user service using `openai-codex/gpt-5.6-sol`.
+- [x] Preserve a dedicated Architect session transcript across service restarts while reading normal shared Pi state.
+- [x] Install the compiled `pi` binary and install, enable, start, and restart the user service through deployment.
 
 ## How it works
 
-- `docs/wiki/systems/architect-service.md`
+- [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md)
+- [bwrap-sandbox.md](bwrap-sandbox.md)
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/architect/observer.ts` — structured material-change observer.
-- `packages/coding-agent/src/architect/prompt.ts` — advisor policy and observation prompt.
-- `packages/coding-agent/src/architect/main.ts` — resident SDK process.
-- `packages/coding-agent/systemd/pi-architect.service` — user service template.
+- `packages/coding-agent/src/architect/observer.ts` — read-only control-DB snapshots and material-change detection.
+- `packages/coding-agent/src/architect/prompt.ts` — advisor policy and structured observation prompt.
+- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the read-only bwrap profile.
+- `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed binary.
+- `deploy.sh` — compiled binary installation and systemd unit deployment.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/architect-observer.test.ts`
+- `packages/coding-agent/test/architect-observer.test.ts` — initial/material snapshots and explicit main-session architect-request filtering.
+- `packages/coding-agent/test/architect-service.test.ts` — installed-binary unit command plus deployment reload, enable/start, and restart steps.
 
 ## Known gaps (current cycle)
 
-- [ ] Add read-only observer DB access.
-- [ ] Add service lifecycle tests and deploy installation.
-- [ ] Deploy and prove the running systemd service emits only event-driven prompts.
+- [x] `architect-observer.test.ts` covers initial/material snapshots, read-only missing-DB behavior, and self-message suppression.
+- [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout blocking, and deployment lifecycle commands.
+- [x] Deployment builds the compiled binary, installs/enables/restarts the service, and systemd health is verified.
 
 ## Out of scope
 
 - Task dispatch, autonomous code changes, process/session control, or automatic remediation.
 - Reading full agent transcripts on routine observations.
+- Sandboxed Pyrun execution; bwrap currently blocks `pyrun_eval` under sandbox-required profiles.

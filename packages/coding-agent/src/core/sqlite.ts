@@ -19,14 +19,15 @@ export interface SqliteDatabase {
 	prepare(sql: string): SqliteStatement;
 }
 
-type SqliteDatabaseConstructor = new (path: string) => SqliteDatabase;
+type BunSqliteDatabaseConstructor = new (path: string, options?: { readonly?: boolean }) => SqliteDatabase;
+type NodeSqliteDatabaseConstructor = new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase;
 
 interface BunSqliteModule {
-	Database: SqliteDatabaseConstructor;
+	Database: BunSqliteDatabaseConstructor;
 }
 
 interface NodeSqliteModule {
-	DatabaseSync: SqliteDatabaseConstructor;
+	DatabaseSync: NodeSqliteDatabaseConstructor;
 }
 
 const require = createRequire(import.meta.url);
@@ -36,16 +37,23 @@ function isBunRuntime(): boolean {
 	return runtime.Bun !== undefined;
 }
 
-function loadDatabaseConstructor(): SqliteDatabaseConstructor {
+export function createSqliteDatabase(path: string): SqliteDatabase {
 	if (isBunRuntime()) {
-		return (require("bun:sqlite") as BunSqliteModule).Database;
+		const { Database } = require("bun:sqlite") as BunSqliteModule;
+		return new Database(path);
 	}
-	return (require("node:sqlite") as NodeSqliteModule).DatabaseSync;
+	const { DatabaseSync } = require("node:sqlite") as NodeSqliteModule;
+	return new DatabaseSync(path);
 }
 
-export function createSqliteDatabase(path: string): SqliteDatabase {
-	const Database = loadDatabaseConstructor();
-	return new Database(path);
+/** Opens an existing SQLite database without changing its configuration or contents. */
+export function createReadOnlySqliteDatabase(path: string): SqliteDatabase {
+	if (isBunRuntime()) {
+		const { Database } = require("bun:sqlite") as BunSqliteModule;
+		return new Database(path, { readonly: true });
+	}
+	const { DatabaseSync } = require("node:sqlite") as NodeSqliteModule;
+	return new DatabaseSync(path, { readOnly: true });
 }
 
 /** Default multi-consumer open settings for shared process-local SQLite DBs. */

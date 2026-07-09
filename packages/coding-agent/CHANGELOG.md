@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, targeted session advice, and read-only Bubblewrap tool workers.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added built-in `channel_post` for the global SQLite-backed shared channel with per-main-session cursors and idle delivery.
@@ -34,6 +35,7 @@
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, and user bash through explicitly selected sandbox profiles.
+- Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell workers; `pyrun_eval` is blocked while sandboxed.
 
 ### Changed
 
@@ -49,6 +51,7 @@
 
 ### Fixed
 
+- Fixed shared-channel catch-up to batch all unread deliverable posts in order into one agent turn and retain them when batch delivery fails.
 - Fixed shared-channel delivery to ignore and mark seen posts from subagent senders, preventing stale subagent processes from flooding main sessions.
 - Fixed `pi -r` and `/resume` to hide sessions that have no messages.
 - Fixed `/continue` to submit completed assistant-ending transcripts for continuation and avoid errors on empty transcripts.

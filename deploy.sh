@@ -26,9 +26,13 @@ require_safe_absolute_dir() {
 }
 
 cleanup_extension_build_outputs() {
-	# The SDK resident architect imports first-party extensions from this checkout.
-	# Their generated JS files must survive deployment while the service is active.
-	:
+	shopt -s globstar nullglob
+	rm -f \
+		packages/coding-agent/extensions/**/src/*.js \
+		packages/coding-agent/extensions/**/src/*.js.map \
+		packages/coding-agent/extensions/**/src/*.d.ts \
+		packages/coding-agent/extensions/**/src/*.d.ts.map
+	shopt -u globstar nullglob
 }
 
 rollback_install_on_failure() {
@@ -91,7 +95,6 @@ npm --prefix packages/agent-core run clean
 npm --prefix packages/agent-core run build
 npm --prefix packages/coding-agent run clean
 npm --prefix packages/coding-agent run build
-ln -sfn ../dist/index.js packages/coding-agent/src/index.js
 
 "$ROOT_DIR/scripts/build-binaries.sh" --skip-install --skip-deps --skip-build --platform "$PLATFORM" --out "$BUILD_DIR"
 cp -R "$BUILD_DIR/$PLATFORM" "$TMP_INSTALL_DIR"
@@ -105,4 +108,9 @@ DEPLOY_REPLACED_INSTALL=1
 ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+install -Dm644 "$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service" "$SYSTEMD_USER_DIR/pi-architect.service"
+systemctl --user daemon-reload
+systemctl --user enable --now pi-architect.service
+systemctl --user restart pi-architect.service
 rm -rf "$OLD_INSTALL_DIR"
