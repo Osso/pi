@@ -556,6 +556,7 @@ export function listSharedChannelMessagesAfter(
 	controlDbPath: string,
 	lastSeenId: number,
 	limit = 20,
+	throughId = Number.MAX_SAFE_INTEGER,
 ): SharedChannelMessage[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
@@ -563,12 +564,12 @@ export function listSharedChannelMessagesAfter(
 				`
 				SELECT id, sender_session_id, sender_agent_id, body, created_at
 				FROM shared_channel_messages
-				WHERE id > ?
+				WHERE id > ? AND id <= ?
 				ORDER BY id ASC
 				LIMIT ?
 				`,
 			)
-			.all(lastSeenId, limit) as SharedChannelMessageRow[];
+			.all(lastSeenId, throughId, limit) as SharedChannelMessageRow[];
 		return rows.map(sharedChannelMessageFromRow);
 	});
 }
@@ -594,7 +595,7 @@ export function initializeSharedChannelCursorAtTail(controlDbPath: string, recip
 		if (existing !== undefined) {
 			return existing;
 		}
-		const tail = readSharedChannelTail(db);
+		const tail = readSharedChannelTailRow(db);
 		writeSharedChannelCursorRow(db, recipient, tail);
 		return tail;
 	});
@@ -623,7 +624,11 @@ function readSharedChannelCursorRow(db: SqliteDatabase, recipient: RuntimeMailbo
 	return row?.last_seen_id;
 }
 
-function readSharedChannelTail(db: SqliteDatabase): number {
+export function readSharedChannelTail(controlDbPath: string): number {
+	return withControlDb(controlDbPath, (db) => readSharedChannelTailRow(db));
+}
+
+function readSharedChannelTailRow(db: SqliteDatabase): number {
 	const row = db.prepare("SELECT COALESCE(MAX(id), 0) AS tail FROM shared_channel_messages").get() as
 		| { tail: number }
 		| undefined;

@@ -950,7 +950,50 @@ describe("runtime SQLite mailbox delivery", () => {
 		).toBe(messageId);
 	});
 
-	it("keeps the shared channel cursor unchanged when a batch fails to deliver", async () => {
+	it("batches every unread shared channel message across database pages into one idle agent turn", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("channel reply")]);
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		const deliverableBodies = Array.from({ length: 21 }, (_, index) => `Shared status ${index + 1}`);
+		let lastMessageId = 0;
+		for (const [index, body] of deliverableBodies.entries()) {
+			if (index === 7) {
+				postSharedChannelMessage(controlDbPath, {
+					body: "self note",
+					sender: { agentId: null, sessionId: recipient.sessionId },
+				});
+			}
+			if (index === 14) {
+				postSharedChannelMessage(controlDbPath, {
+					body: "old subagent pong",
+					sender: { agentId: "agent_4", sessionId: "sender-session" },
+				});
+			}
+			lastMessageId = postSharedChannelMessage(controlDbPath, {
+				body,
+				sender: { agentId: null, sessionId: `sender-session-${index + 1}` },
+			});
+		}
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const queued = await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		await harness.session.agent.waitForIdle();
+
+		expect(queued).toBe(false);
+		expect(getUserTexts(harness)).toEqual([
+			deliverableBodies.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`)).join("\n\n"),
+		]);
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(lastMessageId);
+	});
+
+	it("retains every unread shared channel message after a failed batch delivery", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
@@ -958,19 +1001,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.bindExtensions({ controlDbPath });
 		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
 		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
-		postSharedChannelMessage(controlDbPath, {
-			body: "first note",
-			sender: { agentId: null, sessionId: "sender-session-a" },
-		});
-		postSharedChannelMessage(controlDbPath, {
-			body: "reject this batch",
-			sender: { agentId: null, sessionId: "sender-session-b" },
-		});
-		vi.spyOn(harness.session, "prompt").mockImplementation(async (prompt) => {
-			if (prompt.includes("reject this batch")) {
-				throw new Error("channel delivery failed");
-			}
-		});
+		const deliverableBodies = Array.from({ length: 21 }, (_, index) => `Retry shared status ${index + 1}`);
+		for (const [index, body] of deliverableBodies.entries()) {
+			postSharedChannelMessage(controlDbPath, {
+				body,
+				sender: { agentId: null, sessionId: `sender-session-${index + 1}` },
+			});
+		}
+		const prompt = vi.spyOn(harness.session, "prompt").mockRejectedValue(new Error("channel delivery failed"));
 		const drainableSession = harness.session as unknown as {
 			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
@@ -978,8 +1016,57 @@ describe("runtime SQLite mailbox delivery", () => {
 		await expect(drainableSession._drainSharedChannelMessages({ triggerIfIdle: true })).rejects.toThrow(
 			"channel delivery failed",
 		);
-
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
+
+		prompt.mockRestore();
+		harness.setResponses([fauxAssistantMessage("channel reply")]);
+		await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			deliverableBodies.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`)).join("\n\n"),
+		]);
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor + deliverableBodies.length);
+	});
+
+	it("retains every unread shared channel message after a busy delivery attempt", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		const deliverableBodies = Array.from({ length: 21 }, (_, index) => `Busy shared status ${index + 1}`);
+		for (const [index, body] of deliverableBodies.entries()) {
+			postSharedChannelMessage(controlDbPath, {
+				body,
+				sender: { agentId: null, sessionId: `sender-session-${index + 1}` },
+			});
+		}
+		const prompt = vi
+			.spyOn(harness.session, "prompt")
+			.mockRejectedValue(
+				new Error(
+					"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+				),
+			);
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		expect(await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true })).toBe(false);
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
+
+		prompt.mockRestore();
+		harness.setResponses([fauxAssistantMessage("channel reply")]);
+		await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			deliverableBodies.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`)).join("\n\n"),
+		]);
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor + deliverableBodies.length);
 	});
 
 	it("does not deliver shared channel messages posted by the same recipient", async () => {

@@ -123,6 +123,7 @@ import {
 	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
+	readSharedChannelTail,
 	recordPromptHistoryEntry,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
@@ -413,6 +414,28 @@ function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSes
 
 function formatSharedChannelPrompt(messages: SharedChannelMessage[], recipientSessionId: string): string {
 	return messages.map((message) => formatSharedChannelMessage(message, recipientSessionId)).join("\n\n");
+}
+
+function readSharedChannelMessageSnapshot(
+	controlDbPath: string,
+	lastSeenId: number,
+): { lastMessageId: number; messages: SharedChannelMessage[] } | undefined {
+	const lastMessageId = readSharedChannelTail(controlDbPath);
+	if (lastMessageId <= lastSeenId) {
+		return undefined;
+	}
+	const messages: SharedChannelMessage[] = [];
+	let pageCursor = lastSeenId;
+	while (pageCursor < lastMessageId) {
+		const page = listSharedChannelMessagesAfter(controlDbPath, pageCursor, undefined, lastMessageId);
+		const lastPageMessage = page.at(-1);
+		if (!lastPageMessage) {
+			return undefined;
+		}
+		messages.push(...page);
+		pageCursor = lastPageMessage.id;
+	}
+	return { lastMessageId, messages };
 }
 
 function formatSharedChannelMessage(message: SharedChannelMessage, recipientSessionId: string): string {
@@ -2241,18 +2264,14 @@ export class AgentSession {
 	): Promise<boolean> {
 		const recipient = this._sharedChannelRecipient();
 		const cursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
-		const messages = listSharedChannelMessagesAfter(controlDbPath, cursor);
-		if (messages.length === 0) {
+		const messageSnapshot = readSharedChannelMessageSnapshot(controlDbPath, cursor);
+		if (!messageSnapshot) {
 			return false;
 		}
-
+		const { lastMessageId, messages } = messageSnapshot;
 		const deliverableMessages = messages.filter(
 			(message) => !isOwnSharedChannelMessage(message, recipient) && !isSubagentSharedChannelMessage(message),
 		);
-		const lastMessageId = messages.at(-1)?.id;
-		if (lastMessageId === undefined) {
-			return false;
-		}
 		if (deliverableMessages.length === 0) {
 			advanceSharedChannelCursor(controlDbPath, recipient, lastMessageId);
 			return false;
