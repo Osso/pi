@@ -32,6 +32,7 @@ export interface ArchitectObserverState {
 }
 
 export interface ArchitectSnapshot {
+	lastChannelMessageId?: number;
 	messages: ArchitectChannelMessage[];
 	sessions: ArchitectSessionSnapshot[];
 }
@@ -77,7 +78,7 @@ export function createArchitectObservation(
 	return undefined;
 }
 
-export function readArchitectSnapshot(controlDbPath: string, lastChannelMessageId: number): ArchitectSnapshot {
+export function readArchitectSnapshot(controlDbPath: string, afterChannelMessageId: number): ArchitectSnapshot {
 	if (!existsSync(controlDbPath)) {
 		return { messages: [], sessions: [] };
 	}
@@ -118,6 +119,9 @@ export function readArchitectSnapshot(controlDbPath: string, lastChannelMessageI
 			isSubagent: row.is_subagent === 1,
 			name: row.name ?? undefined,
 		}));
+		const channelTailMessageId = Number(
+			(db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM shared_channel_messages").get() as { id: number }).id,
+		);
 		const messages = (
 			db
 				.prepare(
@@ -127,14 +131,14 @@ export function readArchitectSnapshot(controlDbPath: string, lastChannelMessageI
 					 ORDER BY id ASC
 					 LIMIT 20`,
 				)
-				.all(lastChannelMessageId) as ChannelMessageRow[]
+				.all(afterChannelMessageId) as ChannelMessageRow[]
 		).map((row) => ({
 			body: row.body,
 			id: row.id,
 			senderAgentId: row.sender_agent_id,
 			senderSessionId: row.sender_session_id,
 		}));
-		return { messages, sessions };
+		return { lastChannelMessageId: channelTailMessageId, messages, sessions };
 	} finally {
 		db.close();
 	}
@@ -154,13 +158,19 @@ export class ArchitectObserver {
 	}
 
 	observe(): ArchitectObservation | undefined {
-		const { messages, sessions } = this.readSnapshot(this.state.lastChannelMessageId);
+		const snapshot = this.readSnapshot(this.state.lastChannelMessageId);
+		const { messages, sessions } = snapshot;
 		const lastMessageId = messages.at(-1)?.id;
-		if (lastMessageId !== undefined) {
-			this.state.lastChannelMessageId = lastMessageId;
-		}
 		const newMessages = this.initialized ? messages : [];
-		this.initialized = true;
+		if (this.initialized) {
+			if (lastMessageId !== undefined) {
+				this.state.lastChannelMessageId = lastMessageId;
+			}
+		} else {
+			this.state.lastChannelMessageId =
+				snapshot.lastChannelMessageId ?? lastMessageId ?? this.state.lastChannelMessageId;
+			this.initialized = true;
+		}
 		const observation = createArchitectObservation(
 			this.state.lastObservation,
 			snapshotArchitectSessions(sessions),

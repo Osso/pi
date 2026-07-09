@@ -8,7 +8,7 @@ The resident Architect is a separate Pi process launched as a systemd user servi
 
 The structured observer snapshot is the Architect's only session-inventory source; `list_sessions` is blocked because its global output can include historical rows unrelated to the observed state.
 
-The first read produces an initial session-state observation. Later reads produce an observation only when either:
+On startup the observer advances its shared-channel cursor to the current tail, so historical `Architect:` requests cannot replay after a service restart. The first read produces an initial session-state observation. Later reads produce an observation only when either:
 
 - the ordered session snapshot changes, including goal JSON; or
 - a newly observed shared-channel message from a main session begins `Architect:`.

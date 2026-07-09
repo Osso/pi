@@ -129,13 +129,21 @@ describe("architect observer", () => {
 				new Date().toISOString(),
 			);
 			db.prepare("INSERT INTO session_health VALUES (?, ?, ?, ?, ?, ?)").run("ended", null, "dead", 1, 1, null);
+			db.prepare("INSERT INTO shared_channel_messages VALUES (?, ?, ?, ?)").run(
+				1,
+				"main",
+				null,
+				"Architect: new request",
+			);
 		} finally {
 			db.close();
 		}
 		try {
-			expect(readArchitectSnapshot(controlDbPath, 0).sessions).toEqual([
+			const snapshot = readArchitectSnapshot(controlDbPath, 0);
+			expect(snapshot.sessions).toEqual([
 				expect.objectContaining({ cwd: "/current", goalJson: '{"objective":"Current"}', id: "live" }),
 			]);
+			expect(snapshot).toMatchObject({ lastChannelMessageId: 1, messages: [{ id: 1 }] });
 		} finally {
 			rmSync(fixtureDir, { force: true, recursive: true });
 		}
@@ -146,6 +154,23 @@ describe("architect observer", () => {
 
 		expect(readArchitectSnapshot(controlDbPath, 0)).toEqual({ messages: [], sessions: [] });
 		expect(existsSync(controlDbPath)).toBe(false);
+	});
+
+	it("starts after the shared-channel tail instead of replaying history", () => {
+		const cursors: number[] = [];
+		const observer = new ArchitectObserver("/unused", (lastChannelMessageId) => {
+			cursors.push(lastChannelMessageId);
+			return {
+				lastChannelMessageId: 77,
+				messages: [{ body: "Architect: historical request", id: 20, senderAgentId: null, senderSessionId: "main" }],
+				sessions: [session],
+			};
+		});
+
+		observer.observe();
+		observer.observe();
+
+		expect(cursors).toEqual([0, 77]);
 	});
 
 	it("does not treat channel history as a new architect request", () => {
