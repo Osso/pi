@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { emptySessionHealth, type SessionCheckStatus, type SessionHealthRecord } from "./session-health.ts";
 import { createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 export interface IncomingControlMessage {
@@ -121,6 +122,19 @@ type LastMessageRow = {
 
 type RuntimeMailboxListenerRow = {
 	pid: number;
+	updated_at: string;
+};
+
+type SessionHealthRow = {
+	session_id: string;
+	agent_generation: number;
+	pid: number | null;
+	last_active_at: string | null;
+	last_checked_at: string | null;
+	check_status: string;
+	checked_generation: number | null;
+	check_latency_ms: number | null;
+	updated_at: string;
 };
 
 type IncomingStatusRow = {
@@ -436,6 +450,10 @@ export function registerRuntimeMailboxListener(
 				updated_at = excluded.updated_at
 			`,
 		).run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), pid, now);
+		// Main-thread listener rows are the durable source for live session pids/generations.
+		if (recipient.agentId === null) {
+			upsertSessionHealthForListener(db, recipient.sessionId, pid, now);
+		}
 	});
 }
 
@@ -446,12 +464,214 @@ function readRuntimeMailboxListenerRow(
 	return db
 		.prepare(
 			`
-			SELECT pid
+			SELECT pid, updated_at
 			FROM runtime_mailbox_listeners
 			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
 			`,
 		)
 		.get(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId)) as RuntimeMailboxListenerRow | undefined;
+}
+
+export function readRuntimeMailboxListener(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+): { pid: number; updatedAt: string } | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = readRuntimeMailboxListenerRow(db, recipient);
+		if (!row) return undefined;
+		return { pid: row.pid, updatedAt: row.updated_at };
+	});
+}
+
+export function listRuntimeMailboxListeners(
+	controlDbPath: string,
+): Array<{ sessionId: string; agentId: string | null; pid: number; updatedAt: string }> {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`
+				SELECT recipient_session_id, recipient_agent_id_key, pid, updated_at
+				FROM runtime_mailbox_listeners
+				`,
+			)
+			.all() as Array<{
+			recipient_session_id: string;
+			recipient_agent_id_key: string;
+			pid: number;
+			updated_at: string;
+		}>;
+		return rows.map((row) => ({
+			sessionId: row.recipient_session_id,
+			agentId: row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key,
+			pid: row.pid,
+			updatedAt: row.updated_at,
+		}));
+	});
+}
+
+export function readSessionHealth(controlDbPath: string, sessionId: string): SessionHealthRecord | undefined {
+	return withControlDb(controlDbPath, (db) => readSessionHealthRow(db, sessionId));
+}
+
+export function listSessionHealth(controlDbPath: string): SessionHealthRecord[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`
+				SELECT
+					session_id,
+					agent_generation,
+					pid,
+					last_active_at,
+					last_checked_at,
+					check_status,
+					checked_generation,
+					check_latency_ms,
+					updated_at
+				FROM session_health
+				ORDER BY updated_at DESC
+				`,
+			)
+			.all() as SessionHealthRow[];
+		return rows.map(sessionHealthFromRow);
+	});
+}
+
+export function writeSessionHealth(controlDbPath: string, health: SessionHealthRecord): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`
+			INSERT INTO session_health (
+				session_id,
+				agent_generation,
+				pid,
+				last_active_at,
+				last_checked_at,
+				check_status,
+				checked_generation,
+				check_latency_ms,
+				updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(session_id) DO UPDATE SET
+				agent_generation = excluded.agent_generation,
+				pid = excluded.pid,
+				last_active_at = excluded.last_active_at,
+				last_checked_at = excluded.last_checked_at,
+				check_status = excluded.check_status,
+				checked_generation = excluded.checked_generation,
+				check_latency_ms = excluded.check_latency_ms,
+				updated_at = excluded.updated_at
+			`,
+		).run(
+			health.sessionId,
+			health.agentGeneration,
+			health.pid,
+			health.lastActiveAt,
+			health.lastCheckedAt,
+			health.checkStatus,
+			health.checkedGeneration,
+			health.checkLatencyMs,
+			health.updatedAt,
+		);
+	});
+}
+
+function readSessionHealthRow(db: SqliteDatabase, sessionId: string): SessionHealthRecord | undefined {
+	const row = db
+		.prepare(
+			`
+			SELECT
+				session_id,
+				agent_generation,
+				pid,
+				last_active_at,
+				last_checked_at,
+				check_status,
+				checked_generation,
+				check_latency_ms,
+				updated_at
+			FROM session_health
+			WHERE session_id = ?
+			`,
+		)
+		.get(sessionId) as SessionHealthRow | undefined;
+	return row ? sessionHealthFromRow(row) : undefined;
+}
+
+function upsertSessionHealthForListener(db: SqliteDatabase, sessionId: string, pid: number, nowIso: string): void {
+	const existing = readSessionHealthRow(db, sessionId) ?? emptySessionHealth(sessionId, nowIso);
+	const next =
+		existing.pid === pid && existing.agentGeneration > 0
+			? {
+					...existing,
+					pid,
+					lastActiveAt: nowIso,
+					updatedAt: nowIso,
+				}
+			: {
+					...existing,
+					pid,
+					agentGeneration: existing.agentGeneration + 1,
+					lastActiveAt: nowIso,
+					updatedAt: nowIso,
+				};
+	db.prepare(
+		`
+		INSERT INTO session_health (
+			session_id,
+			agent_generation,
+			pid,
+			last_active_at,
+			last_checked_at,
+			check_status,
+			checked_generation,
+			check_latency_ms,
+			updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			agent_generation = excluded.agent_generation,
+			pid = excluded.pid,
+			last_active_at = excluded.last_active_at,
+			last_checked_at = excluded.last_checked_at,
+			check_status = excluded.check_status,
+			checked_generation = excluded.checked_generation,
+			check_latency_ms = excluded.check_latency_ms,
+			updated_at = excluded.updated_at
+		`,
+	).run(
+		next.sessionId,
+		next.agentGeneration,
+		next.pid,
+		next.lastActiveAt,
+		next.lastCheckedAt,
+		next.checkStatus,
+		next.checkedGeneration,
+		next.checkLatencyMs,
+		next.updatedAt,
+	);
+}
+
+function sessionHealthFromRow(row: SessionHealthRow): SessionHealthRecord {
+	return {
+		sessionId: row.session_id,
+		agentGeneration: row.agent_generation,
+		pid: row.pid,
+		lastActiveAt: row.last_active_at,
+		lastCheckedAt: row.last_checked_at,
+		checkStatus: toSessionCheckStatus(row.check_status),
+		checkedGeneration: row.checked_generation,
+		checkLatencyMs: row.check_latency_ms,
+		updatedAt: row.updated_at,
+	};
+}
+
+function toSessionCheckStatus(value: string): SessionCheckStatus {
+	if (value === "ok" || value === "dead" || value === "timeout" || value === "never") {
+		return value;
+	}
+	return "never";
 }
 
 function runtimeMailboxAgentIdKey(agentId: string | null): string {
@@ -1446,6 +1666,18 @@ function initializeSchema(db: SqliteDatabase): void {
 			next_agent_number INTEGER NOT NULL,
 			next_artifact_number INTEGER NOT NULL,
 			next_message_number INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS session_health (
+			session_id TEXT PRIMARY KEY,
+			agent_generation INTEGER NOT NULL,
+			pid INTEGER,
+			last_active_at TEXT,
+			last_checked_at TEXT,
+			check_status TEXT NOT NULL,
+			checked_generation INTEGER,
+			check_latency_ms INTEGER,
 			updated_at TEXT NOT NULL
 		);
 	`);

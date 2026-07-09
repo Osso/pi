@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added built-in `list_sessions` and `broadcast` tools with control-DB session health, sticky dead checks, and runtime mailbox delivery.
 - Added built-in `outline`, `symbol`, and `references` tools backed by the external `code-index` CLI.
 - Added a built-in `ask_questions` tool for structured clarifying questions in interactive sessions.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.

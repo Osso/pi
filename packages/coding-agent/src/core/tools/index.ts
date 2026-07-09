@@ -15,6 +15,11 @@ export {
 	createLocalBashOperations,
 } from "./bash.ts";
 export {
+	type BroadcastToolDetails,
+	type BroadcastToolInput,
+	createBroadcastToolDefinition,
+} from "./broadcast.ts";
+export {
 	type CodeIndexCommandResult,
 	type CodeIndexOperations,
 	type CodeIndexToolDetails,
@@ -54,6 +59,11 @@ export {
 	type GrepToolInput,
 	type GrepToolOptions,
 } from "./grep.ts";
+export {
+	createListSessionsToolDefinition,
+	type ListSessionsToolDetails,
+	type ListSessionsToolInput,
+} from "./list-sessions.ts";
 export {
 	createLsTool,
 	createLsToolDefinition,
@@ -97,6 +107,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
+import { createBroadcastToolDefinition } from "./broadcast.ts";
 import {
 	type CodeIndexToolOptions,
 	createOutlineTool,
@@ -109,6 +120,7 @@ import {
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
+import { createListSessionsToolDefinition } from "./list-sessions.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
 import { createResumeSessionToolDefinition } from "./resume-session.ts";
@@ -129,6 +141,8 @@ export type ToolName =
 	| "symbol"
 	| "references"
 	| "resume_session"
+	| "list_sessions"
+	| "broadcast"
 	| "ask_questions";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
@@ -142,6 +156,8 @@ export const allToolNames: Set<ToolName> = new Set([
 	"symbol",
 	"references",
 	"resume_session",
+	"list_sessions",
+	"broadcast",
 	"ask_questions",
 ]);
 export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
@@ -156,6 +172,8 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"symbol",
 	"references",
 	"resume_session",
+	"list_sessions",
+	"broadcast",
 	"ask_questions",
 ];
 
@@ -194,6 +212,10 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createReferencesToolDefinition(cwd, options?.codeIndex);
 		case "resume_session":
 			return createResumeSessionToolDefinition();
+		case "list_sessions":
+			return createListSessionsToolDefinition();
+		case "broadcast":
+			return createBroadcastToolDefinition();
 		case "ask_questions":
 			return createAskQuestionsToolDefinition();
 		default:
@@ -225,6 +247,10 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createReferencesTool(cwd, options?.codeIndex);
 		case "resume_session":
 			return wrapToolDefinition(createResumeSessionToolDefinition());
+		case "list_sessions":
+			return wrapToolDefinition(createListSessionsToolDefinition());
+		case "broadcast":
+			return wrapToolDefinition(createBroadcastToolDefinition());
 		case "ask_questions":
 			return wrapToolDefinition(createAskQuestionsToolDefinition());
 		default:
@@ -266,6 +292,8 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		symbol: createSymbolToolDefinition(cwd, options?.codeIndex),
 		references: createReferencesToolDefinition(cwd, options?.codeIndex),
 		resume_session: createResumeSessionToolDefinition(),
+		list_sessions: createListSessionsToolDefinition(),
+		broadcast: createBroadcastToolDefinition(),
 		ask_questions: createAskQuestionsToolDefinition(),
 	};
 }
@@ -304,6 +332,8 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		symbol: createSymbolTool(cwd, options?.codeIndex),
 		references: createReferencesTool(cwd, options?.codeIndex),
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
+		list_sessions: wrapToolDefinition(createListSessionsToolDefinition()),
+		broadcast: wrapToolDefinition(createBroadcastToolDefinition()),
 		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
 	};
 }
