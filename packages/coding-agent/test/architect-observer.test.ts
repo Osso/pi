@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
 	createArchitectObservation,
 	readArchitectSnapshot,
 } from "../src/architect/observer.ts";
+import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
 const session: ArchitectSessionSnapshot = {
 	cwd: "/repo",
@@ -70,6 +71,74 @@ describe("architect observer", () => {
 		];
 
 		expect(createArchitectObservation(previous, [session], messages)).toBeUndefined();
+	});
+
+	it("keeps only the newest live session per ID in the observation", () => {
+		const fixtureDir = join(tmpdir(), `pi-architect-live-${crypto.randomUUID()}`);
+		const controlDbPath = join(fixtureDir, "control.sqlite");
+		mkdirSync(fixtureDir);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE session_metadata (
+					id TEXT NOT NULL, cwd TEXT NOT NULL, name TEXT, goal_json TEXT,
+					is_subagent INTEGER NOT NULL, modified_at TEXT NOT NULL, updated_at TEXT NOT NULL
+				);
+				CREATE TABLE session_health (
+					session_id TEXT NOT NULL, pid INTEGER, check_status TEXT NOT NULL,
+					agent_generation INTEGER NOT NULL, checked_generation INTEGER, last_active_at TEXT
+				);
+				CREATE TABLE shared_channel_messages (
+					id INTEGER PRIMARY KEY, sender_session_id TEXT NOT NULL,
+					sender_agent_id TEXT, body TEXT NOT NULL
+				);
+			`);
+			db.prepare("INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+				"live",
+				"/old",
+				"old",
+				'{"objective":"Old"}',
+				0,
+				"2026-07-09T20:00:00.000Z",
+				"2026-07-09T20:00:00.000Z",
+			);
+			db.prepare("INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+				"live",
+				"/current",
+				"current",
+				'{"objective":"Current"}',
+				0,
+				"2026-07-09T22:00:00.000Z",
+				"2026-07-09T22:00:00.000Z",
+			);
+			db.prepare("INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+				"ended",
+				"/ended",
+				"ended",
+				'{"objective":"Ended"}',
+				0,
+				"2026-07-09T22:00:00.000Z",
+				"2026-07-09T22:00:00.000Z",
+			);
+			db.prepare("INSERT INTO session_health VALUES (?, ?, ?, ?, ?, ?)").run(
+				"live",
+				123,
+				"ok",
+				1,
+				1,
+				new Date().toISOString(),
+			);
+			db.prepare("INSERT INTO session_health VALUES (?, ?, ?, ?, ?, ?)").run("ended", null, "dead", 1, 1, null);
+		} finally {
+			db.close();
+		}
+		try {
+			expect(readArchitectSnapshot(controlDbPath, 0).sessions).toEqual([
+				expect.objectContaining({ cwd: "/current", goalJson: '{"objective":"Current"}', id: "live" }),
+			]);
+		} finally {
+			rmSync(fixtureDir, { force: true, recursive: true });
+		}
 	});
 
 	it("does not create a control database when it has not been initialized", () => {

@@ -86,9 +86,29 @@ export function readArchitectSnapshot(controlDbPath: string, lastChannelMessageI
 		const sessions = (
 			db
 				.prepare(
-					`SELECT id, cwd, name, goal_json, is_subagent
-				 FROM session_metadata
-				 ORDER BY id ASC`,
+					`WITH live_sessions AS (
+						SELECT
+							metadata.id,
+							metadata.cwd,
+							metadata.name,
+							metadata.goal_json,
+							metadata.is_subagent,
+							ROW_NUMBER() OVER (
+								PARTITION BY metadata.id
+								ORDER BY metadata.modified_at DESC, metadata.updated_at DESC
+							) AS row_number
+						FROM session_metadata AS metadata
+						INNER JOIN session_health AS health ON health.session_id = metadata.id
+						WHERE health.pid IS NOT NULL
+							AND health.check_status = 'ok'
+							AND health.checked_generation = health.agent_generation
+							AND julianday(health.last_active_at) >= julianday('now', '-5 minutes')
+					)
+					SELECT id, cwd, name, goal_json, is_subagent
+					FROM live_sessions
+					WHERE row_number = 1
+					ORDER BY id ASC
+					LIMIT 20`,
 				)
 				.all() as SessionRow[]
 		).map((row) => ({
@@ -102,10 +122,10 @@ export function readArchitectSnapshot(controlDbPath: string, lastChannelMessageI
 			db
 				.prepare(
 					`SELECT id, sender_session_id, sender_agent_id, body
-				 FROM shared_channel_messages
-				 WHERE id > ?
-				 ORDER BY id ASC
-				 LIMIT 20`,
+					 FROM shared_channel_messages
+					 WHERE id > ?
+					 ORDER BY id ASC
+					 LIMIT 20`,
 				)
 				.all(lastChannelMessageId) as ChannelMessageRow[]
 		).map((row) => ({
