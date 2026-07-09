@@ -32,6 +32,7 @@
 - Added public SDK exports for CLI-equivalent model and scoped-model resolution ([#6201](https://github.com/earendil-works/pi/issues/6201)).
 - Added extension entry renderers for persisted display-only session entries that are rendered in interactive mode without being sent to the model context.
 - Added `/continue` to continue the current transcript without adding a user message.
+- Added `/effort`: without an argument, it opens a selector of thinking levels supported by the current model; `/effort <level>` sets a supported level directly.
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, and user bash through explicitly selected sandbox profiles.

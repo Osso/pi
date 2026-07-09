@@ -39,6 +39,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
+| `/effort [level]` | Choose a supported thinking level, or set one directly |
 | `/resume` | Pick from previous sessions |
 | `/agents` | Open agent switcher |
 | `/new` | Start a new session |
