@@ -26,13 +26,9 @@ require_safe_absolute_dir() {
 }
 
 cleanup_extension_build_outputs() {
-	shopt -s globstar nullglob
-	rm -f \
-		packages/coding-agent/extensions/**/src/*.js \
-		packages/coding-agent/extensions/**/src/*.js.map \
-		packages/coding-agent/extensions/**/src/*.d.ts \
-		packages/coding-agent/extensions/**/src/*.d.ts.map
-	shopt -u globstar nullglob
+	# The SDK resident architect imports first-party extensions from this checkout.
+	# Their generated JS files must survive deployment while the service is active.
+	:
 }
 
 rollback_install_on_failure() {
@@ -95,6 +91,7 @@ npm --prefix packages/agent-core run clean
 npm --prefix packages/agent-core run build
 npm --prefix packages/coding-agent run clean
 npm --prefix packages/coding-agent run build
+ln -sfn ../dist/index.js packages/coding-agent/src/index.js
 
 "$ROOT_DIR/scripts/build-binaries.sh" --skip-install --skip-deps --skip-build --platform "$PLATFORM" --out "$BUILD_DIR"
 cp -R "$BUILD_DIR/$PLATFORM" "$TMP_INSTALL_DIR"

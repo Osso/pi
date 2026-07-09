@@ -1,0 +1,14 @@
+[Unit]
+Description=Pi resident architect
+After=default.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h
+ExecStart=%h/Repos/pi/node_modules/.bin/jiti %h/Repos/pi/packages/coding-agent/src/architect/main.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
