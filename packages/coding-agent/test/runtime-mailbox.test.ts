@@ -83,8 +83,8 @@ function runtimeMailboxPrompt(body: string): string {
 	return ["From:", "- session: child-session", "- agent: agent_1", "", "Message:", body].join("\n");
 }
 
-function sharedChannelPrompt(body: string): string {
-	return ["From shared channel:", "- session: sender-session", "- agent: main", "", "Message:", body].join("\n");
+function sharedChannelPrompt(body: string, sessionId = "sender-session"): string {
+	return ["From shared channel:", `- session: ${sessionId}`, "- agent: main", "", "Message:", body].join("\n");
 }
 
 function collectMultiAgentTools(
@@ -904,7 +904,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
 	});
 
-	it("drains shared channel messages while idle and advances the cursor", async () => {
+	it("batches unread shared channel chatter into one idle agent turn and advances the cursor", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
@@ -915,9 +915,21 @@ describe("runtime SQLite mailbox delivery", () => {
 			agentId: null,
 			sessionId: harness.sessionManager.getSessionId(),
 		});
+		postSharedChannelMessage(controlDbPath, {
+			body: "First shared status?",
+			sender: { agentId: null, sessionId: "sender-session-a" },
+		});
+		postSharedChannelMessage(controlDbPath, {
+			body: "self note",
+			sender: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+		});
+		postSharedChannelMessage(controlDbPath, {
+			body: "old subagent pong",
+			sender: { agentId: "agent_4", sessionId: "sender-session" },
+		});
 		const messageId = postSharedChannelMessage(controlDbPath, {
-			body: "Shared status?",
-			sender: { agentId: null, sessionId: "sender-session" },
+			body: "Second shared status?",
+			sender: { agentId: null, sessionId: "sender-session-b" },
 		});
 		const drainableSession = harness.session as unknown as {
 			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
@@ -927,10 +939,47 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(queued).toBe(false);
-		expect(getUserTexts(harness)).toEqual([sharedChannelPrompt("Shared status?")]);
+		expect(getUserTexts(harness)).toEqual([
+			[
+				sharedChannelPrompt("First shared status?", "sender-session-a"),
+				sharedChannelPrompt("Second shared status?", "sender-session-b"),
+			].join("\n\n"),
+		]);
 		expect(
 			readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: harness.sessionManager.getSessionId() }),
 		).toBe(messageId);
+	});
+
+	it("keeps the shared channel cursor unchanged when a batch fails to deliver", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		postSharedChannelMessage(controlDbPath, {
+			body: "first note",
+			sender: { agentId: null, sessionId: "sender-session-a" },
+		});
+		postSharedChannelMessage(controlDbPath, {
+			body: "reject this batch",
+			sender: { agentId: null, sessionId: "sender-session-b" },
+		});
+		vi.spyOn(harness.session, "prompt").mockImplementation(async (prompt) => {
+			if (prompt.includes("reject this batch")) {
+				throw new Error("channel delivery failed");
+			}
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		await expect(drainableSession._drainSharedChannelMessages({ triggerIfIdle: true })).rejects.toThrow(
+			"channel delivery failed",
+		);
+
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
 	});
 
 	it("does not deliver shared channel messages posted by the same recipient", async () => {

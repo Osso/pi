@@ -19,9 +19,10 @@ once needed.
 ### Delivery
 
 - [x] Main-thread idle sessions drain messages with `id > cursor` from the shared channel.
+- [x] All unread deliverable chatter present at an idle drain is combined into one shared-channel prompt and one agent turn, preserving message order.
 - [x] Subagent sessions do not drain shared-channel messages by default.
-- [x] Channel prompts are clearly tagged as shared-channel input and include sender session/agent.
-- [x] The cursor advances after successful delivery.
+- [x] Every delivered channel entry is clearly tagged as shared-channel input and includes its sender session/agent.
+- [x] The cursor advances through a batch only after its combined prompt is successfully delivered; a failed batch remains unread.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
 - [x] Messages posted by subagents are skipped and marked seen, preventing old-process subagent traffic from flooding main sessions.
 - [x] Busy/streaming sessions do not drain channel messages until a later idle drain.
@@ -49,7 +50,7 @@ once needed.
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/session-control-db.test.ts`
-- `packages/coding-agent/test/runtime-mailbox.test.ts`
+- `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts`
 
 ## Known gaps (current cycle)

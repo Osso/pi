@@ -411,7 +411,11 @@ function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSes
 	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
 }
 
-function formatSharedChannelPrompt(message: SharedChannelMessage, recipientSessionId: string): string {
+function formatSharedChannelPrompt(messages: SharedChannelMessage[], recipientSessionId: string): string {
+	return messages.map((message) => formatSharedChannelMessage(message, recipientSessionId)).join("\n\n");
+}
+
+function formatSharedChannelMessage(message: SharedChannelMessage, recipientSessionId: string): string {
 	const senderSession = message.sender.sessionId || "unknown-session";
 	const senderAgent = message.sender.agentId || "main";
 	const body = message.body.trim() || "No message body.";
@@ -2238,17 +2242,33 @@ export class AgentSession {
 		const recipient = this._sharedChannelRecipient();
 		const cursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		const messages = listSharedChannelMessagesAfter(controlDbPath, cursor);
-		let queued = false;
-		for (const message of messages) {
-			const outcome = await this._deliverSharedChannelMessage(controlDbPath, recipient, message, options);
-			if (outcome === "busy") {
-				break;
-			}
-			if (outcome === "queued") {
-				queued = true;
-			}
+		if (messages.length === 0) {
+			return false;
 		}
-		return queued;
+
+		const deliverableMessages = messages.filter(
+			(message) => !isOwnSharedChannelMessage(message, recipient) && !isSubagentSharedChannelMessage(message),
+		);
+		const lastMessageId = messages.at(-1)?.id;
+		if (lastMessageId === undefined) {
+			return false;
+		}
+		if (deliverableMessages.length === 0) {
+			advanceSharedChannelCursor(controlDbPath, recipient, lastMessageId);
+			return false;
+		}
+
+		try {
+			const prompt = formatSharedChannelPrompt(deliverableMessages, recipient.sessionId);
+			const queued = await this._sendSharedChannelPrompt(prompt, options);
+			advanceSharedChannelCursor(controlDbPath, recipient, lastMessageId);
+			return queued;
+		} catch (error) {
+			if (isSessionBusyPromptError(error)) {
+				return false;
+			}
+			throw error;
+		}
 	}
 
 	private _sharedChannelRecipient(): RuntimeMailboxAddress {
@@ -2256,29 +2276,6 @@ export class AgentSession {
 			agentId: this._getRuntimeMailboxAgentId(),
 			sessionId: this.sessionId,
 		};
-	}
-
-	private async _deliverSharedChannelMessage(
-		controlDbPath: string,
-		recipient: RuntimeMailboxAddress,
-		message: SharedChannelMessage,
-		options: { triggerIfIdle: boolean },
-	): Promise<"busy" | "delivered" | "queued"> {
-		if (isOwnSharedChannelMessage(message, recipient) || isSubagentSharedChannelMessage(message)) {
-			advanceSharedChannelCursor(controlDbPath, recipient, message.id);
-			return "delivered";
-		}
-		try {
-			const prompt = formatSharedChannelPrompt(message, recipient.sessionId);
-			const queued = await this._sendSharedChannelPrompt(prompt, options);
-			advanceSharedChannelCursor(controlDbPath, recipient, message.id);
-			return queued ? "queued" : "delivered";
-		} catch (error) {
-			if (isSessionBusyPromptError(error)) {
-				return "busy";
-			}
-			throw error;
-		}
 	}
 
 	private async _sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean> {
