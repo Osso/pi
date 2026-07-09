@@ -4,7 +4,8 @@
 
 ### Added
 
-- Added built-in `channel_post` for the global SQLite-backed shared channel with per-session cursors and idle delivery.
+- Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
+- Added built-in `channel_post` for the global SQLite-backed shared channel with per-main-session cursors and idle delivery.
 - Added built-in `list_sessions` and `broadcast` tools with control-DB session health, sticky dead checks, and runtime mailbox delivery.
 - Opened `control.sqlite` with multi-consumer WAL settings so concurrent Pi sessions can list/broadcast and write mailboxes without exclusive-lock failures.
 - Added built-in `outline`, `symbol`, and `references` tools backed by the external `code-index` CLI.

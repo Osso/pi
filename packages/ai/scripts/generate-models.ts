@@ -248,7 +248,8 @@ function supportsOpenAiXhigh(modelId: string): boolean {
 		modelId.includes("gpt-5.2") ||
 		modelId.includes("gpt-5.3") ||
 		modelId.includes("gpt-5.4") ||
-		modelId.includes("gpt-5.5")
+		modelId.includes("gpt-5.5") ||
+		modelId.includes("gpt-5.6")
 	);
 }
 
@@ -1798,9 +1799,10 @@ async function generateModels() {
 
 	// OpenAI Codex (ChatGPT OAuth) models
 	// NOTE: These are not fetched from models.dev; we keep a small, explicit list to avoid aliases.
-	// Context window is based on observed server limits (400s above ~272k), not marketing numbers.
+	// Context windows are based on observed Codex server limits or live provider metadata, not marketing numbers.
 	const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 	const CODEX_CONTEXT = 272000;
+	const CODEX_5_6_CONTEXT = 1050000;
 	const CODEX_SPARK_CONTEXT = 128000;
 	const CODEX_MAX_TOKENS = 128000;
 	const codexModels: Model<"openai-codex-responses">[] = [
@@ -1850,6 +1852,30 @@ async function generateModels() {
 			input: ["text", "image"],
 			cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
 			contextWindow: CODEX_CONTEXT,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+		{
+			id: "gpt-5.6-terra",
+			name: "GPT-5.6 Terra",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 },
+			contextWindow: CODEX_5_6_CONTEXT,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+		{
+			id: "gpt-5.6-sol",
+			name: "GPT-5.6 Sol",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
+			contextWindow: CODEX_5_6_CONTEXT,
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 	];

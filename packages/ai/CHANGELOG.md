@@ -19,6 +19,7 @@
 
 ### Added
 
+- Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added an `openai-codex-gc` provider alias for logging in to a second OpenAI Codex account separately.
 - Refreshed generated model catalogs from models.dev, adding newly listed models including Kimi K2.7 Code for GitHub Copilot and Fable 5 to several providers ([#6256](https://github.com/earendil-works/pi/issues/6256)).
 - Added Claude Sonnet 5 to the GitHub Copilot model catalog ([#6200](https://github.com/earendil-works/pi/issues/6200)).

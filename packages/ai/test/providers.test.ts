@@ -38,6 +38,25 @@ describe("builtin providers", () => {
 			provider: "openai-codex-gc",
 		});
 
+		const codexSolModel = models.getModel("openai-codex", "gpt-5.6-sol");
+		expect(codexSolModel).toMatchObject({
+			name: "GPT-5.6 Sol",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			reasoning: true,
+			contextWindow: 1050000,
+			maxTokens: 128000,
+		});
+		expect(models.getModel("openai-codex", "gpt-5.6-terra")).toMatchObject({
+			name: "GPT-5.6 Terra",
+			contextWindow: 1050000,
+			maxTokens: 128000,
+		});
+		expect(models.getModel("openai-codex-gc", "gpt-5.6-sol")).toMatchObject({
+			...codexSolModel,
+			provider: "openai-codex-gc",
+		});
+
 		const all = models.getModels();
 		expect(all.length).toBeGreaterThan(500);
 
