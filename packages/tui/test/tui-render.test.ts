@@ -679,24 +679,31 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
-	it("full re-renders when content grows before existing following lines", async () => {
-		const terminal = new VirtualTerminal(20, 6);
+	it("renders chat growth before the editor without clearing scrollback", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
 		const tui = new TUI(terminal);
-		const component = new TestComponent();
-		tui.addChild(component);
+		const chat = new TestComponent();
+		const editor = new TestComponent();
+		tui.addChild(chat);
+		tui.addChild(editor);
 
-		component.lines = ["head", "tail"];
+		chat.lines = ["history 0", "history 1", "history 2", "history 3"];
+		editor.lines = ["editor", "footer"];
 		tui.start();
 		await terminal.waitForRender();
 
 		const initialRedraws = tui.fullRedraws;
+		terminal.clearWrites();
 
-		component.lines = ["head", "inserted", "tail"];
+		chat.lines = [...chat.lines, "incoming update"];
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		assert.ok(tui.fullRedraws > initialRedraws, "Insertion before following lines should force a full redraw");
-		assert.deepStrictEqual(terminal.getViewport(), ["head", "inserted", "tail", "", "", ""]);
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Chat growth should stay on the differential path");
+		assert.ok(!terminal.getWrites().includes("\x1b[2J"), "Chat growth should not clear the screen");
+		assert.ok(!terminal.getWrites().includes("\x1b[3J"), "Chat growth should not clear scrollback");
+		assert.deepStrictEqual(terminal.getViewport(), ["history 2", "history 3", "incoming update", "editor", "footer"]);
+		assert.deepStrictEqual(terminal.getScrollBuffer().slice(0, 2), ["history 0", "history 1"]);
 
 		tui.stop();
 	});
