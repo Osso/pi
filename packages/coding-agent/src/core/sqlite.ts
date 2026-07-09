@@ -47,3 +47,46 @@ export function createSqliteDatabase(path: string): SqliteDatabase {
 	const Database = loadDatabaseConstructor();
 	return new Database(path);
 }
+
+/** Default multi-consumer open settings for shared process-local SQLite DBs. */
+export const DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS = 5000;
+
+export interface ConfigureSharedSqliteDatabaseOptions {
+	busyTimeoutMs?: number;
+}
+
+/**
+ * Configure a SQLite connection for concurrent multi-process access.
+ * Enables WAL so readers do not block writers (and vice versa) and sets a busy timeout.
+ */
+export function configureSharedSqliteDatabase(
+	db: SqliteDatabase,
+	options: ConfigureSharedSqliteDatabaseOptions = {},
+): void {
+	const busyTimeoutMs = options.busyTimeoutMs ?? DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS;
+	db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+	const journalMode = readPragmaValue(db, "PRAGMA journal_mode");
+	if (journalMode !== "wal") {
+		db.exec("PRAGMA journal_mode = WAL");
+	}
+	const synchronous = readPragmaValue(db, "PRAGMA synchronous");
+	// 1 == NORMAL. WAL + NORMAL is the standard multi-consumer throughput tradeoff.
+	if (synchronous !== "1" && synchronous !== "normal") {
+		db.exec("PRAGMA synchronous = NORMAL");
+	}
+}
+
+function readPragmaValue(db: SqliteDatabase, sql: string): string {
+	const row = db.prepare(sql).get() as Record<string, unknown> | string | number | null | undefined;
+	if (row === null || row === undefined) {
+		return "";
+	}
+	if (typeof row === "string" || typeof row === "number") {
+		return String(row).toLowerCase();
+	}
+	const value = Object.values(row)[0];
+	if (typeof value === "string" || typeof value === "number") {
+		return String(value).toLowerCase();
+	}
+	return "";
+}

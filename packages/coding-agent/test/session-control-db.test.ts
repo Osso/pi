@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	claimLatestIncomingMessage,
@@ -29,7 +31,7 @@ import {
 	writeSessionGoal,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import { configureSharedSqliteDatabase, createSqliteDatabase } from "../src/core/sqlite.ts";
 
 let storedMessageCounter = 0;
 
@@ -80,6 +82,84 @@ describe("session control DB", () => {
 
 	it("stores control state next to the session transcript", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
+	});
+
+	it("opens control.sqlite in WAL mode for multi-consumer access", () => {
+		writeLastMessage(controlDbPath, { role: "assistant", content: "prime schema" });
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const journal = db.prepare("PRAGMA journal_mode").get() as Record<string, unknown> | string;
+			const journalMode =
+				typeof journal === "string" ? journal.toLowerCase() : String(Object.values(journal)[0] ?? "").toLowerCase();
+			// journal_mode is on-disk and survives reconnects after the first control open.
+			expect(journalMode).toBe("wal");
+
+			configureSharedSqliteDatabase(db);
+			const busy = db.prepare("PRAGMA busy_timeout").get() as Record<string, unknown> | number;
+			const busyTimeout = typeof busy === "number" ? busy : Number(Object.values(busy)[0] ?? Number.NaN);
+			expect(busyTimeout).toBe(5000);
+
+			const synchronous = db.prepare("PRAGMA synchronous").get() as Record<string, unknown> | number | string;
+			const synchronousValue =
+				typeof synchronous === "number" || typeof synchronous === "string"
+					? String(synchronous).toLowerCase()
+					: String(Object.values(synchronous)[0] ?? "").toLowerCase();
+			expect(["1", "normal"]).toContain(synchronousValue);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("allows concurrent multi-process readers and writers on control.sqlite", async () => {
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: "/tmp/session-a.jsonl",
+			id: "session-a",
+			cwd: "/repo/a",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+		});
+
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import {
+				enqueueIncomingMessage,
+				listSessionMetadata,
+				writeLastMessage,
+			} from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+
+			const { controlDbPath, workerId } = workerData;
+			for (let i = 0; i < 25; i++) {
+				enqueueIncomingMessage(controlDbPath, \`worker-\${workerId}-\${i}\`);
+				writeLastMessage(controlDbPath, {
+					role: "assistant",
+					content: \`worker-\${workerId}-answer-\${i}\`,
+				});
+				listSessionMetadata(controlDbPath);
+			}
+			parentPort?.postMessage({ ok: true, workerId });
+		`;
+
+		const workers = Array.from({ length: 4 }, (_, workerId) => {
+			return new Promise<{ ok: true; workerId: number }>((resolve, reject) => {
+				const worker = new Worker(workerSource, {
+					eval: true,
+					execArgv: ["--experimental-strip-types"],
+					workerData: { controlDbPath, workerId },
+				});
+				worker.on("message", resolve);
+				worker.on("error", reject);
+				worker.on("exit", (code) => {
+					if (code !== 0) reject(new Error(`worker exited with code ${code}`));
+				});
+			});
+		});
+
+		const results = await Promise.all(workers);
+		expect(results).toHaveLength(4);
+		expect(listSessionMetadata(controlDbPath)).toHaveLength(1);
 	});
 
 	it("claims only the latest pending incoming message", () => {

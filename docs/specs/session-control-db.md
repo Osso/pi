@@ -7,6 +7,9 @@ reply without changing the JSONL transcript format. How it works lives in
 
 - [x] Store the single control database at `control.sqlite` under the agent
   directory.
+- [x] Open the control database with multi-consumer SQLite settings (WAL journal
+  mode, busy timeout, NORMAL synchronous) so concurrent Pi sessions can read and
+  write without exclusive-lock failures.
 - [x] Store incoming harness messages outside the JSONL transcript.
 - [x] Claim only the newest pending incoming message and supersede older pending
   messages.
@@ -50,6 +53,8 @@ reply without changing the JSONL transcript format. How it works lives in
 - `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path,
   schema, incoming-message claim/complete API, last-message API, prompt-history
   API, and session metadata API.
+- `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
+  configuration helper used by the control DB.
 - `packages/coding-agent/src/cli/control-command.ts` — `pi control` command
   parser and output.
 - `packages/coding-agent/src/main.ts` — claims a pending incoming message before

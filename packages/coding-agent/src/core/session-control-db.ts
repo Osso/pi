@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { emptySessionHealth, type SessionCheckStatus, type SessionHealthRecord } from "./session-health.ts";
-import { createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
+import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 export interface IncomingControlMessage {
 	id: number;
@@ -1541,7 +1541,9 @@ export function readMultiAgentState(controlDbPath: string, sessionPath: string):
 function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
 	const db = createSqliteDatabase(controlDbPath);
 	try {
-		db.exec("PRAGMA busy_timeout = 5000");
+		// Shared control.sqlite is multi-process (all Pi sessions on the machine).
+		// WAL + busy_timeout keeps list_sessions/broadcast and mailbox writes safe under contention.
+		configureSharedSqliteDatabase(db);
 		initializeSchema(db);
 		return callback(db);
 	} finally {
