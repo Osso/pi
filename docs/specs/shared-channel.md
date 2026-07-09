@@ -18,7 +18,8 @@ once needed.
 
 ### Delivery
 
-- [x] Idle sessions drain messages with `id > cursor` from the shared channel.
+- [x] Main-thread idle sessions drain messages with `id > cursor` from the shared channel.
+- [x] Subagent sessions do not drain shared-channel messages by default.
 - [x] Channel prompts are clearly tagged as shared-channel input and include sender session/agent.
 - [x] The cursor advances after successful delivery.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
@@ -28,6 +29,7 @@ once needed.
 
 - [x] `channel_post` is registered as a built-in tool and active by default.
 - [x] `channel_post` appends one non-empty message to the shared channel.
+- [x] `channel_post` is rejected from subagent contexts by default.
 - [x] `channel_post` advances the sender cursor to the posted message so the sender does not receive its own post.
 
 ## How it works
@@ -59,4 +61,5 @@ once needed.
 
 - Multiple named rooms/channels.
 - Membership lists, join/leave, or per-room ACLs.
+- Default subagent channel participation; subagents may get explicit opt-in later.
 - Replacing `broadcast`; broadcast remains the explicit force-message path.

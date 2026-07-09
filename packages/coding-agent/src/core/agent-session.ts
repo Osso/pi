@@ -2206,6 +2206,9 @@ export class AgentSession {
 	}
 
 	private async _drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+		if (this._getRuntimeMailboxAgentId() !== null) {
+			return false;
+		}
 		if (this._sharedChannelDrainInProgress) {
 			return false;
 		}

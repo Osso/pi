@@ -27,6 +27,9 @@ export function createChannelPostToolDefinition(): ToolDefinition<typeof channel
 		parameters: channelPostSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (ctx?.multiAgentAgentId || ctx?.multiAgentRequiresAgentId) {
+				throw new Error("channel_post is only available from main sessions");
+			}
 			const controlDbPath = requireControlDbPath(ctx);
 			const message = params.message.trim();
 			if (!message) {
