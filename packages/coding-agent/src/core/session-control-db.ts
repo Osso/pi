@@ -1530,6 +1530,113 @@ export function upsertMultiAgentAgent(controlDbPath: string, sessionPath: string
 	upsertMultiAgentRow(controlDbPath, "multi_agent_agents", "agent_id", sessionPath, id, data);
 }
 
+const SUPERVISOR_RESTARTED_ERROR = {
+	code: "supervisor_restarted",
+	message: "Spawned agent was interrupted because its supervisor session is no longer active.",
+} as const;
+
+const ACTIVE_SPAWNED_AGENT_LIFECYCLES = new Set([
+	"starting",
+	"running",
+	"waiting_for_input",
+	"steering_pending",
+	"cancelling",
+]);
+
+interface PersistedMultiAgentRow {
+	session_path: string;
+	agent_id: string;
+	data: string;
+}
+
+/**
+ * Abort active spawned agents for one known inactive supervisor store. The update only proceeds
+ * when this exact store has metadata and its supervisor health row is explicitly unbound.
+ */
+export function abortPersistedSpawnedAgentsForInactiveSupervisorSession(
+	controlDbPath: string,
+	sessionPath: string,
+): number {
+	return abortInactiveSessionSpawnedAgentRows(controlDbPath, undefined, sessionPath);
+}
+
+/**
+ * Abort active spawned agents in every persisted store whose matching supervisor has explicitly
+ * ended. Queued and attached agents are deliberately retained because no runtime was started.
+ */
+export function abortInactiveSessionSpawnedAgents(controlDbPath: string, nowIso?: string): number {
+	return abortInactiveSessionSpawnedAgentRows(controlDbPath, nowIso);
+}
+
+export function reconcilePersistedSpawnedAgentsForInactiveSupervisors(controlDbPath: string): number;
+export function reconcilePersistedSpawnedAgentsForInactiveSupervisors(
+	controlDbPath: string,
+	sessionPath: string,
+): number;
+export function reconcilePersistedSpawnedAgentsForInactiveSupervisors(
+	controlDbPath: string,
+	sessionPath?: string,
+): number {
+	return abortInactiveSessionSpawnedAgentRows(controlDbPath, undefined, sessionPath);
+}
+
+function abortInactiveSessionSpawnedAgentRows(controlDbPath: string, nowIso?: string, sessionPath?: string): number {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const rows = db
+				.prepare(
+					`
+					SELECT agents.session_path, agents.agent_id, agents.data
+					FROM multi_agent_agents AS agents
+					WHERE (? IS NULL OR agents.session_path = ?)
+						AND EXISTS (
+							SELECT 1
+							FROM session_metadata AS metadata
+							INNER JOIN session_health AS health ON health.session_id = metadata.id
+							WHERE metadata.session_path = agents.session_path
+								AND health.pid IS NULL
+						)
+					`,
+				)
+				.all(sessionPath ?? null, sessionPath ?? null) as PersistedMultiAgentRow[];
+			const now = nowIso ?? new Date().toISOString();
+			let changed = 0;
+			for (const row of rows) {
+				const agent = parseJsonObject(row.data);
+				if (!agent || !isActiveSpawnedAgent(agent)) {
+					continue;
+				}
+				const updated = {
+					...agent,
+					error: SUPERVISOR_RESTARTED_ERROR,
+					lifecycle: "aborted",
+					revision: (agent.revision as number) + 1,
+					updatedAt: now,
+					worker: undefined,
+				};
+				db.prepare(
+					`
+					UPDATE multi_agent_agents
+					SET data = ?, updated_at = ?
+					WHERE session_path = ? AND agent_id = ?
+					`,
+				).run(JSON.stringify(updated), now, row.session_path, row.agent_id);
+				changed += 1;
+			}
+			return changed;
+		}),
+	);
+}
+
+function isActiveSpawnedAgent(agent: Record<string, unknown>): agent is Record<string, unknown> & { revision: number } {
+	return (
+		(agent.origin === undefined || agent.origin === "spawned") &&
+		typeof agent.revision === "number" &&
+		typeof agent.lifecycle === "string" &&
+		ACTIVE_SPAWNED_AGENT_LIFECYCLES.has(agent.lifecycle)
+	);
+}
+
 export function upsertMultiAgentArtifact(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
 	upsertMultiAgentRow(controlDbPath, "multi_agent_artifacts", "artifact_id", sessionPath, id, data);
 }

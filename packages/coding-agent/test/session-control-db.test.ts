@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	abortInactiveSessionSpawnedAgents,
+	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
 	advanceSharedChannelCursor,
 	claimLatestIncomingMessage,
 	claimRuntimeMailboxMessages,
@@ -25,6 +27,7 @@ import {
 	postSharedChannelMessage,
 	readIncomingMessageStatus,
 	readLastMessage,
+	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
 	readSessionHealth,
@@ -35,11 +38,14 @@ import {
 	removeNamedSession,
 	retireRuntimeMailboxListener,
 	setNamedSession,
+	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 	writeLastMessage,
 	writeSessionGoal,
+	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
+import { emptySessionHealth } from "../src/core/session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase } from "../src/core/sqlite.ts";
 
 let storedMessageCounter = 0;
@@ -515,6 +521,126 @@ describe("session control DB", () => {
 
 		expect(cleanupRuntimeMailboxMessages(controlDbPath, "2026-07-01T00:00:00.000Z")).toBe(1);
 		expect(listRuntimeMailboxMessages(controlDbPath).map((message) => message.body)).toEqual(["new"]);
+	});
+
+	it("aborts only active spawned agents in inactive supervisor stores and is idempotent", () => {
+		const inactiveSessionPath = "/sessions/inactive.jsonl";
+		const liveSessionPath = "/sessions/live.jsonl";
+		const missingHealthSessionPath = "/sessions/missing-health.jsonl";
+		const missingMetadataSessionPath = "/sessions/missing-metadata.jsonl";
+		const inactiveSessionId = "inactive-supervisor";
+		const activeLifecycles = ["starting", "running", "waiting_for_input", "steering_pending", "cancelling"] as const;
+
+		for (const [sessionPath, id] of [
+			[inactiveSessionPath, inactiveSessionId],
+			[liveSessionPath, "live-supervisor"],
+			[missingHealthSessionPath, "missing-health-supervisor"],
+		] as const) {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath,
+				id,
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "first",
+				allMessagesText: "first",
+			});
+		}
+		writeSessionHealth(controlDbPath, {
+			...emptySessionHealth(inactiveSessionId, "2026-01-01T00:00:00.000Z"),
+			checkStatus: "dead",
+		});
+		writeSessionHealth(controlDbPath, {
+			...emptySessionHealth("live-supervisor", "2026-01-01T00:00:00.000Z"),
+			pid: process.pid,
+			checkStatus: "ok",
+		});
+
+		for (const lifecycle of activeLifecycles) {
+			upsertMultiAgentAgent(controlDbPath, inactiveSessionPath, `active-${lifecycle}`, {
+				id: `active-${lifecycle}`,
+				lifecycle,
+				origin: lifecycle === "running" ? undefined : "spawned",
+				revision: 4,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+				worker: { adapter: "runtime", handleId: "job" },
+				extra: { retained: true },
+			});
+		}
+		for (const [id, lifecycle, origin] of [
+			["queued", "queued", "spawned"],
+			["completed", "completed", "spawned"],
+			["failed", "failed", "spawned"],
+			["aborted", "aborted", "spawned"],
+			["attached", "running", "attached"],
+		] as const) {
+			upsertMultiAgentAgent(controlDbPath, inactiveSessionPath, id, {
+				id,
+				lifecycle,
+				origin,
+				revision: 4,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+				worker: { adapter: "runtime", handleId: "job" },
+			});
+		}
+		upsertMultiAgentAgent(controlDbPath, liveSessionPath, "live", {
+			id: "live",
+			lifecycle: "running",
+			revision: 4,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+			worker: { adapter: "runtime", handleId: "job" },
+		});
+		upsertMultiAgentAgent(controlDbPath, missingHealthSessionPath, "missing-health", {
+			id: "missing-health",
+			lifecycle: "running",
+			revision: 4,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+			worker: { adapter: "runtime", handleId: "job" },
+		});
+		upsertMultiAgentAgent(controlDbPath, missingMetadataSessionPath, "missing-metadata", {
+			id: "missing-metadata",
+			lifecycle: "running",
+			revision: 4,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+			worker: { adapter: "runtime", handleId: "job" },
+		});
+
+		expect(abortPersistedSpawnedAgentsForInactiveSupervisorSession(controlDbPath, inactiveSessionPath)).toBe(
+			activeLifecycles.length,
+		);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath, "2026-01-02T00:00:00.000Z")).toBe(0);
+
+		const inactiveAgents = readMultiAgentState(controlDbPath, inactiveSessionPath)?.agents as Array<
+			Record<string, unknown>
+		>;
+		for (const lifecycle of activeLifecycles) {
+			expect(inactiveAgents.find((agent) => agent.id === `active-${lifecycle}`)).toMatchObject({
+				lifecycle: "aborted",
+				revision: 5,
+				error: {
+					code: "supervisor_restarted",
+					message: "Spawned agent was interrupted because its supervisor session is no longer active.",
+				},
+				extra: { retained: true },
+			});
+			expect(inactiveAgents.find((agent) => agent.id === `active-${lifecycle}`)?.worker).toBeUndefined();
+		}
+		expect(
+			inactiveAgents
+				.filter((agent) => agent.lifecycle !== "aborted")
+				.map((agent) => agent.id)
+				.sort(),
+		).toEqual(["attached", "completed", "failed", "queued"]);
+		expect(readMultiAgentState(controlDbPath, liveSessionPath)?.agents).toMatchObject([
+			{ id: "live", lifecycle: "running" },
+		]);
+		expect(readMultiAgentState(controlDbPath, missingHealthSessionPath)?.agents).toMatchObject([
+			{ id: "missing-health", lifecycle: "running" },
+		]);
+		expect(readMultiAgentState(controlDbPath, missingMetadataSessionPath)?.agents).toMatchObject([
+			{ id: "missing-metadata", lifecycle: "running" },
+		]);
 	});
 
 	it("stores and removes named sessions", () => {

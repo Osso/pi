@@ -69,10 +69,12 @@ State meanings:
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] `queued` agents survive restore unchanged and are not recovered.
-- [x] On supervisor start, every non-queued active spawned agent (`origin: "spawned"` or absent)
-      with no live dispatch is terminalized as `aborted` with an explicit
-      `supervisor_restarted` interruption error. This includes `waiting_for_input` and prevents
-      active-count and TUI liveness ghosts.
+- [x] After a runtime registers its current mailbox listener, centralized control-DB reconciliation
+      terminalizes every non-queued active spawned agent (`origin: "spawned"` or absent) in any
+      persisted supervisor store that has matching metadata and an explicitly ended (`pid: NULL`)
+      health row. It writes `aborted` with an explicit `supervisor_restarted` interruption error,
+      including `waiting_for_input`, and prevents active-count and TUI liveness ghosts in historical
+      non-current stores.
 - [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
 - [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
       auto-restarted through the attached-session dispatch path.

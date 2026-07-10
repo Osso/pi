@@ -7,8 +7,10 @@ import {
 	getControlDbPath,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
+	readMultiAgentState,
 	readSessionHealth,
 	registerRuntimeMailboxListener,
+	upsertMultiAgentAgent,
 	writeSessionGoal,
 	writeSessionHealth,
 	writeSessionMetadata,
@@ -142,6 +144,64 @@ describe("session directory", () => {
 				expect.objectContaining({ sessionId: "session-stale", pid: null, status: "ended", checkStatus: "dead" }),
 			]);
 			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("aborts spawned ghosts after retiring stale supervisor listeners without touching live, attached, or queued rows", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+			writeSession("session-stale");
+			writeSession("session-live");
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-stale" }, process.pid);
+			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "spawned", {
+				id: "spawned",
+				lifecycle: "running",
+				revision: 1,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+				worker: { adapter: "runtime", handleId: "old-job" },
+			});
+			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "attached", {
+				id: "attached",
+				origin: "attached",
+				lifecycle: "waiting_for_input",
+				revision: 1,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			});
+			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "queued", {
+				id: "queued",
+				origin: "spawned",
+				lifecycle: "queued",
+				revision: 1,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			});
+			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid + 1);
+			upsertMultiAgentAgent(controlDbPath, "/sessions/session-live.jsonl", "live", {
+				id: "live",
+				lifecycle: "running",
+				revision: 1,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			});
+
+			listSessions(controlDbPath);
+
+			expect(readSessionHealth(controlDbPath, "session-stale")?.pid).toBeNull();
+			expect(readMultiAgentState(controlDbPath, "/sessions/session-stale.jsonl")?.agents).toMatchObject([
+				{
+					id: "spawned",
+					lifecycle: "aborted",
+					revision: 2,
+					error: { code: "supervisor_restarted" },
+				},
+				{ id: "attached", lifecycle: "waiting_for_input", revision: 1 },
+				{ id: "queued", lifecycle: "queued", revision: 1 },
+			]);
+			expect(readMultiAgentState(controlDbPath, "/sessions/session-live.jsonl")?.agents).toMatchObject([
+				{ id: "live", lifecycle: "running", revision: 1 },
+			]);
 		} finally {
 			vi.useRealTimers();
 		}

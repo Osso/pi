@@ -30,6 +30,11 @@ reply without changing the JSONL transcript format. How it works lives in
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
+- [x] Provide transactional reconciliation APIs for persisted multi-agent rows: only a store with
+      matching `session_metadata` and a `session_health` row whose `pid` is `NULL` can abort active
+      spawned agents. Reconciliation preserves unrelated agent JSON, increments revision, clears
+      worker metadata, writes `supervisor_restarted`, and is idempotent; attached, queued, terminal,
+      missing-health, and live-health rows remain unchanged.
 - [x] A main-thread listener registration atomically retires other main-session bindings for the
       same PID, marks their matching health rows ended, and confirms the registered binding `ok`;
       listener retirement removes only the exact `(session_id, agent_id, pid)` binding being
@@ -59,7 +64,8 @@ reply without changing the JSONL transcript format. How it works lives in
 
 - `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path,
   schema, incoming-message claim/complete API, last-message API, prompt-history
-  API, session metadata API, and runtime-listener/health lifecycle.
+  API, session metadata API, runtime-listener/health lifecycle, and persisted spawned-agent
+  ghost reconciliation API.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — built-in tool that appends to the

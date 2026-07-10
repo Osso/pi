@@ -52,6 +52,7 @@
 
 ### Fixed
 
+- Fixed active spawned-agent ghosts surviving in historical non-current supervisor stores: listener startup and session-directory liveness retirement now transactionally abort only stores with matching explicitly ended (`pid: NULL`) health, preserving live, attached, queued, and terminal records.
 - Fixed historical Pi sessions reappearing as live after session switch or PID reuse by retiring old main-session bindings, using runtime heartbeats instead of PID existence as positive liveness, filtering ended inventory rows, and keeping Architect/global inventory on the current session.
 - Fixed multi-agent restart recovery to abort detached spawned children instead of preserving active ghosts, restricted orchestration to supervisor runtimes, and made `wait_agent` reject detached background metadata while retaining live Bash/Pyrun waits.
 - Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.

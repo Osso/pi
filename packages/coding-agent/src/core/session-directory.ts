@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+	abortInactiveSessionSpawnedAgents,
 	enqueueRuntimeMailboxMessage,
 	listRuntimeMailboxListeners,
 	listSessionHealth,
@@ -227,6 +228,7 @@ export function listSessions(controlDbPath: string, options: SessionDirectoryOpt
 	const healthMap = healthBySessionId(controlDbPath);
 	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now);
 	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, bindings, now);
+	abortInactiveSessionSpawnedAgents(controlDbPath);
 	markTouchedSessionActive(controlDbPath, options.touchCurrentSessionId, healthMap, nowIso);
 	return metadata
 		.map((row) => toDirectoryEntry(row, healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso), now))

@@ -110,6 +110,7 @@ import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 
 import {
+	abortInactiveSessionSpawnedAgents,
 	advanceSharedChannelCursor,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
@@ -2416,6 +2417,7 @@ export class AgentSession {
 		}
 		installRuntimeMailboxSignalKeepalive();
 		this._registerRuntimeMailboxListeners(controlDbPath);
+		abortInactiveSessionSpawnedAgents(controlDbPath);
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		this._startRuntimeMailboxHeartbeat();
