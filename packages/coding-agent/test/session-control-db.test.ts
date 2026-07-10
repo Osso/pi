@@ -100,7 +100,7 @@ describe("session control DB", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
 	});
 
-	it("adds session paths to legacy runtime listener tables on re-registration", () => {
+	it("adds runtime identities and session paths to legacy listener tables on re-registration", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.exec(`
@@ -129,6 +129,15 @@ describe("session control DB", () => {
 				sessionPath: "/sessions/legacy-session.jsonl",
 			}),
 		]);
+		const migrated = createSqliteDatabase(controlDbPath);
+		try {
+			const row = migrated
+				.prepare("SELECT runtime_instance_id FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")
+				.get("legacy-session") as { runtime_instance_id: string };
+			expect(row.runtime_instance_id).toBeTruthy();
+		} finally {
+			migrated.close();
+		}
 	});
 
 	it("retires a matching main-session listener without removing a replacement process", () => {
@@ -791,6 +800,120 @@ describe("session control DB", () => {
 		]);
 		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
 		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
+			{ id: "running", lifecycle: "running", revision: 1 },
+		]);
+	});
+
+	it("advances generation and aborts stale spawned rows when a new runtime reuses the same pid", () => {
+		const sessionPath = "/sessions/reused-pid.jsonl";
+		writeSessionMetadata(controlDbPath, {
+			sessionPath,
+			id: "reused-pid-session",
+			cwd: "/repo",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:00:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "reused-pid-session" },
+			123,
+			sessionPath,
+			{ runtimeInstanceId: "runtime-a" },
+		);
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "attached", {
+			id: "attached",
+			lifecycle: "running",
+			origin: "attached",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "reused-pid-session" },
+			123,
+			sessionPath,
+			{ runtimeInstanceId: "runtime-b" },
+		);
+
+		expect(readSessionHealth(controlDbPath, "reused-pid-session")).toMatchObject({
+			pid: 123,
+			agentGeneration: 2,
+			checkStatus: "ok",
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "attached", lifecycle: "running", revision: 1 }),
+				expect.objectContaining({
+					id: "running",
+					lifecycle: "aborted",
+					revision: 2,
+					error: expect.objectContaining({ code: "supervisor_restarted" }),
+				}),
+			]),
+		);
+	});
+
+	it("lets the current runtime restore its own missing listener without aborting spawned rows", () => {
+		const sessionPath = "/sessions/touched-runtime.jsonl";
+		const recipient = { agentId: null, sessionId: "touched-runtime-session" };
+		registerRuntimeMailboxListener(controlDbPath, recipient, 123, sessionPath, { runtimeInstanceId: "runtime-a" });
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("DELETE FROM runtime_mailbox_listeners WHERE recipient_session_id = ?").run(recipient.sessionId);
+		} finally {
+			db.close();
+		}
+
+		registerRuntimeMailboxListener(controlDbPath, recipient, 123, sessionPath, {
+			reconcileRuntimeReplacement: false,
+			runtimeInstanceId: "runtime-b",
+		});
+
+		expect(readSessionHealth(controlDbPath, recipient.sessionId)).toMatchObject({
+			pid: 123,
+			agentGeneration: 1,
+			checkStatus: "ok",
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: "running", lifecycle: "running", revision: 1 },
+		]);
+	});
+
+	it("keeps the generation and spawned rows on heartbeats from the same runtime", () => {
+		const sessionPath = "/sessions/same-runtime.jsonl";
+		const recipient = { agentId: null, sessionId: "same-runtime-session" };
+		registerRuntimeMailboxListener(controlDbPath, recipient, 123, sessionPath, { runtimeInstanceId: "runtime-a" });
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+
+		registerRuntimeMailboxListener(controlDbPath, recipient, 123, sessionPath, { runtimeInstanceId: "runtime-a" });
+
+		expect(readSessionHealth(controlDbPath, "same-runtime-session")).toMatchObject({
+			pid: 123,
+			agentGeneration: 1,
+			checkStatus: "ok",
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
 	});

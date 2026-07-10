@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
 	emptySessionHealth,
@@ -139,6 +140,7 @@ type LastMessageRow = {
 
 type RuntimeMailboxListenerRow = {
 	pid: number;
+	runtime_instance_id: string | null;
 	session_path: string | null;
 	session_path_asserted_at: string | null;
 	updated_at: string;
@@ -148,6 +150,7 @@ type RuntimeMailboxListedRow = {
 	recipient_session_id: string;
 	recipient_agent_id_key: string;
 	pid: number;
+	runtime_instance_id: string | null;
 	session_path: string | null;
 	session_path_asserted_at: string | null;
 	updated_at: string;
@@ -161,18 +164,27 @@ export interface RuntimeMailboxListener {
 	updatedAt: string;
 }
 
+export interface RuntimeMailboxRegistrationOptions {
+	reconcileRuntimeReplacement?: boolean;
+	runtimeInstanceId?: string;
+}
+
+const RUNTIME_PROCESS_INSTANCE_ID = randomUUID();
+
 const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL = `
 	INSERT INTO runtime_mailbox_listeners (
 		recipient_session_id,
 		recipient_agent_id_key,
 		pid,
+		runtime_instance_id,
 		session_path,
 		session_path_asserted_at,
 		updated_at
 	)
-	VALUES (?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(recipient_session_id, recipient_agent_id_key) DO UPDATE SET
 		pid = excluded.pid,
+		runtime_instance_id = excluded.runtime_instance_id,
 		session_path = excluded.session_path,
 		session_path_asserted_at = excluded.session_path_asserted_at,
 		updated_at = excluded.updated_at
@@ -516,17 +528,27 @@ export function registerRuntimeMailboxListener(
 	recipient: RuntimeMailboxAddress,
 	pid: number,
 	sessionPath?: string,
+	options: RuntimeMailboxRegistrationOptions = {},
 ): void {
 	withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const now = new Date().toISOString();
+			const runtimeInstanceId = options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID;
+			const existingListener = readRuntimeMailboxListenerRow(db, recipient);
+			const shouldReconcileRuntimeReplacement =
+				recipient.agentId === null &&
+				options.reconcileRuntimeReplacement !== false &&
+				existingListener?.runtime_instance_id !== runtimeInstanceId;
 			if (recipient.agentId === null) {
 				retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, now);
+				if (shouldReconcileRuntimeReplacement && sessionPath) {
+					abortActiveSpawnedAgentsForExactSessionPath(db, sessionPath, now);
+				}
 			}
-			upsertRuntimeMailboxListenerRow(db, recipient, pid, sessionPath, now);
+			upsertRuntimeMailboxListenerRow(db, recipient, pid, sessionPath, runtimeInstanceId, now);
 			// Main-thread listener rows are the durable source for live session pids/generations.
 			if (recipient.agentId === null) {
-				upsertSessionHealthForListener(db, recipient.sessionId, pid, now);
+				upsertSessionHealthForListener(db, recipient.sessionId, pid, now, shouldReconcileRuntimeReplacement);
 			}
 		}),
 	);
@@ -537,12 +559,14 @@ function upsertRuntimeMailboxListenerRow(
 	recipient: RuntimeMailboxAddress,
 	pid: number,
 	sessionPath: string | undefined,
+	runtimeInstanceId: string,
 	nowIso: string,
 ): void {
 	db.prepare(UPSERT_RUNTIME_MAILBOX_LISTENER_SQL).run(
 		recipient.sessionId,
 		runtimeMailboxAgentIdKey(recipient.agentId),
 		pid,
+		runtimeInstanceId,
 		sessionPath ?? null,
 		sessionPath ? nowIso : null,
 		nowIso,
@@ -625,7 +649,7 @@ function readRuntimeMailboxListenerRow(
 	return db
 		.prepare(
 			`
-			SELECT pid, session_path, session_path_asserted_at, updated_at
+			SELECT pid, runtime_instance_id, session_path, session_path_asserted_at, updated_at
 			FROM runtime_mailbox_listeners
 			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
 			`,
@@ -653,6 +677,7 @@ export function listRuntimeMailboxListeners(controlDbPath: string): RuntimeMailb
 					recipient_session_id,
 					recipient_agent_id_key,
 					pid,
+					runtime_instance_id,
 					session_path,
 					session_path_asserted_at,
 					updated_at
@@ -896,9 +921,15 @@ function readSessionHealthRow(db: SqliteDatabase, sessionId: string): SessionHea
 	return row ? sessionHealthFromRow(row) : undefined;
 }
 
-function upsertSessionHealthForListener(db: SqliteDatabase, sessionId: string, pid: number, nowIso: string): void {
+function upsertSessionHealthForListener(
+	db: SqliteDatabase,
+	sessionId: string,
+	pid: number,
+	nowIso: string,
+	forceNewGeneration: boolean,
+): void {
 	const existing = readSessionHealthRow(db, sessionId) ?? emptySessionHealth(sessionId, nowIso);
-	const sameGeneration = existing.pid === pid && existing.agentGeneration > 0;
+	const sameGeneration = !forceNewGeneration && existing.pid === pid && existing.agentGeneration > 0;
 	const agentGeneration = sameGeneration ? existing.agentGeneration : existing.agentGeneration + 1;
 	writeSessionHealthRow(db, {
 		...existing,
@@ -1616,10 +1647,13 @@ const ACTIVE_SPAWNED_AGENT_LIFECYCLES = new Set([
 	"cancelling",
 ]);
 
-interface PersistedMultiAgentRow {
+interface PersistedAgentRow {
 	session_path: string;
 	agent_id: string;
 	data: string;
+}
+
+interface PersistedMultiAgentRow extends PersistedAgentRow {
 	supervisor_session_id: string;
 	supervisor_pid: number | null;
 }
@@ -1685,6 +1719,20 @@ function abortPersistedSpawnedAgentRows(controlDbPath: string, options: AbortPer
 	);
 }
 
+function abortActiveSpawnedAgentsForExactSessionPath(db: SqliteDatabase, sessionPath: string, nowIso: string): number {
+	const rows = db
+		.prepare("SELECT session_path, agent_id, data FROM multi_agent_agents WHERE session_path = ?")
+		.all(sessionPath) as PersistedAgentRow[];
+	let changed = 0;
+	for (const row of rows) {
+		const agent = parseJsonObject(row.data);
+		if (!agent || !isActiveSpawnedAgent(agent)) continue;
+		writeAbortedPersistedSpawnedAgent(db, row, agent, nowIso);
+		changed += 1;
+	}
+	return changed;
+}
+
 function readLiveSessionPathById(db: SqliteDatabase): Map<string, string> {
 	const rows = db
 		.prepare(
@@ -1739,7 +1787,7 @@ function abortPersistedSpawnedAgentRow(
 
 function writeAbortedPersistedSpawnedAgent(
 	db: SqliteDatabase,
-	row: PersistedMultiAgentRow,
+	row: PersistedAgentRow,
 	agent: Record<string, unknown> & { revision: number },
 	nowIso: string,
 ): void {
@@ -2043,6 +2091,7 @@ function initializeSchema(db: SqliteDatabase): void {
 			recipient_session_id TEXT NOT NULL,
 			recipient_agent_id_key TEXT NOT NULL,
 			pid INTEGER NOT NULL,
+			runtime_instance_id TEXT,
 			session_path TEXT,
 			session_path_asserted_at TEXT,
 			updated_at TEXT NOT NULL,
@@ -2168,6 +2217,9 @@ function addMissingRuntimeMailboxListenerColumns(db: SqliteDatabase): void {
 	const columns = new Set(
 		(db.prepare("PRAGMA table_info(runtime_mailbox_listeners)").all() as TableInfoRow[]).map((column) => column.name),
 	);
+	if (!columns.has("runtime_instance_id")) {
+		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN runtime_instance_id TEXT");
+	}
 	if (!columns.has("session_path")) {
 		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN session_path TEXT");
 	}

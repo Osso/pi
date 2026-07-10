@@ -15,7 +15,7 @@ import {
 	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { broadcastToSessions, listSessions } from "../src/core/session-directory.ts";
+import { broadcastToSessions, commandLineIsPiRuntime, listSessions } from "../src/core/session-directory.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 
 type SessionOverrides = {
@@ -57,6 +57,14 @@ describe("session directory", () => {
 			writeSessionGoal(controlDbPath, sessionPath, JSON.stringify({ objective: overrides.goal }));
 		}
 	}
+
+	it("recognizes relative and absolute Pi runtime entrypoints", () => {
+		expect(commandLineIsPiRuntime(["node", "packages/coding-agent/src/cli.ts"])).toBe(true);
+		expect(commandLineIsPiRuntime(["bun", "C:\\repo\\packages\\coding-agent\\src\\bun\\cli.ts"])).toBe(true);
+		expect(commandLineIsPiRuntime(["node", "/repo/packages/coding-agent/dist/cli.js"])).toBe(true);
+		expect(commandLineIsPiRuntime(["node", "packages/other/src/cli.ts"])).toBe(false);
+		expect(commandLineIsPiRuntime(["node", "/repo/notpackages/coding-agent/src/cli.ts"])).toBe(false);
+	});
 
 	it("lists sessions with purpose metadata and live pid health", () => {
 		writeSession("session-a", { name: "Alpha", goal: "ship feature", cwd: "/repo/a" });

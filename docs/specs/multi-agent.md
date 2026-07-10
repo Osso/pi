@@ -74,8 +74,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       spawned agents (explicit `spawned` origin or absent origin) in persisted stores with matching
       supervisor metadata and either explicitly ended (`pid: NULL`) health or a non-current duplicate
       metadata path for the same session ID. Main listener rows freshly assert the exact live session
-      path, and path relocation moves that assertion transactionally with the store. Pathless or
-      legacy timestamp-only heartbeats invalidate assertion trust instead of preserving stale paths.
+      path and runtime incarnation. A changed incarnation advances health generation and aborts active
+      spawned rows in the exact store even when the PID is reused. Path relocation moves the path
+      assertion transactionally with the store. Pathless or legacy timestamp-only heartbeats
+      invalidate assertion trust instead of preserving stale paths.
       It writes
       `aborted` with a `supervisor_restarted` interruption error, including waiting children;
       attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
@@ -116,7 +118,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       every 60 seconds; session switch or disposal retires its exact old listener and marks matching
       main-session health ended.
 - [x] Registering a main-session listener retires other main-session bindings on the same PID, so a
-      process has one current main-session identity even if historical listener rows remain.
+      process has one current main-session identity even if historical listener rows remain. Listener
+      rows persist a per-process runtime incarnation so same-PID process replacement advances session
+      health generation and reconciles stale spawned rows without disturbing attached agents.
 - [x] Pending runtime mailbox messages are claimed atomically before enqueue so concurrent Pi
       processes do not deliver the same message twice.
 - [x] Claimed messages are marked delivered only after the recipient successfully enqueues the

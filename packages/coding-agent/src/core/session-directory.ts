@@ -61,9 +61,9 @@ interface CurrentMainSessionBinding {
 }
 
 const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [
-	"/packages/coding-agent/src/cli.ts",
-	"/packages/coding-agent/src/bun/cli.ts",
-	"/packages/coding-agent/dist/cli.js",
+	"packages/coding-agent/src/cli.ts",
+	"packages/coding-agent/src/bun/cli.ts",
+	"packages/coding-agent/dist/cli.js",
 ];
 
 function healthBySessionId(controlDbPath: string): Map<string, SessionHealthRecord> {
@@ -150,14 +150,16 @@ function tryReadProcessCommandLine(pid: number): string[] | undefined {
 	return undefined;
 }
 
-function commandLineIsPiRuntime(commandLine: string[]): boolean {
+export function commandLineIsPiRuntime(commandLine: string[]): boolean {
 	const executable = commandLine[0];
 	if (!executable) return false;
 	const executableName = basename(executable).toLowerCase();
 	if (executableName === "pi" || executableName === "pi.exe") return true;
 	return commandLine.slice(1).some((argument) => {
 		const normalized = argument.replaceAll("\\", "/");
-		return PI_RUNTIME_ENTRYPOINT_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+		return PI_RUNTIME_ENTRYPOINT_SUFFIXES.some(
+			(suffix) => normalized === suffix || normalized.endsWith(`/${suffix}`),
+		);
 	});
 }
 
@@ -265,7 +267,9 @@ function registerTouchedSessionBinding(
 	sessionPath: string | undefined,
 ): void {
 	if (!sessionId) return;
-	registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, process.pid, sessionPath);
+	registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, process.pid, sessionPath, {
+		reconcileRuntimeReplacement: false,
+	});
 }
 
 function markTouchedSessionActive(

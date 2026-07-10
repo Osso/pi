@@ -56,9 +56,12 @@ At supervisor start, queued rows remain queued. After a current runtime mailbox 
 `abortInactiveSessionSpawnedAgents()` transactionally scans persisted stores with matching
 `session_metadata`. It selects explicitly ended stores (`session_health.pid = NULL`) and duplicate
 metadata paths differing from the exact live path freshly asserted on that session's main listener.
-The assertion is trusted only while its assertion timestamp matches the listener heartbeat; pathless
-or legacy timestamp-only heartbeats invalidate it. Session-path relocation moves the assertion in the
-same transaction as the store. Any active spawned row (explicit `origin: "spawned"` or absent origin)
+The listener also persists a per-process runtime incarnation. If a new Pi runtime reuses the same PID,
+registration advances the session health generation and aborts active spawned rows in that exact
+store; attached rows remain recoverable. The path assertion is trusted only while its assertion
+timestamp matches the listener heartbeat; pathless or legacy timestamp-only heartbeats invalidate it.
+Session-path relocation moves the assertion in the same transaction as the store. Any active spawned
+row (explicit `origin: "spawned"` or absent origin)
 becomes
 `aborted` with a `supervisor_restarted` interruption error; the update increments revision, clears
 worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, current
