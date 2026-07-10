@@ -22,7 +22,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Advice
 
-- [x] Keep the standard Pi tool set available while the `read-only` bwrap profile routes file and shell workers through Bubblewrap; `pyrun_eval` is blocked rather than sandboxed.
+- [x] Keep the standard Pi tool set available while the `read-only` bwrap profile routes file and shell workers through Bubblewrap; `hostrun_eval` and `pyrun_eval` are blocked rather than sandboxed.
 - [x] Send only evidence-backed drift, conflict, or blocker advice to the affected session through targeted `broadcast`; block global `channel_post` fanout.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 
@@ -61,6 +61,8 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 ## Out of scope
 
 - Protecting credentials or other readable workspace data from the Architect itself. The Architect is trusted; bwrap limits autonomous mutation and remediation, not confidentiality.
+- Sandboxing arbitrary host-side extension tools or hooks. Enabled extensions remain trusted host capabilities outside bwrap's selected worker routing.
+- Discarding an explicit `Architect:` shared-channel request solely because its sender exits before the next observer cycle. Requests are durable event inputs; the current session snapshot remains the model's liveness evidence.
 - Task dispatch, autonomous code changes, process/session control, or automatic remediation.
 - Reading full agent transcripts on routine observations.
-- Sandboxed Pyrun execution; bwrap currently blocks `pyrun_eval` under sandbox-required profiles.
+- Sandboxed Hostrun or Pyrun execution; bwrap currently blocks `hostrun_eval` and `pyrun_eval` under sandbox-required profiles rather than routing either runtime through Bubblewrap.

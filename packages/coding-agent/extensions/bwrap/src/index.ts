@@ -34,6 +34,8 @@ interface BwrapExtensionOptions {
 	bwrapCommand?: string;
 }
 
+const DISABLED_SANDBOX_RUNTIME_TOOLS = new Set(["pyrun_eval", "hostrun_eval"]);
+
 interface JsonCommandResult<T> {
 	stderr: string;
 	stdout: string;
@@ -270,10 +272,10 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 
 	pi.registerToolGate((event, ctx) => {
 		const profile = getSandboxProfile(ctx);
-		if (!profile || event.toolName !== "pyrun_eval") return;
+		if (!profile || !DISABLED_SANDBOX_RUNTIME_TOOLS.has(event.toolName)) return;
 		return {
 			block: true,
-			reason: `pyrun_eval is disabled while bwrap sandbox profile ${profile} is active`,
+			reason: `${event.toolName} is disabled while bwrap sandbox profile ${profile} is active`,
 		};
 	});
 
@@ -381,7 +383,7 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		const profile = getSandboxProfile(ctx);
 		if (!profile) return;
 		const localLine = `Current working directory: ${ctx.cwd}`;
-		const sandboxLine = `Current working directory: ${ctx.cwd} (Linux bubblewrap sandbox, profile ${profile}; HOME is fake, only runtime paths plus workspace are mounted, and Pyrun pi bridge capabilities are unavailable)`;
+		const sandboxLine = `Current working directory: ${ctx.cwd} (Linux bubblewrap sandbox, profile ${profile}; HOME is fake, only runtime paths plus workspace are mounted, and Hostrun/Pyrun runtime capabilities are unavailable)`;
 		const systemPrompt = event.systemPrompt.includes(localLine)
 			? event.systemPrompt.replace(localLine, sandboxLine)
 			: `${event.systemPrompt}\n\n${sandboxLine}`;

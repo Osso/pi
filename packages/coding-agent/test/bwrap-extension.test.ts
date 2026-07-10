@@ -222,20 +222,32 @@ describe("bwrap sandbox backend", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("blocks Pyrun while a sandboxed profile is active", () => {
+	it.each([
+		["read-only", "pyrun_eval"],
+		["read-only", "hostrun_eval"],
+		["workspace-write", "pyrun_eval"],
+		["workspace-write", "hostrun_eval"],
+	] as const)("blocks %s %s while sandboxed", (profile, toolName) => {
 		const { toolGates } = createBwrapHarness("bwrap");
-		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "read-only" });
+		const settingsManager = SettingsManager.inMemory({ sandboxProfile: profile });
 
-		const result = toolGates[1]?.(createToolCallEvent("pyrun_eval"), createContext(settingsManager));
+		const result = toolGates[1]?.(createToolCallEvent(toolName), createContext(settingsManager));
 
-		expect(result).toMatchObject({ block: true, reason: expect.stringMatching(/pyrun_eval is disabled/) });
+		expect(result).toMatchObject({ block: true, reason: expect.stringContaining(`${toolName} is disabled`) });
 	});
 
-	it("does not block Pyrun in full-access", () => {
+	it.each([
+		["full-access", "pyrun_eval"],
+		["full-access", "hostrun_eval"],
+		[undefined, "pyrun_eval"],
+		[undefined, "hostrun_eval"],
+	] as const)("does not block %s %s", (profile, toolName) => {
 		const { toolGates } = createBwrapHarness("bwrap");
-		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "full-access" });
+		const settingsManager = profile
+			? SettingsManager.inMemory({ sandboxProfile: profile })
+			: SettingsManager.inMemory();
 
-		const result = toolGates[1]?.(createToolCallEvent("pyrun_eval"), createContext(settingsManager));
+		const result = toolGates[1]?.(createToolCallEvent(toolName), createContext(settingsManager));
 
 		expect(result).toBeUndefined();
 	});

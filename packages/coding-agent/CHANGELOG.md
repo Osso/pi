@@ -36,7 +36,7 @@
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, and user bash through explicitly selected sandbox profiles.
-- Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell workers; `pyrun_eval` is blocked while sandboxed.
+- Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell workers; `hostrun_eval` and `pyrun_eval` are blocked while sandboxed.
 
 ### Changed
 
@@ -53,6 +53,7 @@
 
 ### Fixed
 
+- Fixed bwrap sandbox profiles to block unsandboxed `hostrun_eval` alongside `pyrun_eval` until those runtimes support the bwrap backend.
 - Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
 - Fixed selected-child views to identify the agent directly, report the selected agent or main thread after `/agents` selection, and hide the main working loader without clearing unrelated status while a child transcript is displayed.
 - Fixed active spawned-agent ghosts surviving in historical non-current supervisor stores: main listeners now freshly assert their exact session path and runtime incarnation, path relocation moves the assertion transactionally with the store, startup reconciliation retires non-Pi listener ownership before trusting asserted paths, and listener startup plus session-directory synchronization abort stores with explicitly ended (`pid: NULL`) health, replaced runtimes even after same-PID reuse, or duplicate paths differing from a trusted live assertion. Pathless and legacy timestamp-only heartbeats invalidate assertion trust and fail safe until re-registration; missing-health, attached, queued, terminal, current live, and stale process-backed timeout records remain preserved.
@@ -68,7 +69,7 @@
 - Fixed `/continue` to submit completed assistant-ending transcripts for continuation and avoid errors on empty transcripts.
 - Fixed compacted session context replay to drop retained orphan tool results when their tool-call messages were removed by the pre-compaction suffix byte cap.
 - Fixed `/model` selector filtering matching unrelated models (e.g. typing `gpt-5.5` returning `gpt-5.4`, `gemini`, and `glm`): each query token is now scored against distinct candidate fields instead of one search string that duplicated the provider and id, so a token can no longer match by spanning repeated copies. Provider-priority ranking and space-separated fragment queries are preserved.
-- Fixed the bwrap sandbox backend to avoid mounting host `/`, clear inherited environments, enforce workspace containment in file workers, block Pyrun while sandboxed, and fail closed with a tool gate when `bwrap` is unavailable.
+- Fixed the bwrap sandbox backend to avoid mounting host `/`, clear inherited environments, enforce workspace containment in file workers, block Hostrun and Pyrun while sandboxed, and fail closed with a tool gate when `bwrap` is unavailable.
 - Fixed `web_search` to use OpenAI's hosted search tool in the main Responses request, request live results, and abort stalled fallback requests with a clear timeout error while preserving user cancellation.
 - Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.
 - Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.

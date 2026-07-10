@@ -13,7 +13,7 @@ On startup the observer advances its shared-channel cursor to the current tail, 
 - the ordered session snapshot changes, including goal JSON; or
 - a newly observed shared-channel message from a main session begins `Architect:`.
 
-Messages sent by a subagent or by the Architect itself are not Architect requests. Incidental mentions such as `Re architect blocker` are also ignored; requests must begin `Architect:`. This prevents advice and surrounding discussion from retriggering the Architect. Routine unchanged observations do not call the model. The prompt contains the structured snapshot and forbids querying `list_sessions`, so all inventory conclusions stay anchored to the bounded observation that triggered the turn.
+Messages sent by a subagent or by the Architect itself are not Architect requests. Incidental mentions such as `Re architect blocker` are also ignored; requests must begin `Architect:`. An explicit request remains a durable event even if its sender exits before the next observer cycle; the current bounded session snapshot separately supplies liveness evidence. This prevents advice and surrounding discussion from retriggering the Architect without discarding requested review work. Routine unchanged observations do not call the model. The prompt contains the structured snapshot and forbids querying `list_sessions`, so all inventory conclusions stay anchored to the bounded observation that triggered the turn.
 
 ## Advisor session and policy
 
@@ -23,9 +23,9 @@ The service requires the `openai-codex/gpt-5.6-sol` model. Its system prompt per
 
 ## Tool isolation
 
-The service uses in-memory settings with `sandboxProfile: "read-only"` and loads the bwrap extension. Pi retains its standard tools, while the bwrap extension routes file-tool workers and `bash`/`user_bash` worker processes through Bubblewrap with the workspace mounted read-only. See [bwrap-sandbox.md](bwrap-sandbox.md) for mount and environment details.
+The service uses in-memory settings with `sandboxProfile: "read-only"` and loads the bwrap extension. Apart from the disabled Hostrun and Pyrun runtime tools, Pi retains its standard tools while the bwrap extension routes file-tool workers and `bash`/`user_bash` worker processes through Bubblewrap with the workspace mounted read-only. Enabled host-side extension tools and hooks remain trusted capabilities outside that selected worker-routing boundary. See [bwrap-sandbox.md](bwrap-sandbox.md) for mount and environment details.
 
-`pyrun_eval` is intentionally unavailable in this mode. The bwrap extension blocks it with a tool gate because Pyrun does not yet share the Bubblewrap worker runner. The service must not describe Pyrun as a sandboxed worker.
+`hostrun_eval` and `pyrun_eval` are intentionally unavailable in this mode. The bwrap extension blocks both with a tool gate because neither runtime yet shares the Bubblewrap worker runner. The service must not describe either runtime as a sandboxed worker.
 
 ## Deployment
 

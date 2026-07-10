@@ -24,7 +24,7 @@ The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers 
 
 - [x] Route built-in `read`, `write`, `edit`, `ls`, `find`, and `grep` through the bwrap backend when sandboxed.
 - [x] Route built-in `bash` and interactive `user_bash` through the bwrap backend when sandboxed.
-- [x] Block `pyrun_eval` while a sandbox-required profile is active, until Pyrun can share a sandbox runner without conflicting with the first-party Pyrun tool registration.
+- [x] Block `hostrun_eval` and `pyrun_eval` while a sandbox-required profile is active, until both runtimes can share a sandbox runner without conflicting with their first-party tool registrations.
 - [x] Register a hard tool gate so sandbox-required profiles cannot silently proceed unsandboxed when `bwrap` is unavailable.
 
 ## How it works
@@ -34,12 +34,11 @@ The bubblewrap sandbox backend is a Linux extension that routes Pi tool workers 
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/bwrap/src/backend.ts` — builds and executes bubblewrap invocations for sandbox-required profiles.
-- `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; overrides file tools and bash/user_bash, and blocks `pyrun_eval` while sandboxed.
+- `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; overrides file tools and bash/user_bash, and blocks `hostrun_eval` and `pyrun_eval` while sandboxed.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, file-worker workspace containment, and symlink escape rejection.
-- `packages/coding-agent/test/pyrun-extension.test.ts`
+- `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, file-worker workspace containment, symlink escape rejection, and the Hostrun/Pyrun gate matrix across all profiles.
 
 ## Known gaps (current cycle)
 
