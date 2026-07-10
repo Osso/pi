@@ -35,6 +35,7 @@ import {
 	readSharedChannelCursor,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
+	relocateSessionControlData,
 	removeNamedSession,
 	retireRuntimeMailboxListener,
 	setNamedSession,
@@ -99,13 +100,49 @@ describe("session control DB", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
 	});
 
+	it("adds session paths to legacy runtime listener tables on re-registration", () => {
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE runtime_mailbox_listeners (
+					recipient_session_id TEXT NOT NULL,
+					recipient_agent_id_key TEXT NOT NULL,
+					pid INTEGER NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
+				)
+			`);
+		} finally {
+			db.close();
+		}
+
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "legacy-session" },
+			123,
+			"/sessions/legacy-session.jsonl",
+		);
+
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({
+				sessionId: "legacy-session",
+				sessionPath: "/sessions/legacy-session.jsonl",
+			}),
+		]);
+	});
+
 	it("retires a matching main-session listener without removing a replacement process", () => {
 		const recipient = { agentId: null, sessionId: "session-a" };
-		registerRuntimeMailboxListener(controlDbPath, recipient, 123);
+		registerRuntimeMailboxListener(controlDbPath, recipient, 123, "/sessions/session-a.jsonl");
 
 		expect(retireRuntimeMailboxListener(controlDbPath, recipient, 456)).toBe(false);
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
-			expect.objectContaining({ sessionId: "session-a", agentId: null, pid: 123 }),
+			expect.objectContaining({
+				sessionId: "session-a",
+				agentId: null,
+				pid: 123,
+				sessionPath: "/sessions/session-a.jsonl",
+			}),
 		]);
 		expect(readSessionHealth(controlDbPath, "session-a")).toMatchObject({
 			pid: 123,
@@ -640,6 +677,121 @@ describe("session control DB", () => {
 		]);
 		expect(readMultiAgentState(controlDbPath, missingMetadataSessionPath)?.agents).toMatchObject([
 			{ id: "missing-metadata", lifecycle: "running" },
+		]);
+	});
+
+	it("relocates the live listener path atomically with its multi-agent store", () => {
+		const oldSessionPath = "/sessions/live-old.jsonl";
+		const newSessionPath = "/sessions/live-new.jsonl";
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: oldSessionPath,
+			id: "live-session",
+			cwd: "/repo",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:00:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+		});
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "live-session" }, 123, oldSessionPath);
+		upsertMultiAgentAgent(controlDbPath, oldSessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+
+		relocateSessionControlData(controlDbPath, oldSessionPath, newSessionPath);
+
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({ sessionId: "live-session", sessionPath: newSessionPath }),
+		]);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
+		expect(readMultiAgentState(controlDbPath, newSessionPath)?.agents).toMatchObject([
+			{ id: "running", lifecycle: "running", revision: 1 },
+		]);
+	});
+
+	it("clears listener path trust when a heartbeat cannot assert its session path", () => {
+		const assertedSessionPath = "/sessions/asserted.jsonl";
+		const unknownSessionPath = "/sessions/unknown.jsonl";
+		for (const sessionPath of [assertedSessionPath, unknownSessionPath]) {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath,
+				id: "live-session",
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "first",
+				allMessagesText: "first",
+			});
+		}
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "live-session" },
+			123,
+			assertedSessionPath,
+		);
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "live-session" }, 123);
+		upsertMultiAgentAgent(controlDbPath, unknownSessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({ sessionId: "live-session", sessionPath: undefined }),
+		]);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
+		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
+			{ id: "running", lifecycle: "running", revision: 1 },
+		]);
+	});
+
+	it("distrusts a listener path after a legacy heartbeat updates only its timestamp", () => {
+		const assertedSessionPath = "/sessions/asserted.jsonl";
+		const unknownSessionPath = "/sessions/unknown.jsonl";
+		for (const sessionPath of [assertedSessionPath, unknownSessionPath]) {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath,
+				id: "live-session",
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "first",
+				allMessagesText: "first",
+			});
+		}
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "live-session" },
+			123,
+			assertedSessionPath,
+		);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				"UPDATE runtime_mailbox_listeners SET updated_at = ? WHERE recipient_session_id = ? AND recipient_agent_id_key = ''",
+			).run("2099-01-01T00:00:00.000Z", "live-session");
+		} finally {
+			db.close();
+		}
+		upsertMultiAgentAgent(controlDbPath, unknownSessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({ sessionId: "live-session", sessionPath: undefined }),
+		]);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
+		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
+			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
 	});
 

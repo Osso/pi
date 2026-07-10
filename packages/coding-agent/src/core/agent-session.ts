@@ -2417,9 +2417,7 @@ export class AgentSession {
 		}
 		installRuntimeMailboxSignalKeepalive();
 		this._registerRuntimeMailboxListeners(controlDbPath);
-		abortInactiveSessionSpawnedAgents(controlDbPath, {
-			currentSession: this.sessionFile ? { id: this.sessionId, sessionPath: this.sessionFile } : undefined,
-		});
+		abortInactiveSessionSpawnedAgents(controlDbPath);
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		this._startRuntimeMailboxHeartbeat();
@@ -2435,7 +2433,12 @@ export class AgentSession {
 	}
 
 	private _registerRuntimeMailboxListeners(controlDbPath: string): void {
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: this.sessionId },
+			process.pid,
+			this.sessionFile,
+		);
 		const agentId = this._getRuntimeMailboxAgentId();
 		if (agentId) {
 			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);

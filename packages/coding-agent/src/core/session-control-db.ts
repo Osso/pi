@@ -139,8 +139,44 @@ type LastMessageRow = {
 
 type RuntimeMailboxListenerRow = {
 	pid: number;
+	session_path: string | null;
+	session_path_asserted_at: string | null;
 	updated_at: string;
 };
+
+type RuntimeMailboxListedRow = {
+	recipient_session_id: string;
+	recipient_agent_id_key: string;
+	pid: number;
+	session_path: string | null;
+	session_path_asserted_at: string | null;
+	updated_at: string;
+};
+
+export interface RuntimeMailboxListener {
+	sessionId: string;
+	agentId: string | null;
+	pid: number;
+	sessionPath: string | undefined;
+	updatedAt: string;
+}
+
+const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL = `
+	INSERT INTO runtime_mailbox_listeners (
+		recipient_session_id,
+		recipient_agent_id_key,
+		pid,
+		session_path,
+		session_path_asserted_at,
+		updated_at
+	)
+	VALUES (?, ?, ?, ?, ?, ?)
+	ON CONFLICT(recipient_session_id, recipient_agent_id_key) DO UPDATE SET
+		pid = excluded.pid,
+		session_path = excluded.session_path,
+		session_path_asserted_at = excluded.session_path_asserted_at,
+		updated_at = excluded.updated_at
+`;
 
 type SessionHealthRow = {
 	session_id: string;
@@ -479,6 +515,7 @@ export function registerRuntimeMailboxListener(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
 	pid: number,
+	sessionPath?: string,
 ): void {
 	withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
@@ -486,20 +523,29 @@ export function registerRuntimeMailboxListener(
 			if (recipient.agentId === null) {
 				retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, now);
 			}
-			db.prepare(
-				`
-				INSERT INTO runtime_mailbox_listeners (recipient_session_id, recipient_agent_id_key, pid, updated_at)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(recipient_session_id, recipient_agent_id_key) DO UPDATE SET
-					pid = excluded.pid,
-					updated_at = excluded.updated_at
-				`,
-			).run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), pid, now);
+			upsertRuntimeMailboxListenerRow(db, recipient, pid, sessionPath, now);
 			// Main-thread listener rows are the durable source for live session pids/generations.
 			if (recipient.agentId === null) {
 				upsertSessionHealthForListener(db, recipient.sessionId, pid, now);
 			}
 		}),
+	);
+}
+
+function upsertRuntimeMailboxListenerRow(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	pid: number,
+	sessionPath: string | undefined,
+	nowIso: string,
+): void {
+	db.prepare(UPSERT_RUNTIME_MAILBOX_LISTENER_SQL).run(
+		recipient.sessionId,
+		runtimeMailboxAgentIdKey(recipient.agentId),
+		pid,
+		sessionPath ?? null,
+		sessionPath ? nowIso : null,
+		nowIso,
 	);
 }
 
@@ -579,7 +625,7 @@ function readRuntimeMailboxListenerRow(
 	return db
 		.prepare(
 			`
-			SELECT pid, updated_at
+			SELECT pid, session_path, session_path_asserted_at, updated_at
 			FROM runtime_mailbox_listeners
 			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
 			`,
@@ -590,38 +636,48 @@ function readRuntimeMailboxListenerRow(
 export function readRuntimeMailboxListener(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
-): { pid: number; updatedAt: string } | undefined {
+): { pid: number; sessionPath: string | undefined; updatedAt: string } | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const row = readRuntimeMailboxListenerRow(db, recipient);
 		if (!row) return undefined;
-		return { pid: row.pid, updatedAt: row.updated_at };
+		return { pid: row.pid, sessionPath: trustedRuntimeMailboxSessionPath(row), updatedAt: row.updated_at };
 	});
 }
 
-export function listRuntimeMailboxListeners(
-	controlDbPath: string,
-): Array<{ sessionId: string; agentId: string | null; pid: number; updatedAt: string }> {
+export function listRuntimeMailboxListeners(controlDbPath: string): RuntimeMailboxListener[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
 			.prepare(
 				`
-				SELECT recipient_session_id, recipient_agent_id_key, pid, updated_at
+				SELECT
+					recipient_session_id,
+					recipient_agent_id_key,
+					pid,
+					session_path,
+					session_path_asserted_at,
+					updated_at
 				FROM runtime_mailbox_listeners
 				`,
 			)
-			.all() as Array<{
-			recipient_session_id: string;
-			recipient_agent_id_key: string;
-			pid: number;
-			updated_at: string;
-		}>;
-		return rows.map((row) => ({
-			sessionId: row.recipient_session_id,
-			agentId: row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key,
-			pid: row.pid,
-			updatedAt: row.updated_at,
-		}));
+			.all() as RuntimeMailboxListedRow[];
+		return rows.map(runtimeMailboxListenerFromRow);
 	});
+}
+
+function runtimeMailboxListenerFromRow(row: RuntimeMailboxListedRow): RuntimeMailboxListener {
+	return {
+		sessionId: row.recipient_session_id,
+		agentId: row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key,
+		pid: row.pid,
+		sessionPath: trustedRuntimeMailboxSessionPath(row),
+		updatedAt: row.updated_at,
+	};
+}
+
+function trustedRuntimeMailboxSessionPath(
+	row: Pick<RuntimeMailboxListenerRow, "session_path" | "session_path_asserted_at" | "updated_at">,
+): string | undefined {
+	return row.session_path !== null && row.session_path_asserted_at === row.updated_at ? row.session_path : undefined;
 }
 
 export function postSharedChannelMessage(controlDbPath: string, input: PostSharedChannelMessageInput): number {
@@ -1260,19 +1316,36 @@ export function relocateSessionControlData(
 			relocateMultiAgentSessionRows(db, "multi_agent_artifacts", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
 			relocateSessionPathPrimaryKey(db, "multi_agent_counters", oldSessionPath, newSessionPath, now);
-			db.prepare(
-				`
-				UPDATE runtime_mailbox_messages
-				SET store_session_path = ?, updated_at = ?
-				WHERE store_session_path = ?
-				`,
-			).run(newSessionPath, now, oldSessionPath);
+			relocateRuntimeMailboxListenerPaths(db, oldSessionPath, newSessionPath);
+			relocateRuntimeMailboxMessagePaths(db, oldSessionPath, newSessionPath, now);
 			db.exec("COMMIT");
 		} catch (error) {
 			db.exec("ROLLBACK");
 			throw error;
 		}
 	});
+}
+
+function relocateRuntimeMailboxMessagePaths(
+	db: SqliteDatabase,
+	oldSessionPath: string,
+	newSessionPath: string,
+	nowIso: string,
+): void {
+	db.prepare(
+		`
+		UPDATE runtime_mailbox_messages
+		SET store_session_path = ?, updated_at = ?
+		WHERE store_session_path = ?
+		`,
+	).run(newSessionPath, nowIso, oldSessionPath);
+}
+
+function relocateRuntimeMailboxListenerPaths(db: SqliteDatabase, oldSessionPath: string, newSessionPath: string): void {
+	db.prepare("UPDATE runtime_mailbox_listeners SET session_path = ? WHERE session_path = ?").run(
+		newSessionPath,
+		oldSessionPath,
+	);
 }
 
 function relocateSessionPathPrimaryKey(
@@ -1551,17 +1624,13 @@ interface PersistedMultiAgentRow {
 	supervisor_pid: number | null;
 }
 
-interface SessionMetadataIdentityRow {
+interface LiveSessionPathRow {
+	recipient_session_id: string;
 	session_path: string;
-	id: string;
 }
 
 export interface InactiveSessionSpawnedAgentReconciliationOptions {
 	nowIso?: string;
-	currentSession?: {
-		id: string;
-		sessionPath: string;
-	};
 }
 
 interface AbortPersistedSpawnedAgentRowsOptions extends InactiveSessionSpawnedAgentReconciliationOptions {
@@ -1600,14 +1669,14 @@ export function abortInactiveSessionSpawnedAgents(
 function abortPersistedSpawnedAgentRows(controlDbPath: string, options: AbortPersistedSpawnedAgentRowsOptions): number {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const newestSessionPathById = options.requireExplicitlyEnded
+			const liveSessionPathById = options.requireExplicitlyEnded
 				? new Map<string, string>()
-				: readNewestSessionPathById(db, options.currentSession);
+				: readLiveSessionPathById(db);
 			const rows = readPersistedMultiAgentRows(db, options.sessionPath);
 			const nowIso = options.nowIso ?? new Date().toISOString();
 			let changed = 0;
 			for (const row of rows) {
-				if (abortPersistedSpawnedAgentRow(db, row, newestSessionPathById, options, nowIso)) {
+				if (abortPersistedSpawnedAgentRow(db, row, liveSessionPathById, options, nowIso)) {
 					changed += 1;
 				}
 			}
@@ -1616,29 +1685,19 @@ function abortPersistedSpawnedAgentRows(controlDbPath: string, options: AbortPer
 	);
 }
 
-function readNewestSessionPathById(
-	db: SqliteDatabase,
-	currentSession: InactiveSessionSpawnedAgentReconciliationOptions["currentSession"],
-): Map<string, string> {
+function readLiveSessionPathById(db: SqliteDatabase): Map<string, string> {
 	const rows = db
 		.prepare(
 			`
-			SELECT session_path, id
-			FROM session_metadata
-			ORDER BY modified_at DESC, updated_at DESC, session_path DESC
+			SELECT recipient_session_id, session_path
+			FROM runtime_mailbox_listeners
+			WHERE recipient_agent_id_key = ''
+				AND session_path IS NOT NULL
+				AND session_path_asserted_at = updated_at
 			`,
 		)
-		.all() as SessionMetadataIdentityRow[];
-	const newestSessionPathById = new Map<string, string>();
-	for (const row of rows) {
-		if (!newestSessionPathById.has(row.id)) {
-			newestSessionPathById.set(row.id, row.session_path);
-		}
-	}
-	if (currentSession) {
-		newestSessionPathById.set(currentSession.id, currentSession.sessionPath);
-	}
-	return newestSessionPathById;
+		.all() as LiveSessionPathRow[];
+	return new Map(rows.map((row) => [row.recipient_session_id, row.session_path]));
 }
 
 function readPersistedMultiAgentRows(db: SqliteDatabase, sessionPath?: string): PersistedMultiAgentRow[] {
@@ -1663,15 +1722,27 @@ function readPersistedMultiAgentRows(db: SqliteDatabase, sessionPath?: string): 
 function abortPersistedSpawnedAgentRow(
 	db: SqliteDatabase,
 	row: PersistedMultiAgentRow,
-	newestSessionPathById: Map<string, string>,
+	liveSessionPathById: Map<string, string>,
 	options: AbortPersistedSpawnedAgentRowsOptions,
 	nowIso: string,
 ): boolean {
-	const isCurrentLiveStore =
-		row.supervisor_pid !== null && newestSessionPathById.get(row.supervisor_session_id) === row.session_path;
-	if (row.supervisor_pid !== null && (options.requireExplicitlyEnded || isCurrentLiveStore)) return false;
+	if (row.supervisor_pid !== null) {
+		if (options.requireExplicitlyEnded) return false;
+		const liveSessionPath = liveSessionPathById.get(row.supervisor_session_id);
+		if (liveSessionPath === undefined || liveSessionPath === row.session_path) return false;
+	}
 	const agent = parseJsonObject(row.data);
 	if (!agent || !isActiveSpawnedAgent(agent)) return false;
+	writeAbortedPersistedSpawnedAgent(db, row, agent, nowIso);
+	return true;
+}
+
+function writeAbortedPersistedSpawnedAgent(
+	db: SqliteDatabase,
+	row: PersistedMultiAgentRow,
+	agent: Record<string, unknown> & { revision: number },
+	nowIso: string,
+): void {
 	const updated = {
 		...agent,
 		error: SUPERVISOR_RESTARTED_ERROR,
@@ -1687,7 +1758,6 @@ function abortPersistedSpawnedAgentRow(
 		WHERE session_path = ? AND agent_id = ?
 		`,
 	).run(JSON.stringify(updated), nowIso, row.session_path, row.agent_id);
-	return true;
 }
 
 function isActiveSpawnedAgent(agent: Record<string, unknown>): agent is Record<string, unknown> & { revision: number } {
@@ -1973,6 +2043,8 @@ function initializeSchema(db: SqliteDatabase): void {
 			recipient_session_id TEXT NOT NULL,
 			recipient_agent_id_key TEXT NOT NULL,
 			pid INTEGER NOT NULL,
+			session_path TEXT,
+			session_path_asserted_at TEXT,
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
 		);
@@ -2077,6 +2149,7 @@ function initializeSchema(db: SqliteDatabase): void {
 	`);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
+	addMissingRuntimeMailboxListenerColumns(db);
 }
 
 function addMissingRuntimeMailboxColumns(db: SqliteDatabase): void {
@@ -2088,6 +2161,18 @@ function addMissingRuntimeMailboxColumns(db: SqliteDatabase): void {
 	}
 	if (!columns.has("store_message_id")) {
 		db.exec("ALTER TABLE runtime_mailbox_messages ADD COLUMN store_message_id TEXT");
+	}
+}
+
+function addMissingRuntimeMailboxListenerColumns(db: SqliteDatabase): void {
+	const columns = new Set(
+		(db.prepare("PRAGMA table_info(runtime_mailbox_listeners)").all() as TableInfoRow[]).map((column) => column.name),
+	);
+	if (!columns.has("session_path")) {
+		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN session_path TEXT");
+	}
+	if (!columns.has("session_path_asserted_at")) {
+		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN session_path_asserted_at TEXT");
 	}
 }
 

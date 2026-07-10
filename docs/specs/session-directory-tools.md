@@ -44,9 +44,10 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] After listener retirement and health synchronization, `list_sessions` calls the global
       `abortInactiveSessionSpawnedAgents()` reconciliation for persisted spawned-agent rows. It
       changes stores with matching metadata and either explicitly ended (`pid: NULL`) health or a
-      non-current duplicate metadata path for the same session ID, while protecting the caller's
-      exact current path. This clears historical active ghosts immediately without scanning on
-      mailbox heartbeats.
+      path differing from the exact live path freshly asserted on that session's main listener.
+      Pathless or legacy timestamp-only heartbeats invalidate assertion trust and protect all
+      duplicates until re-registration. This clears historical active ghosts immediately without
+      scanning on mailbox heartbeats.
 
 ### Broadcast surface
 

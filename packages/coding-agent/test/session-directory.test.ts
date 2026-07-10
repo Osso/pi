@@ -333,7 +333,12 @@ describe("session directory", () => {
 			sessionPath: "/sessions/session-live-current.jsonl",
 			modifiedAt: "2026-01-01T00:11:00.000Z",
 		});
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "session-live" },
+			process.pid,
+			"/sessions/session-live-current.jsonl",
+		);
 		upsertMultiAgentAgent(controlDbPath, "/sessions/session-live-old.jsonl", "historical", {
 			id: "historical",
 			lifecycle: "running",
@@ -354,6 +359,46 @@ describe("session directory", () => {
 		]);
 		expect(readMultiAgentState(controlDbPath, "/sessions/session-live-current.jsonl")?.agents).toMatchObject([
 			{ id: "current", lifecycle: "running", revision: 1 },
+		]);
+	});
+
+	it("uses another live listener's exact path instead of duplicate metadata ordering", () => {
+		const liveSessionPath = "/sessions/session-live-actual.jsonl";
+		const historicalSessionPath = "/sessions/session-live-newer-metadata.jsonl";
+		writeSession("session-live", {
+			sessionPath: liveSessionPath,
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+		});
+		writeSession("session-live", {
+			sessionPath: historicalSessionPath,
+			modifiedAt: "2026-01-01T00:11:00.000Z",
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "session-live" },
+			process.pid,
+			liveSessionPath,
+		);
+		upsertMultiAgentAgent(controlDbPath, liveSessionPath, "current", {
+			id: "current",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:10:00.000Z",
+		});
+		upsertMultiAgentAgent(controlDbPath, historicalSessionPath, "historical", {
+			id: "historical",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:11:00.000Z",
+		});
+
+		listSessions(controlDbPath);
+
+		expect(readMultiAgentState(controlDbPath, liveSessionPath)?.agents).toMatchObject([
+			{ id: "current", lifecycle: "running", revision: 1 },
+		]);
+		expect(readMultiAgentState(controlDbPath, historicalSessionPath)?.agents).toMatchObject([
+			{ id: "historical", lifecycle: "aborted", revision: 2, error: { code: "supervisor_restarted" } },
 		]);
 	});
 

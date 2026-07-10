@@ -52,9 +52,12 @@ bridge methods, and `/bg`; production child sessions exclude those tools as a se
 
 At supervisor start, queued rows remain queued. After a current runtime mailbox listener registers,
 `abortInactiveSessionSpawnedAgents()` transactionally scans persisted stores with matching
-`session_metadata`. It selects explicitly ended stores (`session_health.pid = NULL`) and
-non-current duplicate metadata paths for the same session ID, while protecting the current runtime's
-exact session path. Any active spawned row (explicit `origin: "spawned"` or absent origin) becomes
+`session_metadata`. It selects explicitly ended stores (`session_health.pid = NULL`) and duplicate
+metadata paths differing from the exact live path freshly asserted on that session's main listener.
+The assertion is trusted only while its assertion timestamp matches the listener heartbeat; pathless
+or legacy timestamp-only heartbeats invalidate it. Session-path relocation moves the assertion in the
+same transaction as the store. Any active spawned row (explicit `origin: "spawned"` or absent origin)
+becomes
 `aborted` with a `supervisor_restarted` interruption error; the update increments revision, clears
 worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, current
 live, and stale-but-process-backed timeout rows stay unchanged. `list_sessions` invokes the same

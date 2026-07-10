@@ -11,9 +11,12 @@ seconds. Registration writes `ok` health for the same session/PID generation. A 
 `agent_generation`; a heartbeat from the confirmed runtime sets `checked_generation` to that current
 generation.
 
-Only one main-session listener may own a PID. Registering a main listener atomically deletes other
-main-session listener rows with that PID and marks their matching health rows `dead` with `pid =
-NULL`. Session switch, restart, fork, and disposal retire the old listener through an exact
+Only one main-session listener may own a PID. Registering a main listener freshly asserts its exact
+session path, atomically deletes other main-session listener rows with that PID, and marks their
+matching health rows `dead` with `pid = NULL`. Assertion trust requires the path assertion timestamp
+to match the listener heartbeat; pathless or legacy timestamp-only heartbeats invalidate it. Session
+switch, restart, fork, and disposal retire the old
+listener through an exact
 `(session_id, agent_id, pid)` delete. The PID guard prevents stale teardown from deleting a binding
 owned by a replacement process.
 
@@ -33,9 +36,10 @@ owned by a replacement process.
 5. Mark health rows without a retained current binding ended.
 6. After this listener/health synchronization, call global
    `abortInactiveSessionSpawnedAgents()`. It changes active spawned rows in stores with exact
-   `session_metadata` and either explicitly ended `session_health.pid = NULL` or a non-current
-   duplicate metadata path for the same session ID. The caller's exact current path is protected;
-   attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
+   `session_metadata` and either explicitly ended `session_health.pid = NULL` or a path differing
+   from the exact freshly asserted live path on that session's main listener. Unknown or invalidated
+   assertions protect all duplicates until re-registration; attached, queued, terminal,
+   missing-health, current live, and stale-but-process-backed timeout
    rows remain unchanged, so repeated calls are idempotent.
 7. Exclude every ended row when `includeEnded` is `false`.
 

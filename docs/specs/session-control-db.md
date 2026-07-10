@@ -33,15 +33,22 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       heartbeat/check fields.
 - [x] Provide `abortInactiveSessionSpawnedAgents()` as the transactional global reconciliation API
       for persisted multi-agent rows: a store with matching `session_metadata` can abort active
-      spawned agents when its `session_health.pid` is `NULL` or when its metadata path is a
-      non-current duplicate for the same session ID. Callers can protect the current runtime's exact
-      session path. Reconciliation preserves unrelated agent JSON, increments revision, clears worker
+      spawned agents when its `session_health.pid` is `NULL` or when its metadata path differs from
+      the exact live path freshly asserted on the main runtime listener for that session ID. The
+      assertion is trusted only when `session_path_asserted_at` matches the listener heartbeat;
+      pathless or legacy timestamp-only heartbeats invalidate it and conservatively protect all
+      duplicate paths until re-registration. Reconciliation preserves unrelated agent JSON,
+      increments revision, clears worker
       metadata, writes `supervisor_restarted`, and is idempotent; attached, queued, terminal,
       missing-health, current live, and stale-but-process-backed timeout rows remain unchanged.
-- [x] A main-thread listener registration atomically retires other main-session bindings for the
-      same PID, marks their matching health rows ended, and confirms the registered binding `ok`;
+- [x] A main-thread listener registration persists its exact session path and assertion timestamp,
+      atomically retires other main-session bindings for the same PID, marks their matching health
+      rows ended, and confirms the registered binding `ok`;
       listener retirement removes only the exact `(session_id, agent_id, pid)` binding being
       disposed.
+- [x] Session-path relocation updates the main-listener path assertion in the same SQLite transaction
+      as metadata, multi-agent rows, counters, and mailbox references, so no live-store mismatch is
+      externally observable.
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
 - [x] Runtime mailbox transport rows never copy message bodies: `storeRef`

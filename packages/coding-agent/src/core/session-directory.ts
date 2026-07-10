@@ -106,7 +106,11 @@ function reconcileCurrentMainSessionBindings(
 			continue;
 		}
 		seenPids.add(listener.pid);
-		bindings.set(listener.sessionId, { pid: listener.pid, updatedAt: listener.updatedAt, heartbeatFresh });
+		bindings.set(listener.sessionId, {
+			pid: listener.pid,
+			updatedAt: listener.updatedAt,
+			heartbeatFresh,
+		});
 	}
 	return bindings;
 }
@@ -255,9 +259,13 @@ function toDirectoryEntry(metadata: SessionMetadata, health: SessionHealthRecord
 	};
 }
 
-function registerTouchedSessionBinding(controlDbPath: string, sessionId: string | undefined): void {
+function registerTouchedSessionBinding(
+	controlDbPath: string,
+	sessionId: string | undefined,
+	sessionPath: string | undefined,
+): void {
 	if (!sessionId) return;
-	registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, process.pid);
+	registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, process.pid, sessionPath);
 }
 
 function markTouchedSessionActive(
@@ -285,18 +293,13 @@ function markTouchedSessionActive(
 export function listSessions(controlDbPath: string, options: SessionDirectoryOptions = {}): SessionDirectoryEntry[] {
 	const now = resolveNow(options);
 	const nowIso = now.toISOString();
-	registerTouchedSessionBinding(controlDbPath, options.touchCurrentSessionId);
+	registerTouchedSessionBinding(controlDbPath, options.touchCurrentSessionId, options.touchCurrentSessionPath);
 	const metadata = newestMetadataBySessionId(listSessionMetadata(controlDbPath));
 	const healthMap = healthBySessionId(controlDbPath);
 	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? defaultIsRuntimeProcessAlive;
 	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive);
 	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, bindings, now);
-	abortInactiveSessionSpawnedAgents(controlDbPath, {
-		currentSession:
-			options.touchCurrentSessionId && options.touchCurrentSessionPath
-				? { id: options.touchCurrentSessionId, sessionPath: options.touchCurrentSessionPath }
-				: undefined,
-	});
+	abortInactiveSessionSpawnedAgents(controlDbPath);
 	markTouchedSessionActive(controlDbPath, options.touchCurrentSessionId, healthMap, nowIso);
 	return metadata
 		.map((row) => toDirectoryEntry(row, healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso), now))

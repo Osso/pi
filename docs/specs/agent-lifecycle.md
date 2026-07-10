@@ -73,7 +73,9 @@ State meanings:
       `abortInactiveSessionSpawnedAgents()` globally terminalizes active spawned agents (`origin:
       "spawned"` or absent) in persisted supervisor stores with matching metadata and either an
       explicitly ended (`pid: NULL`) health row or a non-current duplicate metadata path for the
-      same session ID. The current runtime's exact session path is protected. Reconciliation writes
+      same session ID. Main listener rows freshly assert the exact live session path; reconciliation
+      trusts it only when its assertion timestamp matches the listener heartbeat, and path relocation
+      moves the assertion transactionally with the store. Reconciliation writes
       `aborted` with an explicit `supervisor_restarted` interruption error, including
       `waiting_for_input`, and prevents active-count and TUI liveness ghosts in historical
       non-current stores. Attached, queued, terminal, missing-health, current live, and stale-but-

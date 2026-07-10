@@ -70,7 +70,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       listener registration, `abortInactiveSessionSpawnedAgents()` globally terminalizes active
       spawned agents (explicit `spawned` origin or absent origin) in persisted stores with matching
       supervisor metadata and either explicitly ended (`pid: NULL`) health or a non-current duplicate
-      metadata path for the same session ID. The current runtime's exact path is protected. It writes
+      metadata path for the same session ID. Main listener rows freshly assert the exact live session
+      path, and path relocation moves that assertion transactionally with the store. Pathless or
+      legacy timestamp-only heartbeats invalidate assertion trust instead of preserving stale paths.
+      It writes
       `aborted` with a `supervisor_restarted` interruption error, including waiting children;
       attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
       records remain unchanged. Session-directory listener/health synchronization runs the same
