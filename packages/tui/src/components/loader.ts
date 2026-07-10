@@ -9,7 +9,7 @@ export interface LoaderIndicatorOptions {
 }
 
 const DEFAULT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const DEFAULT_INTERVAL_MS = 80;
+const DEFAULT_INTERVAL_MS = 250;
 
 /**
  * Loader component that updates with an optional spinning animation.
