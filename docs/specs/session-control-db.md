@@ -27,8 +27,13 @@ reply without changing the JSONL transcript format. How it works lives in
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_artifacts`, `multi_agent_mailbox_messages`,
       `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
-- [x] Store per-session health state (`session_health`) for sticky liveness checks used by
-      `list_sessions` and `broadcast`, including agent generation and last check fields.
+- [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
+      `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
+      heartbeat/check fields.
+- [x] A main-thread listener registration atomically retires other main-session bindings for the
+      same PID, marks their matching health rows ended, and confirms the registered binding `ok`;
+      listener retirement removes only the exact `(session_id, agent_id, pid)` binding being
+      disposed.
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
 - [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
@@ -54,7 +59,7 @@ reply without changing the JSONL transcript format. How it works lives in
 
 - `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path,
   schema, incoming-message claim/complete API, last-message API, prompt-history
-  API, and session metadata API.
+  API, session metadata API, and runtime-listener/health lifecycle.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — built-in tool that appends to the

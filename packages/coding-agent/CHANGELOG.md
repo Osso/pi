@@ -52,6 +52,7 @@
 
 ### Fixed
 
+- Fixed historical Pi sessions reappearing as live after session switch or PID reuse by retiring old main-session bindings, using runtime heartbeats instead of PID existence as positive liveness, filtering ended inventory rows, and keeping Architect/global inventory on the current session.
 - Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.
 - Fixed Resident Architect snapshots to retain only the current main session per live Pi process without expiring long-running sessions or replaying historical/subagent session inventories.
 - Fixed shared-channel catch-up to batch all unread deliverable posts in order into one agent turn and retain them when batch delivery fails.

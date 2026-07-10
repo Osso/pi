@@ -4,20 +4,20 @@ import {
 	listRuntimeMailboxListeners,
 	listSessionHealth,
 	listSessionMetadata,
-	readSessionHealth,
 	registerRuntimeMailboxListener,
+	retireRuntimeMailboxListener,
 	type SessionMetadata,
 	upsertMultiAgentMailboxMessage,
 	writeSessionHealth,
 } from "./session-control-db.ts";
 import {
-	applyProcessCheck,
 	deriveLiveStatus,
 	emptySessionHealth,
+	endSessionHealth,
 	isSessionEligibleToReceive,
 	isStickyDead,
-	needsSessionCheck,
 	parseGoalObjective,
+	SESSION_CHECK_STALE_MS,
 	type SessionBroadcastResult,
 	type SessionDirectoryEntry,
 	type SessionHealthRecord,
@@ -25,7 +25,6 @@ import {
 
 export interface SessionDirectoryOptions {
 	now?: () => Date;
-	signalProcess?: (pid: number, signal: 0) => void;
 	includeEnded?: boolean;
 	touchCurrentSessionId?: string;
 }
@@ -49,6 +48,11 @@ function resolveNow(options?: SessionDirectoryOptions): Date {
 	return options?.now?.() ?? new Date();
 }
 
+interface CurrentMainSessionBinding {
+	pid: number;
+	updatedAt: string;
+}
+
 function healthBySessionId(controlDbPath: string): Map<string, SessionHealthRecord> {
 	const map = new Map<string, SessionHealthRecord>();
 	for (const health of listSessionHealth(controlDbPath)) {
@@ -57,71 +61,114 @@ function healthBySessionId(controlDbPath: string): Map<string, SessionHealthReco
 	return map;
 }
 
+function newestMetadataBySessionId(metadata: SessionMetadata[]): SessionMetadata[] {
+	const seenSessionIds = new Set<string>();
+	return metadata.filter((row) => {
+		if (seenSessionIds.has(row.id)) return false;
+		seenSessionIds.add(row.id);
+		return true;
+	});
+}
+
+function reconcileCurrentMainSessionBindings(controlDbPath: string, now: Date): Map<string, CurrentMainSessionBinding> {
+	const listeners = listRuntimeMailboxListeners(controlDbPath)
+		.filter((listener) => listener.agentId === null)
+		.sort((left, right) => {
+			const updatedAtOrder = right.updatedAt.localeCompare(left.updatedAt);
+			if (updatedAtOrder !== 0) return updatedAtOrder;
+			return left.sessionId.localeCompare(right.sessionId);
+		});
+	const seenPids = new Set<number>();
+	const bindings = new Map<string, CurrentMainSessionBinding>();
+	for (const listener of listeners) {
+		const binding = { pid: listener.pid, updatedAt: listener.updatedAt };
+		if (seenPids.has(listener.pid) || !bindingHeartbeatIsFresh(binding, now.getTime())) {
+			retireRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: listener.sessionId }, listener.pid);
+			continue;
+		}
+		seenPids.add(listener.pid);
+		bindings.set(listener.sessionId, binding);
+	}
+	return bindings;
+}
+
+function bindingHeartbeatIsFresh(binding: CurrentMainSessionBinding, nowMs: number): boolean {
+	const heartbeatMs = Date.parse(binding.updatedAt);
+	return Number.isFinite(heartbeatMs) && nowMs - heartbeatMs <= SESSION_CHECK_STALE_MS;
+}
+
+function synchronizedBoundSessionHealth(
+	existing: SessionHealthRecord,
+	binding: CurrentMainSessionBinding,
+	nowIso: string,
+): SessionHealthRecord | undefined {
+	const sameGeneration = existing.pid === binding.pid && existing.agentGeneration > 0;
+	const agentGeneration = sameGeneration ? existing.agentGeneration : existing.agentGeneration + 1;
+	const alreadySynced =
+		existing.pid === binding.pid &&
+		existing.lastActiveAt === binding.updatedAt &&
+		existing.checkStatus === "ok" &&
+		existing.checkedGeneration === agentGeneration;
+	if (alreadySynced) return undefined;
+	return {
+		...existing,
+		pid: binding.pid,
+		agentGeneration,
+		lastActiveAt: binding.updatedAt,
+		lastCheckedAt: binding.updatedAt,
+		checkStatus: "ok",
+		checkedGeneration: agentGeneration,
+		checkLatencyMs: 0,
+		updatedAt: nowIso,
+	};
+}
+
+function syncBoundSessionHealth(
+	controlDbPath: string,
+	sessionId: string,
+	binding: CurrentMainSessionBinding,
+	healthMap: Map<string, SessionHealthRecord>,
+	now: Date,
+): void {
+	const nowIso = now.toISOString();
+	const existing = healthMap.get(sessionId) ?? emptySessionHealth(sessionId, nowIso);
+	const next = synchronizedBoundSessionHealth(existing, binding, nowIso);
+	if (!next) return;
+	writeSessionHealth(controlDbPath, next);
+	healthMap.set(sessionId, next);
+}
+
+function retireUnboundSessionHealthIfNeeded(
+	controlDbPath: string,
+	metadata: SessionMetadata,
+	healthMap: Map<string, SessionHealthRecord>,
+	bindings: Map<string, CurrentMainSessionBinding>,
+	nowIso: string,
+): void {
+	const existing = healthMap.get(metadata.id) ?? emptySessionHealth(metadata.id, nowIso);
+	if (bindings.has(metadata.id) || existing.pid === null) {
+		healthMap.set(metadata.id, existing);
+		return;
+	}
+	const retired = endSessionHealth(existing, nowIso);
+	writeSessionHealth(controlDbPath, retired);
+	healthMap.set(metadata.id, retired);
+}
+
 function ensureHealthSyncedFromListeners(
 	controlDbPath: string,
 	metadata: SessionMetadata[],
 	healthMap: Map<string, SessionHealthRecord>,
-	nowIso: string,
-): void {
-	const listeners = listRuntimeMailboxListeners(controlDbPath).filter((listener) => listener.agentId === null);
-	for (const listener of listeners) {
-		const existing = healthMap.get(listener.sessionId) ?? emptySessionHealth(listener.sessionId, nowIso);
-		if (existing.pid === listener.pid && existing.agentGeneration > 0) {
-			const next = {
-				...existing,
-				pid: listener.pid,
-				lastActiveAt: existing.lastActiveAt ?? listener.updatedAt,
-				updatedAt: nowIso,
-			};
-			if (existing.pid !== next.pid || existing.lastActiveAt !== next.lastActiveAt) {
-				writeSessionHealth(controlDbPath, next);
-				healthMap.set(listener.sessionId, next);
-			}
-			continue;
-		}
-		// Rerun registration helper so generation advancement stays centralized with listener writes.
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: listener.sessionId }, listener.pid);
-		const refreshed = readSessionHealth(controlDbPath, listener.sessionId);
-		if (refreshed) {
-			healthMap.set(listener.sessionId, refreshed);
-		}
-	}
-
-	// Ensure metadata sessions without listeners still surface empty health rows.
-	for (const row of metadata) {
-		if (!healthMap.has(row.id)) {
-			healthMap.set(row.id, emptySessionHealth(row.id, nowIso));
-		}
-	}
-}
-
-function checkAndPersist(
-	controlDbPath: string,
-	health: SessionHealthRecord,
-	options: SessionDirectoryOptions | undefined,
+	bindings: Map<string, CurrentMainSessionBinding>,
 	now: Date,
-): SessionHealthRecord {
-	if (!needsSessionCheck(health, health.lastActiveAt, now.getTime())) {
-		return health;
+): void {
+	const nowIso = now.toISOString();
+	for (const [sessionId, binding] of bindings) {
+		syncBoundSessionHealth(controlDbPath, sessionId, binding, healthMap, now);
 	}
-	const started = Date.now();
-	let alive: boolean | undefined;
-	if (health.pid !== null && options?.signalProcess) {
-		try {
-			options.signalProcess(health.pid, 0);
-			alive = true;
-		} catch {
-			alive = false;
-		}
+	for (const row of metadata) {
+		retireUnboundSessionHealthIfNeeded(controlDbPath, row, healthMap, bindings, nowIso);
 	}
-	const next = applyProcessCheck(health, {
-		pid: health.pid,
-		nowIso: now.toISOString(),
-		latencyMs: Date.now() - started,
-		alive,
-	});
-	writeSessionHealth(controlDbPath, next);
-	return next;
 }
 
 function toDirectoryEntry(metadata: SessionMetadata, health: SessionHealthRecord, now: Date): SessionDirectoryEntry {
@@ -145,73 +192,49 @@ function toDirectoryEntry(metadata: SessionMetadata, health: SessionHealthRecord
 	};
 }
 
+function registerTouchedSessionBinding(controlDbPath: string, sessionId: string | undefined): void {
+	if (!sessionId) return;
+	registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, process.pid);
+}
+
+function markTouchedSessionActive(
+	controlDbPath: string,
+	sessionId: string | undefined,
+	healthMap: Map<string, SessionHealthRecord>,
+	nowIso: string,
+): void {
+	if (!sessionId) return;
+	const existing = healthMap.get(sessionId) ?? emptySessionHealth(sessionId, nowIso);
+	const next = {
+		...existing,
+		pid: process.pid,
+		lastActiveAt: nowIso,
+		lastCheckedAt: nowIso,
+		checkStatus: "ok" as const,
+		checkedGeneration: existing.agentGeneration,
+		checkLatencyMs: 0,
+		updatedAt: nowIso,
+	};
+	writeSessionHealth(controlDbPath, next);
+	healthMap.set(sessionId, next);
+}
+
 export function listSessions(controlDbPath: string, options: SessionDirectoryOptions = {}): SessionDirectoryEntry[] {
 	const now = resolveNow(options);
 	const nowIso = now.toISOString();
-	const metadata = listSessionMetadata(controlDbPath);
+	registerTouchedSessionBinding(controlDbPath, options.touchCurrentSessionId);
+	const metadata = newestMetadataBySessionId(listSessionMetadata(controlDbPath));
 	const healthMap = healthBySessionId(controlDbPath);
-	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, nowIso);
-
-	if (options.touchCurrentSessionId) {
-		const existing =
-			healthMap.get(options.touchCurrentSessionId) ?? emptySessionHealth(options.touchCurrentSessionId, nowIso);
-		const next = {
-			...existing,
-			pid: existing.pid ?? process.pid,
-			lastActiveAt: nowIso,
-			// Current process is known-live for this session.
-			lastCheckedAt: nowIso,
-			checkStatus: "ok" as const,
-			checkedGeneration: existing.agentGeneration > 0 ? existing.agentGeneration : 1,
-			agentGeneration: existing.agentGeneration > 0 ? existing.agentGeneration : 1,
-			checkLatencyMs: 0,
-			updatedAt: nowIso,
-		};
-		writeSessionHealth(controlDbPath, next);
-		healthMap.set(options.touchCurrentSessionId, next);
-		if (existing.pid === null || existing.agentGeneration === 0) {
-			registerRuntimeMailboxListener(
-				controlDbPath,
-				{ agentId: null, sessionId: options.touchCurrentSessionId },
-				process.pid,
-			);
-			const refreshed = readSessionHealth(controlDbPath, options.touchCurrentSessionId);
-			if (refreshed) healthMap.set(options.touchCurrentSessionId, refreshed);
-		}
-	}
-
-	const entries: SessionDirectoryEntry[] = [];
-	for (const row of metadata) {
-		const startingHealth = healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso);
-		const health = checkAndPersist(controlDbPath, startingHealth, options, now);
-		healthMap.set(row.id, health);
-		const entry = toDirectoryEntry(row, health, now);
-		if (!options.includeEnded && entry.status === "ended" && !entry.eligibleToReceive && isStickyDead(health)) {
-			// Keep sticky-dead rows visible to callers so skips are inspectable.
-			entries.push(entry);
-			continue;
-		}
-		entries.push(entry);
-	}
-	return entries;
+	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now);
+	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, bindings, now);
+	markTouchedSessionActive(controlDbPath, options.touchCurrentSessionId, healthMap, nowIso);
+	return metadata
+		.map((row) => toDirectoryEntry(row, healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso), now))
+		.filter((entry) => options.includeEnded !== false || entry.status !== "ended");
 }
 
-function currentMainSessionIds(controlDbPath: string): Set<string> {
-	const listeners = listRuntimeMailboxListeners(controlDbPath)
-		.filter((listener) => listener.agentId === null)
-		.sort((left, right) => {
-			const updatedAtOrder = right.updatedAt.localeCompare(left.updatedAt);
-			if (updatedAtOrder !== 0) return updatedAtOrder;
-			return left.sessionId.localeCompare(right.sessionId);
-		});
-	const seenPids = new Set<number>();
-	const sessionIds = new Set<string>();
-	for (const listener of listeners) {
-		if (seenPids.has(listener.pid)) continue;
-		seenPids.add(listener.pid);
-		sessionIds.add(listener.sessionId);
-	}
-	return sessionIds;
+function currentMainSessionIds(controlDbPath: string, now: Date): Set<string> {
+	return new Set(reconcileCurrentMainSessionBindings(controlDbPath, now).keys());
 }
 
 function matchesFilters(entry: SessionDirectoryEntry, filters: BroadcastSessionFilters | undefined): boolean {
@@ -241,9 +264,11 @@ export function broadcastToSessions(
 		throw new Error("broadcast requires a non-empty message");
 	}
 
-	const currentSessionIds = currentMainSessionIds(controlDbPath);
+	const now = resolveNow(options);
+	const stableOptions = { ...options, now: () => now };
+	const currentSessionIds = currentMainSessionIds(controlDbPath, now);
 	const seenSessionIds = new Set<string>();
-	const entries = listSessions(controlDbPath, options).filter((entry) => {
+	const entries = listSessions(controlDbPath, stableOptions).filter((entry) => {
 		if (!currentSessionIds.has(entry.sessionId) || seenSessionIds.has(entry.sessionId)) return false;
 		seenSessionIds.add(entry.sessionId);
 		return true;

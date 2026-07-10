@@ -8,7 +8,10 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Observation
 
-- [x] Poll a bounded snapshot containing only the most recently registered non-subagent main session for each freshly live Pi process, deduplicated by session identity and excluding the Architect itself, every 30 seconds without prompting the model when state is unchanged.
+- [x] Poll a bounded snapshot containing only currently bound non-subagent main sessions, one per
+      live Pi process, deduplicated by session identity and excluding the Architect itself, every
+      30 seconds without prompting the model when state is unchanged. Historical same-PID sessions
+      must not appear in either Architect or global session inventory.
 - [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel request beginning `Architect:`.
 - [x] Ignore subagent and Architect-originated channel posts as architect requests.
 - [x] Open observer state through SQLite read-only access without applying writer-oriented database configuration.
@@ -41,6 +44,8 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/architect-observer.test.ts` — initial/material snapshots, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, and explicit main-session architect-request filtering.
+- `packages/coding-agent/test/session-directory.test.ts` — regression proving Architect and global
+  inventory retain only the current main-session binding.
 - `packages/coding-agent/test/architect-service.test.ts` — installed-binary unit command plus deployment reload, enable/start, and restart steps.
 
 ## Known gaps (current cycle)

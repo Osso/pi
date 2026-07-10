@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readArchitectSnapshot } from "../../src/architect/observer.ts";
 import {
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionFromServices,
@@ -10,6 +11,8 @@ import {
 	createAgentSessionServices,
 } from "../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
+import { getControlDbPath, listRuntimeMailboxListeners, readSessionHealth } from "../../src/core/session-control-db.ts";
+import { listSessions } from "../../src/core/session-directory.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type {
 	ExtensionAPI,
@@ -265,6 +268,69 @@ describe("AgentSessionRuntime characterization", () => {
 			{ type: "session_shutdown", reason: "resume", targetSessionFile: originalSessionFile },
 			{ type: "session_start", reason: "resume", previousSessionFile: secondSessionFile },
 		]);
+	});
+
+	it("refreshes the current main-session binding before Architect health expires", async () => {
+		const heartbeatIntervalMs = 60_000;
+		const elapsedMs = heartbeatIntervalMs * 6;
+		const startedAt = new Date();
+		vi.useFakeTimers();
+		vi.setSystemTime(startedAt);
+		let cleanup: (() => Promise<void> | void) | undefined;
+		try {
+			const { runtime, tempDir } = await createRuntimeForTest(() => {});
+			cleanup = cleanups.pop();
+			const controlDbPath = getControlDbPath(tempDir);
+			const initial = listRuntimeMailboxListeners(controlDbPath).find(
+				(listener) => listener.agentId === null && listener.sessionId === runtime.session.sessionId,
+			);
+
+			await vi.advanceTimersByTimeAsync(elapsedMs);
+
+			const refreshed = listRuntimeMailboxListeners(controlDbPath).find(
+				(listener) => listener.agentId === null && listener.sessionId === runtime.session.sessionId,
+			);
+			expect(initial?.updatedAt).toBe(startedAt.toISOString());
+			expect(refreshed?.updatedAt).toBe(new Date(startedAt.getTime() + elapsedMs).toISOString());
+			expect(readSessionHealth(controlDbPath, runtime.session.sessionId)?.lastActiveAt).toBe(refreshed?.updatedAt);
+			expect(listSessions(controlDbPath, { includeEnded: false }).map((session) => session.sessionId)).toEqual([
+				runtime.session.sessionId,
+			]);
+			expect(readArchitectSnapshot(controlDbPath, 0).sessions.map((session) => session.id)).toEqual([
+				runtime.session.sessionId,
+			]);
+		} finally {
+			await cleanup?.();
+			vi.clearAllTimers();
+			vi.useRealTimers();
+		}
+	});
+
+	it("retires the previous main-session binding when resuming another session", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
+		await runtime.session.prompt("original");
+		const originalSessionId = runtime.session.sessionId;
+		const targetSession = SessionManager.create(tempDir, defaultSessionDir(tempDir, tempDir));
+		targetSession.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "target" }],
+			timestamp: Date.now(),
+		});
+
+		await runtime.switchSession(targetSession.getSessionFile()!);
+
+		const currentSessionId = runtime.session.sessionId;
+		const mainListeners = listRuntimeMailboxListeners(getControlDbPath(tempDir)).filter(
+			(listener) => listener.agentId === null && listener.pid === process.pid,
+		);
+		expect(currentSessionId).not.toBe(originalSessionId);
+		expect(mainListeners).toEqual([
+			expect.objectContaining({ sessionId: currentSessionId, agentId: null, pid: process.pid }),
+		]);
+		expect(readSessionHealth(getControlDbPath(tempDir), originalSessionId)).toMatchObject({
+			pid: null,
+			checkStatus: "dead",
+		});
 	});
 
 	it("honors session_before_switch cancellation for new and resume", async () => {

@@ -95,6 +95,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       possible or remain pending/failed with an explicit reason; they must not be silently dropped.
 - [x] Idle sessions poll the runtime mailbox for pending messages at least every 3 seconds, and
       every agent turn also drains pending recipient messages before going idle.
+- [x] Each live main session refreshes its runtime mailbox listener and corresponding health activity
+      every 60 seconds; session switch or disposal retires its exact old listener and marks matching
+      main-session health ended.
+- [x] Registering a main-session listener retires other main-session bindings on the same PID, so a
+      process has one current main-session identity even if historical listener rows remain.
 - [x] Pending runtime mailbox messages are claimed atomically before enqueue so concurrent Pi
       processes do not deliver the same message twice.
 - [x] Claimed messages are marked delivered only after the recipient successfully enqueues the

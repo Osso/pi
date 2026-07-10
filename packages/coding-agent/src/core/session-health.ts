@@ -58,29 +58,6 @@ export function isStickyDead(health: SessionHealthRecord): boolean {
 	return health.checkStatus === "dead" && health.checkedGeneration === health.agentGeneration;
 }
 
-export function needsSessionCheck(
-	health: SessionHealthRecord,
-	lastActiveAt: string | null,
-	nowMs = Date.now(),
-	staleMs = SESSION_CHECK_STALE_MS,
-): boolean {
-	if (isStickyDead(health)) {
-		return false;
-	}
-	if (health.checkStatus === "never" || health.checkStatus === "timeout") {
-		return true;
-	}
-	if (health.checkStatus === "ok") {
-		const lastActiveMs = lastActiveAt ? Date.parse(lastActiveAt) : Number.NaN;
-		const lastCheckedMs = health.lastCheckedAt ? Date.parse(health.lastCheckedAt) : Number.NaN;
-		const activeStale = !Number.isFinite(lastActiveMs) || nowMs - lastActiveMs > staleMs;
-		const checkedStale = !Number.isFinite(lastCheckedMs) || nowMs - lastCheckedMs > staleMs;
-		return activeStale || checkedStale;
-	}
-	// dead with a newer agent generation (checkedCreation mismatch) needs a check.
-	return true;
-}
-
 export function isSessionEligibleToReceive(health: SessionHealthRecord): boolean {
 	return health.checkStatus === "ok" && !isStickyDead(health);
 }
@@ -122,64 +99,14 @@ export function parseGoalObjective(goalJson: string | undefined | null): string 
 	return trimmed;
 }
 
-export function processAlive(
-	pid: number,
-	signalProcess: (pid: number, signal: 0) => void = defaultSignalProcess,
-): boolean {
-	try {
-		signalProcess(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-function defaultSignalProcess(pid: number, signal: 0): void {
-	process.kill(pid, signal);
-}
-
-export function applyProcessCheck(
-	health: SessionHealthRecord,
-	options: {
-		pid: number | null;
-		nowIso?: string;
-		latencyMs?: number;
-		alive?: boolean;
-	},
-): SessionHealthRecord {
-	const nowIso = options.nowIso ?? new Date().toISOString();
-	const latencyMs = options.latencyMs ?? 0;
-	if (options.pid === null) {
-		return {
-			...health,
-			pid: null,
-			lastCheckedAt: nowIso,
-			checkStatus: "dead",
-			checkedGeneration: health.agentGeneration,
-			checkLatencyMs: latencyMs,
-			updatedAt: nowIso,
-		};
-	}
-	const alive = options.alive ?? processAlive(options.pid);
-	if (!alive) {
-		return {
-			...health,
-			pid: options.pid,
-			lastCheckedAt: nowIso,
-			checkStatus: "dead",
-			checkedGeneration: health.agentGeneration,
-			checkLatencyMs: latencyMs,
-			updatedAt: nowIso,
-		};
-	}
+export function endSessionHealth(health: SessionHealthRecord, nowIso = new Date().toISOString()): SessionHealthRecord {
 	return {
 		...health,
-		pid: options.pid,
-		lastActiveAt: nowIso,
+		pid: null,
 		lastCheckedAt: nowIso,
-		checkStatus: "ok",
+		checkStatus: "dead",
 		checkedGeneration: health.agentGeneration,
-		checkLatencyMs: latencyMs,
+		checkLatencyMs: 0,
 		updatedAt: nowIso,
 	};
 }

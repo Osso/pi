@@ -16,6 +16,7 @@ import {
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
 	listNamedSessions,
+	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
@@ -26,10 +27,13 @@ import {
 	readLastMessage,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
+	readSessionHealth,
 	readSessionMetadata,
 	readSharedChannelCursor,
 	recoverStaleRuntimeMailboxClaims,
+	registerRuntimeMailboxListener,
 	removeNamedSession,
+	retireRuntimeMailboxListener,
 	setNamedSession,
 	upsertMultiAgentMailboxMessage,
 	writeLastMessage,
@@ -87,6 +91,31 @@ describe("session control DB", () => {
 
 	it("stores control state next to the session transcript", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
+	});
+
+	it("retires a matching main-session listener without removing a replacement process", () => {
+		const recipient = { agentId: null, sessionId: "session-a" };
+		registerRuntimeMailboxListener(controlDbPath, recipient, 123);
+
+		expect(retireRuntimeMailboxListener(controlDbPath, recipient, 456)).toBe(false);
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({ sessionId: "session-a", agentId: null, pid: 123 }),
+		]);
+		expect(readSessionHealth(controlDbPath, "session-a")).toMatchObject({
+			pid: 123,
+			agentGeneration: 1,
+			checkStatus: "ok",
+			checkedGeneration: 1,
+		});
+
+		expect(retireRuntimeMailboxListener(controlDbPath, recipient, 123)).toBe(true);
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+		expect(readSessionHealth(controlDbPath, "session-a")).toMatchObject({
+			pid: null,
+			checkStatus: "dead",
+			checkedGeneration: 1,
+			agentGeneration: 1,
+		});
 	});
 
 	it("opens control.sqlite in WAL mode for multi-consumer access", () => {

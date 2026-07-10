@@ -3,9 +3,8 @@
 Module boundary: core built-in tools + session control DB.
 
 `list_sessions` and `broadcast` let agents discover other Pi sessions by purpose and
-liveness, then deliver a message only to eligible sessions. Implementation details may live
-in [`docs/wiki/systems/session-directory-tools.md`](../wiki/systems/session-directory-tools.md)
-once needed.
+liveness, then deliver a message only to eligible sessions. Implementation details live in
+[`docs/wiki/systems/session-directory-tools.md`](../wiki/systems/session-directory-tools.md).
 
 ## What it must do
 
@@ -16,18 +15,28 @@ once needed.
       lastCheckedAt, checkStatus, checkLatencyMs, agentGeneration, checkedGeneration, and
       eligibleToReceive.
 - [x] Session purpose prefers `/name` and active `/goal` objective text when present.
-- [x] Live main-thread pids come from runtime mailbox listener rows and are tracked per session
-      with an agent generation token.
+- [x] Live main-thread pids come only from current runtime mailbox listener bindings and are tracked
+      per session with an agent generation token; an unbound historical session is never revived
+      merely because another current session uses the same PID.
+- [x] `list_sessions` retains at most one current main-session binding per PID, retires older
+      same-PID listener rows, and marks their matching health rows ended.
+- [x] `list_sessions` derives positive liveness only from fresh runtime heartbeats; PID existence
+      alone can never revive a historical or stale binding.
+- [x] `list_sessions` returns only one metadata row for each session ID; deterministic ordering by
+      modified time, update time, and session path resolves duplicate historical rows.
+- [x] With `include_ended: false`, `list_sessions` excludes every ended row.
 
-### Sticky health checks
+### Heartbeat-backed health
 
-- [x] Sessions are rechecked when checkStatus is `never`/`timeout`, or when an `ok` check and
-      activity are older than 5 minutes.
-- [x] A definitive dead check sets sticky `dead` for the current agent generation and is not
-      rechecked until the generation advances.
-- [x] Registering a new live main-thread listener for a session advances generation when the pid
-      changes and clears sticky death for the new generation after a successful check.
-- [x] Sticky-dead sessions are not eligible to receive messages.
+- [x] Main-session registration and each 60-second runtime heartbeat write `ok` health for the
+      bound session and current agent generation.
+- [x] A binding whose heartbeat is older than five minutes is retired and marked ended without a
+      positive PID probe, preventing OS PID reuse from reviving historical work.
+- [x] Session switch and disposal retire only the exact `(session_id, agent_id, pid)` binding, so
+      an overlapping replacement process cannot be removed by stale teardown.
+- [x] Registering a different PID for a session advances its agent generation; registration from a
+      confirmed live runtime clears stale death for the bound generation.
+- [x] Ended sessions are not eligible to receive messages.
 
 ### Broadcast surface
 
@@ -35,18 +44,18 @@ once needed.
 - [x] `broadcast` accepts a required message and optional filters (`session_ids`, `cwd`, `name`,
       `status`).
 - [x] Candidate sessions pass through the same eligibility/check pipeline as `list_sessions`.
-- [x] Sticky-dead sessions are skipped without re-probing.
-- [x] `broadcast` selects the newest main-thread runtime listener per PID before applying filters,
-      using a deterministic tie-break; historical session IDs sharing that PID are never targeted.
-      It then uses the first/newest inventory entry when historical metadata has multiple paths for
-      the selected session ID.
+- [x] Ended or stale-bound sessions are skipped without PID-based revival.
+- [x] `broadcast` uses the same current main-session binding and deduplicated metadata inventory
+      as `list_sessions`; historical session IDs sharing a PID are never targeted.
 
 ## How it works
 
 - [`docs/specs/session-control-db.md`](session-control-db.md) owns the global control DB path and
   runtime mailbox transport used for delivery.
-- [`docs/specs/multi-agent.md`](multi-agent.md) defines runtime mailbox delivery to session main
-  threads.
+- [`docs/specs/multi-agent.md`](multi-agent.md) defines runtime mailbox delivery and listener
+  lifecycle for session main threads.
+- [`docs/wiki/systems/session-directory-tools.md`](../wiki/systems/session-directory-tools.md)
+  describes binding cleanup, liveness checks, and metadata selection.
 
 ## Implementation inventory
 
@@ -64,6 +73,8 @@ once needed.
 - `packages/coding-agent/test/session-health.test.ts`
 - `packages/coding-agent/test/session-directory.test.ts`
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts`
+- `packages/coding-agent/test/session-control-db.test.ts`
+- `packages/coding-agent/test/suite/agent-session-runtime.test.ts`
 
 ## Known gaps (current cycle)
 

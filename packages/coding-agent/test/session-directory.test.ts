@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readArchitectSnapshot } from "../src/architect/observer.ts";
 import {
 	getControlDbPath,
+	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	readSessionHealth,
 	registerRuntimeMailboxListener,
@@ -59,7 +61,6 @@ describe("session directory", () => {
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-a" }, process.pid);
 
 		const sessions = listSessions(controlDbPath, {
-			signalProcess: () => {},
 			now: () => new Date("2026-01-01T00:11:00.000Z"),
 		});
 
@@ -87,11 +88,7 @@ describe("session directory", () => {
 			lastCheckedAt: "2026-01-01T00:01:00.000Z",
 		});
 
-		const first = listSessions(controlDbPath, {
-			signalProcess: () => {
-				throw new Error("should not recheck sticky dead");
-			},
-		});
+		const first = listSessions(controlDbPath);
 		expect(first[0]).toMatchObject({
 			sessionId: "session-dead",
 			checkStatus: "dead",
@@ -100,12 +97,114 @@ describe("session directory", () => {
 
 		// New agent process re-registers under a still-dead pid first, advancing generation.
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-dead" }, process.pid);
-		const afterRestart = listSessions(controlDbPath, {
-			signalProcess: () => {},
-		});
+		const afterRestart = listSessions(controlDbPath);
 		expect(afterRestart[0]?.checkStatus).toBe("ok");
 		expect(afterRestart[0]?.eligibleToReceive).toBe(true);
 		expect(afterRestart[0]?.agentGeneration).toBe(2);
+	});
+
+	it("does not revive an unbound historical session from a reused live pid", () => {
+		writeSession("session-historical");
+		writeSessionHealth(controlDbPath, {
+			...emptySessionHealth("session-historical", "2026-01-01T00:00:00.000Z"),
+			agentGeneration: 1,
+			pid: process.pid,
+			lastActiveAt: "2026-01-01T00:00:00.000Z",
+			lastCheckedAt: "2026-01-01T00:00:00.000Z",
+			checkStatus: "ok",
+			checkedGeneration: 1,
+		});
+		const sessions = listSessions(controlDbPath, {
+			now: () => new Date("2026-01-01T00:11:00.000Z"),
+		});
+
+		expect(sessions).toEqual([
+			expect.objectContaining({
+				sessionId: "session-historical",
+				pid: null,
+				status: "ended",
+				checkStatus: "dead",
+				eligibleToReceive: false,
+			}),
+		]);
+	});
+
+	it("expires a stale binding without probing a reused live pid", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+			writeSession("session-stale");
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-stale" }, process.pid);
+			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
+			const sessions = listSessions(controlDbPath);
+
+			expect(sessions).toEqual([
+				expect.objectContaining({ sessionId: "session-stale", pid: null, status: "ended", checkStatus: "dead" }),
+			]);
+			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("excludes ended sessions when includeEnded is false", () => {
+		writeSession("session-ended");
+		writeSessionHealth(controlDbPath, {
+			...emptySessionHealth("session-ended", "2026-01-01T00:00:00.000Z"),
+			agentGeneration: 1,
+			checkStatus: "dead",
+			checkedGeneration: 1,
+			lastCheckedAt: "2026-01-01T00:01:00.000Z",
+		});
+
+		expect(listSessions(controlDbPath, { includeEnded: false })).toEqual([]);
+	});
+
+	it("keeps global inventory and Architect snapshots on the current main-session binding", () => {
+		writeSession("session-historical", { cwd: "/repo/historical" });
+		writeSession("session-current", { cwd: "/repo/current" });
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-historical" }, process.pid);
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-current" }, process.pid);
+
+		const sessions = listSessions(controlDbPath, { includeEnded: false });
+		const snapshot = readArchitectSnapshot(controlDbPath, 0);
+
+		expect(sessions.map((session) => session.sessionId)).toEqual(["session-current"]);
+		expect(snapshot.sessions.map((session) => session.id)).toEqual(["session-current"]);
+		expect(readSessionHealth(controlDbPath, "session-historical")).toMatchObject({
+			pid: null,
+			checkStatus: "dead",
+		});
+	});
+
+	it("uses session path as the deterministic tie-break for duplicate metadata", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-01-01T00:12:00.000Z"));
+			writeSession("session-live", {
+				cwd: "/repo/historical",
+				sessionPath: "/sessions/a-historical.jsonl",
+				modifiedAt: "2026-01-01T00:11:00.000Z",
+			});
+			writeSession("session-live", {
+				cwd: "/repo/current",
+				sessionPath: "/sessions/z-current.jsonl",
+				modifiedAt: "2026-01-01T00:11:00.000Z",
+			});
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
+
+			const sessions = listSessions(controlDbPath, { includeEnded: false });
+
+			expect(sessions).toEqual([
+				expect.objectContaining({
+					sessionId: "session-live",
+					sessionPath: "/sessions/z-current.jsonl",
+					cwd: "/repo/current",
+				}),
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("broadcasts only to the newest main-session listener for a shared live pid", () => {
@@ -118,16 +217,12 @@ describe("session directory", () => {
 			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-current" }, process.pid);
 
-			const sent = broadcastToSessions(
-				controlDbPath,
-				{
-					message: "please restart",
-					senderSessionId: "sender-session",
-					senderSessionPath: "/sessions/sender.jsonl",
-					senderAgentId: null,
-				},
-				{ signalProcess: () => {} },
-			);
+			const sent = broadcastToSessions(controlDbPath, {
+				message: "please restart",
+				senderSessionId: "sender-session",
+				senderSessionPath: "/sessions/sender.jsonl",
+				senderAgentId: null,
+			});
 
 			expect(sent).toEqual([
 				expect.objectContaining({ sessionId: "session-current", outcome: "sent", checkStatus: "ok" }),
@@ -138,17 +233,13 @@ describe("session directory", () => {
 				sessionId: "session-current",
 			});
 
-			const filtered = broadcastToSessions(
-				controlDbPath,
-				{
-					message: "please restart again",
-					filters: { sessionIds: ["session-historical"] },
-					senderSessionId: "sender-session",
-					senderSessionPath: "/sessions/sender.jsonl",
-					senderAgentId: null,
-				},
-				{ signalProcess: () => {} },
-			);
+			const filtered = broadcastToSessions(controlDbPath, {
+				message: "please restart again",
+				filters: { sessionIds: ["session-historical"] },
+				senderSessionId: "sender-session",
+				senderSessionPath: "/sessions/sender.jsonl",
+				senderAgentId: null,
+			});
 
 			expect(filtered).toEqual([
 				expect.objectContaining({ sessionId: "session-current", outcome: "skipped_filter" }),
@@ -170,16 +261,12 @@ describe("session directory", () => {
 		});
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
 
-		const results = broadcastToSessions(
-			controlDbPath,
-			{
-				message: "please restart",
-				senderSessionId: "sender-session",
-				senderSessionPath: "/sessions/sender.jsonl",
-				senderAgentId: null,
-			},
-			{ signalProcess: () => {} },
-		);
+		const results = broadcastToSessions(controlDbPath, {
+			message: "please restart",
+			senderSessionId: "sender-session",
+			senderSessionPath: "/sessions/sender.jsonl",
+			senderAgentId: null,
+		});
 
 		expect(results).toEqual([
 			expect.objectContaining({ sessionId: "session-live", outcome: "sent", checkStatus: "ok" }),
@@ -202,17 +289,13 @@ describe("session directory", () => {
 		});
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
 
-		const results = broadcastToSessions(
-			controlDbPath,
-			{
-				message: "please restart",
-				filters: { cwd: "/repo/old" },
-				senderSessionId: "sender-session",
-				senderSessionPath: "/sessions/sender.jsonl",
-				senderAgentId: null,
-			},
-			{ signalProcess: () => {} },
-		);
+		const results = broadcastToSessions(controlDbPath, {
+			message: "please restart",
+			filters: { cwd: "/repo/old" },
+			senderSessionId: "sender-session",
+			senderSessionPath: "/sessions/sender.jsonl",
+			senderAgentId: null,
+		});
 
 		expect(results).toEqual([expect.objectContaining({ sessionId: "session-live", outcome: "skipped_filter" })]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(0);
@@ -225,19 +308,13 @@ describe("session directory", () => {
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-filtered" }, process.pid + 1);
 
-		const results = broadcastToSessions(
-			controlDbPath,
-			{
-				message: "please restart",
-				filters: { sessionIds: ["session-live"] },
-				senderSessionId: "sender-session",
-				senderSessionPath: "/sessions/sender.jsonl",
-				senderAgentId: null,
-			},
-			{
-				signalProcess: () => {},
-			},
-		);
+		const results = broadcastToSessions(controlDbPath, {
+			message: "please restart",
+			filters: { sessionIds: ["session-live"] },
+			senderSessionId: "sender-session",
+			senderSessionPath: "/sessions/sender.jsonl",
+			senderAgentId: null,
+		});
 
 		expect(results).toEqual(
 			expect.arrayContaining([

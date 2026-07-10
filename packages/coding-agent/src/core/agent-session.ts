@@ -129,6 +129,7 @@ import {
 	registerRuntimeMailboxListener,
 	releaseRuntimeMailboxMessageClaim,
 	removeNamedSession,
+	retireRuntimeMailboxListener,
 	type SharedChannelMessage,
 	setNamedSession,
 	writeLastMessage,
@@ -152,6 +153,7 @@ const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
 const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 3_000;
+const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
 
 // Once this process has ever advertised its pid as a runtime mailbox listener, stray
 // SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
@@ -563,6 +565,7 @@ export class AgentSession {
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
 	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
+	private _runtimeMailboxHeartbeatTimer?: ReturnType<typeof setInterval>;
 	private _runtimeMailboxSignalHandler?: () => void;
 	private _runtimeMailboxDrainInProgress = false;
 	private _sharedChannelDrainInProgress = false;
@@ -2404,13 +2407,10 @@ export class AgentSession {
 			return;
 		}
 		installRuntimeMailboxSignalKeepalive();
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
-		const agentId = this._getRuntimeMailboxAgentId();
-		const recipient = { agentId, sessionId: this.sessionId };
+		this._registerRuntimeMailboxListeners(controlDbPath);
+		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
-		if (agentId) {
-			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
-		}
+		this._startRuntimeMailboxHeartbeat();
 		if (process.platform === "win32" || this._runtimeMailboxSignalHandler) {
 			return;
 		}
@@ -2422,13 +2422,52 @@ export class AgentSession {
 		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);
 	}
 
+	private _registerRuntimeMailboxListeners(controlDbPath: string): void {
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
+		const agentId = this._getRuntimeMailboxAgentId();
+		if (agentId) {
+			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
+		}
+	}
+
+	private _startRuntimeMailboxHeartbeat(): void {
+		if (this._runtimeMailboxHeartbeatTimer) return;
+		this._runtimeMailboxHeartbeatTimer = setInterval(() => {
+			const controlDbPath = this._getRuntimeMailboxControlDbPath();
+			if (!controlDbPath) return;
+			try {
+				this._registerRuntimeMailboxListeners(controlDbPath);
+			} catch (error) {
+				console.error("Failed to refresh runtime mailbox listeners:", error);
+			}
+		}, RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS);
+	}
+
+	private _stopRuntimeMailboxHeartbeat(): void {
+		if (!this._runtimeMailboxHeartbeatTimer) return;
+		clearInterval(this._runtimeMailboxHeartbeatTimer);
+		this._runtimeMailboxHeartbeatTimer = undefined;
+	}
+
 	private _stopRuntimeMailboxSignalWake(): void {
+		this._stopRuntimeMailboxHeartbeat();
+		this._retireRuntimeMailboxListeners();
 		if (!this._runtimeMailboxSignalHandler || process.platform === "win32") {
 			this._runtimeMailboxSignalHandler = undefined;
 			return;
 		}
 		process.off("SIGUSR2", this._runtimeMailboxSignalHandler);
 		this._runtimeMailboxSignalHandler = undefined;
+	}
+
+	private _retireRuntimeMailboxListeners(): void {
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!controlDbPath) return;
+		retireRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
+		const agentId = this._getRuntimeMailboxAgentId();
+		if (agentId) {
+			retireRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
+		}
 	}
 
 	/**
