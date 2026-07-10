@@ -355,7 +355,7 @@ function spawnDetachedBashAgent(process: DetachedBashProcess, backgroundJobs: Ba
 		displayName: "Bash command",
 		lifecycle: "starting",
 		permission: { narrowed: true, policy: "on-request" },
-		worker: { adapter: "subprocess", cwd: process.cwd, handleId: String(process.pid ?? "unknown") },
+		worker: { adapter: "runtime", cwd: process.cwd, handleId: String(process.pid ?? "unknown") },
 	});
 	const running = backgroundJobs.store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
 		lastActivity: { description: process.command, toolName: "bash" },

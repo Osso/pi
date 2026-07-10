@@ -44,6 +44,22 @@ Production child sessions also resolve agent-type profiles from settings. The bu
 thinking). User settings can override them with `agents.<type>.model` and
 `agents.<type>.thinkingLevel`.
 
+## Runtime ownership and recovery
+
+The supervisor is the only orchestration authority. Child runtimes reject direct
+`spawn_agent`, `attach_session_agent`, and `wait_agent` calls, the equivalent Hostrun/Pyrun
+bridge methods, and `/bg`; production child sessions exclude those tools as a second boundary.
+
+At supervisor start, queued rows remain queued. Any other active spawned row (explicit
+`origin: "spawned"` or absent origin) without a live dispatch becomes `aborted` with a
+`supervisor_restarted` interruption error. Attached-session rows retain the transcript-backed
+resume path; attached rows already waiting for input remain idle. This prevents restored spawned
+rows from falsely appearing live.
+
+`wait_agent` accepts only an in-process dispatch or a current-process detached Bash/Pyrun job
+with transient `runtime` worker metadata. The store removes active worker metadata on restore, so
+persisted process metadata cannot keep a wait polling forever.
+
 Existing primitives worth reusing:
 
 - `packages/coding-agent/src/core/agent-session.ts` owns one live agent session, prompt steering,
@@ -127,7 +143,7 @@ interface AgentNode {
 	slot?: { index: number; pinned: boolean };
 	transcript?: { sessionId: string; path?: string };
 	eventStream?: { path: string; eventCount: number; truncated: boolean; byteLimit?: number };
-	worker?: { adapter: "terminal" | "subprocess"; handleId: string; cwd?: string };
+	worker?: { adapter: "runtime" | "terminal" | "subprocess"; handleId: string; cwd?: string };
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
 	error?: { message: string; code?: string };

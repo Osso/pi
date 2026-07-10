@@ -46,7 +46,7 @@ export interface AgentArtifactReference {
 export type AgentArtifactKind = "summary" | "diff" | "log" | "finding" | "transcript" | "file";
 
 export interface AgentWorkerAdapter {
-	adapter: "terminal" | "subprocess";
+	adapter: "runtime" | "terminal" | "subprocess";
 	handleId: string;
 	cwd?: string;
 }

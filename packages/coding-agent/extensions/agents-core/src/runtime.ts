@@ -166,6 +166,7 @@ const CRASH_RECOVERY_PROMPT =
 const MESSAGE_CONTENT_LIMIT = 2000;
 const WAIT_AGENT_POLL_INTERVAL_MS = 25;
 const WAITABLE_BACKGROUND_TOOL_NAMES = new Set(["bash", "pyrun_eval"]);
+const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
 
 export type AgentDesktopNotification = DesktopNotification;
 
@@ -467,6 +468,10 @@ function startBackgroundDispatch(
 }
 
 function backgroundCommand(background: BackgroundDispatchContext, args: string, ctx: ExtensionCommandContext): void {
+	if (isChildAgentRuntime(ctx)) {
+		ctx.ui.notify(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, "error");
+		return;
+	}
 	const prompt = args.trim();
 	if (isProductionChildSessionFactory(background.createChildSession)) {
 		const validation = validateGoalObjective(prompt);
@@ -535,7 +540,7 @@ export function createProductionChildAgentSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			excludeTools: ["spawn_agent"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agent"],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -591,7 +596,7 @@ export function createProductionAttachedSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			excludeTools: ["spawn_agent"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agent"],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -658,6 +663,9 @@ export function createHostrunMultiAgentRequestHandler(
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 
 	return async (request, ctx, signal) => {
+		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
+			throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
+		}
 		if (request.method === "agents.spawn") {
 			const result = await spawnAgent(
 				store,
@@ -790,6 +798,18 @@ function normalizeWaitAgentParams(params: unknown): WaitAgentParams {
 	return { agentId };
 }
 
+function isChildAgentRuntime(ctx: ExtensionContext): boolean {
+	return (
+		ctx.multiAgentAgentId !== undefined ||
+		ctx.multiAgentRequiresAgentId === true ||
+		ctx.sessionManager?.isSubagentSession?.() === true
+	);
+}
+
+function isSupervisorOnlyAgentRequest(method: string): boolean {
+	return method === "agents.spawn" || method === "agents.attachSession" || method === "agents.wait";
+}
+
 function createMainThreadSnapshot(): MainThreadSnapshot {
 	return { displayName: "Main thread", id: MAIN_THREAD_AGENT_ID, lifecycle: "current", selected: true };
 }
@@ -862,6 +882,13 @@ async function spawnAgent(
 	pi?: ExtensionAPI,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+	if (isChildAgentRuntime(ctx)) {
+		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
+			agent: emptyAgent("spawn_agent"),
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
 	if (isProductionChildSessionFactory(createChildSession)) {
 		const validation = validateGoalObjective(params.prompt);
 		if (!validation.ok) {
@@ -947,6 +974,12 @@ interface AttachSessionAgentRuntimeInput {
 
 async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promise<AgentToolResult<AgentToolDetails>> {
 	const { ctx, params, store } = input;
+	if (isChildAgentRuntime(ctx)) {
+		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
+			agent: emptyAgent("attach_session_agent"),
+			dispatched: false,
+		});
+	}
 	const resolution = await resolveAttachSessionTarget(params, ctx);
 	if (!resolution.ok) {
 		return errorResult(resolution.message, {
@@ -1066,29 +1099,42 @@ function recoverDetachedAgents(input: Omit<AttachSessionDispatchInput, "prompt" 
 	if (input.ctx.multiAgentAgentId) {
 		return;
 	}
-	// Liveness is derived, not stored: an agent whose persisted lifecycle is in-flight but
-	// that has no dispatch in this process is detached and needs recovery. Restore never
-	// rewrites lifecycle state, so the persisted snapshot is the truth about what was running.
 	for (const agent of input.store.listActiveAgents()) {
-		if (!isInFlightLifecycle(agent.lifecycle) || input.dispatches.has(agent.id)) {
-			continue;
-		}
-		if (agent.lifecycle === "cancelling") {
-			// The runtime went away while a cancel was pending; complete the cancel.
-			transitionActiveAgent(input.store, agent, "aborted");
-			continue;
-		}
-		if (input.createAttachedSession && agent.origin === "attached" && agent.transcript?.path) {
-			dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
-			continue;
-		}
-		if (!agent.transcript?.path) {
-			transitionActiveAgent(input.store, agent, "failed", {
-				error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
-			});
-		}
-		// Detached spawned children with a transcript keep their truthful lifecycle until a
-		// resume path exists for them.
+		recoverDetachedAgent(input, agent);
+	}
+}
+
+function recoverDetachedAgent(
+	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
+	agent: AgentSnapshot,
+): void {
+	if (agent.lifecycle === "queued" || input.dispatches.has(agent.id)) {
+		return;
+	}
+	if (agent.origin !== "attached") {
+		transitionActiveAgent(input.store, agent, "aborted", {
+			error: {
+				code: "supervisor_restarted",
+				message: "Spawned agent was interrupted by supervisor restart and cannot be resumed.",
+			},
+		});
+		return;
+	}
+	if (agent.lifecycle === "cancelling") {
+		transitionActiveAgent(input.store, agent, "aborted");
+		return;
+	}
+	if (!isInFlightLifecycle(agent.lifecycle)) {
+		return;
+	}
+	if (input.createAttachedSession && agent.transcript?.path) {
+		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+		return;
+	}
+	if (!agent.transcript?.path) {
+		transitionActiveAgent(input.store, agent, "failed", {
+			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
+		});
 	}
 }
 
@@ -1806,6 +1852,9 @@ async function waitAgent(
 	signal: AbortSignal | undefined,
 	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<WaitAgentToolDetails>> {
+	if (ctx && isChildAgentRuntime(ctx)) {
+		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {});
+	}
 	const initialAgent = store.getAgent(params.agentId);
 	if (!initialAgent) {
 		return errorResult(`Agent not found: ${params.agentId}`, {});
@@ -1849,6 +1898,7 @@ function isWaitAgentReady(agent: AgentSnapshot): boolean {
 function isWaitableBackgroundToolJob(agent: AgentSnapshot): boolean {
 	return (
 		agent.agentType === "background" &&
+		agent.worker?.adapter === "runtime" &&
 		isInFlightLifecycle(agent.lifecycle) &&
 		WAITABLE_BACKGROUND_TOOL_NAMES.has(agent.lastActivity?.toolName ?? "")
 	);

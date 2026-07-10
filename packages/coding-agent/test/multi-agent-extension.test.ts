@@ -926,7 +926,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("does not restart recovered spawned children through the attached-session factory", async () => {
+	it("aborts recovered spawned children instead of leaving detached active ghosts", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -950,8 +950,37 @@ describe("multi-agent extension tools", () => {
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
 
 		expect(createAttachedSession).not.toHaveBeenCalled();
-		expect(store.getAgent(interrupted.agent.id)).toMatchObject({ lifecycle: "running" });
-		expect(store.getAgent(interrupted.agent.id)?.error).toBeUndefined();
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
+			error: { message: "Spawned agent was interrupted by supervisor restart and cannot be resumed." },
+			lifecycle: "aborted",
+		});
+		expect(store.getActiveAgentCount()).toBe(0);
+	});
+
+	it("aborts recovered spawned children that were waiting for input", async () => {
+		const session = createControlDbSession();
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
+		const interrupted = source.spawnAgent({
+			agentType: "explore",
+			cwd: "/repo",
+			displayName: "Waiting child",
+			lifecycle: "waiting_for_input",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/waiting-child.jsonl", sessionId: "waiting-child-session" },
+		});
+		const store = MultiAgentStore.fromSessionManager(session, {
+			now: () => "2026-06-21T00:00:00.000Z",
+		});
+		const harness = createMultiAgentHarness({ store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
+			error: { message: "Spawned agent was interrupted by supervisor restart and cannot be resumed." },
+			lifecycle: "aborted",
+		});
+		expect(store.getActiveAgentCount()).toBe(0);
 	});
 
 	it("waits for active background jobs that update store state without a dispatch", async () => {
@@ -963,6 +992,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Background tool",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
+			worker: { adapter: "runtime", handleId: "live-background-job" },
 		});
 		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
 			lastActivity: { description: "sleep", toolName: "bash" },
@@ -1006,12 +1036,42 @@ describe("multi-agent extension tools", () => {
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
-		await harness.emit("session_start", { reason: "resume", type: "session_start" });
 
 		const waited = await harness.call<WaitAgentDetails>("wait_agent", { agentId: interrupted.agent.id });
 
 		expect(waited.details).toEqual({});
 		expect(waited.content).toMatchObject([{ text: expect.stringContaining("Cannot wait for detached agent") }]);
+	});
+
+	it("fails promptly when waiting for a detached background tool job", async () => {
+		const session = createControlDbSession();
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
+		const spawned = source.spawnAgent({
+			agentType: "background",
+			cwd: "/repo",
+			displayName: "Detached background tool",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+			worker: { adapter: "subprocess", handleId: "stale-process" },
+		});
+		const running = source.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
+			lastActivity: { description: "sleep", toolName: "bash" },
+		});
+		expect(running.ok).toBe(true);
+		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
+		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const controller = new AbortController();
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
+		const waitPromise = Promise.resolve(
+			handler({ method: "agents.wait", params: { agentId: spawned.agent.id } }, ctx, controller.signal),
+		);
+		const resolvedPromptly = await resolvesWithin(waitPromise, 20);
+		if (!resolvedPromptly) controller.abort();
+		const waited = await waitPromise;
+
+		expect(resolvedPromptly).toBe(true);
+		expect(waited).toBeNull();
 	});
 
 	it("fails detached agents without a transcript at recovery time", async () => {
@@ -1034,8 +1094,8 @@ describe("multi-agent extension tools", () => {
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
 
 		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
-			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
-			lifecycle: "failed",
+			error: { message: "Spawned agent was interrupted by supervisor restart and cannot be resumed." },
+			lifecycle: "aborted",
 		});
 	});
 
@@ -1071,6 +1131,7 @@ describe("multi-agent extension tools", () => {
 			cwd: "/repo",
 			displayName: "Idle work",
 			lifecycle: "waiting_for_input",
+			origin: "attached",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/idle.jsonl", sessionId: "idle-session" },
 		});
@@ -1319,6 +1380,56 @@ describe("multi-agent extension tools", () => {
 		await expect(handler({ method: "agents.wait", params: {} }, ctx, undefined)).rejects.toThrow(
 			"pi.agents.wait requires a non-empty agentId",
 		);
+	});
+
+	it("rejects nested agent orchestration through direct tools", async () => {
+		const harness = createMultiAgentHarness({ ctx: { multiAgentAgentId: "agent_child" } });
+
+		for (const [toolName, params] of [
+			["spawn_agent", { displayName: "Nested", prompt: "do work" }],
+			["attach_session_agent", { sessionId: "saved-session" }],
+			["wait_agent", { agentId: "agent_parent" }],
+		] as const) {
+			const result = await harness.call<Record<string, unknown>>(toolName, params);
+			expect(result.content).toMatchObject([
+				{ text: expect.stringContaining("unavailable from child agent runtimes") },
+			]);
+		}
+		expect(harness.store.listAgents()).toEqual([]);
+	});
+
+	it("rejects nested agent orchestration through Hostrun and Pyrun bridge methods", async () => {
+		const store = new MultiAgentStore();
+		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const ctx = {
+			cwd: "/repo",
+			hasUI: false,
+			mode: "print",
+			multiAgentAgentId: "agent_child",
+			multiAgentRequiresAgentId: true,
+		} as ExtensionContext;
+
+		for (const request of [
+			{ method: "agents.spawn", params: { displayName: "Nested", prompt: "do work" } },
+			{ method: "agents.attachSession", params: { sessionId: "saved-session" } },
+			{ method: "agents.wait", params: { agentId: "agent_parent" } },
+		]) {
+			await expect(handler(request, ctx, undefined)).rejects.toThrow("unavailable from child agent runtimes");
+		}
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("rejects /bg from child agent runtimes", async () => {
+		const notify = vi.fn();
+		const harness = createMultiAgentHarness();
+
+		await harness.command("bg", "nested work", {
+			multiAgentAgentId: "agent_child",
+			ui: { notify },
+		});
+
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("unavailable from child agent runtimes"), "error");
+		expect(harness.store.listAgents()).toEqual([]);
 	});
 
 	it("lets tool wait_agent observe Hostrun-spawned live dispatches through shared runtime handles", async () => {
@@ -2497,7 +2608,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(sessionOptions).toMatchObject({
 			cwd: "/repo",
-			excludeTools: ["spawn_agent"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agent"],
 			model: parentHarness.getModel(),
 			modelRegistry: parentHarness.session.modelRegistry,
 		});
@@ -2637,7 +2748,10 @@ describe("multi-agent extension tools", () => {
 			sessionPath: target.getSessionFile() ?? "",
 		});
 
-		expect(sessionOptions?.multiAgentStore).toBe(store);
+		expect(sessionOptions).toMatchObject({
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agent"],
+			multiAgentStore: store,
+		});
 	});
 
 	it("records production child transcript metadata when the child session is created", async () => {

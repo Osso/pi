@@ -457,6 +457,7 @@ function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams
 		displayName: "Pyrun evaluation",
 		lifecycle: "starting",
 		permission: { narrowed: true, policy: "on-request" },
+		worker: { adapter: "runtime", handleId: "pyrun" },
 	});
 	const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
 		lastActivity: { description: params.code, toolName: "pyrun_eval" },
