@@ -50,11 +50,15 @@ The supervisor is the only orchestration authority. Child runtimes reject direct
 `spawn_agent`, `attach_session_agent`, and `wait_agent` calls, the equivalent Hostrun/Pyrun
 bridge methods, and `/bg`; production child sessions exclude those tools as a second boundary.
 
-At supervisor start, queued rows remain queued. Any other active spawned row (explicit
-`origin: "spawned"` or absent origin) without a live dispatch becomes `aborted` with a
-`supervisor_restarted` interruption error. Attached-session rows retain the transcript-backed
-resume path; attached rows already waiting for input remain idle. This prevents restored spawned
-rows from falsely appearing live.
+At supervisor start, queued rows remain queued. After a current runtime mailbox listener registers,
+`abortInactiveSessionSpawnedAgents()` transactionally scans persisted stores with matching
+`session_metadata` and explicitly ended `session_health.pid = NULL`. Any active spawned row
+(explicit `origin: "spawned"` or absent origin) becomes `aborted` with a
+`supervisor_restarted` interruption error; the update increments revision, clears worker metadata,
+and preserves unrelated JSON. Attached, queued, terminal, missing-health, and live-health rows stay
+unchanged. `list_sessions` invokes the same reconciliation immediately after listener/health
+synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
+retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
 `wait_agent` accepts only an in-process dispatch or a current-process detached Bash/Pyrun job
 with transient `runtime` worker metadata. The store removes active worker metadata on restore, so
