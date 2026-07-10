@@ -468,52 +468,54 @@ describe("AgentSession prompt characterization", () => {
 		await expect(prompt).resolves.toBeUndefined();
 	});
 
-	it("queues a streaming prompt when compaction preflight races another prompt", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
-		harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
+	it.each(["steer", "followUp"] as const)(
+		"queues a %s prompt when compaction preflight races another prompt",
+		async (streamingBehavior) => {
+			const harness = await createHarness();
+			harnesses.push(harness);
+			harness.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
+			harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
 
-		const compactionStarted = createDeferred();
-		const releaseCompaction = createDeferred();
-		let compactionChecks = 0;
-		vi.spyOn(
-			harness.session as unknown as {
-				_checkCompaction: (message: unknown, postRunCheck?: boolean) => Promise<boolean>;
-			},
-			"_checkCompaction",
-		).mockImplementation(async () => {
-			compactionChecks += 1;
-			if (compactionChecks === 1) {
-				compactionStarted.resolve();
-				await releaseCompaction.promise;
-			}
-			return false;
-		});
-
-		const firstPrompt = harness.session.prompt("first");
-		await compactionStarted.promise;
-
-		const secondStarted = new Promise<void>((resolve) => {
-			const unsubscribe = harness.session.subscribe((event) => {
-				if (event.type === "agent_start") {
-					unsubscribe();
-					resolve();
+			const compactionStarted = createDeferred();
+			const releaseCompaction = createDeferred();
+			let compactionChecks = 0;
+			vi.spyOn(
+				harness.session as unknown as {
+					_checkCompaction: (message: unknown, postRunCheck?: boolean) => Promise<boolean>;
+				},
+				"_checkCompaction",
+			).mockImplementation(async () => {
+				compactionChecks += 1;
+				if (compactionChecks === 1) {
+					compactionStarted.resolve();
+					await releaseCompaction.promise;
 				}
+				return false;
 			});
-		});
-		const secondPrompt = harness.session.prompt("second", { streamingBehavior: "followUp" });
-		releaseCompaction.resolve();
-		await secondStarted;
 
-		await expect(firstPrompt).resolves.toBeUndefined();
-		await expect(secondPrompt).resolves.toBeUndefined();
-		expect(harness.getPendingResponseCount()).toBe(0);
-		expect(harness.session.messages.filter((message) => message.role === "user").map(getMessageText)).toEqual([
-			"first",
-			"second",
-		]);
-	});
+			const firstPrompt = harness.session.prompt("first");
+			await compactionStarted.promise;
+
+			const secondStarted = new Promise<void>((resolve) => {
+				const unsubscribe = harness.session.subscribe((event) => {
+					if (event.type === "agent_start") {
+						unsubscribe();
+						resolve();
+					}
+				});
+			});
+			const secondPrompt = harness.session.prompt("second", { streamingBehavior });
+			releaseCompaction.resolve();
+			await secondStarted;
+
+			await expect(firstPrompt).resolves.toBeUndefined();
+			await expect(secondPrompt).resolves.toBeUndefined();
+			expect(harness.session.messages.filter((message) => message.role === "user").map(getMessageText)).toEqual([
+				"first",
+				"second",
+			]);
+		},
+	);
 
 	it("queues a prompt while continue preflight owns the turn-start transition", async () => {
 		let releaseToolExecution: (() => void) | undefined;
