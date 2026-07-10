@@ -53,6 +53,7 @@
 
 ### Fixed
 
+- Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
 - Fixed bwrap sandbox profiles to run Pyrun, and opt-in Hostrun when loaded, through the shared bwrap runner backend rather than blocking either runtime; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
 - Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
 - Fixed selected-child views to identify the agent directly, report the selected agent or main thread after `/agents` selection, and hide the main working loader without clearing unrelated status while a child transcript is displayed.
@@ -81,7 +82,7 @@
 - Fixed child-agent completion notifications to wake an idle parent session without waiting for another user prompt.
 - Fixed child-agent completion notifications to use completed lifecycle mailbox messages instead of `waiting_for_input` idle notices.
 - Fixed default extension footers to detach before session replacement invalidates their extension context.
-- Fixed goal continuation to remove the numeric turn cap and stop only on completion, budgets, pending queued work, or an empty final assistant response.
+- Fixed goal continuation to remove the numeric turn cap and stop only on completion, budgets, pending queued work, or a non-error empty final assistant response.
 - Fixed prompt history persistence to use the shared control SQLite database so concurrent Pi sessions append entries instead of overwriting each other.
 - Fixed `Alt+1` through `Alt+9` agent slot switching to work while non-editor UI components have focus.
 - Fixed startup model selection to skip unauthenticated saved defaults so configured local custom models can be selected instead ([#6231](https://github.com/earendil-works/pi/issues/6231)).
