@@ -18,8 +18,10 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 	ctx.ui.setEditorText("");
 }
 
-function showCurrentEffort(ctx: ExtensionCommandContext, pi: ExtensionAPI, levels: readonly ThinkingLevel[]): void {
-	ctx.ui.notify(`Effort: ${pi.getThinkingLevel()} (available: ${formatEffortLevels(levels)})`, "info");
+function setEffort(ctx: ExtensionCommandContext, pi: ExtensionAPI, effort: ThinkingLevel): void {
+	pi.setThinkingLevel(effort);
+	ctx.ui.notify(`Effort: ${pi.getThinkingLevel()}`, "info");
+	clearEditor(ctx);
 }
 
 function showInvalidEffort(ctx: ExtensionCommandContext, requestedEffort: string, levels: readonly ThinkingLevel[]): void {
@@ -39,8 +41,19 @@ export default function effortExtension(pi: ExtensionAPI) {
 
 			const requestedEffort = args.trim();
 			if (!requestedEffort) {
-				showCurrentEffort(ctx, pi, levels);
-				clearEditor(ctx);
+				const selectedEffort = await ctx.ui.select("Select effort", [...levels]);
+				if (!selectedEffort) {
+					clearEditor(ctx);
+					return;
+				}
+
+				const supportedEffort = findSelectedEffort(levels, selectedEffort);
+				if (!supportedEffort) {
+					clearEditor(ctx);
+					return;
+				}
+
+				setEffort(ctx, pi, supportedEffort);
 				return;
 			}
 
@@ -51,9 +64,7 @@ export default function effortExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			pi.setThinkingLevel(selectedEffort);
-			ctx.ui.notify(`Effort: ${pi.getThinkingLevel()}`, "info");
-			clearEditor(ctx);
+			setEffort(ctx, pi, selectedEffort);
 		},
 	});
 }
