@@ -22,6 +22,8 @@ function createSession(options: {
 	thinkingLevel?: string;
 	usage?: AssistantUsage;
 	onGetEntries?: () => void;
+	onGetSessionName?: () => void;
+	onGetContextUsage?: () => void;
 }): AgentSession {
 	const usage = options.usage;
 	const entries =
@@ -52,10 +54,16 @@ function createSession(options: {
 				options.onGetEntries?.();
 				return entries;
 			},
-			getSessionName: () => options.sessionName,
+			getSessionName: () => {
+				options.onGetSessionName?.();
+				return options.sessionName;
+			},
 			getCwd: () => "/tmp/project",
 		},
-		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		getContextUsage: () => {
+			options.onGetContextUsage?.();
+			return { contextWindow: 200_000, percent: 12.3 };
+		},
 		modelRegistry: {
 			isUsingOAuth: () => false,
 		},
@@ -138,11 +146,15 @@ describe("FooterComponent width handling", () => {
 		expect(statsLine).toContain("[pi-dev]");
 	});
 
-	it("reuses cumulative usage until the footer is invalidated", () => {
+	it("reuses session-wide footer data until the footer is invalidated", () => {
 		let entryReads = 0;
+		let sessionNameReads = 0;
+		let contextUsageReads = 0;
 		const session = createSession({
 			sessionName: "",
 			onGetEntries: () => entryReads++,
+			onGetSessionName: () => sessionNameReads++,
+			onGetContextUsage: () => contextUsageReads++,
 			usage: {
 				input: 100,
 				output: 10,
@@ -156,13 +168,17 @@ describe("FooterComponent width handling", () => {
 		footer.render(120);
 		footer.render(80);
 		expect(entryReads).toBe(1);
+		expect(sessionNameReads).toBe(1);
+		expect(contextUsageReads).toBe(1);
 
 		footer.invalidate();
 		footer.render(120);
 		expect(entryReads).toBe(2);
+		expect(sessionNameReads).toBe(2);
+		expect(contextUsageReads).toBe(2);
 	});
 
-	it("clears cumulative usage when the session changes", () => {
+	it("clears cached session data when the session changes", () => {
 		let firstSessionReads = 0;
 		let secondSessionReads = 0;
 		const firstSession = createSession({ sessionName: "", onGetEntries: () => firstSessionReads++ });

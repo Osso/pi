@@ -28,13 +28,15 @@ function formatTokens(count: number): string {
 	return `${Math.round(count / 1000000)}M`;
 }
 
-type UsageTotals = {
+type SessionFooterData = {
 	input: number;
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
 	cost: number;
 	latestCacheHitRate: number | undefined;
+	contextUsage: ReturnType<AgentSession["getContextUsage"]>;
+	sessionName: string | undefined;
 };
 
 export function formatCwdForFooter(cwd: string, home: string | undefined): string {
@@ -59,7 +61,7 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
-	private cachedUsageTotals: UsageTotals | undefined;
+	private cachedSessionData: SessionFooterData | undefined;
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -68,16 +70,16 @@ export class FooterComponent implements Component {
 
 	setSession(session: AgentSession): void {
 		this.session = session;
-		this.cachedUsageTotals = undefined;
+		this.cachedSessionData = undefined;
 	}
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
 	}
 
-	/** Clear cached cumulative usage after session data changes. */
+	/** Clear cached footer data after session data changes. */
 	invalidate(): void {
-		this.cachedUsageTotals = undefined;
+		this.cachedSessionData = undefined;
 	}
 
 	/**
@@ -88,45 +90,47 @@ export class FooterComponent implements Component {
 		// Git watcher cleanup handled by provider
 	}
 
-	private getUsageTotals(): UsageTotals {
-		if (this.cachedUsageTotals) {
-			return this.cachedUsageTotals;
+	private getSessionData(): SessionFooterData {
+		if (this.cachedSessionData) {
+			return this.cachedSessionData;
 		}
 
-		const totals: UsageTotals = {
+		const data: SessionFooterData = {
 			input: 0,
 			output: 0,
 			cacheRead: 0,
 			cacheWrite: 0,
 			cost: 0,
 			latestCacheHitRate: undefined,
+			contextUsage: this.session.getContextUsage(),
+			sessionName: this.session.sessionManager.getSessionName(),
 		};
 		for (const entry of this.session.sessionManager.getEntries()) {
 			if (entry.type !== "message" || entry.message.role !== "assistant") {
 				continue;
 			}
-			totals.input += entry.message.usage.input;
-			totals.output += entry.message.usage.output;
-			totals.cacheRead += entry.message.usage.cacheRead;
-			totals.cacheWrite += entry.message.usage.cacheWrite;
-			totals.cost += entry.message.usage.cost.total;
+			data.input += entry.message.usage.input;
+			data.output += entry.message.usage.output;
+			data.cacheRead += entry.message.usage.cacheRead;
+			data.cacheWrite += entry.message.usage.cacheWrite;
+			data.cost += entry.message.usage.cost.total;
 
 			const latestPromptTokens =
 				entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
-			totals.latestCacheHitRate =
+			data.latestCacheHitRate =
 				latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
 		}
-		this.cachedUsageTotals = totals;
-		return totals;
+		this.cachedSessionData = data;
+		return data;
 	}
 
 	render(width: number): string[] {
 		const state = this.session.state;
-		const usage = this.getUsageTotals();
+		const sessionData = this.getSessionData();
 
 		// Calculate context usage from session (handles compaction correctly).
 		// After compaction, tokens are unknown until the next LLM response.
-		const contextUsage = this.session.getContextUsage();
+		const contextUsage = sessionData.contextUsage;
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
 		const contextPercentValue = contextUsage?.percent ?? 0;
 		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
@@ -141,7 +145,7 @@ export class FooterComponent implements Component {
 		}
 
 		// Add session name if set
-		const sessionName = this.session.sessionManager.getSessionName();
+		const sessionName = sessionData.sessionName;
 		if (sessionName) {
 			pwd = `${pwd} • ${sessionName}`;
 		}
@@ -150,18 +154,18 @@ export class FooterComponent implements Component {
 		const statsParts = [];
 		const executableName = this.footerData.getExecutableName();
 		if (executableName) statsParts.push(`[${executableName}]`);
-		if (usage.input) statsParts.push(`↑${formatTokens(usage.input)}`);
-		if (usage.output) statsParts.push(`↓${formatTokens(usage.output)}`);
-		if (usage.cacheRead) statsParts.push(`R${formatTokens(usage.cacheRead)}`);
-		if (usage.cacheWrite) statsParts.push(`W${formatTokens(usage.cacheWrite)}`);
-		if ((usage.cacheRead > 0 || usage.cacheWrite > 0) && usage.latestCacheHitRate !== undefined) {
-			statsParts.push(`CH${usage.latestCacheHitRate.toFixed(1)}%`);
+		if (sessionData.input) statsParts.push(`↑${formatTokens(sessionData.input)}`);
+		if (sessionData.output) statsParts.push(`↓${formatTokens(sessionData.output)}`);
+		if (sessionData.cacheRead) statsParts.push(`R${formatTokens(sessionData.cacheRead)}`);
+		if (sessionData.cacheWrite) statsParts.push(`W${formatTokens(sessionData.cacheWrite)}`);
+		if ((sessionData.cacheRead > 0 || sessionData.cacheWrite > 0) && sessionData.latestCacheHitRate !== undefined) {
+			statsParts.push(`CH${sessionData.latestCacheHitRate.toFixed(1)}%`);
 		}
 
 		// Show cost with "(sub)" indicator if using OAuth subscription
 		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
-		if (usage.cost || usingSubscription) {
-			const costStr = `$${usage.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
+		if (sessionData.cost || usingSubscription) {
+			const costStr = `$${sessionData.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
 			statsParts.push(costStr);
 		}
 
