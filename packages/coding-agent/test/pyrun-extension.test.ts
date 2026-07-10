@@ -1457,11 +1457,14 @@ describe("pyrun extension", () => {
 	});
 
 	it("keeps a replacement Pyrun runner after the aborted runner exits", async () => {
+		const runnerPidPath = join(tempDir, "delayed-exit-pyrun-runner.pid");
 		const runnerPath = join(tempDir, "delayed-exit-pyrun-runner.mjs");
 		writeFileSync(
 			runnerPath,
-			`let buffer = "";
+			`import { writeFileSync } from "node:fs";
+let buffer = "";
 let value;
+writeFileSync(process.env.RUNNER_PID_PATH, String(process.pid));
 process.on("SIGTERM", () => setTimeout(() => process.exit(0), 100));
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -1481,15 +1484,24 @@ process.stdin.on("data", (chunk) => {
 setInterval(() => {}, 1000);
 `,
 		);
-		const runner = new PyrunRunnerClient({ args: [runnerPath], command: process.execPath });
-		const controller = new AbortController();
-		const aborted = runner.evaluate({ code: "run.never()" }, () => controller.abort(), controller.signal);
-		await expect(aborted).rejects.toThrow("Pyrun evaluation aborted");
+		const runner = new PyrunRunnerClient({
+			args: [runnerPath],
+			command: process.execPath,
+			env: { RUNNER_PID_PATH: runnerPidPath },
+		});
+		try {
+			const controller = new AbortController();
+			const aborted = runner.evaluate({ code: "run.never()" }, () => controller.abort(), controller.signal);
+			await expect(aborted).rejects.toThrow("Pyrun evaluation aborted");
 
-		expect((await runner.evaluate({ code: "set.value" })).value).toBe(41);
-		await delay(150);
-		expect((await runner.evaluate({ code: "get.value" })).value).toBe(41);
-		runner.dispose();
+			expect((await runner.evaluate({ code: "set.value" })).value).toBe(41);
+			await delay(150);
+			expect((await runner.evaluate({ code: "get.value" })).value).toBe(41);
+		} finally {
+			runner.dispose();
+		}
+		const runnerPid = Number(readFileSync(runnerPidPath, "utf8"));
+		await waitFor(() => !processIsAlive(runnerPid), "replacement Pyrun runner cleanup");
 	});
 
 	it.skipIf(process.platform === "win32")(
@@ -1517,19 +1529,21 @@ setInterval(() => {}, 1000);
 				command: process.execPath,
 				env: { CHILD_PID_PATH: childPidPath },
 			});
-			const controller = new AbortController();
-			const evaluation = runner.evaluate(
-				{ code: "run.child_forever()" },
-				() => controller.abort(),
-				controller.signal,
-			);
-
-			await expect(evaluation).rejects.toThrow("Pyrun evaluation aborted");
-			const childPid = Number(readFileSync(childPidPath, "utf8"));
+			let childPid = 0;
 			try {
+				const controller = new AbortController();
+				const evaluation = runner.evaluate(
+					{ code: "run.child_forever()" },
+					() => controller.abort(),
+					controller.signal,
+				);
+
+				await expect(evaluation).rejects.toThrow("Pyrun evaluation aborted");
+				childPid = Number(readFileSync(childPidPath, "utf8"));
 				await waitFor(() => !processIsAlive(childPid), "Pyrun subprocess termination");
 			} finally {
-				if (processIsAlive(childPid)) process.kill(childPid, "SIGKILL");
+				runner.dispose();
+				if (childPid !== 0 && processIsAlive(childPid)) process.kill(childPid, "SIGKILL");
 			}
 			expect(processIsAlive(childPid)).toBe(false);
 		},
