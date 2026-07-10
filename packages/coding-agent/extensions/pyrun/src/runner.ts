@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { EOL } from "node:os";
 import { join } from "node:path";
@@ -101,6 +101,29 @@ export function resolvePyrunRunnerOptions(resolution: PyrunRunnerResolutionOptio
 	return { args: args ?? [], command: "pyrun-jsonl", env: {} };
 }
 
+function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+	try {
+		process.kill(-pid, signal);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+		throw error;
+	}
+}
+
+function terminateRunnerTree(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals = "SIGTERM"): void {
+	if (process.platform === "win32" && child.pid !== undefined) {
+		const result = spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+			stdio: "ignore",
+			windowsHide: true,
+		});
+		if (result.status === 0) return;
+	}
+	const canSignalProcessGroup = process.platform !== "win32" && child.pid !== undefined;
+	if (canSignalProcessGroup && signalProcessGroup(child.pid, signal)) return;
+	child.kill(signal);
+}
+
 export class PyrunRunnerClient {
 	private buffer = "";
 	private readonly options: PyrunRunnerOptions;
@@ -127,8 +150,7 @@ export class PyrunRunnerClient {
 			const pending: PendingRequest = { onPiRequest, onProgress, reject, resolve };
 			if (signal) {
 				const onAbort = () => {
-					this.process?.kill();
-					this.process = undefined;
+					this.terminateProcess();
 					this.rejectAll(new Error("Pyrun evaluation aborted"));
 				};
 				signal.addEventListener("abort", onAbort, { once: true });
@@ -144,8 +166,13 @@ export class PyrunRunnerClient {
 	}
 
 	dispose(): void {
-		this.process?.kill();
+		this.terminateProcess();
+	}
+
+	private terminateProcess(): void {
+		const child = this.process;
 		this.process = undefined;
+		if (child) terminateRunnerTree(child);
 	}
 
 	private ensureProcess(): ChildProcessWithoutNullStreams {
@@ -159,6 +186,7 @@ export class PyrunRunnerClient {
 			env: { ...resolvedOptions.env, ...this.options.env },
 		};
 		const child = spawn(options.command, options.args, {
+			detached: process.platform !== "win32",
 			env: options.inheritEnv === false ? options.env : { ...process.env, ...options.env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
@@ -169,7 +197,8 @@ export class PyrunRunnerClient {
 		child.stderr.on("data", (chunk: string) => this.stderr.push(chunk));
 		child.on("error", (error) => this.rejectAll(error));
 		child.on("exit", (code, signal) => {
-			this.process = undefined;
+			if (process.platform !== "win32" && child.pid !== undefined) signalProcessGroup(child.pid, "SIGTERM");
+			if (this.process === child) this.process = undefined;
 			if (this.pending.length === 0) {
 				return;
 			}
