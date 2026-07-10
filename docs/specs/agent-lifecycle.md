@@ -86,8 +86,8 @@ State meanings:
 - [x] Child agent runtimes never run supervisor recovery.
 - [x] `wait_agent` reports an explicit wait error for every active target with no live dispatch
       or current-process worker marker instead of returning a live-looking non-terminal snapshot.
-      Detached Bash jobs retain transient `subprocess` worker metadata and Pyrun jobs use a
-      transient `runtime` worker marker; restore clears both and never keeps a wait alive.
+      Detached Bash and Pyrun jobs use a transient `runtime` worker marker; restore clears it
+      and never keeps a wait alive.
 
 ## How it works
 

@@ -57,9 +57,8 @@ resume path; attached rows already waiting for input remain idle. This prevents 
 rows from falsely appearing live.
 
 `wait_agent` accepts only an in-process dispatch or a current-process detached Bash/Pyrun job
-with transient worker metadata. Bash retains its `subprocess` marker and Pyrun uses `runtime`.
-The store removes active worker metadata on restore, so persisted process metadata cannot keep a
-wait polling forever.
+with transient `runtime` worker metadata. The store removes active worker metadata on restore, so
+persisted process metadata cannot keep a wait polling forever.
 
 Existing primitives worth reusing:
 

@@ -74,8 +74,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       in-flight dispatches before aborting handles.
 - [x] `wait_agent` waits only for a tracked live dispatch or a current-process detached Bash/Pyrun
       job with transient worker metadata; every other active target fails promptly as detached.
-      Bash retains its `subprocess` marker, Pyrun uses `runtime`, and restore clears both so persisted
-      metadata cannot cause indefinite polling.
+      Both use a `runtime` marker, and restore clears it so persisted metadata cannot cause
+      indefinite polling.
 
 ### Mailbox and steering
 
