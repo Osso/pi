@@ -152,8 +152,10 @@ describe("InteractiveMode.setToolsExpanded", () => {
 interface InteractiveModeKeyHandlerInternals {
 	addMessageToChat(this: unknown, message: unknown, options?: { populateHistory?: boolean }): void;
 	clearChildAgentView(this: unknown): void;
+	createWorkingLoader(this: unknown): Component & { stop(): void };
 	currentFooter(this: unknown): Component & { dispose?(): void };
 	getUserMessageText(this: unknown, message: unknown): string;
+	isViewingAgentSession(this: unknown): boolean;
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	registerGlobalAgentSlotInputHandler(this: unknown): void;
 	showAgentSwitcher(this: unknown): void;
@@ -179,8 +181,11 @@ interface InteractiveModeKeyHandlerInternals {
 	selectAgentSlot(this: unknown, slotIndex: number): void;
 	selectAgentView(this: unknown, agentId: string): boolean;
 	selectAgentViewFromBridge(this: unknown, agentId: string): boolean;
+	setWorkingVisible(this: unknown, visible: boolean): void;
+	syncWorkingLoaderVisibility(this: unknown): void;
 	showInactiveAgentSelectionStatus(this: unknown, selected: unknown): void;
 	showStatus(this: unknown, message: string): void;
+	stopWorkingLoader(this: unknown): void;
 	updateSelectedAgentBanner(this: unknown): void;
 	updateSelectedAgentSelectionWidgets(this: unknown): void;
 	watchSelectedAgentTranscript(this: unknown, transcriptPath: string): void;
@@ -205,10 +210,13 @@ type TranscriptSwitchFixture = {
 		childViewSessionManager?: SessionManager;
 		childViewTranscriptPath?: string;
 		clearChildAgentView: typeof interactiveModeKeyHandlers.clearChildAgentView;
+		createWorkingLoader: ReturnType<typeof vi.fn>;
 		footer: { invalidate: ReturnType<typeof vi.fn> };
+		loadingAnimation: (Component & { stop(): void }) | undefined;
 		getMarkdownThemeWithSettings: () => undefined;
 		getRegisteredToolDefinition: (name: string) => ToolDefinition | undefined;
 		getUserMessageText: typeof interactiveModeKeyHandlers.getUserMessageText;
+		isViewingAgentSession: typeof interactiveModeKeyHandlers.isViewingAgentSession;
 		multiAgentStore: MultiAgentStore;
 		pendingTools: Map<string, unknown>;
 		renderInitialMessages: typeof interactiveModeKeyHandlers.renderInitialMessages;
@@ -225,11 +233,17 @@ type TranscriptSwitchFixture = {
 		renderSessionItems: typeof interactiveModeKeyHandlers.renderSessionItems;
 		selectAgentView: typeof interactiveModeKeyHandlers.selectAgentView;
 		selectedAgentBanner: AgentSelectionBannerComponent;
+		session: { isStreaming: boolean };
 		sessionManager: SessionManager;
+		setWorkingVisible: typeof interactiveModeKeyHandlers.setWorkingVisible;
 		settingsManager: { getImageWidthCells: () => number; getShowImages: () => boolean };
+		syncWorkingLoaderVisibility: typeof interactiveModeKeyHandlers.syncWorkingLoaderVisibility;
 		showStatus: ReturnType<typeof vi.fn>;
+		statusContainer: Container;
+		stopWorkingLoader: typeof interactiveModeKeyHandlers.stopWorkingLoader;
 		toolOutputExpanded: boolean;
 		ui: { requestRender: ReturnType<typeof vi.fn> };
+		workingVisible: boolean;
 		updateEditorBorderColor: ReturnType<typeof vi.fn>;
 		updateSelectedAgentBanner: typeof interactiveModeKeyHandlers.updateSelectedAgentBanner;
 		updateSelectedAgentSelectionWidgets: typeof interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets;
@@ -269,10 +283,13 @@ function createTranscriptSwitchFixture(options: {
 		childViewSessionManager: undefined,
 		childViewTranscriptPath: undefined,
 		clearChildAgentView: interactiveModeKeyHandlers.clearChildAgentView,
+		createWorkingLoader: vi.fn(),
 		footer: { invalidate: vi.fn() },
+		loadingAnimation: undefined,
 		getMarkdownThemeWithSettings: () => undefined,
 		getRegisteredToolDefinition: () => undefined,
 		getUserMessageText: interactiveModeKeyHandlers.getUserMessageText,
+		isViewingAgentSession: interactiveModeKeyHandlers.isViewingAgentSession,
 		multiAgentStore: store,
 		pendingTools: new Map<string, unknown>(),
 		renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
@@ -289,11 +306,17 @@ function createTranscriptSwitchFixture(options: {
 		renderSessionItems: interactiveModeKeyHandlers.renderSessionItems,
 		selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 		selectedAgentBanner: new AgentSelectionBannerComponent(store),
+		session: { isStreaming: false },
 		sessionManager: parent,
+		setWorkingVisible: interactiveModeKeyHandlers.setWorkingVisible,
 		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
+		syncWorkingLoaderVisibility: interactiveModeKeyHandlers.syncWorkingLoaderVisibility,
 		showStatus: vi.fn(),
+		statusContainer: new Container(),
+		stopWorkingLoader: interactiveModeKeyHandlers.stopWorkingLoader,
 		toolOutputExpanded: false,
 		ui: { requestRender: vi.fn() },
+		workingVisible: true,
 		updateEditorBorderColor: vi.fn(),
 		updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 		updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
@@ -415,9 +438,8 @@ describe("InteractiveMode key handlers", () => {
 		renderedSelector.handleInput("\r");
 
 		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
-		expect(normalizeRenderedOutput(banner)).toContain("Target: Scout");
-		expect(normalizeRenderedOutput(banner)).toContain(spawned.agent.id);
-		expect(normalizeRenderedOutput(banner)).toContain("starting");
+		expect(normalizeRenderedOutput(banner)).toBe(`Agent ${spawned.agent.id}: Scout (starting)`);
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(`Agent selected: ${spawned.agent.id}`);
 	});
 
 	test("escape while viewing an active child agent cancels that agent", () => {
@@ -684,8 +706,7 @@ describe("InteractiveMode key handlers", () => {
 
 		actions.get("app.agent.slot4")?.();
 		expect(store.getSelectedAgentId()).toBe(third.agent.id);
-		expect(normalizeRenderedOutput(banner)).toContain("Target: Third");
-		expect(normalizeRenderedOutput(banner)).toContain(third.agent.id);
+		expect(normalizeRenderedOutput(banner)).toBe(`Agent ${third.agent.id}: Third (queued)`);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(3);
 	});
@@ -794,8 +815,38 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
-	test("selecting main restores the parent transcript after viewing a child transcript", () => {
+	test("hides the main working loader while viewing a child without clearing other status", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const stop = vi.fn();
+		const mainLoader: Component & { stop(): void } = {
+			invalidate: () => {},
+			render: () => ["main working"],
+			stop,
+		};
+		const otherStatus = new Text("other status", 0, 0);
+		fixture.fakeThis.loadingAnimation = mainLoader;
+		fixture.fakeThis.statusContainer.addChild(otherStatus);
+		fixture.fakeThis.statusContainer.addChild(mainLoader);
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+
+			expect(stop).toHaveBeenCalledTimes(1);
+			expect(fixture.fakeThis.loadingAnimation).toBeUndefined();
+			expect(fixture.fakeThis.statusContainer.children).toEqual([otherStatus]);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("selecting main restores the parent transcript and active main working loader", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const mainLoader: Component & { stop(): void } = {
+			invalidate: () => {},
+			render: () => ["main working"],
+			stop: vi.fn(),
+		};
+		fixture.fakeThis.session.isStreaming = true;
+		fixture.fakeThis.createWorkingLoader.mockReturnValue(mainLoader);
 		try {
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
 
@@ -803,6 +854,8 @@ describe("InteractiveMode key handlers", () => {
 
 			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
 			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
+			expect(fixture.fakeThis.loadingAnimation).toBe(mainLoader);
+			expect(fixture.fakeThis.statusContainer.children).toContain(mainLoader);
 			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
 			expect(output).toContain("parent transcript only");
 			expect(output).not.toContain("child transcript only");
@@ -936,6 +989,7 @@ describe("InteractiveMode key handlers", () => {
 				sessionManager: parent,
 				settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
 				showStatus: vi.fn(),
+				stopWorkingLoader: vi.fn(),
 				toolOutputExpanded: false,
 				ui: { requestRender: vi.fn() },
 				updateEditorBorderColor: vi.fn(),
@@ -1024,6 +1078,7 @@ describe("InteractiveMode key handlers", () => {
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
+			syncWorkingLoaderVisibility: vi.fn(),
 			showStatus: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,

@@ -2077,25 +2077,31 @@ export class InteractiveMode {
 	}
 
 	private stopWorkingLoader(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop();
-			this.loadingAnimation = undefined;
+		const loader = this.loadingAnimation;
+		if (!loader) {
+			return;
 		}
-		this.clearStatusIndicator();
+
+		loader.stop();
+		this.loadingAnimation = undefined;
+		this.statusContainer.removeChild(loader);
+	}
+
+	private syncWorkingLoaderVisibility(): void {
+		const shouldShow = this.workingVisible && this.session.isStreaming && !this.isViewingAgentSession();
+		if (!shouldShow) {
+			this.stopWorkingLoader();
+			return;
+		}
+		if (!this.loadingAnimation) {
+			this.loadingAnimation = this.createWorkingLoader();
+			this.statusContainer.addChild(this.loadingAnimation);
+		}
 	}
 
 	private setWorkingVisible(visible: boolean): void {
 		this.workingVisible = visible;
-		if (!visible) {
-			this.stopWorkingLoader();
-			this.ui.requestRender();
-			return;
-		}
-		if (this.session.isStreaming && !this.loadingAnimation) {
-			this.statusContainer.clear();
-			this.loadingAnimation = this.createWorkingLoader();
-			this.statusContainer.addChild(this.loadingAnimation);
-		}
+		this.syncWorkingLoaderVisibility();
 		this.ui.requestRender();
 	}
 
@@ -2826,6 +2832,7 @@ export class InteractiveMode {
 			this.clearChildAgentView();
 			this.chatContainer.clear();
 			this.renderInitialMessages();
+			this.syncWorkingLoaderVisibility();
 			this.updateSelectedAgentSelectionWidgets();
 			return true;
 		}
@@ -2861,6 +2868,7 @@ export class InteractiveMode {
 
 	private openChildAgentView(agent: AgentSnapshot): boolean {
 		const transcriptPath = agent.transcript?.path;
+		this.stopWorkingLoader();
 		this.clearChildAgentView();
 		this.childViewAgentId = agent.id;
 		this.childViewTranscriptPath = transcriptPath;
@@ -3557,10 +3565,7 @@ export class InteractiveMode {
 					this.retryLoader = undefined;
 				}
 				this.stopWorkingLoader();
-				if (this.workingVisible) {
-					this.loadingAnimation = this.createWorkingLoader();
-					this.statusContainer.addChild(this.loadingAnimation);
-				}
+				this.syncWorkingLoaderVisibility();
 				this.ui.requestRender();
 				break;
 
@@ -3705,11 +3710,7 @@ export class InteractiveMode {
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
 				}
-				if (this.loadingAnimation) {
-					this.loadingAnimation.stop();
-					this.loadingAnimation = undefined;
-					this.statusContainer.clear();
-				}
+				this.stopWorkingLoader();
 				if (this.streamingComponent) {
 					this.chatContainer.removeChild(this.streamingComponent);
 					this.streamingComponent = undefined;
@@ -5491,7 +5492,7 @@ export class InteractiveMode {
 				(agentId) => {
 					done();
 					if (this.selectAgentView(agentId)) {
-						this.showStatus("Selected agent");
+						this.showStatus(agentId === "main" ? "Main thread selected" : `Agent selected: ${agentId}`);
 					}
 				},
 				() => {

@@ -201,6 +201,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
 - [x] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
 - [x] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
+- [x] A selected-child banner identifies the agent ID, display name, and lifecycle without exposing
+      internal target/view terminology.
+- [x] The main-session working loader is hidden while a child transcript is selected, preserves
+      unrelated status rows, and is restored after returning to a still-streaming main session.
 - [x] Escape cancels the currently viewed active child-agent turn before falling back to main-thread
       cancellation or idle Escape behavior.
 - [x] TUI controls show stale-revision conflicts and require the user or caller to retry against

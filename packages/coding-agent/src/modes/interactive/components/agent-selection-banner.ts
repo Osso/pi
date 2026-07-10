@@ -1,5 +1,5 @@
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../../../core/multi-agent-store.ts";
+import type { AgentSnapshot, MultiAgentStore } from "../../../core/multi-agent-store.ts";
 import { theme } from "../theme/theme.ts";
 
 function formatLifecycle(lifecycle: AgentSnapshot["lifecycle"]): string {
@@ -9,14 +9,11 @@ function formatLifecycle(lifecycle: AgentSnapshot["lifecycle"]): string {
 function selectedAgentText(store: MultiAgentStore | undefined): string | undefined {
 	const selectedAgentId = store?.getSelectedAgentId();
 	const selectedAgent = selectedAgentId ? store?.getAgent(selectedAgentId) : undefined;
-	if (selectedAgent && isActiveLifecycle(selectedAgent.lifecycle)) {
-		return `Target: ${selectedAgent.displayName} ${selectedAgent.id} ${formatLifecycle(selectedAgent.lifecycle)}; View: ${selectedAgent.displayName}`;
-	}
-	if (selectedAgent) {
-		return `View: ${selectedAgent.displayName}`;
+	if (!selectedAgent) {
+		return undefined;
 	}
 
-	return undefined;
+	return `Agent ${selectedAgent.id}: ${selectedAgent.displayName} (${formatLifecycle(selectedAgent.lifecycle)})`;
 }
 
 export class AgentSelectionBannerComponent implements Component {
