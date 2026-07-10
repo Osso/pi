@@ -67,14 +67,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       through the same attached-session dispatch path used by `attach_session_agent`, preserving their
       agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle plumbing;
       attached agents already waiting for input are not auto-prompted. After current runtime mailbox
-      listener registration, centralized control-DB reconciliation also terminalizes every non-queued
-      active spawned agent (explicit `spawned` origin or absent origin) in historical stores whose
-      matching supervisor health is explicitly ended (`pid: NULL`). It writes `aborted` with a
-      `supervisor_restarted` interruption error, including waiting children, while queued and attached
-      records survive unchanged. Session-directory liveness retirement runs the same reconciliation
-      immediately. Dispatch finalizers are guarded by store restore generation so stale completions
-      cannot mutate a rebound store, and shutdown invalidates in-flight dispatches before aborting
-      handles.
+      listener registration, `abortInactiveSessionSpawnedAgents()` globally terminalizes active
+      spawned agents (explicit `spawned` origin or absent origin) only in persisted stores with
+      matching supervisor metadata and explicitly ended (`pid: NULL`) health. It writes `aborted`
+      with a `supervisor_restarted` interruption error, including waiting children; attached, queued,
+      terminal, missing-health, and live-health records remain unchanged. Session-directory liveness
+      retirement runs the same idempotent reconciliation immediately. Dispatch finalizers are guarded
+      by store restore generation so stale completions cannot mutate a rebound store, and shutdown
+      invalidates in-flight dispatches before aborting handles.
 - [x] `wait_agent` waits only for a tracked live dispatch or a current-process detached Bash/Pyrun
       job with transient worker metadata; every other active target fails promptly as detached.
       Both use a `runtime` marker, and restore clears it so persisted metadata cannot cause

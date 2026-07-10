@@ -29,7 +29,11 @@ owned by a replacement process.
 4. Retire bindings whose heartbeat is older than five minutes. A successful `kill(pid, 0)` check is
    never positive liveness evidence, because the OS may have reused that PID.
 5. Mark health rows without a current binding ended instead of probing their historical PID.
-6. Exclude every ended row when `includeEnded` is `false`.
+6. After this listener/health synchronization, call global
+   `abortInactiveSessionSpawnedAgents()`. It changes only active spawned rows in stores with exact
+   `session_metadata` and explicitly ended `session_health.pid = NULL`; attached, queued, terminal,
+   missing-health, and live-health rows remain unchanged, so repeated calls are idempotent.
+7. Exclude every ended row when `includeEnded` is `false`.
 
 `broadcast` selects recipients from the same reconciled current-binding inventory. Resident
 Architect uses a bounded read-only SQL projection with the same requirements: main listener,

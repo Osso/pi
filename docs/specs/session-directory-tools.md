@@ -37,8 +37,9 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] Registering a different PID for a session advances its agent generation; registration from a
       confirmed live runtime clears stale death for the bound generation.
 - [x] Ended sessions are not eligible to receive messages.
-- [x] After listener retirement and health synchronization, `list_sessions` reconciles persisted
-      spawned-agent rows for every supervisor whose matching health row has `pid: NULL`; this clears
+- [x] After listener retirement and health synchronization, `list_sessions` calls the global
+      `abortInactiveSessionSpawnedAgents()` reconciliation for persisted spawned-agent rows. It
+      changes only stores with matching metadata and explicitly ended (`pid: NULL`) health, clearing
       historical active ghosts immediately without scanning on mailbox heartbeats.
 
 ### Broadcast surface

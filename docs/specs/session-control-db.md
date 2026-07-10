@@ -1,7 +1,8 @@
 Session control DB is the global control channel for the coding-agent runtime.
 It lets an outside harness submit one incoming prompt and read the last assistant
-reply without changing the JSONL transcript format. How it works lives in
-[docs/wiki/systems/session-control-db.md](../wiki/systems/session-control-db.md).
+reply without changing the JSONL transcript format. Its multi-agent liveness integration is described
+in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
+[docs/wiki/systems/session-directory-tools.md](../wiki/systems/session-directory-tools.md).
 
 ## What it must do
 
@@ -30,11 +31,12 @@ reply without changing the JSONL transcript format. How it works lives in
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
-- [x] Provide transactional reconciliation APIs for persisted multi-agent rows: only a store with
-      matching `session_metadata` and a `session_health` row whose `pid` is `NULL` can abort active
-      spawned agents. Reconciliation preserves unrelated agent JSON, increments revision, clears
-      worker metadata, writes `supervisor_restarted`, and is idempotent; attached, queued, terminal,
-      missing-health, and live-health rows remain unchanged.
+- [x] Provide `abortInactiveSessionSpawnedAgents()` as the transactional global reconciliation API
+      for persisted multi-agent rows: only a store with matching `session_metadata` and a
+      `session_health` row whose `pid` is `NULL` can abort active spawned agents. Reconciliation
+      preserves unrelated agent JSON, increments revision, clears worker metadata, writes
+      `supervisor_restarted`, and is idempotent; attached, queued, terminal, missing-health, and
+      live-health rows remain unchanged.
 - [x] A main-thread listener registration atomically retires other main-session bindings for the
       same PID, marks their matching health rows ended, and confirms the registered binding `ok`;
       listener retirement removes only the exact `(session_id, agent_id, pid)` binding being
@@ -58,7 +60,10 @@ reply without changing the JSONL transcript format. How it works lives in
 
 ## How it works
 
-- [docs/wiki/systems/session-control-db.md](../wiki/systems/session-control-db.md)
+- [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) — startup reconciliation and
+  persisted agent lifecycle.
+- [docs/wiki/systems/session-directory-tools.md](../wiki/systems/session-directory-tools.md) —
+  liveness synchronization followed by global reconciliation.
 
 ## Implementation inventory
 
