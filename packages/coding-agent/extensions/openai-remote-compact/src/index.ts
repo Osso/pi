@@ -55,6 +55,7 @@ export async function handleCompaction(event: CompactionEvent, ctx: ExtensionCon
 	const model = ctx.model;
 	if (!isOpenAIResponsesModel(model)) return;
 
+	const previousReplacementHistory = findLatestOpenAIReplacementHistory(event.branchEntries, model);
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth.ok) {
 		ctx.ui.notify(`OpenAI remote compaction auth failed: ${auth.error}`, "warning");
@@ -62,7 +63,6 @@ export async function handleCompaction(event: CompactionEvent, ctx: ExtensionCon
 	}
 
 	const endpoint = buildCompactEndpoint(model);
-	const previousReplacementHistory = findLatestOpenAIReplacementHistory(event.branchEntries, model);
 	const messages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
 	const payload = buildOpenAICompactPayload(model, messages, ctx.getSystemPrompt(), previousReplacementHistory);
 	const startedAt = Date.now();
@@ -108,11 +108,23 @@ export function buildOpenAICompactPayload(
 	instructions: string,
 	previousReplacementHistory: OpenAIResponseItem[],
 ): OpenAICompactPayload {
-	const reconciledInput = reconcileOpenAIToolPairs([
-		...previousReplacementHistory,
-		...convertAgentMessagesToOpenAIResponseItems(model, messages),
-	]);
-	const input = reconcileOpenAIToolPairs(limitOpenAICompactInput(reconciledInput));
+	const convertedMessages = convertAgentMessagesToOpenAIResponseItems(model, messages);
+	const reconciledMessages = reconcileOpenAIToolPairs(convertedMessages);
+	const previousHistoryFits =
+		serializedOpenAIInputChars(previousReplacementHistory) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS;
+	const encryptedCompactionItems = previousReplacementHistory.filter(isOpenAICompactionItem);
+	const encryptedCompactionItemsFit =
+		serializedOpenAIInputChars(encryptedCompactionItems) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS;
+	const pinnedPreviousItems = previousHistoryFits
+		? previousReplacementHistory
+		: encryptedCompactionItemsFit
+			? encryptedCompactionItems
+			: [];
+	const input = limitOpenAICompactInput(
+		[...previousReplacementHistory, ...reconciledMessages],
+		new Set(pinnedPreviousItems),
+		new Set(previousReplacementHistory),
+	);
 	return {
 		model: model.id,
 		input,
@@ -283,27 +295,40 @@ function convertAgentMessagesToOpenAIResponseItems(
 
 type OpenAIInputChunk = OpenAIResponseItem[];
 
-export function limitOpenAICompactInput(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
+export function limitOpenAICompactInput(
+	items: OpenAIResponseItem[],
+	pinnedItems: ReadonlySet<OpenAIResponseItem> = new Set(),
+	nativeItems: ReadonlySet<OpenAIResponseItem> = new Set(),
+): OpenAIResponseItem[] {
 	if (serializedOpenAIInputChars(items) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) return items;
 
-	const limitedChunks: OpenAIInputChunk[] = [];
-	const chunks = groupOpenAIToolBatches(items);
+	const chunks = groupOpenAIToolBatches(items, nativeItems);
+	const limitedChunks = chunks.map((chunk) =>
+		chunk.some((item) => pinnedItems.has(item)) ? chunk : undefined,
+	);
+
 	for (let index = chunks.length - 1; index >= 0; index--) {
+		if (limitedChunks[index]) continue;
 		const chunk = chunks[index];
 		if (!chunk) continue;
-		const newerItems = limitedChunks.flat();
-		if (serializedOpenAIInputChars([...chunk, ...newerItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
-			limitedChunks.unshift(chunk);
+		const reservedItems = limitedChunks.flatMap((selectedChunk) => selectedChunk ?? []);
+		if (serializedOpenAIInputChars([...chunk, ...reservedItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+			limitedChunks[index] = chunk;
 			continue;
 		}
 
-		const reducedChunk = reduceOpenAIChunkToFit(newerItems, chunk);
-		if (reducedChunk) limitedChunks.unshift(reducedChunk);
+		const reducedChunk = reduceOpenAIChunkToFit(reservedItems, chunk);
+		if (reducedChunk) limitedChunks[index] = reducedChunk;
 	}
-	return limitedChunks.flat();
+	return limitedChunks.flatMap((chunk) => chunk ?? []);
 }
 
-function groupOpenAIToolBatches(items: OpenAIResponseItem[]): OpenAIInputChunk[] {
+function groupOpenAIToolBatches(
+	items: OpenAIResponseItem[],
+	nativeItems: ReadonlySet<OpenAIResponseItem>,
+): OpenAIInputChunk[] {
+	const firstRawItemIndex = items.findIndex((item) => !nativeItems.has(item));
+	const nativeHistoryEndIndex = firstRawItemIndex === -1 ? items.length : firstRawItemIndex;
 	const chunks: OpenAIInputChunk[] = [];
 	let index = 0;
 	while (index < items.length) {
@@ -318,17 +343,18 @@ function groupOpenAIToolBatches(items: OpenAIResponseItem[]): OpenAIInputChunk[]
 			continue;
 		}
 
-		const batchEndIndex = findToolBatchEndIndex(items, index);
+		const regionEndIndex = index < nativeHistoryEndIndex ? nativeHistoryEndIndex : items.length;
+		const batchEndIndex = findToolBatchEndIndex(items, index, regionEndIndex);
 		chunks.push(items.slice(index, batchEndIndex + 1));
 		index = batchEndIndex + 1;
 	}
 	return chunks;
 }
 
-function findToolBatchEndIndex(items: OpenAIResponseItem[], startIndex: number): number {
+function findToolBatchEndIndex(items: OpenAIResponseItem[], startIndex: number, endIndex: number): number {
 	const pendingCallIds = new Set<string>();
 	let lastFunctionCallIndex = startIndex;
-	for (let index = startIndex; index < items.length; index++) {
+	for (let index = startIndex; index < endIndex; index++) {
 		const item = items[index];
 		if (!item) continue;
 		if (isFunctionCallItem(item)) {
@@ -350,15 +376,15 @@ function serializedOpenAIInputChars(items: OpenAIResponseItem[]): number {
 }
 
 function reduceOpenAIChunkToFit(
-	newerItems: OpenAIResponseItem[],
+	reservedItems: OpenAIResponseItem[],
 	chunk: OpenAIInputChunk,
 ): OpenAIInputChunk | undefined {
 	const withoutImages = dropImagePartsFromChunk(chunk);
 	if (withoutImages.length === 0) return undefined;
-	if (serializedOpenAIInputChars([...withoutImages, ...newerItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+	if (serializedOpenAIInputChars([...withoutImages, ...reservedItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
 		return withoutImages;
 	}
-	return truncateChunkTextToFit(newerItems, withoutImages);
+	return truncateChunkTextToFit(reservedItems, withoutImages);
 }
 
 function dropImagePartsFromChunk(chunk: OpenAIInputChunk): OpenAIInputChunk {
@@ -388,7 +414,7 @@ function isImagePart(value: unknown): boolean {
 }
 
 function truncateChunkTextToFit(
-	newerItems: OpenAIResponseItem[],
+	reservedItems: OpenAIResponseItem[],
 	chunk: OpenAIInputChunk,
 ): OpenAIInputChunk | undefined {
 	const textChars = countReducibleTextChars(chunk);
@@ -400,7 +426,7 @@ function truncateChunkTextToFit(
 		const mid = Math.floor((low + high) / 2);
 		const candidate = truncateReducibleText(chunk, { remaining: mid });
 		if (!Array.isArray(candidate) || !candidate.every(isRecord)) return undefined;
-		if (serializedOpenAIInputChars([...candidate, ...newerItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
+		if (serializedOpenAIInputChars([...candidate, ...reservedItems]) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS) {
 			best = candidate;
 			low = mid + 1;
 		} else {

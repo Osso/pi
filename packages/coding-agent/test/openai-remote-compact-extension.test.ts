@@ -125,6 +125,126 @@ describe("openai remote compact extension", () => {
 		expect(payload.input[0]).toMatchObject({ role: "user" });
 	});
 
+	it("preserves prior native compaction when newer context exceeds the compact limit", () => {
+		const previousReplacementHistory = [
+			{ role: "user", content: [{ type: "input_text", text: "prior compacted context" }] },
+			{ type: "compaction", encrypted_content: "encrypted-prior-context" },
+		];
+		const messages: AgentMessage[] = [
+			{ role: "user", content: `newer context ${"x".repeat(450_000)}`, timestamp: 1 },
+		];
+
+		const payload = buildOpenAICompactPayload(
+			createOpenAIResponsesModel(),
+			messages,
+			"system prompt",
+			previousReplacementHistory,
+		);
+
+		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
+		expect(payload.input).toContain(previousReplacementHistory[0]);
+		expect(payload.input).toContain(previousReplacementHistory[1]);
+		expect(JSON.stringify(payload.input)).toContain("newer context");
+	});
+
+	it("preserves encrypted compaction and truncates oversized prior native history", () => {
+		const encryptedCompaction = { type: "compaction", encrypted_content: "encrypted-prior-context" };
+		const previousReplacementHistory = [
+			{ role: "user", content: [{ type: "input_text", text: `old ${"x".repeat(450_000)} tail` }] },
+			encryptedCompaction,
+		];
+		const messages: AgentMessage[] = [{ role: "user", content: "newer context", timestamp: 1 }];
+
+		const payload = buildOpenAICompactPayload(
+			createOpenAIResponsesModel(),
+			messages,
+			"system prompt",
+			previousReplacementHistory,
+		);
+
+		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
+		expect(payload.input).toContain(encryptedCompaction);
+		expect(JSON.stringify(payload.input)).toContain("newer context");
+		expect(JSON.stringify(payload.input)).not.toContain("tail");
+	});
+
+	it("drops an encrypted compaction item that cannot fit within the compact limit", () => {
+		const oversizedCompaction = { type: "compaction", encrypted_content: "x".repeat(400_000) };
+		const messages: AgentMessage[] = [{ role: "user", content: "newer context", timestamp: 1 }];
+
+		const payload = buildOpenAICompactPayload(createOpenAIResponsesModel(), messages, "system prompt", [
+			oversizedCompaction,
+		]);
+
+		expect(JSON.stringify(payload.input).length).toBeLessThanOrEqual(400_000);
+		expect(payload.input).not.toContain(oversizedCompaction);
+		expect(JSON.stringify(payload.input)).toContain("newer context");
+	});
+
+	it("preserves prior native items that do not form standalone tool pairs", () => {
+		const previousReplacementHistory = [
+			{ type: "function_call", id: "item-1", call_id: "call-1", name: "read", arguments: "{}" },
+			{ type: "compaction", encrypted_content: "encrypted-prior-context" },
+		];
+
+		const payload = buildOpenAICompactPayload(
+			createOpenAIResponsesModel(),
+			[],
+			"system prompt",
+			previousReplacementHistory,
+		);
+
+		expect(payload.input).toEqual(previousReplacementHistory);
+	});
+
+	it("does not split raw tool pairs across the prior-native boundary", () => {
+		const previousReplacementHistory = [
+			{ type: "function_call", id: "item-prior", call_id: "call-prior", name: "read", arguments: "{}" },
+			{ type: "compaction", encrypted_content: "encrypted-prior-context" },
+		];
+		const messages: AgentMessage[] = [
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-raw|item-raw", name: "read", arguments: { path: "large.txt" } }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-4.1-mini",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: 1,
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call-raw|item-raw",
+				toolName: "read",
+				content: [{ type: "text", text: "tool output" }],
+				isError: false,
+				timestamp: 2,
+			},
+			{ role: "user", content: `newest ${"x".repeat(450_000)}`, timestamp: 3 },
+		];
+
+		const payload = buildOpenAICompactPayload(
+			createOpenAIResponsesModel(),
+			messages,
+			"system prompt",
+			previousReplacementHistory,
+		);
+		const hasRawCall = payload.input.some((item) => item.type === "function_call" && item.call_id === "call-raw");
+		const hasRawOutput = payload.input.some(
+			(item) => item.type === "function_call_output" && item.call_id === "call-raw",
+		);
+
+		expect(hasRawCall).toBe(hasRawOutput);
+	});
+
 	it("preserves parallel tool call order when compact input is under cap", () => {
 		const input = [
 			{ type: "function_call", id: "item-1", call_id: "call-1", name: "read", arguments: "{}" },
