@@ -223,7 +223,12 @@ export function broadcastToSessions(
 		throw new Error("broadcast requires a non-empty message");
 	}
 
-	const entries = listSessions(controlDbPath, options);
+	const seenSessionIds = new Set<string>();
+	const entries = listSessions(controlDbPath, options).filter((entry) => {
+		if (seenSessionIds.has(entry.sessionId)) return false;
+		seenSessionIds.add(entry.sessionId);
+		return true;
+	});
 	const results: SessionBroadcastResult[] = [];
 	const senderAgentId = input.senderAgentId === undefined ? null : input.senderAgentId;
 

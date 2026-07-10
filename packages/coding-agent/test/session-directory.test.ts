@@ -14,6 +14,14 @@ import {
 import { broadcastToSessions, listSessions } from "../src/core/session-directory.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 
+type SessionOverrides = {
+	name?: string;
+	cwd?: string;
+	goal?: string;
+	sessionPath?: string;
+	modifiedAt?: string;
+};
+
 describe("session directory", () => {
 	let tempDir: string;
 	let controlDbPath: string;
@@ -27,21 +35,22 @@ describe("session directory", () => {
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
-	function writeSession(id: string, overrides?: { name?: string; cwd?: string; goal?: string }): void {
+	function writeSession(id: string, overrides?: SessionOverrides): void {
+		const sessionPath = overrides?.sessionPath ?? `/sessions/${id}.jsonl`;
 		writeSessionMetadata(controlDbPath, {
-			sessionPath: `/sessions/${id}.jsonl`,
+			sessionPath,
 			id,
 			cwd: overrides?.cwd ?? `/repo/${id}`,
 			name: overrides?.name,
 			parentSessionPath: undefined,
 			createdAt: "2026-01-01T00:00:00.000Z",
-			modifiedAt: "2026-01-01T00:10:00.000Z",
+			modifiedAt: overrides?.modifiedAt ?? "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "hello",
 			allMessagesText: "hello",
 		});
 		if (overrides?.goal) {
-			writeSessionGoal(controlDbPath, `/sessions/${id}.jsonl`, JSON.stringify({ objective: overrides.goal }));
+			writeSessionGoal(controlDbPath, sessionPath, JSON.stringify({ objective: overrides.goal }));
 		}
 	}
 
@@ -97,6 +106,65 @@ describe("session directory", () => {
 		expect(afterRestart[0]?.checkStatus).toBe("ok");
 		expect(afterRestart[0]?.eligibleToReceive).toBe(true);
 		expect(afterRestart[0]?.agentGeneration).toBe(2);
+	});
+
+	it("broadcasts once to a session with multiple metadata paths", () => {
+		writeSession("session-live", {
+			sessionPath: "/sessions/session-live-old.jsonl",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+		});
+		writeSession("session-live", {
+			sessionPath: "/sessions/session-live-new.jsonl",
+			modifiedAt: "2026-01-01T00:11:00.000Z",
+		});
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
+
+		const results = broadcastToSessions(
+			controlDbPath,
+			{
+				message: "please restart",
+				senderSessionId: "sender-session",
+				senderSessionPath: "/sessions/sender.jsonl",
+				senderAgentId: null,
+			},
+			{ signalProcess: () => {} },
+		);
+
+		expect(results).toEqual([
+			expect.objectContaining({ sessionId: "session-live", outcome: "sent", checkStatus: "ok" }),
+		]);
+		const messages = listRuntimeMailboxMessages(controlDbPath);
+		expect(messages).toHaveLength(1);
+		expect(messages[0]?.recipient).toEqual({ agentId: null, sessionId: "session-live" });
+	});
+
+	it("matches broadcast filters against the newest metadata entry for duplicate sessions", () => {
+		writeSession("session-live", {
+			cwd: "/repo/old",
+			sessionPath: "/sessions/session-live-old.jsonl",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+		});
+		writeSession("session-live", {
+			cwd: "/repo/new",
+			sessionPath: "/sessions/session-live-new.jsonl",
+			modifiedAt: "2026-01-01T00:11:00.000Z",
+		});
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
+
+		const results = broadcastToSessions(
+			controlDbPath,
+			{
+				message: "please restart",
+				filters: { cwd: "/repo/old" },
+				senderSessionId: "sender-session",
+				senderSessionPath: "/sessions/sender.jsonl",
+				senderAgentId: null,
+			},
+			{ signalProcess: () => {} },
+		);
+
+		expect(results).toEqual([expect.objectContaining({ sessionId: "session-live", outcome: "skipped_filter" })]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(0);
 	});
 
 	it("broadcasts only to eligible matching sessions and returns per-target outcomes", () => {
