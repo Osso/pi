@@ -1306,17 +1306,41 @@ export class AgentSession {
 		}
 	}
 
-	private async _continueAfterManualCompaction(removeToolUseAssistant: boolean): Promise<void> {
-		await this._withTurnStartLock(async (release) => {
+	private async _continuePostAgentRunsWhileHoldingTurnStartLock(): Promise<void> {
+		while (await this._handlePostAgentRun()) {
+			await this.agent.continue();
+		}
+	}
+
+	private async _continueAfterManualCompaction(
+		removeToolUseAssistant: boolean,
+		turnStartLockHeld = false,
+	): Promise<void> {
+		const continueAfterCompaction = async (): Promise<void> => {
 			if (this.isStreaming) {
 				throw new Error("Agent is already processing. Wait for completion before continuing.");
 			}
 
 			this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
-			const continuation = (async () => {
-				await this.agent.continue();
+			await this.agent.continue();
+			if (turnStartLockHeld) {
+				await this._continuePostAgentRunsWhileHoldingTurnStartLock();
+			} else {
 				await this._continuePostAgentRuns();
-			})();
+			}
+		};
+
+		if (turnStartLockHeld) {
+			try {
+				await continueAfterCompaction();
+			} finally {
+				this._flushPendingBashMessages();
+			}
+			return;
+		}
+
+		await this._withTurnStartLock(async (release) => {
+			const continuation = continueAfterCompaction();
 			release();
 			try {
 				await continuation;
@@ -2968,6 +2992,10 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
+		return this._withTurnStartLock(() => this._compact(customInstructions));
+	}
+
+	private async _compact(customInstructions?: string): Promise<CompactionResult> {
 		const wasRunningAgentTurn = this.isStreaming;
 		this._disconnectFromAgent();
 		await this.abort();
@@ -3141,7 +3169,7 @@ export class AgentSession {
 			});
 			if (willRetry) {
 				this._reconnectToAgent();
-				await this._continueAfterManualCompaction(wasRunningAgentTurn);
+				await this._continueAfterManualCompaction(wasRunningAgentTurn, true);
 			}
 			return compactionResult;
 		} catch (error) {

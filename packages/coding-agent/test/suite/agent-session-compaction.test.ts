@@ -9,7 +9,7 @@ import {
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
-import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
+import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
 	_checkCompaction: (assistantMessage: AssistantMessage, postRunCheck?: boolean) => Promise<boolean>;
@@ -118,6 +118,14 @@ function delayedResponse(
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		return fauxAssistantMessage(text, options);
 	};
+}
+
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((promiseResolve) => {
+		resolve = promiseResolve;
+	});
+	return { promise, resolve };
 }
 
 function seedCompactableSession(harness: Harness): void {
@@ -347,6 +355,64 @@ describe("AgentSession compaction characterization", () => {
 		expect(result.durationMs).toBeGreaterThanOrEqual(0);
 		expect(compactionEntry).toMatchObject({ durationMs: result.durationMs });
 		expect(getStreamCallCount()).toBe(1);
+	});
+
+	it("serializes manual compaction with racing prompts in FIFO order", async () => {
+		const compactionStarted = createDeferred<void>();
+		const releaseCompaction = createDeferred<void>();
+		let compactionEnded = false;
+		let promptStartedBeforeCompactionEnd = false;
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("input", () => {
+						if (!compactionEnded) {
+							promptStartedBeforeCompactionEnd = true;
+						}
+					});
+					pi.on("compaction", async (event) => {
+						compactionStarted.resolve();
+						await releaseCompaction.promise;
+						return {
+							compaction: {
+								summary: "gated summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.session.subscribe((event) => {
+			if (event.type === "compaction_end" && event.reason === "manual") {
+				compactionEnded = true;
+			}
+		});
+		seedCompactableSession(harness);
+		harness.setResponses([fauxAssistantMessage("first response"), fauxAssistantMessage("second response")]);
+
+		const compactPromise = harness.session.compact();
+		await compactionStarted.promise;
+		const firstPrompt = harness.session.prompt("first prompt");
+		const secondPrompt = harness.session.prompt("second prompt", { streamingBehavior: "followUp" });
+
+		expect(harness.eventsOfType("agent_start")).toHaveLength(0);
+		releaseCompaction.resolve();
+
+		await expect(compactPromise).resolves.toMatchObject({ summary: "gated summary" });
+		await expect(firstPrompt).resolves.toBeUndefined();
+		await expect(secondPrompt).resolves.toBeUndefined();
+		await harness.session.agent.waitForIdle();
+
+		expect(harness.session.isStreaming).toBe(false);
+		expect(promptStartedBeforeCompactionEnd).toBe(false);
+		expect(harness.getPendingResponseCount()).toBe(0);
+		expect(getUserTexts(harness).slice(-2)).toEqual(["first prompt", "second prompt"]);
+		expect(getAssistantTexts(harness).slice(-2)).toEqual(["first response", "second response"]);
 	});
 
 	it("auto-compacts with a custom streamFn when registry auth is absent", async () => {
