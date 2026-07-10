@@ -6,10 +6,12 @@ heartbeat, not by OS PID existence.
 
 ## Binding lifecycle
 
-`AgentSession` registers its main runtime mailbox listener at startup and refreshes it every 60
-seconds. Registration writes `ok` health for the same session/PID generation. A PID change advances
-`agent_generation`; a heartbeat from the confirmed runtime sets `checked_generation` to that current
-generation.
+Each `AgentSession` registers only its own runtime mailbox listener address at startup and refreshes
+it every 60 seconds: a main runtime uses `(session_id, NULL)` and a subagent uses
+`(session_id, agent_id)`. Registration writes `ok` health for the same session/PID generation. A
+PID change advances `agent_generation`; a heartbeat from the confirmed runtime sets
+`checked_generation` to that current generation. Registration and teardown use the same exact
+address, so a subagent never creates or retires a main-thread binding.
 
 Only one main-session listener may own a PID. Registering a main listener freshly asserts its exact
 session path, atomically deletes other main-session listener rows with that PID, and marks their
@@ -47,19 +49,27 @@ owned by a replacement process.
 Architect uses a bounded read-only SQL projection with the same requirements: main listener,
 matching `ok` health generation, and health activity inside the five-minute freshness window.
 
-## Root cause fixed
+## Root causes fixed
 
-Historical main-session listener rows were retained after session resume. `listSessions()` then
-probed each stored PID and refreshed every row whose PID still existed. Long-lived Pi processes and
-OS PID reuse therefore made old sessions appear live. Per-PID selection in broadcast and Architect
-masked the symptom but did not repair global inventory.
+Child `AgentSession` runtimes previously registered both their own `(session_id, agent_id)` mailbox
+listener and a false `(session_id, NULL)` main-thread listener. Registering that false main address
+retired the real main binding on the shared PID. Architect then filtered the child metadata as a
+subagent and temporarily saw neither session, until the main runtime heartbeat restored its binding.
+The fix registers, heartbeats, and retires only the runtime's own address.
 
-The fix makes the runtime heartbeat the identity proof, retires bindings at lifecycle boundaries,
-and removes PID-only positive checks.
+Separately, historical main-session listener rows were retained after session resume.
+`listSessions()` then probed each stored PID and refreshed every row whose PID still existed.
+Long-lived Pi processes and OS PID reuse therefore made old sessions appear live. Per-PID selection
+in broadcast and Architect masked the symptom but did not repair global inventory.
+
+The fixes make exact runtime-address ownership and heartbeat-backed bindings the identity proof,
+retire bindings at lifecycle boundaries, and remove PID-only positive checks.
 
 ## Tests
 
 - `packages/coding-agent/test/session-control-db.test.ts` — guarded listener retirement and health.
+- `packages/coding-agent/test/runtime-mailbox.test.ts` — subagent listener registration preserves the
+  same-process main-session binding.
 - `packages/coding-agent/test/session-directory.test.ts` — unbound/stale PID regressions, ended
   filtering, current inventory, Architect agreement, and metadata deduplication.
 - `packages/coding-agent/test/suite/agent-session-runtime.test.ts` — 60-second heartbeat freshness

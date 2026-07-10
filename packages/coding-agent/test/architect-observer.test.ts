@@ -44,6 +44,23 @@ describe("architect observer", () => {
 		});
 	});
 
+	it("retains the live session across goal completion and stabilizes on the next snapshot", () => {
+		const previous = createArchitectObservation(undefined, [session], []);
+		if (!previous) throw new Error("expected initial observation");
+		const completed = {
+			...session,
+			goalJson: '{"objective":"Keep tests green","completedAt":"2026-07-10T00:00:00.000Z"}',
+		};
+		const completionObservation = createArchitectObservation(previous, [completed], []);
+
+		expect(completionObservation).toMatchObject({
+			reason: "session_state_changed",
+			sessions: [expect.objectContaining({ id: session.id })],
+		});
+		if (!completionObservation) throw new Error("expected completion observation");
+		expect(createArchitectObservation(completionObservation, [completed], [])).toBeUndefined();
+	});
+
 	it("emits an observation for explicit main-session architect requests", () => {
 		const previous = createArchitectObservation(undefined, [session], []);
 		if (!previous) throw new Error("expected initial observation");

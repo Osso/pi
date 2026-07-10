@@ -110,6 +110,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       session JSONL transcripts or `MultiAgentStore` session snapshots.
 - [x] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
       is absent/null for the main thread and present for a subagent in that session.
+- [x] Every `AgentSession` owns exactly one runtime listener address: a main runtime uses
+      `(session_id, null)` and a subagent runtime uses `(session_id, agent_id)`. Registration,
+      heartbeat refresh, and retirement use that exact address; a subagent never creates or
+      retires a main-thread binding.
 - [x] Separate agent sessions can send completion and coordination messages to another session's
       main thread without requiring the receiver to call `wait_agent`.
 - [ ] Same-session subagents may address the main thread or another subagent by agent ID, but the

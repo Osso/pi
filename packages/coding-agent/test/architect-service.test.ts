@@ -21,6 +21,12 @@ describe("resident architect service", () => {
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not call list_sessions");
 	});
 
+	it("does not equate completed goals with ended sessions", () => {
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain(
+			"Goal completion does not end a live session or require it to disappear from observations.",
+		);
+	});
+
 	it("uses the read-only Bubblewrap profile", () => {
 		expect(createArchitectSettingsManager().getExplicitSandboxProfile()).toBe("read-only");
 	});

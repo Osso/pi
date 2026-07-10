@@ -15,9 +15,10 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
       lastCheckedAt, checkStatus, checkLatencyMs, agentGeneration, checkedGeneration, and
       eligibleToReceive.
 - [x] Session purpose prefers `/name` and active `/goal` objective text when present.
-- [x] Live main-thread pids come only from current runtime mailbox listener bindings and are tracked
-      per session with an agent generation token; an unbound historical session is never revived
-      merely because another current session uses the same PID.
+- [x] Live main-thread pids come only from current runtime mailbox listener bindings addressed
+      `(session_id, null)` and are tracked per session with an agent generation token; an unbound
+      historical session is never revived merely because another current session uses the same PID.
+      Subagent `(session_id, agent_id)` listener bindings are not main-thread inventory candidates.
 - [x] `list_sessions` retains at most one current main-session binding per PID, retires older
       same-PID listener rows, and marks their matching health rows ended.
 - [x] `list_sessions` derives positive liveness only from fresh runtime heartbeats; PID existence

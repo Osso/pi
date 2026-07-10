@@ -13,13 +13,13 @@ On startup the observer advances its shared-channel cursor to the current tail, 
 - the ordered session snapshot changes, including goal JSON; or
 - a newly observed shared-channel message from a main session begins `Architect:`.
 
-Messages sent by a subagent or by the Architect itself are not Architect requests. Incidental mentions such as `Re architect blocker` are also ignored; requests must begin `Architect:`. This prevents advice and surrounding discussion from retriggering the Architect. Routine unchanged observations do not call the model. The prompt contains the structured snapshot; it asks the model to use `list_sessions` only when that snapshot is insufficient.
+Messages sent by a subagent or by the Architect itself are not Architect requests. Incidental mentions such as `Re architect blocker` are also ignored; requests must begin `Architect:`. This prevents advice and surrounding discussion from retriggering the Architect. Routine unchanged observations do not call the model. The prompt contains the structured snapshot and forbids querying `list_sessions`, so all inventory conclusions stay anchored to the bounded observation that triggered the turn.
 
 ## Advisor session and policy
 
 The service creates or reopens `architect.jsonl` under `<agent-dir>/architect-sessions/`. This keeps the Architect's transcript separate from normal user sessions while its observer reads the same global control database and shared channel as other Pi processes.
 
-The service requires the `openai-codex/gpt-5.6-sol` model. Its system prompt permits normal tools when useful, but prohibits agent dispatch, file edits, session restarts, and autonomous remediation. Advice must be limited to high-confidence conflicts, drift, or blockers and include affected sessions/goals plus a cheapest falsifying check. It must use `broadcast` with the affected session ID; a tool gate blocks global `channel_post` fanout.
+The service requires the `openai-codex/gpt-5.6-sol` model. Its system prompt permits normal tools when useful, but prohibits agent dispatch, file edits, session restarts, and autonomous remediation. `goal_json.completedAt` means only that autonomous goal continuation has completed; it is not session-termination evidence. Consecutive control-SQLite snapshots can retain the same active main-session IDs while a goal is paused or completed. Architect may infer a session disappearance only from the bounded snapshot's current listener and matching fresh `ok` health evidence, never from goal JSON. Sessions omitted because `is_subagent = 1` are intentionally excluded from Architect's main-session inventory. Advice must be limited to high-confidence conflicts, drift, or blockers and include affected sessions/goals plus a cheapest falsifying check. It must use `broadcast` with the affected session ID; a tool gate blocks global `channel_post` fanout.
 
 ## Tool isolation
 
