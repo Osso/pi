@@ -32,11 +32,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
 - [x] Provide `abortInactiveSessionSpawnedAgents()` as the transactional global reconciliation API
-      for persisted multi-agent rows: only a store with matching `session_metadata` and a
-      `session_health` row whose `pid` is `NULL` can abort active spawned agents. Reconciliation
-      preserves unrelated agent JSON, increments revision, clears worker metadata, writes
-      `supervisor_restarted`, and is idempotent; attached, queued, terminal, missing-health, and
-      live-health rows remain unchanged.
+      for persisted multi-agent rows: a store with matching `session_metadata` can abort active
+      spawned agents when its `session_health.pid` is `NULL` or when its metadata path is a
+      non-current duplicate for the same session ID. Callers can protect the current runtime's exact
+      session path. Reconciliation preserves unrelated agent JSON, increments revision, clears worker
+      metadata, writes `supervisor_restarted`, and is idempotent; attached, queued, terminal,
+      missing-health, and current live rows remain unchanged.
 - [x] A main-thread listener registration atomically retires other main-session bindings for the
       same PID, marks their matching health rows ended, and confirms the registered binding `ok`;
       listener retirement removes only the exact `(session_id, agent_id, pid)` binding being

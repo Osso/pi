@@ -1547,6 +1547,26 @@ interface PersistedMultiAgentRow {
 	session_path: string;
 	agent_id: string;
 	data: string;
+	supervisor_session_id: string;
+	supervisor_pid: number | null;
+}
+
+interface SessionMetadataIdentityRow {
+	session_path: string;
+	id: string;
+}
+
+export interface InactiveSessionSpawnedAgentReconciliationOptions {
+	nowIso?: string;
+	currentSession?: {
+		id: string;
+		sessionPath: string;
+	};
+}
+
+interface AbortPersistedSpawnedAgentRowsOptions extends InactiveSessionSpawnedAgentReconciliationOptions {
+	requireExplicitlyEnded: boolean;
+	sessionPath?: string;
 }
 
 /**
@@ -1557,63 +1577,117 @@ export function abortPersistedSpawnedAgentsForInactiveSupervisorSession(
 	controlDbPath: string,
 	sessionPath: string,
 ): number {
-	return abortInactiveSessionSpawnedAgentRows(controlDbPath, undefined, sessionPath);
+	return abortPersistedSpawnedAgentRows(controlDbPath, {
+		requireExplicitlyEnded: true,
+		sessionPath,
+	});
 }
 
 /**
- * Abort active spawned agents in every persisted store whose matching supervisor has explicitly
- * ended. Queued and attached agents are deliberately retained because no runtime was started.
+ * Abort active spawned agents in ended supervisor stores and historical duplicate metadata paths.
+ * Queued and attached agents are deliberately retained because no runtime was started.
  */
-export function abortInactiveSessionSpawnedAgents(controlDbPath: string, nowIso?: string): number {
-	return abortInactiveSessionSpawnedAgentRows(controlDbPath, nowIso);
+export function abortInactiveSessionSpawnedAgents(
+	controlDbPath: string,
+	options: InactiveSessionSpawnedAgentReconciliationOptions = {},
+): number {
+	return abortPersistedSpawnedAgentRows(controlDbPath, {
+		...options,
+		requireExplicitlyEnded: false,
+	});
 }
 
-function abortInactiveSessionSpawnedAgentRows(controlDbPath: string, nowIso?: string, sessionPath?: string): number {
+function abortPersistedSpawnedAgentRows(controlDbPath: string, options: AbortPersistedSpawnedAgentRowsOptions): number {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const rows = db
-				.prepare(
-					`
-					SELECT agents.session_path, agents.agent_id, agents.data
-					FROM multi_agent_agents AS agents
-					WHERE (? IS NULL OR agents.session_path = ?)
-						AND EXISTS (
-							SELECT 1
-							FROM session_metadata AS metadata
-							INNER JOIN session_health AS health ON health.session_id = metadata.id
-							WHERE metadata.session_path = agents.session_path
-								AND health.pid IS NULL
-						)
-					`,
-				)
-				.all(sessionPath ?? null, sessionPath ?? null) as PersistedMultiAgentRow[];
-			const now = nowIso ?? new Date().toISOString();
+			const newestSessionPathById = options.requireExplicitlyEnded
+				? new Map<string, string>()
+				: readNewestSessionPathById(db, options.currentSession);
+			const rows = readPersistedMultiAgentRows(db, options.sessionPath);
+			const nowIso = options.nowIso ?? new Date().toISOString();
 			let changed = 0;
 			for (const row of rows) {
-				const agent = parseJsonObject(row.data);
-				if (!agent || !isActiveSpawnedAgent(agent)) {
-					continue;
+				if (abortPersistedSpawnedAgentRow(db, row, newestSessionPathById, options, nowIso)) {
+					changed += 1;
 				}
-				const updated = {
-					...agent,
-					error: SUPERVISOR_RESTARTED_ERROR,
-					lifecycle: "aborted",
-					revision: (agent.revision as number) + 1,
-					updatedAt: now,
-					worker: undefined,
-				};
-				db.prepare(
-					`
-					UPDATE multi_agent_agents
-					SET data = ?, updated_at = ?
-					WHERE session_path = ? AND agent_id = ?
-					`,
-				).run(JSON.stringify(updated), now, row.session_path, row.agent_id);
-				changed += 1;
 			}
 			return changed;
 		}),
 	);
+}
+
+function readNewestSessionPathById(
+	db: SqliteDatabase,
+	currentSession: InactiveSessionSpawnedAgentReconciliationOptions["currentSession"],
+): Map<string, string> {
+	const rows = db
+		.prepare(
+			`
+			SELECT session_path, id
+			FROM session_metadata
+			ORDER BY modified_at DESC, updated_at DESC, session_path DESC
+			`,
+		)
+		.all() as SessionMetadataIdentityRow[];
+	const newestSessionPathById = new Map<string, string>();
+	for (const row of rows) {
+		if (!newestSessionPathById.has(row.id)) {
+			newestSessionPathById.set(row.id, row.session_path);
+		}
+	}
+	if (currentSession) {
+		newestSessionPathById.set(currentSession.id, currentSession.sessionPath);
+	}
+	return newestSessionPathById;
+}
+
+function readPersistedMultiAgentRows(db: SqliteDatabase, sessionPath?: string): PersistedMultiAgentRow[] {
+	return db
+		.prepare(
+			`
+			SELECT
+				agents.session_path,
+				agents.agent_id,
+				agents.data,
+				metadata.id AS supervisor_session_id,
+				health.pid AS supervisor_pid
+			FROM multi_agent_agents AS agents
+			INNER JOIN session_metadata AS metadata ON metadata.session_path = agents.session_path
+			INNER JOIN session_health AS health ON health.session_id = metadata.id
+			WHERE (? IS NULL OR agents.session_path = ?)
+			`,
+		)
+		.all(sessionPath ?? null, sessionPath ?? null) as PersistedMultiAgentRow[];
+}
+
+function abortPersistedSpawnedAgentRow(
+	db: SqliteDatabase,
+	row: PersistedMultiAgentRow,
+	newestSessionPathById: Map<string, string>,
+	options: AbortPersistedSpawnedAgentRowsOptions,
+	nowIso: string,
+): boolean {
+	const isCurrentLiveStore =
+		row.supervisor_pid !== null && newestSessionPathById.get(row.supervisor_session_id) === row.session_path;
+	if (row.supervisor_pid !== null && (options.requireExplicitlyEnded || isCurrentLiveStore)) return false;
+	const agent = parseJsonObject(row.data);
+	if (!agent || !isActiveSpawnedAgent(agent)) return false;
+	const updated = {
+		...agent,
+		error: SUPERVISOR_RESTARTED_ERROR,
+		lifecycle: "aborted",
+		revision: agent.revision + 1,
+		updatedAt: nowIso,
+		worker: undefined,
+	};
+	db.prepare(
+		`
+		UPDATE multi_agent_agents
+		SET data = ?, updated_at = ?
+		WHERE session_path = ? AND agent_id = ?
+		`,
+	).run(JSON.stringify(updated), nowIso, row.session_path, row.agent_id);
+	return true;
 }
 
 function isActiveSpawnedAgent(agent: Record<string, unknown>): agent is Record<string, unknown> & { revision: number } {

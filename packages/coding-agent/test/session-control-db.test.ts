@@ -609,7 +609,7 @@ describe("session control DB", () => {
 		expect(abortPersistedSpawnedAgentsForInactiveSupervisorSession(controlDbPath, inactiveSessionPath)).toBe(
 			activeLifecycles.length,
 		);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath, "2026-01-02T00:00:00.000Z")).toBe(0);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { nowIso: "2026-01-02T00:00:00.000Z" })).toBe(0);
 
 		const inactiveAgents = readMultiAgentState(controlDbPath, inactiveSessionPath)?.agents as Array<
 			Record<string, unknown>

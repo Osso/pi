@@ -30,9 +30,11 @@ owned by a replacement process.
    never positive liveness evidence, because the OS may have reused that PID.
 5. Mark health rows without a current binding ended instead of probing their historical PID.
 6. After this listener/health synchronization, call global
-   `abortInactiveSessionSpawnedAgents()`. It changes only active spawned rows in stores with exact
-   `session_metadata` and explicitly ended `session_health.pid = NULL`; attached, queued, terminal,
-   missing-health, and live-health rows remain unchanged, so repeated calls are idempotent.
+   `abortInactiveSessionSpawnedAgents()`. It changes active spawned rows in stores with exact
+   `session_metadata` and either explicitly ended `session_health.pid = NULL` or a non-current
+   duplicate metadata path for the same session ID. The caller's exact current path is protected;
+   attached, queued, terminal, missing-health, and current live rows remain unchanged, so repeated
+   calls are idempotent.
 7. Exclude every ended row when `includeEnded` is `false`.
 
 `broadcast` selects recipients from the same reconciled current-binding inventory. Resident

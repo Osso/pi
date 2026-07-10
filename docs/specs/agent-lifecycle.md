@@ -71,11 +71,13 @@ State meanings:
 - [x] `queued` agents survive restore unchanged and are not recovered.
 - [x] After a runtime registers its current mailbox listener,
       `abortInactiveSessionSpawnedAgents()` globally terminalizes active spawned agents (`origin:
-      "spawned"` or absent) only in persisted supervisor stores with matching metadata and an
-      explicitly ended (`pid: NULL`) health row. It writes `aborted` with an explicit
-      `supervisor_restarted` interruption error, including `waiting_for_input`, and prevents
-      active-count and TUI liveness ghosts in historical non-current stores. Attached, queued,
-      terminal, missing-health, and live-health rows remain unchanged.
+      "spawned"` or absent) in persisted supervisor stores with matching metadata and either an
+      explicitly ended (`pid: NULL`) health row or a non-current duplicate metadata path for the
+      same session ID. The current runtime's exact session path is protected. Reconciliation writes
+      `aborted` with an explicit `supervisor_restarted` interruption error, including
+      `waiting_for_input`, and prevents active-count and TUI liveness ghosts in historical
+      non-current stores. Attached, queued, terminal, missing-health, and current live rows remain
+      unchanged.
 - [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
 - [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
       auto-restarted through the attached-session dispatch path.

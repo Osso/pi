@@ -52,11 +52,12 @@ bridge methods, and `/bg`; production child sessions exclude those tools as a se
 
 At supervisor start, queued rows remain queued. After a current runtime mailbox listener registers,
 `abortInactiveSessionSpawnedAgents()` transactionally scans persisted stores with matching
-`session_metadata` and explicitly ended `session_health.pid = NULL`. Any active spawned row
-(explicit `origin: "spawned"` or absent origin) becomes `aborted` with a
-`supervisor_restarted` interruption error; the update increments revision, clears worker metadata,
-and preserves unrelated JSON. Attached, queued, terminal, missing-health, and live-health rows stay
-unchanged. `list_sessions` invokes the same reconciliation immediately after listener/health
+`session_metadata`. It selects explicitly ended stores (`session_health.pid = NULL`) and
+non-current duplicate metadata paths for the same session ID, while protecting the current runtime's
+exact session path. Any active spawned row (explicit `origin: "spawned"` or absent origin) becomes
+`aborted` with a `supervisor_restarted` interruption error; the update increments revision, clears
+worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, and
+current live rows stay unchanged. `list_sessions` invokes the same reconciliation immediately after listener/health
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 

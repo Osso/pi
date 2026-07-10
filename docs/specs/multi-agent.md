@@ -68,11 +68,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle plumbing;
       attached agents already waiting for input are not auto-prompted. After current runtime mailbox
       listener registration, `abortInactiveSessionSpawnedAgents()` globally terminalizes active
-      spawned agents (explicit `spawned` origin or absent origin) only in persisted stores with
-      matching supervisor metadata and explicitly ended (`pid: NULL`) health. It writes `aborted`
-      with a `supervisor_restarted` interruption error, including waiting children; attached, queued,
-      terminal, missing-health, and live-health records remain unchanged. Session-directory liveness
-      retirement runs the same idempotent reconciliation immediately. Dispatch finalizers are guarded
+      spawned agents (explicit `spawned` origin or absent origin) in persisted stores with matching
+      supervisor metadata and either explicitly ended (`pid: NULL`) health or a non-current duplicate
+      metadata path for the same session ID. The current runtime's exact path is protected. It writes
+      `aborted` with a `supervisor_restarted` interruption error, including waiting children;
+      attached, queued, terminal, missing-health, and current live records remain unchanged.
+      Session-directory liveness retirement runs the same idempotent reconciliation immediately.
+      Dispatch finalizers are guarded
       by store restore generation so stale completions cannot mutate a rebound store, and shutdown
       invalidates in-flight dispatches before aborting handles.
 - [x] `wait_agent` waits only for a tracked live dispatch or a current-process detached Bash/Pyrun

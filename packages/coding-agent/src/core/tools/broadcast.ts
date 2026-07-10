@@ -70,6 +70,7 @@ export function createBroadcastToolDefinition(): ToolDefinition<typeof broadcast
 				},
 				{
 					touchCurrentSessionId: ctx.sessionManager.getSessionId(),
+					touchCurrentSessionPath: ctx.sessionManager.getSessionFile(),
 				},
 			);
 			const sent = results.filter((result) => result.outcome === "sent").length;

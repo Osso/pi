@@ -267,6 +267,39 @@ describe("session directory", () => {
 		}
 	});
 
+	it("aborts spawned ghosts in historical duplicate paths without touching the current path", () => {
+		writeSession("session-live", {
+			sessionPath: "/sessions/session-live-old.jsonl",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+		});
+		writeSession("session-live", {
+			sessionPath: "/sessions/session-live-current.jsonl",
+			modifiedAt: "2026-01-01T00:11:00.000Z",
+		});
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
+		upsertMultiAgentAgent(controlDbPath, "/sessions/session-live-old.jsonl", "historical", {
+			id: "historical",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:10:00.000Z",
+		});
+		upsertMultiAgentAgent(controlDbPath, "/sessions/session-live-current.jsonl", "current", {
+			id: "current",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:11:00.000Z",
+		});
+
+		listSessions(controlDbPath);
+
+		expect(readMultiAgentState(controlDbPath, "/sessions/session-live-old.jsonl")?.agents).toMatchObject([
+			{ id: "historical", lifecycle: "aborted", revision: 2, error: { code: "supervisor_restarted" } },
+		]);
+		expect(readMultiAgentState(controlDbPath, "/sessions/session-live-current.jsonl")?.agents).toMatchObject([
+			{ id: "current", lifecycle: "running", revision: 1 },
+		]);
+	});
+
 	it("broadcasts only to the newest main-session listener for a shared live pid", () => {
 		vi.useFakeTimers();
 		try {
