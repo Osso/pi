@@ -559,21 +559,14 @@ describe("pyrun extension", () => {
 		expect(options).toEqual({ args: ["-m", "pyrun.jsonl"], command: "python", env: {} });
 	});
 
-	it("uses local Pyrun checkout by default when present", () => {
-		const options = resolvePyrunRunnerOptions({
-			env: {},
-			exists: (path) => path === localPyrunJsonl,
-		});
+	it("uses the installed Pyrun runner even when PYTHONPATH names a local checkout", () => {
+		const options = resolvePyrunRunnerOptions({ env: { PYTHONPATH: localPyrunCheckout } });
 
-		expect(options).toEqual({
-			args: ["-m", "pyrun.jsonl"],
-			command: "python3",
-			env: { PYTHONPATH: localPyrunCheckout },
-		});
+		expect(options).toEqual({ args: [], command: "pyrun-jsonl", env: {} });
 	});
 
-	it("uses pyrun-jsonl without args by default when no local checkout exists", () => {
-		const options = resolvePyrunRunnerOptions({ env: {}, exists: () => false });
+	it("uses pyrun-jsonl without args by default", () => {
+		const options = resolvePyrunRunnerOptions({ env: {} });
 
 		expect(options).toEqual({ args: [], command: "pyrun-jsonl", env: {} });
 	});

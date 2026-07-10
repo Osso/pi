@@ -53,6 +53,7 @@
 
 ### Fixed
 
+- Fixed installed Pi silently preferring a mutable local Pyrun checkout over the deployed `pyrun-jsonl`; local runner use now requires the explicit command/PYTHONPATH override.
 - Fixed cancelled detached Pyrun jobs leaving the evaluation and spawned commands running: background jobs now register abort handles, and runner shutdown terminates the full process group.
 - Fixed selected-child views to identify the agent directly, report the selected agent or main thread after `/agents` selection, and hide the main working loader without clearing unrelated status while a child transcript is displayed.
 - Fixed active spawned-agent ghosts surviving in historical non-current supervisor stores: main listeners now freshly assert their exact session path and runtime incarnation, path relocation moves the assertion transactionally with the store, startup reconciliation retires non-Pi listener ownership before trusting asserted paths, and listener startup plus session-directory synchronization abort stores with explicitly ended (`pid: NULL`) health, replaced runtimes even after same-PID reuse, or duplicate paths differing from a trusted live assertion. Pathless and legacy timestamp-only heartbeats invalidate assertion trust and fail safe until re-registration; missing-health, attached, queued, terminal, current live, and stale process-backed timeout records remain preserved.
