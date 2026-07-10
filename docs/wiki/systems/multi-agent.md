@@ -101,7 +101,6 @@ Existing primitives worth reusing:
 Still missing first-party pieces:
 
 - Startup/runtime registration that opts `spawn_agent` into the production child factory.
-- Blocking wait/notification behavior beyond immediate store snapshots.
 - Incremental event replay beyond latest snapshot reload.
 - Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
 - Bounded artifact store for storing referenced diff/log/result payloads outside mailbox events.

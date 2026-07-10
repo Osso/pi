@@ -696,9 +696,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			dispatcher,
 		});
 		const spawnAgent = tools.get("spawn_agent");
-		const waitAgent = tools.get("wait_agent");
-		if (!spawnAgent || !waitAgent) {
-			throw new Error("expected spawn_agent and wait_agent tools");
+		const waitAgents = tools.get("wait_agents");
+		if (!spawnAgent || !waitAgents) {
+			throw new Error("expected spawn_agent and wait_agents tools");
 		}
 
 		await spawnAgent.execute(
@@ -715,9 +715,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected pending waiting agent dispatch");
 		}
 		resolveDispatch({ lifecycle: "completed" });
-		await waitAgent.execute(
+		await waitAgents.execute(
 			"wait",
-			{ agentId: "agent_1" },
+			{},
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -740,9 +740,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			dispatcher,
 		});
 		const spawnAgent = tools.get("spawn_agent");
-		const waitAgent = tools.get("wait_agent");
-		if (!spawnAgent || !waitAgent) {
-			throw new Error("expected spawn_agent and wait_agent tools");
+		if (!spawnAgent) {
+			throw new Error("expected spawn_agent tool");
 		}
 
 		await spawnAgent.execute(
@@ -752,13 +751,13 @@ describe("runtime SQLite mailbox delivery", () => {
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
-		await waitAgent.execute(
-			"wait",
-			{ agentId: "agent_1" },
-			undefined,
-			undefined,
-			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
-		);
+		for (
+			let attempt = 0;
+			attempt < 50 && store.getAgent("agent_1")?.lifecycle !== "waiting_for_input";
+			attempt += 1
+		) {
+			await delay(1);
+		}
 		expect(close).not.toHaveBeenCalled();
 
 		const waitingAgent = store.getAgent("agent_1");
@@ -872,23 +871,19 @@ describe("runtime SQLite mailbox delivery", () => {
 		const handler = createHostrunMultiAgentRequestHandler({ dispatcher, store });
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
-		const spawned = (await handler(
-			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } },
-			ctx,
-			undefined,
-		)) as { agent: AgentSnapshot };
+		await handler({ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } }, ctx, undefined);
 		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 
-		const waited = await handler({ method: "agents.wait", params: { agentId: spawned.agent.id } }, ctx, undefined);
+		const waited = await handler({ method: "agents.wait", params: {} }, ctx, undefined);
 
 		expect(waited).toBeNull();
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
 	});
 
-	it("wait_agent consumes the mirrored completion notification", async () => {
+	it("wait_agents consumes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -901,26 +896,19 @@ describe("runtime SQLite mailbox delivery", () => {
 		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, { dispatcher });
 		const spawnAgent = tools.get("spawn_agent");
-		const waitAgent = tools.get("wait_agent");
-		if (!spawnAgent || !waitAgent) {
-			throw new Error("expected spawn_agent and wait_agent tools");
+		const waitAgents = tools.get("wait_agents");
+		if (!spawnAgent || !waitAgents) {
+			throw new Error("expected spawn_agent and wait_agents tools");
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
-		const spawned = await spawnAgent.execute(
-			"spawn",
-			{ displayName: "Worker", prompt: "run tests" },
-			undefined,
-			undefined,
-			ctx,
-		);
-		const agentId = (spawned.details as { agent: AgentSnapshot }).agent.id;
+		await spawnAgent.execute("spawn", { displayName: "Worker", prompt: "run tests" }, undefined, undefined, ctx);
 		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 
-		const waited = await waitAgent.execute("wait", { agentId }, undefined, undefined, ctx);
+		const waited = await waitAgents.execute("wait", {}, undefined, undefined, ctx);
 
 		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed" });
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);

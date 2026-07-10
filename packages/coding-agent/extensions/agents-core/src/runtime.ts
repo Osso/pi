@@ -90,9 +90,7 @@ const attachSessionAgentSchema = Type.Object({
 	sessionId: Type.Optional(Type.String()),
 });
 
-const waitAgentSchema = Type.Object({
-	agentId: Type.String(),
-});
+const waitAgentsSchema = Type.Object({}, { additionalProperties: false });
 
 const cancelAgentSchema = Type.Object({
 	agentId: Type.String(),
@@ -144,7 +142,6 @@ type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type AgentViewerParams = Static<typeof agentViewerSchema>;
-type WaitAgentParams = Static<typeof waitAgentSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
 type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
@@ -164,8 +161,6 @@ const MAIN_THREAD_AGENT_ID = "main";
 const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
-const WAIT_AGENT_POLL_INTERVAL_MS = 25;
-const WAITABLE_BACKGROUND_TOOL_NAMES = new Set(["bash", "pyrun_eval"]);
 const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
 
 export type AgentDesktopNotification = DesktopNotification;
@@ -247,7 +242,7 @@ export interface MultiAgentWorkflowOperations {
 		input: SendMailboxMessageInput,
 	): MailboxMessageCommandResult;
 	spawnAgent(input: Parameters<MultiAgentStore["spawnAgent"]>[0]): ReturnType<MultiAgentStore["spawnAgent"]>;
-	waitAgent(agentId: string): void;
+	waitAgents(): void;
 }
 
 export type HostrunMultiAgentRequestHandler = (
@@ -301,7 +296,7 @@ interface ContactSupervisorToolDetails {
 	message: AgentMailboxMessage;
 }
 
-interface WaitAgentToolDetails {
+interface WaitAgentsToolDetails {
 	message?: AgentMailboxMessage;
 }
 interface AgentViewerToolDetails {
@@ -487,7 +482,7 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 	});
 	const agent = startBackgroundDispatch(background, spawned.agent, prompt, ctx);
 	ctx.ui.setEditorText("");
-	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agent to wait for completion.`, "info");
+	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agents to wait for any completion.`, "info");
 }
 
 function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void {
@@ -538,7 +533,7 @@ export function createProductionChildAgentSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agent"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents"],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -594,7 +589,7 @@ export function createProductionAttachedSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agent"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents"],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -646,7 +641,7 @@ export function createMultiAgentWorkflowOperations(store: MultiAgentStore): Mult
 		sendAgentMessage: (agentId, expectedRevision, input) =>
 			store.sendMailboxMessage(agentId, expectedRevision, input),
 		spawnAgent: (input) => store.spawnAgent(input),
-		waitAgent: () => {},
+		waitAgents: () => {},
 	};
 }
 
@@ -681,7 +676,8 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.wait") {
-			await waitAgent(store, activeDispatches, normalizeWaitAgentParams(request.params), signal, ctx);
+			assertNoWaitAgentsParams(request.params, "pi.agents.wait");
+			await waitAgents(store, signal, ctx);
 			return null;
 		}
 
@@ -779,21 +775,13 @@ function normalizeSelectAgentId(params: unknown): string {
 	return agentId;
 }
 
-function normalizeWaitAgentParams(params: unknown): WaitAgentParams {
-	if (typeof params === "string") {
-		if (!params.trim()) {
-			throw new Error("pi.agents.wait requires a non-empty agentId");
-		}
-		return { agentId: params };
+function assertNoWaitAgentsParams(params: unknown, apiName: string): void {
+	const isEmptyObject =
+		params !== null && typeof params === "object" && !Array.isArray(params) && Object.keys(params).length === 0;
+	if (params === undefined || params === null || isEmptyObject) {
+		return;
 	}
-	if (!params || typeof params !== "object") {
-		throw new Error("pi.agents.wait requires an agent id string or { agentId } object");
-	}
-	const agentId = (params as { agentId?: unknown }).agentId;
-	if (typeof agentId !== "string" || !agentId.trim()) {
-		throw new Error("pi.agents.wait requires a non-empty agentId");
-	}
-	return { agentId };
+	throw new Error(`${apiName} does not accept parameters`);
 }
 
 function isChildAgentRuntime(ctx: ExtensionContext): boolean {
@@ -1848,119 +1836,99 @@ function formatSentMessageTarget(message: AgentMailboxMessage, toSessionId: stri
 	return toSessionId ? `${message.toAgentId} in session ${toSessionId}` : message.toAgentId;
 }
 
-async function waitAgent(
+async function waitAgents(
 	store: MultiAgentStore,
-	dispatches: ActiveAgentDispatches,
-	params: WaitAgentParams,
 	signal: AbortSignal | undefined,
 	ctx?: ExtensionContext,
-): Promise<AgentToolResult<WaitAgentToolDetails>> {
+): Promise<AgentToolResult<WaitAgentsToolDetails>> {
 	if (ctx && isChildAgentRuntime(ctx)) {
 		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {});
 	}
-	const initialAgent = store.getAgent(params.agentId);
-	if (!initialAgent) {
-		return errorResult(`Agent not found: ${params.agentId}`, {});
+	const pendingCompletion = findAgentWithPendingCompletion(store);
+	if (pendingCompletion) {
+		return consumeAgentCompletion(store, pendingCompletion, ctx);
 	}
 
-	const dispatch = dispatches.get(initialAgent.id);
-	if (dispatch && isActiveLifecycle(initialAgent.lifecycle)) {
-		const aborted = await waitForDispatch(store, initialAgent.id, dispatch, signal);
-		if (aborted) {
-			const agent = store.getAgent(params.agentId) ?? initialAgent;
-			return errorResult(`Wait cancelled for ${agent.displayName}.`, {});
-		}
-	} else if (isWaitableBackgroundToolJob(initialAgent)) {
-		const aborted = await waitForStoreTerminalAgent(store, initialAgent.id, signal);
-		if (aborted) {
-			const agent = store.getAgent(params.agentId) ?? initialAgent;
-			return errorResult(`Wait cancelled for ${agent.displayName}.`, {});
-		}
+	const activeAgents = store.listActiveAgents();
+	if (activeAgents.length === 0) {
+		return emptyResult();
 	}
 
-	const agent = store.getAgent(params.agentId) ?? initialAgent;
-	if (isInFlightLifecycle(agent.lifecycle) && !dispatches.has(agent.id)) {
-		return errorResult(`Cannot wait for detached agent ${agent.displayName}: no live runtime is attached to it in this session.`, {});
+	const agent = await waitForAnyTerminalAgent(store, activeAgents, signal);
+	if (!agent) {
+		return errorResult("Wait cancelled.", {});
 	}
-	if (agent.lifecycle === "completed") {
-		const [completionMessage] = store.consumeCompletionNotificationsForAgent(agent.id);
-		if (completionMessage) {
-			consumeRuntimeCompletionNotification(ctx, store, completionMessage.id);
-			const body = completionMessage.body ?? formatAgentStatus(agent);
-			return result(body, { message: completionMessage });
-		}
-		return result(formatWaitAgentCompletion(agent), {});
+	if (agent.lifecycle !== "completed") {
+		return result(formatAgentStatus(agent), {});
 	}
-	return emptyResult();
+	return consumeAgentCompletion(store, agent, ctx);
 }
 
-function isWaitAgentReady(agent: AgentSnapshot): boolean {
-	return !isActiveLifecycle(agent.lifecycle);
+function findAgentWithPendingCompletion(store: MultiAgentStore): AgentSnapshot | undefined {
+	return store
+		.listAgents()
+		.find(
+			(agent) =>
+				agent.lifecycle === "completed" &&
+				store.listPendingLifecycleNotificationsForAgent(agent.id, "completed").length > 0,
+		);
 }
 
-function isWaitableBackgroundToolJob(agent: AgentSnapshot): boolean {
-	return (
-		agent.agentType === "background" &&
-		agent.worker?.adapter === "runtime" &&
-		isInFlightLifecycle(agent.lifecycle) &&
-		WAITABLE_BACKGROUND_TOOL_NAMES.has(agent.lastActivity?.toolName ?? "")
-	);
-}
-
-async function waitForStoreTerminalAgent(
+function consumeAgentCompletion(
 	store: MultiAgentStore,
-	agentId: string,
-	signal: AbortSignal | undefined,
-): Promise<boolean> {
-	return waitForAgentState(store, agentId, signal, (agent) => !agent || isWaitAgentReady(agent));
+	agent: AgentSnapshot,
+	ctx: ExtensionContext | undefined,
+): AgentToolResult<WaitAgentsToolDetails> {
+	const [completionMessage] = store.consumeCompletionNotificationsForAgent(agent.id);
+	if (completionMessage) {
+		consumeRuntimeCompletionNotification(ctx, store, completionMessage.id);
+		const body = completionMessage.body ?? formatAgentStatus(agent);
+		return result(body, { message: completionMessage });
+	}
+	return result(formatWaitAgentsCompletion(agent), {});
 }
 
-async function waitForDispatch(
+async function waitForAnyTerminalAgent(
 	store: MultiAgentStore,
-	agentId: string,
-	dispatch: Promise<AgentSnapshot>,
+	activeAgents: AgentSnapshot[],
 	signal: AbortSignal | undefined,
-): Promise<boolean> {
-	return waitForAgentState(store, agentId, signal, (agent) => !!agent && isWaitAgentReady(agent), dispatch);
-}
-
-async function waitForAgentState(
-	store: MultiAgentStore,
-	agentId: string,
-	signal: AbortSignal | undefined,
-	isReady: (agent: AgentSnapshot | undefined) => boolean,
-	settleWhenDone?: Promise<unknown>,
-): Promise<boolean> {
+): Promise<AgentSnapshot | undefined> {
 	if (signal?.aborted) {
-		return true;
+		return undefined;
 	}
+	const trackedAgentIds = new Set(activeAgents.map((agent) => agent.id));
 
 	return new Promise((resolve) => {
 		let settled = false;
-		let pollTimer: ReturnType<typeof setTimeout> | undefined;
-		const finish = (aborted: boolean) => {
+		let unsubscribe = () => {};
+		const finish = (agent: AgentSnapshot | undefined) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			if (pollTimer) {
-				clearTimeout(pollTimer);
-			}
+			unsubscribe();
 			signal?.removeEventListener("abort", onAbort);
-			resolve(aborted);
+			resolve(agent);
 		};
-		const onAbort = () => finish(true);
-		const pollStoreState = () => {
-			if (isReady(store.getAgent(agentId))) {
-				finish(false);
-				return;
+		const onAbort = () => finish(undefined);
+		unsubscribe = store.subscribeAgentTransitions((_previous, current) => {
+			if (trackedAgentIds.has(current.id) && !isActiveLifecycle(current.lifecycle)) {
+				finish(current);
 			}
-			pollTimer = setTimeout(pollStoreState, WAIT_AGENT_POLL_INTERVAL_MS);
-		};
+		});
 		signal?.addEventListener("abort", onAbort, { once: true });
-		void settleWhenDone?.finally(() => finish(false));
-		pollStoreState();
+
+		const terminalAgent = findFirstTerminalAgent(store, activeAgents);
+		if (terminalAgent) {
+			finish(terminalAgent);
+		}
 	});
+}
+
+function findFirstTerminalAgent(store: MultiAgentStore, agents: AgentSnapshot[]): AgentSnapshot | undefined {
+	return agents
+		.map((agent) => store.getAgent(agent.id))
+		.find((agent) => agent !== undefined && !isActiveLifecycle(agent.lifecycle));
 }
 
 function isInFlightLifecycle(lifecycle: AgentSnapshot["lifecycle"]): boolean {
@@ -1980,7 +1948,7 @@ function consumeRuntimeCompletionNotification(
 	consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath: persistence.sessionPath });
 }
 
-function formatWaitAgentCompletion(agent: AgentSnapshot): string {
+function formatWaitAgentsCompletion(agent: AgentSnapshot): string {
 	const summary = agent.result?.summary?.trim();
 	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
 }
@@ -2546,12 +2514,15 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 
 	pi.registerTool(
 		defineTool({
-			name: "wait_agent",
-			label: "Wait Agent",
-			description: "Synchronize on an agent reaching a terminal state and consume matching completion mailbox notifications.",
+			name: "wait_agents",
+			label: "Wait Agents",
+			description: "Wait until any active agent reaches a terminal state and consume that agent's completion notification.",
 			approvalRequired: false,
-			parameters: waitAgentSchema,
-			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => waitAgent(store, activeDispatches, params, signal, ctx),
+			parameters: waitAgentsSchema,
+			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+				assertNoWaitAgentsParams(params, "wait_agents");
+				return waitAgents(store, signal, ctx);
+			},
 		}),
 	);
 

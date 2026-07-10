@@ -376,9 +376,8 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
-  if (request.code === "pi.agents.wait('agent-1')" || request.code === "pi.agents.wait('agent_1')") {
-    const agentId = request.code.includes("agent_1") ? "agent_1" : "agent-1";
-    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: { agentId } }) + "\\n");
+  if (request.code === "pi.agents.wait()") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.wait", params: {} }) + "\\n");
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
@@ -1029,7 +1028,7 @@ describe("pyrun extension", () => {
 			],
 		});
 
-		const result = await harness.evaluate({ code: "pi.agents.wait('agent-1')" });
+		const result = await harness.evaluate({ code: "pi.agents.wait()" });
 
 		expect(result.details.value).toBeNull();
 	});
@@ -1046,7 +1045,7 @@ describe("pyrun extension", () => {
 		});
 
 		await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
-		const result = await harness.evaluate({ code: "pi.agents.wait('agent_1')" });
+		const result = await harness.evaluate({ code: "pi.agents.wait()" });
 
 		expect(result.details.value).toBeNull();
 		expect(store.getAgent("agent_1")).toMatchObject({ lifecycle: "completed", result: { summary: "done" } });
@@ -1062,7 +1061,7 @@ describe("pyrun extension", () => {
 			],
 		});
 
-		const result = await harness.evaluate({ code: "pi.agents.wait('agent_1')" });
+		const result = await harness.evaluate({ code: "pi.agents.wait()" });
 
 		expect(result.details.value).toBeNull();
 	});

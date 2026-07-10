@@ -287,7 +287,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
 	});
 
-	test("keeps elapsed time out of wait_agent waiting labels", async () => {
+	test("keeps elapsed time out of wait_agents waiting labels", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
 		const fakeThis = createFakeInteractiveModeThis();
@@ -297,14 +297,14 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_start",
-			toolName: "wait_agent",
+			toolName: "wait_agents",
 			toolCallId: "wait-1",
 			args: { agentId: "agent_1" },
 		});
-		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent...");
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agents...");
 
 		await vi.advanceTimersByTimeAsync(1_000);
-		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent...");
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agents...");
 	});
 
 	test("clears main session tool waiting state while viewing an agent session", async () => {

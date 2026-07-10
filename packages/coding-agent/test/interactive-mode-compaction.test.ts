@@ -178,7 +178,7 @@ describe("InteractiveMode compaction events", () => {
 
 	test("flushCompactionQueue delivers queued messages even when a turn resumed after compaction", async () => {
 		// Reproduces the race: compaction ends, the mailbox drain resumes a streaming
-		// turn (e.g. wait_agent) before the deferred flush runs. The flush must queue
+		// turn (e.g. wait_agents) before the deferred flush runs. The flush must queue
 		// via streamingBehavior instead of hitting the "already processing" guard.
 		const delivered: Array<{ text: string; behavior?: "steer" | "followUp" }> = [];
 		const fakeSession = {

@@ -2193,7 +2193,7 @@ export class AgentSession {
 		if (this._runtimeMailboxDrainInProgress) {
 			return false;
 		}
-		// While streaming, leave messages pending so tools like wait_agent can
+		// While streaming, leave messages pending so tools like wait_agents can
 		// consume them mid-turn; the post-turn drain delivers whatever remains.
 		if (options.triggerIfIdle && this.isStreaming) {
 			return false;
