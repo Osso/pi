@@ -32,6 +32,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
+- [x] Only the supervisor runtime can spawn, attach, or wait for agents. Child/subagent runtimes
+      reject `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Hostrun/Pyrun
+      `agents.spawn`, `agents.attachSession`, and `agents.wait` bridge methods before rows are created.
+      Production child sessions also exclude those three tools as defense in depth.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
@@ -59,18 +63,19 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
       is derived at session start from active lifecycle plus the absence of a live dispatch — see
       [agent-lifecycle.md](agent-lifecycle.md).
-- [x] On supervisor session start, detached agents with a persisted `attached` origin and transcript
-      paths are restarted through the same attached-session dispatch path used by `attach_session_agent`,
-      preserving their agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle
-      plumbing; reattaching a detached running agent is not a lifecycle transition. Queued and
-      already-waiting agents are not auto-prompted. Detached spawned children are never re-driven
-      through the attached-session factory and keep their truthful lifecycle; detached agents without
-      a transcript are marked failed at recovery time; detached cancelling agents have their pending
-      cancel completed to aborted. Dispatch finalizers are guarded
-      by store restore generation so completions from a previous supervisor session cannot mutate a
-      newly restored session that reused the same agent ID, and session shutdown aborts live child-session
-      handles before the store is rebound. Shutdown invalidates in-flight dispatches before aborting, so
-      abort-induced rejections cannot persist agents as failed and the last snapshot keeps them recoverable.
+- [x] On supervisor session start, detached in-flight attached agents with transcript paths restart
+      through the same attached-session dispatch path used by `attach_session_agent`, preserving their
+      agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle plumbing;
+      attached agents already waiting for input are not auto-prompted. Every non-queued active
+      spawned agent (explicit `spawned` origin or absent origin) without a live dispatch is instead
+      terminalized as `aborted` with a `supervisor_restarted` interruption error, including waiting
+      children. Queued records survive unchanged. Dispatch finalizers are guarded by store restore
+      generation so stale completions cannot mutate a rebound store, and shutdown invalidates
+      in-flight dispatches before aborting handles.
+- [x] `wait_agent` waits only for a tracked live dispatch or a current-process detached Bash/Pyrun
+      job with transient worker metadata; every other active target fails promptly as detached.
+      Bash retains its `subprocess` marker, Pyrun uses `runtime`, and restore clears both so persisted
+      metadata cannot cause indefinite polling.
 
 ### Mailbox and steering
 

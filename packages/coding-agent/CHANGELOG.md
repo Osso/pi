@@ -52,6 +52,7 @@
 
 ### Fixed
 
+- Fixed multi-agent restart recovery to abort detached spawned children instead of preserving active ghosts, restricted orchestration to supervisor runtimes, and made `wait_agent` reject detached background metadata while retaining live Bash/Pyrun waits.
 - Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.
 - Fixed Resident Architect snapshots to retain only the current main session per live Pi process without expiring long-running sessions or replaying historical/subagent session inventories.
 - Fixed shared-channel catch-up to batch all unread deliverable posts in order into one agent turn and retain them when batch delivery fails.

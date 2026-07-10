@@ -66,28 +66,28 @@ State meanings:
 
 ### Restore and recovery (derived liveness)
 
-- [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth. Restore
-      only clears stale worker handles from active agents; persisted metadata is never treated
-      as proof of liveness. Interrupted `running` agents stay `running` across any number of
-      restores.
-- [x] Detachment is derived at session start, not stored: an agent in an active non-idle state
-      with no live dispatch in this process needs recovery.
+- [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
+      and persisted metadata is never proof of liveness.
 - [x] `queued` agents survive restore unchanged and are not recovered.
-- [x] Agents already `waiting_for_input` before the crash are not auto-prompted after restore.
-- [x] Only detached agents with persisted `origin: "attached"` and a transcript are auto-restarted,
-      through the attached-session dispatch path; detached spawned children keep their truthful
-      lifecycle and are not re-driven through the attach factory.
-- [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent
-      stays `running` while the dispatch and handle are re-established. Lifecycle moves only on
-      real events (completion, reattach failure, cancel).
-- [x] A detached agent with no transcript is marked `failed` with an explicit recovery error at
-      recovery time — a runtime decision, not a restore rewrite.
-- [x] A detached `cancelling` agent has its pending cancel completed to `aborted` at recovery time.
+- [x] On supervisor start, every non-queued active spawned agent (`origin: "spawned"` or absent)
+      with no live dispatch is terminalized as `aborted` with an explicit
+      `supervisor_restarted` interruption error. This includes `waiting_for_input` and prevents
+      active-count and TUI liveness ghosts.
+- [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
+- [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
+      auto-restarted through the attached-session dispatch path.
+- [x] Reattaching a runtime to a detached `running` attached agent is not a lifecycle transition:
+      the agent stays `running` while the dispatch and handle are re-established.
+- [x] A detached in-flight attached agent with no transcript is marked `failed` with an explicit
+      recovery error at recovery time.
+- [x] A detached attached `cancelling` agent has its pending cancel completed to `aborted` at recovery time.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes never run supervisor recovery.
-- [x] `wait_agent` reports an explicit wait error for in-flight agents with no live dispatch
-      instead of returning a live-looking non-terminal snapshot.
+- [x] `wait_agent` reports an explicit wait error for every active target with no live dispatch
+      or current-process worker marker instead of returning a live-looking non-terminal snapshot.
+      Detached Bash jobs retain transient `subprocess` worker metadata and Pyrun jobs use a
+      transient `runtime` worker marker; restore clears both and never keeps a wait alive.
 
 ## How it works
 
@@ -114,9 +114,6 @@ State meanings:
 
 ## Known gaps (current cycle)
 
-- [ ] Detached-but-active agents that cannot be restarted yet (spawned children) keep their
-      truthful lifecycle; projections must expose detachment (active agent, no runtime) so the
-      TUI does not show false liveness while no resume path exists.
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.
       Blocked on a hand-interruption surface existing (today the only manual stop is
