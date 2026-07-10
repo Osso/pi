@@ -204,6 +204,8 @@ The `api` field determines which streaming implementation is used:
 | `google-vertex` | Google Vertex AI API |
 | `bedrock-converse-stream` | Amazon Bedrock Converse API |
 
+The `azure-openai-responses` API type remains available for explicitly configured custom providers; it is not a built-in provider.
+
 Most OpenAI-compatible providers work with `openai-completions`. Use model-level `thinkingLevelMap` for model-specific thinking levels, and `compat` for provider quirks:
 
 ```typescript

@@ -50,7 +50,6 @@ pi
 |----------|----------------------|------------------|
 | Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
 | Ant Ling | `ANT_LING_API_KEY` | `ant-ling` |
-| Azure OpenAI Responses | `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
 | OpenAI | `OPENAI_API_KEY` | `openai` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` |
 | NVIDIA NIM | `NVIDIA_API_KEY` | `nvidia` |
@@ -77,6 +76,8 @@ pi
 | Xiaomi MiMo Token Plan (China) | `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `xiaomi-token-plan-cn` |
 | Xiaomi MiMo Token Plan (Amsterdam) | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `xiaomi-token-plan-ams` |
 | Xiaomi MiMo Token Plan (Singapore) | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `xiaomi-token-plan-sgp` |
+
+Azure OpenAI Responses is not a built-in provider. To use its API implementation, configure it through a custom provider; see [Custom Providers](custom-provider.md).
 
 Reference for environment variables and `auth.json` keys: [`const envMap`](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/env-api-keys.ts) in [`packages/ai/src/env-api-keys.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/env-api-keys.ts).
 
@@ -151,22 +152,6 @@ The `key` field supports command execution, environment interpolation, and liter
 OAuth credentials are also stored here after `/login` and managed automatically.
 
 ## Cloud Providers
-
-### Azure OpenAI
-
-```bash
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_BASE_URL=https://your-resource.ai.azure.com
-# also supported: https://your-resource.cognitiveservices.azure.com
-# also supported: https://your-resource.openai.azure.com
-# root endpoints are auto-normalized to /openai/v1
-# or use resource name instead of base URL
-export AZURE_OPENAI_RESOURCE_NAME=your-resource
-
-# Optional
-export AZURE_OPENAI_API_VERSION=2024-02-01
-export AZURE_OPENAI_DEPLOYMENT_NAME_MAP=gpt-4=my-gpt4,gpt-4o=my-gpt4o
-```
 
 ### Amazon Bedrock
 

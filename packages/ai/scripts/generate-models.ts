@@ -435,10 +435,7 @@ function isGemma4Model(modelId: string): boolean {
 }
 
 function applyThinkingLevelMetadata(model: Model<any>): void {
-	if (
-		(model.api === "openai-responses" || model.api === "azure-openai-responses") &&
-		model.id.startsWith("gpt-5")
-	) {
+	if (model.api === "openai-responses" && model.id.startsWith("gpt-5")) {
 		mergeThinkingLevelMap(model, { off: null });
 	}
 	if (model.provider === "github-copilot" && model.id.startsWith("gpt-5")) {
@@ -2016,23 +2013,6 @@ async function generateModels() {
 			maxTokens: 30000,
 		});
 	}
-
-	// Azure Foundry deploys these with larger context windows than OpenAI's own API,
-	// which caps gpt-5.4/gpt-5.5 at 272k. See models-sold-directly-by-azure docs.
-	const AZURE_CONTEXT_WINDOW_OVERRIDES: Record<string, number> = {
-		"gpt-5.4": 1050000,
-		"gpt-5.5": 1050000,
-	};
-	const azureOpenAiModels: Model<Api>[] = allModels
-		.filter((model) => model.provider === "openai" && model.api === "openai-responses")
-		.map((model) => ({
-			...model,
-			api: "azure-openai-responses",
-			provider: "azure-openai-responses",
-			baseUrl: "",
-			contextWindow: AZURE_CONTEXT_WINDOW_OVERRIDES[model.id] ?? model.contextWindow,
-		}));
-	allModels.push(...azureOpenAiModels);
 
 	for (const model of allModels) {
 		applyThinkingLevelMetadata(model);

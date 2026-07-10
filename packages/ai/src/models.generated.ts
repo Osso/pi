@@ -4,7 +4,6 @@
 import { AMAZON_BEDROCK_MODELS } from "./providers/amazon-bedrock.models.ts";
 import { ANT_LING_MODELS } from "./providers/ant-ling.models.ts";
 import { ANTHROPIC_MODELS } from "./providers/anthropic.models.ts";
-import { AZURE_OPENAI_RESPONSES_MODELS } from "./providers/azure-openai-responses.models.ts";
 import { CEREBRAS_MODELS } from "./providers/cerebras.models.ts";
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "./providers/cloudflare-ai-gateway.models.ts";
 import { CLOUDFLARE_WORKERS_AI_MODELS } from "./providers/cloudflare-workers-ai.models.ts";
@@ -42,7 +41,6 @@ export const MODELS = {
 	"amazon-bedrock": AMAZON_BEDROCK_MODELS,
 	"ant-ling": ANT_LING_MODELS,
 	"anthropic": ANTHROPIC_MODELS,
-	"azure-openai-responses": AZURE_OPENAI_RESPONSES_MODELS,
 	"cerebras": CEREBRAS_MODELS,
 	"cloudflare-ai-gateway": CLOUDFLARE_AI_GATEWAY_MODELS,
 	"cloudflare-workers-ai": CLOUDFLARE_WORKERS_AI_MODELS,

@@ -107,7 +107,6 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - Anthropic
 - Ant Ling
 - OpenAI
-- Azure OpenAI
 - DeepSeek
 - NVIDIA NIM
 - Google Gemini
@@ -136,6 +135,8 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - Xiaomi MiMo Token Plan (Singapore)
 
 See [docs/providers.md](docs/providers.md) for detailed setup instructions.
+
+Azure OpenAI Responses is available only as an API implementation for explicitly configured custom providers; it is not a built-in provider.
 
 **Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI, Anthropic, Google). For custom APIs or OAuth, use extensions. See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md).
 

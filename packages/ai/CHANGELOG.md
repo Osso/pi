@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Removed `azure-openai-responses` from the built-in provider/catalog entries. Its API implementation remains available to explicitly configured custom providers via `api: "azure-openai-responses"`.
+
 ### Fixed
 
 - Fixed Anthropic message replay to normalize invalid persisted tool IDs even for same-model history, avoiding `tool_result.tool_use_id` request validation errors after restart.
