@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readArchitectSnapshot } from "../src/architect/observer.ts";
+import { commandLineIsPiRuntime } from "../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	listRuntimeMailboxListeners,
@@ -15,7 +16,7 @@ import {
 	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { broadcastToSessions, commandLineIsPiRuntime, listSessions } from "../src/core/session-directory.ts";
+import { broadcastToSessions, listSessions } from "../src/core/session-directory.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 
 type SessionOverrides = {
@@ -137,6 +138,27 @@ describe("session directory", () => {
 		]);
 	});
 
+	it("expires a fresh binding when its pid no longer belongs to a Pi runtime", () => {
+		writeSession("session-fresh-reused-pid");
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "session-fresh-reused-pid" },
+			process.pid,
+		);
+
+		const sessions = listSessions(controlDbPath, { isRuntimeProcessAlive: () => false });
+
+		expect(sessions).toEqual([
+			expect.objectContaining({
+				sessionId: "session-fresh-reused-pid",
+				pid: null,
+				status: "ended",
+				checkStatus: "dead",
+			}),
+		]);
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+	});
+
 	it("expires a stale binding when its pid no longer belongs to a Pi runtime", () => {
 		vi.useFakeTimers();
 		try {
@@ -251,7 +273,7 @@ describe("session directory", () => {
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
 
-			listSessions(controlDbPath, { isRuntimeProcessAlive: () => false });
+			listSessions(controlDbPath, { isRuntimeProcessAlive: (pid) => pid === process.pid + 1 });
 
 			expect(readSessionHealth(controlDbPath, "session-stale")?.pid).toBeNull();
 			expect(readMultiAgentState(controlDbPath, "/sessions/session-stale.jsonl")?.agents).toMatchObject([
@@ -511,13 +533,17 @@ describe("session directory", () => {
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-filtered" }, process.pid + 1);
 
-		const results = broadcastToSessions(controlDbPath, {
-			message: "please restart",
-			filters: { sessionIds: ["session-live"] },
-			senderSessionId: "sender-session",
-			senderSessionPath: "/sessions/sender.jsonl",
-			senderAgentId: null,
-		});
+		const results = broadcastToSessions(
+			controlDbPath,
+			{
+				message: "please restart",
+				filters: { sessionIds: ["session-live"] },
+				senderSessionId: "sender-session",
+				senderSessionPath: "/sessions/sender.jsonl",
+				senderAgentId: null,
+			},
+			{ isRuntimeProcessAlive: () => true },
+		);
 
 		expect(results).toEqual(
 			expect.arrayContaining([

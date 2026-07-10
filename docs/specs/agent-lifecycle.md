@@ -75,8 +75,11 @@ State meanings:
       explicitly ended (`pid: NULL`) health row or a non-current duplicate metadata path for the
       same session ID. Main listener rows freshly assert the exact live session path and a runtime
       incarnation ID; a changed incarnation advances health generation and aborts active spawned rows
-      in that exact store even when the OS has reused the same PID. Reconciliation trusts a path only
-      when its assertion timestamp matches the listener heartbeat, and path relocation moves the
+      in that exact store even when the OS has reused the same PID. A different live Pi PID already
+      owning the session rejects replacement, so concurrent opens cannot abort its spawned work.
+      Startup reconciliation retires listener ownership whose PID no longer belongs to Pi before
+      trusting asserted paths. Reconciliation trusts a path only when its assertion timestamp matches
+      the listener heartbeat, and path relocation moves the
       assertion transactionally with the store. Reconciliation writes
       `aborted` with an explicit `supervisor_restarted` interruption error, including
       `waiting_for_input`, and prevents active-count and TUI liveness ghosts in historical

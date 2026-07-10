@@ -1,3 +1,5 @@
+import { type ChildProcess, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +52,22 @@ import { emptySessionHealth } from "../src/core/session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase } from "../src/core/sqlite.ts";
 
 let storedMessageCounter = 0;
+
+type SpawnedChildProcess = ChildProcess & { pid: number };
+
+async function spawnIdleNodeProcess(): Promise<SpawnedChildProcess> {
+	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+	await once(child, "spawn");
+	if (child.pid === undefined) throw new Error("Spawned child process has no pid");
+	return child as SpawnedChildProcess;
+}
+
+async function stopChildProcess(child: ChildProcess): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return;
+	const exited = once(child, "exit");
+	child.kill();
+	await exited;
+}
 
 function enqueueStoredRuntimeMessage(
 	controlDbPath: string,
@@ -324,6 +342,31 @@ describe("session control DB", () => {
 		});
 	});
 
+	it("does not signal a non-Pi process behind a reused listener pid", async () => {
+		const child = await spawnIdleNodeProcess();
+		try {
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "reused-non-pi-pid" }, child.pid);
+			const sessionPath = "/sessions/sender.jsonl";
+			const messageId = "reused-non-pi-pid-message";
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+				body: "wake",
+				id: messageId,
+				status: "pending",
+			});
+			enqueueRuntimeMailboxMessage(controlDbPath, {
+				kind: "message",
+				recipient: { agentId: null, sessionId: "reused-non-pi-pid" },
+				sender: { agentId: null, sessionId: "sender" },
+				storeRef: { messageId, sessionPath },
+			});
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(child.exitCode).toBeNull();
+			expect(child.signalCode).toBeNull();
+		} finally {
+			await stopChildProcess(child);
+		}
+	});
+
 	it("stores runtime mailbox messages by recipient session and nullable agent id", () => {
 		const mainMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "main thread notice",
@@ -569,6 +612,42 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxMessages(controlDbPath).map((message) => message.body)).toEqual(["new"]);
 	});
 
+	it("retires non-Pi listener ownership before startup reconciliation", async () => {
+		const child = await spawnIdleNodeProcess();
+		const sessionPath = "/sessions/non-pi-owner.jsonl";
+		const sessionId = "non-pi-owner";
+		try {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath,
+				id: sessionId,
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "first",
+				allMessagesText: "first",
+			});
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, child.pid, sessionPath);
+			upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+				id: "running",
+				lifecycle: "running",
+				revision: 1,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			});
+
+			expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(1);
+			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+			expect(readSessionHealth(controlDbPath, sessionId)).toMatchObject({ pid: null, checkStatus: "dead" });
+			expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+				{ id: "running", lifecycle: "aborted", revision: 2, error: { code: "supervisor_restarted" } },
+			]);
+			expect(child.exitCode).toBeNull();
+			expect(child.signalCode).toBeNull();
+		} finally {
+			await stopChildProcess(child);
+		}
+	});
+
 	it("aborts only active spawned agents in inactive supervisor stores and is idempotent", () => {
 		const inactiveSessionPath = "/sessions/inactive.jsonl";
 		const liveSessionPath = "/sessions/live.jsonl";
@@ -715,7 +794,7 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ sessionId: "live-session", sessionPath: newSessionPath }),
 		]);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive: () => true })).toBe(0);
 		expect(readMultiAgentState(controlDbPath, newSessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
@@ -753,7 +832,7 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ sessionId: "live-session", sessionPath: undefined }),
 		]);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive: () => true })).toBe(0);
 		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
@@ -798,8 +877,40 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ sessionId: "live-session", sessionPath: undefined }),
 		]);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(0);
+		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive: () => true })).toBe(0);
 		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
+			{ id: "running", lifecycle: "running", revision: 1 },
+		]);
+	});
+
+	it("rejects a different live runtime process without aborting its spawned rows", () => {
+		const sessionPath = "/sessions/concurrent-runtime.jsonl";
+		const recipient = { agentId: null, sessionId: "concurrent-runtime-session" };
+		registerRuntimeMailboxListener(controlDbPath, recipient, 111, sessionPath, {
+			runtimeInstanceId: "runtime-a",
+		});
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+			id: "running",
+			lifecycle: "running",
+			revision: 1,
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+
+		expect(() =>
+			registerRuntimeMailboxListener(controlDbPath, recipient, 222, sessionPath, {
+				isRuntimeProcessAlive: () => true,
+				runtimeInstanceId: "runtime-b",
+			}),
+		).toThrow(/already owned by live Pi process 111/);
+
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({ pid: 111, sessionId: recipient.sessionId, sessionPath }),
+		]);
+		expect(readSessionHealth(controlDbPath, recipient.sessionId)).toMatchObject({
+			pid: 111,
+			agentGeneration: 1,
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
 	});

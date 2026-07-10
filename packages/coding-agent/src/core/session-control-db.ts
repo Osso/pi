@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 import {
 	emptySessionHealth,
 	endSessionHealth,
@@ -165,6 +166,7 @@ export interface RuntimeMailboxListener {
 }
 
 export interface RuntimeMailboxRegistrationOptions {
+	isRuntimeProcessAlive?: (pid: number) => boolean;
 	reconcileRuntimeReplacement?: boolean;
 	runtimeInstanceId?: string;
 }
@@ -531,27 +533,53 @@ export function registerRuntimeMailboxListener(
 	options: RuntimeMailboxRegistrationOptions = {},
 ): void {
 	withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const now = new Date().toISOString();
-			const runtimeInstanceId = options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID;
-			const existingListener = readRuntimeMailboxListenerRow(db, recipient);
-			const shouldReconcileRuntimeReplacement =
-				recipient.agentId === null &&
-				options.reconcileRuntimeReplacement !== false &&
-				existingListener?.runtime_instance_id !== runtimeInstanceId;
-			if (recipient.agentId === null) {
-				retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, now);
-				if (shouldReconcileRuntimeReplacement && sessionPath) {
-					abortActiveSpawnedAgentsForExactSessionPath(db, sessionPath, now);
-				}
-			}
-			upsertRuntimeMailboxListenerRow(db, recipient, pid, sessionPath, runtimeInstanceId, now);
-			// Main-thread listener rows are the durable source for live session pids/generations.
-			if (recipient.agentId === null) {
-				upsertSessionHealthForListener(db, recipient.sessionId, pid, now, shouldReconcileRuntimeReplacement);
-			}
-		}),
+		withImmediateTransaction(db, () =>
+			registerRuntimeMailboxListenerInTransaction(db, recipient, pid, sessionPath, options),
+		),
 	);
+}
+
+function registerRuntimeMailboxListenerInTransaction(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	pid: number,
+	sessionPath: string | undefined,
+	options: RuntimeMailboxRegistrationOptions,
+): void {
+	const nowIso = new Date().toISOString();
+	const runtimeInstanceId = options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID;
+	const existingListener = readRuntimeMailboxListenerRow(db, recipient);
+	const runtimeOwnerChanged =
+		existingListener?.pid !== pid || existingListener?.runtime_instance_id !== runtimeInstanceId;
+	const shouldReconcileReplacement =
+		recipient.agentId === null && options.reconcileRuntimeReplacement !== false && runtimeOwnerChanged;
+	if (shouldReconcileReplacement) {
+		assertRuntimeReplacementAllowed(db, recipient.sessionId, existingListener, pid, options);
+	}
+	if (recipient.agentId === null) {
+		retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, nowIso);
+		if (shouldReconcileReplacement && sessionPath) {
+			abortActiveSpawnedAgentsForExactSessionPath(db, sessionPath, nowIso);
+		}
+	}
+	upsertRuntimeMailboxListenerRow(db, recipient, pid, sessionPath, runtimeInstanceId, nowIso);
+	if (recipient.agentId === null) {
+		upsertSessionHealthForListener(db, recipient.sessionId, pid, nowIso, shouldReconcileReplacement);
+	}
+}
+
+function assertRuntimeReplacementAllowed(
+	db: SqliteDatabase,
+	sessionId: string,
+	existingListener: RuntimeMailboxListenerRow | undefined,
+	pid: number,
+	options: RuntimeMailboxRegistrationOptions,
+): void {
+	const existingOwnerPid = existingListener?.pid ?? readSessionHealthRow(db, sessionId)?.pid;
+	if (existingOwnerPid === null || existingOwnerPid === undefined || existingOwnerPid === pid) return;
+	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
+	if (!isRuntimeProcessAlive(existingOwnerPid)) return;
+	throw new Error(`Session ${sessionId} is already owned by live Pi process ${existingOwnerPid}`);
 }
 
 function upsertRuntimeMailboxListenerRow(
@@ -579,25 +607,31 @@ export function retireRuntimeMailboxListener(
 	pid: number,
 ): boolean {
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const now = new Date().toISOString();
-			const result = db
-				.prepare(
-					`
-					DELETE FROM runtime_mailbox_listeners
-					WHERE recipient_session_id = ?
-						AND recipient_agent_id_key = ?
-						AND pid = ?
-					`,
-				)
-				.run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), pid);
-			const retired = Number(result.changes) > 0;
-			if (retired && recipient.agentId === null) {
-				retireSessionHealthForListener(db, recipient.sessionId, pid, now);
-			}
-			return retired;
-		}),
+		withImmediateTransaction(db, () => retireRuntimeMailboxListenerRow(db, recipient, pid, new Date().toISOString())),
 	);
+}
+
+function retireRuntimeMailboxListenerRow(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	pid: number,
+	nowIso: string,
+): boolean {
+	const result = db
+		.prepare(
+			`
+			DELETE FROM runtime_mailbox_listeners
+			WHERE recipient_session_id = ?
+				AND recipient_agent_id_key = ?
+				AND pid = ?
+			`,
+		)
+		.run(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId), pid);
+	const retired = Number(result.changes) > 0;
+	if (retired && recipient.agentId === null) {
+		retireSessionHealthForListener(db, recipient.sessionId, pid, nowIso);
+	}
+	return retired;
 }
 
 function listSupersededMainSessionIds(db: SqliteDatabase, currentSessionId: string, pid: number): string[] {
@@ -970,7 +1004,7 @@ function runtimeMailboxAgentIdKey(agentId: string | null): string {
 }
 
 function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | undefined): void {
-	if (!listener || process.platform === "win32") {
+	if (!listener || process.platform === "win32" || !isPiRuntimeProcessAlive(listener.pid)) {
 		return;
 	}
 	if (listener.pid === process.pid && process.listenerCount("SIGUSR2") === 0) {
@@ -1664,6 +1698,7 @@ interface LiveSessionPathRow {
 }
 
 export interface InactiveSessionSpawnedAgentReconciliationOptions {
+	isRuntimeProcessAlive?: (pid: number) => boolean;
 	nowIso?: string;
 }
 
@@ -1703,11 +1738,18 @@ export function abortInactiveSessionSpawnedAgents(
 function abortPersistedSpawnedAgentRows(controlDbPath: string, options: AbortPersistedSpawnedAgentRowsOptions): number {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
+			const nowIso = options.nowIso ?? new Date().toISOString();
+			if (!options.requireExplicitlyEnded) {
+				retireUnavailableMainRuntimeMailboxListeners(
+					db,
+					nowIso,
+					options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive,
+				);
+			}
 			const liveSessionPathById = options.requireExplicitlyEnded
 				? new Map<string, string>()
 				: readLiveSessionPathById(db);
 			const rows = readPersistedMultiAgentRows(db, options.sessionPath);
-			const nowIso = options.nowIso ?? new Date().toISOString();
 			let changed = 0;
 			for (const row of rows) {
 				if (abortPersistedSpawnedAgentRow(db, row, liveSessionPathById, options, nowIso)) {
@@ -1717,6 +1759,20 @@ function abortPersistedSpawnedAgentRows(controlDbPath: string, options: AbortPer
 			return changed;
 		}),
 	);
+}
+
+function retireUnavailableMainRuntimeMailboxListeners(
+	db: SqliteDatabase,
+	nowIso: string,
+	isRuntimeProcessAlive: (pid: number) => boolean,
+): void {
+	const rows = db
+		.prepare("SELECT recipient_session_id, pid FROM runtime_mailbox_listeners WHERE recipient_agent_id_key = ''")
+		.all() as Array<{ recipient_session_id: string; pid: number }>;
+	for (const row of rows) {
+		if (isRuntimeProcessAlive(row.pid)) continue;
+		retireRuntimeMailboxListenerRow(db, { agentId: null, sessionId: row.recipient_session_id }, row.pid, nowIso);
+	}
 }
 
 function abortActiveSpawnedAgentsForExactSessionPath(db: SqliteDatabase, sessionPath: string, nowIso: string): number {

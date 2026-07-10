@@ -75,8 +75,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       supervisor metadata and either explicitly ended (`pid: NULL`) health or a non-current duplicate
       metadata path for the same session ID. Main listener rows freshly assert the exact live session
       path and runtime incarnation. A changed incarnation advances health generation and aborts active
-      spawned rows in the exact store even when the PID is reused. Path relocation moves the path
-      assertion transactionally with the store. Pathless or legacy timestamp-only heartbeats
+      spawned rows in the exact store even when the PID is reused. Replacement by a different PID is
+      rejected while the predecessor is still a verified live Pi runtime. Startup reconciliation
+      retires non-Pi listener ownership before trusting any asserted live path. Path relocation moves
+      the path assertion transactionally with the store. Pathless or legacy timestamp-only heartbeats
       invalidate assertion trust instead of preserving stale paths.
       It writes
       `aborted` with a `supervisor_restarted` interruption error, including waiting children;
@@ -122,7 +124,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Registering a main-session listener retires other main-session bindings on the same PID, so a
       process has one current main-session identity even if historical listener rows remain. Listener
       rows persist a per-process runtime incarnation so same-PID process replacement advances session
-      health generation and reconciles stale spawned rows without disturbing attached agents.
+      health generation and reconciles stale spawned rows without disturbing attached agents. Fresh
+      heartbeats are not accepted as PID ownership proof: inventory and signal delivery verify the PID
+      still belongs to Pi, and a different verified live Pi PID blocks concurrent session replacement.
 - [x] Pending runtime mailbox messages are claimed atomically before enqueue so concurrent Pi
       processes do not deliver the same message twice.
 - [x] Claimed messages are marked delivered only after the recipient successfully enqueues the
