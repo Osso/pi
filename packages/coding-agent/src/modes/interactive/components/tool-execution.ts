@@ -7,6 +7,45 @@ import { theme } from "../theme/theme.ts";
 import { formatElapsedDuration, MIN_VISIBLE_ELAPSED_MS } from "./elapsed-time.ts";
 
 const TOOL_TIMER_INTERVAL_MS = 1000;
+const MAX_TOOL_OUTPUT_LINES = 100;
+
+type ToolResultContentItem = { type: string; text?: string; data?: string; mimeType?: string };
+
+function limitToolOutputLines(lines: string[]): string[] {
+	if (lines.length <= MAX_TOOL_OUTPUT_LINES) {
+		return lines;
+	}
+	const headLineCount = MAX_TOOL_OUTPUT_LINES / 2;
+	const tailLineCount = MAX_TOOL_OUTPUT_LINES - headLineCount;
+	const hiddenLineCount = lines.length - MAX_TOOL_OUTPUT_LINES;
+	return [
+		...lines.slice(0, headLineCount),
+		`... (${hiddenLineCount} more lines hidden)`,
+		...lines.slice(-tailLineCount),
+	];
+}
+
+function limitToolResultContent(content: ToolResultContentItem[]): ToolResultContentItem[] {
+	const textBlockIndexes = content.flatMap((item, index) => (item.type === "text" ? [index] : []));
+	if (textBlockIndexes.length === 0) {
+		return content;
+	}
+	const outputLines = textBlockIndexes
+		.map((index) => content[index]?.text ?? "")
+		.join("\n")
+		.split("\n");
+	if (outputLines.length <= MAX_TOOL_OUTPUT_LINES) {
+		return content;
+	}
+	const limitedText = limitToolOutputLines(outputLines).join("\n");
+	const firstTextBlockIndex = textBlockIndexes[0];
+	return content.flatMap((item, index) => {
+		if (item.type !== "text") {
+			return [item];
+		}
+		return index === firstTextBlockIndex ? [{ ...item, text: limitedText }] : [];
+	});
+}
 
 export interface ToolExecutionOptions {
 	showImages?: boolean;
@@ -164,7 +203,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private createResultFallback(): Component | undefined {
-		const output = this.getTextOutput();
+		const output = this.getTextOutput(this.getDisplayContent());
 		if (!output) {
 			return undefined;
 		}
@@ -350,6 +389,7 @@ export class ToolExecutionComponent extends Container {
 			}
 
 			if (this.result) {
+				const displayContent = this.getDisplayContent();
 				const resultRenderer = this.getResultRenderer();
 				if (!resultRenderer) {
 					const component = this.createResultFallback();
@@ -360,7 +400,7 @@ export class ToolExecutionComponent extends Container {
 				} else {
 					try {
 						const component = resultRenderer(
-							{ content: this.result.content as any, details: this.result.details },
+							{ content: displayContent as any, details: this.result.details },
 							{ expanded: this.expanded, isPartial: this.isPartial },
 							theme,
 							this.getRenderContext(this.resultRendererComponent),
@@ -424,8 +464,12 @@ export class ToolExecutionComponent extends Container {
 		}
 	}
 
-	private getTextOutput(): string {
-		return getRenderedTextOutput(this.result, this.showImages);
+	private getDisplayContent(): ToolResultContentItem[] {
+		return limitToolResultContent(this.result?.content ?? []);
+	}
+
+	private getTextOutput(content: ToolResultContentItem[] = this.result?.content ?? []): string {
+		return getRenderedTextOutput({ content }, this.showImages);
 	}
 
 	private formatToolExecution(): string {
@@ -438,7 +482,7 @@ export class ToolExecutionComponent extends Container {
 		if (timerText) {
 			text += `\n${timerText}`;
 		}
-		const output = this.getTextOutput();
+		const output = this.getTextOutput(this.getDisplayContent());
 		if (output) {
 			text += `\n${output}`;
 		}

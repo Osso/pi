@@ -374,7 +374,8 @@ export function createGrepToolDefinition(
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatGrepResult(result as any, options, theme, context.showImages));
+			const output = context.isError ? formatGrepResult(result as any, options, theme, context.showImages) : "";
+			text.setText(output);
 			return text;
 		},
 	};

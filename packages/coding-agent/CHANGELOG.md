@@ -41,6 +41,7 @@
 
 ### Changed
 
+- Changed interactive tool result display to retain the first and last 50 logical output lines with an omission marker while preserving full model context, and to hide successful `grep` results while keeping calls and errors visible.
 - Replaced `wait_agent({ agentId })` with zero-argument `wait_agents({})`. It immediately consumes one pending completion notification or waits for any agent active at invocation to reach terminal state; the direct tool returns the winner completion/status while Hostrun/Pyrun `pi.agents.wait()` returns `null`.
 - Changed the default interactive `Thinking...` working ticker to show elapsed duration and leave active tool-wait messages in control of the working row.
 - Changed production-created child sessions, including `/bg` background jobs, to start with a fresh session-local goal derived from their non-empty launch prompt; `spawn_agent` now rejects blank prompts before creating an agent record.

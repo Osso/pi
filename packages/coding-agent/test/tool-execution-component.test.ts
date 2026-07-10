@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
+import { createGrepToolDefinition } from "../src/core/tools/grep.ts";
 import { createLsToolDefinition } from "../src/core/tools/ls.ts";
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
@@ -92,6 +93,59 @@ describe("ToolExecutionComponent parity", () => {
 		vi.setSystemTime(9_000);
 		component.invalidate();
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("elapsed 2s");
+	});
+
+	test("caps expanded general tool output at 100 lines", () => {
+		const toolDefinition: ToolDefinition = {
+			...createBaseToolDefinition(),
+			renderResult: (result) => new Text(result.content[0]?.type === "text" ? result.content[0].text : "", 0, 0),
+		};
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-output-cap",
+			{},
+			{},
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.setExpanded(true);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: Array.from({ length: 150 }, (_, index) => `line-${index}`).join("\n") }],
+				details: {},
+				isError: false,
+			},
+			false,
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("line-49");
+		expect(rendered).not.toContain("line-50");
+		expect(rendered).toContain("line-149");
+		expect(rendered).toContain("50 more lines hidden");
+	});
+
+	test("counts logical output lines rather than wrapped terminal rows", () => {
+		const toolDefinition: ToolDefinition = {
+			...createBaseToolDefinition(),
+			renderResult: (result) => new Text(result.content[0]?.type === "text" ? result.content[0].text : "", 0, 0),
+		};
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-output-wrapping",
+			{},
+			{},
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		const output = Array.from({ length: 60 }, (_, index) => `line-${index}-${"x".repeat(200)}`).join("\n");
+		component.updateResult({ content: [{ type: "text", text: output }], details: {}, isError: false }, false);
+
+		const rendered = stripAnsi(component.render(80).join("\n"));
+		expect(rendered).toContain("line-59-");
+		expect(rendered).not.toContain("more lines hidden");
 	});
 
 	test("stacks custom call and result renderers like the old implementation", () => {
@@ -201,6 +255,47 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("edit");
 		expect(rendered).toContain("README.md");
 		expect(rendered).not.toContain(":1");
+	});
+
+	test("hides successful grep output while retaining the call", () => {
+		const component = new ToolExecutionComponent(
+			"grep",
+			"tool-grep",
+			{ pattern: "needle", path: "src" },
+			{},
+			createGrepToolDefinition(process.cwd()),
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult({
+			content: [{ type: "text", text: "src/file.ts:10:needle" }],
+			details: {},
+			isError: false,
+		});
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("grep /needle/ in src");
+		expect(rendered).not.toContain("src/file.ts:10:needle");
+	});
+
+	test("shows grep errors", () => {
+		const component = new ToolExecutionComponent(
+			"grep",
+			"tool-grep-error",
+			{ pattern: "[", path: "src" },
+			{},
+			createGrepToolDefinition(process.cwd()),
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult({
+			content: [{ type: "text", text: "invalid regular expression" }],
+			details: {},
+			isError: true,
+		});
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("invalid regular expression");
 	});
 
 	test("renders ls calls as rtk ls", () => {
