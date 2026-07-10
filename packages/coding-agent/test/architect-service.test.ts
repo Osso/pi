@@ -86,14 +86,16 @@ describe("resident architect service", () => {
 		expect(received).toContain("session_state_changed");
 	});
 
-	it("deploys and restarts the compiled pi architect service", () => {
+	it("renders the configured binary path and verifies the restarted Architect service", () => {
 		const deploy = readFileSync(deployScript, "utf8");
 		const unit = readFileSync(serviceUnit, "utf8");
 
-		expect(unit).toContain("ExecStart=%h/.local/bin/pi architect");
+		expect(unit).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
+		expect(deploy).toContain("@PI_ARCHITECT_BINARY@");
 		expect(deploy).toContain("pi-architect.service");
 		expect(deploy).toContain("systemctl --user daemon-reload");
 		expect(deploy).toContain("systemctl --user enable --now pi-architect.service");
 		expect(deploy).toContain("systemctl --user restart pi-architect.service");
+		expect(deploy).toContain("systemctl --user is-active --quiet pi-architect.service");
 	});
 });

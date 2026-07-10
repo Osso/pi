@@ -5,7 +5,7 @@ After=default.target
 [Service]
 Type=exec
 WorkingDirectory=%h
-ExecStart=%h/.local/bin/pi architect
+ExecStart=@PI_ARCHITECT_BINARY@ architect
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

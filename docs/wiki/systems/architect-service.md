@@ -29,4 +29,4 @@ The service uses in-memory settings with `sandboxProfile: "read-only"` and loads
 
 ## Deployment
 
-`deploy.sh` builds and installs the platform-specific compiled `pi` binary, links it at `~/.local/bin/pi`, and copies `packages/coding-agent/systemd/pi-architect.service` into the user systemd directory. The unit executes `~/.local/bin/pi architect`, has restart-on-failure behavior, and is enabled and started by deployment. Deployment reloads systemd, enables and starts the unit, then explicitly restarts it so a newly installed binary is active.
+`deploy.sh` builds and installs the platform-specific compiled `pi` binary, links it at the configured deployment bin directory, and renders `packages/coding-agent/systemd/pi-architect.service` into the user systemd directory with that exact binary path. The unit has restart-on-failure behavior and is enabled and started by deployment. Deployment reloads systemd, enables and starts the unit, explicitly restarts it so a newly installed binary is active, then requires `systemctl --user is-active --quiet pi-architect.service` to succeed.

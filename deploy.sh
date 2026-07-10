@@ -25,6 +25,15 @@ require_safe_absolute_dir() {
 	esac
 }
 
+render_architect_service_unit() {
+	local output_path="$1"
+	local line
+
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		printf '%s\n' "${line//@PI_ARCHITECT_BINARY@/$BIN_DIR/pi}"
+	done < "$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service" > "$output_path"
+}
+
 cleanup_extension_build_outputs() {
 	shopt -s globstar nullglob
 	rm -f \
@@ -109,8 +118,11 @@ ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-install -Dm644 "$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service" "$SYSTEMD_USER_DIR/pi-architect.service"
+mkdir -p "$SYSTEMD_USER_DIR"
+render_architect_service_unit "$SYSTEMD_USER_DIR/pi-architect.service"
+chmod 644 "$SYSTEMD_USER_DIR/pi-architect.service"
 systemctl --user daemon-reload
 systemctl --user enable --now pi-architect.service
 systemctl --user restart pi-architect.service
+systemctl --user is-active --quiet pi-architect.service
 rm -rf "$OLD_INSTALL_DIR"
