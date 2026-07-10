@@ -6664,6 +6664,12 @@ export class InteractiveMode {
 		}
 	}
 
+	private invalidateFooterAfterBashResult(excludeFromContext: boolean): void {
+		if (!excludeFromContext) {
+			this.footer.invalidate();
+		}
+	}
+
 	private async handleBashCommand(command: string, excludeFromContext = false): Promise<void> {
 		const extensionRunner = this.session.extensionRunner;
 
@@ -6701,6 +6707,7 @@ export class InteractiveMode {
 
 			// Record the result in session
 			this.session.recordBashResult(command, result, { excludeFromContext });
+			this.invalidateFooterAfterBashResult(excludeFromContext);
 			this.bashComponent = undefined;
 			this.ui.requestRender();
 			return;
@@ -6731,6 +6738,7 @@ export class InteractiveMode {
 				},
 				{ excludeFromContext, operations: eventResult?.operations },
 			);
+			this.invalidateFooterAfterBashResult(excludeFromContext);
 
 			if (this.bashComponent) {
 				this.bashComponent.setComplete(
