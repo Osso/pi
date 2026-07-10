@@ -3571,8 +3571,12 @@ export class InteractiveMode {
 					this.retryCountdown.dispose();
 					this.retryCountdown = undefined;
 				}
-				this.stopRetryLoader();
 				this.stopWorkingLoader();
+				if (this.retryLoader) {
+					this.retryLoader.setMessage(this.getWorkingLoaderMessage());
+					this.loadingAnimation = this.retryLoader;
+					this.retryLoader = undefined;
+				}
 				this.syncWorkingLoaderVisibility();
 				this.ui.requestRender();
 				break;

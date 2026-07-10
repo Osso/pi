@@ -111,6 +111,18 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("retry", () => {
+		it("defaults to thirty retries with a fixed ten-second delay", () => {
+			const settingsManager = SettingsManager.inMemory();
+
+			expect(settingsManager.getRetrySettings()).toEqual({
+				enabled: true,
+				maxRetries: 30,
+				baseDelayMs: 10_000,
+			});
+		});
+	});
+
 	describe("enabled models", () => {
 		it("can update project-scoped enabled models when project settings override global settings", async () => {
 			const storage = new InMemorySettingsStorage();

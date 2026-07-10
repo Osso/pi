@@ -56,8 +56,12 @@ describe("AgentSession retry and event characterization", () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
 		harnesses.push(harness);
 		const retryEvents: string[] = [];
+		const retryDelays: number[] = [];
 		harness.session.subscribe((event) => {
-			if (event.type === "auto_retry_start") retryEvents.push(`start:${event.attempt}`);
+			if (event.type === "auto_retry_start") {
+				retryEvents.push(`start:${event.attempt}`);
+				retryDelays.push(event.delayMs);
+			}
 			if (event.type === "auto_retry_end") retryEvents.push(`end:${event.success}`);
 		});
 
@@ -70,6 +74,7 @@ describe("AgentSession retry and event characterization", () => {
 		await harness.session.prompt("test");
 
 		expect(retryEvents).toEqual(["start:1", "start:2", "end:true"]);
+		expect(retryDelays).toEqual([1, 1]);
 		expect(harness.faux.state.callCount).toBe(3);
 	});
 
