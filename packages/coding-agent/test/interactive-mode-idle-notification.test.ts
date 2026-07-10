@@ -16,6 +16,7 @@ vi.mock("../src/core/desktop-notification.ts", async (importOriginal) => {
 });
 
 type HandleEventContext = {
+	chatContainer: Container;
 	clearPendingToolComponents(): void;
 	closeResponseCompleteNotification(): void;
 	defaultEditor: { onEscape?: () => void };
@@ -73,12 +74,14 @@ type InteractiveModePrototype = {
 	closeResponseCompleteNotification(this: { responseCompleteNotification?: { close(): void } }): void;
 	handleEvent(this: HandleEventContext, event: AgentSessionEvent): Promise<void>;
 	setupEditorSubmitHandler(this: SubmitContext): void;
+	stopWorkingLoader(this: HandleEventContext): void;
 };
 
 const interactiveModePrototype = InteractiveMode.prototype as unknown as InteractiveModePrototype;
 
 function createContext(): HandleEventContext {
 	const context = Object.create(InteractiveMode.prototype) as HandleEventContext;
+	context.chatContainer = new Container();
 	context.clearPendingToolComponents = vi.fn();
 	context.closeResponseCompleteNotification = vi.fn();
 	context.defaultEditor = {};
@@ -101,7 +104,7 @@ function createContext(): HandleEventContext {
 	context.shutdownRequested = false;
 	context.statusContainer = new Container();
 	context.stopToolWaitingTimerIfIdle = vi.fn();
-	context.stopWorkingLoader = vi.fn();
+	context.stopWorkingLoader = interactiveModePrototype.stopWorkingLoader;
 	context.streamingComponent = undefined;
 	context.streamingMessage = undefined;
 	context.ui = { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } };
@@ -193,7 +196,7 @@ describe("InteractiveMode idle desktop notifications", () => {
 });
 
 describe("InteractiveMode retry status", () => {
-	it("keeps the retry spinner running across countdown expiry and the next request", async () => {
+	it("transfers the retry spinner to normal work and cleans it up after success", async () => {
 		vi.useFakeTimers();
 		const context = createContext();
 
@@ -204,19 +207,54 @@ describe("InteractiveMode retry status", () => {
 			delayMs: 1000,
 			errorMessage: "overloaded",
 		});
-		const retryLoader = context.statusContainer.children[0];
-		const stop = vi.spyOn(retryLoader as Loader, "stop");
+		const retryLoader = context.statusContainer.children[0] as Loader;
+		const stop = vi.spyOn(retryLoader, "stop");
+		expect(retryLoader.render(100).join("\n")).toContain("Retrying (1/3) in 1s...");
 		vi.advanceTimersByTime(1000);
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
 
-		expect(context.statusContainer.children).toHaveLength(1);
-		expect(context.statusContainer.children[0]).toBe(retryLoader);
+		expect(context.statusContainer.children).toEqual([retryLoader]);
+		expect(retryLoader.render(100).join("\n")).toContain("Thinking...");
+		expect(context.retryLoader).toBeUndefined();
+		expect(context.loadingAnimation).toBe(retryLoader);
 		expect(stop).not.toHaveBeenCalled();
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "auto_retry_end", success: true, attempt: 1 });
 
-		expect(context.statusContainer.children).toHaveLength(1);
+		expect(context.statusContainer.children).toEqual([retryLoader]);
+		expect(stop).not.toHaveBeenCalled();
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "agent_end", messages: [], willRetry: false });
+
+		expect(stop).toHaveBeenCalledTimes(1);
+		expect(context.loadingAnimation).toBeUndefined();
+		expect(context.statusContainer.children).toEqual([]);
+	});
+
+	it("cleans up the retry spinner after a final retry failure", async () => {
+		const context = createContext();
+
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "auto_retry_start",
+			attempt: 3,
+			maxAttempts: 3,
+			delayMs: 1000,
+			errorMessage: "overloaded",
+		});
+		const retryLoader = context.retryLoader as Loader;
+		const stop = vi.spyOn(retryLoader, "stop");
+
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "auto_retry_end",
+			success: false,
+			attempt: 3,
+			finalError: "overloaded",
+		});
+
+		expect(stop).toHaveBeenCalledTimes(1);
+		expect(context.retryLoader).toBeUndefined();
+		expect(context.statusContainer.children).toEqual([]);
 	});
 
 	it("cancels retry sleep when Escape is pressed", async () => {
