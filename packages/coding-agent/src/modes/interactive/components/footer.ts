@@ -28,6 +28,15 @@ function formatTokens(count: number): string {
 	return `${Math.round(count / 1000000)}M`;
 }
 
+type UsageTotals = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: number;
+	latestCacheHitRate: number | undefined;
+};
+
 export function formatCwdForFooter(cwd: string, home: string | undefined): string {
 	if (!home) return cwd;
 
@@ -50,6 +59,7 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
+	private cachedUsageTotals: UsageTotals | undefined;
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -58,18 +68,16 @@ export class FooterComponent implements Component {
 
 	setSession(session: AgentSession): void {
 		this.session = session;
+		this.cachedUsageTotals = undefined;
 	}
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
 	}
 
-	/**
-	 * No-op: git branch caching now handled by provider.
-	 * Kept for compatibility with existing call sites in interactive-mode.
-	 */
+	/** Clear cached cumulative usage after session data changes. */
 	invalidate(): void {
-		// No-op: git branch is cached/invalidated by provider
+		this.cachedUsageTotals = undefined;
 	}
 
 	/**
@@ -80,31 +88,41 @@ export class FooterComponent implements Component {
 		// Git watcher cleanup handled by provider
 	}
 
+	private getUsageTotals(): UsageTotals {
+		if (this.cachedUsageTotals) {
+			return this.cachedUsageTotals;
+		}
+
+		const totals: UsageTotals = {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			cost: 0,
+			latestCacheHitRate: undefined,
+		};
+		for (const entry of this.session.sessionManager.getEntries()) {
+			if (entry.type !== "message" || entry.message.role !== "assistant") {
+				continue;
+			}
+			totals.input += entry.message.usage.input;
+			totals.output += entry.message.usage.output;
+			totals.cacheRead += entry.message.usage.cacheRead;
+			totals.cacheWrite += entry.message.usage.cacheWrite;
+			totals.cost += entry.message.usage.cost.total;
+
+			const latestPromptTokens =
+				entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+			totals.latestCacheHitRate =
+				latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
+		}
+		this.cachedUsageTotals = totals;
+		return totals;
+	}
+
 	render(width: number): string[] {
 		const state = this.session.state;
-
-		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
-		let totalInput = 0;
-		let totalOutput = 0;
-		let totalCacheRead = 0;
-		let totalCacheWrite = 0;
-		let totalCost = 0;
-		let latestCacheHitRate: number | undefined;
-
-		for (const entry of this.session.sessionManager.getEntries()) {
-			if (entry.type === "message" && entry.message.role === "assistant") {
-				totalInput += entry.message.usage.input;
-				totalOutput += entry.message.usage.output;
-				totalCacheRead += entry.message.usage.cacheRead;
-				totalCacheWrite += entry.message.usage.cacheWrite;
-				totalCost += entry.message.usage.cost.total;
-
-				const latestPromptTokens =
-					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
-				latestCacheHitRate =
-					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
-			}
-		}
+		const usage = this.getUsageTotals();
 
 		// Calculate context usage from session (handles compaction correctly).
 		// After compaction, tokens are unknown until the next LLM response.
@@ -132,18 +150,18 @@ export class FooterComponent implements Component {
 		const statsParts = [];
 		const executableName = this.footerData.getExecutableName();
 		if (executableName) statsParts.push(`[${executableName}]`);
-		if (totalInput) statsParts.push(`↑${formatTokens(totalInput)}`);
-		if (totalOutput) statsParts.push(`↓${formatTokens(totalOutput)}`);
-		if (totalCacheRead) statsParts.push(`R${formatTokens(totalCacheRead)}`);
-		if (totalCacheWrite) statsParts.push(`W${formatTokens(totalCacheWrite)}`);
-		if ((totalCacheRead > 0 || totalCacheWrite > 0) && latestCacheHitRate !== undefined) {
-			statsParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+		if (usage.input) statsParts.push(`↑${formatTokens(usage.input)}`);
+		if (usage.output) statsParts.push(`↓${formatTokens(usage.output)}`);
+		if (usage.cacheRead) statsParts.push(`R${formatTokens(usage.cacheRead)}`);
+		if (usage.cacheWrite) statsParts.push(`W${formatTokens(usage.cacheWrite)}`);
+		if ((usage.cacheRead > 0 || usage.cacheWrite > 0) && usage.latestCacheHitRate !== undefined) {
+			statsParts.push(`CH${usage.latestCacheHitRate.toFixed(1)}%`);
 		}
 
 		// Show cost with "(sub)" indicator if using OAuth subscription
 		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
-		if (totalCost || usingSubscription) {
-			const costStr = `$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
+		if (usage.cost || usingSubscription) {
+			const costStr = `$${usage.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
 			statsParts.push(costStr);
 		}
 

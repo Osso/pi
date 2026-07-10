@@ -21,6 +21,7 @@ function createSession(options: {
 	reasoning?: boolean;
 	thinkingLevel?: string;
 	usage?: AssistantUsage;
+	onGetEntries?: () => void;
 }): AgentSession {
 	const usage = options.usage;
 	const entries =
@@ -47,7 +48,10 @@ function createSession(options: {
 			thinkingLevel: options.thinkingLevel ?? "off",
 		},
 		sessionManager: {
-			getEntries: () => entries,
+			getEntries: () => {
+				options.onGetEntries?.();
+				return entries;
+			},
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
@@ -132,6 +136,45 @@ describe("FooterComponent width handling", () => {
 
 		const statsLine = stripAnsi(footer.render(120)[1]);
 		expect(statsLine).toContain("[pi-dev]");
+	});
+
+	it("reuses cumulative usage until the footer is invalidated", () => {
+		let entryReads = 0;
+		const session = createSession({
+			sessionName: "",
+			onGetEntries: () => entryReads++,
+			usage: {
+				input: 100,
+				output: 10,
+				cacheRead: 50,
+				cacheWrite: 50,
+				cost: { total: 0.001 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		footer.render(120);
+		footer.render(80);
+		expect(entryReads).toBe(1);
+
+		footer.invalidate();
+		footer.render(120);
+		expect(entryReads).toBe(2);
+	});
+
+	it("clears cumulative usage when the session changes", () => {
+		let firstSessionReads = 0;
+		let secondSessionReads = 0;
+		const firstSession = createSession({ sessionName: "", onGetEntries: () => firstSessionReads++ });
+		const secondSession = createSession({ sessionName: "", onGetEntries: () => secondSessionReads++ });
+		const footer = new FooterComponent(firstSession, createFooterData(1));
+
+		footer.render(120);
+		footer.setSession(secondSession);
+		footer.render(120);
+
+		expect(firstSessionReads).toBe(1);
+		expect(secondSessionReads).toBe(1);
 	});
 
 	it("shows the latest cache hit rate when cache usage is present", () => {
