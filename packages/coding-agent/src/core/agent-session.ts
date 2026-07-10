@@ -564,6 +564,7 @@ export class AgentSession {
 	private _extensionErrorUnsubscriber?: () => void;
 	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
 	private _runtimeMailboxSignalHandler?: () => void;
+	private _disposed = false;
 	private _runtimeMailboxDrainInProgress = false;
 	private _sharedChannelDrainInProgress = false;
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
@@ -1440,6 +1441,10 @@ export class AgentSession {
 	 * Call this when completely done with the session.
 	 */
 	dispose(): void {
+		if (this._disposed) {
+			return;
+		}
+		this._disposed = true;
 		try {
 			this.abortRetry();
 			this.abortCompaction();
@@ -2172,6 +2177,9 @@ export class AgentSession {
 	}
 
 	private async _drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+		if (this._disposed) {
+			return false;
+		}
 		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
 		const channelQueued = await this._drainSharedChannelMessages(options);
 		return mailboxQueued || channelQueued;

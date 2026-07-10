@@ -136,6 +136,23 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
+	it("does not drain runtime coordination after the session is disposed", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		harness.session.dispose();
+		rmSync(tempDir, { force: true, recursive: true });
+		tempDir = undefined;
+
+		await expect(drainableSession._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
+	});
+
 	it("mirrors child supervisor contact into the runtime mailbox for the parent main session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -595,9 +612,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const desktopNotifications: AgentDesktopNotification[] = [];
 		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, {
 			desktopNotifier: (notification) => {
 				desktopNotifications.push(notification);
@@ -634,8 +653,10 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const close = vi.fn();
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		let resolveDispatch: ((value: { lifecycle: "completed" }) => void) | undefined;
 		const dispatcher: ChildAgentDispatcher = ({ agent }) =>
 			new Promise<{ lifecycle: "completed" }>((resolve) => {
@@ -682,9 +703,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
 		const close = vi.fn();
 		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
 		const tools = collectMultiAgentTools(store, {
 			desktopNotifier: () => ({ close }),
 			dispatcher,
