@@ -384,6 +384,8 @@ export class InteractiveMode {
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
 	private readonly defaultWorkingMessage = "Thinking...";
 	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
+	private thinkingStartedAt: number | undefined;
+	private thinkingTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
 
@@ -1974,6 +1976,39 @@ export class InteractiveMode {
 		return this.workingMessage ?? this.currentWorkingDefaultMessage;
 	}
 
+	private getThinkingWorkingMessage(): string {
+		if (this.thinkingStartedAt === undefined) {
+			return this.defaultWorkingMessage;
+		}
+
+		return `${this.defaultWorkingMessage} ${formatElapsedDuration(Date.now() - this.thinkingStartedAt)}`;
+	}
+
+	private updateThinkingWorkingMessage(): void {
+		if (this.executingToolNames.size > 0) {
+			return;
+		}
+
+		this.setDefaultWorkingMessage(this.getThinkingWorkingMessage());
+	}
+
+	private startThinkingTimer(): void {
+		this.stopThinkingTimer();
+		this.thinkingStartedAt = Date.now();
+		this.updateThinkingWorkingMessage();
+		this.thinkingTimer = setInterval(() => {
+			this.updateThinkingWorkingMessage();
+		}, MIN_VISIBLE_ELAPSED_MS);
+	}
+
+	private stopThinkingTimer(): void {
+		if (this.thinkingTimer) {
+			clearInterval(this.thinkingTimer);
+			this.thinkingTimer = undefined;
+		}
+		this.thinkingStartedAt = undefined;
+	}
+
 	private getToolWaitingMessage(toolName: string, startedAt?: number, showElapsed = true): string {
 		const baseMessage = toolName === "bash" ? "Waiting for command..." : `Waiting for tool: ${toolName}...`;
 		if (!showElapsed || startedAt === undefined) {
@@ -1997,7 +2032,7 @@ export class InteractiveMode {
 	private setWorkingMessageForActiveTools(): void {
 		const nextToolEntry = this.executingToolNames.entries().next().value;
 		if (!nextToolEntry) {
-			this.setDefaultWorkingMessage(this.defaultWorkingMessage);
+			this.setDefaultWorkingMessage(this.getThinkingWorkingMessage());
 			return;
 		}
 
@@ -3503,6 +3538,7 @@ export class InteractiveMode {
 				this.executingToolStartedAt.clear();
 				this.stopToolWaitingTimerIfIdle();
 				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
+				this.startThinkingTimer();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -3662,6 +3698,7 @@ export class InteractiveMode {
 
 			case "agent_end":
 				this.notifyResponseComplete(event);
+				this.stopThinkingTimer();
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
 				this.stopToolWaitingTimerIfIdle();

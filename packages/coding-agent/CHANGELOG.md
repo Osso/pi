@@ -40,6 +40,7 @@
 
 ### Changed
 
+- Changed the default interactive `Thinking...` working ticker to show elapsed duration and leave active tool-wait messages in control of the working row.
 - Changed production-created child sessions, including `/bg` background jobs, to start with a fresh session-local goal derived from their non-empty launch prompt; `spawn_agent` now rejects blank prompts before creating an agent record.
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
 - Changed LLM approval prompts to include recent session approval decisions and structured persistent approval memory from `~/.config/pi/agent/approval-memory.jsonl`.

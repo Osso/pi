@@ -44,6 +44,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Shared channel (`channel_post`) | [`shared-channel.md`](shared-channel.md) | **BUILD** (done) | Single SQLite-backed global coordination log with per-session cursors and idle drain delivery. |
 | Compaction length-retry | [`compaction-length-retry.md`](compaction-length-retry.md) | **BUILD** (done) | Threshold auto-compaction resumes a `"length"`-truncated turn once instead of idling. |
 | TUI customization | [`tui-customization.md`](tui-customization.md) | **NATIVE** | Themes, keybindings, `registerShortcut`, header/footer/widget/editor swap, `ui.custom()`. |
+| Thinking status indicator | [`thinking-status.md`](thinking-status.md) | **BUILD** (done) | Default working ticker reports elapsed thinking time without replacing tool-wait messages. |
 
 ## Build priority
 
