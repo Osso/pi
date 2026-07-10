@@ -2416,9 +2416,12 @@ export class AgentSession {
 			return;
 		}
 		installRuntimeMailboxSignalKeepalive();
-		this._registerRuntimeMailboxListeners(controlDbPath);
-		abortInactiveSessionSpawnedAgents(controlDbPath);
-		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
+		const agentId = this._getRuntimeMailboxAgentId();
+		this._registerRuntimeMailboxListeners(controlDbPath, agentId);
+		if (agentId === null) {
+			abortInactiveSessionSpawnedAgents(controlDbPath);
+		}
+		const recipient = { agentId, sessionId: this.sessionId };
 		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		this._startRuntimeMailboxHeartbeat();
 		if (process.platform === "win32" || this._runtimeMailboxSignalHandler) {
@@ -2432,26 +2435,27 @@ export class AgentSession {
 		process.on("SIGUSR2", this._runtimeMailboxSignalHandler);
 	}
 
-	private _registerRuntimeMailboxListeners(controlDbPath: string): void {
+	private _registerRuntimeMailboxListeners(controlDbPath: string, agentId: string | null): void {
+		if (agentId) {
+			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
+			return;
+		}
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: this.sessionId },
 			process.pid,
 			this.sessionFile,
 		);
-		const agentId = this._getRuntimeMailboxAgentId();
-		if (agentId) {
-			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
-		}
 	}
 
 	private _startRuntimeMailboxHeartbeat(): void {
 		if (this._runtimeMailboxHeartbeatTimer) return;
+		const agentId = this._getRuntimeMailboxAgentId();
 		this._runtimeMailboxHeartbeatTimer = setInterval(() => {
 			const controlDbPath = this._getRuntimeMailboxControlDbPath();
 			if (!controlDbPath) return;
 			try {
-				this._registerRuntimeMailboxListeners(controlDbPath);
+				this._registerRuntimeMailboxListeners(controlDbPath, agentId);
 			} catch (error) {
 				console.error("Failed to refresh runtime mailbox listeners:", error);
 			}
@@ -2478,11 +2482,8 @@ export class AgentSession {
 	private _retireRuntimeMailboxListeners(): void {
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath) return;
-		retireRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: this.sessionId }, process.pid);
 		const agentId = this._getRuntimeMailboxAgentId();
-		if (agentId) {
-			retireRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
-		}
+		retireRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
 	}
 
 	/**

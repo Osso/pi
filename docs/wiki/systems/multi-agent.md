@@ -46,9 +46,11 @@ thinking). User settings can override them with `agents.<type>.model` and
 
 ## Runtime ownership and recovery
 
-The supervisor is the only orchestration authority. Child runtimes reject direct
-`spawn_agent`, `attach_session_agent`, and `wait_agent` calls, the equivalent Hostrun/Pyrun
-bridge methods, and `/bg`; production child sessions exclude those tools as a second boundary.
+The supervisor is the only orchestration authority. Child runtimes register only their agent-address
+mailbox listener, never a same-PID main listener, and never run supervisor-wide persisted-store
+reconciliation. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agent`
+calls, the equivalent Hostrun/Pyrun bridge methods, and `/bg`; production child sessions exclude
+those tools as a second boundary.
 
 At supervisor start, queued rows remain queued. After a current runtime mailbox listener registers,
 `abortInactiveSessionSpawnedAgents()` transactionally scans persisted stores with matching

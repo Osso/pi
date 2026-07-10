@@ -90,7 +90,8 @@ State meanings:
 - [x] A detached attached `cancelling` agent has its pending cancel completed to `aborted` at recovery time.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
-- [x] Child agent runtimes never run supervisor recovery.
+- [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
+      same-PID main listener or run supervisor-wide recovery.
 - [x] `wait_agent` reports an explicit wait error for every active target with no live dispatch
       or current-process worker marker instead of returning a live-looking non-terminal snapshot.
       Detached Bash and Pyrun jobs use a transient `runtime` worker marker; restore clears it

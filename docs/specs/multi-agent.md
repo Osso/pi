@@ -36,6 +36,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       reject `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Hostrun/Pyrun
       `agents.spawn`, `agents.attachSession`, and `agents.wait` bridge methods before rows are created.
       Production child sessions also exclude those three tools as defense in depth.
+- [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
+      persisted-store reconciliation, preventing same-PID child startup from retiring or mutating the
+      supervisor's main-session state.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent

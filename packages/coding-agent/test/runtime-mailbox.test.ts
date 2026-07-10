@@ -11,10 +11,12 @@ import {
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
+	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	markMultiAgentMailboxMessageDelivered,
 	postSharedChannelMessage,
 	readRuntimeMailboxMessage,
+	readSessionHealth,
 	readSharedChannelCursor,
 	upsertMultiAgentMailboxMessage,
 	writeSessionMetadata,
@@ -151,6 +153,31 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = undefined;
 
 		await expect(drainableSession._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
+	});
+
+	it("keeps the supervisor main listener when an in-process child binds the same control DB", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parent = await createHarness({ persistedSession: true });
+		const child = await createHarness({ multiAgentAgentId: "agent_1", persistedSession: true });
+		harnesses.push(parent, child);
+
+		await parent.session.bindExtensions({ controlDbPath });
+		await child.session.bindExtensions({ controlDbPath });
+
+		const parentSessionId = parent.session.sessionId;
+		const childSessionId = child.session.sessionId;
+		const listeners = listRuntimeMailboxListeners(controlDbPath);
+		expect(listeners.filter((listener) => listener.agentId === null)).toEqual([
+			expect.objectContaining({ sessionId: parentSessionId, pid: process.pid }),
+		]);
+		expect(listeners).toContainEqual(
+			expect.objectContaining({ agentId: "agent_1", sessionId: childSessionId, pid: process.pid }),
+		);
+		expect(readSessionHealth(controlDbPath, parentSessionId)).toMatchObject({
+			pid: process.pid,
+			checkStatus: "ok",
+		});
 	});
 
 	it("mirrors child supervisor contact into the runtime mailbox for the parent main session", async () => {
