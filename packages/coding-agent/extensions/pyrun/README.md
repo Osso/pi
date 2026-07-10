@@ -36,3 +36,7 @@ PI_PYRUN_RUNNER_ARGS='["-m","pyrun.jsonl"]'
 
 `PI_PYRUN_RUNNER_ARGS` is a JSON string array so paths and arguments stay argv-based instead
 of shell-parsed.
+
+Detached Pyrun evaluations register a multi-agent runtime abort handle. Cancelling the
+background job aborts the evaluation and terminates the runner process group, including
+commands spawned by the runner, so no child process survives as an orphan.

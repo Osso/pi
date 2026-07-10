@@ -564,12 +564,16 @@ function runDetachablePyrunEvaluation(options: DetachablePyrunEvaluationOptions)
 			abort.cleanup();
 			options.onDetached?.();
 			const job = spawnPyrunBackgroundJob(options.store, options.params, options.ctx);
+			const unregisterAbort = options.store.registerAgentAbortHandler(job.id, () => abort.controller.abort());
 			void evaluation
 				.then(
 					(result) => finishPyrunBackgroundJob(options.store, job, result),
 					(error) => failPyrunBackgroundJob(options.store, job, error),
 				)
-				.finally(() => options.onBackgroundSettled?.());
+				.finally(() => {
+					unregisterAbort();
+					options.onBackgroundSettled?.();
+				});
 			resolveDetached(createDetachedPyrunResult(options.params, job));
 			return true;
 		},
