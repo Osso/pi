@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InputEvent } from "../../src/core/extensions/index.ts";
 import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
 import { getControlDbPath, readPromptHistory, recordPromptHistoryEntry } from "../../src/core/session-control-db.ts";
@@ -15,6 +15,14 @@ import { createHarness, getMessageText, type Harness } from "./harness.ts";
 describe("AgentSession prompt characterization", () => {
 	const harnesses: Harness[] = [];
 	const tempDirs: string[] = [];
+
+	function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+		let resolve!: () => void;
+		const promise = new Promise<void>((promiseResolve) => {
+			resolve = promiseResolve;
+		});
+		return { promise, resolve };
+	}
 
 	afterEach(() => {
 		while (harnesses.length > 0) {
@@ -381,6 +389,115 @@ describe("AgentSession prompt characterization", () => {
 
 		releaseToolExecution?.();
 		await promptPromise;
+	});
+
+	it("queues a streaming prompt when compaction preflight races another prompt", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
+		harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
+
+		const compactionStarted = createDeferred();
+		const releaseCompaction = createDeferred();
+		let compactionChecks = 0;
+		vi.spyOn(
+			harness.session as unknown as {
+				_checkCompaction: (message: unknown, postRunCheck?: boolean) => Promise<boolean>;
+			},
+			"_checkCompaction",
+		).mockImplementation(async () => {
+			compactionChecks += 1;
+			if (compactionChecks === 1) {
+				compactionStarted.resolve();
+				await releaseCompaction.promise;
+			}
+			return false;
+		});
+
+		const firstPrompt = harness.session.prompt("first");
+		await compactionStarted.promise;
+
+		const secondStarted = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "agent_start") {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+		const secondPrompt = harness.session.prompt("second", { streamingBehavior: "followUp" });
+		releaseCompaction.resolve();
+		await secondStarted;
+
+		await expect(firstPrompt).resolves.toBeUndefined();
+		await expect(secondPrompt).resolves.toBeUndefined();
+		expect(harness.getPendingResponseCount()).toBe(0);
+		expect(harness.session.messages.filter((message) => message.role === "user").map(getMessageText)).toEqual([
+			"first",
+			"second",
+		]);
+	});
+
+	it("queues a prompt while continue preflight owns the turn-start transition", async () => {
+		let releaseToolExecution: (() => void) | undefined;
+		const toolRelease = new Promise<void>((resolve) => {
+			releaseToolExecution = resolve;
+		});
+		const waitTool: AgentTool = {
+			name: "wait",
+			label: "Wait",
+			description: "Wait for release",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await toolRelease;
+				return { content: [{ type: "text", text: "released" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [waitTool] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("continued"),
+			fauxAssistantMessage("queued"),
+		]);
+		harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
+
+		const compactionStarted = createDeferred();
+		const releaseCompaction = createDeferred();
+		vi.spyOn(
+			harness.session as unknown as {
+				_checkCompaction: (message: unknown, postRunCheck?: boolean) => Promise<boolean>;
+			},
+			"_checkCompaction",
+		).mockImplementation(async () => {
+			compactionStarted.resolve();
+			await releaseCompaction.promise;
+			return false;
+		});
+
+		const continuation = harness.session.continue();
+		await compactionStarted.promise;
+		const queuedPrompt = harness.session.prompt("queued", { streamingBehavior: "followUp" });
+		releaseCompaction.resolve();
+
+		await new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "tool_execution_start") {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+		await expect(queuedPrompt).resolves.toBeUndefined();
+		expect(harness.session.pendingMessageCount).toBe(1);
+		releaseToolExecution?.();
+		await expect(continuation).resolves.toBeUndefined();
+		expect(harness.session.messages.filter((message) => message.role === "assistant").map(getMessageText)).toEqual([
+			"previous",
+			"",
+			"continued",
+			"queued",
+		]);
 	});
 
 	it("throws when prompted during streaming without a streamingBehavior", async () => {

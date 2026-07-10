@@ -519,6 +519,8 @@ export class AgentSession {
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 	/** User prompts held outside Agent queues, such as TUI input replay after abort. */
 	private _externalUserInputReservations = 0;
+	/** Serializes turn-start checks through the Agent core transition. */
+	private _turnStartLockTail: Promise<void> = Promise.resolve();
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -1767,6 +1769,45 @@ export class AgentSession {
 	// Prompting
 	// =========================================================================
 
+	private async _withTurnStartLock<T>(callback: (release: () => void) => Promise<T>): Promise<T> {
+		const previous = this._turnStartLockTail;
+		let releaseTail!: () => void;
+		this._turnStartLockTail = new Promise<void>((resolve) => {
+			releaseTail = resolve;
+		});
+		await previous;
+
+		let released = false;
+		const release = () => {
+			if (released) return;
+			released = true;
+			releaseTail();
+		};
+
+		try {
+			return await callback(release);
+		} finally {
+			release();
+		}
+	}
+
+	private async _queuePromptForStreaming(
+		text: string,
+		images: ImageContent[] | undefined,
+		streamingBehavior: PromptOptions["streamingBehavior"],
+	): Promise<void> {
+		if (!streamingBehavior) {
+			throw new Error(
+				"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+			);
+		}
+		if (streamingBehavior === "followUp") {
+			await this._queueFollowUp(text, images);
+		} else {
+			await this._queueSteer(text, images);
+		}
+	}
+
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		try {
 			await this.agent.prompt(messages);
@@ -1788,8 +1829,18 @@ export class AgentSession {
 	}
 
 	private async _continuePostAgentRuns(): Promise<void> {
-		while (await this._handlePostAgentRun()) {
-			await this.agent.continue();
+		while (
+			await this._withTurnStartLock(async (release) => {
+				if (!(await this._handlePostAgentRun())) {
+					return false;
+				}
+				const continuation = this.agent.continue();
+				release();
+				await continuation;
+				return true;
+			})
+		) {
+			// Continue until post-run compaction, retry, or queued coordination work is drained.
 		}
 	}
 
@@ -1852,29 +1903,37 @@ export class AgentSession {
 	 * @throws Error if streaming, no model is selected, or no API key is available
 	 */
 	async continue(): Promise<void> {
-		if (this.isStreaming) {
-			throw new Error("Agent is already processing. Wait for completion before continuing.");
-		}
+		await this._withTurnStartLock(async (release) => {
+			if (this.isStreaming) {
+				throw new Error("Agent is already processing. Wait for completion before continuing.");
+			}
 
-		this._flushPendingBashMessages();
+			this._flushPendingBashMessages();
 
-		const lastMessage = this.messages[this.messages.length - 1];
-		if (!lastMessage) {
-			return;
-		}
+			const lastMessage = this.messages[this.messages.length - 1];
+			if (!lastMessage) {
+				return;
+			}
 
-		this.validateModelAuthentication();
+			this.validateModelAuthentication();
 
-		const lastAssistant = this._findLastAssistantMessage();
-		if (lastAssistant) {
-			await this._checkCompaction(lastAssistant, false);
-		}
+			const lastAssistant = this._findLastAssistantMessage();
+			if (lastAssistant) {
+				await this._checkCompaction(lastAssistant, false);
+			}
 
-		try {
-			await this._runAgentContinuation();
-		} finally {
-			this._completeRuntimeMailboxSteeringTurn(this.messages);
-		}
+			if (this.isStreaming) {
+				throw new Error("Agent is already processing. Wait for completion before continuing.");
+			}
+
+			const continuation = this._runAgentContinuation();
+			release();
+			try {
+				await continuation;
+			} finally {
+				this._completeRuntimeMailboxSteeringTurn(this.messages);
+			}
+		});
 	}
 
 	/**
@@ -1888,22 +1947,28 @@ export class AgentSession {
 	 */
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
+		if (expandPromptTemplates && text.startsWith("/")) {
+			const handled = await this._tryExecuteExtensionCommand(text);
+			if (handled) {
+				this._recordHandledSlashCommandHistory(text);
+				options?.preflightResult?.(true);
+				return;
+			}
+		}
+
+		return this._withTurnStartLock((release) => this._promptTurn(text, options, release));
+	}
+
+	private async _promptTurn(
+		text: string,
+		options: PromptOptions | undefined,
+		releaseTurnStart: () => void,
+	): Promise<void> {
+		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
 		const preflightResult = options?.preflightResult;
 		let messages: AgentMessage[] | undefined;
 
 		try {
-			// Handle extension commands first (execute immediately, even during streaming)
-			// Extension commands manage their own LLM interaction via pi.sendMessage()
-			if (expandPromptTemplates && text.startsWith("/")) {
-				const handled = await this._tryExecuteExtensionCommand(text);
-				if (handled) {
-					this._recordHandledSlashCommandHistory(text);
-					// Extension command executed, no prompt to send
-					preflightResult?.(true);
-					return;
-				}
-			}
-
 			// Emit input event for extension interception (before skill/template expansion)
 			let currentText = text;
 			let currentImages = options?.images;

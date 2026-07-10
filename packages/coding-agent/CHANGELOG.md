@@ -58,6 +58,7 @@
 ### Fixed
 
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
+- Fixed `AgentSession` prompt and continue turn-start TOCTOU races by serializing idle checks, compaction preflight, and the Agent core transition; racing steer/follow-up prompts are re-evaluated and queued instead of reaching a core busy error.
 - Fixed bwrap sandbox profiles to run Pyrun, and opt-in Hostrun when loaded, through the shared bwrap runner backend rather than blocking either runtime; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
 - Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
 - Fixed selected-child views to identify the agent directly, report the selected agent or main thread after `/agents` selection, and hide the main working loader without clearing unrelated status while a child transcript is displayed.
