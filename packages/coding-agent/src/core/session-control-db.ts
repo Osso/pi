@@ -1568,18 +1568,6 @@ export function abortInactiveSessionSpawnedAgents(controlDbPath: string, nowIso?
 	return abortInactiveSessionSpawnedAgentRows(controlDbPath, nowIso);
 }
 
-export function reconcilePersistedSpawnedAgentsForInactiveSupervisors(controlDbPath: string): number;
-export function reconcilePersistedSpawnedAgentsForInactiveSupervisors(
-	controlDbPath: string,
-	sessionPath: string,
-): number;
-export function reconcilePersistedSpawnedAgentsForInactiveSupervisors(
-	controlDbPath: string,
-	sessionPath?: string,
-): number {
-	return abortInactiveSessionSpawnedAgentRows(controlDbPath, undefined, sessionPath);
-}
-
 function abortInactiveSessionSpawnedAgentRows(controlDbPath: string, nowIso?: string, sessionPath?: string): number {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
