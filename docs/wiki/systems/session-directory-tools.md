@@ -25,11 +25,11 @@ owned by a replacement process.
    interrupted switches.
 2. Keep one metadata row per session ID. `listSessionMetadata()` supplies deterministic
    `modified_at`, `updated_at`, then `session_path` descending order.
-3. Synchronize `ok` health only from a fresh listener heartbeat.
-4. For a binding older than five minutes, verify whether the PID still represents a Pi runtime. A
-   missing or non-Pi process retires the binding. A still-existing Pi runtime retains its listener and
-   PID with `timeout` health, remains ended/ineligible, and cannot have its active spawned rows
-   reconciled from heartbeat age alone. PID evidence never restores `ok` health.
+3. Synchronize `ok` health only from a non-future listener heartbeat no older than five minutes.
+4. For an older, invalid, or future-dated binding, verify whether the PID still represents a Pi
+   runtime. A missing or non-Pi process retires the binding. A still-existing Pi runtime retains its
+   listener and PID with `timeout` health, remains ended/ineligible, and cannot have its active
+   spawned rows reconciled from heartbeat age alone. PID evidence never restores `ok` health.
 5. Mark health rows without a retained current binding ended.
 6. After this listener/health synchronization, call global
    `abortInactiveSessionSpawnedAgents()`. It changes active spawned rows in stores with exact

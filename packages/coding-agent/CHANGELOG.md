@@ -54,7 +54,7 @@
 ### Fixed
 
 - Fixed active spawned-agent ghosts surviving in historical non-current supervisor stores: listener startup and session-directory listener/health synchronization now transactionally abort stores with matching metadata and either explicitly ended (`pid: NULL`) health or non-current duplicate metadata paths, while protecting the exact current session path and preserving missing-health, attached, queued, terminal, current live, and stale process-backed timeout records.
-- Fixed stale heartbeat retirement aborting spawned work owned by a still-existing Pi runtime: stale verified runtimes now retain their listener and PID with ineligible `timeout` health until process death or replacement is confirmed.
+- Fixed stale or future-dated heartbeat handling aborting spawned work or reviving reused PIDs: only non-future heartbeats inside the freshness window restore `ok`; stale verified runtimes retain their listener and PID with ineligible `timeout` health until process death or replacement is confirmed.
 - Fixed historical Pi sessions reappearing as live after session switch or PID reuse by retiring old main-session bindings, using runtime heartbeats instead of PID existence as positive liveness, filtering ended inventory rows, and keeping Architect/global inventory on the current session.
 - Fixed multi-agent restart recovery to abort detached spawned children instead of preserving active ghosts, restricted orchestration to supervisor runtimes, and made `wait_agent` reject detached background metadata while retaining live Bash/Pyrun waits.
 - Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.

@@ -30,11 +30,12 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 
 - [x] Main-session registration and each 60-second runtime heartbeat write `ok` health for the
       bound session and current agent generation.
-- [x] A binding whose heartbeat is older than five minutes is checked conservatively. If its PID is
-      gone or belongs to a non-Pi process, the binding is retired and marked ended. If the Pi runtime
-      still exists, the listener and PID remain bound with `timeout` health: the session is ended and
-      ineligible for delivery, but its spawned-agent store is not destructively reconciled. PID
-      existence never restores `ok` health.
+- [x] Only a non-future heartbeat no older than five minutes is fresh. Older, invalid, and
+      future-dated bindings are checked conservatively. If the PID is gone or belongs to a non-Pi
+      process, the binding is retired and marked ended. If the Pi runtime still exists, the listener
+      and PID remain bound with `timeout` health: the session is ended and ineligible for delivery,
+      but its spawned-agent store is not destructively reconciled. PID existence never restores `ok`
+      health.
 - [x] Session switch and disposal retire only the exact `(session_id, agent_id, pid)` binding, so
       an overlapping replacement process cannot be removed by stale teardown.
 - [x] Registering a different PID for a session advances its agent generation; registration from a

@@ -62,9 +62,7 @@ describe("session directory", () => {
 		writeSession("session-a", { name: "Alpha", goal: "ship feature", cwd: "/repo/a" });
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-a" }, process.pid);
 
-		const sessions = listSessions(controlDbPath, {
-			now: () => new Date("2026-01-01T00:11:00.000Z"),
-		});
+		const sessions = listSessions(controlDbPath);
 
 		expect(sessions).toHaveLength(1);
 		expect(sessions[0]).toMatchObject({
@@ -142,6 +140,31 @@ describe("session directory", () => {
 
 			expect(sessions).toEqual([
 				expect.objectContaining({ sessionId: "session-stale", pid: null, status: "ended", checkStatus: "dead" }),
+			]);
+			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("rejects a future-dated heartbeat when its pid is not a Pi runtime", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-01-01T01:00:00.000Z"));
+			writeSession("session-future");
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-future" }, process.pid);
+			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+			const sessions = listSessions(controlDbPath, { isRuntimeProcessAlive: () => false });
+
+			expect(sessions).toEqual([
+				expect.objectContaining({
+					sessionId: "session-future",
+					pid: null,
+					status: "ended",
+					checkStatus: "dead",
+					eligibleToReceive: false,
+				}),
 			]);
 			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
 		} finally {

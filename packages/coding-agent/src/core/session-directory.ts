@@ -113,7 +113,8 @@ function reconcileCurrentMainSessionBindings(
 
 function bindingHeartbeatIsFresh(binding: Pick<CurrentMainSessionBinding, "updatedAt">, nowMs: number): boolean {
 	const heartbeatMs = Date.parse(binding.updatedAt);
-	return Number.isFinite(heartbeatMs) && nowMs - heartbeatMs <= SESSION_CHECK_STALE_MS;
+	const heartbeatAgeMs = nowMs - heartbeatMs;
+	return Number.isFinite(heartbeatAgeMs) && heartbeatAgeMs >= 0 && heartbeatAgeMs <= SESSION_CHECK_STALE_MS;
 }
 
 function defaultIsRuntimeProcessAlive(pid: number): boolean {
