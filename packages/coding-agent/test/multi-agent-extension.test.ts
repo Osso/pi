@@ -1496,6 +1496,68 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "aborted" });
 	});
 
+	it("lets Escape's store abort path stop a production child session", async () => {
+		const childPrompt = deferred<void>();
+		const abort = vi.fn(() => childPrompt.resolve());
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort,
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const harness = createMultiAgentHarness({ createChildSession, runtimeHandles, store });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "production work",
+		});
+		for (let attempt = 0; attempt < 20 && !runtimeHandles.sessions.has(spawned.details.agent.id); attempt += 1) {
+			await delay(1);
+		}
+		const current = store.getAgent(spawned.details.agent.id);
+		if (!current) throw new Error("expected spawned agent");
+		const cancelled = store.transitionAgent(current.id, current.revision, "aborted");
+		expect(cancelled.ok).toBe(true);
+
+		expect(store.abortAgentHandle(current.id)).toBe(true);
+		expect(abort).toHaveBeenCalledOnce();
+		expect(store.getAgent(current.id)).toMatchObject({ lifecycle: "aborted" });
+	});
+
+	it("does not prompt a child session cancelled while the session factory is starting", async () => {
+		const factoryGate = deferred<void>();
+		const abort = vi.fn();
+		const prompt = vi.fn(async () => {});
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const createChildSession: ChildAgentSessionFactory = async () => {
+			await factoryGate.promise;
+			return { abort, messages: [], prompt };
+		};
+		const harness = createMultiAgentHarness({ createChildSession, runtimeHandles, store });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "production work",
+		});
+		const current = store.getAgent(spawned.details.agent.id);
+		if (!current) throw new Error("expected spawned agent");
+		const cancelled = store.transitionAgent(current.id, current.revision, "aborted");
+		expect(cancelled.ok).toBe(true);
+		expect(store.abortAgentHandle(current.id)).toBe(false);
+
+		factoryGate.resolve();
+		for (let attempt = 0; attempt < 20 && abort.mock.calls.length === 0; attempt += 1) {
+			await delay(1);
+		}
+
+		expect(abort).toHaveBeenCalledOnce();
+		expect(prompt).not.toHaveBeenCalled();
+		expect(runtimeHandles.sessions.has(current.id)).toBe(false);
+		expect(store.getAgent(current.id)).toMatchObject({ lifecycle: "aborted" });
+	});
+
 	it("cancels after child transcript metadata attaches without caller revision", async () => {
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({

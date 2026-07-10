@@ -445,9 +445,7 @@ function startBackgroundDispatch(
 			background.store,
 			background.dispatches,
 			agent,
-			dispatchAgentSession(background.store, background.createChildSession, agent, prompt, ctx, (childSession) => {
-				background.handles.set(agent.id, childSession);
-			}),
+			dispatchAgentSession(background.store, background.createChildSession, agent, prompt, ctx, background.handles),
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		return background.store.getAgent(agent.id) ?? agent;
@@ -917,10 +915,7 @@ async function spawnAgent(
 			store,
 			dispatches,
 			spawned.agent,
-			() =>
-				dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, (childSession) => {
-					handles?.set(spawned.agent.id, childSession);
-				}),
+			() => dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, handles),
 			ctx,
 			pi,
 			desktopNotifier,
@@ -1149,9 +1144,7 @@ function dispatchAttachedChildSession(
 		input.target,
 		input.prompt,
 		input.ctx,
-		(childSession) => {
-			input.handles?.set(input.target.id, childSession);
-		},
+		input.handles,
 	);
 }
 
@@ -1360,7 +1353,7 @@ async function dispatchAgentSession(
 	initialAgent: AgentSnapshot,
 	prompt: string,
 	ctx: ExtensionContext,
-	onChildSession?: (childSession: ChildAgentSession) => void,
+	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
 	const running = rampToRunning(store, initialAgent);
@@ -1368,15 +1361,23 @@ async function dispatchAgentSession(
 		return running.agent;
 	}
 
+	let unregisterAbortHandler: (() => void) | undefined;
 	try {
 		const childSession = await createChildSession({ agent: running.agent, ctx, prompt });
-		if (store.getRestoreGeneration() !== restoreGeneration) {
-			return running.agent;
+		const current = store.getAgent(running.agent.id);
+		if (store.getRestoreGeneration() !== restoreGeneration || !current || !isActiveLifecycle(current.lifecycle)) {
+			childSession.abort?.();
+			return current ?? running.agent;
 		}
+
+		unregisterAbortHandler = store.registerAgentAbortHandler(running.agent.id, () => {
+			childSession.abort?.();
+			handles?.delete(running.agent.id);
+		});
+		handles?.set(running.agent.id, childSession);
 		if (childSession.transcript) {
 			store.updateAgentTranscript(running.agent.id, childSession.transcript);
 		}
-		onChildSession?.(childSession);
 		await childSession.prompt(prompt);
 		const summary = lastAssistantText(childSession.messages);
 		return transitionRunningAgent(
@@ -1398,6 +1399,8 @@ async function dispatchAgentSession(
 			},
 			restoreGeneration,
 		);
+	} finally {
+		unregisterAbortHandler?.();
 	}
 }
 
@@ -2016,10 +2019,8 @@ function cancelAgent(
 			reason: params.reason,
 		});
 	}
-	const childSession = handles?.get(params.agentId);
-	childSession?.abort?.();
-	handles?.delete(params.agentId);
 	store.abortAgentHandle(params.agentId);
+	handles?.delete(params.agentId);
 
 	return result(`Cancelled ${cancelled.agent.displayName}.`, {
 		agent: cancelled.agent,
@@ -2451,8 +2452,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		// Abort-induced dispatch rejections must not persist agents as failed;
 		// the last snapshot keeps them active so a later resume can recover them.
 		store.invalidateInFlightDispatches();
-		for (const childSession of backgroundSessions.values()) {
-			childSession.abort?.();
+		for (const agentId of backgroundSessions.keys()) {
+			store.abortAgentHandle(agentId);
 		}
 		for (const agentId of waitingDesktopNotifications.keys()) {
 			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
