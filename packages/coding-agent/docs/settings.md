@@ -136,8 +136,8 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `retry.enabled` | boolean | `true` | Enable automatic agent-level retry on transient errors |
-| `retry.maxRetries` | number | `3` | Maximum agent-level retry attempts |
-| `retry.baseDelayMs` | number | `2000` | Base delay for agent-level exponential backoff (2s, 4s, 8s) |
+| `retry.maxRetries` | number | `30` | Maximum agent-level retries after the initial request |
+| `retry.baseDelayMs` | number | `10000` | Fixed delay in milliseconds between agent-level retries (10s) |
 | `retry.provider.timeoutMs` | number | SDK default | Provider/SDK request timeout in milliseconds |
 | `retry.provider.maxRetries` | number | `0` | Provider/SDK retry attempts |
 | `retry.provider.maxRetryDelayMs` | number | `60000` | Max server-requested delay before failing (60s) |
@@ -150,8 +150,8 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 {
   "retry": {
     "enabled": true,
-    "maxRetries": 3,
-    "baseDelayMs": 2000,
+    "maxRetries": 30,
+    "baseDelayMs": 10000,
     "provider": {
       "timeoutMs": 3600000,
       "maxRetries": 0,
@@ -296,7 +296,8 @@ See [packages.md](packages.md) for package management details.
   },
   "retry": {
     "enabled": true,
-    "maxRetries": 3
+    "maxRetries": 30,
+    "baseDelayMs": 10000
   },
   "enabledModels": ["claude-*", "gpt-4o"],
   "warnings": {
