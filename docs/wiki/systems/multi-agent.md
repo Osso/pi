@@ -65,8 +65,9 @@ row (explicit `origin: "spawned"` or absent origin)
 becomes
 `aborted` with a `supervisor_restarted` interruption error; the update increments revision, clears
 worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, current
-live, and stale-but-process-backed timeout rows stay unchanged. `list_sessions` invokes the same
-reconciliation immediately after listener/health
+live, and stale-but-process-backed timeout rows stay unchanged. Runtime-process verification recognizes
+Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
+`list_sessions` invokes the same reconciliation immediately after listener/health
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 

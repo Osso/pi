@@ -81,7 +81,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       It writes
       `aborted` with a `supervisor_restarted` interruption error, including waiting children;
       attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
-      records remain unchanged. Session-directory listener/health synchronization runs the same
+      records remain unchanged. Runtime-process verification recognizes Pi executables and source, Bun,
+      or built `packages/coding-agent` entrypoints in relative or absolute form. Session-directory
+      listener/health synchronization runs the same
       idempotent reconciliation immediately.
       Dispatch finalizers are guarded
       by store restore generation so stale completions cannot mutate a rebound store, and shutdown

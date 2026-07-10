@@ -81,7 +81,8 @@ State meanings:
       `aborted` with an explicit `supervisor_restarted` interruption error, including
       `waiting_for_input`, and prevents active-count and TUI liveness ghosts in historical
       non-current stores. Attached, queued, terminal, missing-health, current live, and stale-but-
-      process-backed timeout rows remain unchanged.
+      process-backed timeout rows remain unchanged. Runtime-process verification recognizes Pi executables
+      and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
 - [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
 - [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
       auto-restarted through the attached-session dispatch path.
