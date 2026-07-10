@@ -1303,15 +1303,23 @@ export class AgentSession {
 	}
 
 	private async _continueAfterManualCompaction(removeToolUseAssistant: boolean): Promise<void> {
-		this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
-		try {
-			await this.agent.continue();
-			while (await this._handlePostAgentRun()) {
-				await this.agent.continue();
+		await this._withTurnStartLock(async (release) => {
+			if (this.isStreaming) {
+				throw new Error("Agent is already processing. Wait for completion before continuing.");
 			}
-		} finally {
-			this._flushPendingBashMessages();
-		}
+
+			this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
+			const continuation = (async () => {
+				await this.agent.continue();
+				await this._continuePostAgentRuns();
+			})();
+			release();
+			try {
+				await continuation;
+			} finally {
+				this._flushPendingBashMessages();
+			}
+		});
 	}
 
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
@@ -1998,16 +2006,7 @@ export class AgentSession {
 
 			// If streaming, queue via steer() or followUp() based on option
 			if (this.isStreaming) {
-				if (!options?.streamingBehavior) {
-					throw new Error(
-						"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
-					);
-				}
-				if (options.streamingBehavior === "followUp") {
-					await this._queueFollowUp(expandedText, currentImages);
-				} else {
-					await this._queueSteer(expandedText, currentImages);
-				}
+				await this._queuePromptForStreaming(expandedText, currentImages, options?.streamingBehavior);
 				preflightResult?.(true);
 				return;
 			}
@@ -2023,6 +2022,14 @@ export class AgentSession {
 			const lastAssistant = this._findLastAssistantMessage();
 			if (lastAssistant) {
 				await this._checkCompaction(lastAssistant, false);
+			}
+
+			// Compaction and other preflight work can yield to a new agent run. Re-check
+			// under the turn-start lock before crossing into Agent core.
+			if (this.isStreaming) {
+				await this._queuePromptForStreaming(expandedText, currentImages, options?.streamingBehavior);
+				preflightResult?.(true);
+				return;
 			}
 
 			// Build messages array (custom message if any, then user message)
@@ -2084,8 +2091,10 @@ export class AgentSession {
 		}
 
 		preflightResult?.(true);
+		const run = this._runAgentPrompt(messages);
+		releaseTurnStart();
 		try {
-			await this._runAgentPrompt(messages);
+			await run;
 		} finally {
 			this._completeRuntimeMailboxSteeringTurn(this.messages);
 		}
@@ -2599,7 +2608,20 @@ export class AgentSession {
 				this.agent.steer(appMessage);
 			}
 		} else if (options?.triggerTurn) {
-			await this._runAgentPrompt(appMessage);
+			await this._withTurnStartLock(async (release) => {
+				if (this.isStreaming) {
+					if (options.deliverAs === "followUp") {
+						this.agent.followUp(appMessage);
+					} else {
+						this.agent.steer(appMessage);
+					}
+					return;
+				}
+
+				const run = this._runAgentPrompt(appMessage);
+				release();
+				await run;
+			});
 		} else {
 			this.agent.state.messages.push(appMessage);
 			this.sessionManager.appendCustomMessageEntry(

@@ -391,6 +391,83 @@ describe("AgentSession prompt characterization", () => {
 		await promptPromise;
 	});
 
+	it("does not bypass the turn-start arbiter during manual compaction continuation", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("prompt")]);
+		harness.session.agent.state.messages = [
+			{ role: "user", content: [{ type: "text", text: "previous" }], timestamp: Date.now() },
+			fauxAssistantMessage("", { stopReason: "aborted" }),
+		];
+
+		const compactionStarted = createDeferred();
+		const releaseCompaction = createDeferred();
+		let compactionChecks = 0;
+		vi.spyOn(
+			harness.session as unknown as {
+				_checkCompaction: (message: unknown, postRunCheck?: boolean) => Promise<boolean>;
+			},
+			"_checkCompaction",
+		).mockImplementation(async () => {
+			compactionChecks += 1;
+			if (compactionChecks === 1) {
+				compactionStarted.resolve();
+				await releaseCompaction.promise;
+			}
+			return false;
+		});
+
+		const prompt = harness.session.prompt("prompt", { streamingBehavior: "followUp" });
+		await compactionStarted.promise;
+		const manualContinuation = (
+			harness.session as unknown as {
+				_continueAfterManualCompaction: (removeToolUseAssistant: boolean) => Promise<void>;
+			}
+		)._continueAfterManualCompaction(false);
+		expect(harness.session.isStreaming).toBe(false);
+		releaseCompaction.resolve();
+
+		await expect(prompt).resolves.toBeUndefined();
+		await expect(manualContinuation).rejects.toThrow("Agent is already processing");
+	});
+
+	it("queues a prompt when a trigger-turn custom message races compaction preflight", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("custom"), fauxAssistantMessage("prompt")]);
+		harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
+
+		const compactionStarted = createDeferred();
+		const releaseCompaction = createDeferred();
+		let compactionChecks = 0;
+		vi.spyOn(
+			harness.session as unknown as {
+				_checkCompaction: (message: unknown, postRunCheck?: boolean) => Promise<boolean>;
+			},
+			"_checkCompaction",
+		).mockImplementation(async () => {
+			compactionChecks += 1;
+			if (compactionChecks === 1) {
+				compactionStarted.resolve();
+				await releaseCompaction.promise;
+			}
+			return false;
+		});
+
+		const prompt = harness.session.prompt("prompt", { streamingBehavior: "followUp" });
+		await compactionStarted.promise;
+
+		const custom = harness.session.sendCustomMessage(
+			{ customType: "race", content: [{ type: "text", text: "custom" }], display: false },
+			{ triggerTurn: true, deliverAs: "followUp" },
+		);
+		expect(harness.session.isStreaming).toBe(false);
+		releaseCompaction.resolve();
+
+		await expect(custom).resolves.toBeUndefined();
+		await expect(prompt).resolves.toBeUndefined();
+	});
+
 	it("queues a streaming prompt when compaction preflight races another prompt", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
