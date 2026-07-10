@@ -73,8 +73,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       metadata path for the same session ID. The current runtime's exact path is protected. It writes
       `aborted` with a `supervisor_restarted` interruption error, including waiting children;
       attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
-      records remain unchanged. Session-directory liveness retirement runs the same idempotent
-      reconciliation immediately.
+      records remain unchanged. Session-directory listener/health synchronization runs the same
+      idempotent reconciliation immediately.
       Dispatch finalizers are guarded
       by store restore generation so stale completions cannot mutate a rebound store, and shutdown
       invalidates in-flight dispatches before aborting handles.
