@@ -733,6 +733,23 @@ describe("goal extension", () => {
 		);
 	});
 
+	it("does not continue or warn when the last assistant response is an error", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("retry failed request");
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		await harness.runAgentEnd([createAssistantMessage("", "error")]);
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		const nextTurn = await harness.runBeforeAgentStart();
+
+		expect(goal.objective).toBe("retry failed request");
+		expect(goal.pausedAt).toBeUndefined();
+		expect(nextTurn?.systemPrompt).toContain("Long-running objective: retry failed request");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).not.toHaveBeenCalled();
+	});
+
 	it("pauses the active goal when the agent turn is aborted", async () => {
 		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
 

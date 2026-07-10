@@ -488,7 +488,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		if (ctx.hasPendingMessages()) return;
+		if (ctx.hasPendingMessages() || findLastAssistantMessage(event)?.stopReason === "error") return;
 
 		if (didLastAssistantReturnEmpty(event)) {
 			ctx.ui.notify("Goal continuation stopped because the last assistant response was empty", "warning");
