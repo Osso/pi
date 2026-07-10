@@ -94,6 +94,7 @@
 - Fixed `wait_agent` to wait for active detached tool jobs that update the multi-agent store without a child dispatch.
 - Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
 - Fixed runtime mailbox delivery races: when an idle delivery attempt races with an already-active prompt on the recipient, the claimed transport row is released back to pending for bounded redelivery instead of being marked failed. Added regression test `test/runtime-mailbox.test.ts` to prevent regressions.
+- Fixed the interactive retry indicator persisting after a successful retry.
 
 ### Removed
 

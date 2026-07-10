@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Container } from "@earendil-works/pi-tui";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
 
@@ -31,7 +33,7 @@ type HandleEventContext = {
 	runtimeHost: { session: { settingsManager: { getShowTerminalProgress(): boolean } } };
 	shutdownRequested: boolean;
 	setDefaultWorkingMessage(message: string): void;
-	statusContainer: { addChild(component: unknown): void; clear(): void };
+	statusContainer: Container;
 	stopToolWaitingTimerIfIdle(): void;
 	stopWorkingLoader(): void;
 	streamingComponent: undefined;
@@ -87,7 +89,7 @@ function createContext(): HandleEventContext {
 	context.runtimeHost = { session: { settingsManager: { getShowTerminalProgress: () => false } } };
 	context.setDefaultWorkingMessage = vi.fn();
 	context.shutdownRequested = false;
-	context.statusContainer = { addChild: vi.fn(), clear: vi.fn() };
+	context.statusContainer = new Container();
 	context.stopToolWaitingTimerIfIdle = vi.fn();
 	context.stopWorkingLoader = vi.fn();
 	context.streamingComponent = undefined;
@@ -117,6 +119,10 @@ function createSubmitContext(): SubmitContext {
 		showSettingsSelector: vi.fn(),
 	};
 }
+
+beforeAll(() => {
+	initTheme("dark");
+});
 
 describe("InteractiveMode idle desktop notifications", () => {
 	beforeEach(() => {
@@ -169,5 +175,26 @@ describe("InteractiveMode idle desktop notifications", () => {
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_end", messages: [], willRetry: true });
 
 		expect(desktopNotifier).not.toHaveBeenCalled();
+	});
+});
+
+describe("InteractiveMode retry status", () => {
+	it("removes the retry indicator after a successful retry", async () => {
+		const context = createContext();
+
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "auto_retry_start",
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 1000,
+			errorMessage: "overloaded",
+		});
+		expect(context.statusContainer.children).toHaveLength(1);
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
+		await interactiveModePrototype.handleEvent.call(context, { type: "auto_retry_end", success: true, attempt: 1 });
+		await interactiveModePrototype.handleEvent.call(context, { type: "agent_end", messages: [], willRetry: false });
+
+		expect(context.statusContainer.children).toHaveLength(0);
 	});
 });

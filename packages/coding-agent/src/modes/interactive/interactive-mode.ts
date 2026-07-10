@@ -2087,6 +2087,17 @@ export class InteractiveMode {
 		this.statusContainer.removeChild(loader);
 	}
 
+	private stopRetryLoader(): void {
+		const loader = this.retryLoader;
+		if (!loader) {
+			return;
+		}
+
+		loader.stop();
+		this.retryLoader = undefined;
+		this.statusContainer.removeChild(loader);
+	}
+
 	private syncWorkingLoaderVisibility(): void {
 		const shouldShow = this.workingVisible && this.session.isStreaming && !this.isViewingAgentSession();
 		if (!shouldShow) {
@@ -3560,10 +3571,7 @@ export class InteractiveMode {
 					this.retryCountdown.dispose();
 					this.retryCountdown = undefined;
 				}
-				if (this.retryLoader) {
-					this.retryLoader.stop();
-					this.retryLoader = undefined;
-				}
+				this.stopRetryLoader();
 				this.stopWorkingLoader();
 				this.syncWorkingLoaderVisibility();
 				this.ui.requestRender();
@@ -3846,12 +3854,7 @@ export class InteractiveMode {
 					this.retryCountdown.dispose();
 					this.retryCountdown = undefined;
 				}
-				// Stop loader
-				if (this.retryLoader) {
-					this.retryLoader.stop();
-					this.retryLoader = undefined;
-					this.statusContainer.clear();
-				}
+				this.stopRetryLoader();
 				// Show error only on final failure (success shows normal response)
 				if (!event.success) {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
