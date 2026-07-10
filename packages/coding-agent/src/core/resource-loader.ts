@@ -95,6 +95,8 @@ const CONTEXT_FILE_CANDIDATES = [
 	"CLAUDE.MD",
 	"CLAUDE.local.MD",
 ];
+const PROJECT_MEMORY_RELATIVE_PATH = join("docs", "local", "memory.md");
+const PROJECT_CONTEXT_FILE_CANDIDATES = [...CONTEXT_FILE_CANDIDATES, PROJECT_MEMORY_RELATIVE_PATH];
 
 interface LoadedContextFile {
 	path: string;
@@ -102,9 +104,9 @@ interface LoadedContextFile {
 	realPath: string;
 }
 
-function loadContextFilesFromDir(dir: string): LoadedContextFile[] {
+function loadContextFilesFromDir(dir: string, candidates = CONTEXT_FILE_CANDIDATES): LoadedContextFile[] {
 	const contextFiles: LoadedContextFile[] = [];
-	for (const filename of CONTEXT_FILE_CANDIDATES) {
+	for (const filename of candidates) {
 		const filePath = join(dir, filename);
 		if (existsSync(filePath)) {
 			try {
@@ -127,6 +129,7 @@ export function loadProjectContextFiles(options: {
 }): Array<{ path: string; content: string }> {
 	const resolvedCwd = resolvePath(options.cwd);
 	const resolvedAgentDir = resolvePath(options.agentDir);
+	const globalProjectMemoryRealPath = canonicalizePath(join(resolvedAgentDir, PROJECT_MEMORY_RELATIVE_PATH));
 
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
@@ -144,8 +147,14 @@ export function loadProjectContextFiles(options: {
 	const root = resolve("/");
 
 	while (true) {
+		const projectMemoryPath = join(currentDir, PROJECT_MEMORY_RELATIVE_PATH);
+		const loadedContextFiles = loadContextFilesFromDir(currentDir, PROJECT_CONTEXT_FILE_CANDIDATES);
+		const projectContextFiles = loadedContextFiles.filter(
+			(contextFile) =>
+				contextFile.path !== projectMemoryPath || contextFile.realPath !== globalProjectMemoryRealPath,
+		);
 		const currentDirContextFiles: Array<{ path: string; content: string }> = [];
-		for (const contextFile of loadContextFilesFromDir(currentDir)) {
+		for (const contextFile of projectContextFiles) {
 			if (!seenPaths.has(contextFile.realPath)) {
 				currentDirContextFiles.push({ path: contextFile.path, content: contextFile.content });
 				seenPaths.add(contextFile.realPath);

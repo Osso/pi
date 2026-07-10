@@ -409,6 +409,71 @@ Content`,
 			]);
 		});
 
+		it("should load project memory from cwd ancestors after instruction files", async () => {
+			const nestedCwd = join(cwd, "src");
+			const projectMemoryDir = join(cwd, "docs", "local");
+			const globalMemoryDir = join(agentDir, "docs", "local");
+			mkdirSync(nestedCwd, { recursive: true });
+			mkdirSync(projectMemoryDir, { recursive: true });
+			mkdirSync(globalMemoryDir, { recursive: true });
+			writeFileSync(join(cwd, "AGENTS.md"), "Project instructions.");
+			writeFileSync(join(cwd, "CLAUDE.local.md"), "Local instructions.");
+			writeFileSync(join(projectMemoryDir, "memory.md"), "Project memory.");
+			writeFileSync(join(globalMemoryDir, "memory.md"), "Global memory must not load.");
+
+			const loader = new DefaultResourceLoader({ cwd: nestedCwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "AGENTS.md"), content: "Project instructions." },
+				{ path: join(cwd, "CLAUDE.local.md"), content: "Local instructions." },
+				{ path: join(projectMemoryDir, "memory.md"), content: "Project memory." },
+			]);
+		});
+
+		it("should not load global project memory when cwd is below agentDir", async () => {
+			const nestedCwd = join(agentDir, "project");
+			const globalMemoryDir = join(agentDir, "docs", "local");
+			mkdirSync(nestedCwd, { recursive: true });
+			mkdirSync(globalMemoryDir, { recursive: true });
+			writeFileSync(join(globalMemoryDir, "memory.md"), "Global memory must not load.");
+
+			const loader = new DefaultResourceLoader({ cwd: nestedCwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+		});
+
+		it("should not load project memory symlinked to global project memory", async () => {
+			const projectMemoryDir = join(cwd, "docs", "local");
+			const globalMemoryDir = join(agentDir, "docs", "local");
+			mkdirSync(projectMemoryDir, { recursive: true });
+			mkdirSync(globalMemoryDir, { recursive: true });
+			const globalMemoryPath = join(globalMemoryDir, "memory.md");
+			writeFileSync(globalMemoryPath, "Global memory must not load.");
+			symlinkSync(globalMemoryPath, join(projectMemoryDir, "memory.md"));
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+		});
+
+		it("should load an instruction file symlinked to global project memory", async () => {
+			const globalMemoryDir = join(agentDir, "docs", "local");
+			mkdirSync(globalMemoryDir, { recursive: true });
+			const globalMemoryPath = join(globalMemoryDir, "memory.md");
+			writeFileSync(globalMemoryPath, "Instruction content.");
+			symlinkSync(globalMemoryPath, join(cwd, "AGENTS.md"));
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "AGENTS.md"), content: "Instruction content." },
+			]);
+		});
+
 		it("should not load AGENTS.md and CLAUDE.md twice when they resolve to the same file", async () => {
 			writeFileSync(join(cwd, "CLAUDE.md"), "Shared context.");
 			symlinkSync(join(cwd, "CLAUDE.md"), join(cwd, "AGENTS.md"));
@@ -447,9 +512,12 @@ Content`,
 			expect(loader.getRulesContent()).toBe("Worktree rule.");
 		});
 
-		it("should skip AGENTS.md and CLAUDE.md discovery when noContextFiles is true", async () => {
+		it("should skip all context-file discovery when noContextFiles is true", async () => {
+			const memoryDir = join(cwd, "docs", "local");
+			mkdirSync(memoryDir, { recursive: true });
 			writeFileSync(join(cwd, "AGENTS.md"), "# Project Guidelines\n\nBe helpful.");
 			writeFileSync(join(cwd, "CLAUDE.md"), "# Claude Guidelines\n\nBe helpful.");
+			writeFileSync(join(memoryDir, "memory.md"), "Project memory.");
 
 			const loader = new DefaultResourceLoader({ cwd, agentDir, noContextFiles: true });
 			await loader.reload();

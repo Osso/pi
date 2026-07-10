@@ -8,13 +8,13 @@ Pi assembles model-facing project context from instruction files and durable pro
 
 ### Project-memory discovery
 
-- [x] When `<cwd>/docs/local/memory.md` exists, Pi includes it as a project context file (`resource-loader.test.ts`, "should load docs/local/memory.md as project context").
-- [ ] In every cwd ancestor, Pi considers `docs/local/memory.md` after that directory's AGENTS/CLAUDE candidate sequence.
-- [ ] Pi reads project memory from cwd ancestors only and never from `<agentDir>/docs/local/memory.md`.
+- [x] In every cwd ancestor, Pi includes `docs/local/memory.md` after that directory's AGENTS/CLAUDE candidate sequence.
+- [x] Pi reads project memory from cwd ancestors only and never from `<agentDir>/docs/local/memory.md`, including project-memory paths symlinked to that global file.
+- [x] AGENTS/CLAUDE candidates remain loadable when symlinked to the global project-memory file; exclusion is based on the candidate path, not only its target.
 
 ### Controls
 
-- [ ] `noContextFiles` disables project-memory discovery together with AGENTS/CLAUDE context-file discovery.
+- [x] `noContextFiles` disables project-memory discovery together with AGENTS/CLAUDE context-file discovery.
 
 ## How it works
 
@@ -26,13 +26,11 @@ Pi assembles model-facing project context from instruction files and durable pro
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/resource-loader.test.ts` — discovers `<cwd>/docs/local/memory.md` as project context.
+- `packages/coding-agent/test/resource-loader.test.ts` — asserts cwd-ancestor discovery, same-directory ordering, direct and symlinked global-agent exclusion, instruction-symlink preservation, and `noContextFiles` suppression.
 
 ## Known gaps (current cycle)
 
-- [ ] Add a regression that asserts ordering after same-directory AGENTS/CLAUDE candidates.
-- [ ] Add a regression that asserts `<agentDir>/docs/local/memory.md` is not loaded.
-- [ ] Add a regression that asserts `noContextFiles` suppresses `docs/local/memory.md`.
+- None.
 
 ## Out of scope
 
