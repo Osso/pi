@@ -62,6 +62,24 @@ export interface PostSharedChannelMessageInput {
 	body: string;
 }
 
+export type ArchitectRequestStatus = "pending" | "claimed" | "completed";
+
+export interface ArchitectRequest {
+	id: number;
+	senderSessionId: string;
+	body: string;
+	status: ArchitectRequestStatus;
+	createdAt: string;
+	claimedAt?: string;
+	claimToken?: string;
+	completedAt?: string;
+}
+
+export interface PostArchitectRequestInput {
+	senderSessionId: string;
+	body: string;
+}
+
 export interface EnqueueRuntimeMailboxMessageInput {
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
@@ -737,6 +755,136 @@ function trustedRuntimeMailboxSessionPath(
 	row: Pick<RuntimeMailboxListenerRow, "session_path" | "session_path_asserted_at" | "updated_at">,
 ): string | undefined {
 	return row.session_path !== null && row.session_path_asserted_at === row.updated_at ? row.session_path : undefined;
+}
+
+export function postArchitectRequest(controlDbPath: string, input: PostArchitectRequestInput): number {
+	const body = input.body.trim();
+	if (!body) {
+		throw new Error("Architect request body must be non-empty");
+	}
+	return withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		const result = db
+			.prepare(
+				`
+				INSERT INTO architect_requests (sender_session_id, body, status, created_at)
+				VALUES (?, ?, 'pending', ?)
+				`,
+			)
+			.run(input.senderSessionId, body, now);
+		return Number(result.lastInsertRowid);
+	});
+}
+
+type ArchitectRequestRow = {
+	id: number;
+	sender_session_id: string;
+	body: string;
+	status: ArchitectRequestStatus;
+	created_at: string;
+	claimed_at: string | null;
+	claim_token: string | null;
+	completed_at: string | null;
+};
+
+function architectRequestFromRow(row: ArchitectRequestRow): ArchitectRequest {
+	return {
+		id: row.id,
+		senderSessionId: row.sender_session_id,
+		body: row.body,
+		status: row.status,
+		createdAt: row.created_at,
+		claimedAt: row.claimed_at ?? undefined,
+		claimToken: row.claim_token ?? undefined,
+		completedAt: row.completed_at ?? undefined,
+	};
+}
+
+export function listPendingArchitectRequests(controlDbPath: string, limit = 20): ArchitectRequest[] {
+	return withControlDb(controlDbPath, (db) =>
+		(
+			db
+				.prepare(
+					`SELECT id, sender_session_id, body, status, created_at, claimed_at, claim_token, completed_at
+					 FROM architect_requests
+					 WHERE status = 'pending'
+					 ORDER BY id ASC
+					 LIMIT ?`,
+				)
+				.all(Math.max(1, Math.floor(limit))) as ArchitectRequestRow[]
+		).map(architectRequestFromRow),
+	);
+}
+
+export function claimPendingArchitectRequests(
+	controlDbPath: string,
+	claimToken: string,
+	limit = 20,
+): ArchitectRequest[] {
+	return withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			db.prepare(
+				`UPDATE architect_requests
+				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
+				 WHERE status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes')`,
+			).run(now);
+			const rows = db
+				.prepare(
+					`SELECT id, sender_session_id, body, status, created_at, claimed_at, claim_token, completed_at
+					 FROM architect_requests
+					 WHERE status = 'pending'
+					 ORDER BY id ASC
+					 LIMIT ?`,
+				)
+				.all(Math.max(1, Math.floor(limit))) as ArchitectRequestRow[];
+			for (const row of rows) {
+				db.prepare(
+					`UPDATE architect_requests
+					 SET status = 'claimed', claimed_at = ?, claim_token = ?
+					 WHERE id = ? AND status = 'pending'`,
+				).run(now, claimToken, row.id);
+			}
+			db.exec("COMMIT");
+			return rows.map((row) =>
+				architectRequestFromRow({ ...row, status: "claimed", claimed_at: now, claim_token: claimToken }),
+			);
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+export function renewArchitectRequestClaims(controlDbPath: string, requestIds: number[], claimToken: string): void {
+	if (requestIds.length === 0) return;
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		for (const requestId of requestIds) {
+			db.prepare(
+				`UPDATE architect_requests
+				 SET claimed_at = ?
+				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
+			).run(now, requestId, claimToken);
+		}
+	});
+}
+
+export function completeArchitectRequest(
+	controlDbPath: string,
+	requestId: number,
+	claimToken: string,
+	senderSessionId?: string,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`UPDATE architect_requests
+			 SET status = 'completed', completed_at = ?
+			 WHERE id = ? AND status = 'claimed' AND claim_token = ?
+			   AND (? IS NULL OR sender_session_id = ?)`,
+		).run(new Date().toISOString(), requestId, claimToken, senderSessionId ?? null, senderSessionId ?? null);
+	});
 }
 
 export function postSharedChannelMessage(controlDbPath: string, input: PostSharedChannelMessageInput): number {
@@ -2233,6 +2381,20 @@ function initializeSchema(db: SqliteDatabase): void {
 			updated_at TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS architect_requests (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sender_session_id TEXT NOT NULL,
+			body TEXT NOT NULL,
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			claimed_at TEXT,
+			claim_token TEXT,
+			completed_at TEXT
+		);
+
+		CREATE INDEX IF NOT EXISTS architect_requests_status_id_idx
+		ON architect_requests(status, id);
+
 		CREATE TABLE IF NOT EXISTS shared_channel_messages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			sender_session_id TEXT NOT NULL,
@@ -2255,6 +2417,15 @@ function initializeSchema(db: SqliteDatabase): void {
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
 	addMissingRuntimeMailboxListenerColumns(db);
+	addMissingArchitectRequestColumns(db);
+}
+
+function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
+	const columns = new Set(
+		(db.prepare("PRAGMA table_info(architect_requests)").all() as TableInfoRow[]).map((column) => column.name),
+	);
+	if (!columns.has("claimed_at")) db.exec("ALTER TABLE architect_requests ADD COLUMN claimed_at TEXT");
+	if (!columns.has("claim_token")) db.exec("ALTER TABLE architect_requests ADD COLUMN claim_token TEXT");
 }
 
 function addMissingRuntimeMailboxColumns(db: SqliteDatabase): void {

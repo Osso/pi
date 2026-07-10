@@ -5,7 +5,7 @@
 ### Added
 
 - Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
-- Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, targeted session advice, and read-only Bubblewrap tool workers.
+- Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, durable `ask_architect` requests, targeted runtime-mailbox advice, and read-only Bubblewrap tool workers.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added built-in `channel_post` for the global SQLite-backed shared channel with per-main-session cursors and idle delivery.
@@ -57,6 +57,7 @@
 
 ### Fixed
 
+- Fixed Resident Architect requests being consumed by the ordinary shared channel, lost across service restarts, or racing the observer into `Agent is already processing` crashes: `ask_architect` now writes a dedicated durable SQLite queue, the Architect disables inbound runtime coordination and `broadcast`, replies through `send_agent_message`, preserves its transcript across restarts, atomically leases requests with renewal, and configures a connection-local SQLite busy timeout.
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
 - Fixed `AgentSession` prompt and continue turn-start TOCTOU races by serializing idle checks, compaction preflight, and the Agent core transition; racing steer/follow-up prompts are re-evaluated and queued instead of reaching a core busy error.
 - Fixed bwrap sandbox profiles to run Pyrun, and opt-in Hostrun when loaded, through the shared bwrap runner backend rather than blocking either runtime; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.

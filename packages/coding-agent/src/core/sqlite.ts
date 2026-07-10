@@ -59,6 +59,17 @@ export function createReadOnlySqliteDatabase(path: string): SqliteDatabase {
 /** Default multi-consumer open settings for shared process-local SQLite DBs. */
 export const DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS = 5000;
 
+/**
+ * Configure a read-only SQLite connection for concurrent access.
+ * The busy timeout is connection-local and does not change database journal settings.
+ */
+export function configureReadOnlySqliteDatabase(
+	db: SqliteDatabase,
+	busyTimeoutMs = DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS,
+): void {
+	db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+}
+
 export interface ConfigureSharedSqliteDatabaseOptions {
 	busyTimeoutMs?: number;
 }

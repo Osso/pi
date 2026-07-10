@@ -285,6 +285,8 @@ export interface AgentSessionConfig {
 	multiAgentParentSessionId?: string;
 	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
 	multiAgentRequiresAgentId?: boolean;
+	/** Disable inbound runtime mailbox and shared-channel delivery for dedicated observer runtimes. */
+	disableRuntimeCoordinationInbound?: boolean;
 	/** Global settings directory used for persistent permission rule writes. */
 	agentDir?: string;
 	/**
@@ -591,6 +593,7 @@ export class AgentSession {
 	private _multiAgentAgentId: string | undefined;
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
+	private _disableRuntimeCoordinationInbound: boolean;
 	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
@@ -610,6 +613,7 @@ export class AgentSession {
 		this._multiAgentAgentId = config.multiAgentAgentId;
 		this._multiAgentParentSessionId = config.multiAgentParentSessionId;
 		this._multiAgentRequiresAgentId = config.multiAgentRequiresAgentId ?? false;
+		this._disableRuntimeCoordinationInbound = config.disableRuntimeCoordinationInbound ?? false;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
 		this._permissionRuleStore = new PermissionRuleStore({
@@ -2255,7 +2259,7 @@ export class AgentSession {
 	}
 
 	private async _drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
-		if (this._disposed) {
+		if (this._disableRuntimeCoordinationInbound || this._disposed) {
 			return false;
 		}
 		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
@@ -2323,7 +2327,7 @@ export class AgentSession {
 	}
 
 	private async _drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
-		if (this._getRuntimeMailboxAgentId() !== null) {
+		if (this._disableRuntimeCoordinationInbound || this._getRuntimeMailboxAgentId() !== null) {
 			return false;
 		}
 		if (this._sharedChannelDrainInProgress) {
@@ -2464,6 +2468,7 @@ export class AgentSession {
 	}
 
 	private _startRuntimeMailboxPolling(): void {
+		if (this._disableRuntimeCoordinationInbound) return;
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath || this._runtimeMailboxPollTimer) {
 			return;
@@ -2485,6 +2490,7 @@ export class AgentSession {
 	}
 
 	private _startRuntimeMailboxSignalWake(): void {
+		if (this._disableRuntimeCoordinationInbound) return;
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath) {
 			return;

@@ -335,7 +335,7 @@ describe("session directory", () => {
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-current" }, process.pid);
 
 		const sessions = listSessions(controlDbPath, { includeEnded: false });
-		const snapshot = readArchitectSnapshot(controlDbPath, 0);
+		const snapshot = readArchitectSnapshot(controlDbPath);
 
 		expect(sessions.map((session) => session.sessionId)).toEqual(["session-current"]);
 		expect(snapshot.sessions.map((session) => session.id)).toEqual(["session-current"]);

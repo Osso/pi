@@ -11,8 +11,10 @@ import {
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
 	advanceSharedChannelCursor,
 	claimLatestIncomingMessage,
+	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
+	completeArchitectRequest,
 	completeIncomingMessage,
 	enqueueIncomingMessage,
 	enqueueRuntimeMailboxMessage,
@@ -20,12 +22,14 @@ import {
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
 	listNamedSessions,
+	listPendingArchitectRequests,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
 	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
+	postArchitectRequest,
 	postSharedChannelMessage,
 	readIncomingMessageStatus,
 	readLastMessage,
@@ -49,7 +53,12 @@ import {
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
-import { configureSharedSqliteDatabase, createSqliteDatabase } from "../src/core/sqlite.ts";
+import {
+	configureReadOnlySqliteDatabase,
+	configureSharedSqliteDatabase,
+	createReadOnlySqliteDatabase,
+	createSqliteDatabase,
+} from "../src/core/sqlite.ts";
 
 let storedMessageCounter = 0;
 
@@ -116,6 +125,29 @@ describe("session control DB", () => {
 
 	it("stores control state next to the session transcript", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
+	});
+
+	it("persists Architect requests until the Architect completes them", () => {
+		const requestId = postArchitectRequest(controlDbPath, {
+			senderSessionId: "main-session",
+			body: "Architect: inspect this request",
+		});
+
+		expect(listPendingArchitectRequests(controlDbPath)).toEqual([
+			expect.objectContaining({
+				id: requestId,
+				senderSessionId: "main-session",
+				body: "Architect: inspect this request",
+				status: "pending",
+			}),
+		]);
+
+		const claimed = claimPendingArchitectRequests(controlDbPath, "architect-runtime");
+		expect(claimed.map((request) => request.id)).toEqual([requestId]);
+		expect(claimPendingArchitectRequests(controlDbPath, "competing-runtime")).toEqual([]);
+
+		completeArchitectRequest(controlDbPath, requestId, "architect-runtime");
+		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
 	});
 
 	it("adds runtime identities and session paths to legacy listener tables on re-registration", () => {
@@ -186,6 +218,21 @@ describe("session control DB", () => {
 			checkedGeneration: 1,
 			agentGeneration: 1,
 		});
+	});
+
+	it("configures read-only control DB connections with a busy timeout", () => {
+		const writer = createSqliteDatabase(controlDbPath);
+		writer.exec("CREATE TABLE sample (value TEXT)");
+		writer.close();
+
+		const reader = createReadOnlySqliteDatabase(controlDbPath);
+		try {
+			configureReadOnlySqliteDatabase(reader);
+			const row = reader.prepare("PRAGMA busy_timeout").get() as { timeout?: number };
+			expect(Object.values(row)[0]).toBe(5000);
+		} finally {
+			reader.close();
+		}
 	});
 
 	it("opens control.sqlite in WAL mode for multi-consumer access", () => {

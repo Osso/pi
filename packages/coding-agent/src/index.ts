@@ -266,6 +266,8 @@ export { createSyntheticSourceInfo } from "./core/source-info.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
+	type AskArchitectToolDetails,
+	type AskArchitectToolInput,
 	type AskQuestionsToolDetails,
 	type AskQuestionsToolInput,
 	type BashOperations,
@@ -278,6 +280,7 @@ export {
 	type CodeIndexOperations,
 	type CodeIndexToolDetails,
 	type CodeIndexToolOptions,
+	createAskArchitectToolDefinition,
 	createAskQuestionsToolDefinition,
 	createBashToolDefinition,
 	createEditToolDefinition,

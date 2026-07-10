@@ -1,14 +1,19 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
 	blockArchitectGlobalBroadcast,
+	completeSentArchitectRequest,
+	createArchitectMultiAgentStore,
 	createArchitectSettingsManager,
 	createArchitectStopHandler,
 	runArchitectCycle,
 	waitForArchitectInterval,
 } from "../src/architect/main.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 
 const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
 const serviceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
@@ -36,13 +41,28 @@ describe("resident architect service", () => {
 		expect(createArchitectSettingsManager().getExplicitSandboxProfile()).toBe("read-only");
 	});
 
-	it("blocks global fanout while permitting one targeted session delivery", () => {
+	it("persists direct-message state to the shared control DB", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-store-"));
+		try {
+			const sessionManager = SessionManager.create("/home/osso", agentDir, { id: "architect" });
+			const store = createArchitectMultiAgentStore(sessionManager, agentDir);
+
+			expect(store.getPersistenceTarget()).toEqual({
+				controlDbPath: join(agentDir, "control.sqlite"),
+				sessionPath: sessionManager.getSessionFile(),
+			});
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
+	it("blocks global fanout and broadcast delivery", () => {
 		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "channel_post" })).toMatchObject({ block: true });
 		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "broadcast" })).toMatchObject({ block: true });
-		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "list_sessions" })).toMatchObject({ block: true });
 		expect(
 			blockArchitectGlobalBroadcast({ input: { session_ids: ["affected-session"] }, toolName: "broadcast" }),
-		).toBeUndefined();
+		).toMatchObject({ block: true });
+		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "list_sessions" })).toMatchObject({ block: true });
 	});
 
 	it("forces service shutdown after a bounded graceful abort", async () => {
@@ -95,6 +115,58 @@ describe("resident architect service", () => {
 		});
 
 		expect(received).toContain("session_state_changed");
+	});
+
+	it("completes a durable Architect request only after successful direct transport", () => {
+		const completeRequest = vi.fn();
+
+		completeSentArchitectRequest(
+			{ completeRequest },
+			{ threadId: "architect-request:7", toAgentId: "main", toSessionId: "main-session" },
+		);
+		completeSentArchitectRequest(
+			{ completeRequest },
+			{ threadId: "unrelated", toAgentId: "main", toSessionId: "main-session" },
+		);
+		completeSentArchitectRequest(
+			{ completeRequest },
+			{ threadId: "architect-request:8", toAgentId: "agent_1", toSessionId: "main-session" },
+		);
+
+		expect(completeRequest).toHaveBeenCalledOnce();
+		expect(completeRequest).toHaveBeenCalledWith(7, "main-session");
+	});
+
+	it("renews request claims while a model turn remains active", async () => {
+		vi.useFakeTimers();
+		try {
+			const observation = {
+				reason: "architect_request" as const,
+				requests: [
+					{
+						id: 7,
+						senderSessionId: "main-session",
+						body: "inspect this",
+						status: "claimed" as const,
+						createdAt: "2026-07-10T00:00:00.000Z",
+					},
+				],
+				sessions: [],
+			};
+			const renewRequests = vi.fn();
+			let releasePrompt: (() => void) | undefined;
+			const prompt = new Promise<void>((resolve) => {
+				releasePrompt = resolve;
+			});
+			const cycle = runArchitectCycle({ observe: () => observation, renewRequests }, () => prompt);
+
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(renewRequests).toHaveBeenCalledWith([7]);
+			releasePrompt?.();
+			await cycle;
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("renders the configured binary path and verifies the restarted Architect service", () => {

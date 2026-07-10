@@ -13,7 +13,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
       by session identity and excluding the Architect itself, every 30 seconds without prompting
       the model when state is unchanged. The model receives no raw listener or health fields.
       Historical same-PID sessions must not appear in either Architect or global session inventory.
-- [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel request beginning `Architect:`.
+- [x] Prompt on the initial session snapshot, material session/goal changes, or an atomically claimed request from the dedicated Architect request queue.
 - [x] Treat `goal_json.completedAt` as completed-goal state only, not session termination. The
       model uses membership in the prefiltered sessions snapshot, never goal fields, as its only
       liveness evidence.
@@ -22,8 +22,8 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Advice
 
-- [x] Keep the standard Pi tool set available while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled; Hostrun is opt-in and uses the same runner mode when loaded.
-- [x] Send only evidence-backed drift, conflict, or blocker advice to the affected session through targeted `broadcast`; block global `channel_post` fanout.
+- [x] Keep the standard Pi tool set available except Architect-disabled `broadcast`, `ask_architect`, and `contact_supervisor` while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled; Hostrun is opt-in and uses the same runner mode when loaded.
+- [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block `broadcast` and global `channel_post` fanout.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 
 ### Service lifecycle
@@ -55,14 +55,14 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 ## Known gaps (current cycle)
 
 - [x] `architect-observer.test.ts` covers initial/material snapshots, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, read-only missing-DB behavior, and self-message suppression.
-- [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout blocking, and deployment lifecycle commands.
+- [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout and broadcast blocking, and deployment lifecycle commands.
 - [x] Deployment builds the compiled binary, installs/enables/restarts the service, and systemd health is verified.
 
 ## Out of scope
 
 - Protecting credentials or other readable workspace data from the Architect itself. The Architect is trusted; bwrap limits autonomous mutation and remediation, not confidentiality.
 - Sandboxing arbitrary host-side extension tools or hooks. Enabled extensions remain trusted host capabilities outside bwrap's selected worker routing.
-- Discarding an explicit `Architect:` shared-channel request solely because its sender exits before the next observer cycle. Requests are durable event inputs; the current session snapshot remains the model's liveness evidence.
+- Discarding a pending Architect request solely because its sender exits before the next observer cycle. Requests remain in the dedicated SQLite queue until direct runtime-mailbox transport succeeds; expired claims return to pending.
 - Task dispatch, autonomous code changes, process/session control, or automatic remediation.
 - Reading full agent transcripts on routine observations.
 - Pi bridge capabilities for sandboxed runtimes. They are deliberately disabled.

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getControlDbPath, writeSessionHealth, writeSessionMetadata } from "../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
+import { createAskArchitectToolDefinition } from "../src/core/tools/ask-architect.ts";
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
@@ -11,15 +12,67 @@ import { createListSessionsToolDefinition } from "../src/core/tools/list-session
 describe("session coordination tools", () => {
 	it("registers session coordination tools as built-ins active by default", () => {
 		const tools = createAllToolDefinitions("/tmp");
+		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_architect");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("list_sessions");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("broadcast");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("channel_post");
+		expect(tools.ask_architect.name).toBe("ask_architect");
 		expect(tools.list_sessions.name).toBe("list_sessions");
 		expect(tools.broadcast.name).toBe("broadcast");
 		expect(tools.channel_post.name).toBe("channel_post");
 		expect(tools.list_sessions.description).toContain("sticky liveness");
 		expect(tools.broadcast.description).toContain("eligible");
 		expect(tools.channel_post.description).toContain("shared channel");
+	});
+
+	it("persists Architect requests for the current main session", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-architect-tool-"));
+		try {
+			const controlDbPath = getControlDbPath(agentDir);
+			const tool = createAskArchitectToolDefinition();
+			const result = await tool.execute("ask-architect", { message: "inspect this" }, undefined, undefined, {
+				controlDbPath,
+				sessionManager: {
+					getSessionId: () => "main-session",
+				},
+			} as Parameters<typeof tool.execute>[4]);
+
+			expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Architect request queued") }]);
+			expect(result.details?.senderSessionId).toBe("main-session");
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
+	it("rejects Architect requests from subagent runtimes", async () => {
+		const tool = createAskArchitectToolDefinition();
+
+		for (const context of [
+			{
+				controlDbPath: "/unused",
+				multiAgentAgentId: "agent_1",
+				sessionManager: { getSessionId: () => "child-session" },
+			},
+			{
+				controlDbPath: "/unused",
+				multiAgentRequiresAgentId: true,
+				sessionManager: { getSessionId: () => "child-session" },
+			},
+			{
+				controlDbPath: "/unused",
+				sessionManager: { getSessionId: () => "child-session", isSubagentSession: () => true },
+			},
+		]) {
+			await expect(
+				tool.execute(
+					"ask-architect",
+					{ message: "inspect this" },
+					undefined,
+					undefined,
+					context as Parameters<typeof tool.execute>[4],
+				),
+			).rejects.toThrow("ask_architect is only available from main sessions");
+		}
 	});
 
 	it("excludes ended rows when list_sessions receives include_ended false", async () => {

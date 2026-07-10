@@ -1,7 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { getAgentDir } from "../config.ts";
-import { getControlDbPath } from "../core/session-control-db.ts";
-import { createReadOnlySqliteDatabase } from "../core/sqlite.ts";
+import {
+	type ArchitectRequest,
+	claimPendingArchitectRequests,
+	completeArchitectRequest,
+	getControlDbPath,
+	renewArchitectRequestClaims,
+} from "../core/session-control-db.ts";
+import { configureReadOnlySqliteDatabase, createReadOnlySqliteDatabase } from "../core/sqlite.ts";
 
 export const ARCHITECT_SESSION_ID = "architect";
 
@@ -13,31 +20,24 @@ export interface ArchitectSessionSnapshot {
 	name?: string;
 }
 
-export interface ArchitectChannelMessage {
-	body: string;
-	id: number;
-	senderAgentId: string | null;
-	senderSessionId: string;
-}
+export type ArchitectChannelMessage = ArchitectRequest;
 
 export interface ArchitectObservation {
-	requests: ArchitectChannelMessage[];
+	requests: ArchitectRequest[];
 	reason: "architect_request" | "session_state_changed";
 	sessions: ArchitectSessionSnapshot[];
 }
 
 export interface ArchitectObserverState {
-	lastChannelMessageId: number;
 	lastObservation?: ArchitectObservation;
 }
 
 export interface ArchitectSnapshot {
-	lastChannelMessageId?: number;
-	messages: ArchitectChannelMessage[];
+	requests: ArchitectRequest[];
 	sessions: ArchitectSessionSnapshot[];
 }
 
-export type ArchitectSnapshotReader = (lastChannelMessageId: number) => ArchitectSnapshot;
+export type ArchitectSnapshotReader = () => ArchitectSnapshot;
 
 type SessionRow = {
 	cwd: string;
@@ -47,13 +47,6 @@ type SessionRow = {
 	name: string | null;
 };
 
-type ChannelMessageRow = {
-	body: string;
-	id: number;
-	sender_agent_id: string | null;
-	sender_session_id: string;
-};
-
 export function snapshotArchitectSessions(metadata: ArchitectSessionSnapshot[]): ArchitectSessionSnapshot[] {
 	return metadata.map((session) => ({ ...session })).sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -61,14 +54,8 @@ export function snapshotArchitectSessions(metadata: ArchitectSessionSnapshot[]):
 export function createArchitectObservation(
 	previous: ArchitectObservation | undefined,
 	sessions: ArchitectSessionSnapshot[],
-	messages: ArchitectChannelMessage[],
+	requests: ArchitectRequest[],
 ): ArchitectObservation | undefined {
-	const requests = messages.filter(
-		(message) =>
-			message.senderAgentId === null &&
-			message.senderSessionId !== ARCHITECT_SESSION_ID &&
-			/^\s*architect\s*:/i.test(message.body),
-	);
 	if (requests.length > 0) {
 		return { reason: "architect_request", requests, sessions };
 	}
@@ -78,11 +65,12 @@ export function createArchitectObservation(
 	return undefined;
 }
 
-export function readArchitectSnapshot(controlDbPath: string, afterChannelMessageId: number): ArchitectSnapshot {
+export function readArchitectSnapshot(controlDbPath: string): ArchitectSnapshot {
 	if (!existsSync(controlDbPath)) {
-		return { messages: [], sessions: [] };
+		return { requests: [], sessions: [] };
 	}
 	const db = createReadOnlySqliteDatabase(controlDbPath);
+	configureReadOnlySqliteDatabase(db);
 	try {
 		const sessions = (
 			db
@@ -127,66 +115,46 @@ export function readArchitectSnapshot(controlDbPath: string, afterChannelMessage
 			isSubagent: row.is_subagent === 1,
 			name: row.name ?? undefined,
 		}));
-		const channelTailMessageId = Number(
-			(db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM shared_channel_messages").get() as { id: number }).id,
-		);
-		const messages = (
-			db
-				.prepare(
-					`SELECT id, sender_session_id, sender_agent_id, body
-					 FROM shared_channel_messages
-					 WHERE id > ?
-					 ORDER BY id ASC
-					 LIMIT 20`,
-				)
-				.all(afterChannelMessageId) as ChannelMessageRow[]
-		).map((row) => ({
-			body: row.body,
-			id: row.id,
-			senderAgentId: row.sender_agent_id,
-			senderSessionId: row.sender_session_id,
-		}));
-		return { lastChannelMessageId: channelTailMessageId, messages, sessions };
+		return { requests: [], sessions };
 	} finally {
 		db.close();
 	}
 }
 
-export class ArchitectObserver {
-	private readonly readSnapshot: ArchitectSnapshotReader;
-	private initialized = false;
-	private state: ArchitectObserverState = { lastChannelMessageId: 0 };
+function readAndClaimArchitectSnapshot(controlDbPath: string, claimToken: string): ArchitectSnapshot {
+	const snapshot = readArchitectSnapshot(controlDbPath);
+	return { ...snapshot, requests: claimPendingArchitectRequests(controlDbPath, claimToken) };
+}
 
-	constructor(
-		controlDbPath = getControlDbPath(getAgentDir()),
-		readSnapshot: ArchitectSnapshotReader = (lastChannelMessageId) =>
-			readArchitectSnapshot(controlDbPath, lastChannelMessageId),
-	) {
-		this.readSnapshot = readSnapshot;
+export class ArchitectObserver {
+	private readonly claimToken: string = randomUUID();
+	private readonly controlDbPath: string;
+	private readonly readSnapshot: ArchitectSnapshotReader;
+	private state: ArchitectObserverState = {};
+
+	constructor(controlDbPath = getControlDbPath(getAgentDir()), readSnapshot?: ArchitectSnapshotReader) {
+		this.controlDbPath = controlDbPath;
+		this.readSnapshot = readSnapshot ?? (() => readAndClaimArchitectSnapshot(controlDbPath, this.claimToken));
 	}
 
 	observe(): ArchitectObservation | undefined {
-		const snapshot = this.readSnapshot(this.state.lastChannelMessageId);
-		const { messages, sessions } = snapshot;
-		const lastMessageId = messages.at(-1)?.id;
-		const newMessages = this.initialized ? messages : [];
-		if (this.initialized) {
-			if (lastMessageId !== undefined) {
-				this.state.lastChannelMessageId = lastMessageId;
-			}
-		} else {
-			this.state.lastChannelMessageId =
-				snapshot.lastChannelMessageId ?? lastMessageId ?? this.state.lastChannelMessageId;
-			this.initialized = true;
-		}
+		const snapshot = this.readSnapshot();
 		const observation = createArchitectObservation(
 			this.state.lastObservation,
-			snapshotArchitectSessions(sessions),
-			newMessages,
+			snapshotArchitectSessions(snapshot.sessions),
+			snapshot.requests,
 		);
 		if (observation) {
 			this.state.lastObservation = observation;
 		}
 		return observation;
+	}
+
+	renewRequests(requestIds: number[]): void {
+		renewArchitectRequestClaims(this.controlDbPath, requestIds, this.claimToken);
+	}
+
+	completeRequest(requestId: number, senderSessionId: string): void {
+		completeArchitectRequest(this.controlDbPath, requestId, this.claimToken, senderSessionId);
 	}
 }

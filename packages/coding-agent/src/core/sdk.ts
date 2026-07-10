@@ -87,6 +87,8 @@ export interface CreateAgentSessionOptions {
 	multiAgentParentSessionId?: string;
 	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
 	multiAgentRequiresAgentId?: boolean;
+	/** Disable inbound runtime mailbox and shared-channel delivery for dedicated observer runtimes. */
+	disableRuntimeCoordinationInbound?: boolean;
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
 
@@ -420,6 +422,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		multiAgentAgentId: options.multiAgentAgentId,
 		multiAgentParentSessionId: options.multiAgentParentSessionId,
 		multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
+		disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
 		multiAgentStore: options.multiAgentStore,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,

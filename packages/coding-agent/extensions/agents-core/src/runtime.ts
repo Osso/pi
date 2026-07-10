@@ -174,6 +174,7 @@ export interface MultiAgentExtensionOptions {
 	dispatcher?: ChildAgentDispatcher;
 	runtimeHandles?: MultiAgentRuntimeHandles;
 	selectAgentView?: (agentId: string) => boolean | undefined;
+	onSessionMessageSent?: (input: { message: AgentMailboxMessage; toSessionId: string }) => void;
 	store?: MultiAgentStore;
 }
 
@@ -1656,10 +1657,11 @@ function sendAgentMessage(
 	store: MultiAgentStore,
 	params: SendAgentMessageParams,
 	ctx?: ExtensionContext,
+	onSessionMessageSent?: MultiAgentExtensionOptions["onSessionMessageSent"],
 ): AgentToolResult<SendAgentMessageToolDetails> {
 	if (params.toSessionId) {
 		if (isMainRuntimeTarget(params.toAgentId)) {
-			return sendMainRuntimeSessionMessage(store, params, ctx);
+			return sendMainRuntimeSessionMessage(store, params, ctx, onSessionMessageSent);
 		}
 		const targetSessionId = resolveAgentRuntimeSessionId(store, params.toAgentId);
 		if (targetSessionId !== undefined && targetSessionId !== params.toSessionId) {
@@ -1711,6 +1713,7 @@ function sendAgentMessage(
 				message: failedMessage,
 			});
 		}
+		onSessionMessageSent?.({ message: sent.message, toSessionId: params.toSessionId });
 	} else {
 		mirrorRuntimeMailboxMessage(store, sent.message, ctx);
 	}
@@ -1725,6 +1728,7 @@ function sendMainRuntimeSessionMessage(
 	store: MultiAgentStore,
 	params: SendAgentMessageParams,
 	ctx: ExtensionContext | undefined,
+	onSessionMessageSent?: MultiAgentExtensionOptions["onSessionMessageSent"],
 ): AgentToolResult<SendAgentMessageToolDetails> {
 	const sender = currentMessageSenderAgent(store, ctx);
 	const senderId = currentMessageSenderId(store, ctx);
@@ -1755,6 +1759,7 @@ function sendMainRuntimeSessionMessage(
 			message: failedMessage,
 		});
 	}
+	onSessionMessageSent?.({ message, toSessionId: params.toSessionId });
 	return result(`Sent message to session ${params.toSessionId}.`, {
 		agent: sender,
 		message,
@@ -2574,7 +2579,8 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 			description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.",
 			approvalRequired: false,
 			parameters: sendAgentMessageSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => sendAgentMessage(store, params, ctx),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				sendAgentMessage(store, params, ctx, options.onSessionMessageSent),
 		}),
 	);
 

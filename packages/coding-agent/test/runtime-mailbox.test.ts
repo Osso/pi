@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
-import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
@@ -94,6 +94,7 @@ function collectMultiAgentTools(
 	options: {
 		desktopNotifier?: (notification: AgentDesktopNotification) => undefined | { close(): void };
 		dispatcher?: ChildAgentDispatcher;
+		onSessionMessageSent?: (input: { message: AgentMailboxMessage; toSessionId: string }) => void;
 	} = {},
 ): Map<string, RegisteredTool> {
 	const tools = new Map<string, RegisteredTool>();
@@ -103,7 +104,12 @@ function collectMultiAgentTools(
 			tools.set(tool.name, tool as RegisteredTool);
 		},
 	} as ExtensionAPI;
-	multiAgentExtension(pi, { desktopNotifier: options.desktopNotifier, dispatcher: options.dispatcher, store });
+	multiAgentExtension(pi, {
+		desktopNotifier: options.desktopNotifier,
+		dispatcher: options.dispatcher,
+		onSessionMessageSent: options.onSessionMessageSent,
+		store,
+	});
 	return tools;
 }
 
@@ -389,7 +395,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(senderSession);
-		const tools = collectMultiAgentTools(store);
+		const onSessionMessageSent = vi.fn();
+		const tools = collectMultiAgentTools(store, { onSessionMessageSent });
 		const sendAgentMessage = tools.get("send_agent_message");
 		if (!sendAgentMessage) {
 			throw new Error("expected send_agent_message tool");
@@ -407,6 +414,10 @@ describe("runtime SQLite mailbox delivery", () => {
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: senderSession }),
 		);
 
+		expect(onSessionMessageSent).toHaveBeenCalledWith({
+			message: expect.objectContaining({ body: "Hello main session" }),
+			toSessionId: "target-session",
+		});
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 			{
 				body: "Hello main session",

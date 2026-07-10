@@ -66,9 +66,10 @@ describe("architect observer", () => {
 		if (!previous) throw new Error("expected initial observation");
 		const request: ArchitectChannelMessage = {
 			body: "Architect: assess goal drift",
+			createdAt: "2026-07-10T00:00:00.000Z",
 			id: 4,
-			senderAgentId: null,
 			senderSessionId: "other-main",
+			status: "pending",
 		};
 
 		expect(createArchitectObservation(previous, [session], [request])).toMatchObject({
@@ -77,17 +78,11 @@ describe("architect observer", () => {
 		});
 	});
 
-	it("ignores subagent, Architect, and unrelated channel posts", () => {
+	it("stays stable when the dedicated request queue is empty", () => {
 		const previous = createArchitectObservation(undefined, [session], []);
 		if (!previous) throw new Error("expected initial observation");
-		const messages: ArchitectChannelMessage[] = [
-			{ body: "Architect: ignore this", id: 5, senderAgentId: "agent_1", senderSessionId: "child" },
-			{ body: "Architect: this is already known", id: 6, senderAgentId: null, senderSessionId: "architect" },
-			{ body: "Re architect blocker: already confirmed", id: 7, senderAgentId: null, senderSessionId: "other-main" },
-			{ body: "normal update", id: 8, senderAgentId: null, senderSessionId: "other-main" },
-		];
 
-		expect(createArchitectObservation(previous, [session], messages)).toBeUndefined();
+		expect(createArchitectObservation(previous, [session], [])).toBeUndefined();
 	});
 
 	it("keeps the deterministic newest live metadata row per session ID", () => {
@@ -180,11 +175,11 @@ describe("architect observer", () => {
 			db.close();
 		}
 		try {
-			const snapshot = readArchitectSnapshot(controlDbPath, 0);
+			const snapshot = readArchitectSnapshot(controlDbPath);
 			expect(snapshot.sessions).toEqual([
 				expect.objectContaining({ cwd: "/current", goalJson: '{"objective":"Current"}', id: "live" }),
 			]);
-			expect(snapshot).toMatchObject({ lastChannelMessageId: 1, messages: [{ id: 1 }] });
+			expect(snapshot).toMatchObject({ requests: [] });
 		} finally {
 			rmSync(fixtureDir, { force: true, recursive: true });
 		}
@@ -282,7 +277,7 @@ describe("architect observer", () => {
 			db.close();
 		}
 		try {
-			expect(readArchitectSnapshot(controlDbPath, 0).sessions).toEqual([
+			expect(readArchitectSnapshot(controlDbPath).sessions).toEqual([
 				expect.objectContaining({ id: "current-main" }),
 				expect.objectContaining({ id: "other-main" }),
 			]);
@@ -294,35 +289,23 @@ describe("architect observer", () => {
 	it("does not create a control database when it has not been initialized", () => {
 		const controlDbPath = join(tmpdir(), `pi-architect-missing-${crypto.randomUUID()}.sqlite`);
 
-		expect(readArchitectSnapshot(controlDbPath, 0)).toEqual({ messages: [], sessions: [] });
+		expect(readArchitectSnapshot(controlDbPath)).toEqual({ requests: [], sessions: [] });
 		expect(existsSync(controlDbPath)).toBe(false);
 	});
 
-	it("starts after the shared-channel tail instead of replaying history", () => {
-		const cursors: number[] = [];
-		const observer = new ArchitectObserver("/unused", (lastChannelMessageId) => {
-			cursors.push(lastChannelMessageId);
-			return {
-				lastChannelMessageId: 77,
-				messages: [{ body: "Architect: historical request", id: 20, senderAgentId: null, senderSessionId: "main" }],
-				sessions: [session],
-			};
-		});
-
-		observer.observe();
-		observer.observe();
-
-		expect(cursors).toEqual([0, 77]);
-	});
-
-	it("does not treat channel history as a new architect request", () => {
+	it("reads pending requests on every observation without a cursor", () => {
 		const reads = [
+			{ requests: [], sessions: [session] },
 			{
-				messages: [{ body: "Architect: old request", id: 3, senderAgentId: null, senderSessionId: "main" }],
-				sessions: [session],
-			},
-			{
-				messages: [{ body: "Architect: new request", id: 4, senderAgentId: null, senderSessionId: "main" }],
+				requests: [
+					{
+						body: "Architect: new request",
+						createdAt: "2026-07-10T00:00:00.000Z",
+						id: 4,
+						senderSessionId: "main",
+						status: "pending" as const,
+					},
+				],
 				sessions: [session],
 			},
 		];

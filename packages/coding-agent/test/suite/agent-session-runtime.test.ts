@@ -296,7 +296,7 @@ describe("AgentSessionRuntime characterization", () => {
 			expect(listSessions(controlDbPath, { includeEnded: false }).map((session) => session.sessionId)).toEqual([
 				runtime.session.sessionId,
 			]);
-			expect(readArchitectSnapshot(controlDbPath, 0).sessions.map((session) => session.id)).toEqual([
+			expect(readArchitectSnapshot(controlDbPath).sessions.map((session) => session.id)).toEqual([
 				runtime.session.sessionId,
 			]);
 		} finally {
