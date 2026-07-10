@@ -21,10 +21,15 @@ describe("resident architect service", () => {
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not call list_sessions");
 	});
 
-	it("does not equate completed goals with ended sessions", () => {
+	it("anchors liveness to prefiltered snapshot membership instead of goal fields", () => {
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain(
 			"Goal completion does not end a live session or require it to disappear from observations.",
 		);
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Treat completedAt only as goal state.");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain(
+			"The bounded sessions list already represents main-listener and fresh-health filtering.",
+		);
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Use session membership, never goal fields, as liveness evidence.");
 	});
 
 	it("uses the read-only Bubblewrap profile", () => {

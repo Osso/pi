@@ -59,7 +59,7 @@
 - Fixed multi-agent restart recovery to abort detached spawned children instead of preserving active ghosts, restricted orchestration and supervisor-wide reconciliation to main runtimes, prevented in-process children from replacing the same-PID supervisor listener, and made `wait_agent` reject detached background metadata while retaining live Bash/Pyrun waits.
 - Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.
 - Fixed Resident Architect snapshots to retain only the current main session per live Pi process without expiring long-running sessions or replaying historical/subagent session inventories.
-- Fixed Resident Architect advice from treating a completed goal as a terminated session; `completedAt` is goal state only, while listener and health evidence determine session liveness.
+- Fixed Resident Architect advice from treating a completed goal as a terminated session; `completedAt` is goal state only, and the model uses membership in its listener/health-prefiltered snapshot rather than goal fields as liveness evidence.
 - Fixed shared-channel catch-up to batch all unread deliverable posts in order into one agent turn and retain them when batch delivery fails.
 - Fixed shared-channel delivery to ignore and mark seen posts from subagent senders, preventing stale subagent processes from flooding main sessions.
 - Fixed `pi -r` and `/resume` to hide sessions that have no messages.

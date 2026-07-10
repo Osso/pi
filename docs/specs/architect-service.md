@@ -8,12 +8,15 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Observation
 
-- [x] Poll a bounded snapshot containing only currently bound non-subagent main sessions, one per
-      live Pi process, deduplicated by session identity and excluding the Architect itself, every
-      30 seconds without prompting the model when state is unchanged. Historical same-PID sessions
-      must not appear in either Architect or global session inventory.
+- [x] Poll a bounded sessions snapshot already prefiltered to non-subagent main sessions with a
+      current main listener and matching fresh `ok` health, one per live Pi process, deduplicated
+      by session identity and excluding the Architect itself, every 30 seconds without prompting
+      the model when state is unchanged. The model receives no raw listener or health fields.
+      Historical same-PID sessions must not appear in either Architect or global session inventory.
 - [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel request beginning `Architect:`.
-- [x] Treat `goal_json.completedAt` as completed-goal state only, not session termination; infer a session disappearance only from its listener/health evidence.
+- [x] Treat `goal_json.completedAt` as completed-goal state only, not session termination. The
+      model uses membership in the prefiltered sessions snapshot, never goal fields, as its only
+      liveness evidence.
 - [x] Ignore subagent and Architect-originated channel posts as architect requests.
 - [x] Open observer state through SQLite read-only access without applying writer-oriented database configuration.
 
