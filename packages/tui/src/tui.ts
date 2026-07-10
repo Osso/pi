@@ -702,6 +702,8 @@ export class TUI extends Container {
 			clearTimeout(this.renderTimer);
 			this.renderTimer = undefined;
 		}
+		this.renderRequested = false;
+		this.forceRenderRequested = true;
 		if (this.focusReportingEnabled) {
 			this.terminal.write(DISABLE_TERMINAL_FOCUS_REPORTING);
 			this.focusReportingEnabled = false;

@@ -301,7 +301,7 @@ describe("InteractiveMode streaming render throttling", () => {
 	test("invalidates footer data after deferred bash messages enter session context", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const event = {
-			type: "bash_messages_flushed",
+			type: "bash_messages_committed",
 			messages: [{ role: "bashExecution", excludeFromContext: false }],
 		} as unknown as AgentSessionEvent;
 
@@ -313,7 +313,7 @@ describe("InteractiveMode streaming render throttling", () => {
 	test("keeps footer cache when flushed bash messages are excluded from context", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const event = {
-			type: "bash_messages_flushed",
+			type: "bash_messages_committed",
 			messages: [{ role: "bashExecution", excludeFromContext: true }],
 		} as unknown as AgentSessionEvent;
 

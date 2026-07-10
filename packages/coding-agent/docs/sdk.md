@@ -319,8 +319,8 @@ session.subscribe((event) => {
     case "queue_update":
       console.log(event.steering, event.followUp);
       break;
-    case "bash_messages_flushed":
-      // Deferred bash messages are now in session state
+    case "bash_messages_committed":
+      // Idle or deferred bash messages are now in session state
       break;
     case "compaction_start":
     case "compaction_end":

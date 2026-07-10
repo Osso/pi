@@ -19,9 +19,18 @@ describe("AgentSession bash and persistence characterization", () => {
 		}
 	});
 
-	it("records bash results immediately while idle", async () => {
+	it("records bash results immediately while idle and emits after committing them", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
+		const committedBatches: Array<readonly { command: string }[]> = [];
+		harness.session.subscribe((event) => {
+			const eventType: string = event.type;
+			if (eventType === "bash_messages_committed") {
+				const committedEvent = event as unknown as { messages: readonly { command: string }[] };
+				expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("bashExecution");
+				committedBatches.push(committedEvent.messages);
+			}
+		});
 
 		harness.session.recordBashResult("echo hi", {
 			output: "hi",
@@ -33,6 +42,7 @@ describe("AgentSession bash and persistence characterization", () => {
 		expect(harness.session.hasPendingBashMessages).toBe(false);
 		expect(harness.session.messages[harness.session.messages.length - 1]?.role).toBe("bashExecution");
 		expect(getEntryTypes(harness)).toContain("message");
+		expect(committedBatches.map((batch) => batch.map((message) => message.command))).toEqual([["echo hi"]]);
 	});
 
 	it("defers bash results while streaming and flushes them before the next prompt", async () => {
@@ -61,15 +71,15 @@ describe("AgentSession bash and persistence characterization", () => {
 			fauxAssistantMessage("after flush"),
 		]);
 
-		const flushedBatches: Array<readonly { excludeFromContext?: boolean }[]> = [];
+		const committedBatches: Array<readonly { excludeFromContext?: boolean }[]> = [];
 		harness.session.subscribe((event) => {
 			const eventType: string = event.type;
-			if (eventType === "bash_messages_flushed") {
-				const flushedEvent = event as unknown as {
+			if (eventType === "bash_messages_committed") {
+				const committedEvent = event as unknown as {
 					messages: readonly { excludeFromContext?: boolean }[];
 				};
 				expect(harness.session.messages.filter((message) => message.role === "bashExecution")).toHaveLength(2);
-				flushedBatches.push(flushedEvent.messages);
+				committedBatches.push(committedEvent.messages);
 			}
 		});
 
@@ -103,15 +113,15 @@ describe("AgentSession bash and persistence characterization", () => {
 
 		expect(harness.session.hasPendingBashMessages).toBe(true);
 		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(false);
-		expect(flushedBatches).toEqual([]);
+		expect(committedBatches).toEqual([]);
 
 		releaseToolExecution?.();
 		await firstPrompt;
 
 		expect(harness.session.hasPendingBashMessages).toBe(false);
 		expect(harness.session.messages.filter((message) => message.role === "bashExecution")).toHaveLength(2);
-		expect(flushedBatches).toHaveLength(1);
-		expect(flushedBatches[0]?.map((message) => message.excludeFromContext)).toEqual([undefined, true]);
+		expect(committedBatches).toHaveLength(1);
+		expect(committedBatches[0]?.map((message) => message.excludeFromContext)).toEqual([undefined, true]);
 
 		await harness.session.prompt("next turn");
 

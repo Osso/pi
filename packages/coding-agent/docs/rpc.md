@@ -466,7 +466,7 @@ If output was truncated, includes `fullOutputPath`:
 
 **How bash results reach the LLM:**
 
-The `bash` command executes immediately and returns a `BashResult`. Internally, a `BashExecutionMessage` is created and stored in the agent's message state. Idle bash commands do not emit a dedicated bash event; commands run while the session is streaming are deferred and emit `bash_messages_flushed` when they enter session state.
+The `bash` command executes immediately and returns a `BashResult`. Internally, a `BashExecutionMessage` is created and stored in the agent's message state. Idle commands emit `bash_messages_committed` immediately after storage; commands run while the session is streaming are deferred and emit the same event when they enter session state.
 
 When the next `prompt` command is sent, all messages (including `BashExecutionMessage`) are transformed before being sent to the LLM. The `BashExecutionMessage` is converted to a `UserMessage` with this format:
 
@@ -481,7 +481,7 @@ drwxr-xr-x ...
 This means:
 1. Bash output is included in the LLM context on the **next prompt**, not immediately
 2. Multiple bash commands can be executed before a prompt; all outputs will be included
-3. Deferred bash messages emit `bash_messages_flushed` when they enter session state
+3. Bash messages emit `bash_messages_committed` after they enter session state
 
 #### abort_bash
 
@@ -818,7 +818,7 @@ Events are streamed to stdout as JSON lines during agent operation. Events do NO
 | `tool_execution_update` | Tool execution progress (streaming output) |
 | `tool_execution_end` | Tool completes |
 | `queue_update` | Pending steering/follow-up queue changed |
-| `bash_messages_flushed` | Deferred bash messages appended to session state |
+| `bash_messages_committed` | Idle or deferred bash messages appended to session state |
 | `compaction_start` | Compaction begins |
 | `compaction_end` | Compaction completes |
 | `auto_retry_start` | Auto-retry begins (after transient error) |
@@ -968,13 +968,13 @@ Emitted whenever the pending steering or follow-up queue changes.
 }
 ```
 
-### bash_messages_flushed
+### bash_messages_committed
 
-Emitted after deferred bash execution messages are appended to agent state and session storage.
+Emitted after idle or deferred bash execution messages are appended to agent state and session storage.
 
 ```json
 {
-  "type": "bash_messages_flushed",
+  "type": "bash_messages_committed",
   "messages": [{
     "role": "bashExecution",
     "command": "ls -la",

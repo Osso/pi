@@ -108,6 +108,27 @@ describe("TUI terminal focus", () => {
 		tui.stop();
 	});
 
+	it("renders pending unfocused state after stop and restart", async () => {
+		const terminal = new VirtualTerminal();
+		const tui = new TUI(terminal);
+		const component = new MutableComponent();
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+		const initialRenderCount = component.renderCount;
+
+		terminal.sendInput(FOCUS_OUT);
+		component.lines = ["updated while hidden"];
+		tui.requestRender();
+		tui.stop();
+		tui.start();
+		await terminal.waitForRender();
+
+		assert.equal(component.renderCount, initialRenderCount + 1, "restart should render pending hidden state");
+		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 1), ["updated while hidden"]);
+		tui.stop();
+	});
+
 	it("consumes focus events instead of forwarding them to the focused component", async () => {
 		const terminal = new VirtualTerminal();
 		const tui = new TUI(terminal);
