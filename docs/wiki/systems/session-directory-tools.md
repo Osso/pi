@@ -35,8 +35,8 @@ owned by a replacement process.
    `abortInactiveSessionSpawnedAgents()`. It changes active spawned rows in stores with exact
    `session_metadata` and either explicitly ended `session_health.pid = NULL` or a non-current
    duplicate metadata path for the same session ID. The caller's exact current path is protected;
-   attached, queued, terminal, missing-health, and current live rows remain unchanged, so repeated
-   calls are idempotent.
+   attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
+   rows remain unchanged, so repeated calls are idempotent.
 7. Exclude every ended row when `includeEnded` is `false`.
 
 `broadcast` selects recipients from the same reconciled current-binding inventory. Resident
