@@ -10,10 +10,12 @@ import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 
 interface PyrunEvalParams {
 	code: string;
@@ -86,6 +88,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	const switchedSessions: string[] = [];
 
 	const pi = {
+		on() {},
 		callCommand: options.callCommand ?? (async () => undefined),
 		callTool: options.callTool ?? (async () => ({ content: [], details: undefined })),
 		getCommands: () => [{ name: "usage", source: "extension" }],
@@ -596,6 +599,39 @@ describe("pyrun extension", () => {
 			expect(result.details.value).toBe(false);
 		} finally {
 			runner.dispose();
+		}
+	});
+
+	it("runs Pyrun inside bwrap without host environment or Pi bridge access", async () => {
+		const previousPythonPath = process.env.PYTHONPATH;
+		const previousSecret = process.env.PI_TEST_SECRET;
+		process.env.PYTHONPATH = "/home/osso";
+		process.env.PI_TEST_SECRET = "host-secret";
+		const fakeBwrap = writeFakeBwrap(tempDir);
+		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "read-only" });
+		const harness = createPyrunHarness({ bwrapCommand: fakeBwrap.command } as PyrunHarnessOptions);
+		try {
+			const bridge = await harness.evaluate({ code: "bridge.enabled" }, undefined, undefined, {
+				cwd: tempDir,
+				settingsManager,
+			});
+			const secret = await harness.evaluate({ code: "env.secret" }, undefined, undefined, {
+				cwd: tempDir,
+				settingsManager,
+			});
+
+			expect(bridge.details.value).toBe(false);
+			expect(secret.details.value).toBeNull();
+			const invocation = JSON.parse(readFileSync(fakeBwrap.logPath, "utf8")) as string[];
+			expect(invocation).toContain("--ro-bind");
+			expect(invocation).toContain(tempDir);
+			expect(invocation).not.toEqual(expect.arrayContaining(["--setenv", "PYTHONPATH", "/home/osso"]));
+			expect(invocation).not.toEqual(expect.arrayContaining(["--ro-bind", "/home/osso", "/home/osso"]));
+		} finally {
+			if (previousPythonPath === undefined) delete process.env.PYTHONPATH;
+			else process.env.PYTHONPATH = previousPythonPath;
+			if (previousSecret === undefined) delete process.env.PI_TEST_SECRET;
+			else process.env.PI_TEST_SECRET = previousSecret;
 		}
 	});
 

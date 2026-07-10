@@ -55,6 +55,8 @@ interface PendingRequest {
 export interface HostrunRunnerOptions {
 	args?: string[];
 	command?: string;
+	env?: NodeJS.ProcessEnv;
+	inheritEnv?: boolean;
 }
 
 export interface HostrunRunnerResolutionOptions {
@@ -74,9 +76,11 @@ function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	return parsed;
 }
 
+type ResolvedHostrunRunnerOptions = Required<Omit<HostrunRunnerOptions, "env" | "inheritEnv">>;
+
 export function resolveHostrunRunnerOptions(
 	resolution: HostrunRunnerResolutionOptions = {},
-): Required<HostrunRunnerOptions> {
+): ResolvedHostrunRunnerOptions {
 	const env = resolution.env ?? process.env;
 	const exists = resolution.exists ?? existsSync;
 	const homeDir = resolution.homeDir ?? homedir();
@@ -159,7 +163,10 @@ export class HostrunRunnerClient {
 			return this.process;
 		}
 		const options = { ...resolveHostrunRunnerOptions(), ...this.options };
-		const child = spawn(options.command, options.args, { stdio: ["pipe", "pipe", "pipe"] });
+		const child = spawn(options.command, options.args, {
+			env: options.inheritEnv === false ? (options.env ?? {}) : { ...process.env, ...options.env },
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 		this.process = child;
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");

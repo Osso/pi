@@ -29,7 +29,6 @@ import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import docsTreeContextExtension from "../extensions/docs-tree-context/src/index.ts";
 import effortExtension from "../extensions/effort/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
-import hostrunExtension from "../extensions/hostrun/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
 import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
@@ -617,7 +616,6 @@ function createFirstPartyExtensionFactories(
 		),
 		firstPartyExtensionFactory("effort", effortExtension),
 		firstPartyExtensionFactory("goal", goalExtension),
-		firstPartyExtensionFactory("hostrun", (pi) => hostrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		firstPartyExtensionFactory("pyrun", (pi) => pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
 		firstPartyExtensionFactory("loop", loopExtension),

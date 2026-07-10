@@ -11,11 +11,17 @@ import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/
 import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import { resolvePath } from "../../../src/utils/paths.ts";
+import {
+	createBwrapRunnerCommand,
+	createBwrapRunnerEnvironment,
+	resolveBwrapSandboxProfile,
+} from "../../bwrap/src/backend.ts";
 import { createPyrunEvalExecutor, type PyrunEvalParams, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
 import {
 	PyrunRunnerClient,
 	type CanonicalPyrunEvalResult,
 	type CanonicalPyrunProgressUpdate,
+	resolvePyrunRunnerOptions,
 } from "./runner.ts";
 
 export interface PyrunBackgroundJobsOptions {
@@ -24,6 +30,7 @@ export interface PyrunBackgroundJobsOptions {
 
 export interface PyrunExtensionOptions {
 	backgroundJobs?: PyrunBackgroundJobsOptions;
+	bwrapCommand?: string;
 	detachRegistry?: ToolDetachRegistry;
 	piRequestHandlers?: PyrunPiRequestDispatcher[];
 }
@@ -38,6 +45,7 @@ type PyrunEvaluate = ReturnType<typeof createPyrunEvalExecutor>;
 
 interface PyrunExecutorState {
 	evaluate: PyrunEvaluate;
+	key: string;
 	runner: PyrunRunnerClient;
 }
 
@@ -78,6 +86,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.commands.list() to list slash commands and pi.commands.run(name, args=\"\") to run registered slash commands from Pyrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait(...) is synchronization-only and returns no agent output.",
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
+	"When a bwrap sandbox profile is active, Pyrun executes inside that sandbox and Pi bridge helpers are unavailable.",
 	"run.<program>(*args) executes immediately, sends stdout/stderr to the tool output by default, and returns ONLY the exit code (int). Example: `exit_code = run.git('status')`.",
 	"cli.<program>(*args) returns a CommandBuilder, which supports chaining and whose `.run()` returns a full CommandResult. Use cli.* when stdout/stderr must be inspected. Example: `result = cli.git('status').run(); print(result.stdout)`.",
 	"Use tools.ssh({ host, user, port, password }) for SSH commands that need password auth; it wraps sshpass automatically.",
@@ -244,9 +253,33 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	return findUniqueSessionMatch(sessions, `id '${id}'`, (session) => session.id.startsWith(id)).path;
 }
 
-function createPyrunExecutorState(dispatchPiRequest: PyrunPiRequestDispatcher): PyrunExecutorState {
-	const runner = new PyrunRunnerClient();
-	return { evaluate: createPyrunEvalExecutor(runner, dispatchPiRequest), runner };
+function createPyrunExecutorState(
+	ctx: ExtensionContext,
+	dispatchPiRequest: PyrunPiRequestDispatcher,
+	bwrapCommand: string,
+): PyrunExecutorState {
+	const profile = resolveBwrapSandboxProfile(ctx.settingsManager?.getExplicitSandboxProfile() ?? "full-access");
+	const key = `${profile ?? "full-access"}\0${ctx.cwd}`;
+	if (!profile) {
+		const runner = new PyrunRunnerClient();
+		return { evaluate: createPyrunEvalExecutor(runner, dispatchPiRequest), key, runner };
+	}
+
+	const resolvedRunner = resolvePyrunRunnerOptions();
+	const wrappedRunner = createBwrapRunnerCommand({
+		bwrapCommand,
+		cwd: ctx.cwd,
+		profile,
+		runnerArgs: resolvedRunner.args,
+		runnerCommand: resolvedRunner.command,
+		runnerEnv: createBwrapRunnerEnvironment(process.env, resolvedRunner.env.PYTHONPATH),
+	});
+	const runner = new PyrunRunnerClient({ ...wrappedRunner, inheritEnv: false });
+	return {
+		evaluate: createPyrunEvalExecutor(runner, undefined, { enablePiBridge: false }),
+		key,
+		runner,
+	};
 }
 
 export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
@@ -632,13 +665,26 @@ export function createPyrunToolDefinition(
 
 export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
 	const dispatchPiRequest = createPyrunPiDispatcher(pi, options);
-	let executor = createPyrunExecutorState(dispatchPiRequest);
+	const bwrapCommand = options.bwrapCommand ?? process.env.PI_BWRAP_COMMAND ?? "bwrap";
+	let executorState: PyrunExecutorState | undefined;
+	const executorFor = (ctx: ExtensionContext): PyrunExecutorState => {
+		const profile = resolveBwrapSandboxProfile(ctx.settingsManager?.getExplicitSandboxProfile() ?? "full-access");
+		const key = `${profile ?? "full-access"}\0${ctx.cwd}`;
+		if (executorState?.key === key) return executorState;
+		executorState?.runner.dispose();
+		executorState = createPyrunExecutorState(ctx, dispatchPiRequest, bwrapCommand);
+		return executorState;
+	};
+	pi.on("session_shutdown", () => {
+		executorState?.runner.dispose();
+		executorState = undefined;
+	});
 
 	pi.registerTool(
 		createPyrunToolDefinition(async (params, ctx, onUpdate, signal) => {
 			const store = options.backgroundJobs?.store ?? ctx.multiAgentStore;
 			const detachRegistry = options.detachRegistry ?? ctx.toolDetachRegistry;
-			const activeExecutor = executor;
+			const activeExecutor = executorFor(ctx);
 			const typedOnUpdate = onUpdate as
 				| ((partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void)
 				| undefined;
@@ -651,9 +697,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 				ctx,
 				onBackgroundSettled: () => activeExecutor.runner.dispose(),
 				onDetached: () => {
-					if (executor === activeExecutor) {
-						executor = createPyrunExecutorState(dispatchPiRequest);
-					}
+					if (executorState === activeExecutor) executorState = undefined;
 				},
 				onUpdate: typedOnUpdate,
 				params,

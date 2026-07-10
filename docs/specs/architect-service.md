@@ -22,7 +22,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Advice
 
-- [x] Keep the standard Pi tool set available while the `read-only` bwrap profile routes file and shell workers through Bubblewrap; `hostrun_eval` and `pyrun_eval` are blocked rather than sandboxed.
+- [x] Keep the standard Pi tool set available while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled; Hostrun is opt-in and uses the same runner mode when loaded.
 - [x] Send only evidence-backed drift, conflict, or blocker advice to the affected session through targeted `broadcast`; block global `channel_post` fanout.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 
@@ -41,7 +41,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 - `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, current-main-session control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy and structured observation prompt.
-- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the read-only bwrap profile.
+- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the read-only bwrap profile and sandboxed Pyrun runner.
 - `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed binary.
 - `deploy.sh` — compiled binary installation and systemd unit deployment.
 
@@ -65,4 +65,4 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - Discarding an explicit `Architect:` shared-channel request solely because its sender exits before the next observer cycle. Requests are durable event inputs; the current session snapshot remains the model's liveness evidence.
 - Task dispatch, autonomous code changes, process/session control, or automatic remediation.
 - Reading full agent transcripts on routine observations.
-- Sandboxed Hostrun or Pyrun execution; bwrap currently blocks `hostrun_eval` and `pyrun_eval` under sandbox-required profiles rather than routing either runtime through Bubblewrap.
+- Pi bridge capabilities for sandboxed runtimes. They are deliberately disabled.

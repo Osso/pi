@@ -1,6 +1,6 @@
 # Hostrun
 
-Module boundary: first-party extension module (`packages/coding-agent/extensions/hostrun/`) that adapts the canonical Hostrun repo; Pi must not own the runtime.
+Module boundary: opt-in extension module (`packages/coding-agent/extensions/hostrun/`) that adapts the canonical Hostrun repo; Pi must not own the runtime.
 
 Hostrun is a stateful JavaScript host-execution runtime owned by the standalone
 `https://github.com/Osso/hostrun` repository, with local source at
@@ -27,7 +27,8 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 ### Extension registration
 
 - [x] Register `hostrun_eval` through `pi.registerTool` with required `code`
-  and optional `session_id` parameters.
+  and optional `session_id` parameters when the user explicitly loads the Hostrun extension.
+- [x] Do not default-load Hostrun as a first-party extension.
 - [x] Require Pi wrapper approval before delegating `hostrun_eval` to the
   canonical runner.
 - [x] Provide model-facing instructions that identify Hostrun as synchronous,
@@ -65,6 +66,11 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
   highlighting in the interactive tool row while execution is still pending,
   even when provider tool-call arguments are not available to the pending call
   renderer.
+- [x] When an explicit bwrap `read-only` or `workspace-write` profile is active,
+  start the canonical runner through the shared bwrap backend with filtered
+  environment, fake HOME, and workspace-only mount access.
+- [x] Disable the Pi capability snapshot and JSONL Pi bridge for sandboxed
+  Hostrun; retain both for unsandboxed execution.
 
 ## How it works
 
@@ -79,7 +85,10 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 - `packages/coding-agent/extensions/hostrun/src/eval-tool.ts` — maps Pi tool
   calls to runner requests and formats model-visible results.
 - `packages/coding-agent/extensions/hostrun/src/runner.ts` — persistent JSONL
-  client for the canonical Hostrun runner process.
+  client for the canonical Hostrun runner process, including supplied sanitized
+  environment support for bwrap-launched runners.
+- `packages/coding-agent/extensions/bwrap/src/backend.ts` — shared bwrap runner
+  command builder used when a sandbox-required profile is active.
 - `packages/coding-agent/extensions/hostrun/README.md` — adapter boundary and
   local runner configuration.
 - `packages/coding-agent/extensions/hostrun/package.json` — adapter package
@@ -88,8 +97,8 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/hostrun-extension.test.ts` — tool registration,
-  runner delegation, default runner resolution, session persistence at the runner boundary, and
-  canonical Hostrun result/update shapes.
+  runner delegation, default runner resolution, session persistence at the runner boundary,
+  canonical Hostrun result/update shapes, sandboxed runner invocation, and disabled sandbox Pi bridge.
 - `packages/coding-agent/test/hostrun-adapter-package.test.ts` — package
   boundary checks proving Pi does not publish `hostrun-mcp` or depend on
   QuickJS.
@@ -106,6 +115,7 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
 
 ## Out of scope
 
+- Default-loading Hostrun or providing it when the user has not explicitly loaded its extension.
 - Reimplementing Hostrun helpers, parsers, process management, filesystem
   behavior, HTTP behavior, or approval request generation in Pi.
 - Owning Hostrun's MCP server from Pi.

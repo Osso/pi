@@ -23,9 +23,9 @@ The service requires the `openai-codex/gpt-5.6-sol` model. Its system prompt per
 
 ## Tool isolation
 
-The service uses in-memory settings with `sandboxProfile: "read-only"` and loads the bwrap extension. Apart from the disabled Hostrun and Pyrun runtime tools, Pi retains its standard tools while the bwrap extension routes file-tool workers and `bash`/`user_bash` worker processes through Bubblewrap with the workspace mounted read-only. Enabled host-side extension tools and hooks remain trusted capabilities outside that selected worker-routing boundary. See [bwrap-sandbox.md](bwrap-sandbox.md) for mount and environment details.
+The service uses in-memory settings with `sandboxProfile: "read-only"` and loads the bwrap and default Pyrun extensions. Pi retains its standard tools while the bwrap extension routes file-tool workers, `bash`/`user_bash`, and Pyrun's runner process through Bubblewrap with the workspace mounted read-only. Pyrun is available in this mode, but its Pi bridge is disabled: it receives no Pi capability snapshot and cannot make bridge requests. Hostrun is not default-loaded; if an Architect configuration explicitly loads it, its runner uses the same bwrap path with its Pi bridge disabled.
 
-`hostrun_eval` and `pyrun_eval` are intentionally unavailable in this mode. The bwrap extension blocks both with a tool gate because neither runtime yet shares the Bubblewrap worker runner. The service must not describe either runtime as a sandboxed worker.
+Enabled host-side extension tools and hooks remain trusted capabilities outside that selected worker-routing boundary. This is not a confidentiality boundary against the trusted Architect or trusted enabled extensions. It limits selected worker filesystem/process access and prevents sandboxed runtimes from using Pi bridge capabilities. See [bwrap-sandbox.md](bwrap-sandbox.md) for mount and environment details.
 
 ## Deployment
 

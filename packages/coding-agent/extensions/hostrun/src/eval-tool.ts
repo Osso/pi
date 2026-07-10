@@ -99,21 +99,36 @@ function createPiCapabilitySnapshot(ctx: HostrunEvalContext): HostrunPiCapabilit
 	};
 }
 
-export function createHostrunEvalExecutor(runner: HostrunRunnerClient, dispatchPiRequest?: HostrunPiRequestDispatcher) {
+export interface HostrunEvalExecutorOptions {
+	enablePiBridge?: boolean;
+}
+
+export function createHostrunEvalExecutor(
+	runner: HostrunRunnerClient,
+	dispatchPiRequest?: HostrunPiRequestDispatcher,
+	options: HostrunEvalExecutorOptions = {},
+) {
 	return async (
 		params: HostrunEvalParams,
 		ctx: ExtensionContext,
 		onUpdate?: (partialResult: AgentToolResult<CanonicalHostrunEvalResult | CanonicalHostrunProgressUpdate>) => void,
 		signal?: AbortSignal,
 	): Promise<AgentToolResult<CanonicalHostrunEvalResult>> => {
-		const onPiRequest: HostrunPiRequestHandler = async (request) => {
-			if (!dispatchPiRequest) {
-				throw new Error(`Pi capability is unavailable: ${request.method}`);
-			}
-			return dispatchPiRequest(request, ctx, signal);
-		};
+		const piBridgeEnabled = options.enablePiBridge ?? true;
+		const onPiRequest: HostrunPiRequestHandler | undefined = piBridgeEnabled
+			? async (request) => {
+					if (!dispatchPiRequest) {
+						throw new Error(`Pi capability is unavailable: ${request.method}`);
+					}
+					return dispatchPiRequest(request, ctx, signal);
+				}
+			: undefined;
 		const result = await runner.evaluate(
-			{ ...params, pi: createPiCapabilitySnapshot(ctx), pi_bridge: true },
+			{
+				...params,
+				pi: piBridgeEnabled ? createPiCapabilitySnapshot(ctx) : undefined,
+				pi_bridge: piBridgeEnabled,
+			},
 			(update) => {
 				onUpdate?.({
 					content: [{ type: "text", text: formatProgressText(update) }],

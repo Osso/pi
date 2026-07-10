@@ -91,7 +91,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).toContain("hostrun");
+		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -100,34 +100,31 @@ describe("runtime inventory CLI", () => {
 	});
 
 	it("skips first-party extensions disabled in settings", async () => {
-		const result = await runCli(["extensions"], { globalSettings: { disabledExtensions: ["hostrun"] } });
+		const result = await runCli(["extensions"], { globalSettings: { disabledExtensions: ["goal"] } });
 
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
-		expect(result.stdout).toContain("goal");
-		expect(result.stdout).not.toContain("hostrun");
+		expect(result.stdout).not.toContain("goal");
 	});
 
 	it("skips first-party extensions disabled by trusted project settings", async () => {
 		const result = await runCli(["extensions", "--approve"], {
-			projectSettings: { disabledExtensions: ["hostrun"] },
+			projectSettings: { disabledExtensions: ["goal"] },
 		});
 
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
-		expect(result.stdout).toContain("goal");
-		expect(result.stdout).not.toContain("hostrun");
+		expect(result.stdout).not.toContain("goal");
 	});
 
 	it("hides tools from first-party extensions disabled in settings", async () => {
-		const result = await runCli(["tools"], { globalSettings: { disabledExtensions: ["hostrun"] } });
+		const result = await runCli(["tools"], { globalSettings: { disabledExtensions: ["goal"] } });
 
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
-		expect(result.stdout).not.toContain("hostrun_eval");
-		expect(result.stdout).toContain("manage_goal");
+		expect(result.stdout).not.toContain("manage_goal");
 		expect(result.stdout).not.toContain("set_goal");
 		expect(result.stdout).not.toContain("pause_goal");
 		expect(result.stdout).not.toContain("goal_complete");
@@ -140,7 +137,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).toContain("hostrun");
+		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -156,7 +153,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).toContain("hostrun");
+		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -171,7 +168,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).toContain("hostrun");
+		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -187,7 +184,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toMatch(/^yes\s+find\s+first-party\s+/m);
 		expect(result.stdout).toMatch(/^yes\s+grep\s+first-party\s+/m);
-		expect(result.stdout).toContain("hostrun_eval");
+		expect(result.stdout).not.toContain("hostrun_eval");
 		expect(result.stdout).toMatch(/^yes\s+ls\s+first-party\s+/m);
 		expect(result.stdout).toContain("manage_goal");
 		expect(result.stdout).not.toContain("set_goal");

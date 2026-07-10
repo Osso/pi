@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -8,9 +8,11 @@ import hostrunExtension, { type HostrunExtensionOptions } from "../extensions/ho
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 
 interface HostrunEvalParams {
 	code: string;
@@ -77,6 +79,7 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 	const restartRequests: unknown[] = [];
 
 	const pi = {
+		on() {},
 		registerTool(tool: ToolDefinition) {
 			if (tool.name === "hostrun_eval") {
 				hostrunDefinition = tool;
@@ -140,7 +143,12 @@ function createHostrunHarness(options: HostrunExtensionOptions = {}) {
 			params: HostrunEvalParams,
 			onUpdate?: (result: AgentToolResult<HostrunEvalDetails | HostrunProgressDetails>) => void,
 			signal?: AbortSignal,
-		) => registeredHostrunTool.execute("hostrun-test-call", params, signal, onUpdate, ctx),
+			contextOverrides: Record<string, unknown> = {},
+		) =>
+			registeredHostrunTool.execute("hostrun-test-call", params, signal, onUpdate, {
+				...ctx,
+				...contextOverrides,
+			} as ExtensionContext),
 	};
 }
 
@@ -175,6 +183,12 @@ async function readNextLine() {
 
 async function resultFor(request) {
   const sessionId = request.session_id ?? "default";
+  if (request.code === "env.secret") {
+    return { type: "completed", executed: request.code, value: process.env.PI_TEST_SECRET ?? null };
+  }
+  if (request.code === "bridge.enabled") {
+    return { type: "completed", executed: request.code, value: request.pi_bridge === true };
+  }
   if (request.code === "ctx.count = 41; ctx.count;") {
     sessionValues.set(sessionId, 41);
     return { type: "completed", executed: request.code, value: 41 };
@@ -413,6 +427,39 @@ describe("hostrun extension", () => {
 		expect(rendered).toContain("run.fails()");
 		expect(rendered).toContain("Error: Hostrun runner failed: error");
 		expect(rendered).not.toMatch(/^hostrun_eval\s+error$/);
+	});
+
+	it("runs Hostrun inside bwrap without host environment or Pi bridge access", async () => {
+		const previousPythonPath = process.env.PYTHONPATH;
+		const previousSecret = process.env.PI_TEST_SECRET;
+		process.env.PYTHONPATH = "/home/osso";
+		process.env.PI_TEST_SECRET = "host-secret";
+		const fakeBwrap = writeFakeBwrap(tempDir);
+		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "workspace-write" });
+		const harness = createHostrunHarness({ bwrapCommand: fakeBwrap.command } as HostrunExtensionOptions);
+		try {
+			const bridge = await harness.evaluate({ code: "bridge.enabled" }, undefined, undefined, {
+				cwd: tempDir,
+				settingsManager,
+			});
+			const secret = await harness.evaluate({ code: "env.secret" }, undefined, undefined, {
+				cwd: tempDir,
+				settingsManager,
+			});
+
+			expect(bridge.details.value).toBe(false);
+			expect(secret.details.value).toBeNull();
+			const invocation = JSON.parse(readFileSync(fakeBwrap.logPath, "utf8")) as string[];
+			expect(invocation).toContain("--bind");
+			expect(invocation).toContain(tempDir);
+			expect(invocation).not.toEqual(expect.arrayContaining(["--setenv", "PYTHONPATH", "/home/osso"]));
+			expect(invocation).not.toEqual(expect.arrayContaining(["--ro-bind", "/home/osso", "/home/osso"]));
+		} finally {
+			if (previousPythonPath === undefined) delete process.env.PYTHONPATH;
+			else process.env.PYTHONPATH = previousPythonPath;
+			if (previousSecret === undefined) delete process.env.PI_TEST_SECRET;
+			else process.env.PI_TEST_SECRET = previousSecret;
+		}
 	});
 
 	it("uses the installed cargo hostrun-jsonl when local debug runner is missing", () => {

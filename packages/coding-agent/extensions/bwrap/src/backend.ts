@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { BashOperations } from "../../../src/index.ts";
 import { createLocalBashOperations } from "../../../src/index.ts";
 import type { SandboxProfileName } from "../../../src/core/permissions/presets.ts";
@@ -56,18 +56,10 @@ export function buildBwrapInvocation(options: BwrapInvocationOptions): BwrapInvo
 	argv.push("--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--dir", SANDBOX_HOME);
 
 	for (const readOnlyPath of options.extraReadOnlyPaths ?? []) {
-		const resolvedReadOnlyPath = resolve(readOnlyPath);
-		if (existsSync(resolvedReadOnlyPath) && resolvedReadOnlyPath !== cwd) {
-			for (const parent of parentDirectories(resolvedReadOnlyPath)) argv.push("--dir", parent);
-			argv.push("--ro-bind", resolvedReadOnlyPath, resolvedReadOnlyPath);
-		}
+		appendReadOnlyMount(argv, readOnlyPath, cwd);
 	}
 
-	if (existsSync(cwd)) {
-		for (const parent of parentDirectories(cwd)) argv.push("--dir", parent);
-		const bindMode = options.profile === "workspace-write" ? "--bind" : "--ro-bind";
-		argv.push(bindMode, cwd, cwd);
-	}
+	appendWorkspaceMount(argv, cwd, options.profile);
 
 	argv.push("--chdir", cwd, "--", ...options.command);
 	return {
@@ -102,23 +94,99 @@ export function createSandboxedBashOperations(options: {
 	};
 }
 
-export function createBwrapPyrunRunnerCommand(options: {
+export function createBwrapRunnerEnvironment(
+	hostEnv: NodeJS.ProcessEnv,
+	pythonPath?: string,
+): NodeJS.ProcessEnv {
+	return {
+		LANG: hostEnv.LANG,
+		PATH: hostEnv.PATH,
+		...(pythonPath ? { PYTHONPATH: pythonPath } : {}),
+		TERM: hostEnv.TERM,
+		USER: hostEnv.USER,
+	};
+}
+
+export function createBwrapRunnerCommand(options: {
 	bwrapCommand: string;
 	cwd: string;
+	extraReadOnlyPaths?: string[];
 	profile: BwrapSandboxProfile;
 	runnerArgs: string[];
 	runnerCommand: string;
 	runnerEnv?: NodeJS.ProcessEnv;
 }): { args: string[]; command: string; env: NodeJS.ProcessEnv } {
 	assertBwrapAvailable(options.bwrapCommand);
+	const runnerCommand = resolveRunnerExecutable(options.runnerCommand, options.runnerEnv);
 	const invocation = buildBwrapInvocation({
 		bwrapCommand: options.bwrapCommand,
-		command: [options.runnerCommand, ...options.runnerArgs],
+		command: [runnerCommand, ...options.runnerArgs],
 		cwd: options.cwd,
 		env: options.runnerEnv,
+		extraReadOnlyPaths: [
+			...(options.extraReadOnlyPaths ?? []),
+			...runnerReadOnlyPaths(runnerCommand, options.runnerArgs, options.runnerEnv, options.cwd),
+		],
 		profile: options.profile,
 	});
 	return { args: invocation.argv, command: invocation.command, env: invocation.env };
+}
+
+function resolveRunnerExecutable(command: string, env: NodeJS.ProcessEnv | undefined): string {
+	if (isAbsolute(command)) return command;
+	const searchPath = env?.PATH ?? process.env.PATH ?? DEFAULT_PATH;
+	for (const directory of searchPath.split(delimiter)) {
+		const candidate = join(directory, command);
+		if (existsSync(candidate)) return candidate;
+	}
+	return command;
+}
+
+function runnerReadOnlyPaths(
+	command: string,
+	args: string[],
+	env: NodeJS.ProcessEnv | undefined,
+	cwd: string,
+): string[] {
+	const workspace = resolve(cwd);
+	const paths = new Set<string>();
+	const addPath = (path: string) => {
+		const resolvedPath = isAbsolute(path) ? resolve(path) : resolve(workspace, path);
+		if (isProvidedByExistingSandboxMount(resolvedPath, workspace)) return;
+		paths.add(resolvedPath);
+	};
+	if (isAbsolute(command)) addPath(command);
+	for (const arg of args) {
+		if (isAbsolute(arg)) addPath(arg);
+	}
+	for (const path of env?.PYTHONPATH?.split(delimiter) ?? []) {
+		if (path) addPath(path);
+	}
+	return [...paths];
+}
+
+function isProvidedByExistingSandboxMount(path: string, workspace: string): boolean {
+	if (!existsSync(path)) return true;
+	if (path === workspace || path.startsWith(`${workspace}/`)) return true;
+	return READ_ONLY_SYSTEM_PATHS.some((systemPath) => path === systemPath || path.startsWith(`${systemPath}/`));
+}
+
+function appendReadOnlyMount(argv: string[], path: string, workspace: string): void {
+	const resolvedPath = resolve(path);
+	if (!existsSync(resolvedPath) || resolvedPath === workspace) return;
+	appendParentDirectories(argv, resolvedPath);
+	argv.push("--ro-bind", resolvedPath, resolvedPath);
+}
+
+function appendWorkspaceMount(argv: string[], workspace: string, profile: BwrapSandboxProfile): void {
+	if (!existsSync(workspace)) return;
+	appendParentDirectories(argv, workspace);
+	const bindMode = profile === "workspace-write" ? "--bind" : "--ro-bind";
+	argv.push(bindMode, workspace, workspace);
+}
+
+function appendParentDirectories(argv: string[], path: string): void {
+	for (const parent of parentDirectories(path)) argv.push("--dir", parent);
 }
 
 function buildSandboxEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {

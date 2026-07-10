@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertBwrapAvailable,
 	buildBwrapInvocation,
+	createBwrapRunnerCommand,
+	createBwrapRunnerEnvironment,
 	resolveBwrapSandboxProfile,
 } from "../extensions/bwrap/src/backend.ts";
 import bwrapExtension from "../extensions/bwrap/src/index.ts";
@@ -14,6 +16,36 @@ import { SettingsManager } from "../src/core/settings-manager.ts";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolGate } from "../src/index.ts";
 
 const FS_WORKER_PATH = join(dirname(fileURLToPath(import.meta.url)), "../extensions/bwrap/src/fs-worker.cjs");
+const canExecuteBwrap =
+	spawnSync(
+		"bwrap",
+		[
+			"--unshare-all",
+			"--share-net",
+			"--ro-bind",
+			"/usr",
+			"/usr",
+			"--ro-bind",
+			"/bin",
+			"/bin",
+			"--ro-bind",
+			"/lib",
+			"/lib",
+			"--ro-bind",
+			"/lib64",
+			"/lib64",
+			"--ro-bind",
+			"/etc",
+			"/etc",
+			"--dev",
+			"/dev",
+			"--proc",
+			"/proc",
+			"--",
+			"/usr/bin/true",
+		],
+		{ encoding: "utf8" },
+	).status === 0;
 
 function createBwrapHarness(bwrapCommand = "/definitely/missing/bwrap") {
 	const toolGates: ToolGate[] = [];
@@ -140,6 +172,102 @@ describe("bwrap sandbox backend", () => {
 		expect(invocation.env.USER).toBe(process.env.USER);
 	});
 
+	it("mounts required runner paths outside the workspace read-only", () => {
+		const runnerPath = join(tempDir, "runner", "runner-bin");
+		const runnerArgPath = join(tempDir, "runner-config.json");
+		const pythonPath = join(tempDir, "python-packages");
+		mkdirSync(dirname(runnerPath), { recursive: true });
+		mkdirSync(pythonPath, { recursive: true });
+		writeFileSync(runnerPath, "runner", "utf8");
+		writeFileSync(runnerArgPath, "{}", "utf8");
+
+		const runner = createBwrapRunnerCommand({
+			bwrapCommand: "/bin/true",
+			cwd: workspaceDir,
+			profile: "read-only",
+			runnerArgs: [runnerArgPath],
+			runnerCommand: runnerPath,
+			runnerEnv: { PATH: "/usr/bin", PYTHONPATH: pythonPath },
+		});
+
+		for (const path of [runnerPath, runnerArgPath, pythonPath]) {
+			expect(runner.args).toEqual(expect.arrayContaining(["--ro-bind", path, path]));
+		}
+	});
+
+	it("resolves relative PYTHONPATH entries inside the sandbox workspace", () => {
+		const hostLaunchPath = join(process.cwd(), "extensions");
+		const runner = createBwrapRunnerCommand({
+			bwrapCommand: "/bin/true",
+			cwd: workspaceDir,
+			profile: "read-only",
+			runnerArgs: [],
+			runnerCommand: "/usr/bin/true",
+			runnerEnv: { PATH: "/usr/bin", PYTHONPATH: "extensions" },
+		});
+
+		expect(runner.args).not.toEqual(expect.arrayContaining(["--ro-bind", hostLaunchPath, hostLaunchPath]));
+	});
+
+	it.skipIf(!canExecuteBwrap)("executes runtime workers with real bwrap profile enforcement", () => {
+		const runnerPath = join(workspaceDir, "runtime-probe.mjs");
+		writeFileSync(
+			runnerPath,
+			`import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+let workspaceWrite = true;
+try {
+  writeFileSync(join(process.cwd(), "probe.txt"), "ok");
+} catch {
+  workspaceWrite = false;
+}
+console.log(JSON.stringify({
+  home: process.env.HOME,
+  pythonPath: process.env.PYTHONPATH ?? null,
+  secret: process.env.PI_TEST_SECRET ?? null,
+  workspaceWrite,
+}));
+`,
+			"utf8",
+		);
+		const runnerEnv = createBwrapRunnerEnvironment({
+			...process.env,
+			PI_TEST_SECRET: "host-secret",
+			PYTHONPATH: "/home/osso",
+		});
+		const executeProfile = (profile: "read-only" | "workspace-write") => {
+			const runner = createBwrapRunnerCommand({
+				bwrapCommand: "bwrap",
+				cwd: workspaceDir,
+				profile,
+				runnerArgs: [runnerPath],
+				runnerCommand: process.execPath,
+				runnerEnv,
+			});
+			const result = spawnSync(runner.command, runner.args, { encoding: "utf8", env: runner.env });
+			expect(result.status, result.stderr).toBe(0);
+			return JSON.parse(result.stdout) as {
+				home: string;
+				pythonPath: string | null;
+				secret: string | null;
+				workspaceWrite: boolean;
+			};
+		};
+
+		expect(executeProfile("read-only")).toEqual({
+			home: "/tmp/pi-home",
+			pythonPath: null,
+			secret: null,
+			workspaceWrite: false,
+		});
+		expect(executeProfile("workspace-write")).toEqual({
+			home: "/tmp/pi-home",
+			pythonPath: null,
+			secret: null,
+			workspaceWrite: true,
+		});
+	});
+
 	it("worker rejects file operations outside the workspace root", () => {
 		const result = spawnSync(
 			process.execPath,
@@ -227,27 +355,18 @@ describe("bwrap sandbox backend", () => {
 		["read-only", "hostrun_eval"],
 		["workspace-write", "pyrun_eval"],
 		["workspace-write", "hostrun_eval"],
-	] as const)("blocks %s %s while sandboxed", (profile, toolName) => {
-		const { toolGates } = createBwrapHarness("bwrap");
-		const settingsManager = SettingsManager.inMemory({ sandboxProfile: profile });
-
-		const result = toolGates[1]?.(createToolCallEvent(toolName), createContext(settingsManager));
-
-		expect(result).toMatchObject({ block: true, reason: expect.stringContaining(`${toolName} is disabled`) });
-	});
-
-	it.each([
 		["full-access", "pyrun_eval"],
 		["full-access", "hostrun_eval"],
 		[undefined, "pyrun_eval"],
 		[undefined, "hostrun_eval"],
 	] as const)("does not block %s %s", (profile, toolName) => {
-		const { toolGates } = createBwrapHarness("bwrap");
+		const { toolGates } = createBwrapHarness("/bin/true");
 		const settingsManager = profile
 			? SettingsManager.inMemory({ sandboxProfile: profile })
 			: SettingsManager.inMemory();
 
-		const result = toolGates[1]?.(createToolCallEvent(toolName), createContext(settingsManager));
+		expect(toolGates).toHaveLength(1);
+		const result = toolGates[0]?.(createToolCallEvent(toolName), createContext(settingsManager));
 
 		expect(result).toBeUndefined();
 	});

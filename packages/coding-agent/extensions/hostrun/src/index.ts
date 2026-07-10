@@ -2,11 +2,23 @@ import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extension
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
+import {
+	createBwrapRunnerCommand,
+	createBwrapRunnerEnvironment,
+	resolveBwrapSandboxProfile,
+} from "../../bwrap/src/backend.ts";
 import { createHostrunEvalExecutor, type HostrunPiRequestDispatcher } from "./eval-tool.ts";
-import { HostrunRunnerClient } from "./runner.ts";
+import { HostrunRunnerClient, resolveHostrunRunnerOptions } from "./runner.ts";
 
 export interface HostrunExtensionOptions {
+	bwrapCommand?: string;
 	piRequestHandlers?: HostrunPiRequestDispatcher[];
+}
+
+interface HostrunExecutorState {
+	evaluate: ReturnType<typeof createHostrunEvalExecutor>;
+	key: string;
+	runner: HostrunRunnerClient;
 }
 
 const HOSTRUN_PROMPT_SNIPPET =
@@ -22,6 +34,7 @@ const HOSTRUN_PROMPT_GUIDELINES = [
 	"Use pi.restart(...) to restart Pi and resume the same session from Hostrun.",
 	"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(...), and pi.messages.enqueue(...) for the supported Pi runtime bridge; pi.agents.wait(...) is synchronization-only and returns no agent output.",
 	"Use Hostrun helpers such as host.cwd(), host.cd(path), cli.*, run.*, fs.*, http.*, rg.*, and fd.* directly.",
+	"When a bwrap sandbox profile is active, Hostrun executes inside that sandbox and Pi bridge helpers are unavailable.",
 	"Do not compose shell strings for Hostrun command helpers; call argv-style helpers such as cli.git('status').text() or run.git('status').",
 ];
 
@@ -117,6 +130,35 @@ function enqueueMessage(params: unknown, pi: ExtensionAPI): { enqueued: true } {
 	return { enqueued: true };
 }
 
+function createHostrunExecutorState(
+	ctx: ExtensionContext,
+	dispatchPiRequest: HostrunPiRequestDispatcher,
+	bwrapCommand: string,
+): HostrunExecutorState {
+	const profile = resolveBwrapSandboxProfile(ctx.settingsManager?.getExplicitSandboxProfile() ?? "full-access");
+	const key = `${profile ?? "full-access"}\0${ctx.cwd}`;
+	if (!profile) {
+		const runner = new HostrunRunnerClient();
+		return { evaluate: createHostrunEvalExecutor(runner, dispatchPiRequest), key, runner };
+	}
+
+	const resolvedRunner = resolveHostrunRunnerOptions();
+	const wrappedRunner = createBwrapRunnerCommand({
+		bwrapCommand,
+		cwd: ctx.cwd,
+		profile,
+		runnerArgs: resolvedRunner.args,
+		runnerCommand: resolvedRunner.command,
+		runnerEnv: createBwrapRunnerEnvironment(process.env),
+	});
+	const runner = new HostrunRunnerClient({ ...wrappedRunner, inheritEnv: false });
+	return {
+		evaluate: createHostrunEvalExecutor(runner, undefined, { enablePiBridge: false }),
+		key,
+		runner,
+	};
+}
+
 function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "followUp"; message: string } {
 	if (typeof params === "string") {
 		return { message: params };
@@ -133,8 +175,21 @@ function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "follo
 }
 
 export default function hostrunExtension(pi: ExtensionAPI, options: HostrunExtensionOptions = {}) {
-	const runner = new HostrunRunnerClient();
-	const evaluate = createHostrunEvalExecutor(runner, createHostrunPiDispatcher(pi, options));
+	const dispatchPiRequest = createHostrunPiDispatcher(pi, options);
+	const bwrapCommand = options.bwrapCommand ?? process.env.PI_BWRAP_COMMAND ?? "bwrap";
+	let executorState: HostrunExecutorState | undefined;
+	const executorFor = (ctx: ExtensionContext): HostrunExecutorState => {
+		const profile = resolveBwrapSandboxProfile(ctx.settingsManager?.getExplicitSandboxProfile() ?? "full-access");
+		const key = `${profile ?? "full-access"}\0${ctx.cwd}`;
+		if (executorState?.key === key) return executorState;
+		executorState?.runner.dispose();
+		executorState = createHostrunExecutorState(ctx, dispatchPiRequest, bwrapCommand);
+		return executorState;
+	};
+	pi.on("session_shutdown", () => {
+		executorState?.runner.dispose();
+		executorState = undefined;
+	});
 
 	pi.registerTool({
 		name: "hostrun_eval",
@@ -167,7 +222,7 @@ export default function hostrunExtension(pi: ExtensionAPI, options: HostrunExten
 				content: [{ type: "text", text: params.code }],
 				details: { executed: params.code, type: "running" },
 			});
-			return evaluate(params, ctx, onUpdate, signal);
+			return executorFor(ctx).evaluate(params, ctx, onUpdate, signal);
 		},
 	});
 }
