@@ -3542,7 +3542,6 @@ export class InteractiveMode {
 			await this.init();
 		}
 
-		this.footer.invalidate();
 		if (this.isViewingAgentSession() && isMainSessionDisplayEvent(event)) {
 			this.syncToolExecutionTrackingForHiddenMainEvent(event);
 			this.ui.requestRender();
@@ -3631,6 +3630,7 @@ export class InteractiveMode {
 
 			case "message_end":
 				this.cancelPartialUpdateRender();
+				this.footer.invalidate();
 				if (event.message.role === "user") break;
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
@@ -3672,7 +3672,6 @@ export class InteractiveMode {
 					}
 					this.streamingComponent = undefined;
 					this.streamingMessage = undefined;
-					this.footer.invalidate();
 				}
 				this.ui.requestRender();
 				break;

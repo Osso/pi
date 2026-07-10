@@ -5,6 +5,8 @@
 ### Changed
 
 - `fuzzyFilter`'s `getText` may now return multiple candidate strings; each query token is scored against every candidate independently (best score wins) so a token cannot match by spanning two candidates.
+- Reduced the default loader spinner refresh rate by increasing its interval from 80ms to 250ms.
+- Deferred TUI renders while the terminal is unfocused and refreshed the latest state when focus returns.
 
 ### Fixed
 
@@ -21,8 +23,6 @@
 ### Changed
 
 - Added `Ctrl+J` as a default newline keybinding alongside `Shift+Enter`.
-- Reduced the default loader spinner refresh rate by increasing its interval from 80ms to 250ms.
-- Deferred TUI renders while the terminal is unfocused and refreshed the latest state when focus returns.
 
 ### Fixed
 

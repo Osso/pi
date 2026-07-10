@@ -197,6 +197,7 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await handleEvent.call(fakeThis, { type: "message_end", message: createAssistantMessage("final") });
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 
 		await vi.advanceTimersByTimeAsync(50);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
@@ -254,6 +255,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		});
 
 		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
 		expect(firstTool.updateResult).toHaveBeenLastCalledWith(
 			{ content: [{ type: "text", text: "latest" }], isError: false },
 			true,
