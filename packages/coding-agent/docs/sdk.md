@@ -358,7 +358,7 @@ const { session } = await createAgentSession({
   - `skills/` under `agentDir` (for example `~/.pi/agent/skills/`)
   - `~/.agents/skills/`
 - Global prompts (`prompts/`)
-- Global context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md`)
+- Global context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md`; not `docs/local/memory.md`)
 - Settings (`settings.json`)
 - Custom models (`models.json`)
 - Credentials (`auth.json`)
@@ -652,6 +652,8 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 > See [examples/sdk/04-skills.ts](../examples/sdk/04-skills.ts)
 
 ### Context Files
+
+`DefaultResourceLoader` loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` from the global agent directory and cwd ancestors. It also loads `docs/local/memory.md` from cwd ancestors only, after the instruction-file candidates in each directory. Set `noContextFiles: true` to disable both instruction-file and project-memory discovery.
 
 ```typescript
 import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";

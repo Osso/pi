@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
 - Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, targeted session advice, and read-only Bubblewrap tool workers.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.

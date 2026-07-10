@@ -147,7 +147,7 @@ See [docs/providers.md](docs/providers.md) for detailed setup instructions.
 
 The interface from top to bottom:
 
-- **Startup header** - Shows shortcuts (`/hotkeys` for all), loaded AGENTS.md files, prompt templates, skills, and extensions
+- **Startup header** - Shows shortcuts (`/hotkeys` for all), loaded context files, prompt templates, skills, and extensions
 - **Messages** - Your messages, assistant responses, tool calls and results, notifications, errors, and extension UI
 - **Editor** - Where you type; border color indicates thinking level
 - **Footer** - Working directory, session name, total token/cache usage (`↑` input, `↓` output, `R` cache read, `W` cache write, `CH` latest cache hit rate), cost, context usage, current model
@@ -314,14 +314,11 @@ Use `--offline` or `PI_OFFLINE=1` to disable all startup network operations desc
 
 ## Context Files
 
-Pi loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, or `CLAUDE.local.md` at startup from:
-- `~/.pi/agent/AGENTS.md` (global)
-- Parent directories (walking up from cwd)
-- Current directory
+Pi loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` from the global agent directory (`~/.pi/agent/` by default) and every directory from the filesystem root through cwd. In each cwd ancestor, it then loads `docs/local/memory.md` when present, after those instruction-file candidates. `docs/local/memory.md` is project context only: Pi does not load it from the global agent directory.
 
-Use for project instructions (`AGENTS.md`/`CLAUDE.md`), local overrides (`AGENTS.local.md`/`CLAUDE.local.md`), conventions, and common commands. All matching files are concatenated.
+Use the instruction files for project instructions, local overrides, conventions, and common commands. Use `docs/local/memory.md` for durable project-specific agent context. Matching files are concatenated in discovery order.
 
-Disable context file loading with `--no-context-files` (or `-nc`).
+Disable all automatic context-file loading, including project memory, with `--no-context-files` (or `-nc`).
 
 ### System Prompt
 
@@ -591,7 +588,7 @@ Available built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
 | `--no-prompt-templates` | Disable prompt template discovery |
 | `--theme <path>` | Load theme (repeatable) |
 | `--no-themes` | Disable theme discovery |
-| `--no-context-files`, `-nc` | Disable AGENTS.md, AGENTS.local.md, CLAUDE.md, and CLAUDE.local.md context file discovery |
+| `--no-context-files`, `-nc` | Disable AGENTS.md, AGENTS.local.md, CLAUDE.md, CLAUDE.local.md, and project `docs/local/memory.md` context-file discovery |
 
 Combine `--no-*` with explicit flags to load exactly what you need, ignoring settings.json (e.g., `--no-extensions -e ./my-ext.ts`).
 
