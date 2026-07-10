@@ -56,8 +56,9 @@ At supervisor start, queued rows remain queued. After a current runtime mailbox 
 non-current duplicate metadata paths for the same session ID, while protecting the current runtime's
 exact session path. Any active spawned row (explicit `origin: "spawned"` or absent origin) becomes
 `aborted` with a `supervisor_restarted` interruption error; the update increments revision, clears
-worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, and
-current live rows stay unchanged. `list_sessions` invokes the same reconciliation immediately after listener/health
+worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, current
+live, and stale-but-process-backed timeout rows stay unchanged. `list_sessions` invokes the same
+reconciliation immediately after listener/health
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 

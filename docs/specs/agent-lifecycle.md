@@ -76,8 +76,8 @@ State meanings:
       same session ID. The current runtime's exact session path is protected. Reconciliation writes
       `aborted` with an explicit `supervisor_restarted` interruption error, including
       `waiting_for_input`, and prevents active-count and TUI liveness ghosts in historical
-      non-current stores. Attached, queued, terminal, missing-health, and current live rows remain
-      unchanged.
+      non-current stores. Attached, queued, terminal, missing-health, current live, and stale-but-
+      process-backed timeout rows remain unchanged.
 - [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
 - [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
       auto-restarted through the attached-session dispatch path.

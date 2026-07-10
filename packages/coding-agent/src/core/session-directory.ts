@@ -1,4 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import {
 	abortInactiveSessionSpawnedAgents,
 	enqueueRuntimeMailboxMessage,
@@ -27,6 +30,7 @@ import {
 export interface SessionDirectoryOptions {
 	now?: () => Date;
 	includeEnded?: boolean;
+	isRuntimeProcessAlive?: (pid: number) => boolean;
 	touchCurrentSessionId?: string;
 	touchCurrentSessionPath?: string;
 }
@@ -53,7 +57,14 @@ function resolveNow(options?: SessionDirectoryOptions): Date {
 interface CurrentMainSessionBinding {
 	pid: number;
 	updatedAt: string;
+	heartbeatFresh: boolean;
 }
+
+const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [
+	"/packages/coding-agent/src/cli.ts",
+	"/packages/coding-agent/src/bun/cli.ts",
+	"/packages/coding-agent/dist/cli.js",
+];
 
 function healthBySessionId(controlDbPath: string): Map<string, SessionHealthRecord> {
 	const map = new Map<string, SessionHealthRecord>();
@@ -72,7 +83,11 @@ function newestMetadataBySessionId(metadata: SessionMetadata[]): SessionMetadata
 	});
 }
 
-function reconcileCurrentMainSessionBindings(controlDbPath: string, now: Date): Map<string, CurrentMainSessionBinding> {
+function reconcileCurrentMainSessionBindings(
+	controlDbPath: string,
+	now: Date,
+	isRuntimeProcessAlive: (pid: number) => boolean,
+): Map<string, CurrentMainSessionBinding> {
 	const listeners = listRuntimeMailboxListeners(controlDbPath)
 		.filter((listener) => listener.agentId === null)
 		.sort((left, right) => {
@@ -83,20 +98,62 @@ function reconcileCurrentMainSessionBindings(controlDbPath: string, now: Date): 
 	const seenPids = new Set<number>();
 	const bindings = new Map<string, CurrentMainSessionBinding>();
 	for (const listener of listeners) {
-		const binding = { pid: listener.pid, updatedAt: listener.updatedAt };
-		if (seenPids.has(listener.pid) || !bindingHeartbeatIsFresh(binding, now.getTime())) {
+		const heartbeatFresh = bindingHeartbeatIsFresh(listener, now.getTime());
+		const isSuperseded = seenPids.has(listener.pid);
+		const processUnavailable = !heartbeatFresh && !isRuntimeProcessAlive(listener.pid);
+		if (isSuperseded || processUnavailable) {
 			retireRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: listener.sessionId }, listener.pid);
 			continue;
 		}
 		seenPids.add(listener.pid);
-		bindings.set(listener.sessionId, binding);
+		bindings.set(listener.sessionId, { pid: listener.pid, updatedAt: listener.updatedAt, heartbeatFresh });
 	}
 	return bindings;
 }
 
-function bindingHeartbeatIsFresh(binding: CurrentMainSessionBinding, nowMs: number): boolean {
+function bindingHeartbeatIsFresh(binding: Pick<CurrentMainSessionBinding, "updatedAt">, nowMs: number): boolean {
 	const heartbeatMs = Date.parse(binding.updatedAt);
 	return Number.isFinite(heartbeatMs) && nowMs - heartbeatMs <= SESSION_CHECK_STALE_MS;
+}
+
+function defaultIsRuntimeProcessAlive(pid: number): boolean {
+	if (pid === process.pid) return true;
+	try {
+		process.kill(pid, 0);
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "EPERM")) return false;
+	}
+	const commandLine = tryReadProcessCommandLine(pid);
+	return commandLine === undefined || commandLineIsPiRuntime(commandLine);
+}
+
+function tryReadProcessCommandLine(pid: number): string[] | undefined {
+	try {
+		if (process.platform === "linux") {
+			return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+		}
+		if (process.platform !== "win32") {
+			const command = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+				encoding: "utf8",
+				timeout: 1000,
+			}).trim();
+			return command ? command.split(/\s+/) : undefined;
+		}
+	} catch {
+		return undefined;
+	}
+	return undefined;
+}
+
+function commandLineIsPiRuntime(commandLine: string[]): boolean {
+	const executable = commandLine[0];
+	if (!executable) return false;
+	const executableName = basename(executable).toLowerCase();
+	if (executableName === "pi" || executableName === "pi.exe") return true;
+	return commandLine.slice(1).some((argument) => {
+		const normalized = argument.replaceAll("\\", "/");
+		return PI_RUNTIME_ENTRYPOINT_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+	});
 }
 
 function synchronizedBoundSessionHealth(
@@ -106,10 +163,13 @@ function synchronizedBoundSessionHealth(
 ): SessionHealthRecord | undefined {
 	const sameGeneration = existing.pid === binding.pid && existing.agentGeneration > 0;
 	const agentGeneration = sameGeneration ? existing.agentGeneration : existing.agentGeneration + 1;
+	const checkStatus = binding.heartbeatFresh ? "ok" : "timeout";
+	const lastCheckedAt = binding.heartbeatFresh ? binding.updatedAt : nowIso;
 	const alreadySynced =
 		existing.pid === binding.pid &&
 		existing.lastActiveAt === binding.updatedAt &&
-		existing.checkStatus === "ok" &&
+		existing.lastCheckedAt === lastCheckedAt &&
+		existing.checkStatus === checkStatus &&
 		existing.checkedGeneration === agentGeneration;
 	if (alreadySynced) return undefined;
 	return {
@@ -117,8 +177,8 @@ function synchronizedBoundSessionHealth(
 		pid: binding.pid,
 		agentGeneration,
 		lastActiveAt: binding.updatedAt,
-		lastCheckedAt: binding.updatedAt,
-		checkStatus: "ok",
+		lastCheckedAt,
+		checkStatus,
 		checkedGeneration: agentGeneration,
 		checkLatencyMs: 0,
 		updatedAt: nowIso,
@@ -227,7 +287,8 @@ export function listSessions(controlDbPath: string, options: SessionDirectoryOpt
 	registerTouchedSessionBinding(controlDbPath, options.touchCurrentSessionId);
 	const metadata = newestMetadataBySessionId(listSessionMetadata(controlDbPath));
 	const healthMap = healthBySessionId(controlDbPath);
-	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now);
+	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? defaultIsRuntimeProcessAlive;
+	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive);
 	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, bindings, now);
 	abortInactiveSessionSpawnedAgents(controlDbPath, {
 		currentSession:
@@ -241,8 +302,12 @@ export function listSessions(controlDbPath: string, options: SessionDirectoryOpt
 		.filter((entry) => options.includeEnded !== false || entry.status !== "ended");
 }
 
-function currentMainSessionIds(controlDbPath: string, now: Date): Set<string> {
-	return new Set(reconcileCurrentMainSessionBindings(controlDbPath, now).keys());
+function currentMainSessionIds(
+	controlDbPath: string,
+	now: Date,
+	isRuntimeProcessAlive: (pid: number) => boolean,
+): Set<string> {
+	return new Set(reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive).keys());
 }
 
 function matchesFilters(entry: SessionDirectoryEntry, filters: BroadcastSessionFilters | undefined): boolean {
@@ -274,7 +339,8 @@ export function broadcastToSessions(
 
 	const now = resolveNow(options);
 	const stableOptions = { ...options, now: () => now };
-	const currentSessionIds = currentMainSessionIds(controlDbPath, now);
+	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? defaultIsRuntimeProcessAlive;
+	const currentSessionIds = currentMainSessionIds(controlDbPath, now, isRuntimeProcessAlive);
 	const seenSessionIds = new Set<string>();
 	const entries = listSessions(controlDbPath, stableOptions).filter((entry) => {
 		if (!currentSessionIds.has(entry.sessionId) || seenSessionIds.has(entry.sessionId)) return false;

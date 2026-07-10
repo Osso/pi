@@ -37,7 +37,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       non-current duplicate for the same session ID. Callers can protect the current runtime's exact
       session path. Reconciliation preserves unrelated agent JSON, increments revision, clears worker
       metadata, writes `supervisor_restarted`, and is idempotent; attached, queued, terminal,
-      missing-health, and current live rows remain unchanged.
+      missing-health, current live, and stale-but-process-backed timeout rows remain unchanged.
 - [x] A main-thread listener registration atomically retires other main-session bindings for the
       same PID, marks their matching health rows ended, and confirms the registered binding `ok`;
       listener retirement removes only the exact `(session_id, agent_id, pid)` binding being

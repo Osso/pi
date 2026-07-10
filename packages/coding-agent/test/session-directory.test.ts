@@ -131,19 +131,53 @@ describe("session directory", () => {
 		]);
 	});
 
-	it("expires a stale binding without probing a reused live pid", () => {
+	it("expires a stale binding when its pid no longer belongs to a Pi runtime", () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 			writeSession("session-stale");
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-stale" }, process.pid);
 			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
-			const sessions = listSessions(controlDbPath);
+			const sessions = listSessions(controlDbPath, { isRuntimeProcessAlive: () => false });
 
 			expect(sessions).toEqual([
 				expect.objectContaining({ sessionId: "session-stale", pid: null, status: "ended", checkStatus: "dead" }),
 			]);
 			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not abort a stale supervisor store while its process is still alive", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+			writeSession("session-stale-live");
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-stale-live" }, process.pid);
+			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale-live.jsonl", "spawned", {
+				id: "spawned",
+				lifecycle: "running",
+				revision: 1,
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			});
+			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
+
+			const sessions = listSessions(controlDbPath);
+
+			expect(sessions).toEqual([
+				expect.objectContaining({
+					sessionId: "session-stale-live",
+					pid: process.pid,
+					status: "ended",
+					checkStatus: "timeout",
+					eligibleToReceive: false,
+				}),
+			]);
+			expect(listRuntimeMailboxListeners(controlDbPath)).toHaveLength(1);
+			expect(readMultiAgentState(controlDbPath, "/sessions/session-stale-live.jsonl")?.agents).toMatchObject([
+				{ id: "spawned", lifecycle: "running", revision: 1 },
+			]);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -186,7 +220,7 @@ describe("session directory", () => {
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
 
-			listSessions(controlDbPath);
+			listSessions(controlDbPath, { isRuntimeProcessAlive: () => false });
 
 			expect(readSessionHealth(controlDbPath, "session-stale")?.pid).toBeNull();
 			expect(readMultiAgentState(controlDbPath, "/sessions/session-stale.jsonl")?.agents).toMatchObject([
