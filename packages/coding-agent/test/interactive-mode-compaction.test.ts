@@ -41,6 +41,7 @@ describe("InteractiveMode compaction events", () => {
 		const addedChildren: Array<{ render: (width: number) => string[]; stop?: () => void }> = [];
 		const fakeThis = {
 			isInitialized: true,
+			isViewingAgentSession: () => false,
 			footer: { invalidate: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,
@@ -90,6 +91,7 @@ describe("InteractiveMode compaction events", () => {
 	test("rebuilds chat and appends a synthetic compaction summary at the bottom", async () => {
 		const fakeThis = {
 			isInitialized: true,
+			isViewingAgentSession: () => false,
 			footer: { invalidate: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,
@@ -286,6 +288,7 @@ describe("InteractiveMode compaction events", () => {
 	test("logs local compaction source when no remote endpoint was used", async () => {
 		const fakeThis = {
 			isInitialized: true,
+			isViewingAgentSession: () => false,
 			footer: { invalidate: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,

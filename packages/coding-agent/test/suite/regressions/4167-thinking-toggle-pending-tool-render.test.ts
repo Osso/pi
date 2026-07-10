@@ -48,6 +48,7 @@ type RenderSessionContextThis = {
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
 	isInitialized: boolean;
+	isViewingAgentSession(): boolean;
 	stopToolWaitingTimerIfIdle(): void;
 	setWorkingMessageForActiveTools(): void;
 	updateEditorBorderColor(): void;
@@ -81,6 +82,7 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		executingToolNames: new Map<string, string>(),
 		executingToolStartedAt: new Map<string, number>(),
 		isInitialized: true,
+		isViewingAgentSession: () => false,
 		stopToolWaitingTimerIfIdle: vi.fn(),
 		setWorkingMessageForActiveTools: vi.fn(),
 		updateEditorBorderColor: vi.fn(),

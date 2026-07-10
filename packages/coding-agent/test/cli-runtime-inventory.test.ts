@@ -185,10 +185,10 @@ describe("runtime inventory CLI", () => {
 
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
-		expect(result.stdout).toMatch(/^yes\s+find\s+builtin\s+/m);
-		expect(result.stdout).toMatch(/^yes\s+grep\s+builtin\s+/m);
+		expect(result.stdout).toMatch(/^yes\s+find\s+first-party\s+/m);
+		expect(result.stdout).toMatch(/^yes\s+grep\s+first-party\s+/m);
 		expect(result.stdout).toContain("hostrun_eval");
-		expect(result.stdout).toMatch(/^yes\s+ls\s+builtin\s+/m);
+		expect(result.stdout).toMatch(/^yes\s+ls\s+first-party\s+/m);
 		expect(result.stdout).toContain("manage_goal");
 		expect(result.stdout).not.toContain("set_goal");
 		expect(result.stdout).not.toContain("pause_goal");

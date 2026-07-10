@@ -24,6 +24,7 @@ type SubmitContext = {
 		prompt: (text: string, options?: unknown) => Promise<void>;
 	};
 	cancelStreamingAndSubmitQueuedMessages: () => Promise<void>;
+	closeResponseCompleteNotification: () => void;
 	flushPendingBashComponents: () => void;
 	onInputCallback?: (text: string) => void;
 	pendingUserInputs: string[];
@@ -69,6 +70,7 @@ function createSubmitContext(): SubmitContext {
 			prompt: vi.fn(async () => {}),
 		},
 		cancelStreamingAndSubmitQueuedMessages: vi.fn(async () => {}),
+		closeResponseCompleteNotification: vi.fn(),
 		flushPendingBashComponents: vi.fn(),
 		pendingUserInputs: [],
 		showSettingsSelector: vi.fn(),
@@ -95,6 +97,7 @@ describe("InteractiveMode startup input", () => {
 		await context.defaultEditor.onSubmit?.(" early prompt ");
 
 		expect(context.pendingUserInputs).toEqual(["early prompt"]);
+		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
 		expect(context.flushPendingBashComponents).toHaveBeenCalledTimes(1);
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("early prompt");
 	});
