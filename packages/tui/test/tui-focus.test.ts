@@ -129,6 +129,31 @@ describe("TUI terminal focus", () => {
 		tui.stop();
 	});
 
+	it("renders state requested while stopped after restart", async () => {
+		const terminal = new VirtualTerminal();
+		const tui = new TUI(terminal);
+		const component = new MutableComponent();
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+		const initialRenderCount = component.renderCount;
+
+		tui.stop();
+		component.lines = ["updated while stopped"];
+		tui.requestRender();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		tui.start();
+		await terminal.waitForRender();
+
+		assert.equal(
+			component.renderCount,
+			initialRenderCount + 1,
+			"restart should render state requested while stopped",
+		);
+		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 1), ["updated while stopped"]);
+		tui.stop();
+	});
+
 	it("consumes focus events instead of forwarding them to the focused component", async () => {
 		const terminal = new VirtualTerminal();
 		const tui = new TUI(terminal);

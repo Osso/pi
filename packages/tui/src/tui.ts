@@ -642,6 +642,7 @@ export class TUI extends Container {
 	start(): void {
 		this.stopped = false;
 		this.terminalFocused = true;
+		this.renderRequested = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
 			() => this.requestRender(),

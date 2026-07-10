@@ -3594,6 +3594,7 @@ export class InteractiveMode {
 			case "bash_messages_committed":
 				if (event.messages.some((message) => !message.excludeFromContext)) {
 					this.footer.invalidate();
+					this.ui.requestRender();
 				}
 				break;
 

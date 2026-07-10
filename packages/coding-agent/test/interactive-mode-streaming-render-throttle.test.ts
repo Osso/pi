@@ -298,7 +298,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 	});
 
-	test("invalidates footer data after deferred bash messages enter session context", async () => {
+	test("renders invalidated footer after bash messages enter session context", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const event = {
 			type: "bash_messages_committed",
@@ -308,9 +308,10 @@ describe("InteractiveMode streaming render throttling", () => {
 		await handleEvent.call(fakeThis, event);
 
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 	});
 
-	test("keeps footer cache when flushed bash messages are excluded from context", async () => {
+	test("keeps footer cache when committed bash messages are excluded from context", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const event = {
 			type: "bash_messages_committed",
@@ -320,6 +321,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		await handleEvent.call(fakeThis, event);
 
 		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
 	});
 
 	test("uses clearer waiting labels while tools execute", async () => {
