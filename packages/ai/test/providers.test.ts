@@ -52,6 +52,15 @@ describe("builtin providers", () => {
 			contextWindow: 1050000,
 			maxTokens: 128000,
 		});
+		expect(models.getModel("openai-codex", "gpt-5.6-luna")).toMatchObject({
+			name: "GPT-5.6 Luna",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			reasoning: true,
+			cost: { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+			contextWindow: 1050000,
+			maxTokens: 128000,
+		});
 		expect(models.getModel("openai-codex-gc", "gpt-5.6-sol")).toMatchObject({
 			...codexSolModel,
 			provider: "openai-codex-gc",

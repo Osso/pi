@@ -1867,6 +1867,18 @@ async function generateModels() {
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 		{
+			id: "gpt-5.6-luna",
+			name: "GPT-5.6 Luna",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+			contextWindow: CODEX_5_6_CONTEXT,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+		{
 			id: "gpt-5.6-sol",
 			name: "GPT-5.6 Sol",
 			api: "openai-codex-responses",
