@@ -16,7 +16,7 @@ tool, contributes model-facing instructions, and delegates evaluation to a Pyrun
 
 ## Runner Configuration
 
-By default the adapter starts `pyrun-jsonl` with no arguments.
+By default the adapter starts the installed `pyrun-jsonl` with no arguments. A local checkout is never selected implicitly.
 
 For local development or tests, override the runner process:
 
