@@ -54,6 +54,8 @@
 - Changed project skill auto-discovery to include `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` in ancestor directories above the git repo root.
 - Changed Pyrun `run.*`/`run.cmd` to return only an integer exit code while emitting stdout/stderr through tool output; use `cli.*` when a captured `CommandResult` is required.
 - Changed automatic agent-level retries to default to 30 retries after the initial request with fixed 10-second gaps; the interactive retry spinner continues into the resumed request, and Escape still cancels the retry wait.
+- Cached cumulative footer usage totals until session data changes, reducing repeated render work.
+- Coalesced partial tool-output renders within 50ms to reduce terminal redraws during rapid updates.
 
 ### Fixed
 
