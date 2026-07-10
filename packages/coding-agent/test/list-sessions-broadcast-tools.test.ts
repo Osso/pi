@@ -46,7 +46,10 @@ describe("session coordination tools", () => {
 
 			const result = await tool.execute("list-sessions", { include_ended: false }, undefined, undefined, {
 				controlDbPath,
-				sessionManager: { getSessionId: () => "current-without-metadata" },
+				sessionManager: {
+					getSessionFile: () => "/sessions/current-without-metadata.jsonl",
+					getSessionId: () => "current-without-metadata",
+				},
 			} as Parameters<typeof tool.execute>[4]);
 
 			expect(result.details?.sessions).toEqual([]);
