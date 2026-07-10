@@ -52,7 +52,7 @@
 
 ### Fixed
 
-- Fixed `broadcast` delivering duplicate runtime mailbox messages when historical metadata has multiple paths for one session ID.
+- Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.
 - Fixed Resident Architect snapshots to retain only the current main session per live Pi process without expiring long-running sessions or replaying historical/subagent session inventories.
 - Fixed shared-channel catch-up to batch all unread deliverable posts in order into one agent turn and retain them when batch delivery fails.
 - Fixed shared-channel delivery to ignore and mark seen posts from subagent senders, preventing stale subagent processes from flooding main sessions.

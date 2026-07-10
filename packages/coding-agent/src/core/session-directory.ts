@@ -196,6 +196,24 @@ export function listSessions(controlDbPath: string, options: SessionDirectoryOpt
 	return entries;
 }
 
+function currentMainSessionIds(controlDbPath: string): Set<string> {
+	const listeners = listRuntimeMailboxListeners(controlDbPath)
+		.filter((listener) => listener.agentId === null)
+		.sort((left, right) => {
+			const updatedAtOrder = right.updatedAt.localeCompare(left.updatedAt);
+			if (updatedAtOrder !== 0) return updatedAtOrder;
+			return left.sessionId.localeCompare(right.sessionId);
+		});
+	const seenPids = new Set<number>();
+	const sessionIds = new Set<string>();
+	for (const listener of listeners) {
+		if (seenPids.has(listener.pid)) continue;
+		seenPids.add(listener.pid);
+		sessionIds.add(listener.sessionId);
+	}
+	return sessionIds;
+}
+
 function matchesFilters(entry: SessionDirectoryEntry, filters: BroadcastSessionFilters | undefined): boolean {
 	if (!filters) return true;
 	if (filters.sessionIds && filters.sessionIds.length > 0 && !filters.sessionIds.includes(entry.sessionId)) {
@@ -223,9 +241,10 @@ export function broadcastToSessions(
 		throw new Error("broadcast requires a non-empty message");
 	}
 
+	const currentSessionIds = currentMainSessionIds(controlDbPath);
 	const seenSessionIds = new Set<string>();
 	const entries = listSessions(controlDbPath, options).filter((entry) => {
-		if (seenSessionIds.has(entry.sessionId)) return false;
+		if (!currentSessionIds.has(entry.sessionId) || seenSessionIds.has(entry.sessionId)) return false;
 		seenSessionIds.add(entry.sessionId);
 		return true;
 	});

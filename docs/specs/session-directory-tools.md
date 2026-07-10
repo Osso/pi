@@ -36,9 +36,10 @@ once needed.
       `status`).
 - [x] Candidate sessions pass through the same eligibility/check pipeline as `list_sessions`.
 - [x] Sticky-dead sessions are skipped without re-probing.
-- [x] Successful deliveries enqueue one runtime mailbox message to the main thread of each target
-      session and return one per-session outcome. When historical metadata has multiple paths for
-      the same session ID, `broadcast` uses the first/newest inventory entry before applying filters.
+- [x] `broadcast` selects the newest main-thread runtime listener per PID before applying filters,
+      using a deterministic tie-break; historical session IDs sharing that PID are never targeted.
+      It then uses the first/newest inventory entry when historical metadata has multiple paths for
+      the selected session ID.
 
 ## How it works
 

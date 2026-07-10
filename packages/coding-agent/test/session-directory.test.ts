@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getControlDbPath,
 	listRuntimeMailboxMessages,
@@ -108,6 +108,57 @@ describe("session directory", () => {
 		expect(afterRestart[0]?.agentGeneration).toBe(2);
 	});
 
+	it("broadcasts only to the newest main-session listener for a shared live pid", () => {
+		vi.useFakeTimers();
+		try {
+			writeSession("session-historical", { cwd: "/repo/historical" });
+			writeSession("session-current", { cwd: "/repo/current" });
+			vi.setSystemTime(new Date("2026-01-01T00:10:00.000Z"));
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-historical" }, process.pid);
+			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
+			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-current" }, process.pid);
+
+			const sent = broadcastToSessions(
+				controlDbPath,
+				{
+					message: "please restart",
+					senderSessionId: "sender-session",
+					senderSessionPath: "/sessions/sender.jsonl",
+					senderAgentId: null,
+				},
+				{ signalProcess: () => {} },
+			);
+
+			expect(sent).toEqual([
+				expect.objectContaining({ sessionId: "session-current", outcome: "sent", checkStatus: "ok" }),
+			]);
+			expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
+			expect(listRuntimeMailboxMessages(controlDbPath)[0]?.recipient).toEqual({
+				agentId: null,
+				sessionId: "session-current",
+			});
+
+			const filtered = broadcastToSessions(
+				controlDbPath,
+				{
+					message: "please restart again",
+					filters: { sessionIds: ["session-historical"] },
+					senderSessionId: "sender-session",
+					senderSessionPath: "/sessions/sender.jsonl",
+					senderAgentId: null,
+				},
+				{ signalProcess: () => {} },
+			);
+
+			expect(filtered).toEqual([
+				expect.objectContaining({ sessionId: "session-current", outcome: "skipped_filter" }),
+			]);
+			expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("broadcasts once to a session with multiple metadata paths", () => {
 		writeSession("session-live", {
 			sessionPath: "/sessions/session-live-old.jsonl",
@@ -167,27 +218,18 @@ describe("session directory", () => {
 		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(0);
 	});
 
-	it("broadcasts only to eligible matching sessions and returns per-target outcomes", () => {
+	it("broadcasts only to eligible matching current sessions and returns per-target outcomes", () => {
 		writeSession("session-live", { name: "Live", cwd: "/repo/live" });
-		writeSession("session-dead", { name: "Dead", cwd: "/repo/dead" });
 		writeSession("session-filtered", { name: "Other", cwd: "/repo/other" });
 
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
-		writeSessionHealth(controlDbPath, {
-			...emptySessionHealth("session-dead", "2026-01-01T00:00:00.000Z"),
-			agentGeneration: 1,
-			pid: 999_999,
-			checkStatus: "dead",
-			checkedGeneration: 1,
-			lastCheckedAt: "2026-01-01T00:01:00.000Z",
-		});
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-filtered" }, process.pid);
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-filtered" }, process.pid + 1);
 
 		const results = broadcastToSessions(
 			controlDbPath,
 			{
 				message: "please restart",
-				filters: { sessionIds: ["session-live", "session-dead"] },
+				filters: { sessionIds: ["session-live"] },
 				senderSessionId: "sender-session",
 				senderSessionPath: "/sessions/sender.jsonl",
 				senderAgentId: null,
@@ -200,7 +242,6 @@ describe("session directory", () => {
 		expect(results).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ sessionId: "session-live", outcome: "sent", checkStatus: "ok" }),
-				expect.objectContaining({ sessionId: "session-dead", outcome: "skipped_dead", checkStatus: "dead" }),
 				expect.objectContaining({ sessionId: "session-filtered", outcome: "skipped_filter" }),
 			]),
 		);
