@@ -223,6 +223,79 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(4);
 	});
 
+	test("coalesces rapid partial updates across tools", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		const firstTool = createToolExecutionStub();
+		const secondTool = createToolExecutionStub();
+		fakeThis.pendingTools.set("tool-1", firstTool);
+		fakeThis.pendingTools.set("tool-2", secondTool);
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_update",
+			toolCallId: "tool-1",
+			toolName: "read",
+			args: { path: "README.md" },
+			partialResult: { content: [{ type: "text", text: "one" }] },
+		});
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_update",
+			toolCallId: "tool-2",
+			toolName: "bash",
+			args: { command: "echo two" },
+			partialResult: { content: [{ type: "text", text: "two" }] },
+		});
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_update",
+			toolCallId: "tool-1",
+			toolName: "read",
+			args: { path: "README.md" },
+			partialResult: { content: [{ type: "text", text: "latest" }] },
+		});
+
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+		expect(firstTool.updateResult).toHaveBeenLastCalledWith(
+			{ content: [{ type: "text", text: "latest" }], isError: false },
+			true,
+		);
+
+		await vi.advanceTimersByTimeAsync(49);
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+
+	test("tool completion replaces a pending partial render with one immediate final render", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		const tool = createToolExecutionStub();
+		fakeThis.pendingTools.set("tool-1", tool);
+
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_update",
+			toolCallId: "tool-1",
+			toolName: "read",
+			args: { path: "README.md" },
+			partialResult: { content: [{ type: "text", text: "partial" }] },
+		});
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: "tool-1",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "final" }] },
+			isError: false,
+		});
+
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(tool.updateResult).toHaveBeenLastCalledWith({
+			content: [{ type: "text", text: "final" }],
+			isError: false,
+		});
+
+		await vi.advanceTimersByTimeAsync(50);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+
 	test("uses clearer waiting labels while tools execute", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const setMessage = vi.fn();

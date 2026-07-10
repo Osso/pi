@@ -251,7 +251,7 @@ type CompactionQueuedMessage = {
 	mode: "steer" | "followUp";
 };
 
-const STREAMING_RENDER_THROTTLE_MS = 50;
+const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 50;
 
 function resolveEnabledModelsPersistTarget(
 	projectEnabledModels: string[] | undefined,
@@ -402,7 +402,7 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
-	private streamingRenderTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
+	private partialUpdateRenderTimeout: ReturnType<typeof setTimeout> | undefined = undefined;
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
@@ -1862,7 +1862,7 @@ export class InteractiveMode {
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
-		this.cancelStreamingUpdateRender();
+		this.cancelPartialUpdateRender();
 		this.applyRuntimeSettings();
 		if (options.renderBeforeBind) {
 			this.renderCurrentSessionState();
@@ -3450,24 +3450,24 @@ export class InteractiveMode {
 		});
 	}
 
-	private scheduleStreamingUpdateRender(): void {
-		if (this.streamingRenderTimeout) {
+	private schedulePartialUpdateRender(): void {
+		if (this.partialUpdateRenderTimeout) {
 			return;
 		}
 
-		this.streamingRenderTimeout = setTimeout(() => {
-			this.streamingRenderTimeout = undefined;
+		this.partialUpdateRenderTimeout = setTimeout(() => {
+			this.partialUpdateRenderTimeout = undefined;
 			this.ui.requestRender();
-		}, STREAMING_RENDER_THROTTLE_MS);
+		}, PARTIAL_UPDATE_RENDER_THROTTLE_MS);
 	}
 
-	private cancelStreamingUpdateRender(): void {
-		if (!this.streamingRenderTimeout) {
+	private cancelPartialUpdateRender(): void {
+		if (!this.partialUpdateRenderTimeout) {
 			return;
 		}
 
-		clearTimeout(this.streamingRenderTimeout);
-		this.streamingRenderTimeout = undefined;
+		clearTimeout(this.partialUpdateRenderTimeout);
+		this.partialUpdateRenderTimeout = undefined;
 	}
 
 	private clearPendingToolComponents(): void {
@@ -3598,7 +3598,7 @@ export class InteractiveMode {
 				break;
 
 			case "message_start":
-				this.cancelStreamingUpdateRender();
+				this.cancelPartialUpdateRender();
 				if (event.message.role === "custom") {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
@@ -3625,12 +3625,12 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
-					this.scheduleStreamingUpdateRender();
+					this.schedulePartialUpdateRender();
 				}
 				break;
 
 			case "message_end":
-				this.cancelStreamingUpdateRender();
+				this.cancelPartialUpdateRender();
 				if (event.message.role === "user") break;
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
@@ -3678,6 +3678,7 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
+				this.cancelPartialUpdateRender();
 				this.executingToolNames.set(event.toolCallId, event.toolName);
 				this.executingToolStartedAt.set(event.toolCallId, Date.now());
 				this.startToolWaitingTimer();
@@ -3692,12 +3693,13 @@ export class InteractiveMode {
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.partialResult, isError: false }, true);
-					this.ui.requestRender();
+					this.schedulePartialUpdateRender();
 				}
 				break;
 			}
 
 			case "tool_execution_end": {
+				this.cancelPartialUpdateRender();
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.result, isError: event.isError });
@@ -3714,6 +3716,7 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
+				this.cancelPartialUpdateRender();
 				this.notifyResponseComplete(event);
 				this.stopThinkingTimer();
 				this.executingToolNames.clear();
@@ -6780,7 +6783,7 @@ export class InteractiveMode {
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
-		this.cancelStreamingUpdateRender();
+		this.cancelPartialUpdateRender();
 		this.disposeActiveBashComponents();
 		this.clearPendingToolComponents();
 		this.closeResponseCompleteNotification();
