@@ -99,11 +99,12 @@ export function readArchitectSnapshot(controlDbPath: string, afterChannelMessage
 								ORDER BY metadata.modified_at DESC, metadata.updated_at DESC
 							) AS row_number
 						FROM session_metadata AS metadata
-						INNER JOIN session_health AS health ON health.session_id = metadata.id
-						WHERE health.pid IS NOT NULL
-							AND health.check_status = 'ok'
-							AND health.checked_generation = health.agent_generation
-							AND julianday(health.last_active_at) >= julianday('now', '-5 minutes')
+						INNER JOIN runtime_mailbox_listeners AS listener
+							ON listener.recipient_session_id = metadata.id
+						WHERE metadata.is_subagent = 0
+							AND listener.recipient_agent_id_key = ''
+							AND listener.recipient_session_id != '${ARCHITECT_SESSION_ID}'
+							AND julianday(listener.updated_at) >= julianday('now', '-5 minutes')
 					)
 					SELECT id, cwd, name, goal_json, is_subagent
 					FROM live_sessions

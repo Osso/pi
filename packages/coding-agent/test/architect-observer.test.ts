@@ -88,6 +88,10 @@ describe("architect observer", () => {
 					session_id TEXT NOT NULL, pid INTEGER, check_status TEXT NOT NULL,
 					agent_generation INTEGER NOT NULL, checked_generation INTEGER, last_active_at TEXT
 				);
+				CREATE TABLE runtime_mailbox_listeners (
+					recipient_session_id TEXT NOT NULL, recipient_agent_id_key TEXT NOT NULL,
+					pid INTEGER NOT NULL, updated_at TEXT NOT NULL
+				);
 				CREATE TABLE shared_channel_messages (
 					id INTEGER PRIMARY KEY, sender_session_id TEXT NOT NULL,
 					sender_agent_id TEXT, body TEXT NOT NULL
@@ -112,6 +116,24 @@ describe("architect observer", () => {
 				"2026-07-09T22:00:00.000Z",
 			);
 			db.prepare("INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+				"child",
+				"/child",
+				"child",
+				'{"objective":"Child"}',
+				1,
+				new Date().toISOString(),
+				new Date().toISOString(),
+			);
+			db.prepare("INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+				"orphan",
+				"/orphan",
+				"orphan",
+				'{"objective":"Orphan"}',
+				0,
+				new Date().toISOString(),
+				new Date().toISOString(),
+			);
+			db.prepare("INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?)").run(
 				"ended",
 				"/ended",
 				"ended",
@@ -128,7 +150,27 @@ describe("architect observer", () => {
 				1,
 				new Date().toISOString(),
 			);
+			db.prepare("INSERT INTO session_health VALUES (?, ?, ?, ?, ?, ?)").run(
+				"orphan",
+				456,
+				"ok",
+				1,
+				1,
+				new Date().toISOString(),
+			);
 			db.prepare("INSERT INTO session_health VALUES (?, ?, ?, ?, ?, ?)").run("ended", null, "dead", 1, 1, null);
+			db.prepare("INSERT INTO runtime_mailbox_listeners VALUES (?, ?, ?, ?)").run(
+				"live",
+				"",
+				123,
+				new Date().toISOString(),
+			);
+			db.prepare("INSERT INTO runtime_mailbox_listeners VALUES (?, ?, ?, ?)").run(
+				"child",
+				"",
+				789,
+				new Date().toISOString(),
+			);
 			db.prepare("INSERT INTO shared_channel_messages VALUES (?, ?, ?, ?)").run(
 				1,
 				"main",

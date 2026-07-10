@@ -8,7 +8,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Observation
 
-- [x] Poll a bounded, deduplicated snapshot of freshly live sessions from control SQLite every 30 seconds without prompting the model when state is unchanged.
+- [x] Poll a bounded, deduplicated snapshot of freshly registered main-session listeners from control SQLite every 30 seconds without prompting the model when state is unchanged.
 - [x] Prompt on the initial session snapshot, material session/goal changes, or a new main-session shared-channel request beginning `Architect:`.
 - [x] Ignore subagent and Architect-originated channel posts as architect requests.
 - [x] Open observer state through SQLite read-only access without applying writer-oriented database configuration.
@@ -32,7 +32,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, freshly-live control-DB snapshots and material-change detection.
+- `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, fresh main-listener control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy and structured observation prompt.
 - `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the read-only bwrap profile.
 - `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed binary.

@@ -4,7 +4,7 @@ The resident Architect is a separate Pi process launched as a systemd user servi
 
 ## Observation loop
 
-`runArchitectService()` creates an `ArchitectObserver` and evaluates it every 30 seconds. The observer opens the control SQLite database with `createReadOnlySqliteDatabase()`, reads at most 20 distinct sessions whose health is freshly confirmed live, plus up to 20 newer `shared_channel_messages`, then closes the connection. For duplicate session IDs it retains only the newest metadata row. It does not apply the shared writer connection's WAL or pragma configuration.
+`runArchitectService()` creates an `ArchitectObserver` and evaluates it every 30 seconds. The observer opens the control SQLite database with `createReadOnlySqliteDatabase()`, reads at most 20 distinct non-subagent sessions with a fresh runtime-mailbox listener registration, plus up to 20 newer `shared_channel_messages`, then closes the connection. It excludes the Architect itself and retains only the newest metadata row for duplicate session IDs. It does not apply the shared writer connection's WAL or pragma configuration.
 
 The structured observer snapshot is the Architect's only session-inventory source; `list_sessions` is blocked because its global output can include historical rows unrelated to the observed state.
 
