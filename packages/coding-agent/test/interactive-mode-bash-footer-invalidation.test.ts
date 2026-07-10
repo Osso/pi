@@ -47,7 +47,7 @@ const RESULT: BashResult = {
 	fullOutputPath: undefined,
 };
 
-function createHarness(intercepted: boolean): HandleBashCommandThis {
+function createHarness(intercepted: boolean, isStreaming = false): HandleBashCommandThis {
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleBashCommandThis, {
 		bashComponent: undefined,
 		chatContainer: new Container(),
@@ -57,7 +57,7 @@ function createHarness(intercepted: boolean): HandleBashCommandThis {
 		runtimeHost: {
 			session: {
 				extensionRunner: { emitUserBash: vi.fn(async () => (intercepted ? { result: RESULT } : undefined)) },
-				isStreaming: false,
+				isStreaming,
 				recordBashResult: vi.fn(),
 				executeBash: vi.fn(async () => RESULT),
 				sessionManager: { getCwd: () => process.cwd() },
@@ -82,6 +82,17 @@ describe("InteractiveMode bash footer invalidation", () => {
 		await handleBashCommand.call(fakeThis, "echo ok", false);
 
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		{ path: "extension result", intercepted: true },
+		{ path: "local execution", intercepted: false },
+	])("does not invalidate before a deferred $path enters context", async ({ intercepted }) => {
+		const fakeThis = createHarness(intercepted, true);
+
+		await handleBashCommand.call(fakeThis, "echo ok", false);
+
+		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
 	});
 
 	it.each([

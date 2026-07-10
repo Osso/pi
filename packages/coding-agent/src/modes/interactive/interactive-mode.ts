@@ -3591,6 +3591,12 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
+			case "bash_messages_flushed":
+				if (event.messages.some((message) => !message.excludeFromContext)) {
+					this.footer.invalidate();
+				}
+				break;
+
 			case "thinking_level_changed":
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
@@ -6665,7 +6671,7 @@ export class InteractiveMode {
 	}
 
 	private invalidateFooterAfterBashResult(excludeFromContext: boolean): void {
-		if (!excludeFromContext) {
+		if (!this.session.isStreaming && !excludeFromContext) {
 			this.footer.invalidate();
 		}
 	}

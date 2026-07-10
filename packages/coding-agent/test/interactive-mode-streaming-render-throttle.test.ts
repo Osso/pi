@@ -298,6 +298,30 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 	});
 
+	test("invalidates footer data after deferred bash messages enter session context", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const event = {
+			type: "bash_messages_flushed",
+			messages: [{ role: "bashExecution", excludeFromContext: false }],
+		} as unknown as AgentSessionEvent;
+
+		await handleEvent.call(fakeThis, event);
+
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
+	test("keeps footer cache when flushed bash messages are excluded from context", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const event = {
+			type: "bash_messages_flushed",
+			messages: [{ role: "bashExecution", excludeFromContext: true }],
+		} as unknown as AgentSessionEvent;
+
+		await handleEvent.call(fakeThis, event);
+
+		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
+	});
+
 	test("uses clearer waiting labels while tools execute", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
 		const setMessage = vi.fn();

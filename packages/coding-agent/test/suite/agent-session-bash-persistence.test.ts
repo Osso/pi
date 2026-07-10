@@ -61,6 +61,18 @@ describe("AgentSession bash and persistence characterization", () => {
 			fauxAssistantMessage("after flush"),
 		]);
 
+		const flushedBatches: Array<readonly { excludeFromContext?: boolean }[]> = [];
+		harness.session.subscribe((event) => {
+			const eventType: string = event.type;
+			if (eventType === "bash_messages_flushed") {
+				const flushedEvent = event as unknown as {
+					messages: readonly { excludeFromContext?: boolean }[];
+				};
+				expect(harness.session.messages.filter((message) => message.role === "bashExecution")).toHaveLength(2);
+				flushedBatches.push(flushedEvent.messages);
+			}
+		});
+
 		const sawToolStart = new Promise<void>((resolve) => {
 			const unsubscribe = harness.session.subscribe((event) => {
 				if (event.type === "tool_execution_start") {
@@ -78,15 +90,28 @@ describe("AgentSession bash and persistence characterization", () => {
 			cancelled: false,
 			truncated: false,
 		});
+		harness.session.recordBashResult(
+			"echo hidden",
+			{
+				output: "hidden",
+				exitCode: 0,
+				cancelled: false,
+				truncated: false,
+			},
+			{ excludeFromContext: true },
+		);
 
 		expect(harness.session.hasPendingBashMessages).toBe(true);
 		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(false);
+		expect(flushedBatches).toEqual([]);
 
 		releaseToolExecution?.();
 		await firstPrompt;
 
 		expect(harness.session.hasPendingBashMessages).toBe(false);
-		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(true);
+		expect(harness.session.messages.filter((message) => message.role === "bashExecution")).toHaveLength(2);
+		expect(flushedBatches).toHaveLength(1);
+		expect(flushedBatches[0]?.map((message) => message.excludeFromContext)).toEqual([undefined, true]);
 
 		await harness.session.prompt("next turn");
 

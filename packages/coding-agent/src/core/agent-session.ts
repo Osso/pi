@@ -236,6 +236,8 @@ export type AgentSessionEvent =
 	  }
 	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow"; sourceHint?: CompactionSourceInfo }
 	| { type: "entry_appended"; entry: SessionEntry }
+	/** Emitted after deferred bash messages are appended to agent state and session storage. */
+	| { type: "bash_messages_flushed"; messages: readonly BashExecutionMessage[] }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
@@ -4212,7 +4214,8 @@ export class AgentSession {
 	private _flushPendingBashMessages(): void {
 		if (this._pendingBashMessages.length === 0) return;
 
-		for (const bashMessage of this._pendingBashMessages) {
+		const messages = this._pendingBashMessages;
+		for (const bashMessage of messages) {
 			// Add to agent state
 			this.agent.state.messages.push(bashMessage);
 
@@ -4221,6 +4224,7 @@ export class AgentSession {
 		}
 
 		this._pendingBashMessages = [];
+		this._emit({ type: "bash_messages_flushed", messages });
 	}
 
 	// =========================================================================

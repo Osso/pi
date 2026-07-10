@@ -14,13 +14,14 @@ Events are defined in [`AgentSessionEvent`](https://github.com/earendil-works/pi
 type AgentSessionEvent =
   | AgentEvent
   | { type: "queue_update"; steering: readonly string[]; followUp: readonly string[] }
+  | { type: "bash_messages_flushed"; messages: readonly BashExecutionMessage[] }
   | { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
   | { type: "compaction_end"; reason: "manual" | "threshold" | "overflow"; result: CompactionResult | undefined; aborted: boolean; willRetry: boolean; errorMessage?: string }
   | { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
   | { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
 ```
 
-`queue_update` emits the full pending steering and follow-up queues whenever they change. `compaction_start` and `compaction_end` cover both manual and automatic compaction.
+`queue_update` emits the full pending steering and follow-up queues whenever they change. `bash_messages_flushed` emits after deferred bash messages are appended to session state. `compaction_start` and `compaction_end` cover both manual and automatic compaction.
 
 Base events from [`AgentEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/agent-core/src/types.ts#L179):
 

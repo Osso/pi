@@ -315,9 +315,12 @@ session.subscribe((event) => {
       // event.toolResults: tool results from this turn
       break;
     
-    // Session events (queue, compaction, retry)
+    // Session events (queue, bash persistence, compaction, retry)
     case "queue_update":
       console.log(event.steering, event.followUp);
+      break;
+    case "bash_messages_flushed":
+      // Deferred bash messages are now in session state
       break;
     case "compaction_start":
     case "compaction_end":

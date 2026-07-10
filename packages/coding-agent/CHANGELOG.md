@@ -38,6 +38,7 @@
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and default Pyrun runners through explicitly selected sandbox profiles.
 - Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell/Pyrun workers.
+- Added the public `bash_messages_flushed` session event for observing deferred bash messages after they enter session state.
 
 ### Changed
 
