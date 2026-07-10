@@ -60,6 +60,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ## Out of scope
 
+- Protecting credentials or other readable workspace data from the Architect itself. The Architect is trusted; bwrap limits autonomous mutation and remediation, not confidentiality.
 - Task dispatch, autonomous code changes, process/session control, or automatic remediation.
 - Reading full agent transcripts on routine observations.
 - Sandboxed Pyrun execution; bwrap currently blocks `pyrun_eval` under sandbox-required profiles.
