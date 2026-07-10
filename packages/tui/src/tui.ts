@@ -19,6 +19,10 @@ import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } fro
 import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
+const TERMINAL_FOCUS_IN = "\x1b[I";
+const TERMINAL_FOCUS_OUT = "\x1b[O";
+const ENABLE_TERMINAL_FOCUS_REPORTING = "\x1b[?1004h";
+const DISABLE_TERMINAL_FOCUS_REPORTING = "\x1b[?1004l";
 
 interface KittyImageHeader {
 	ids: number[];
@@ -304,8 +308,11 @@ export class TUI extends Container {
 	/** Global callback for debug key (Shift+Ctrl+D). Called before input is forwarded to focused component. */
 	public onDebug?: () => void;
 	private renderRequested = false;
+	private forceRenderRequested = false;
 	private renderTimer: NodeJS.Timeout | undefined;
 	private lastRenderAt = 0;
+	private terminalFocused = true;
+	private focusReportingEnabled = false;
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
 	private cursorRow = 0; // Logical cursor row (end of rendered content)
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
@@ -634,10 +641,15 @@ export class TUI extends Container {
 
 	start(): void {
 		this.stopped = false;
+		this.terminalFocused = true;
 		this.terminal.start(
 			(data) => this.handleInput(data),
 			() => this.requestRender(),
 		);
+		if (!this.focusReportingEnabled) {
+			this.terminal.write(ENABLE_TERMINAL_FOCUS_REPORTING);
+			this.focusReportingEnabled = true;
+		}
 		this.terminal.hideCursor();
 		if (this.terminalColorSchemeNotificationsEnabled) {
 			this.terminal.write("\x1b[?2031h");
@@ -690,6 +702,10 @@ export class TUI extends Container {
 			clearTimeout(this.renderTimer);
 			this.renderTimer = undefined;
 		}
+		if (this.focusReportingEnabled) {
+			this.terminal.write(DISABLE_TERMINAL_FOCUS_REPORTING);
+			this.focusReportingEnabled = false;
+		}
 		if (this.terminalColorSchemeNotificationsEnabled) {
 			this.terminal.write("\x1b[?2031l");
 		}
@@ -710,27 +726,18 @@ export class TUI extends Container {
 	}
 
 	requestRender(force = false): void {
+		this.forceRenderRequested ||= force;
+		if (!this.terminalFocused) {
+			this.renderRequested = true;
+			return;
+		}
 		if (force) {
-			this.previousLines = [];
-			this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
-			this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
-			this.cursorRow = 0;
-			this.hardwareCursorRow = 0;
-			this.maxLinesRendered = 0;
-			this.previousViewportTop = 0;
 			if (this.renderTimer) {
 				clearTimeout(this.renderTimer);
 				this.renderTimer = undefined;
 			}
 			this.renderRequested = true;
-			process.nextTick(() => {
-				if (this.stopped || !this.renderRequested) {
-					return;
-				}
-				this.renderRequested = false;
-				this.lastRenderAt = performance.now();
-				this.doRender();
-			});
+			process.nextTick(() => this.renderPendingState());
 			return;
 		}
 		if (this.renderRequested) return;
@@ -739,26 +746,66 @@ export class TUI extends Container {
 	}
 
 	private scheduleRender(): void {
-		if (this.stopped || this.renderTimer || !this.renderRequested) {
+		if (this.stopped || !this.terminalFocused || this.renderTimer || !this.renderRequested) {
 			return;
 		}
 		const elapsed = performance.now() - this.lastRenderAt;
 		const delay = Math.max(0, TUI.MIN_RENDER_INTERVAL_MS - elapsed);
 		this.renderTimer = setTimeout(() => {
 			this.renderTimer = undefined;
-			if (this.stopped || !this.renderRequested) {
-				return;
-			}
-			this.renderRequested = false;
-			this.lastRenderAt = performance.now();
-			this.doRender();
+			this.renderPendingState();
 			if (this.renderRequested) {
 				this.scheduleRender();
 			}
 		}, delay);
 	}
 
+	private renderPendingState(): void {
+		if (this.stopped || !this.terminalFocused || !this.renderRequested) {
+			return;
+		}
+		if (this.forceRenderRequested) {
+			this.previousLines = [];
+			this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
+			this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
+			this.cursorRow = 0;
+			this.hardwareCursorRow = 0;
+			this.maxLinesRendered = 0;
+			this.previousViewportTop = 0;
+			this.forceRenderRequested = false;
+		}
+		this.renderRequested = false;
+		this.lastRenderAt = performance.now();
+		this.doRender();
+	}
+
+	private consumeTerminalFocusReport(data: string): boolean {
+		if (data === TERMINAL_FOCUS_OUT) {
+			this.terminalFocused = false;
+			if (this.renderTimer) {
+				clearTimeout(this.renderTimer);
+				this.renderTimer = undefined;
+			}
+			return true;
+		}
+		if (data !== TERMINAL_FOCUS_IN) {
+			return false;
+		}
+		if (!this.terminalFocused) {
+			this.terminalFocused = true;
+			if (this.renderRequested) {
+				const force = this.forceRenderRequested;
+				this.renderRequested = false;
+				this.requestRender(force);
+			}
+		}
+		return true;
+	}
+
 	private handleInput(data: string): void {
+		if (this.consumeTerminalFocusReport(data)) {
+			return;
+		}
 		if (this.consumeOsc11BackgroundResponse(data)) {
 			return;
 		}
