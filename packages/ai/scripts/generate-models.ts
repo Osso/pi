@@ -1799,10 +1799,10 @@ async function generateModels() {
 
 	// OpenAI Codex (ChatGPT OAuth) models
 	// NOTE: These are not fetched from models.dev; we keep a small, explicit list to avoid aliases.
-	// Context windows are based on observed Codex server limits or live provider metadata, not marketing numbers.
+	// Context windows are effective input budgets after reserving the model's maximum output.
 	const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 	const CODEX_CONTEXT = 272000;
-	const CODEX_5_6_CONTEXT = 1050000;
+	const CODEX_5_6_CONTEXT = 372000;
 	const CODEX_SPARK_CONTEXT = 128000;
 	const CODEX_MAX_TOKENS = 128000;
 	const codexModels: Model<"openai-codex-responses">[] = [

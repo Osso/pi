@@ -16,6 +16,7 @@
 - Fixed retry classification for Cloudflare 524 timeout responses ([#6239](https://github.com/earendil-works/pi/issues/6239)).
 - Fixed retry classification to treat Bun/undici fetch socket-close messages (for example: "The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()") as retryable, avoiding misclassification of transport-level socket closes.
 - Fixed OpenAI Codex streams to time out stalled SSE body reads and use native WebSocket pings when available, avoiding hung sessions after sleep or dropped connections.
+- Fixed GPT-5.6 Sol, Luna, and Terra context-window metadata to 372,000 tokens, matching the observed effective input budget so the footer and auto-compaction threshold are accurate.
 
 ### Added
 
