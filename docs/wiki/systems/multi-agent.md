@@ -11,11 +11,12 @@ SessionManager-backed snapshot reload before any child model sessions, subproces
 are added.
 
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
-`agent_artifacts`, `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agent`, `cancel_agent`,
+`agent_artifacts`, `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`, `cancel_agent`,
 `contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate or read
 `MultiAgentStore`. The read-only `agents_mailbox` tool is temporarily disabled.
 `spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
-injected factory. `wait_agent` synchronizes with those live dispatches without reporting final state.
+injected factory. `wait_agents({})` immediately consumes one pending completion notification or
+waits until any agent active at invocation reaches terminal state.
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
 `SessionManager.create()` primitives so production callers can create child sessions with the
 parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
@@ -24,8 +25,9 @@ can include inactive agents or scope results to descendants below a parent ID, u
 rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
-and labels, so large logs or diffs stay outside coordination events. `wait_agent` only synchronizes
-until the target finishes; it returns no agent output, and mailbox messages stay on the mailbox path.
+and labels, so large logs or diffs stay outside coordination events. The direct `wait_agents({})`
+tool returns the winning agent's completion or terminal status and consumes only that winner's
+completion notification; Hostrun/Pyrun `pi.agents.wait()` returns `null`.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -48,7 +50,7 @@ thinking). User settings can override them with `agents.<type>.model` and
 
 The supervisor is the only orchestration authority. Child runtimes register only their agent-address
 mailbox listener, never a same-PID main listener, and never run supervisor-wide persisted-store
-reconciliation. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agent`
+reconciliation. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agents`
 calls, the equivalent Hostrun/Pyrun bridge methods, and `/bg`; production child sessions exclude
 those tools as a second boundary.
 
@@ -76,9 +78,10 @@ Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in 
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
-`wait_agent` accepts only an in-process dispatch or a current-process detached Bash/Pyrun job
-with transient `runtime` worker metadata. The store removes active worker metadata on restore, so
-persisted process metadata cannot keep a wait polling forever.
+`wait_agents({})` takes no agent ID. It snapshots active agents at invocation, waits until any
+one reaches terminal state, or immediately consumes one pending completion notification. The store
+removes transient worker metadata on restore, so persisted process metadata cannot keep a wait
+polling forever.
 
 Existing primitives worth reusing:
 

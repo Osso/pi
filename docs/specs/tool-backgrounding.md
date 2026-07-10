@@ -11,14 +11,14 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Auto-detach moves the tool out of the foreground only; explicit tool timeout settings continue to kill/fail the underlying work.
 - [x] Detached bash commands create a background job, write later output to a log artifact, and support cancellation through `cancel_agent`.
 - [x] Detached Pyrun evaluations create a background job, complete independently, and write final output to a log artifact.
-- [x] `wait_agent` waits for active detached tool jobs until the multi-agent store reaches a terminal state.
+- [x] `wait_agents({})` waits until any detached tool job active at invocation reaches a terminal state.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 
 ## How it works
 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
-- `wait_agent` only polls store state for active background jobs created by supported tool integrations; after completion the bridge returns `null`, and spawned or recovered agents without a live local runtime report an explicit wait error.
+- `wait_agents({})` snapshots active background jobs, immediately consumes one pending completion notification when available, or waits for the first terminal job. The direct tool returns that winner's completion or status; the Hostrun/Pyrun bridge returns `null`.
 
 ## Implementation inventory
 

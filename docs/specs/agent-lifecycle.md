@@ -98,10 +98,9 @@ State meanings:
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
       same-PID main listener or run supervisor-wide recovery.
-- [x] `wait_agent` reports an explicit wait error for every active target with no live dispatch
-      or current-process worker marker instead of returning a live-looking non-terminal snapshot.
-      Detached Bash and Pyrun jobs use a transient `runtime` worker marker; restore clears it
-      and never keeps a wait alive.
+- [x] `wait_agents({})` snapshots active agents at invocation and returns when any one becomes
+      terminal, or immediately consumes one pending completion notification. Detached Bash and Pyrun
+      jobs use a transient `runtime` worker marker; restore clears it and never keeps a wait alive.
 
 ## How it works
 

@@ -33,7 +33,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
 - [x] Only the supervisor runtime can spawn, attach, or wait for agents. Child/subagent runtimes
-      reject `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Hostrun/Pyrun
+      reject `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Hostrun/Pyrun
       `agents.spawn`, `agents.attachSession`, and `agents.wait` bridge methods before rows are created.
       Production child sessions also exclude those three tools as defense in depth.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
@@ -90,10 +90,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       Dispatch finalizers are guarded
       by store restore generation so stale completions cannot mutate a rebound store, and shutdown
       invalidates in-flight dispatches before aborting handles.
-- [x] `wait_agent` waits only for a tracked live dispatch or a current-process detached Bash/Pyrun
-      job with transient worker metadata; every other active target fails promptly as detached.
-      Both use a `runtime` marker, and restore clears it so persisted metadata cannot cause
-      indefinite polling.
+- [x] `wait_agents({})` snapshots agents active at invocation and waits until any one reaches a
+      terminal state. It first consumes one pending completion notification when available, so a
+      completed agent never requires another wait. Restore clears transient `runtime` worker metadata;
+      persisted metadata never makes a wait poll indefinitely.
 
 ### Mailbox and steering
 
@@ -115,7 +115,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       heartbeat refresh, and retirement use that exact address; a subagent never creates or
       retires a main-thread binding.
 - [x] Separate agent sessions can send completion and coordination messages to another session's
-      main thread without requiring the receiver to call `wait_agent`.
+      main thread without requiring the receiver to call `wait_agents`.
 - [ ] Same-session subagents may address the main thread or another subagent by agent ID, but the
       default common path is child/separate-session to main-thread delivery.
 - [ ] Messages addressed to terminal agents are allowed and must either wake/resume that agent when
@@ -152,12 +152,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agent` is synchronization-only: after the target finishes, it returns no final-state
-      payload. When it observes a completed agent, it consumes pending completion mailbox
-      notifications for that agent and the matching runtime mailbox transport row, then returns
-      the consumed completion text; if another receiver already delivered the mailbox row, it still
-      returns completion text from the agent result so the caller sees the subagent response without
-      a duplicate follow-up.
+- [x] `wait_agents({})` first consumes one pending completion notification; otherwise it waits
+      until any agent active at invocation reaches a terminal state. The direct tool returns the
+      winning agent's completion or terminal status and consumes only that winner's completion
+      notification and matching runtime mailbox transport row. Hostrun/Pyrun `pi.agents.wait()`
+      discards that tool result and returns `null`.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
 - [x] The extension context control-DB path falls back to the session's metadata control-DB path,
@@ -283,8 +282,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
-  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agent` waits for terminal state,
-  returns completion text, consumes matching completion mailbox notices, and falls back to the agent result when the mailbox row is already delivered, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
+  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agents({})` immediately consumes one pending completion notification or waits for any agent active at invocation to reach terminal state, returns that winner's completion or status, and consumes only that winner's completion notice, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
   active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
   ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
@@ -317,9 +315,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over `MultiAgentStore`, update
       `docs/specs/multi-agent.md`, run targeted tests and `npm run check`.
 - [x] Add and implement injected child-dispatcher tests behind `spawn_agent` plus terminal-state
-      `wait_agent` behavior without TUI coupling.
+      `wait_agents({})` behavior without TUI coupling.
 - [x] Add and implement real child `AgentSession` factory tests behind `spawn_agent` and
-      terminal-state `wait_agent` behavior without TUI coupling.
+      terminal-state `wait_agents({})` behavior without TUI coupling.
 - [x] Implement production child `AgentSession` factory wiring for `spawn_agent` using existing
       session primitives, without real provider calls in tests.
 - [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
@@ -327,9 +325,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
 - [x] Add and implement mailbox artifact references by ID/path without copying large content into
       coordination events.
-- [x] Add and implement `wait_agent` behavior that waits for terminal state, returns completion
-      text to the caller, and consumes matching completion mailbox messages to avoid duplicate
-      mailbox follow-ups.
+- [x] Add and implement `wait_agents({})` behavior that consumes one pending completion or waits
+      for the first terminal agent from the invocation's active set, returns that winner's completion
+      or status, and consumes only its completion notification.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID
@@ -369,7 +367,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Move mailbox transport out of JSONL-backed `MultiAgentStore` snapshots and into a runtime
       SQLite mailbox keyed by `(session_id, agent_id)`.
 - [x] Add idle polling and end-of-turn draining for the SQLite runtime mailbox so receivers wake
-      without requiring `wait_agent`.
+      without requiring `wait_agents`.
 - [x] Add atomic claim/deliver/fail transitions for runtime mailbox rows and regression tests for
       duplicate delivery prevention across concurrent receivers.
 - [x] Add 30-day cleanup for stale runtime mailbox rows.

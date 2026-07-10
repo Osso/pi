@@ -37,7 +37,7 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 
 - [x] A first-party command or tool can attach/resume an existing session by session ID and optional prompt.
 - [x] The attached session appears in existing agent listing/viewer surfaces with its agent ID, preserved session ID, lifecycle, revision, display name, and transcript pointer.
-- [x] `wait_agent`, `cancel_agent`, `steer_agent`, `agent_viewer`, and mailbox tools work for attached session agents without special external-process handling by the caller.
+- [x] `wait_agents({})`, `cancel_agent`, `steer_agent`, `agent_viewer`, and mailbox tools work for attached session agents without special external-process handling by the caller.
 
 ## How it works
 
@@ -70,7 +70,7 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 
 - [x] Add the first tests for preserving `sessionId` while creating a separate `agentId` during attachment.
 - [x] Add a first attach/resume tool or command over an existing saved session.
-- [x] Wire attached session lifecycle into existing `wait_agent`, `cancel_agent`, `steer_agent`, and viewer surfaces.
+- [x] Wire attached session lifecycle into existing `wait_agents({})`, `cancel_agent`, `steer_agent`, and viewer surfaces.
 - [x] Verify completion notification for an attached session agent.
 - [x] Verify permission inheritance/narrowing and rejection of permission broadening.
 - [x] Restore persisted supervisor agent state on session resume and restart recovered attached-session agents through safe runtime handles.

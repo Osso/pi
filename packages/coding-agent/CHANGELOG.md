@@ -41,6 +41,7 @@
 
 ### Changed
 
+- Replaced `wait_agent({ agentId })` with zero-argument `wait_agents({})`. It immediately consumes one pending completion notification or waits for any agent active at invocation to reach terminal state; the direct tool returns the winner completion/status while Hostrun/Pyrun `pi.agents.wait()` returns `null`.
 - Changed the default interactive `Thinking...` working ticker to show elapsed duration and leave active tool-wait messages in control of the working row.
 - Changed production-created child sessions, including `/bg` background jobs, to start with a fresh session-local goal derived from their non-empty launch prompt; `spawn_agent` now rejects blank prompts before creating an agent record.
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
@@ -62,7 +63,7 @@
 - Fixed active spawned-agent ghosts surviving in historical non-current supervisor stores: main listeners now freshly assert their exact session path and runtime incarnation, path relocation moves the assertion transactionally with the store, startup reconciliation retires non-Pi listener ownership before trusting asserted paths, and listener startup plus session-directory synchronization abort stores with explicitly ended (`pid: NULL`) health, replaced runtimes even after same-PID reuse, or duplicate paths differing from a trusted live assertion. Pathless and legacy timestamp-only heartbeats invalidate assertion trust and fail safe until re-registration; missing-health, attached, queued, terminal, current live, and stale process-backed timeout records remain preserved.
 - Fixed stale or future-dated heartbeat handling aborting spawned work or reviving reused PIDs: only non-future heartbeats inside the freshness window restore `ok`; inventory tools no longer claim listener or health ownership, lifecycle mutation preserves command-line-uninspectable processes while `SIGUSR2` requires verified Pi ownership, stale verified runtimes remain ineligible with `timeout` health until replacement is confirmed, concurrent replacement by a different live Pi PID is rejected, and relative source/build entrypoints are recognized as Pi runtimes.
 - Fixed historical Pi sessions reappearing as live after session switch or PID reuse by retiring old main-session bindings, using runtime heartbeats instead of PID existence as positive liveness, filtering ended inventory rows, and keeping Architect/global inventory on the current session.
-- Fixed multi-agent restart recovery to abort detached spawned children instead of preserving active ghosts, restricted orchestration and supervisor-wide reconciliation to main runtimes, prevented in-process children from replacing the same-PID supervisor listener, and made `wait_agent` reject detached background metadata while retaining live Bash/Pyrun waits.
+- Fixed multi-agent restart recovery to abort detached spawned children instead of preserving active ghosts, restricted orchestration and supervisor-wide reconciliation to main runtimes, and prevented in-process children from replacing the same-PID supervisor listener.
 - Fixed `broadcast` targeting historical session IDs after a session switch: it now selects the newest main-thread listener per PID before filters, then deduplicates historical metadata paths.
 - Fixed Resident Architect snapshots to retain only the current main session per live Pi process without expiring long-running sessions or replaying historical/subagent session inventories.
 - Fixed Resident Architect advice from treating a completed goal as a terminated session; `completedAt` is goal state only, and the model uses membership in its listener/health-prefiltered snapshot rather than goal fields as liveness evidence.
@@ -96,7 +97,7 @@
 - Fixed oversized bash tool timeouts to fail with a clear validation error instead of being clamped to an immediate timeout ([#6181](https://github.com/earendil-works/pi/issues/6181)).
 - Fixed the edit tool schema to allow model-invented extra replacement fields instead of rejecting otherwise valid edits ([#6278](https://github.com/earendil-works/pi/issues/6278)).
 - Fixed Pyrun and Hostrun evaluation output to omit noisy `Result:` labels and null result values.
-- Fixed `wait_agent` to wait for active detached tool jobs that update the multi-agent store without a child dispatch.
+- Fixed `wait_agents({})` to observe terminal transitions from detached tool jobs that update the multi-agent store without a child dispatch.
 - Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
 - Fixed runtime mailbox delivery races: when an idle delivery attempt races with an already-active prompt on the recipient, the claimed transport row is released back to pending for bounded redelivery instead of being marked failed. Added regression test `test/runtime-mailbox.test.ts` to prevent regressions.
 - Fixed the interactive retry indicator persisting after a successful retry.

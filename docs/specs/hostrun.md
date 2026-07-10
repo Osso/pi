@@ -58,7 +58,9 @@ belong in `docs/wiki/systems/hostrun.md` (stub — not yet written).
   statuses.
 - [x] Support a narrow synchronous Pi bridge from Hostrun through JSONL
   `pi_request`/response messages for `pi.agents.spawn(...)`,
-  `pi.agents.wait(...)`, and `pi.messages.enqueue(...)`.
+  `pi.agents.wait()`, and `pi.messages.enqueue(...)`. `pi.agents.wait()` immediately
+  consumes one pending completion notification or waits for any agent active at invocation to
+  reach terminal state, then returns `null`.
 - [x] Abort an in-flight runner evaluation when Pi aborts the tool call; the
   adapter may restart the runner process and lose Hostrun session state after
   interruption.
