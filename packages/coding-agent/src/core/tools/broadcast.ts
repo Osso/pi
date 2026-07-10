@@ -54,25 +54,18 @@ export function createBroadcastToolDefinition(): ToolDefinition<typeof broadcast
 			if (!sessionPath) {
 				throw new Error("broadcast requires a persisted session file");
 			}
-			const results = broadcastToSessions(
-				controlDbPath,
-				{
-					message: params.message,
-					filters: {
-						sessionIds: params.session_ids,
-						cwd: params.cwd,
-						name: params.name,
-						status: params.status,
-					},
-					senderSessionId: ctx.sessionManager.getSessionId(),
-					senderSessionPath: sessionPath,
-					senderAgentId: ctx.multiAgentAgentId ?? null,
+			const results = broadcastToSessions(controlDbPath, {
+				message: params.message,
+				filters: {
+					sessionIds: params.session_ids,
+					cwd: params.cwd,
+					name: params.name,
+					status: params.status,
 				},
-				{
-					touchCurrentSessionId: ctx.sessionManager.getSessionId(),
-					touchCurrentSessionPath: ctx.sessionManager.getSessionFile(),
-				},
-			);
+				senderSessionId: ctx.sessionManager.getSessionId(),
+				senderSessionPath: sessionPath,
+				senderAgentId: ctx.multiAgentAgentId ?? null,
+			});
 			const sent = results.filter((result) => result.outcome === "sent").length;
 			const failed = results.filter(
 				(result) =>

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
+import { isPiRuntimeProcessAlive, isVerifiedPiRuntimeProcess } from "./runtime-process.ts";
 import {
 	emptySessionHealth,
 	endSessionHealth,
@@ -1004,7 +1004,7 @@ function runtimeMailboxAgentIdKey(agentId: string | null): string {
 }
 
 function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | undefined): void {
-	if (!listener || process.platform === "win32" || !isPiRuntimeProcessAlive(listener.pid)) {
+	if (!listener || process.platform === "win32" || !isVerifiedPiRuntimeProcess(listener.pid)) {
 		return;
 	}
 	if (listener.pid === process.pid && process.listenerCount("SIGUSR2") === 0) {

@@ -59,8 +59,10 @@ metadata paths differing from the exact live path freshly asserted on that sessi
 The listener also persists a per-process runtime incarnation. If a new Pi runtime reuses the same PID,
 registration advances the session health generation and aborts active spawned rows in that exact
 store; attached rows remain recoverable. A different PID cannot replace the listener while its
-predecessor is still verified as a live Pi runtime. Heartbeat freshness alone is not PID ownership:
-inventory and mailbox wakeups verify the command belongs to Pi before retaining or signalling it.
+predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or
+write caller PID health; only the runtime listener lifecycle owns those rows. Heartbeat freshness
+alone is not PID ownership: inventory preserves uncertain live processes to avoid unsafe mutation,
+while mailbox wakeups require verified Pi command ownership before signalling.
 The path assertion is trusted only while its assertion
 timestamp matches the listener heartbeat; pathless or legacy timestamp-only heartbeats invalidate it.
 Session-path relocation moves the assertion in the same transaction as the store. Any active spawned

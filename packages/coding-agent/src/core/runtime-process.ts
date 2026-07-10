@@ -10,13 +10,25 @@ const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [
 
 export function isPiRuntimeProcessAlive(pid: number): boolean {
 	if (pid === process.pid) return true;
-	try {
-		process.kill(pid, 0);
-	} catch (error) {
-		if (!(error instanceof Error && "code" in error && error.code === "EPERM")) return false;
-	}
+	if (!processExists(pid)) return false;
 	const commandLine = tryReadProcessCommandLine(pid);
 	return commandLine === undefined || commandLineIsPiRuntime(commandLine);
+}
+
+export function isVerifiedPiRuntimeProcess(pid: number): boolean {
+	if (pid === process.pid) return true;
+	if (!processExists(pid)) return false;
+	const commandLine = tryReadProcessCommandLine(pid);
+	return commandLine !== undefined && commandLineIsPiRuntime(commandLine);
+}
+
+function processExists(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return error instanceof Error && "code" in error && error.code === "EPERM";
+	}
 }
 
 function tryReadProcessCommandLine(pid: number): string[] | undefined {

@@ -86,6 +86,27 @@ describe("session directory", () => {
 		});
 	});
 
+	it("does not claim listener ownership while listing another live process", () => {
+		writeSession("session-owned");
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "session-owned" },
+			111,
+			"/sessions/session-owned.jsonl",
+		);
+
+		listSessions(controlDbPath, { isRuntimeProcessAlive: () => true });
+
+		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
+			expect.objectContaining({
+				sessionId: "session-owned",
+				pid: 111,
+				sessionPath: "/sessions/session-owned.jsonl",
+			}),
+		]);
+		expect(readSessionHealth(controlDbPath, "session-owned")).toMatchObject({ pid: 111, checkStatus: "ok" });
+	});
+
 	it("keeps sticky dead sessions skipped until generation advances", () => {
 		writeSession("session-dead");
 		writeSessionHealth(controlDbPath, {

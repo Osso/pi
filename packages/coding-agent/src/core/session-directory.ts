@@ -6,7 +6,6 @@ import {
 	listRuntimeMailboxListeners,
 	listSessionHealth,
 	listSessionMetadata,
-	registerRuntimeMailboxListener,
 	retireRuntimeMailboxListener,
 	type SessionMetadata,
 	upsertMultiAgentMailboxMessage,
@@ -29,8 +28,6 @@ export interface SessionDirectoryOptions {
 	now?: () => Date;
 	includeEnded?: boolean;
 	isRuntimeProcessAlive?: (pid: number) => boolean;
-	touchCurrentSessionId?: string;
-	touchCurrentSessionPath?: string;
 }
 
 export interface BroadcastSessionFilters {
@@ -211,50 +208,15 @@ function toDirectoryEntry(metadata: SessionMetadata, health: SessionHealthRecord
 	};
 }
 
-function registerTouchedSessionBinding(
-	controlDbPath: string,
-	sessionId: string | undefined,
-	sessionPath: string | undefined,
-): void {
-	if (!sessionId) return;
-	registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, process.pid, sessionPath, {
-		reconcileRuntimeReplacement: false,
-	});
-}
-
-function markTouchedSessionActive(
-	controlDbPath: string,
-	sessionId: string | undefined,
-	healthMap: Map<string, SessionHealthRecord>,
-	nowIso: string,
-): void {
-	if (!sessionId) return;
-	const existing = healthMap.get(sessionId) ?? emptySessionHealth(sessionId, nowIso);
-	const next = {
-		...existing,
-		pid: process.pid,
-		lastActiveAt: nowIso,
-		lastCheckedAt: nowIso,
-		checkStatus: "ok" as const,
-		checkedGeneration: existing.agentGeneration,
-		checkLatencyMs: 0,
-		updatedAt: nowIso,
-	};
-	writeSessionHealth(controlDbPath, next);
-	healthMap.set(sessionId, next);
-}
-
 export function listSessions(controlDbPath: string, options: SessionDirectoryOptions = {}): SessionDirectoryEntry[] {
 	const now = resolveNow(options);
 	const nowIso = now.toISOString();
-	registerTouchedSessionBinding(controlDbPath, options.touchCurrentSessionId, options.touchCurrentSessionPath);
 	const metadata = newestMetadataBySessionId(listSessionMetadata(controlDbPath));
 	const healthMap = healthBySessionId(controlDbPath);
 	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive);
 	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, bindings, now);
 	abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive });
-	markTouchedSessionActive(controlDbPath, options.touchCurrentSessionId, healthMap, nowIso);
 	return metadata
 		.map((row) => toDirectoryEntry(row, healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso), now))
 		.filter((entry) => options.includeEnded !== false || entry.status !== "ended");

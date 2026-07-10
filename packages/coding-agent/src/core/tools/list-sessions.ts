@@ -44,8 +44,6 @@ export function createListSessionsToolDefinition(): ToolDefinition<typeof listSe
 			const controlDbPath = requireControlDbPath(ctx);
 			const sessions = listSessions(controlDbPath, {
 				includeEnded: params.include_ended ?? true,
-				touchCurrentSessionId: ctx?.sessionManager.getSessionId(),
-				touchCurrentSessionPath: ctx?.sessionManager.getSessionFile(),
 			});
 			const lines =
 				sessions.length === 0
