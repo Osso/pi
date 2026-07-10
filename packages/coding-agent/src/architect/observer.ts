@@ -87,7 +87,7 @@ export function readArchitectSnapshot(controlDbPath: string, afterChannelMessage
 		const sessions = (
 			db
 				.prepare(
-					`WITH live_sessions AS (
+					`WITH current_sessions AS (
 						SELECT
 							metadata.id,
 							metadata.cwd,
@@ -95,24 +95,31 @@ export function readArchitectSnapshot(controlDbPath: string, afterChannelMessage
 							metadata.goal_json,
 							metadata.is_subagent,
 							ROW_NUMBER() OVER (
-								PARTITION BY metadata.id
-								ORDER BY metadata.modified_at DESC, metadata.updated_at DESC
+								PARTITION BY listener.pid
+								ORDER BY listener.updated_at DESC, metadata.modified_at DESC,
+									metadata.updated_at DESC, metadata.session_path DESC
 							) AS row_number
 						FROM session_metadata AS metadata
 						INNER JOIN runtime_mailbox_listeners AS listener
 							ON listener.recipient_session_id = metadata.id
-						WHERE metadata.is_subagent = 0
 							AND listener.recipient_agent_id_key = ''
-							AND listener.recipient_session_id != '${ARCHITECT_SESSION_ID}'
-							AND julianday(listener.updated_at) >= julianday('now', '-5 minutes')
+						INNER JOIN session_health AS health
+							ON health.session_id = metadata.id
+							AND health.pid = listener.pid
+						WHERE health.pid IS NOT NULL
+							AND health.check_status = 'ok'
+							AND health.checked_generation = health.agent_generation
+							AND julianday(health.last_active_at) >= julianday('now', '-5 minutes')
+							AND metadata.is_subagent = 0
+							AND metadata.id <> ?
 					)
 					SELECT id, cwd, name, goal_json, is_subagent
-					FROM live_sessions
+					FROM current_sessions
 					WHERE row_number = 1
 					ORDER BY id ASC
 					LIMIT 20`,
 				)
-				.all() as SessionRow[]
+				.all(ARCHITECT_SESSION_ID) as SessionRow[]
 		).map((row) => ({
 			cwd: row.cwd,
 			goalJson: row.goal_json ?? undefined,
