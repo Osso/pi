@@ -44,7 +44,7 @@
 
 ### Changed
 
-- Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references.
+- Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references. Legacy persisted `artifactIds` and `artifactRefs` fields are cleaned once during restore so supported state does not make startup fail.
 
 - Changed Codex remote compaction to always use `gpt-5.6-terra`, allowing Luna and other Codex models to retain native compaction history across long sessions.
 - Changed interactive tool result display to retain the first and last 50 logical output lines with an omission marker while preserving full model context, and to hide successful `grep` results while keeping calls and errors visible.

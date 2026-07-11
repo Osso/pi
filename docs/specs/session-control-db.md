@@ -33,6 +33,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
       merged by maximum value during migration, then the legacy counter and artifact tables are
       dropped so relocated state cannot be resurrected or reuse IDs.
+- [ ] During restore, perform a one-time cleanup of legacy `artifactIds` and `artifactRefs` fields in
+      persisted agent and mailbox payloads, rewrite cleaned rows, and continue restoring supported
+      state. Malformed data unrelated to removed artifact fields remains a fatal validation error.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
@@ -62,9 +65,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       sessions can catch up from an append-only global coordination log.
 - [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
       (`store_session_path`, `store_message_id`) is required at enqueue, reads resolve
-      body/absolute `fileRefs` payloads from `multi_agent_mailbox_messages`, invalid legacy rows without
-      a store reference or with legacy artifact fields are rejected, and enqueue is idempotent per store
-      reference (one transport row per store message).
+      body/absolute `fileRefs` payloads from `multi_agent_mailbox_messages`, and invalid legacy rows
+      without a store reference remain rejected. Enqueue is idempotent per store reference (one
+      transport row per store message); referenced payloads are covered by the one-time legacy-field
+      cleanup above.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
