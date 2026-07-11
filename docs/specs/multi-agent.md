@@ -61,9 +61,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       before advancing, so stale counters cannot cause ID reuse. Legacy `multi_agent_counters_v2` rows
       migrate into authoritative `multi_agent_counters` during schema initialization and the alternate
       table is dropped after migration.
-- [ ] Restore performs a one-time cleanup of legacy `artifactIds` and `artifactRefs` fields in persisted
-      agent and mailbox payloads, rewrites the cleaned rows, and continues restoring supported state.
-      Malformed data unrelated to the removed artifact fields still fails explicitly.
+- [x] Control-DB schema initialization performs an atomic, durable, one-time cleanup of legacy
+      `artifactIds` and `artifactRefs` fields in persisted agent and mailbox payloads, rewrites the
+      cleaned rows, and continues restoring supported state. Already-migrated opens skip the writer
+      transaction and table scan. Malformed data unrelated to the removed artifact fields still fails
+      explicitly.
 - [x] Forked/branched sessions start with an empty multi-agent store: state is keyed by session
       path and deliberately does not follow forks, so the original and the fork can never both
       auto-restart the same child transcripts.

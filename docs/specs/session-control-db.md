@@ -33,9 +33,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
       merged by maximum value during migration, then the legacy counter and artifact tables are
       dropped so relocated state cannot be resurrected or reuse IDs.
-- [ ] During restore, perform a one-time cleanup of legacy `artifactIds` and `artifactRefs` fields in
-      persisted agent and mailbox payloads, rewrite cleaned rows, and continue restoring supported
-      state. Malformed data unrelated to removed artifact fields remains a fatal validation error.
+- [x] During schema initialization, perform an atomic, durable, one-time cleanup of legacy
+      `artifactIds` and `artifactRefs` fields in persisted agent and mailbox payloads, rewrite cleaned
+      rows, and continue restoring supported state. Already-migrated opens skip the writer transaction
+      and full-table scan. Malformed data unrelated to removed artifact fields remains a fatal validation
+      error.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without

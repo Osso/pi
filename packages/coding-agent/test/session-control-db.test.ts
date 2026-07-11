@@ -525,27 +525,33 @@ describe("session control DB", () => {
 		expect(() => readMultiAgentState(controlDbPath, "/sessions/invalid-label.jsonl")).toThrow(/label.*string/i);
 	});
 
-	it("migrates legacy artifact fields before persisted agent restore", () => {
+	it("migrates legacy artifact fields from a pre-upgrade database", () => {
 		const sessionPath = "/sessions/legacy-agent.jsonl";
-		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.exec("PRAGMA user_version = 0");
+			db.exec(`
+				CREATE TABLE multi_agent_agents (
+					session_path TEXT NOT NULL,
+					agent_id TEXT NOT NULL,
+					data TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (session_path, agent_id)
+				);
+				CREATE TABLE multi_agent_mailbox_messages (
+					session_path TEXT NOT NULL,
+					message_id TEXT NOT NULL,
+					data TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (session_path, message_id)
+				);
+			`);
 			db.prepare(
 				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,
 			).run(
 				sessionPath,
 				"agent-1",
-				JSON.stringify({
-					id: "agent-1",
-					result: {
-						artifactIds: ["artifact-1"],
-						artifactRefs: [{ path: "/tmp/legacy.log" }],
-						fileRefs: [{ path: "/tmp/current.log", label: "Current" }],
-						summary: "done",
-					},
-				}),
+				'{"id":"agent-1","result":{"artifactIds":["artifact-1"],"artifactRefs":[{"path":"/tmp/legacy.log"}],"fileRefs":[{"path":"/tmp/current.log","label":"Current"}],"summary":"done","__proto__":{"keep":true}}}',
 				"2026-07-11T00:00:00.000Z",
 			);
 			db.prepare(
@@ -554,13 +560,7 @@ describe("session control DB", () => {
 			).run(
 				sessionPath,
 				"message-1",
-				JSON.stringify({
-					artifactIds: ["artifact-2"],
-					artifactRefs: [{ path: "/tmp/legacy-mailbox.log" }],
-					body: "legacy mailbox",
-					fileRefs: [{ path: "/tmp/mailbox.log" }],
-					status: "pending",
-				}),
+				'{"artifactIds":["artifact-2"],"artifactRefs":[{"path":"/tmp/legacy-mailbox.log"}],"body":"legacy mailbox","fileRefs":[{"path":"/tmp/mailbox.log"}],"status":"pending"}',
 				"2026-07-11T00:00:00.000Z",
 			);
 		} finally {
@@ -585,7 +585,11 @@ describe("session control DB", () => {
 				},
 			],
 		};
-		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject(expectedState);
+		const state = readMultiAgentState(controlDbPath, sessionPath);
+		expect(state).toMatchObject(expectedState);
+		const agentResult = (state?.agents[0] as { result: Record<string, unknown> }).result;
+		expect(Object.hasOwn(agentResult, "__proto__")).toBe(true);
+		expect(agentResult["__proto__"]).toEqual({ keep: true });
 
 		const migratedDb = createSqliteDatabase(controlDbPath);
 		let agentUpdatedAt: string;
@@ -599,10 +603,20 @@ describe("session control DB", () => {
 			const mailboxRow = migratedDb
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 				.get(sessionPath, "message-1") as { data: string };
-			expect(agentRow.data).not.toContain('"artifactIds"');
-			expect(agentRow.data).not.toContain('"artifactRefs"');
-			expect(mailboxRow.data).not.toContain('"artifactIds"');
-			expect(mailboxRow.data).not.toContain('"artifactRefs"');
+			for (const row of [agentRow, mailboxRow]) {
+				const visit = (value: unknown): void => {
+					if (!value || typeof value !== "object") return;
+					if (Array.isArray(value)) {
+						for (const item of value) visit(item);
+						return;
+					}
+					for (const [key, nested] of Object.entries(value)) {
+						expect(key).not.toMatch(/^artifact(Id|Ref)s$/);
+						visit(nested);
+					}
+				};
+				visit(JSON.parse(row.data));
+			}
 		} finally {
 			migratedDb.close();
 		}
@@ -637,6 +651,48 @@ describe("session control DB", () => {
 		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/Legacy artifact fields/);
 	});
 
+	it("does not take the migration writer lock after the payload migration version is durable", async () => {
+		const sessionPath = "/sessions/already-migrated.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		holder.exec("BEGIN IMMEDIATE");
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readMultiAgentState } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+				try {
+					readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
+					parentPort?.postMessage("ok");
+				} catch (error) {
+					parentPort?.postMessage(String(error));
+				}
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, sessionPath } },
+		);
+		try {
+			const result = await new Promise<string>((resolve, reject) => {
+				const timer = setTimeout(
+					() => reject(new Error("already-migrated open blocked on a writer transaction")),
+					1000,
+				);
+				worker.once("message", (message: string) => {
+					clearTimeout(timer);
+					resolve(message);
+				});
+				worker.once("error", (error) => {
+					clearTimeout(timer);
+					reject(error);
+				});
+			});
+			expect(result).toBe("ok");
+		} finally {
+			await worker.terminate();
+			holder.exec("ROLLBACK");
+			holder.close();
+		}
+	});
+
 	it("keeps strict validation after legacy payload migration", () => {
 		const sessionPath = "/sessions/legacy-invalid.jsonl";
 		readMultiAgentState(controlDbPath, sessionPath);
@@ -660,7 +716,9 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/label.*string/i);
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(
+			`Invalid file reference at multi_agent_mailbox_messages:${sessionPath}[0][0]: label must be a string`,
+		);
 	});
 
 	it("deduplicates concurrent runtime mailbox enqueues by store reference", async () => {

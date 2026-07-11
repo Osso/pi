@@ -2858,9 +2858,12 @@ function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
 }
 
 function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
+	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+
 	withImmediateTransaction(db, () => {
-		const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
-		if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
 
 		const now = new Date().toISOString();
 		for (const { table, idColumn } of [
@@ -2905,7 +2908,7 @@ function stripLegacyArtifactFields(value: unknown): { value: unknown; changed: b
 	if (!value || typeof value !== "object") return { value, changed: false };
 
 	let changed = false;
-	const migrated: Record<string, unknown> = {};
+	const migratedEntries: Array<[string, unknown]> = [];
 	for (const [key, nested] of Object.entries(value)) {
 		if (key === "artifactIds" || key === "artifactRefs") {
 			changed = true;
@@ -2913,9 +2916,9 @@ function stripLegacyArtifactFields(value: unknown): { value: unknown; changed: b
 		}
 		const result = stripLegacyArtifactFields(nested);
 		changed ||= result.changed;
-		migrated[key] = result.value;
+		migratedEntries.push([key, result.value]);
 	}
-	return { value: changed ? migrated : value, changed };
+	return { value: changed ? Object.fromEntries(migratedEntries) : value, changed };
 }
 
 function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
