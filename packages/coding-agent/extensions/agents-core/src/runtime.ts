@@ -1987,7 +1987,7 @@ function findAgentWithPendingPyrunFailure(store: MultiAgentStore): AgentSnapshot
 }
 
 function isPyrunAgent(agent: AgentSnapshot): boolean {
-	return agent.result?.durationMs !== undefined;
+	return agent.worker?.adapter === "runtime" && agent.worker.handleId === "pyrun";
 }
 
 function formatWaitAgentsCompletion(agent: AgentSnapshot): string {
