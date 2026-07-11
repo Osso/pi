@@ -18,6 +18,8 @@ import {
 	cleanupRuntimeMailboxMessages,
 	completeArchitectRequest,
 	completeIncomingMessage,
+	consumeRuntimeMailboxMessage,
+	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
 	enqueueRuntimeMailboxMessage,
 	failRuntimeMailboxMessage,
@@ -193,6 +195,197 @@ describe("session control DB", () => {
 		} finally {
 			reader.close();
 		}
+	});
+
+	it("rejects renewal when a claimed Architect request is no longer owned", () => {
+		const requestIds = ["first", "second"].map((body) =>
+			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", body }),
+		);
+		claimPendingArchitectRequests(controlDbPath, "architect-runtime", 2);
+		const db = createSqliteDatabase(controlDbPath);
+		const originalClaimedAt = "2020-01-01T00:00:00.000Z";
+		try {
+			db.prepare("UPDATE architect_requests SET claimed_at = ? WHERE claim_token = ?").run(
+				originalClaimedAt,
+				"architect-runtime",
+			);
+			db.prepare("UPDATE architect_requests SET claim_token = ? WHERE id = ?").run("other-runtime", requestIds[1]);
+		} finally {
+			db.close();
+		}
+
+		expect(() => renewArchitectRequestClaims(controlDbPath, requestIds, "architect-runtime")).toThrow(
+			`Architect request claim lost: ${requestIds[1]}`,
+		);
+		const row = createSqliteDatabase(controlDbPath);
+		try {
+			const first = row.prepare("SELECT claimed_at FROM architect_requests WHERE id = ?").get(requestIds[0]) as {
+				claimed_at: string;
+			};
+			expect(first.claimed_at).toBe(originalClaimedAt);
+		} finally {
+			row.close();
+		}
+	});
+
+	it("ignores renewal for a request completed during processing", () => {
+		const requestId = postArchitectRequest(controlDbPath, { senderSessionId: "main-session", body: "complete me" });
+		claimPendingArchitectRequests(controlDbPath, "architect-runtime");
+		completeArchitectRequest(controlDbPath, requestId, "architect-runtime");
+		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId], "architect-runtime")).not.toThrow();
+	});
+
+	it("rejects conflicting duplicate runtime mailbox enqueues", () => {
+		const input = {
+			kind: "message" as const,
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId: "conflict", sessionPath: "/sessions/conflict.jsonl" },
+		};
+		upsertMultiAgentMailboxMessage(controlDbPath, input.storeRef.sessionPath, input.storeRef.messageId, {
+			body: "conflict",
+			fromAgentId: "main",
+			id: input.storeRef.messageId,
+			kind: "message",
+			status: "pending",
+			toAgentId: "main",
+		});
+		enqueueRuntimeMailboxMessage(controlDbPath, input);
+
+		expect(() =>
+			enqueueRuntimeMailboxMessage(controlDbPath, {
+				...input,
+				recipient: { agentId: null, sessionId: "other-recipient" },
+			}),
+		).toThrow("conflicts with existing runtime mailbox row");
+	});
+
+	it("delivers the durable store row and transport row atomically", () => {
+		const sessionPath = "/sessions/atomic-delivery.jsonl";
+		const messageId = "atomic-delivery";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "atomic delivery",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			status: "pending",
+			toAgentId: "main",
+		});
+		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId, sessionPath },
+		});
+		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
+		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("delivered");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data).status).toBe("delivered");
+		} finally {
+			db.close();
+		}
+	});
+
+	it("rolls back durable delivery when transport delivery fails", () => {
+		const sessionPath = "/sessions/atomic-rollback.jsonl";
+		const messageId = "atomic-rollback";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "rollback",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			status: "pending",
+			toAgentId: "main",
+		});
+		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId, sessionPath },
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TRIGGER reject_runtime_delivery
+				BEFORE UPDATE OF status ON runtime_mailbox_messages
+				WHEN OLD.id = ${id}
+				BEGIN
+					SELECT RAISE(ABORT, 'reject transport delivery');
+				END
+			`);
+		} finally {
+			db.close();
+		}
+
+		expect(() => deliverRuntimeMailboxMessage(controlDbPath, id)).toThrow("reject transport delivery");
+		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("pending");
+		const reader = createSqliteDatabase(controlDbPath);
+		try {
+			const row = reader
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data).status).toBe("pending");
+		} finally {
+			reader.close();
+		}
+	});
+
+	it("does not consume malformed durable mailbox rows", () => {
+		const sessionPath = "/sessions/malformed.jsonl";
+		const messageId = "malformed";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "malformed",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			status: "pending",
+			toAgentId: "main",
+		});
+		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId, sessionPath },
+		});
+		claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("UPDATE multi_agent_mailbox_messages SET data = ? WHERE session_path = ? AND message_id = ?").run(
+				"not-json",
+				sessionPath,
+				messageId,
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(consumeRuntimeMailboxMessage(controlDbPath, id)).toBe(false);
+		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("claimed");
+	});
+
+	it("consumes an already-resolved mailbox row by transport ID", () => {
+		const sessionPath = "/sessions/consumed.jsonl";
+		const messageId = "already-delivered";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "already delivered",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			status: "delivered",
+			toAgentId: "main",
+		});
+		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId, sessionPath },
+		});
+		expect(consumeRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
+		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("delivered");
 	});
 
 	it("rejects runtime mailbox references without a durable store message", () => {

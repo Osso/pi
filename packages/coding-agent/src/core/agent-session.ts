@@ -114,16 +114,16 @@ import {
 	advanceSharedChannelCursor,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
-	consumeRuntimeMailboxMessageByStoreRef,
+	consumeRuntimeMailboxMessage,
+	deliverRuntimeMailboxMessage,
 	failRuntimeMailboxMessage,
 	getControlDbPath,
-	getMultiAgentMailboxMessageStatus,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
 	markMultiAgentMailboxMessageDelivered,
-	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
+	readRuntimeMailboxMessageForDelivery,
 	readSharedChannelTail,
 	recordPromptHistoryEntry,
 	recoverStaleRuntimeMailboxClaims,
@@ -2337,22 +2337,39 @@ export class AgentSession {
 			}
 
 			let queued = false;
-			for (const message of claimed) {
+			for (const claimedMessage of claimed) {
+				const delivery = readRuntimeMailboxMessageForDelivery(controlDbPath, claimedMessage.id);
+				const message = delivery?.message ?? claimedMessage;
 				if (this._consumeResolvedStoreMailboxMessage(controlDbPath, message)) {
+					continue;
+				}
+				if (!delivery?.payloadValid) {
+					if (message.kind === "steer") {
+						this._failStoreSteeringDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
+					}
+					failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
 					continue;
 				}
 				const prompt = formatRuntimeMailboxPrompt(message, recipient.sessionId);
 				try {
-					if (options.triggerIfIdle && !this.isStreaming) {
-						await this.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
-						this._markStoreMailboxMessageDelivered(message);
-						this._completeRuntimeMailboxSteeringTurn(this.messages);
+					const triggerIfIdle = options.triggerIfIdle && !this.isStreaming;
+					if (triggerIfIdle) {
+						await this.prompt(prompt, {
+							expandPromptTemplates: false,
+							source: "extension",
+							streamingBehavior: "followUp",
+						});
 					} else {
 						await this._queueFollowUp(prompt);
-						this._markStoreMailboxMessageDelivered(message);
 						queued = true;
 					}
-					markRuntimeMailboxMessageDelivered(controlDbPath, message.id);
+					if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, delivery?.payloadData)) {
+						throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
+					}
+					this._markStoreMailboxMessageDelivered(message);
+					if (triggerIfIdle && !this.isStreaming) {
+						this._completeRuntimeMailboxSteeringTurn(this.messages);
+					}
 				} catch (error) {
 					if (isSessionBusyPromptError(error)) {
 						releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
@@ -2441,18 +2458,10 @@ export class AgentSession {
 	}
 
 	private _consumeResolvedStoreMailboxMessage(controlDbPath: string, message: RuntimeMailboxMessage): boolean {
-		const storeRef = message.storeRef;
-		if (!storeRef) {
+		if (!message.storeRef) {
 			return false;
 		}
-
-		const storeStatus = getMultiAgentMailboxMessageStatus(controlDbPath, storeRef.sessionPath, storeRef.messageId);
-		if (storeStatus === "pending") {
-			return false;
-		}
-
-		consumeRuntimeMailboxMessageByStoreRef(controlDbPath, storeRef);
-		return true;
+		return consumeRuntimeMailboxMessage(controlDbPath, message.id);
 	}
 
 	// Transport delivery is the only delivery, so the store record transitions to

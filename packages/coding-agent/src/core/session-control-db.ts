@@ -432,9 +432,32 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 					now,
 				);
 			const row = db
-				.prepare("SELECT id FROM runtime_mailbox_messages WHERE store_session_path = ? AND store_message_id = ?")
-				.get(input.storeRef.sessionPath, input.storeRef.messageId) as { id: number } | undefined;
+				.prepare(
+					`SELECT id, recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind
+					 FROM runtime_mailbox_messages
+					 WHERE store_session_path = ? AND store_message_id = ?`,
+				)
+				.get(input.storeRef.sessionPath, input.storeRef.messageId) as
+				| {
+						id: number;
+						recipient_session_id: string;
+						recipient_agent_id: string | null;
+						sender_session_id: string | null;
+						sender_agent_id: string | null;
+						kind: string;
+				  }
+				| undefined;
 			if (!row) throw new Error("Runtime mailbox enqueue did not create or find the transport row");
+			const sameAddress =
+				row.recipient_session_id === input.recipient.sessionId &&
+				row.recipient_agent_id === input.recipient.agentId;
+			const sameSender =
+				row.sender_session_id === input.sender.sessionId && row.sender_agent_id === input.sender.agentId;
+			if (!sameAddress || !sameSender || row.kind !== input.kind) {
+				throw new Error(
+					`Runtime mailbox store reference conflicts with existing runtime mailbox row: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+				);
+			}
 			const listener = insert.changes > 0 ? readRuntimeMailboxListenerRow(db, input.recipient) : undefined;
 			db.exec("COMMIT");
 			return { id: row.id, listener };
@@ -524,6 +547,153 @@ export function claimRuntimeMailboxMessages(
 			db.exec("ROLLBACK");
 			throw error;
 		}
+	});
+}
+
+export function readRuntimeMailboxMessageForDelivery(
+	controlDbPath: string,
+	id: number,
+): { message: RuntimeMailboxMessage; payloadData?: string; payloadValid: boolean } | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db.prepare("SELECT * FROM runtime_mailbox_messages WHERE id = ?").get(id) as
+			| RuntimeMailboxRow
+			| undefined;
+		if (!row) return undefined;
+		if (!row.store_session_path || !row.store_message_id) {
+			return { message: runtimeMailboxMessageFromRow(db, row), payloadValid: true };
+		}
+		const store = db
+			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+			.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
+		const parsed = store ? parseJsonObject(store.data) : undefined;
+		const storedOverride =
+			parsed && typeof parsed.body === "string"
+				? {
+						body: parsed.body,
+						artifactIds: Array.isArray(parsed.artifactIds)
+							? parsed.artifactIds.filter((value): value is string => typeof value === "string")
+							: undefined,
+						artifactRefs: Array.isArray(parsed.artifactRefs)
+							? parseArtifactReferences(JSON.stringify(parsed.artifactRefs))
+							: undefined,
+					}
+				: undefined;
+		return {
+			message: runtimeMailboxMessageFromRow(db, row, storedOverride),
+			payloadData: store?.data,
+			payloadValid: Boolean(parsed && parsed.status === "pending" && typeof parsed.body === "string"),
+		};
+	});
+}
+
+export function consumeRuntimeMailboxMessage(controlDbPath: string, id: number): boolean {
+	return withControlDb(controlDbPath, (db) => {
+		return withImmediateTransaction(db, () => {
+			const row = db
+				.prepare(
+					`SELECT status, store_session_path, store_message_id
+					 FROM runtime_mailbox_messages
+					 WHERE id = ?`,
+				)
+				.get(id) as
+				| { status: string; store_session_path: string | null; store_message_id: string | null }
+				| undefined;
+			if (!row || !row.store_session_path || !row.store_message_id) return false;
+			const store = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
+			const parsed = store ? parseJsonObject(store.data) : undefined;
+			if (!parsed || parsed.status === "pending") return false;
+			if (parsed.status !== "delivered") return false;
+			if (row.status === "delivered") return true;
+			if (row.status !== "pending" && row.status !== "claimed") return false;
+			const now = new Date().toISOString();
+			const updated = db
+				.prepare(
+					`UPDATE runtime_mailbox_messages
+					 SET status = 'delivered', delivered_at = ?, updated_at = ?
+					 WHERE id = ? AND status IN ('pending', 'claimed')`,
+				)
+				.run(now, now, id);
+			if (updated.changes !== 1) return false;
+			return true;
+		});
+	});
+}
+
+export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, expectedPayloadData?: string): boolean {
+	return withControlDb(controlDbPath, (db) => {
+		return withImmediateTransaction(db, () => {
+			const row = db
+				.prepare(
+					`SELECT status, store_session_path, store_message_id
+					 FROM runtime_mailbox_messages
+					 WHERE id = ?`,
+				)
+				.get(id) as
+				| { status: string; store_session_path: string | null; store_message_id: string | null }
+				| undefined;
+			if (!row || row.status === "delivered") return row?.status === "delivered";
+			if (row.status !== "pending" && row.status !== "claimed") return false;
+			const now = new Date().toISOString();
+			if (!row.store_session_path || !row.store_message_id) {
+				const updated = db
+					.prepare(
+						`UPDATE runtime_mailbox_messages
+						 SET status = 'delivered', delivered_at = ?, updated_at = ?
+						 WHERE id = ? AND status IN ('pending', 'claimed')`,
+					)
+					.run(now, now, id);
+				if (updated.changes !== 1) throw new Error(`Runtime mailbox delivery lost transport row ${id}`);
+				return true;
+			}
+			const store = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
+			const parsed = store ? parseJsonObject(store.data) : undefined;
+			if (!parsed) return false;
+			if (
+				expectedPayloadData !== undefined &&
+				store?.data !== expectedPayloadData &&
+				parsed.status !== "delivered"
+			) {
+				return false;
+			}
+			if (parsed.status === "delivered") {
+				const updatedTransport = db
+					.prepare(
+						`UPDATE runtime_mailbox_messages
+						 SET status = 'delivered', delivered_at = ?, updated_at = ?
+						 WHERE id = ? AND status IN ('pending', 'claimed')`,
+					)
+					.run(now, now, id);
+				if (updatedTransport.changes !== 1) throw new Error(`Runtime mailbox delivery lost transport row ${id}`);
+				return true;
+			}
+			if (parsed.status !== "pending") return false;
+			const updatedStore = db
+				.prepare(
+					`UPDATE multi_agent_mailbox_messages
+					 SET data = ?, updated_at = ?
+					 WHERE session_path = ? AND message_id = ?`,
+				)
+				.run(
+					JSON.stringify({ ...parsed, status: "delivered", updatedAt: now }),
+					now,
+					row.store_session_path,
+					row.store_message_id,
+				);
+			if (updatedStore.changes !== 1) throw new Error(`Runtime mailbox delivery lost store row ${id}`);
+			const updatedTransport = db
+				.prepare(
+					`UPDATE runtime_mailbox_messages
+					 SET status = 'delivered', delivered_at = ?, updated_at = ?
+					 WHERE id = ? AND status IN ('pending', 'claimed')`,
+				)
+				.run(now, now, id);
+			if (updatedTransport.changes !== 1) throw new Error(`Runtime mailbox delivery lost transport row ${id}`);
+			return true;
+		});
 	});
 }
 
@@ -885,7 +1055,15 @@ export function renewArchitectRequestClaims(controlDbPath: string, requestIds: n
 				 SET claimed_at = ?
 				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
 			);
-			for (const requestId of requestIds) renew.run(now, requestId, claimToken);
+			for (const requestId of requestIds) {
+				const result = renew.run(now, requestId, claimToken);
+				if (result.changes === 1) continue;
+				const row = db.prepare("SELECT status, claim_token FROM architect_requests WHERE id = ?").get(requestId) as
+					| { status: string; claim_token: string | null }
+					| undefined;
+				if (row?.status === "completed") continue;
+				throw new Error(`Architect request claim lost: ${requestId}`);
+			}
 			db.exec("COMMIT");
 		} catch (error) {
 			db.exec("ROLLBACK");
@@ -1252,8 +1430,12 @@ export function cleanupRuntimeMailboxMessages(controlDbPath: string, nowIso = ne
 	});
 }
 
-function runtimeMailboxMessageFromRow(db: SqliteDatabase, row: RuntimeMailboxRow): RuntimeMailboxMessage {
-	const stored = readReferencedStoreMessage(db, row);
+function runtimeMailboxMessageFromRow(
+	db: SqliteDatabase,
+	row: RuntimeMailboxRow,
+	storedOverride?: { body: string; artifactIds?: string[]; artifactRefs?: RuntimeMailboxArtifactReference[] },
+): RuntimeMailboxMessage {
+	const stored = storedOverride ?? readReferencedStoreMessage(db, row);
 	return {
 		id: row.id,
 		recipient: { agentId: row.recipient_agent_id, sessionId: row.recipient_session_id },
