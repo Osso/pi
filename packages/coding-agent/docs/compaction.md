@@ -36,6 +36,12 @@ By default, `reserveTokens` is 16384 tokens (configurable in `~/.pi/agent/settin
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
+### Disabling built-in compaction
+
+Set `compaction.enabled` to `false` in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json` to disable Pi's built-in local summarizer. The default is `true`, preserving the normal behavior.
+
+With the setting disabled, registered `compaction` handlers still run for manual compaction and automatic threshold or overflow compaction. A handler-provided result is saved normally, including provider-native results such as OpenAI remote compaction. Pi never falls back to the local summarizer when the handlers are absent, fail, or return no result; instead it reports an actionable error to enable built-in compaction or configure a compaction extension.
+
 ### How It Works
 
 1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached

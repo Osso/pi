@@ -67,6 +67,7 @@
 
 ### Fixed
 
+- Fixed disabled compaction handlers returning no result to fail explicitly without invoking built-in compaction.
 - Fixed live session-ownership conflicts to explain that another Pi process has the session open, include its PID and verified cwd when available, and suggest starting or selecting another session.
 - Fixed unknown slash commands to fail with `Unknown slash command: /name` instead of being sent to the model.
 - Fixed Codex paired-provider quota fallback to stay session-local without rewriting global defaults, require failed-message provider/model provenance, use narrowed quota matching, emit `model_select` source `fallback`, and report `agent_end.willRetry` while fallback continuation is pending.

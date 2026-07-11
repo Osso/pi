@@ -239,6 +239,140 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.session.messages[0]?.role).toBe("compactionSummary");
 	});
 
+	it("uses an extension compaction result when built-in compaction is disabled", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => ({
+						compaction: {
+							summary: "disabled local compaction summary",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
+
+		await expect(harness.session.compact()).resolves.toMatchObject({
+			summary: "disabled local compaction summary",
+		});
+		expect(getStreamCallCount()).toBe(0);
+	});
+
+	it("does not use local compaction when disabled and no extension result exists", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
+
+		await expect(harness.session.compact()).rejects.toThrow(
+			"Built-in compaction is disabled; enable compaction or configure a compaction extension",
+		);
+		expect(getStreamCallCount()).toBe(0);
+	});
+
+	it.each([undefined, {}])(
+		"does not invoke local compaction when a disabled handler returns %s and surfaces an explicit failure",
+		async (handlerResult) => {
+			const harness = await createHarness({
+				settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+				extensionFactories: [
+					(pi) => {
+						pi.on("compaction", async () => handlerResult);
+					},
+				],
+			});
+			harnesses.push(harness);
+			seedCompactableSession(harness);
+			const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
+
+			await expect(harness.session.compact()).rejects.toThrow(
+				"Built-in compaction is disabled; enable compaction or configure a compaction extension",
+			);
+			expect(getStreamCallCount()).toBe(0);
+		},
+	);
+
+	it("does not use local compaction when a disabled compaction handler throws", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async () => {
+						throw new Error("compaction provider failed");
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
+
+		await expect(harness.session.compact()).rejects.toThrow(
+			"Built-in compaction is disabled; enable compaction or configure a compaction extension",
+		);
+		expect(getStreamCallCount()).toBe(0);
+	});
+
+	it("runs compaction extensions during disabled auto-compaction", async () => {
+		let extensionCalls = 0;
+		const harness = await createHarness({
+			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						extensionCalls++;
+						return {
+							compaction: {
+								summary: "extension summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		await expect(
+			sessionInternals._checkCompaction(createAssistant(harness, { totalTokens: 1_000_000 })),
+		).resolves.toBe(false);
+		expect(extensionCalls).toBe(1);
+		expect(getStreamCallCount()).toBe(0);
+		expect(harness.sessionManager.getEntries().some((entry) => entry.type === "compaction")).toBe(true);
+	});
+
+	it("surfaces disabled auto-compaction failure when no extension provides a result", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+			models: [{ id: "faux-1", contextWindow: 2_000_000 }],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const getStreamCallCount = useSummaryStreamFn(harness, "local summary");
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		await expect(
+			sessionInternals._checkCompaction(createAssistant(harness, { totalTokens: 1_990_000 })),
+		).resolves.toBe(false);
+		expect(getStreamCallCount()).toBe(0);
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+			errorMessage:
+				"Auto-compaction failed: Built-in compaction is disabled; enable compaction or configure a compaction extension",
+		});
+	});
+
 	it("reports kept suffix tokens independently from remote compaction result size", async () => {
 		const compactedResultTokens = 999_999;
 		const harness = await createHarness({
@@ -1012,7 +1146,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
-	it("does not trigger threshold compaction below the threshold or when disabled", async () => {
+	it("does not trigger threshold compaction below the threshold and still attempts extensions when disabled", async () => {
 		const belowThresholdHarness = await createHarness({
 			settings: { compaction: { enabled: true, reserveTokens: 1000 } },
 			models: [{ id: "faux-1", contextWindow: 200_000 }],
@@ -1034,6 +1168,6 @@ describe("AgentSession compaction characterization", () => {
 		);
 
 		expect(belowThresholdSpy).not.toHaveBeenCalled();
-		expect(disabledSpy).not.toHaveBeenCalled();
+		expect(disabledSpy).toHaveBeenCalledWith("overflow", false);
 	});
 });
