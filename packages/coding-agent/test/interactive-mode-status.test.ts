@@ -865,52 +865,59 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
-	test("restores the parent view and main loader when the selected child reaches a terminal state", () => {
-		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
-		const mainLoader: Component & { stop(): void } = {
-			invalidate: () => {},
-			render: () => ["main working"],
-			stop: vi.fn(),
-		};
-		const childLoader: Component & { stop(): void } = {
-			invalidate: () => {},
-			render: () => ["Thinking..."],
-			stop: vi.fn(),
-		};
-		const childWatcher = { close: vi.fn() };
-		fixture.fakeThis.createWorkingLoader.mockReturnValueOnce(childLoader).mockReturnValue(mainLoader);
-		fixture.fakeThis.loadingAnimation = mainLoader;
-		fixture.fakeThis.statusContainer.addChild(mainLoader);
-		fixture.fakeThis.session.isStreaming = true;
-		try {
-			interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
-			const child = fixture.store.getAgent(fixture.childAgentId)!;
-			const running = fixture.store.transitionAgent(fixture.childAgentId, child.revision, "running");
-			expect(running.ok).toBe(true);
-			if (!running.ok) {
-				throw new Error("expected running transition");
-			}
-			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
-			fixture.fakeThis.childViewTranscriptWatcher = childWatcher;
+	test.each(["completed", "failed", "aborted"] as const)(
+		"restores the parent view and main loader when the selected child reaches %s",
+		(terminalLifecycle) => {
+			const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+			const mainLoader: Component & { stop(): void } = {
+				invalidate: () => {},
+				render: () => ["main working"],
+				stop: vi.fn(),
+			};
+			const childLoader: Component & { stop(): void } = {
+				invalidate: () => {},
+				render: () => ["Thinking..."],
+				stop: vi.fn(),
+			};
+			const childWatcher = { close: vi.fn() };
+			fixture.fakeThis.createWorkingLoader.mockReturnValueOnce(childLoader).mockReturnValue(mainLoader);
+			fixture.fakeThis.loadingAnimation = mainLoader;
+			fixture.fakeThis.statusContainer.addChild(mainLoader);
+			fixture.fakeThis.session.isStreaming = true;
+			try {
+				interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
+				const child = fixture.store.getAgent(fixture.childAgentId)!;
+				const running = fixture.store.transitionAgent(fixture.childAgentId, child.revision, "running");
+				expect(running.ok).toBe(true);
+				if (!running.ok) {
+					throw new Error("expected running transition");
+				}
+				expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+				fixture.fakeThis.childViewTranscriptWatcher = childWatcher;
 
-			const completed = fixture.store.transitionAgent(fixture.childAgentId, running.agent.revision, "completed");
-			expect(completed.ok).toBe(true);
-			expect(childLoader.stop).toHaveBeenCalledTimes(1);
-			expect(fixture.fakeThis.loadingAnimation).toBe(mainLoader);
-			expect(fixture.fakeThis.statusContainer.children).not.toContain(childLoader);
-			expect(fixture.fakeThis.statusContainer.children).toContain(mainLoader);
-			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
-			expect(fixture.fakeThis.childViewAgentId).toBeUndefined();
-			expect(fixture.fakeThis.childViewTranscriptPath).toBeUndefined();
-			expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
-			expect(childWatcher.close).toHaveBeenCalledTimes(1);
-			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
-			expect(output).toContain("parent transcript only");
-			expect(output).not.toContain("child transcript only");
-		} finally {
-			fixture.cleanup();
-		}
-	});
+				const terminal = fixture.store.transitionAgent(
+					fixture.childAgentId,
+					running.agent.revision,
+					terminalLifecycle,
+				);
+				expect(terminal.ok).toBe(true);
+				expect(childLoader.stop).toHaveBeenCalledTimes(1);
+				expect(fixture.fakeThis.loadingAnimation).toBe(mainLoader);
+				expect(fixture.fakeThis.statusContainer.children).not.toContain(childLoader);
+				expect(fixture.fakeThis.statusContainer.children).toContain(mainLoader);
+				expect(fixture.store.getSelectedAgentId()).toBeUndefined();
+				expect(fixture.fakeThis.childViewAgentId).toBeUndefined();
+				expect(fixture.fakeThis.childViewTranscriptPath).toBeUndefined();
+				expect(fixture.fakeThis.childViewSessionManager).toBeUndefined();
+				expect(childWatcher.close).toHaveBeenCalledTimes(1);
+				const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+				expect(output).toContain("parent transcript only");
+				expect(output).not.toContain("child transcript only");
+			} finally {
+				fixture.cleanup();
+			}
+		},
+	);
 
 	test("selecting main restores the parent transcript and active main working loader", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
@@ -1270,6 +1277,38 @@ describe("InteractiveMode key handlers", () => {
 	});
 });
 
+function createResetExtensionUIFixture(isViewingAgentSession: boolean) {
+	const setMessage = vi.fn();
+	const fakeThis = {
+		autocompleteProviderWrappers: [],
+		clearExtensionTerminalInputListeners: vi.fn(),
+		clearExtensionWidgets: vi.fn(),
+		defaultEditor: {},
+		defaultWorkingMessage: "Thinking...",
+		extensionEditor: undefined,
+		extensionInput: undefined,
+		extensionSelector: undefined,
+		footer: { invalidate: vi.fn() },
+		footerDataProvider: { clearExtensionStatuses: vi.fn() },
+		hideExtensionEditor: vi.fn(),
+		hideExtensionInput: vi.fn(),
+		hideExtensionSelector: vi.fn(),
+		isViewingAgentSession: () => isViewingAgentSession,
+		loadingAnimation: { setMessage },
+		setCustomEditorComponent: vi.fn(),
+		setDefaultExtensionFooter: vi.fn(),
+		setExtensionFooter: vi.fn(),
+		setExtensionHeader: vi.fn(),
+		setHiddenThinkingLabel: vi.fn(),
+		setWorkingIndicator: vi.fn(),
+		setupAutocompleteProvider: vi.fn(),
+		ui: { hideOverlay: vi.fn() },
+		updateTerminalTitle: vi.fn(),
+		workingVisible: false,
+	};
+	return { fakeThis, setMessage };
+}
+
 describe("InteractiveMode footer ownership", () => {
 	test("custom footers override default footers and clearing custom restores default", () => {
 		const added: Component[] = [];
@@ -1343,6 +1382,22 @@ describe("InteractiveMode footer ownership", () => {
 		expect(defaultFooter.dispose).toHaveBeenCalledTimes(1);
 		expect(fakeThis.defaultExtensionFooter).toBeUndefined();
 		expect(interactiveModeKeyHandlers.currentFooter.call(fakeThis)).toBe(builtIn);
+	});
+
+	test("reset keeps the main working loader interrupt label", () => {
+		const { fakeThis, setMessage } = createResetExtensionUIFixture(false);
+
+		interactiveModeKeyHandlers.resetExtensionUI.call(fakeThis);
+
+		expect(setMessage).toHaveBeenCalledWith(expect.stringMatching(/^Thinking\.\.\. .* to interrupt\)$/));
+	});
+
+	test("reset keeps a child working loader at the default thinking label", () => {
+		const { fakeThis, setMessage } = createResetExtensionUIFixture(true);
+
+		interactiveModeKeyHandlers.resetExtensionUI.call(fakeThis);
+
+		expect(setMessage).toHaveBeenCalledWith("Thinking...");
 	});
 });
 

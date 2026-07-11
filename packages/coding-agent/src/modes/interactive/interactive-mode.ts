@@ -2255,7 +2255,10 @@ export class InteractiveMode {
 		this.workingVisible = true;
 		this.setWorkingIndicator();
 		if (this.loadingAnimation) {
-			this.loadingAnimation.setMessage(`${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`);
+			const message = this.isViewingAgentSession()
+				? this.defaultWorkingMessage
+				: `${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`;
+			this.loadingAnimation.setMessage(message);
 		}
 		this.setHiddenThinkingLabel();
 	}
