@@ -69,6 +69,7 @@
 
 - Fixed live session-ownership conflicts to explain that another Pi process has the session open, include its PID and verified cwd when available, and suggest starting or selecting another session.
 - Fixed unknown slash commands to fail with `Unknown slash command: /name` instead of being sent to the model.
+- Fixed Codex paired-provider quota fallback to stay session-local without rewriting global defaults, require failed-message provider/model provenance, use narrowed quota matching, emit `model_select` source `fallback`, and report `agent_end.willRetry` while fallback continuation is pending.
 - Fixed Ctrl+D session deletion leaving trashed sessions in metadata-backed resume lists.
 - Fixed `AgentSession` prompt and continue turn-start TOCTOU races by serializing idle checks, compaction preflight, and the Agent core transition; racing steer/follow-up prompts are re-evaluated and queued instead of reaching a core busy error.
 - Fixed Resident Architect requests being consumed by the ordinary shared channel, lost across service restarts, or racing the observer into `Agent is already processing` crashes: `ask_architect` now writes a dedicated durable SQLite queue, the Architect disables shared-channel draining and `broadcast`, replies through `send_agent_message`, preserves its transcript across restarts, atomically leases requests with renewal, and configures a connection-local SQLite busy timeout.
