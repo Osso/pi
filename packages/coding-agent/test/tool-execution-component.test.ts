@@ -62,7 +62,7 @@ describe("ToolExecutionComponent parity", () => {
 			process.cwd(),
 		);
 
-		component.markExecutionStarted();
+		component.markExecutionStarted(0);
 		vi.setSystemTime(2_100);
 		component.invalidate();
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 2s");
@@ -210,7 +210,7 @@ describe("ToolExecutionComponent parity", () => {
 
 		expect(component.render(120)).toEqual([]);
 
-		component.markExecutionStarted();
+		component.markExecutionStarted(0);
 		expect(component.render(120)).toEqual([]);
 
 		component.updateResult(

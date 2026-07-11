@@ -617,9 +617,11 @@ In parallel tool mode:
 - `tool_execution_end` is emitted in tool completion order after each tool is finalized
 - final `toolResult` message events are still emitted later in assistant source order
 
+The start and end events carry Unix epoch millisecond timestamps. Their shared `startedAt` value and the end event's `finishedAt` value can be subtracted to calculate elapsed tool time.
+
 ```typescript
 pi.on("tool_execution_start", async (event, ctx) => {
-  // event.toolCallId, event.toolName, event.args
+  // event.toolCallId, event.toolName, event.args, event.startedAt
 });
 
 pi.on("tool_execution_update", async (event, ctx) => {
@@ -628,6 +630,7 @@ pi.on("tool_execution_update", async (event, ctx) => {
 
 pi.on("tool_execution_end", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.result, event.isError
+  // event.startedAt and event.finishedAt are Unix epoch milliseconds
 });
 ```
 

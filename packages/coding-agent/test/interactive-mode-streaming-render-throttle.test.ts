@@ -54,9 +54,9 @@ type HandleEventThis = {
 };
 
 type ToolExecutionStub = {
-	markExecutionStarted(): void;
+	markExecutionStarted(startedAt: number): void;
 	updateArgs(args: unknown): void;
-	updateResult(result: unknown, isPartial?: boolean): void;
+	updateResult(result: unknown, isPartial?: boolean, finishedAt?: number): void;
 };
 
 function createToolExecutionStub(): ToolExecutionStub {
@@ -123,6 +123,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		defaultWorkingMessage: "Thinking...",
 		executingToolNames: new Map<string, string>(),
 		executingToolStartedAt: new Map<string, number>(),
+		completedToolTimings: new Map<string, { startedAt: number; finishedAt: number }>(),
 		footer: { invalidate: vi.fn() },
 		getMarkdownThemeWithSettings: getMarkdownTheme,
 		hiddenThinkingLabel: "Thinking...",
@@ -291,13 +292,19 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "read",
 			result: { content: [{ type: "text", text: "final" }] },
 			isError: false,
+			startedAt: 1_000,
+			finishedAt: 2_000,
 		});
 
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
-		expect(tool.updateResult).toHaveBeenLastCalledWith({
-			content: [{ type: "text", text: "final" }],
-			isError: false,
-		});
+		expect(tool.updateResult).toHaveBeenLastCalledWith(
+			{
+				content: [{ type: "text", text: "final" }],
+				isError: false,
+			},
+			false,
+			2_000,
+		);
 
 		await vi.advanceTimersByTimeAsync(50);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
@@ -341,6 +348,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "bash",
 			toolCallId: "bash-1",
 			args: { command: "echo hi" },
+			startedAt: 1_000,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
 
@@ -349,6 +357,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "read",
 			toolCallId: "read-1",
 			args: { path: "README.md" },
+			startedAt: 1_000,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
 
@@ -358,6 +367,8 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "bash",
 			result: { content: [{ type: "text", text: "hi" }] },
 			isError: false,
+			startedAt: 1_000,
+			finishedAt: 2_000,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: read...");
 
@@ -367,6 +378,8 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "read",
 			result: { content: [{ type: "text", text: "contents" }] },
 			isError: false,
+			startedAt: 1_000,
+			finishedAt: 2_000,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
 	});
@@ -383,6 +396,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "pyrun_eval",
 			toolCallId: "pyrun-1",
 			args: { code: "print(1)" },
+			startedAt: 0,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
 
@@ -406,6 +420,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "wait_agents",
 			toolCallId: "wait-1",
 			args: { agentId: "agent_1" },
+			startedAt: 0,
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agents...");
 
@@ -423,6 +438,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "bash",
 			toolCallId: "bash-1",
 			args: { command: "sleep 120" },
+			startedAt: Date.now(),
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
 
@@ -433,6 +449,8 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "bash",
 			result: { content: [{ type: "text", text: "Command moved to background as job agent_1" }] },
 			isError: false,
+			startedAt: 1_000,
+			finishedAt: 2_000,
 		});
 
 		expect(fakeThis.executingToolNames.has("bash-1")).toBe(false);
@@ -466,6 +484,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolName: "read",
 			toolCallId: "tool-1",
 			args: { path: "README.md" },
+			startedAt: 1_000,
 		});
 
 		expect(setMessage).not.toHaveBeenCalled();

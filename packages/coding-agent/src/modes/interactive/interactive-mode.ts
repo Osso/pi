@@ -429,6 +429,7 @@ export class InteractiveMode {
 	private pendingTools = new Map<string, ToolExecutionComponent>();
 	private executingToolNames = new Map<string, string>();
 	private executingToolStartedAt = new Map<string, number>();
+	private completedToolTimings = new Map<string, { startedAt: number; finishedAt: number }>();
 	private toolWaitingTimer: ReturnType<typeof setInterval> | undefined;
 
 	// Tool output expansion state
@@ -3581,7 +3582,15 @@ export class InteractiveMode {
 			case "agent_end":
 				this.clearToolExecutionTracking();
 				break;
+			case "tool_execution_start":
+				this.executingToolNames.set(event.toolCallId, event.toolName);
+				this.executingToolStartedAt.set(event.toolCallId, event.startedAt);
+				break;
 			case "tool_execution_end":
+				this.completedToolTimings.set(event.toolCallId, {
+					startedAt: event.startedAt,
+					finishedAt: event.finishedAt,
+				});
 				this.clearToolExecutionTrackingFor(event.toolCallId);
 				break;
 		}
@@ -3762,11 +3771,11 @@ export class InteractiveMode {
 			case "tool_execution_start": {
 				this.cancelPartialUpdateRender();
 				this.executingToolNames.set(event.toolCallId, event.toolName);
-				this.executingToolStartedAt.set(event.toolCallId, Date.now());
+				this.executingToolStartedAt.set(event.toolCallId, event.startedAt);
 				this.startToolWaitingTimer();
 				this.setWorkingMessageForActiveTools();
 				const component = this.ensureToolExecutionComponent(event.toolName, event.toolCallId, event.args);
-				component.markExecutionStarted();
+				component.markExecutionStarted(event.startedAt);
 				this.ui.requestRender();
 				break;
 			}
@@ -3782,9 +3791,14 @@ export class InteractiveMode {
 
 			case "tool_execution_end": {
 				this.cancelPartialUpdateRender();
+				this.completedToolTimings.set(event.toolCallId, {
+					startedAt: event.startedAt,
+					finishedAt: event.finishedAt,
+				});
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
-					component.updateResult({ ...event.result, isError: event.isError });
+					component.markExecutionStarted(event.startedAt);
+					component.updateResult({ ...event.result, isError: event.isError }, false, event.finishedAt);
 					this.pendingTools.delete(event.toolCallId);
 				}
 				this.executingToolNames.delete(event.toolCallId);
@@ -4172,7 +4186,11 @@ export class InteractiveMode {
 				// Match tool results to pending tool components
 				const component = renderedPendingTools.get(message.toolCallId);
 				if (component) {
-					component.updateResult(message);
+					const timing = this.completedToolTimings.get(message.toolCallId);
+					if (timing) {
+						component.markExecutionStarted(timing.startedAt);
+					}
+					component.updateResult(message, false, timing?.finishedAt);
 					renderedPendingTools.delete(message.toolCallId);
 				}
 			} else {
@@ -4182,6 +4200,10 @@ export class InteractiveMode {
 		}
 
 		for (const [toolCallId, component] of renderedPendingTools) {
+			const startedAt = this.isViewingAgentSession() ? undefined : this.executingToolStartedAt.get(toolCallId);
+			if (startedAt !== undefined) {
+				component.markExecutionStarted(startedAt);
+			}
 			this.pendingTools.set(toolCallId, component);
 		}
 		this.ui.requestRender();

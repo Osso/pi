@@ -47,10 +47,16 @@ type RenderSessionContextThis = {
 	toolOutputExpanded: boolean;
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
+	completedToolTimings: Map<string, { startedAt: number; finishedAt: number }>;
+	clearToolExecutionTrackingFor(toolCallId: string): void;
 	isInitialized: boolean;
+	viewingAgentSession: boolean;
 	isViewingAgentSession(): boolean;
+	startToolWaitingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
 	setWorkingMessageForActiveTools(): void;
+	ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent;
+	syncToolExecutionTrackingForHiddenMainEvent(event: AgentSessionEvent): void;
 	updateEditorBorderColor(): void;
 	cancelPartialUpdateRender(): void;
 	getRegisteredToolDefinition(toolName: string): undefined;
@@ -82,10 +88,30 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		toolOutputExpanded: false,
 		executingToolNames: new Map<string, string>(),
 		executingToolStartedAt: new Map<string, number>(),
+		completedToolTimings: new Map<string, { startedAt: number; finishedAt: number }>(),
+		clearToolExecutionTrackingFor: (
+			InteractiveMode.prototype as unknown as { clearToolExecutionTrackingFor(toolCallId: string): void }
+		).clearToolExecutionTrackingFor,
 		isInitialized: true,
-		isViewingAgentSession: () => false,
+		viewingAgentSession: false,
+		isViewingAgentSession() {
+			return this.viewingAgentSession;
+		},
+		startToolWaitingTimer: vi.fn(),
 		stopToolWaitingTimerIfIdle: vi.fn(),
 		setWorkingMessageForActiveTools: vi.fn(),
+		ensureToolExecutionComponent(_toolName: string, toolCallId: string) {
+			const component = this.pendingTools.get(toolCallId);
+			if (!component) {
+				throw new Error(`Missing pending tool component: ${toolCallId}`);
+			}
+			return component;
+		},
+		syncToolExecutionTrackingForHiddenMainEvent: (
+			InteractiveMode.prototype as unknown as {
+				syncToolExecutionTrackingForHiddenMainEvent(event: AgentSessionEvent): void;
+			}
+		).syncToolExecutionTrackingForHiddenMainEvent,
 		updateEditorBorderColor: vi.fn(),
 		cancelPartialUpdateRender: vi.fn(),
 		getRegisteredToolDefinition: (_toolName: string) => undefined,
@@ -152,7 +178,9 @@ describe("InteractiveMode.renderSessionEntries", () => {
 		initTheme("dark");
 	});
 
-	test("keeps unresolved rendered tool calls registered for live completion events", async () => {
+	test("preserves elapsed time when a pending tool is rebuilt before completion", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_000);
 		const fakeThis = createFakeInteractiveModeThis();
 		const renderSessionEntries = (
 			InteractiveMode.prototype as unknown as { renderSessionEntries: RenderSessionEntries }
@@ -160,19 +188,104 @@ describe("InteractiveMode.renderSessionEntries", () => {
 		const handleEvent = (InteractiveMode.prototype as unknown as { handleEvent: HandleEvent }).handleEvent;
 
 		renderSessionEntries.call(fakeThis, createSessionEntries([createAssistantToolCallMessage()]));
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolCallId: TOOL_CALL_ID,
+			toolName: TOOL_NAME,
+			args: { delayMs: 10_000 },
+			startedAt: 1_000,
+		});
+		renderSessionEntries.call(fakeThis, createSessionEntries([createAssistantToolCallMessage()]));
 
 		expect(fakeThis.pendingTools.has(TOOL_CALL_ID)).toBe(true);
 
+		vi.setSystemTime(4_000);
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_end",
 			toolCallId: TOOL_CALL_ID,
 			toolName: TOOL_NAME,
 			result: { content: [{ type: "text", text: "FINAL_RESULT" }], details: undefined },
 			isError: false,
+			startedAt: 1_000,
+			finishedAt: 4_000,
 		});
 
 		expect(fakeThis.pendingTools.has(TOOL_CALL_ID)).toBe(false);
-		expect(renderChat(fakeThis.chatContainer)).toContain("FINAL_RESULT");
+		const renderedChat = renderChat(fakeThis.chatContainer);
+		expect(renderedChat).toContain("FINAL_RESULT");
+		expect(renderedChat).toContain("Elapsed: 3s");
+		vi.useRealTimers();
+	});
+
+	test("preserves elapsed time when a main tool starts while viewing a child session", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_000);
+		const fakeThis = createFakeInteractiveModeThis();
+		const renderSessionEntries = (
+			InteractiveMode.prototype as unknown as { renderSessionEntries: RenderSessionEntries }
+		).renderSessionEntries;
+		const handleEvent = (InteractiveMode.prototype as unknown as { handleEvent: HandleEvent }).handleEvent;
+
+		fakeThis.viewingAgentSession = true;
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolCallId: TOOL_CALL_ID,
+			toolName: TOOL_NAME,
+			args: { delayMs: 10_000 },
+			startedAt: 1_000,
+		});
+
+		fakeThis.viewingAgentSession = false;
+		renderSessionEntries.call(fakeThis, createSessionEntries([createAssistantToolCallMessage()]));
+		vi.setSystemTime(4_000);
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: TOOL_CALL_ID,
+			toolName: TOOL_NAME,
+			result: { content: [{ type: "text", text: "FINAL_RESULT" }], details: undefined },
+			isError: false,
+			startedAt: 1_000,
+			finishedAt: 4_000,
+		});
+
+		expect(renderChat(fakeThis.chatContainer)).toContain("Elapsed: 3s");
+		vi.useRealTimers();
+	});
+
+	test("preserves elapsed time when a main tool finishes while viewing a child session", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		const renderSessionEntries = (
+			InteractiveMode.prototype as unknown as { renderSessionEntries: RenderSessionEntries }
+		).renderSessionEntries;
+		const handleEvent = (InteractiveMode.prototype as unknown as { handleEvent: HandleEvent }).handleEvent;
+
+		fakeThis.viewingAgentSession = true;
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_start",
+			toolCallId: TOOL_CALL_ID,
+			toolName: TOOL_NAME,
+			args: { delayMs: 10_000 },
+			startedAt: 1_000,
+		});
+		await handleEvent.call(fakeThis, {
+			type: "tool_execution_end",
+			toolCallId: TOOL_CALL_ID,
+			toolName: TOOL_NAME,
+			result: { content: [{ type: "text", text: "FINAL_RESULT" }], details: undefined },
+			isError: false,
+			startedAt: 1_000,
+			finishedAt: 4_000,
+		});
+
+		fakeThis.viewingAgentSession = false;
+		renderSessionEntries.call(
+			fakeThis,
+			createSessionEntries([createAssistantToolCallMessage(), createToolResultMessage("FINAL_RESULT")]),
+		);
+
+		expect(renderChat(fakeThis.chatContainer)).toContain("Elapsed: 3s");
+		vi.useRealTimers();
 	});
 
 	test("does not keep completed historical tool calls registered as pending", () => {

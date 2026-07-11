@@ -283,13 +283,15 @@ session.subscribe((event) => {
     
     // Tool execution
     case "tool_execution_start":
-      console.log(`Tool: ${event.toolName}`);
+      console.log(`Tool: ${event.toolName} (started ${event.startedAt})`);
       break;
     case "tool_execution_update":
       // Streaming tool output
       break;
     case "tool_execution_end":
-      console.log(`Result: ${event.isError ? "error" : "success"}`);
+      console.log(
+        `Result: ${event.isError ? "error" : "success"} (${event.finishedAt - event.startedAt}ms)`,
+      );
       break;
     
     // Message lifecycle

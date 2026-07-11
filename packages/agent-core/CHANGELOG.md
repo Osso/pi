@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Added required `startedAt` timing metadata to `tool_execution_start` and required `startedAt`/`finishedAt` metadata to `tool_execution_end` `AgentEvent` payloads. Custom `AgentEvent` producers must include Unix-epoch millisecond timestamps; consumers can calculate elapsed tool time as `finishedAt - startedAt`.
+
 ### Fixed
 
 - Fixed `Agent.continue()` to allow continuing transcripts whose last message is an assistant message.

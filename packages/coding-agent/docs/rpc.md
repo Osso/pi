@@ -816,9 +816,9 @@ Events are streamed to stdout as JSON lines during agent operation. Events do NO
 | `message_start` | Message begins |
 | `message_update` | Streaming update (text/thinking/toolcall deltas) |
 | `message_end` | Message completes |
-| `tool_execution_start` | Tool begins execution |
+| `tool_execution_start` | Tool begins execution; includes `startedAt` |
 | `tool_execution_update` | Tool execution progress (streaming output) |
-| `tool_execution_end` | Tool completes |
+| `tool_execution_end` | Tool completes; includes `startedAt` and `finishedAt` |
 | `queue_update` | Pending steering/follow-up queue changed |
 | `bash_messages_committed` | Idle or deferred bash messages appended to session state |
 | `compaction_start` | Compaction begins |
@@ -922,7 +922,8 @@ Emitted when a tool begins, streams progress, and completes execution.
   "type": "tool_execution_start",
   "toolCallId": "call_abc123",
   "toolName": "bash",
-  "args": {"command": "ls -la"}
+  "args": {"command": "ls -la"},
+  "startedAt": 1710000000000
 }
 ```
 
@@ -952,9 +953,13 @@ When complete:
     "content": [{"type": "text", "text": "total 48\n..."}],
     "details": {...}
   },
-  "isError": false
+  "isError": false,
+  "startedAt": 1710000000000,
+  "finishedAt": 1710000000125
 }
 ```
+
+`startedAt` and `finishedAt` are Unix epoch timestamps in milliseconds. The matching start and end events share `startedAt`; subtract `startedAt` from `finishedAt` to calculate elapsed tool time.
 
 Use `toolCallId` to correlate events. The `partialResult` in `tool_execution_update` contains the accumulated output so far (not just the delta), allowing clients to simply replace their display on each update.
 

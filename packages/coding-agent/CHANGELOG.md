@@ -62,6 +62,7 @@
 - Changed automatic agent-level retries to default to 30 retries after the initial request with fixed 10-second gaps; the interactive retry spinner continues into the resumed request, and Escape still cancels the retry wait.
 - Cached session-derived footer statistics until session data changes, reducing repeated render work.
 - Coalesced partial tool-output renders within 50ms to reduce terminal redraws during rapid updates.
+- Changed interactive tool execution rendering to use `AgentEvent` start/end timestamps for elapsed durations.
 
 ### Fixed
 
@@ -72,6 +73,7 @@
 - Fixed Resident Architect requests being consumed by the ordinary shared channel, lost across service restarts, or racing the observer into `Agent is already processing` crashes: `ask_architect` now writes a dedicated durable SQLite queue, the Architect disables shared-channel draining and `broadcast`, replies through `send_agent_message`, preserves its transcript across restarts, atomically leases requests with renewal, and configures a connection-local SQLite busy timeout.
 - Fixed cached session-derived footer statistics staying stale after context-recorded interactive `!` bash results.
 - Fixed queued agent and shared-channel follow-up previews to show `Follow-up from <agent>: <first body line up to 50 chars>` instead of the raw `Follow-up: From:` wrapper.
+- Fixed active tool elapsed timers disappearing when pending tool components are reconstructed.
 - Fixed concurrent `./test.sh` runs destroying global Pi OAuth credentials by isolating each run with a unique temporary `PI_CODING_AGENT_DIR` instead of moving `auth.json` through a shared backup path.
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
 - Fixed bwrap sandbox profiles to run Pyrun, and opt-in Hostrun when loaded, through the shared bwrap runner backend rather than blocking either runtime; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.

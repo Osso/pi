@@ -85,9 +85,9 @@ prompt("Read config.json")
 ├─ message_start      { assistantMessage with toolCall }
 ├─ message_update...
 ├─ message_end        { assistantMessage }
-├─ tool_execution_start  { toolCallId, toolName, args }
-├─ tool_execution_update { partialResult }           // If tool streams
-├─ tool_execution_end    { toolCallId, result }
+├─ tool_execution_start  { toolCallId, toolName, args, startedAt }
+├─ tool_execution_update { partialResult }                              // If tool streams
+├─ tool_execution_end    { toolCallId, result, startedAt, finishedAt }
 ├─ message_start/end  { toolResultMessage }
 ├─ turn_end           { message, toolResults: [toolResult] }
 │
@@ -106,9 +106,11 @@ Tool execution mode is configurable:
 
 In parallel mode, tool completion events follow tool completion order, but persisted toolResult messages still follow assistant source order.
 
+Tool lifecycle timestamps are Unix epoch milliseconds. `tool_execution_start.startedAt` is copied to the matching `tool_execution_end`; `finishedAt` is recorded when execution is finalized, so elapsed time is `finishedAt - startedAt`.
+
 The mode can be set globally via `toolExecution` in the agent config, or per-tool via `executionMode` on `AgentTool`. If any tool call in a batch targets a tool with `executionMode: "sequential"`, the entire batch executes sequentially regardless of the global setting.
 
-The `beforeToolCall` hook runs after `tool_execution_start` and validated argument parsing. It can block execution. The `afterToolCall` hook runs after tool execution finishes and before `tool_execution_end` and final tool result message events are emitted.
+The `beforeToolCall` hook runs after validated argument parsing and before `tool_execution_start`; blocked calls still emit matching start/end events for their immediate error result. The `afterToolCall` hook runs after tool execution finishes and before `tool_execution_end` and final tool result message events are emitted.
 
 Tools can also return `terminate: true` to hint that the automatic follow-up LLM call should be skipped. The loop only stops early when every finalized tool result in that batch sets `terminate: true`. Mixed batches continue normally.
 
@@ -150,9 +152,9 @@ The last message in context must be `user` or `toolResult` (not `assistant`).
 | `message_start` | Any message begins (user, assistant, toolResult) |
 | `message_update` | **Assistant only.** Includes `assistantMessageEvent` with delta |
 | `message_end` | Message completes |
-| `tool_execution_start` | Tool begins |
+| `tool_execution_start` | Tool begins; includes `startedAt` |
 | `tool_execution_update` | Tool streams progress |
-| `tool_execution_end` | Tool completes |
+| `tool_execution_end` | Tool completes; includes `startedAt` and `finishedAt` |
 
 `Agent.subscribe()` listeners are awaited in registration order. `agent_end` means no more loop events will be emitted, but `await agent.waitForIdle()` and `await agent.prompt(...)` only settle after awaited `agent_end` listeners finish.
 

@@ -215,9 +215,9 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
-	markExecutionStarted(): void {
+	markExecutionStarted(startedAt: number): void {
 		this.executionStarted = true;
-		this.executionStartedAt ??= Date.now();
+		this.executionStartedAt = startedAt;
 		this.executionFinishedAt = undefined;
 		this.startTimer();
 		this.updateDisplay();
@@ -237,11 +237,12 @@ export class ToolExecutionComponent extends Container {
 			isError: boolean;
 		},
 		isPartial = false,
+		finishedAt?: number,
 	): void {
 		this.result = result;
 		this.isPartial = isPartial;
 		if (!isPartial && this.executionStartedAt !== undefined) {
-			this.executionFinishedAt = Date.now();
+			this.executionFinishedAt = finishedAt ?? Date.now();
 			this.stopTimer();
 		}
 		this.updateDisplay();

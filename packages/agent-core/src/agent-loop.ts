@@ -400,7 +400,8 @@ async function executeToolCallsSequential(
 
 	for (const toolCall of toolCalls) {
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-		await emitToolExecutionStart(toolCall, preparation, emit);
+		const startedAt = Date.now();
+		await emitToolExecutionStart(toolCall, preparation, startedAt, emit);
 		let finalized: FinalizedToolCallOutcome;
 		if (preparation.kind === "immediate") {
 			finalized = {
@@ -421,7 +422,7 @@ async function executeToolCallsSequential(
 		}
 
 		finalized = capFinalizedToolCallOutcome(finalized);
-		await emitToolExecutionEnd(finalized, emit);
+		await emitToolExecutionEnd(finalized, startedAt, emit);
 		const toolResultMessage = createToolResultMessage(finalized);
 		await emitToolResultMessage(toolResultMessage, emit);
 		finalizedCalls.push(finalized);
@@ -450,14 +451,15 @@ async function executeToolCallsParallel(
 
 	for (const toolCall of toolCalls) {
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-		await emitToolExecutionStart(toolCall, preparation, emit);
+		const startedAt = Date.now();
+		await emitToolExecutionStart(toolCall, preparation, startedAt, emit);
 		if (preparation.kind === "immediate") {
 			const finalized = capFinalizedToolCallOutcome({
 				toolCall,
 				result: preparation.result,
 				isError: preparation.isError,
 			});
-			await emitToolExecutionEnd(finalized, emit);
+			await emitToolExecutionEnd(finalized, startedAt, emit);
 			finalizedCalls.push(finalized);
 			if (signal?.aborted) {
 				break;
@@ -470,7 +472,7 @@ async function executeToolCallsParallel(
 			const finalized = capFinalizedToolCallOutcome(
 				await finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal),
 			);
-			await emitToolExecutionEnd(finalized, emit);
+			await emitToolExecutionEnd(finalized, startedAt, emit);
 			return finalized;
 		});
 		if (signal?.aborted) {
@@ -775,19 +777,26 @@ function isToolResultTextTooLarge(text: string): boolean {
 	);
 }
 
-async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: AgentEventSink): Promise<void> {
+async function emitToolExecutionEnd(
+	finalized: FinalizedToolCallOutcome,
+	startedAt: number,
+	emit: AgentEventSink,
+): Promise<void> {
 	await emit({
 		type: "tool_execution_end",
 		toolCallId: finalized.toolCall.id,
 		toolName: finalized.toolCall.name,
 		result: finalized.result,
 		isError: finalized.isError,
+		startedAt,
+		finishedAt: Date.now(),
 	});
 }
 
 async function emitToolExecutionStart(
 	toolCall: AgentToolCall,
 	preparation: PreparedToolCall | ImmediateToolCallOutcome,
+	startedAt: number,
 	emit: AgentEventSink,
 ): Promise<void> {
 	await emit({
@@ -795,6 +804,7 @@ async function emitToolExecutionStart(
 		toolCallId: toolCall.id,
 		toolName: toolCall.name,
 		args: preparation.args,
+		startedAt,
 	});
 }
 
