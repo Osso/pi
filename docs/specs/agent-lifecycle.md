@@ -62,7 +62,8 @@ State meanings:
 - [x] Self-transitions are no-ops for non-terminal states and rejected for terminal states.
 - [x] Steering ack with status `delivered` moves the agent back to `running`.
 - [x] Cancelling an agent aborts its live runtime handle and records terminal state through
-      the normal lifecycle path.
+      the normal lifecycle path. Detached Pyrun jobs register that handle and terminate the
+      runner process group so spawned commands cannot survive cancellation as orphans.
 
 ### Restore and recovery (derived liveness)
 

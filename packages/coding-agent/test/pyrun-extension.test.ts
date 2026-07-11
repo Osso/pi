@@ -203,6 +203,15 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
 	throw new Error(`Timed out waiting for ${label}`);
 }
 
+function processIsAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function readToolText(result: AgentToolResult<unknown>): string {
 	return result.content.map((item) => (item.type === "text" ? (item.text ?? "") : "")).join("\n");
 }
@@ -552,21 +561,14 @@ describe("pyrun extension", () => {
 		expect(options).toEqual({ args: ["-m", "pyrun.jsonl"], command: "python", env: {} });
 	});
 
-	it("uses local Pyrun checkout by default when present", () => {
-		const options = resolvePyrunRunnerOptions({
-			env: {},
-			exists: (path) => path === localPyrunJsonl,
-		});
+	it("uses the installed Pyrun runner even when PYTHONPATH names a local checkout", () => {
+		const options = resolvePyrunRunnerOptions({ env: { PYTHONPATH: localPyrunCheckout } });
 
-		expect(options).toEqual({
-			args: ["-m", "pyrun.jsonl"],
-			command: "python3",
-			env: { PYTHONPATH: localPyrunCheckout },
-		});
+		expect(options).toEqual({ args: [], command: "pyrun-jsonl", env: {} });
 	});
 
-	it("uses pyrun-jsonl without args by default when no local checkout exists", () => {
-		const options = resolvePyrunRunnerOptions({ env: {}, exists: () => false });
+	it("uses pyrun-jsonl without args by default", () => {
+		const options = resolvePyrunRunnerOptions({ env: {} });
 
 		expect(options).toEqual({ args: [], command: "pyrun-jsonl", env: {} });
 	});
@@ -1491,6 +1493,119 @@ describe("pyrun extension", () => {
 		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation failed");
 		expect(store.getAgent(job.id)?.result?.durationMs).toEqual(expect.any(Number));
 	});
+
+	it("aborts a detached Pyrun evaluation through its agent runtime handle", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const resultPromise = harness.evaluate({ code: "run.never()" }, (update) => updates.push(update));
+		await waitFor(() => updates.some((update) => update.details.type === "status"), "Pyrun progress before detach");
+		expect(detachRegistry.detachRunning()).toBe(true);
+		await resultPromise;
+
+		const [job] = store.listAgents();
+		const aborted = store.transitionAgent(job.id, job.revision, "aborted");
+		expect(aborted.ok).toBe(true);
+		expect(store.abortAgentHandle(job.id)).toBe(true);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(store.getAgent(job.id)?.lifecycle).toBe("aborted");
+		expect(store.abortAgentHandle(job.id)).toBe(false);
+	});
+
+	it("keeps a replacement Pyrun runner after the aborted runner exits", async () => {
+		const runnerPidPath = join(tempDir, "delayed-exit-pyrun-runner.pid");
+		const runnerPath = join(tempDir, "delayed-exit-pyrun-runner.mjs");
+		writeFileSync(
+			runnerPath,
+			`import { writeFileSync } from "node:fs";
+let buffer = "";
+let value;
+writeFileSync(process.env.RUNNER_PID_PATH, String(process.pid));
+process.on("SIGTERM", () => setTimeout(() => process.exit(0), 100));
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split("\\n");
+  buffer = lines.pop() ?? "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    if (request.code === "run.never()") {
+      process.stdout.write(JSON.stringify({ type: "status", message: "still running" }) + "\\n");
+      continue;
+    }
+    if (request.code === "set.value") value = 41;
+    process.stdout.write(JSON.stringify({ type: "completed", value }) + "\\n");
+  }
+});
+setInterval(() => {}, 1000);
+`,
+		);
+		const runner = new PyrunRunnerClient({
+			args: [runnerPath],
+			command: process.execPath,
+			env: { RUNNER_PID_PATH: runnerPidPath },
+		});
+		try {
+			const controller = new AbortController();
+			const aborted = runner.evaluate({ code: "run.never()" }, () => controller.abort(), controller.signal);
+			await expect(aborted).rejects.toThrow("Pyrun evaluation aborted");
+
+			expect((await runner.evaluate({ code: "set.value" })).value).toBe(41);
+			await delay(150);
+			expect((await runner.evaluate({ code: "get.value" })).value).toBe(41);
+		} finally {
+			runner.dispose();
+		}
+		const runnerPid = Number(readFileSync(runnerPidPath, "utf8"));
+		await waitFor(() => !processIsAlive(runnerPid), "replacement Pyrun runner cleanup");
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"kills Pyrun runner subprocesses when an evaluation is aborted",
+		async () => {
+			const childPidPath = join(tempDir, "pyrun-child.pid");
+			const runnerPath = join(tempDir, "pyrun-runner-with-child.mjs");
+			writeFileSync(
+				runnerPath,
+				`import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+let started = false;
+process.stdin.on("data", () => {
+  if (started) return;
+  started = true;
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  writeFileSync(process.env.CHILD_PID_PATH, String(child.pid));
+  process.stdout.write(JSON.stringify({ type: "status", message: "child started" }) + "\\n");
+});
+setInterval(() => {}, 1000);
+`,
+			);
+			const runner = new PyrunRunnerClient({
+				args: [runnerPath],
+				command: process.execPath,
+				env: { CHILD_PID_PATH: childPidPath },
+			});
+			let childPid = 0;
+			try {
+				const controller = new AbortController();
+				const evaluation = runner.evaluate(
+					{ code: "run.child_forever()" },
+					() => controller.abort(),
+					controller.signal,
+				);
+
+				await expect(evaluation).rejects.toThrow("Pyrun evaluation aborted");
+				childPid = Number(readFileSync(childPidPath, "utf8"));
+				await waitFor(() => !processIsAlive(childPid), "Pyrun subprocess termination");
+			} finally {
+				runner.dispose();
+				if (childPid !== 0 && processIsAlive(childPid)) process.kill(childPid, "SIGKILL");
+			}
+			expect(processIsAlive(childPid)).toBe(false);
+		},
+	);
 
 	it("aborts an in-progress Pyrun evaluation when the agent signal is aborted", async () => {
 		const harness = createPyrunHarness();

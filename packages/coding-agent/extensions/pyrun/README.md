@@ -16,7 +16,7 @@ tool, contributes model-facing instructions, and delegates evaluation to a Pyrun
 
 ## Runner Configuration
 
-By default the adapter starts `pyrun-jsonl` with no arguments.
+By default the adapter starts the installed `pyrun-jsonl` with no arguments. A local checkout is never selected implicitly.
 
 For local development or tests, override the runner process:
 
@@ -36,3 +36,7 @@ PI_PYRUN_RUNNER_ARGS='["-m","pyrun.jsonl"]'
 
 `PI_PYRUN_RUNNER_ARGS` is a JSON string array so paths and arguments stay argv-based instead
 of shell-parsed.
+
+Detached Pyrun evaluations register a multi-agent runtime abort handle. Cancelling the
+background job aborts the evaluation and terminates the runner process group, including
+commands spawned by the runner, so no child process survives as an orphan.
