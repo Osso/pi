@@ -2,7 +2,7 @@
 
 Module boundary: core resident SDK service.
 
-The resident Architect is a systemd-supervised Sol advisor that preserves a dedicated cross-session transcript and sends evidence-backed coordination advice only to the affected session. It is not a dispatcher or remediation agent. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
+The resident Architect is a systemd-supervised Sol advisor that preserves a dedicated cross-session transcript and sends evidence-backed coordination advice only to the affected session. It is not a dispatcher or remediation agent. Its transcript is persisted as a non-subagent session under `<agent-dir>/architect-sessions/`, so global archive controls can include it even though it is outside the Current Folder directory scope. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
 
 ## What it must do
 
