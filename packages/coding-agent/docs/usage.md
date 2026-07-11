@@ -41,6 +41,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/settings` | Thinking level, theme, message delivery, transport |
 | `/effort [level]` | Choose a supported thinking level, or set one directly |
 | `/resume` | Pick from previous sessions |
+| `/archive [days]` | Archive clear completed sessions from the recent window (default 5 days) |
 | `/agents` | Open agent switcher |
 | `/new` | Start a new session |
 | `/continue` | Continue the current transcript without adding a user message |
