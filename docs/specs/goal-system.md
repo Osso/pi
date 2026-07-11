@@ -31,6 +31,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
   project-local `.pi/extensions/` code.
 - [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions.
 - [x] The `manage_goal` tool exposes an action parameter plus optional objective and reason parameters.
+- [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
+- [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
 
 ### Context anchoring
 
@@ -58,6 +60,9 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal`, registers `manage_goal`, persists goal JSON through the session manager into `session_metadata.goal_json`, injects active unpaused goals through `before_agent_start`, shows the active goal in the footer status, starts work when a goal is set while idle, pauses/resumes goals on request, and continues active unpaused goals from `agent_end`.
+- `packages/coding-agent/src/core/tool-capabilities.ts` — defines the supervisor-only tool capability list used by non-supervisor runtimes.
+- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — excludes supervisor-only tools from spawned and attached child session factories while preserving first-party goal-extension filtering.
+- `packages/coding-agent/src/architect/main.ts` — excludes supervisor-only tools from the resident Architect service.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
 - `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `manage_goal`, set/view/pause/resume/clear, per-session and subagent goal isolation, default replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.

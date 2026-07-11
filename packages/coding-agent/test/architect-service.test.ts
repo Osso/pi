@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
+	ARCHITECT_EXCLUDED_TOOL_NAMES,
 	blockArchitectGlobalBroadcast,
 	completeSentArchitectRequest,
 	createArchitectMultiAgentStore,
@@ -15,6 +16,7 @@ import {
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
 import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 
 const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
 const serviceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
@@ -40,6 +42,15 @@ describe("resident architect service", () => {
 
 	it("uses the read-only Bubblewrap profile", () => {
 		expect(createArchitectSettingsManager().getExplicitSandboxProfile()).toBe("read-only");
+	});
+
+	it("keeps supervisor-only tools out of the architect runtime", () => {
+		expect(ARCHITECT_EXCLUDED_TOOL_NAMES).toEqual([
+			"ask_architect",
+			"broadcast",
+			"contact_supervisor",
+			...SUPERVISOR_ONLY_TOOL_NAMES,
+		]);
 	});
 
 	it("persists direct-message state to the shared control DB", () => {

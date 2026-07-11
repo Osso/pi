@@ -53,6 +53,11 @@ import multiAgentExtension, {
 import { main } from "../src/main.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
 
+const externalGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
+Object.defineProperty(externalGoalExtension, "extensionPath", {
+	value: join(process.cwd(), "test/multi-agent-extension.test.ts"),
+});
+
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2610,7 +2615,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(sessionOptions).toMatchObject({
 			cwd: "/repo",
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents", "manage_goal"],
 			model: parentHarness.getModel(),
 			modelRegistry: parentHarness.session.modelRegistry,
 		});
@@ -2636,6 +2641,89 @@ describe("multi-agent extension tools", () => {
 			lifecycle: "completed",
 			result: { summary: "factory child done" },
 		});
+	});
+
+	it("denies externally registered manage_goal in production child sessions", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		let childSession: Harness["session"] | undefined;
+		let manageGoalCallError: string | undefined;
+		const probeExtension: ExtensionFactory = (pi) => {
+			pi.on("session_start", async () => {
+				try {
+					await pi.callTool("manage_goal", { action: "set", objective: "child objective" });
+				} catch (error) {
+					manageGoalCallError = error instanceof Error ? error.message : String(error);
+				}
+			});
+		};
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				extensionFactories: [externalGoalExtension, probeExtension],
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
+					const session = result.session;
+					childSession = session;
+					await session.bindExtensions({ mode: "print" });
+					return { session };
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt: "Inspect child tools" });
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(childSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
+		expect(childSession?.getActiveToolNames()).not.toContain("manage_goal");
+		expect(manageGoalCallError).toBe("Tool is not active: manage_goal");
+	});
+
+	it("denies externally registered manage_goal in production attached sessions", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-session" });
+		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
+		let attachedSession: Harness["session"] | undefined;
+		const attachedFactory = createProductionAttachedSessionFactory({
+			extensionFactories: [externalGoalExtension],
+			createSession: async (options) => {
+				const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
+				const session = result.session;
+				attachedSession = session;
+				return { session };
+			},
+		});
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const agent = store.spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Attached",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: target.getSessionFile(), sessionId: target.getSessionId() },
+		}).agent;
+
+		await attachedFactory({
+			agent,
+			ctx: {
+				cwd: "/repo",
+				hasUI: false,
+				mode: "print",
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			} as unknown as ExtensionContext,
+			prompt: "resume",
+			sessionPath: target.getSessionFile() ?? "",
+		});
+
+		expect(attachedSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
+		expect(attachedSession?.getActiveToolNames()).not.toContain("manage_goal");
 	});
 
 	it("propagates custom main extension factories into production child sessions", async () => {
@@ -2751,7 +2839,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(sessionOptions).toMatchObject({
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents"],
+			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents", "manage_goal"],
 			multiAgentStore: store,
 		});
 	});

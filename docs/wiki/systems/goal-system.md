@@ -59,6 +59,12 @@ current active goal. Paused goals remain visible in `/goal`, startup
 notifications, and footer status, but do not inject prompt context or continue
 automatically until the resume action clears the pause state.
 
+`manage_goal` is supervisor-only. The SDK denylist removes that capability from
+spawned, attached/resumed, and `/bg` child sessions, and from the resident
+Architect service, after extension registration. This blocks external extensions
+that try to register the same tool name; `pi.tools.call` also fails because the
+tool is inactive. The supervisor keeps the capability.
+
 ## Prompt Injection
 
 The extension listens for `before_agent_start`. When an active goal exists, it
@@ -80,6 +86,10 @@ The extension listens for `session_start`. If the current session's `goal_json`
 contains a goal, Pi notifies the user with the restored objective and shows it in
 the footer. Resume restores only the resumed session's own goal state; it does not
 inherit from `previousSessionFile`.
+
+Capability filtering is separate from first-party extension filtering: child
+factories still omit `<first-party:goal>`, while the SDK denylist filters every
+registered tool named `manage_goal` regardless of source.
 
 Fork is the only start reason that inherits from `previousSessionFile`. When a
 normal fork starts with a new session id and no current goal, the extension reads

@@ -10,6 +10,7 @@ import { createAgentSession } from "../core/sdk.ts";
 import { archiveSession, getControlDbPath } from "../core/session-control-db.ts";
 import { SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
+import { SUPERVISOR_ONLY_TOOL_NAMES } from "../core/tool-capabilities.ts";
 import { ArchitectObserver } from "./observer.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "./prompt.ts";
 
@@ -17,6 +18,12 @@ const OBSERVER_INTERVAL_MS = 30_000;
 const REQUEST_CLAIM_RENEW_INTERVAL_MS = 30_000;
 const ARCHITECT_SESSION_ID = "architect";
 const ARCHITECT_REQUEST_THREAD_PREFIX = "architect-request:";
+export const ARCHITECT_EXCLUDED_TOOL_NAMES = [
+	"ask_architect",
+	"broadcast",
+	"contact_supervisor",
+	...SUPERVISOR_ONLY_TOOL_NAMES,
+];
 
 export function createArchitectSettingsManager(): SettingsManager {
 	return SettingsManager.inMemory({ sandboxProfile: "read-only" });
@@ -162,7 +169,7 @@ export async function runArchitectService(): Promise<void> {
 		],
 		model,
 		modelRegistry,
-		excludeTools: ["ask_architect", "broadcast", "contact_supervisor"],
+		excludeTools: ARCHITECT_EXCLUDED_TOOL_NAMES,
 		multiAgentStore,
 		sessionManager,
 		settingsManager,
