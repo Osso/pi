@@ -60,10 +60,11 @@
 
 ### Fixed
 
-- Fixed Resident Architect requests being consumed by the ordinary shared channel, lost across service restarts, or racing the observer into `Agent is already processing` crashes: `ask_architect` now writes a dedicated durable SQLite queue, the Architect disables inbound runtime coordination and `broadcast`, replies through `send_agent_message`, preserves its transcript across restarts, atomically leases requests with renewal, and configures a connection-local SQLite busy timeout.
-- Fixed cached session-derived footer statistics staying stale after context-recorded interactive `!` bash results.
-- Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
 - Fixed `AgentSession` prompt and continue turn-start TOCTOU races by serializing idle checks, compaction preflight, and the Agent core transition; racing steer/follow-up prompts are re-evaluated and queued instead of reaching a core busy error.
+- Fixed Resident Architect requests being consumed by the ordinary shared channel, lost across service restarts, or racing the observer into `Agent is already processing` crashes: `ask_architect` now writes a dedicated durable SQLite queue, the Architect disables shared-channel draining and `broadcast`, replies through `send_agent_message`, preserves its transcript across restarts, atomically leases requests with renewal, and configures a connection-local SQLite busy timeout.
+- Fixed cached session-derived footer statistics staying stale after context-recorded interactive `!` bash results.
+- Fixed concurrent `./test.sh` runs destroying global Pi OAuth credentials by isolating each run with a unique temporary `PI_CODING_AGENT_DIR` instead of moving `auth.json` through a shared backup path.
+- Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
 - Fixed bwrap sandbox profiles to run Pyrun, and opt-in Hostrun when loaded, through the shared bwrap runner backend rather than blocking either runtime; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
 - Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
 - Fixed selected-child views to identify the agent directly, report the selected agent or main thread after `/agents` selection, and hide the main working loader without clearing unrelated status while a child transcript is displayed.

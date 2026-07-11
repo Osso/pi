@@ -43,6 +43,7 @@ import {
 	registerRuntimeMailboxListener,
 	relocateSessionControlData,
 	removeNamedSession,
+	renewArchitectRequestClaims,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	upsertMultiAgentAgent,
@@ -148,6 +149,166 @@ describe("session control DB", () => {
 
 		completeArchitectRequest(controlDbPath, requestId, "architect-runtime");
 		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
+	});
+
+	it("rolls back all Architect claim renewals when one renewal fails", () => {
+		const requestIds = ["first", "second"].map((body) =>
+			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", body }),
+		);
+		claimPendingArchitectRequests(controlDbPath, "architect-runtime", 2);
+		const db = createSqliteDatabase(controlDbPath);
+		const originalClaimedAt = "2020-01-01T00:00:00.000Z";
+		try {
+			db.prepare("UPDATE architect_requests SET claimed_at = ? WHERE claim_token = ?").run(
+				originalClaimedAt,
+				"architect-runtime",
+			);
+			db.exec(`
+				CREATE TRIGGER reject_second_architect_renewal
+				BEFORE UPDATE OF claimed_at ON architect_requests
+				WHEN OLD.id = ${requestIds[1]}
+				BEGIN
+					SELECT RAISE(ABORT, 'reject renewal');
+				END
+			`);
+		} finally {
+			db.close();
+		}
+
+		expect(() => renewArchitectRequestClaims(controlDbPath, requestIds, "architect-runtime")).toThrow(
+			"reject renewal",
+		);
+
+		const reader = createSqliteDatabase(controlDbPath);
+		try {
+			const row = reader.prepare("SELECT claimed_at FROM architect_requests WHERE id = ?").get(requestIds[0]) as {
+				claimed_at: string;
+			};
+			expect(row.claimed_at).toBe(originalClaimedAt);
+		} finally {
+			reader.close();
+		}
+	});
+
+	it("rejects runtime mailbox references without a durable store message", () => {
+		expect(() =>
+			enqueueRuntimeMailboxMessage(controlDbPath, {
+				kind: "message",
+				recipient: { agentId: null, sessionId: "recipient-session" },
+				sender: { agentId: null, sessionId: "sender-session" },
+				storeRef: { messageId: "missing", sessionPath: "/sessions/missing.jsonl" },
+			}),
+		).toThrow("Runtime mailbox store reference does not exist");
+	});
+
+	it("deduplicates concurrent runtime mailbox enqueues by store reference", async () => {
+		const sessionPath = "/sessions/concurrent-sender.jsonl";
+		const messageId = "message-concurrent";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "one durable message",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			status: "pending",
+			toAgentId: "main",
+		});
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import { enqueueRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+			const id = enqueueRuntimeMailboxMessage(workerData.controlDbPath, workerData.input);
+			parentPort?.postMessage(id);
+		`;
+		const input = {
+			kind: "message" as const,
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId, sessionPath },
+		};
+		const ids = await Promise.all(
+			Array.from(
+				{ length: 8 },
+				() =>
+					new Promise<number>((resolve, reject) => {
+						const worker = new Worker(workerSource, {
+							eval: true,
+							execArgv: ["--experimental-strip-types"],
+							workerData: { controlDbPath, input },
+						});
+						worker.on("message", resolve);
+						worker.on("error", reject);
+					}),
+			),
+		);
+
+		expect(new Set(ids).size).toBe(1);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
+	});
+
+	it("preserves delivered status when migrating duplicate runtime mailbox rows", () => {
+		const id = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "delivered once",
+			kind: "message",
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("DROP INDEX runtime_mailbox_store_ref_unique_idx");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_messages
+				 SELECT NULL, recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id,
+				 kind, body, artifact_ids_json, artifact_refs_json, store_session_path, store_message_id,
+				 'delivered', created_at, updated_at, claimed_at, delivered_at, error
+				 FROM runtime_mailbox_messages WHERE id = ?`,
+			).run(id);
+		} finally {
+			db.close();
+		}
+
+		const rows = listRuntimeMailboxMessages(controlDbPath);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.status).toBe("delivered");
+	});
+
+	it("relocates runtime mailbox references across an existing destination reference", () => {
+		const oldPath = "/sessions/old.jsonl";
+		const newPath = "/sessions/new.jsonl";
+		const messageId = "same-message";
+		for (const sessionPath of [oldPath, newPath]) {
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+				body: sessionPath,
+				fromAgentId: "main",
+				id: messageId,
+				kind: "message",
+				status: "pending",
+				toAgentId: "main",
+			});
+			enqueueRuntimeMailboxMessage(controlDbPath, {
+				kind: "message",
+				recipient: { agentId: null, sessionId: "recipient-session" },
+				sender: { agentId: null, sessionId: "sender-session" },
+				storeRef: { messageId, sessionPath },
+			});
+		}
+		upsertMultiAgentMailboxMessage(controlDbPath, newPath, "destination-only", {
+			body: "stale destination",
+			fromAgentId: "main",
+			id: "destination-only",
+			kind: "message",
+			status: "pending",
+			toAgentId: "main",
+		});
+		enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			sender: { agentId: null, sessionId: "sender-session" },
+			storeRef: { messageId: "destination-only", sessionPath: newPath },
+		});
+
+		expect(() => relocateSessionControlData(controlDbPath, oldPath, newPath)).not.toThrow();
+		const rows = listRuntimeMailboxMessages(controlDbPath);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.storeRef).toEqual({ messageId, sessionPath: newPath });
 	});
 
 	it("adds runtime identities and session paths to legacy listener tables on re-registration", () => {

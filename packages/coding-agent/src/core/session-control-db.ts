@@ -379,19 +379,23 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
 	const result = withControlDb(controlDbPath, (db) => {
-		// One transport row per store message: the store row is the single record, so a
-		// second enqueue for the same reference is a re-send of the same message.
-		const existing = db
-			.prepare("SELECT id FROM runtime_mailbox_messages WHERE store_session_path = ? AND store_message_id = ?")
-			.get(input.storeRef.sessionPath, input.storeRef.messageId) as { id: number } | undefined;
-		if (existing) {
-			return { id: existing.id, listener: undefined };
-		}
-		const now = new Date().toISOString();
-		const result = db
-			.prepare(
-				`
-				INSERT INTO runtime_mailbox_messages (
+		// Serialize against session relocation so the inserted row cannot move
+		// before its canonical ID is read back.
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const storedMessage = db
+				.prepare("SELECT 1 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(input.storeRef.sessionPath, input.storeRef.messageId);
+			if (!storedMessage) {
+				throw new Error(
+					`Runtime mailbox store reference does not exist: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+				);
+			}
+			const now = new Date().toISOString();
+			const insert = db
+				.prepare(
+					`
+				INSERT OR IGNORE INTO runtime_mailbox_messages (
 					recipient_session_id,
 					recipient_agent_id,
 					sender_session_id,
@@ -408,23 +412,32 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 				)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
 				`,
-			)
-			.run(
-				input.recipient.sessionId,
-				input.recipient.agentId,
-				input.sender.sessionId,
-				input.sender.agentId,
-				input.kind,
-				"",
-				null,
-				null,
-				input.storeRef.sessionPath,
-				input.storeRef.messageId,
-				now,
-				now,
-			);
-		const listener = readRuntimeMailboxListenerRow(db, input.recipient);
-		return { id: Number(result.lastInsertRowid), listener };
+				)
+				.run(
+					input.recipient.sessionId,
+					input.recipient.agentId,
+					input.sender.sessionId,
+					input.sender.agentId,
+					input.kind,
+					"",
+					null,
+					null,
+					input.storeRef.sessionPath,
+					input.storeRef.messageId,
+					now,
+					now,
+				);
+			const row = db
+				.prepare("SELECT id FROM runtime_mailbox_messages WHERE store_session_path = ? AND store_message_id = ?")
+				.get(input.storeRef.sessionPath, input.storeRef.messageId) as { id: number } | undefined;
+			if (!row) throw new Error("Runtime mailbox enqueue did not create or find the transport row");
+			const listener = insert.changes > 0 ? readRuntimeMailboxListenerRow(db, input.recipient) : undefined;
+			db.exec("COMMIT");
+			return { id: row.id, listener };
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
 	});
 	notifyRuntimeMailboxListener(result.listener);
 	return result.id;
@@ -860,13 +873,19 @@ export function claimPendingArchitectRequests(
 export function renewArchitectRequestClaims(controlDbPath: string, requestIds: number[], claimToken: string): void {
 	if (requestIds.length === 0) return;
 	withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
-		for (const requestId of requestIds) {
-			db.prepare(
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const now = new Date().toISOString();
+			const renew = db.prepare(
 				`UPDATE architect_requests
 				 SET claimed_at = ?
 				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
-			).run(now, requestId, claimToken);
+			);
+			for (const requestId of requestIds) renew.run(now, requestId, claimToken);
+			db.exec("COMMIT");
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
 		}
 	});
 }
@@ -1545,6 +1564,9 @@ function relocateRuntimeMailboxMessagePaths(
 	newSessionPath: string,
 	nowIso: string,
 ): void {
+	// The relocated durable store replaced the entire destination store, so every
+	// destination transport reference is stale before source transports move in.
+	db.prepare("DELETE FROM runtime_mailbox_messages WHERE store_session_path = ?").run(newSessionPath);
 	db.prepare(
 		`
 		UPDATE runtime_mailbox_messages
@@ -2416,6 +2438,7 @@ function initializeSchema(db: SqliteDatabase): void {
 	`);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
+	deduplicateRuntimeMailboxStoreReferences(db);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
 }
@@ -2437,6 +2460,49 @@ function addMissingRuntimeMailboxColumns(db: SqliteDatabase): void {
 	}
 	if (!columns.has("store_message_id")) {
 		db.exec("ALTER TABLE runtime_mailbox_messages ADD COLUMN store_message_id TEXT");
+	}
+}
+
+function deduplicateRuntimeMailboxStoreReferences(db: SqliteDatabase): void {
+	const existingIndex = db
+		.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'runtime_mailbox_store_ref_unique_idx'")
+		.get();
+	if (existingIndex) return;
+
+	db.exec("BEGIN IMMEDIATE");
+	try {
+		db.exec(`
+			DELETE FROM runtime_mailbox_messages
+			WHERE id IN (
+				SELECT id
+				FROM (
+					SELECT id,
+						ROW_NUMBER() OVER (
+							PARTITION BY store_session_path, store_message_id
+							ORDER BY
+								CASE status
+									WHEN 'delivered' THEN 4
+									WHEN 'claimed' THEN 3
+									WHEN 'pending' THEN 2
+									ELSE 1
+								END DESC,
+								updated_at DESC,
+								id DESC
+						) AS duplicate_rank
+					FROM runtime_mailbox_messages
+					WHERE store_session_path IS NOT NULL AND store_message_id IS NOT NULL
+				)
+				WHERE duplicate_rank > 1
+			);
+
+			CREATE UNIQUE INDEX IF NOT EXISTS runtime_mailbox_store_ref_unique_idx
+			ON runtime_mailbox_messages(store_session_path, store_message_id)
+			WHERE store_session_path IS NOT NULL AND store_message_id IS NOT NULL;
+		`);
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
 	}
 }
 

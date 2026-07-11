@@ -1,23 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
-AUTH_FILE="$HOME/.pi/agent/auth.json"
-AUTH_BACKUP="$HOME/.pi/agent/auth.json.bak"
-
-# Restore auth.json on exit (success or failure)
+TEST_AGENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-test-agent.XXXXXX")"
 cleanup() {
-    if [[ -f "$AUTH_BACKUP" ]]; then
-        mv "$AUTH_BACKUP" "$AUTH_FILE"
-        echo "Restored auth.json"
-    fi
+    rm -rf "$TEST_AGENT_DIR"
 }
 trap cleanup EXIT
-
-# Move auth.json out of the way
-if [[ -f "$AUTH_FILE" ]]; then
-    mv "$AUTH_FILE" "$AUTH_BACKUP"
-    echo "Moved auth.json to backup"
-fi
+export PI_CODING_AGENT_DIR="$TEST_AGENT_DIR"
 
 # Skip local LLM tests (ollama, lmstudio)
 export PI_NO_LOCAL_LLM=1
