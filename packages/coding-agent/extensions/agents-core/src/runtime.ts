@@ -18,7 +18,6 @@ import {
 	type DesktopNotifier,
 } from "../../../src/core/desktop-notification.ts";
 import {
-	type AgentArtifact,
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
 	type AgentResult,
@@ -28,7 +27,6 @@ import {
 	isActiveLifecycle,
 	type MailboxMessageCommandResult,
 	MultiAgentStore,
-	type RecordAgentArtifactInput,
 	type SendMailboxMessageInput,
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
@@ -52,20 +50,10 @@ const checkpointSchema = Type.Union([
 	Type.Literal("when_waiting"),
 ]);
 
-const artifactReferenceSchema = Type.Object({
-	id: Type.Optional(Type.String()),
+const fileReferenceSchema = Type.Object({
+	path: Type.String(),
 	label: Type.Optional(Type.String()),
-	path: Type.Optional(Type.String()),
 });
-
-const artifactKindSchema = Type.Union([
-	Type.Literal("summary"),
-	Type.Literal("diff"),
-	Type.Literal("log"),
-	Type.Literal("finding"),
-	Type.Literal("transcript"),
-	Type.Literal("file"),
-]);
 
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
@@ -99,7 +87,7 @@ const cancelAgentSchema = Type.Object({
 
 const steerAgentSchema = Type.Object({
 	agentId: Type.String(),
-	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
+	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
 	message: Type.String(),
 	fromAgentId: Type.Optional(Type.String()),
 	targetCheckpoint: Type.Optional(checkpointSchema),
@@ -107,8 +95,7 @@ const steerAgentSchema = Type.Object({
 
 const contactSupervisorSchema = Type.Object({
 	agentId: Type.String(),
-	artifactIds: Type.Optional(Type.Array(Type.String())),
-	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
+	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
 	expectedRevision: Type.Number(),
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
@@ -121,21 +108,11 @@ const agentViewerSchema = Type.Object({
 });
 
 const sendAgentMessageSchema = Type.Object({
-	artifactIds: Type.Optional(Type.Array(Type.String())),
-	artifactRefs: Type.Optional(Type.Array(artifactReferenceSchema)),
+	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
 	toAgentId: Type.String(),
 	toSessionId: Type.Optional(Type.String()),
-});
-
-const agentArtifactsSchema = Type.Object({
-	agentId: Type.Optional(Type.String()),
-	inlinePreview: Type.Optional(Type.String()),
-	kind: Type.Optional(artifactKindSchema),
-	metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-	path: Type.Optional(Type.String()),
-	title: Type.Optional(Type.String()),
 });
 
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
@@ -146,7 +123,6 @@ type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
 type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
 type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
-type AgentArtifactsParams = Static<typeof agentArtifactsSchema>;
 
 type ChildSessionModel = CreateAgentSessionOptions["model"];
 
@@ -236,7 +212,6 @@ export interface MultiAgentWorkflowOperations {
 		expectedRevision: number,
 		input: ContactSupervisorInput,
 	): ReturnType<MultiAgentStore["contactSupervisor"]>;
-	recordArtifact(input: RecordAgentArtifactInput): AgentArtifact;
 	sendAgentMessage(
 		agentId: string,
 		expectedRevision: number,
@@ -335,11 +310,6 @@ interface AgentViewerCommand {
 interface SendAgentMessageToolDetails {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
-}
-
-interface AgentArtifactsToolDetails {
-	artifact?: AgentArtifact;
-	artifacts?: AgentArtifact[];
 }
 
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
@@ -639,7 +609,6 @@ export function createMultiAgentWorkflowOperations(store: MultiAgentStore): Mult
 	return {
 		contactSupervisor: (agentId, expectedRevision, input) =>
 			store.contactSupervisor(agentId, expectedRevision, input),
-		recordArtifact: (input) => store.recordArtifact(input),
 		sendAgentMessage: (agentId, expectedRevision, input) =>
 			store.sendMailboxMessage(agentId, expectedRevision, input),
 		spawnAgent: (input) => store.spawnAgent(input),
@@ -1628,32 +1597,6 @@ function listViewerCommands(agents: AgentSnapshot[]): AgentViewerCommand[] {
 }
 
 
-function formatMailboxArtifactReference(ref: NonNullable<AgentMailboxMessage["artifactRefs"]>[number]): string {
-	const label = ref.label ?? ref.id ?? ref.path ?? "artifact";
-	const parts = [label, ref.id, ref.path].filter((part): part is string => Boolean(part));
-	return `- ${parts.join(" — ")}`;
-}
-
-function agentArtifacts(
-	store: MultiAgentStore,
-	params: AgentArtifactsParams,
-): AgentToolResult<AgentArtifactsToolDetails> {
-	if (params.agentId && params.kind && params.title) {
-		const artifact = store.recordArtifact({
-			agentId: params.agentId,
-			inlinePreview: params.inlinePreview,
-			kind: params.kind,
-			metadata: params.metadata,
-			path: params.path,
-			title: params.title,
-		});
-		return result(`Recorded artifact ${artifact.id}.`, { artifact });
-	}
-
-	const artifacts = store.listArtifacts(params.agentId);
-	return result(`Found ${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}.`, { artifacts });
-}
-
 function sendAgentMessage(
 	store: MultiAgentStore,
 	params: SendAgentMessageParams,
@@ -1689,8 +1632,7 @@ function sendAgentMessage(
 	}
 	const sender = store.getAgent(senderId);
 	const messageInput = {
-		artifactIds: params.artifactIds,
-		artifactRefs: params.artifactRefs,
+		fileRefs: params.fileRefs,
 		body: params.message,
 		threadId: params.threadId,
 		toAgentId: params.toAgentId,
@@ -1715,8 +1657,12 @@ function sendAgentMessage(
 			});
 		}
 		onSessionMessageSent?.({ message: sent.message, toSessionId: params.toSessionId });
-	} else {
-		mirrorRuntimeMailboxMessage(store, sent.message, ctx);
+	} else if (!mirrorRuntimeMailboxMessage(store, sent.message, ctx)) {
+		const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
+		return errorResult("Could not send agent message: runtime mailbox transport is unavailable.", {
+			agent: sent.agent,
+			message: failedMessage,
+		});
 	}
 
 	return result(`Sent message to ${formatSentMessageTarget(sent.message, params.toSessionId)}.`, {
@@ -1746,8 +1692,7 @@ function sendMainRuntimeSessionMessage(
 		});
 	}
 	const message = store.recordOutboundSessionMessage({
-		artifactIds: params.artifactIds,
-		artifactRefs: params.artifactRefs,
+		fileRefs: params.fileRefs,
 		body: params.message,
 		fromAgentId: senderId,
 		threadId: params.threadId,
@@ -1850,9 +1795,9 @@ async function waitAgents(
 	if (ctx && isChildAgentRuntime(ctx)) {
 		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {});
 	}
-	const pendingCompletion = findAgentWithPendingCompletion(store);
-	if (pendingCompletion) {
-		return consumeAgentCompletion(store, pendingCompletion, ctx);
+	const pendingTerminal = findAgentWithPendingTerminalNotification(store);
+	if (pendingTerminal) {
+		return consumeAgentTerminalNotification(store, pendingTerminal, ctx);
 	}
 
 	const activeAgents = store.listActiveAgents();
@@ -1864,23 +1809,24 @@ async function waitAgents(
 	if (!agent) {
 		return errorResult("Wait cancelled.", {});
 	}
-	if (agent.lifecycle !== "completed") {
-		return result(formatAgentStatus(agent), {});
+	if (
+		(agent.lifecycle === "completed" || agent.lifecycle === "failed") &&
+		store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle).length > 0
+	) {
+		return consumeAgentTerminalNotification(store, agent, ctx);
 	}
-	return consumeAgentCompletion(store, agent, ctx);
+	return result(formatAgentStatus(agent), {});
 }
 
-function findAgentWithPendingCompletion(store: MultiAgentStore): AgentSnapshot | undefined {
-	return store
-		.listAgents()
-		.find(
-			(agent) =>
-				agent.lifecycle === "completed" &&
-				store.listPendingLifecycleNotificationsForAgent(agent.id, "completed").length > 0,
-		);
+function findAgentWithPendingTerminalNotification(store: MultiAgentStore): AgentSnapshot | undefined {
+	return store.listAgents().find(
+		(agent) =>
+			(agent.lifecycle === "completed" || agent.lifecycle === "failed") &&
+			store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle).length > 0,
+	);
 }
 
-function consumeAgentCompletion(
+function consumeAgentTerminalNotification(
 	store: MultiAgentStore,
 	agent: AgentSnapshot,
 	ctx: ExtensionContext | undefined,
@@ -2022,8 +1968,7 @@ function contactSupervisor(
 		});
 	}
 	const contacted = store.contactSupervisor(params.agentId, params.expectedRevision, {
-		artifactIds: params.artifactIds,
-		artifactRefs: params.artifactRefs,
+		fileRefs: params.fileRefs,
 		body: params.message,
 		threadId: params.threadId,
 	});
@@ -2034,7 +1979,13 @@ function contactSupervisor(
 		});
 	}
 
-	mirrorRuntimeMailboxMessage(store, contacted.message, ctx);
+	if (!mirrorRuntimeMailboxMessage(store, contacted.message, ctx)) {
+		const failedMessage = markFailedMailboxTransportMessage(store, contacted.message);
+		return errorResult("Could not contact supervisor: runtime mailbox transport is unavailable.", {
+			agent: contacted.agent,
+			message: failedMessage,
+		});
+	}
 
 	return result(`Contacted supervisor for ${contacted.agent.displayName}.`, {
 		agent: contacted.agent,
@@ -2063,7 +2014,7 @@ function steerAgent(
 	}
 
 	const steered = store.sendSteering(params.agentId, current.revision, {
-		artifactRefs: params.artifactRefs,
+		fileRefs: params.fileRefs,
 		body: params.message,
 		fromAgentId: senderId,
 		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
@@ -2075,7 +2026,13 @@ function steerAgent(
 		});
 	}
 
-	mirrorRuntimeMailboxMessage(store, steered.message, ctx);
+	if (!mirrorRuntimeMailboxMessage(store, steered.message, ctx)) {
+		const failedMessage = markFailedMailboxTransportMessage(store, steered.message);
+		return errorResult("Could not queue steering: runtime mailbox transport is unavailable.", {
+			agent: steered.agent,
+			message: failedMessage,
+		});
+	}
 
 	return result(`Queued steering for ${steered.agent.displayName}.`, {
 		agent: steered.agent,
@@ -2235,30 +2192,32 @@ function mirrorRuntimeMailboxMessage(
 	store: MultiAgentStore,
 	message: AgentMailboxMessage,
 	ctx: ExtensionContext | undefined,
-): void {
-	if (!ctx?.controlDbPath) {
-		return;
-	}
+): boolean {
+	if (!ctx?.controlDbPath) return false;
 	const recipient = resolveRuntimeRecipient(store, message, ctx);
-	if (!recipient) {
-		return;
-	}
+	if (!recipient) return false;
 	const storeRef = buildRuntimeMailboxStoreRef(store, message, ctx);
 	if (!storeRef) {
 		console.error(
 			`Runtime mailbox requires a store persisted to the control DB; dropped mailbox message ${message.id}.`,
 		);
-		return;
+		return false;
 	}
-	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
-		kind: message.kind,
-		recipient,
-		sender: {
-			agentId: message.fromAgentId,
-			sessionId: ctx.sessionManager.getSessionId(),
-		},
-		storeRef,
-	});
+	try {
+		enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
+			kind: message.kind,
+			recipient,
+			sender: {
+				agentId: message.fromAgentId,
+				sessionId: ctx.sessionManager.getSessionId(),
+			},
+			storeRef,
+		});
+		return true;
+	} catch (error) {
+		console.error(`Failed to enqueue runtime mailbox message ${message.id}:`, error);
+		return false;
+	}
 }
 
 function resolveRuntimeRecipient(
@@ -2504,17 +2463,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					store,
 					waitingDesktopNotifications,
 				}),
-		}),
-	);
-
-	pi.registerTool(
-		defineTool({
-			name: "agent_artifacts",
-			label: "Agent Artifacts",
-			description: "Record or list shared multi-agent artifact pointers outside mailbox events.",
-			approvalRequired: false,
-			parameters: agentArtifactsSchema,
-			execute: async (_toolCallId, params) => agentArtifacts(store, params),
 		}),
 	);
 

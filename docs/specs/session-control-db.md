@@ -26,8 +26,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
-      (`multi_agent_agents`, `multi_agent_artifacts`, `multi_agent_mailbox_messages`,
-      `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
+      (`multi_agent_agents`, `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row
+      upsert per mutation, restore selects the session's rows. Legacy artifact tables/columns are
+      not initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
+      migrated into `multi_agent_counters_v2`.
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
@@ -53,8 +55,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       sessions can catch up from an append-only global coordination log.
 - [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
       (`store_session_path`, `store_message_id`) is required at enqueue, reads resolve
-      body/artifact payloads from `multi_agent_mailbox_messages`, and enqueue is idempotent per
-      store reference (one transport row per store message).
+      body/absolute `fileRefs` payloads from `multi_agent_mailbox_messages`, invalid legacy rows without
+      a store reference or with legacy artifact fields are rejected, and enqueue is idempotent per store
+      reference (one transport row per store message).
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
@@ -75,10 +78,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path,
-  schema, incoming-message claim/complete API, last-message API, prompt-history
-  API, session metadata API, runtime-listener/health lifecycle, and persisted spawned-agent
-  ghost reconciliation API.
+- `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path and schema,
+  incoming-message claim/complete API, runtime mailbox transport and listener/health lifecycle,
+  per-session multi-agent rows and counters, prompt-history and session-metadata APIs, and
+  persisted spawned-agent ghost reconciliation.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — built-in tool that appends to the

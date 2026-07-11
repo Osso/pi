@@ -1291,11 +1291,15 @@ describe("pyrun extension", () => {
 		});
 
 		expect(result.details.value).toMatchObject({
-			message: { body: "review this", fromAgentId: "main", toAgentId: spawned.agent.id },
+			message: {
+				body: "review this",
+				error: "Runtime mailbox transport is unavailable.",
+				fromAgentId: "main",
+				status: "failed",
+				toAgentId: spawned.agent.id,
+			},
 		});
-		expect(store.listPendingMailboxMessagesForAgent(spawned.agent.id)).toMatchObject([
-			{ body: "review this", fromAgentId: "main" },
-		]);
+		expect(store.listPendingMailboxMessagesForAgent(spawned.agent.id)).toEqual([]);
 	});
 
 	it("sends runtime session messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
@@ -1396,8 +1400,8 @@ describe("pyrun extension", () => {
 		expect(job.lifecycle).toBe("running");
 		expect(logPath ? existsSync(logPath) : false).toBe(true);
 		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain("Pyrun evaluation is still running");
-		const [runningArtifact] = store.listArtifacts(job.id);
-		expect(runningArtifact).toMatchObject({ kind: "log", path: logPath, title: "Pyrun output" });
+		const [runningFileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
+		expect(runningFileRef).toMatchObject({ label: "Pyrun output", path: logPath });
 
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
 	});
@@ -1457,18 +1461,16 @@ describe("pyrun extension", () => {
 
 		const [job] = store.listAgents();
 		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
-		const [runningArtifact] = store.listArtifacts(job.id);
-		expect(runningArtifact).toMatchObject({ kind: "log", title: "Pyrun output" });
+		const [runningFileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
+		expect(runningFileRef).toMatchObject({ label: "Pyrun output" });
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
 		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation completed");
 		expect(store.getAgent(job.id)?.result?.durationMs).toBeGreaterThanOrEqual(40);
-		const [artifact] = store.listArtifacts(job.id);
-		expect(store.listArtifacts(job.id)).toHaveLength(1);
-		expect(artifact.id).toBe(runningArtifact.id);
-		expect(artifact).toMatchObject({ kind: "log", title: "Pyrun output" });
-		expect(artifact.path && existsSync(artifact.path)).toBe(true);
-		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").toContain("detached-done");
-		expect(artifact.path ? stripAnsi(readFileSync(artifact.path, "utf8")) : "").not.toContain("Result:");
+		const [fileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
+		expect(fileRef).toEqual(runningFileRef);
+		expect(fileRef?.path && existsSync(fileRef.path)).toBe(true);
+		expect(fileRef?.path ? stripAnsi(readFileSync(fileRef.path, "utf8")) : "").toContain("detached-done");
+		expect(fileRef?.path ? stripAnsi(readFileSync(fileRef.path, "utf8")) : "").not.toContain("Result:");
 	});
 
 	it("marks detached Pyrun evaluation errors as failed jobs", async () => {

@@ -9,8 +9,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] `Ctrl+B` detaches a supported running tool through the shared tool detach registry.
 - [x] Supported running tools auto-detach through the same shared registry after 120 seconds.
 - [x] Auto-detach moves the tool out of the foreground only; explicit tool timeout settings continue to kill/fail the underlying work.
-- [x] Detached bash commands create a background job, write later output to a log artifact, and support cancellation through `cancel_agent`.
-- [x] Detached Pyrun evaluations create a background job, complete independently, and write final output to a log artifact.
+- [x] Detached bash commands create a background job, write later output to an absolute log file reference, and support cancellation through `cancel_agent`.
+- [x] Detached Pyrun evaluations create a background job, complete independently, and expose final output through an absolute log file reference.
 - [x] `wait_agents({})` waits until any detached tool job active at invocation reaches a terminal state.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 

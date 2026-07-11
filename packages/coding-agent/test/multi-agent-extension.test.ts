@@ -23,7 +23,6 @@ import type {
 	RegisteredCommand,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
-import type { AgentArtifact } from "../src/core/multi-agent-store.ts";
 import {
 	type AgentMailboxMessage,
 	type AgentSnapshot,
@@ -177,11 +176,6 @@ function mailboxDetails(store: MultiAgentStore, agentId?: string): MailboxDetail
 interface SendAgentMessageDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
-}
-
-interface AgentArtifactsDetails extends Record<string, unknown> {
-	artifact?: AgentArtifact;
-	artifacts?: AgentArtifact[];
 }
 
 type TestCommandContext = Omit<Partial<ExtensionCommandContext>, "ui"> & {
@@ -380,7 +374,6 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness();
 
 		expect([...harness.tools.keys()].sort()).toEqual([
-			"agent_artifacts",
 			"agent_viewer",
 			"attach_session_agent",
 			"cancel_agent",
@@ -408,7 +401,6 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness();
 
 		expect([...harness.tools.values()].map((tool) => [tool.name, tool.approvalRequired]).sort()).toEqual([
-			["agent_artifacts", false],
 			["agent_viewer", false],
 			["attach_session_agent", false],
 			["cancel_agent", false],
@@ -425,7 +417,6 @@ describe("multi-agent extension tools", () => {
 		const harness = createSplitMultiAgentHarness();
 
 		expect([...harness.tools.keys()].sort()).toEqual([
-			"agent_artifacts",
 			"agent_viewer",
 			"attach_session_agent",
 			"cancel_agent",
@@ -1252,7 +1243,6 @@ describe("multi-agent extension tools", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 
 		expect(collectTools((pi) => agentsCoreExtension(pi, { store }))).toEqual([
-			"agent_artifacts",
 			"attach_session_agent",
 			"cancel_agent",
 			"list_agents",
@@ -1582,7 +1572,7 @@ describe("multi-agent extension tools", () => {
 		const createChildSession: ChildAgentSessionFactory = async () => ({
 			messages: [],
 			prompt: async () => childPrompt.promise,
-			transcript: { path: "sessions/child.jsonl", sessionId: "child-session" },
+			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "child-session" },
 		});
 		const harness = createMultiAgentHarness({ createChildSession });
 
@@ -1738,7 +1728,7 @@ describe("multi-agent extension tools", () => {
 			cwd: "/repo",
 			displayName: "Verifier",
 			permission: { narrowed: true, policy: "on-request" },
-			transcript: { path: "sessions/verifier.jsonl", sessionId: "child-session" },
+			transcript: { path: "/tmp/sessions/verifier.jsonl", sessionId: "child-session" },
 		});
 		const completed = completeAgent(supervisorStore, agent.agent);
 		const currentStore = MultiAgentStore.fromSessionManager(currentSession, {
@@ -1759,7 +1749,7 @@ describe("multi-agent extension tools", () => {
 			agent: { id: agent.agent.id, lifecycle: "completed", revision: completed.revision },
 			children: [],
 			status: { agentId: agent.agent.id, lifecycle: "completed", revision: completed.revision, terminal: true },
-			transcript: { agentId: agent.agent.id, path: "sessions/verifier.jsonl", sessionId: "child-session" },
+			transcript: { agentId: agent.agent.id, path: "/tmp/sessions/verifier.jsonl", sessionId: "child-session" },
 		});
 	});
 
@@ -1817,7 +1807,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			parentId: parent.agent.id,
 			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
-			transcript: { path: "sessions/child.jsonl", sessionId: "child-session" },
+			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "child-session" },
 		});
 		const running = harness.store.transitionAgent(child.agent.id, child.agent.revision, "starting");
 		expect(running.ok).toBe(true);
@@ -1832,7 +1822,7 @@ describe("multi-agent extension tools", () => {
 			children: [],
 			parentId: parent.agent.id,
 			status: { agentId: child.agent.id, lifecycle: "starting", revision: running.agent.revision, terminal: false },
-			transcript: { agentId: child.agent.id, path: "sessions/child.jsonl", sessionId: "child-session" },
+			transcript: { agentId: child.agent.id, path: "/tmp/sessions/child.jsonl", sessionId: "child-session" },
 		});
 		expect(viewed.details.commands).toEqual(
 			expect.arrayContaining([
@@ -1893,15 +1883,22 @@ describe("multi-agent extension tools", () => {
 		const parentMailbox = mailboxDetails(harness.store, parent.details.agent.id);
 		const childAfterMailbox = harness.store.getAgent(child.details.agent.id);
 
-		expect(childMailbox).toMatchObject({
-			acknowledgements: [{ id: steered.details.message.id, status: "accepted" }],
-			inbox: [{ id: steered.details.message.id, fromAgentId: "supervisor", status: "accepted" }],
-			outbox: [{ id: contact.details.message.id, toAgentId: parent.details.agent.id, status: "pending" }],
-			pendingCount: 1,
-		});
+		expect(childMailbox.acknowledgements).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: steered.details.message.id, status: "accepted" }),
+				expect.objectContaining({ id: contact.details.message.id, status: "failed" }),
+			]),
+		);
+		expect(childMailbox.inbox).toMatchObject([
+			{ id: steered.details.message.id, fromAgentId: "supervisor", status: "accepted" },
+		]);
+		expect(childMailbox.outbox).toMatchObject([
+			{ id: contact.details.message.id, toAgentId: parent.details.agent.id, status: "failed" },
+		]);
+		expect(childMailbox.pendingCount).toBe(0);
 		expect(parentMailbox).toMatchObject({
-			inbox: [{ id: contact.details.message.id, fromAgentId: child.details.agent.id, status: "pending" }],
-			pendingCount: 1,
+			inbox: [{ id: contact.details.message.id, fromAgentId: child.details.agent.id, status: "failed" }],
+			pendingCount: 0,
 		});
 		expect(childAfterMailbox).toMatchObject({
 			id: child.details.agent.id,
@@ -1973,10 +1970,12 @@ describe("multi-agent extension tools", () => {
 				body: "Please inspect auth",
 				fromAgentId: parent.details.agent.id,
 				kind: "message",
-				status: "pending",
+				status: "failed",
 				toAgentId: child.details.agent.id,
 			});
-			expect(childMailbox.inbox).toMatchObject([{ id: sent.details.message.id }]);
+			expect(childMailbox.inbox).toMatchObject([
+				{ id: sent.details.message.id, status: "failed", toAgentId: child.details.agent.id },
+			]);
 			expect(rejected.details).toMatchObject({
 				agent: { id: child.details.agent.id, revision: child.details.agent.revision },
 				message: { status: "failed", toAgentId: sibling.details.agent.id },
@@ -2003,55 +2002,15 @@ describe("multi-agent extension tools", () => {
 			body: "Main thread request",
 			fromAgentId: "main",
 			kind: "message",
-			status: "pending",
+			status: "failed",
 			toAgentId: child.details.agent.id,
 		});
-		expect(childMailbox.inbox).toMatchObject([{ id: sent.details.message.id }]);
+		expect(childMailbox.inbox).toMatchObject([
+			{ id: sent.details.message.id, status: "failed", toAgentId: child.details.agent.id },
+		]);
 	});
 
-	it("records and lists shared artifacts outside mailbox events", async () => {
-		const harness = createMultiAgentHarness();
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Worker",
-			prompt: "Run tests",
-		});
-
-		const recorded = await harness.call<AgentArtifactsDetails>("agent_artifacts", {
-			agentId: spawned.details.agent.id,
-			inlinePreview: "First five log lines",
-			kind: "log",
-			metadata: { exitCode: 1 },
-			path: "artifacts/tests.log",
-			title: "Test log",
-		});
-		await harness.call<ContactSupervisorDetails>("contact_supervisor", {
-			agentId: spawned.details.agent.id,
-			artifactRefs: [
-				{
-					id: recorded.details.artifact?.id,
-					label: recorded.details.artifact?.title,
-					path: recorded.details.artifact?.path,
-				},
-			],
-			expectedRevision: spawned.details.agent.revision,
-			message: "Review log",
-		});
-		const listed = await harness.call<AgentArtifactsDetails>("agent_artifacts", {
-			agentId: spawned.details.agent.id,
-		});
-
-		expect(recorded.details.artifact).toMatchObject({
-			agentId: spawned.details.agent.id,
-			inlinePreview: "First five log lines",
-			kind: "log",
-			path: "artifacts/tests.log",
-			title: "Test log",
-		});
-		expect(listed.details.artifacts).toEqual([recorded.details.artifact]);
-		expect(JSON.stringify(harness.store.listMailboxMessages())).not.toContain("First five log lines");
-	});
-
-	it("exposes workflow operations that compose spawn, message, wait, and artifacts through core state", () => {
+	it("exposes workflow operations that compose spawn, message, and wait through core state", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const workflow = createMultiAgentWorkflowOperations(store);
 
@@ -2068,13 +2027,7 @@ describe("multi-agent extension tools", () => {
 			parentId: parent.agent.id,
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const artifact = workflow.recordArtifact({
-			agentId: child.agent.id,
-			kind: "finding",
-			title: "Auth finding",
-		});
 		const message = workflow.sendAgentMessage(parent.agent.id, parent.agent.revision, {
-			artifactRefs: [{ id: artifact.id, label: artifact.title }],
 			body: "Review finding",
 			toAgentId: child.agent.id,
 		});
@@ -2085,7 +2038,6 @@ describe("multi-agent extension tools", () => {
 		expect(store.getAgent(parent.agent.id)).toMatchObject({ id: parent.agent.id });
 		expect(store.listDescendants(parent.agent.id)).toMatchObject([{ id: child.agent.id }]);
 		expect(store.listMailboxMessages()).toHaveLength(1);
-		expect(store.listArtifacts()).toEqual([artifact]);
 	});
 
 	it("lets a child contact its supervisor without choosing a sibling target", async () => {
@@ -2106,7 +2058,6 @@ describe("multi-agent extension tools", () => {
 
 		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
 			agentId: child.details.agent.id,
-			artifactIds: ["artifact-1"],
 			expectedRevision: child.details.agent.revision,
 			message: "Need auth scope",
 		});
@@ -2117,49 +2068,12 @@ describe("multi-agent extension tools", () => {
 			revision: child.details.agent.revision + 1,
 		});
 		expect(contact.details.message).toMatchObject({
-			artifactIds: ["artifact-1"],
 			body: "Need auth scope",
 			fromAgentId: child.details.agent.id,
 			kind: "supervisor_request",
-			status: "pending",
+			status: "failed",
 			toAgentId: parent.details.agent.id,
 		});
-	});
-
-	it("passes mailbox artifact references by ID/path without copying content", async () => {
-		const harness = createMultiAgentHarness();
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Parent",
-			prompt: "Parent task",
-		});
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Child",
-			parentId: parent.details.agent.id,
-			prompt: "Child task",
-		});
-
-		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
-			agentId: child.details.agent.id,
-			artifactRefs: [
-				{
-					content: "large log content must not enter the mailbox",
-					id: "log-1",
-					label: "Tool log",
-					path: "artifacts/tool.log",
-				},
-			],
-			expectedRevision: child.details.agent.revision,
-			message: "Review log",
-		});
-
-		expect(contact.details.message.artifactRefs).toEqual([
-			{
-				id: "log-1",
-				label: "Tool log",
-				path: "artifacts/tool.log",
-			},
-		]);
-		expect(JSON.stringify(contact.details.message)).not.toContain("large log content");
 	});
 
 	it("waits and cancels through the core store", async () => {
@@ -2222,7 +2136,7 @@ describe("multi-agent extension tools", () => {
 			body: "Check permissions too",
 			fromAgentId: "supervisor",
 			kind: "steer",
-			status: "pending",
+			status: "failed",
 			targetCheckpoint: "next_model_call",
 			toAgentId: agent.id,
 		});
@@ -2318,7 +2232,7 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
 	});
 
-	it("includes mailbox artifact references in the runtime mailbox follow-up", async () => {
+	it("includes mailbox file references in the runtime mailbox follow-up", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = await createHarness({
 			extensionFactories: [(pi) => multiAgentExtension(pi, { store })],
@@ -2338,8 +2252,7 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, {
-			artifactIds: ["artifact_1"],
-			artifactRefs: [{ id: "artifact_2", label: "Test log", path: "artifacts/test.log" }],
+			fileRefs: [{ label: "Test log", path: "/tmp/test.log" }],
 			body: "Review log",
 		});
 		if (!contacted.ok) throw new Error("expected supervisor contact");
@@ -2357,8 +2270,7 @@ describe("multi-agent extension tools", () => {
 		}
 
 		const followUp = getUserTexts(harness).find((text) => text.includes("Review log"));
-		expect(followUp).toContain("Artifact IDs:\n- artifact_1");
-		expect(followUp).toContain("Artifact references:\n- Test log — artifact_2 — artifacts/test.log");
+		expect(followUp).toContain("Attached files:\n- Test log — /tmp/test.log");
 		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
 	});
 
@@ -2410,7 +2322,7 @@ describe("multi-agent extension tools", () => {
 			expect(waiting.ok).toBe(true);
 			idleState.resolve(undefined);
 			await finishGate.promise;
-			return { lifecycle: "completed", result: { artifactIds: ["artifact_1"], summary: "done" } };
+			return { lifecycle: "completed", result: { fileRefs: [{ path: "/tmp/completion.log" }], summary: "done" } };
 		};
 		const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: session }, dispatcher, store });
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
@@ -2431,7 +2343,7 @@ describe("multi-agent extension tools", () => {
 		expect(didResolveAfterIdle).toBe(false);
 		expect(waited.content).toEqual([{ text: "Worker completed: done", type: "text" }]);
 		expect(waited.details.message).toMatchObject({
-			artifactIds: ["artifact_1"],
+			fileRefs: [{ path: "/tmp/completion.log" }],
 			body: "Worker completed: done",
 			fromAgentId: spawned.details.agent.id,
 			kind: "system",
@@ -2441,7 +2353,7 @@ describe("multi-agent extension tools", () => {
 		expect(store.getAgent(spawned.details.agent.id)).toMatchObject({
 			id: spawned.details.agent.id,
 			lifecycle: "completed",
-			result: { artifactIds: ["artifact_1"], summary: "done" },
+			result: { fileRefs: [{ path: "/tmp/completion.log" }], summary: "done" },
 		});
 		expect(store.listMailboxMessages()).toMatchObject([
 			{
@@ -2452,7 +2364,7 @@ describe("multi-agent extension tools", () => {
 				toAgentId: parent.agent.id,
 			},
 			{
-				artifactIds: ["artifact_1"],
+				fileRefs: [{ path: "/tmp/completion.log" }],
 				body: "Worker completed: done",
 				fromAgentId: spawned.details.agent.id,
 				kind: "system",
@@ -2605,6 +2517,30 @@ describe("multi-agent extension tools", () => {
 			waited,
 			"commit workflow completed: Committed 18125d44 feat: add local deploy script",
 		);
+	});
+
+	it("returns failed wait_agents notifications with result file references", async () => {
+		const dispatcher: ChildAgentDispatcher = async () => ({
+			lifecycle: "failed",
+			error: { message: "Pyrun evaluation failed." },
+			result: { fileRefs: [{ label: "Pyrun output", path: "/tmp/pyrun-failure.log" }] },
+		});
+		const harness = createMultiAgentHarness({ dispatcher });
+
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "failing workflow",
+			prompt: "Run the failing job",
+		});
+		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+
+		expect(waited.content).toEqual([{ text: "failing workflow failed: Pyrun evaluation failed.", type: "text" }]);
+		expect(waited.details).toMatchObject({
+			message: {
+				body: "failing workflow failed: Pyrun evaluation failed.",
+				fileRefs: [{ label: "Pyrun output", path: "/tmp/pyrun-failure.log" }],
+				status: "delivered",
+			},
+		});
 	});
 
 	it("dispatches a real child AgentSession behind spawn_agent", async () => {

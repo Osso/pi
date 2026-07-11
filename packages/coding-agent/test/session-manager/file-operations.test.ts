@@ -23,7 +23,6 @@ import {
 	readSessionMetadata,
 	setNamedSession,
 	upsertMultiAgentAgent,
-	upsertMultiAgentArtifact,
 	upsertMultiAgentMailboxMessage,
 	writeMultiAgentCounters,
 	writeSessionMetadata,
@@ -258,14 +257,12 @@ describe("SessionManager relocate", () => {
 		session.setSessionGoalJson(JSON.stringify({ objective: "keep goal" }));
 		setNamedSession(controlDbPath, sourceFile!, "Keep name");
 		upsertMultiAgentAgent(controlDbPath, sourceFile!, "agent_1", { id: "agent_1" });
-		upsertMultiAgentArtifact(controlDbPath, sourceFile!, "artifact_1", { id: "artifact_1" });
 		upsertMultiAgentMailboxMessage(controlDbPath, sourceFile!, "message_1", {
 			messageId: "message_1",
 			status: "pending",
 		});
 		writeMultiAgentCounters(controlDbPath, sourceFile!, {
 			nextAgentNumber: 2,
-			nextArtifactNumber: 3,
 			nextMessageNumber: 4,
 		});
 		enqueueRuntimeMailboxMessage(controlDbPath, {
@@ -295,9 +292,8 @@ describe("SessionManager relocate", () => {
 		expect(readMultiAgentState(controlDbPath, sourceFile!)).toBeUndefined();
 		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual({
 			agents: [{ id: "agent_1" }],
-			artifacts: [{ id: "artifact_1" }],
 			mailboxMessages: [{ messageId: "message_1", status: "pending" }],
-			counters: { nextAgentNumber: 2, nextArtifactNumber: 3, nextMessageNumber: 4 },
+			counters: { nextAgentNumber: 2, nextMessageNumber: 4 },
 		});
 		expect(
 			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: sourceFile!, messageId: "message_1" }),

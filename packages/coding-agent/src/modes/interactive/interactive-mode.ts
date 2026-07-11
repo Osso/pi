@@ -2990,13 +2990,8 @@ export class InteractiveMode {
 	}
 
 	private findReadableAgentLogPath(agent: AgentSnapshot): string | undefined {
-		const logArtifact = this.multiAgentStore?.listArtifacts(agent.id).find((artifact) => {
-			if (artifact.kind !== "log" || !artifact.path) {
-				return false;
-			}
-			return fs.existsSync(artifact.path);
-		});
-		return logArtifact?.path;
+		const fileRefs = agent.result?.fileRefs ?? [];
+		return fileRefs.find((fileRef) => fs.existsSync(fileRef.path))?.path;
 	}
 
 	private readAgentLogPreview(logPath: string): string {
