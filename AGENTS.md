@@ -39,7 +39,7 @@
 
 ## Pi Control CLI
 
-Use the control CLI for the SQLite control channel. Do not write to `control.sqlite` directly and do not type into tmux panes to steer a running Pi unless explicitly asked.
+Prefer the control CLI for the SQLite control channel. Do not type into tmux panes to steer a running Pi unless explicitly asked.
 
 From a repo checkout, use `./pi-test.sh control ...`; installed builds use `pi control ...`.
 
