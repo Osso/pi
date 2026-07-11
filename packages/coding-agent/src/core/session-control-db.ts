@@ -10,7 +10,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 1;
+const CONTROL_DB_SCHEMA_VERSION = 2;
 
 export interface IncomingControlMessage {
 	id: number;
@@ -2866,33 +2866,67 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
 
 		const now = new Date().toISOString();
-		for (const { table, idColumn } of [
-			{ table: "multi_agent_agents", idColumn: "agent_id" },
-			{ table: "multi_agent_mailbox_messages", idColumn: "message_id" },
-		] as const) {
-			const rows = db.prepare(`SELECT session_path, ${idColumn}, data FROM ${table}`).all() as Array<{
-				session_path: string;
-				data: string;
-				[key: string]: string;
-			}>;
-			const update = db.prepare(
-				`UPDATE ${table} SET data = ?, updated_at = ? WHERE session_path = ? AND ${idColumn} = ?`,
-			);
-			for (const row of rows) {
-				let parsed: unknown;
-				try {
-					parsed = JSON.parse(row.data) as unknown;
-				} catch {
-					// Leave malformed payloads for the normal restore validator to report with row context.
-					continue;
-				}
-				const migrated = stripLegacyArtifactFields(parsed);
-				if (!migrated.changed) continue;
-				update.run(JSON.stringify(migrated.value), now, row.session_path, row[idColumn]);
-			}
-		}
+		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", now);
+		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", now);
+		createLegacyArtifactFieldTriggers(db);
 		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
 	});
+}
+
+function migrateLegacyMultiAgentPayloadTable(
+	db: SqliteDatabase,
+	table: "multi_agent_agents" | "multi_agent_mailbox_messages",
+	idColumn: "agent_id" | "message_id",
+	now: string,
+): void {
+	const rows = db.prepare(`SELECT session_path, ${idColumn}, data FROM ${table}`).all() as Array<{
+		session_path: string;
+		data: string;
+		[key: string]: string;
+	}>;
+	const update = db.prepare(`UPDATE ${table} SET data = ?, updated_at = ? WHERE session_path = ? AND ${idColumn} = ?`);
+	for (const row of rows) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(row.data) as unknown;
+		} catch {
+			// Leave malformed payloads for the normal restore validator to report with row context.
+			continue;
+		}
+		const migrated = stripLegacyArtifactFields(parsed);
+		if (!migrated.changed) continue;
+		update.run(JSON.stringify(migrated.value), now, row.session_path, row[idColumn]);
+	}
+}
+
+function createLegacyArtifactFieldTriggers(db: SqliteDatabase): void {
+	for (const table of ["multi_agent_agents", "multi_agent_mailbox_messages"] as const) {
+		db.exec(`
+			CREATE TRIGGER IF NOT EXISTS ${table}_reject_legacy_artifact_fields_insert
+			BEFORE INSERT ON ${table}
+			FOR EACH ROW
+			WHEN json_valid(NEW.data)
+				AND EXISTS (
+					SELECT 1 FROM json_tree(NEW.data)
+					WHERE key IN ('artifactIds', 'artifactRefs')
+				)
+			BEGIN
+				SELECT RAISE(ABORT, 'Legacy artifact fields are not supported');
+			END;
+
+			CREATE TRIGGER IF NOT EXISTS ${table}_reject_legacy_artifact_fields_update
+			BEFORE UPDATE OF data ON ${table}
+			FOR EACH ROW
+			WHEN json_valid(NEW.data)
+				AND EXISTS (
+					SELECT 1 FROM json_tree(NEW.data)
+					WHERE key IN ('artifactIds', 'artifactRefs')
+				)
+			BEGIN
+				SELECT RAISE(ABORT, 'Legacy artifact fields are not supported');
+			END;
+		`);
+	}
 }
 
 function stripLegacyArtifactFields(value: unknown): { value: unknown; changed: boolean } {

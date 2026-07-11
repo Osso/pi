@@ -595,7 +595,24 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(1);
+			expect(version.user_version).toBe(2);
+			const triggers = migratedDb
+				.prepare(
+					`SELECT name FROM sqlite_master
+					 WHERE type = 'trigger' AND name IN (
+						'multi_agent_agents_reject_legacy_artifact_fields_insert',
+						'multi_agent_agents_reject_legacy_artifact_fields_update',
+						'multi_agent_mailbox_messages_reject_legacy_artifact_fields_insert',
+						'multi_agent_mailbox_messages_reject_legacy_artifact_fields_update'
+					 ) ORDER BY name`,
+				)
+				.all() as Array<{ name: string }>;
+			expect(triggers.map((trigger) => trigger.name)).toEqual([
+				"multi_agent_agents_reject_legacy_artifact_fields_insert",
+				"multi_agent_agents_reject_legacy_artifact_fields_update",
+				"multi_agent_mailbox_messages_reject_legacy_artifact_fields_insert",
+				"multi_agent_mailbox_messages_reject_legacy_artifact_fields_update",
+			]);
 			const agentRow = migratedDb
 				.prepare("SELECT data, updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 				.get(sessionPath, "agent-1") as { data: string; updated_at: string };
@@ -634,47 +651,155 @@ describe("session control DB", () => {
 
 		const alreadyMigratedDb = createSqliteDatabase(controlDbPath);
 		try {
-			alreadyMigratedDb
-				.prepare(
-					`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
-					 VALUES (?, ?, ?, ?)`,
-				)
-				.run(
-					sessionPath,
-					"agent-2",
-					JSON.stringify({ id: "agent-2", result: { artifactIds: ["artifact-3"] } }),
-					"2026-07-11T00:00:00.000Z",
-				);
+			for (const [table, idColumn, id] of [
+				["multi_agent_agents", "agent_id", "agent-2"],
+				["multi_agent_mailbox_messages", "message_id", "message-2"],
+			] as const) {
+				expect(() =>
+					alreadyMigratedDb
+						.prepare(
+							`INSERT INTO ${table} (session_path, ${idColumn}, data, updated_at)
+							 VALUES (?, ?, ?, ?)`,
+						)
+						.run(
+							sessionPath,
+							id,
+							JSON.stringify({ nested: [{ result: { artifactIds: ["artifact-3"] } }] }),
+							"2026-07-11T00:00:00.000Z",
+						),
+				).toThrow(/legacy artifact fields/i);
+			}
+			for (const [table, idColumn, id] of [
+				["multi_agent_agents", "agent_id", "agent-1"],
+				["multi_agent_mailbox_messages", "message_id", "message-1"],
+			] as const) {
+				expect(() =>
+					alreadyMigratedDb
+						.prepare(`UPDATE ${table} SET data = ? WHERE session_path = ? AND ${idColumn} = ?`)
+						.run(JSON.stringify({ nested: { artifactRefs: [{ path: "/tmp/legacy.log" }] } }), sessionPath, id),
+				).toThrow(/legacy artifact fields/i);
+			}
 		} finally {
 			alreadyMigratedDb.close();
 		}
-		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/Legacy artifact fields/);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject(expectedState);
+	});
+
+	it("upgrades an existing version-one database before legacy fields can be written again", () => {
+		const sessionPath = "/sessions/version-one.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				DROP TRIGGER multi_agent_agents_reject_legacy_artifact_fields_insert;
+				DROP TRIGGER multi_agent_agents_reject_legacy_artifact_fields_update;
+				DROP TRIGGER multi_agent_mailbox_messages_reject_legacy_artifact_fields_insert;
+				DROP TRIGGER multi_agent_mailbox_messages_reject_legacy_artifact_fields_update;
+				PRAGMA user_version = 1;
+			`);
+			db.prepare(
+				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(
+				sessionPath,
+				"agent-1",
+				JSON.stringify({ nested: { artifactRefs: [{ path: "/tmp/legacy.log" }] }, id: "agent-1" }),
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ id: "agent-1" }],
+		});
+		const upgradedDb = createSqliteDatabase(controlDbPath);
+		try {
+			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
+			expect(version.user_version).toBe(2);
+			expect(
+				(
+					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
+						data: string;
+					}
+				).data,
+			).not.toContain("artifactRefs");
+		} finally {
+			upgradedDb.close();
+		}
+		const blockedDb = createSqliteDatabase(controlDbPath);
+		try {
+			expect(() =>
+				blockedDb
+					.prepare(
+						`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+						 VALUES (?, ?, ?, ?)`,
+					)
+					.run(sessionPath, "agent-2", JSON.stringify({ artifactIds: ["blocked"] }), "2026-07-11T00:00:00.000Z"),
+			).toThrow(/legacy artifact fields/i);
+		} finally {
+			blockedDb.close();
+		}
+	});
+
+	it("preserves malformed persisted JSON for contextual restore validation", () => {
+		const sessionPath = "/sessions/malformed.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(sessionPath, "agent-1", '{"artifactIds":[', "2026-07-11T00:00:00.000Z");
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(
+			`Invalid persisted JSON at multi_agent_agents:${sessionPath}[0]`,
+		);
 	});
 
 	it("does not take the migration writer lock after the payload migration version is durable", async () => {
 		const sessionPath = "/sessions/already-migrated.jsonl";
 		readMultiAgentState(controlDbPath, sessionPath);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		holder.exec("BEGIN IMMEDIATE");
 		const worker = new Worker(
 			`
 				import { parentPort, workerData } from "node:worker_threads";
 				import { readMultiAgentState } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
-				try {
-					readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
-					parentPort?.postMessage("ok");
-				} catch (error) {
-					parentPort?.postMessage(String(error));
-				}
+				parentPort?.postMessage("ready");
+				parentPort?.once("message", () => {
+					try {
+						readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
+						parentPort?.postMessage("ok");
+					} catch (error) {
+						parentPort?.postMessage(String(error));
+					}
+				});
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, sessionPath } },
 		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
 		try {
+			await new Promise<void>((resolve, reject) => {
+				const timer = setTimeout(() => reject(new Error("migration worker did not load")), 10_000);
+				worker.once("message", (message: string) => {
+					clearTimeout(timer);
+					if (message === "ready") resolve();
+					else reject(new Error(`unexpected worker readiness message: ${message}`));
+				});
+				worker.once("error", (error) => {
+					clearTimeout(timer);
+					reject(error);
+				});
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("read");
 			const result = await new Promise<string>((resolve, reject) => {
 				const timer = setTimeout(
 					() => reject(new Error("already-migrated open blocked on a writer transaction")),
-					1000,
+					10_000,
 				);
 				worker.once("message", (message: string) => {
 					clearTimeout(timer);
@@ -688,7 +813,11 @@ describe("session control DB", () => {
 			expect(result).toBe("ok");
 		} finally {
 			await worker.terminate();
-			holder.exec("ROLLBACK");
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The transaction may already be closed after an early worker failure.
+			}
 			holder.close();
 		}
 	});
@@ -706,7 +835,6 @@ describe("session control DB", () => {
 				sessionPath,
 				"message-1",
 				JSON.stringify({
-					artifactIds: ["artifact-1"],
 					body: "invalid",
 					fileRefs: [{ path: "/tmp/output.log", label: 42 }],
 				}),

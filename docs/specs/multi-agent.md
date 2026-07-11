@@ -63,9 +63,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       table is dropped after migration.
 - [x] Control-DB schema initialization performs an atomic, durable, one-time cleanup of legacy
       `artifactIds` and `artifactRefs` fields in persisted agent and mailbox payloads, rewrites the
-      cleaned rows, and continues restoring supported state. Already-migrated opens skip the writer
-      transaction and table scan. Malformed data unrelated to the removed artifact fields still fails
-      explicitly.
+      cleaned rows, installs SQLite INSERT/UPDATE triggers on both payload tables, and continues
+      restoring supported state. Already-migrated opens skip the writer transaction and table scan;
+      triggers prevent older binaries from reintroducing legacy keys. Malformed rows still fail
+      explicitly with contextual validation.
 - [x] Forked/branched sessions start with an empty multi-agent store: state is keyed by session
       path and deliberately does not follow forks, so the original and the fork can never both
       auto-restart the same child transcripts.

@@ -35,9 +35,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       dropped so relocated state cannot be resurrected or reuse IDs.
 - [x] During schema initialization, perform an atomic, durable, one-time cleanup of legacy
       `artifactIds` and `artifactRefs` fields in persisted agent and mailbox payloads, rewrite cleaned
-      rows, and continue restoring supported state. Already-migrated opens skip the writer transaction
-      and full-table scan. Malformed data unrelated to removed artifact fields remains a fatal validation
-      error.
+      rows, install schema-versioned SQLite INSERT/UPDATE triggers on both payload tables, and continue
+      restoring supported state. Already-migrated opens skip the writer transaction and full-table scan;
+      the triggers prevent older binaries from reintroducing legacy keys. Malformed rows remain stored
+      for contextual restore validation.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
