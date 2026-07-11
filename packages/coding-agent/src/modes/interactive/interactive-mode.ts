@@ -335,6 +335,19 @@ export function isApiKeyLoginProvider(
 	return !oauthProviderIds.has(providerId);
 }
 
+const FOLLOW_UP_BODY_PREVIEW_LENGTH = 50;
+
+function formatFollowUpPreview(message: string): string {
+	const sender = message.match(/^- agent:\s*(.+)$/m)?.[1]?.trim() ?? "unknown";
+	const bodyMarker = "\nMessage:\n";
+	const bodyStart = message.indexOf(bodyMarker);
+	const bodyText = bodyStart === -1 ? message : message.slice(bodyStart + bodyMarker.length);
+	const body = bodyText.split("\n", 1)[0].trim();
+	const bodyPreview =
+		body.length > FOLLOW_UP_BODY_PREVIEW_LENGTH ? `${body.slice(0, FOLLOW_UP_BODY_PREVIEW_LENGTH)}…` : body;
+	return `Follow-up from ${sender}: ${bodyPreview}`;
+}
+
 /**
  * Options for InteractiveMode initialization.
  */
@@ -4705,7 +4718,7 @@ export class InteractiveMode {
 				this.pendingMessagesContainer.addChild(new TruncatedText(text, 1, 0));
 			}
 			for (const message of followUpMessages) {
-				const text = theme.fg("dim", `Follow-up: ${message}`);
+				const text = theme.fg("dim", formatFollowUpPreview(message));
 				this.pendingMessagesContainer.addChild(new TruncatedText(text, 1, 0));
 			}
 			const dequeueHint = this.getAppKeyDisplay("app.message.dequeue");
