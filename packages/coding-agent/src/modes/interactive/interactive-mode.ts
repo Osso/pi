@@ -3077,6 +3077,16 @@ export class InteractiveMode {
 			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
 				return;
 			}
+			if (current.lifecycle === "completed" || current.lifecycle === "failed" || current.lifecycle === "aborted") {
+				this.clearChildAgentView();
+				this.multiAgentStore.clearSelectedAgentView();
+				this.chatContainer.clear();
+				this.renderInitialMessages();
+				this.syncWorkingLoaderVisibility();
+				this.updateSelectedAgentSelectionWidgets();
+				this.ui.requestRender();
+				return;
+			}
 			this.syncWorkingLoaderVisibility();
 			this.updateSelectedAgentSelectionWidgets();
 			this.ui.requestRender();
