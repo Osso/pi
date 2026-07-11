@@ -18,6 +18,7 @@ export async function selectSession(
 	allSessionsLoader: SessionsLoader,
 	settingsManager: SettingsManager,
 	controlDbPath?: string,
+	archivedSessionsLoader?: SessionsLoader,
 ): Promise<string | null> {
 	const ui = await createStartupTui(settingsManager);
 	return new Promise((resolve) => {
@@ -47,7 +48,14 @@ export async function selectSession(
 				process.exit(0);
 			},
 			() => ui.requestRender(),
-			{ showRenameHint: false, keybindings, controlDbPath },
+			{
+				showRenameHint: false,
+				keybindings,
+				controlDbPath,
+				archivedSessionsLoader: archivedSessionsLoader
+					? (onProgress) => loadSessionsWithControlNames(archivedSessionsLoader, controlDbPath, onProgress, true)
+					: undefined,
+			},
 		);
 
 		ui.addChild(selector);
@@ -60,12 +68,16 @@ async function loadSessionsWithControlNames(
 	loader: SessionsLoader,
 	controlDbPath: string | undefined,
 	onProgress?: SessionListProgress,
+	archived = false,
 ): Promise<SessionInfo[]> {
 	const sessions = await loader(onProgress);
-	if (!controlDbPath) return sessions;
+	const filteredSessions = archived
+		? sessions.filter((session) => session.isArchived)
+		: sessions.filter((session) => !session.isArchived);
+	if (!controlDbPath) return filteredSessions;
 
 	const names = new Map(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name]));
-	return sessions
+	return filteredSessions
 		.map((session) => ({ ...session, name: names.get(session.path) ?? session.name }))
 		.sort((a, b) => {
 			const aNamed = names.has(a.path);

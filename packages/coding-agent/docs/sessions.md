@@ -41,11 +41,21 @@ For the JSONL file format and SessionManager API, see [Session Format](session-f
 In the picker you can:
 
 - search by typing
+- press Tab to cycle Current Folder, All, and Archived scopes
 - toggle path display with Ctrl+P
 - toggle sort mode with Ctrl+S
 - filter to named sessions with Ctrl+N
 - rename with Ctrl+R
 - delete with Ctrl+D, then confirm
+
+Archived sessions are hidden from the normal Current Folder and All scopes but remain resumable from Archived.
+Archive old sessions globally with:
+
+```bash
+pi sessions archive --older-than 5
+```
+
+The cutoff uses each session's last modified time. The default is 5 days; subagent sessions are not archived.
 
 When available, pi uses the `trash` CLI for deletion instead of permanently removing files.
 

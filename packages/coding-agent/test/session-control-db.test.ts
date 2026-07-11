@@ -10,6 +10,8 @@ import {
 	abortInactiveSessionSpawnedAgents,
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
 	advanceSharedChannelCursor,
+	archiveSession,
+	archiveSessionsOlderThan,
 	claimLatestIncomingMessage,
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
@@ -21,6 +23,8 @@ import {
 	failRuntimeMailboxMessage,
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
+	listActiveSessionMetadata,
+	listArchivedSessionMetadata,
 	listNamedSessions,
 	listPendingArchitectRequests,
 	listRuntimeMailboxListeners,
@@ -46,6 +50,7 @@ import {
 	renewArchitectRequestClaims,
 	retireRuntimeMailboxListener,
 	setNamedSession,
+	unarchiveSession,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 	writeLastMessage,
@@ -1312,6 +1317,82 @@ describe("session control DB", () => {
 			},
 		]);
 		expect(sessions[0].updatedAt).toEqual(expect.any(String));
+	});
+
+	it("archives and restores session metadata without changing transcript data", () => {
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: "/tmp/session-a.jsonl",
+			id: "session-a",
+			cwd: "/repo/a",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+		});
+
+		archiveSession(controlDbPath, "/tmp/session-a.jsonl");
+		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")).toMatchObject({
+			id: "session-a",
+			isArchived: true,
+		});
+
+		unarchiveSession(controlDbPath, "/tmp/session-a.jsonl");
+		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")).toMatchObject({
+			id: "session-a",
+			isArchived: false,
+		});
+	});
+
+	it("archives only non-subagent sessions older than the cutoff", () => {
+		for (const metadata of [
+			{
+				sessionPath: "/tmp/old.jsonl",
+				id: "old",
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "old",
+				allMessagesText: "old",
+			},
+			{
+				sessionPath: "/tmp/new.jsonl",
+				id: "new",
+				cwd: "/repo",
+				createdAt: "2026-01-03T00:00:00.000Z",
+				modifiedAt: "2026-01-03T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "new",
+				allMessagesText: "new",
+			},
+			{
+				sessionPath: "/tmp/child.jsonl",
+				id: "child",
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: "child",
+				allMessagesText: "child",
+				isSubagent: true,
+			},
+		]) {
+			writeSessionMetadata(controlDbPath, metadata);
+		}
+
+		expect(archiveSessionsOlderThan(controlDbPath, new Date("2026-01-02T00:00:00.000Z"))).toEqual(["/tmp/old.jsonl"]);
+		expect(readSessionMetadata(controlDbPath, "/tmp/old.jsonl")).toMatchObject({ isArchived: true });
+		expect(readSessionMetadata(controlDbPath, "/tmp/new.jsonl")).toMatchObject({ isArchived: false });
+		expect(readSessionMetadata(controlDbPath, "/tmp/child.jsonl")).toMatchObject({ isArchived: false });
+		expect(
+			listActiveSessionMetadata(controlDbPath)
+				.map((session) => session.sessionPath)
+				.sort(),
+		).toEqual(["/tmp/child.jsonl", "/tmp/new.jsonl"]);
+		expect(listArchivedSessionMetadata(controlDbPath).map((session) => session.sessionPath)).toEqual([
+			"/tmp/old.jsonl",
+		]);
 	});
 
 	it("updates existing session metadata without changing its session path", () => {

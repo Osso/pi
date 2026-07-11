@@ -47,6 +47,7 @@ import { listTools } from "./cli/list-tools.ts";
 import { handleLoginCommand } from "./cli/login-command.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
+import { handleSessionsCommand } from "./cli/sessions-command.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
@@ -412,6 +413,7 @@ async function createSessionManager(
 				(onProgress) => SessionManager.listAll(sessionDir, onProgress, controlDbPath),
 				settingsManager,
 				controlDbPath,
+				(onProgress) => SessionManager.listArchived(sessionDir, onProgress, controlDbPath),
 			);
 			if (!selectedPath) {
 				console.log(chalk.dim("No session selected"));
@@ -671,6 +673,10 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (handleControlCommand(args, { agentDir })) {
+		process.exit(process.exitCode ?? 0);
+	}
+
+	if (await handleSessionsCommand(args, { agentDir })) {
 		process.exit(process.exitCode ?? 0);
 	}
 

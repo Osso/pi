@@ -288,6 +288,7 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} update [source|self|pi]   Update pi (use --all for pi and extensions)
   ${APP_NAME} list                      List installed extensions from settings
   ${APP_NAME} login <provider>          Log in to an OAuth provider (use --browser-cli to open auth URLs)
+  ${APP_NAME} sessions archive           Archive sessions older than five days
   ${APP_NAME} tools                     List tools available to the current session
   ${APP_NAME} extensions                List extensions loaded for the current session
   ${APP_NAME} config                    Open TUI to enable/disable package resources

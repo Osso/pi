@@ -29,6 +29,8 @@ import {
 	createCustomMessage,
 } from "./messages.ts";
 import {
+	listActiveSessionMetadata,
+	listArchivedSessionMetadata,
 	listSessionMetadata,
 	readSessionGoal,
 	readSessionMetadata,
@@ -200,6 +202,8 @@ export interface SessionInfo {
 	cwd: string;
 	/** User-defined display name from session_info entries. */
 	name?: string;
+	/** Whether the session is hidden from normal resume lists. */
+	isArchived?: boolean;
 	/** Path to the parent session (if this session was forked). */
 	parentSessionPath?: string;
 	created: Date;
@@ -957,6 +961,7 @@ function sessionInfoFromMetadata(metadata: SessionMetadata): SessionInfo {
 		cwd: metadata.cwd,
 		name: metadata.name,
 		parentSessionPath: metadata.parentSessionPath,
+		isArchived: metadata.archivedAt !== undefined,
 		created: new Date(metadata.createdAt),
 		modified: new Date(metadata.modifiedAt),
 		messageCount: metadata.messageCount,
@@ -969,10 +974,19 @@ function metadataMatchesSessionDir(metadata: SessionMetadata, dir: string): bool
 	return normalizePath(metadata.sessionPath).startsWith(`${normalizePath(dir)}/`);
 }
 
-function listScopedSessionMetadata(controlDbPath: string, options?: { cwd?: string; dir?: string }): SessionMetadata[] {
-	const resolvedCwd = options?.cwd ? resolvePath(options.cwd) : undefined;
-	return listSessionMetadata(controlDbPath)
-		.filter((metadata) => !options?.dir || metadataMatchesSessionDir(metadata, options.dir))
+function listScopedSessionMetadata(
+	controlDbPath: string,
+	options: { cwd?: string; dir?: string; archived?: boolean } = {},
+): SessionMetadata[] {
+	const resolvedCwd = options.cwd ? resolvePath(options.cwd) : undefined;
+	const sessions =
+		options.archived === true
+			? listArchivedSessionMetadata(controlDbPath)
+			: options.archived === false
+				? listActiveSessionMetadata(controlDbPath)
+				: listSessionMetadata(controlDbPath);
+	return sessions
+		.filter((metadata) => !options.dir || metadataMatchesSessionDir(metadata, options.dir))
 		.filter((metadata) => !resolvedCwd || sessionCwdMatches(metadata.cwd, resolvedCwd));
 }
 
@@ -1000,13 +1014,13 @@ function cacheSessionMetadata(controlDbPath: string | undefined, sessions: Sessi
 
 function listMetadataSessions(
 	controlDbPath: string | undefined,
-	options: { cwd?: string; dir?: string },
+	options: { cwd?: string; dir?: string; archived?: boolean },
 ): SessionInfo[] | undefined {
 	if (!controlDbPath) return undefined;
+	if (listSessionMetadata(controlDbPath).length === 0) return undefined;
 
-	const metadataSessions = listScopedSessionMetadata(controlDbPath, { cwd: options.cwd, dir: options.dir });
-	const resumeSessions = listResumeSessionsFromMetadata(metadataSessions);
-	return resumeSessions.length > 0 ? resumeSessions : undefined;
+	const metadataSessions = listScopedSessionMetadata(controlDbPath, options);
+	return listResumeSessionsFromMetadata(metadataSessions);
 }
 
 async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {
@@ -2049,7 +2063,7 @@ export class SessionManager {
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
-		const metadataSessions = listMetadataSessions(controlDbPath, { cwd, dir });
+		const metadataSessions = listMetadataSessions(controlDbPath, { cwd, dir, archived: false });
 		if (metadataSessions) return metadataSessions;
 
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
@@ -2061,6 +2075,17 @@ export class SessionManager {
 		const resumeSessions = excludeKnownSubagentSessions(controlDbPath, sessions);
 		resumeSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
 		return resumeSessions;
+	}
+
+	/** List archived sessions across all project directories. */
+	static async listArchived(
+		sessionDir?: string,
+		_onProgress?: SessionListProgress,
+		controlDbPath?: string,
+	): Promise<SessionInfo[]> {
+		if (!controlDbPath) return [];
+		const dir = sessionDir ? normalizePath(sessionDir) : undefined;
+		return listMetadataSessions(controlDbPath, { dir, archived: true }) ?? [];
 	}
 
 	/**
@@ -2082,7 +2107,7 @@ export class SessionManager {
 			typeof sessionDirOrOnProgress === "string" ? normalizePath(sessionDirOrOnProgress) : undefined;
 		const progress = typeof sessionDirOrOnProgress === "function" ? sessionDirOrOnProgress : onProgress;
 		if (customSessionDir) {
-			const metadataSessions = listMetadataSessions(controlDbPath, { dir: customSessionDir });
+			const metadataSessions = listMetadataSessions(controlDbPath, { dir: customSessionDir, archived: false });
 			if (metadataSessions) return metadataSessions;
 			const sessions = await listSessionsFromDir(customSessionDir, progress);
 			cacheSessionMetadata(controlDbPath, sessions);
@@ -2091,7 +2116,7 @@ export class SessionManager {
 			return resumeSessions;
 		}
 
-		const metadataSessions = listMetadataSessions(controlDbPath, {});
+		const metadataSessions = listMetadataSessions(controlDbPath, { archived: false });
 		if (metadataSessions) return metadataSessions;
 
 		const sessions = await listDefaultSessionRoot(progress);

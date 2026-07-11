@@ -31,6 +31,14 @@ async function flushPromises(): Promise<void> {
 	});
 }
 
+async function waitFor(predicate: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 50; attempt++) {
+		if (predicate()) return;
+		await flushPromises();
+	}
+	throw new Error("Timed out waiting for session selector mutation");
+}
+
 function stripAnsi(text: string): string {
 	return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
@@ -283,6 +291,39 @@ describe("session selector path/delete interactions", () => {
 		expect(output).not.toContain("subagent resume prompt");
 	});
 
+	it("shows archived sessions only in the Archived scope", async () => {
+		const active = makeSession({ id: "active", firstMessage: "active session", allMessagesText: "active session" });
+		const archived = makeSession({
+			id: "archived",
+			firstMessage: "archived session",
+			allMessagesText: "archived session",
+			isArchived: true,
+		});
+		const selector = new SessionSelectorComponent(
+			async () => [active],
+			async () => [active],
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, archivedSessionsLoader: async () => [archived] },
+		);
+		await flushPromises();
+
+		let output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("active");
+		expect(output).not.toContain("archived");
+
+		selector.getSessionList().handleInput("\t");
+		await flushPromises();
+		selector.getSessionList().handleInput("\t");
+		await flushPromises();
+		output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("Resume Session (Archived)");
+		expect(output).toContain("archived");
+		expect(output).not.toContain("active");
+	});
+
 	it("does not switch scope back to All when All load resolves after toggling back to Current", async () => {
 		const currentSessions = [makeSession({ id: "current" })];
 		const allDeferred = createDeferred<SessionInfo[]>();
@@ -304,7 +345,8 @@ describe("session selector path/delete interactions", () => {
 
 		const list = selector.getSessionList();
 		list.handleInput("\t"); // current -> all (starts async load)
-		list.handleInput("\t"); // all -> current
+		list.handleInput("\t"); // all -> archived
+		list.handleInput("\t"); // archived -> current
 
 		allDeferred.resolve([makeSession({ id: "all" })]);
 		await flushPromises();
@@ -442,8 +484,7 @@ describe("session selector path/delete interactions", () => {
 		const list = selector.getSessionList();
 		list.handleInput(CTRL_D);
 		list.handleInput("\r");
-		await flushPromises();
-		await flushPromises();
+		await waitFor(() => !listSessionMetadata(controlDbPath).some((metadata) => metadata.sessionPath === sessionPath));
 
 		expect(listSessionMetadata(controlDbPath).some((metadata) => metadata.sessionPath === sessionPath)).toBe(false);
 		expect(stripAnsi(selector.render(120).join("\n"))).not.toContain("delete me");
@@ -473,8 +514,7 @@ describe("session selector path/delete interactions", () => {
 		expect(list.getSelectedSessionPath()).toBe(newerPath);
 		list.handleInput(CTRL_D);
 		list.handleInput("\r");
-		await flushPromises();
-		await flushPromises();
+		await waitFor(() => !listSessionMetadata(controlDbPath).some((metadata) => metadata.sessionPath === newerPath));
 
 		const remainingPaths = listSessionMetadata(controlDbPath).map((metadata) => metadata.sessionPath);
 		expect(remainingPaths).toContain(olderPath);

@@ -5581,6 +5581,18 @@ export class InteractiveMode {
 					showRenameHint: true,
 					keybindings: this.keybindings,
 					controlDbPath: this.options.controlDbPath,
+					archivedSessionsLoader: (onProgress) =>
+						loadWithNames(
+							(progress) =>
+								SessionManager.listArchived(
+									this.sessionManager.usesDefaultSessionDir()
+										? undefined
+										: this.sessionManager.getSessionDir(),
+									progress,
+									this.options.controlDbPath,
+								),
+							onProgress,
+						),
 				},
 
 				this.sessionManager.getSessionFile(),

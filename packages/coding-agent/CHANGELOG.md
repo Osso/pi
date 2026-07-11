@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added persistent session archiving with an Archived resume-picker scope and `pi sessions archive --older-than <days>` (default 5 days).
 - Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
 - Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, durable `ask_architect` requests, targeted runtime-mailbox advice, and read-only Bubblewrap tool workers.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.

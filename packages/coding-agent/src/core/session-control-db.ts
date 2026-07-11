@@ -109,6 +109,8 @@ export interface SessionMetadata {
 	cwd: string;
 	name?: string;
 	parentSessionPath?: string;
+	archivedAt?: string;
+	isArchived?: boolean;
 	goalJson?: string;
 	isSubagent?: boolean;
 	subagentName?: string;
@@ -250,6 +252,7 @@ type SessionMetadataRow = {
 	cwd: string;
 	name: string | null;
 	parent_session_path: string | null;
+	archived_at: string | null;
 	goal_json: string | null;
 	is_subagent: number;
 	subagent_name: string | null;
@@ -262,6 +265,7 @@ type SessionMetadataRow = {
 };
 
 type SessionMetadataPreservedRow = {
+	archived_at: string | null;
 	goal_json: string | null;
 	is_subagent: number;
 	subagent_name: string | null;
@@ -1631,6 +1635,7 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 	withControlDb(controlDbPath, (db) => {
 		const metadataName = metadata.name ?? readNamedSessionName(db, metadata.sessionPath);
 		const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
+		const archivedAt = metadata.archivedAt ?? preserved?.archived_at ?? null;
 		const goalJson = metadata.goalJson ?? preserved?.goal_json ?? null;
 		const preservedIsSubagent = preserved?.is_subagent === 1;
 		const isSubagent = metadata.isSubagent ?? preservedIsSubagent;
@@ -1643,6 +1648,7 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 				cwd,
 				name,
 				parent_session_path,
+				archived_at,
 				goal_json,
 				is_subagent,
 				subagent_name,
@@ -1653,12 +1659,13 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 				all_messages_text,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(session_path) DO UPDATE SET
 				id = excluded.id,
 				cwd = excluded.cwd,
 				name = excluded.name,
 				parent_session_path = excluded.parent_session_path,
+				archived_at = excluded.archived_at,
 				goal_json = excluded.goal_json,
 				is_subagent = excluded.is_subagent,
 				subagent_name = excluded.subagent_name,
@@ -1675,6 +1682,7 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 			metadata.cwd,
 			metadataName,
 			metadata.parentSessionPath ?? null,
+			archivedAt,
 			goalJson,
 			isSubagent ? 1 : 0,
 			subagentName,
@@ -1695,7 +1703,7 @@ function readPreservedSessionMetadata(
 	return db
 		.prepare(
 			`
-			SELECT goal_json, is_subagent, subagent_name
+			SELECT archived_at, goal_json, is_subagent, subagent_name
 			FROM session_metadata
 			WHERE session_path = ?
 			`,
@@ -1748,6 +1756,7 @@ export function readSessionMetadata(controlDbPath: string, sessionPath: string):
 					cwd,
 					name,
 					parent_session_path,
+					archived_at,
 					goal_json,
 					is_subagent,
 					subagent_name,
@@ -1767,7 +1776,21 @@ export function readSessionMetadata(controlDbPath: string, sessionPath: string):
 }
 
 export function listSessionMetadata(controlDbPath: string): SessionMetadata[] {
+	return listSessionMetadataByArchiveState(controlDbPath);
+}
+
+export function listActiveSessionMetadata(controlDbPath: string): SessionMetadata[] {
+	return listSessionMetadataByArchiveState(controlDbPath, false);
+}
+
+export function listArchivedSessionMetadata(controlDbPath: string): SessionMetadata[] {
+	return listSessionMetadataByArchiveState(controlDbPath, true);
+}
+
+function listSessionMetadataByArchiveState(controlDbPath: string, archived?: boolean): SessionMetadata[] {
 	return withControlDb(controlDbPath, (db) => {
+		const archiveClause =
+			archived === undefined ? "" : archived ? "WHERE archived_at IS NOT NULL" : "WHERE archived_at IS NULL";
 		const rows = db
 			.prepare(
 				`
@@ -1777,6 +1800,7 @@ export function listSessionMetadata(controlDbPath: string): SessionMetadata[] {
 					cwd,
 					name,
 					parent_session_path,
+					archived_at,
 					goal_json,
 					is_subagent,
 					subagent_name,
@@ -1787,11 +1811,56 @@ export function listSessionMetadata(controlDbPath: string): SessionMetadata[] {
 					all_messages_text,
 					updated_at
 				FROM session_metadata
+				${archiveClause}
 				ORDER BY modified_at DESC, updated_at DESC, session_path DESC
 				`,
 			)
 			.all() as SessionMetadataRow[];
 		return rows.map(sessionMetadataFromRow);
+	});
+}
+
+export function archiveSession(controlDbPath: string, sessionPath: string): void {
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		db.prepare("UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE session_path = ?").run(
+			now,
+			now,
+			sessionPath,
+		);
+	});
+}
+
+export function unarchiveSession(controlDbPath: string, sessionPath: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare("UPDATE session_metadata SET archived_at = NULL, updated_at = ? WHERE session_path = ?").run(
+			new Date().toISOString(),
+			sessionPath,
+		);
+	});
+}
+
+export function archiveSessionsOlderThan(controlDbPath: string, cutoff: Date): string[] {
+	return withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const rows = db
+				.prepare(
+					`SELECT session_path FROM session_metadata
+					 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+					 ORDER BY modified_at ASC, session_path ASC`,
+				)
+				.all(cutoff.toISOString()) as Array<{ session_path: string }>;
+			const archivedAt = new Date().toISOString();
+			db.prepare(
+				"UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?",
+			).run(archivedAt, archivedAt, cutoff.toISOString());
+			db.exec("COMMIT");
+			return rows.map((row) => row.session_path);
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
 	});
 }
 
@@ -1802,6 +1871,8 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 		cwd: row.cwd,
 		name: row.name ?? undefined,
 		parentSessionPath: row.parent_session_path ?? undefined,
+		archivedAt: row.archived_at ?? undefined,
+		isArchived: row.archived_at !== null,
 		goalJson: row.goal_json ?? undefined,
 		isSubagent: row.is_subagent === 1,
 		subagentName: row.subagent_name ?? undefined,
@@ -2359,6 +2430,7 @@ function initializeSchema(db: SqliteDatabase): void {
 			cwd TEXT NOT NULL,
 			name TEXT,
 			parent_session_path TEXT,
+			archived_at TEXT,
 			goal_json TEXT,
 			is_subagent INTEGER NOT NULL DEFAULT 0,
 			subagent_name TEXT,
@@ -2539,6 +2611,9 @@ function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
 	const columns = new Set(
 		(db.prepare("PRAGMA table_info(session_metadata)").all() as TableInfoRow[]).map((column) => column.name),
 	);
+	if (!columns.has("archived_at")) {
+		db.exec("ALTER TABLE session_metadata ADD COLUMN archived_at TEXT");
+	}
 	if (!columns.has("goal_json")) {
 		db.exec("ALTER TABLE session_metadata ADD COLUMN goal_json TEXT");
 	}
