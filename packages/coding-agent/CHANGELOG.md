@@ -31,7 +31,6 @@
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
 - Added `Ctrl+B` backgrounding for running bash tool calls, moving detached commands into `/jobs` with log artifacts and `cancel_agent` support.
 - Added `Ctrl+B` backgrounding for running Pyrun evaluations, moving detached evaluations into `/jobs` with log artifacts.
-- Added automatic backgrounding after 120 seconds for detachable bash and Pyrun tool calls.
 - Added public SDK exports for CLI-equivalent model and scoped-model resolution ([#6201](https://github.com/earendil-works/pi/issues/6201)).
 - Added extension entry renderers for persisted display-only session entries that are rendered in interactive mode without being sent to the model context.
 - Added `/continue` to continue the current transcript without adding a user message.
@@ -44,6 +43,7 @@
 
 ### Changed
 
+- Changed automatic backgrounding threshold from 2 minutes to 5 minutes for detachable bash and Pyrun tool calls.
 - Changed Codex remote compaction to always use `gpt-5.6-terra`, allowing Luna and other Codex models to retain native compaction history across long sessions.
 - Changed interactive tool result display to retain the first and last 50 logical output lines with an omission marker while preserving full model context, and to hide successful `grep` results while keeping calls and errors visible.
 - Replaced `wait_agent({ agentId })` with zero-argument `wait_agents({})`. It immediately consumes one pending completion notification or waits for any agent active at invocation to reach terminal state; the direct tool returns the winner completion/status while Hostrun/Pyrun `pi.agents.wait()` returns `null`.
