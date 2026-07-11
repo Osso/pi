@@ -130,6 +130,7 @@ function createSymlinkedSessionPaths(): {
 	};
 }
 
+const CTRL_A = "\x01";
 const CTRL_D = "\x04";
 const CTRL_BACKSPACE = "\x1b[127;5u";
 
@@ -174,6 +175,35 @@ describe("session selector path/delete interactions", () => {
 		list.handleInput(CTRL_BACKSPACE);
 
 		expect(confirmationChanges).toEqual([]);
+	});
+
+	it("archives the selected session with Ctrl+A", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-archive-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "archive me");
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, controlDbPath },
+		);
+		await flushPromises();
+
+		selector.getSessionList().handleInput(CTRL_A);
+		await waitFor(
+			() =>
+				listSessionMetadata(controlDbPath).find((metadata) => metadata.sessionPath === sessionPath)?.isArchived ===
+				true,
+		);
+		expect(
+			listSessionMetadata(controlDbPath).find((metadata) => metadata.sessionPath === sessionPath)?.isArchived,
+		).toBe(true);
 	});
 
 	it("enters confirmation mode on Ctrl+D even with a non-empty search query", async () => {

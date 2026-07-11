@@ -14,7 +14,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../../../core/keybindings.ts";
-import { removeSessionMetadata } from "../../../core/session-control-db.ts";
+import { archiveSession, removeSessionMetadata } from "../../../core/session-control-db.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";
 import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
@@ -186,6 +186,7 @@ class SessionSelectorHeader implements Component {
 				keyHint("app.session.toggleSort", "sort"),
 				keyHint("app.session.toggleNamedFilter", "named"),
 				keyHint("app.session.delete", "delete"),
+				keyHint("app.session.archive", "archive"),
 				keyHint("app.session.togglePath", `path ${pathState}`),
 			];
 			if (this.showRenameHint) {
@@ -326,6 +327,7 @@ class SessionList implements Component, Focusable {
 	public onTogglePath?: (showPath: boolean) => void;
 	public onDeleteConfirmationChange?: (path: string | null) => void;
 	public onDeleteSession?: (sessionPath: string) => Promise<void>;
+	public onArchiveSession?: (sessionPath: string) => Promise<void>;
 	public onRenameSession?: (sessionPath: string) => void;
 	public onError?: (message: string) => void;
 	private maxVisible: number = 10; // Max sessions visible (one line each)
@@ -593,6 +595,12 @@ class SessionList implements Component, Focusable {
 		if (kb.matches(keyData, "app.session.togglePath")) {
 			this.showPath = !this.showPath;
 			this.onTogglePath?.(this.showPath);
+			return;
+		}
+
+		if (kb.matches(keyData, "app.session.archive")) {
+			const selected = this.filteredSessions[this.selectedIndex];
+			if (selected) void this.onArchiveSession?.(selected.session.path);
 			return;
 		}
 
@@ -864,6 +872,31 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		};
 		this.sessionList.onError = (msg) => {
 			this.header.setStatusMessage({ type: "error", message: msg }, 3000);
+			this.requestRender();
+		};
+
+		this.sessionList.onArchiveSession = async (sessionPath: string) => {
+			if (!this.controlDbPath) {
+				this.header.setStatusMessage(
+					{ type: "error", message: "Session archive requires a control database." },
+					3000,
+				);
+				this.requestRender();
+				return;
+			}
+			const selected = [
+				...(this.currentSessions ?? []),
+				...(this.allSessions ?? []),
+				...(this.archivedSessions ?? []),
+			].find((session) => session.path === sessionPath);
+			if (selected?.isArchived) {
+				this.header.setStatusMessage({ type: "info", message: "Session is already archived." }, 2000);
+				this.requestRender();
+				return;
+			}
+			archiveSession(this.controlDbPath, sessionPath);
+			this.header.setStatusMessage({ type: "info", message: "Session archived" }, 2000);
+			await this.refreshSessionsAfterMutation();
 			this.requestRender();
 		};
 

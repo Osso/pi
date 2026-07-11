@@ -24,7 +24,7 @@ For the JSONL file format and SessionManager API, see [Session Format](session-f
 | Command | Description |
 |---------|-------------|
 | `/resume` | Browse and select previous sessions |
-| `/archive [days]` | Review and archive clear completed sessions from the recent window (default 5 days) |
+| `/archive` | Archive the current persisted session; accepts no arguments |
 | `/new` | Start a new session |
 | `/name <name>` | Set the current session display name |
 | `/session` | Show session info |
@@ -47,24 +47,24 @@ In the picker you can:
 - toggle sort mode with Ctrl+S
 - filter to named sessions with Ctrl+N
 - rename with Ctrl+R
+- archive the selected session with Ctrl+A
 - delete with Ctrl+D, then confirm
 
 Archived sessions are hidden from the normal Current Folder and All scopes but remain resumable from Archived.
 
-`/archive [days]` reviews sessions modified within the recent window, defaulting to 5 days. It archives only clear completed sessions, skips incomplete and live sessions, and reports the archived and skipped counts. Pass a positive numeric day value to change the window:
+`/archive` archives only the current persisted session and accepts no arguments:
 
 ```text
 /archive
-/archive 2
 ```
 
-The separate administrative CLI command archives sessions by age without the completion review:
+The separate administrative CLI command archives sessions by age:
 
 ```bash
 pi sessions archive --older-than 5
 ```
 
-Both commands exclude subagent sessions. Neither command moves or deletes session JSONL files.
+The administrative CLI excludes subagent sessions. Neither command moves or deletes session JSONL files.
 
 When available, pi uses the `trash` CLI for deletion instead of permanently removing files.
 

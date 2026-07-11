@@ -1,12 +1,13 @@
 # Session archive
 
-Pi has two explicit archive surfaces:
+Pi has three explicit archive surfaces:
 
-- `/archive [days]` reviews recent sessions. It defaults to a five-day window, accepts a positive numeric day override, archives clear completed non-subagent sessions, skips incomplete or live sessions, and reports counts.
-- `pi sessions archive [--older-than <days>]` performs the older age-based administrative bulk operation and reports its archived count.
+- `/archive` accepts no arguments and archives only the current persisted session.
+- The resume picker archives the selected session when Ctrl+A is pressed.
+- `pi sessions archive [--older-than <days>]` performs the age-based administrative bulk operation and reports its archived count.
 
-Both surfaces persist archive metadata in the control database. They do not move, rewrite, or delete session JSONL files. Archived sessions disappear from the normal Current Folder and All resume scopes and remain available in the Archived picker scope.
+All surfaces persist archive metadata in the control database. They do not move, rewrite, or delete session JSONL files. Archived sessions disappear from the normal Current Folder and All resume scopes and remain available in the Archived picker scope.
 
-`/archive` determines completion from the recent message tail. A session must end with a substantive assistant response; a trailing user message, empty assistant response, or explicit unfinished-work status is not treated as complete. Active runtime listeners protect live sessions from archival.
+`/archive` reports usage guidance when given arguments, reports when the current session is not persisted, and reports when no control database is available.
 
 See [`docs/specs/session-archive.md`](../../specs/session-archive.md) for the contract and test coverage.
