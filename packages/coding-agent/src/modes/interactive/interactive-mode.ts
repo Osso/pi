@@ -88,6 +88,7 @@ import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import {
 	type ActiveAgentTargetSelectionResult,
+	type AgentLifecycleState,
 	type AgentSnapshot,
 	formatInactiveAgentSelectionMessage,
 	type MultiAgentStore,
@@ -135,6 +136,12 @@ import { AgentSelectionBannerComponent } from "./components/agent-selection-bann
 
 const MAX_AGENT_LOG_VIEW_BYTES = 32 * 1024;
 const CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS = 50;
+const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>([
+	"starting",
+	"running",
+	"steering_pending",
+	"cancelling",
+]);
 
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
@@ -379,6 +386,7 @@ export class InteractiveMode {
 	private clipboardTempFiles = createClipboardTempFileTracker();
 	private responseCompleteNotification: DesktopNotificationHandle | undefined;
 	private loadingAnimation: Loader | undefined = undefined;
+	private workingLoaderView: "main" | "child" | undefined;
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
@@ -421,6 +429,7 @@ export class InteractiveMode {
 
 	// Agent subscription unsubscribe function
 	private unsubscribe?: () => void;
+	private unsubscribeMultiAgentTransitions?: () => void;
 	private signalCleanupHandlers: Array<() => void> = [];
 
 	// Track if editor is in bash mode (text starts with !)
@@ -849,6 +858,7 @@ export class InteractiveMode {
 		// Start the UI before initializing extensions so session_start handlers can use interactive dialogs
 		this.ui.start();
 		this.isInitialized = true;
+		this.subscribeToMultiAgentStore();
 		this.updateTerminalCurrentDirectory();
 
 		await this.themeController.applyFromSettings();
@@ -1973,7 +1983,10 @@ export class InteractiveMode {
 	}
 
 	private getWorkingLoaderMessage(): string {
-		return this.workingMessage ?? this.currentWorkingDefaultMessage;
+		const defaultMessage = this.isViewingAgentSession()
+			? this.defaultWorkingMessage
+			: this.currentWorkingDefaultMessage;
+		return this.workingMessage ?? defaultMessage;
 	}
 
 	private getThinkingWorkingMessage(): string {
@@ -2024,7 +2037,12 @@ export class InteractiveMode {
 
 	private setDefaultWorkingMessage(message: string): void {
 		this.currentWorkingDefaultMessage = message;
-		if (this.loadingAnimation && this.workingMessage === undefined) {
+		const isCleanThinkingMessage = message === this.defaultWorkingMessage;
+		if (
+			this.loadingAnimation &&
+			this.workingMessage === undefined &&
+			(!this.isViewingAgentSession() || isCleanThinkingMessage)
+		) {
 			this.loadingAnimation.setMessage(message);
 		}
 	}
@@ -2084,6 +2102,7 @@ export class InteractiveMode {
 
 		loader.stop();
 		this.loadingAnimation = undefined;
+		this.workingLoaderView = undefined;
 		this.statusContainer.removeChild(loader);
 	}
 
@@ -2099,15 +2118,31 @@ export class InteractiveMode {
 	}
 
 	private syncWorkingLoaderVisibility(): void {
-		const shouldShow = this.workingVisible && this.session.isStreaming && !this.isViewingAgentSession();
+		const viewingChild = this.isViewingAgentSession();
+		const shouldShow =
+			this.workingVisible && (viewingChild ? this.isSelectedChildWorking() : this.session.isStreaming);
 		if (!shouldShow) {
 			this.stopWorkingLoader();
 			return;
 		}
-		if (!this.loadingAnimation) {
-			this.loadingAnimation = this.createWorkingLoader();
-			this.statusContainer.addChild(this.loadingAnimation);
+
+		const desiredView = viewingChild ? "child" : "main";
+		if (this.loadingAnimation && this.workingLoaderView === desiredView) {
+			return;
 		}
+		this.stopWorkingLoader();
+		this.loadingAnimation = this.createWorkingLoader();
+		this.workingLoaderView = desiredView;
+		this.statusContainer.addChild(this.loadingAnimation);
+	}
+
+	private isSelectedChildWorking(): boolean {
+		const selectedAgentId = this.multiAgentStore?.getSelectedAgentId();
+		if (!selectedAgentId) {
+			return false;
+		}
+		const selectedAgent = this.multiAgentStore?.getAgent(selectedAgentId);
+		return selectedAgent ? CHILD_WORKING_LIFECYCLES.has(selectedAgent.lifecycle) : false;
 	}
 
 	private setWorkingVisible(visible: boolean): void {
@@ -2828,6 +2863,7 @@ export class InteractiveMode {
 			return false;
 		}
 
+		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();
 		return true;
 	}
@@ -2861,6 +2897,7 @@ export class InteractiveMode {
 			return false;
 		}
 
+		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();
 		return true;
 	}
@@ -2879,7 +2916,6 @@ export class InteractiveMode {
 
 	private openChildAgentView(agent: AgentSnapshot): boolean {
 		const transcriptPath = agent.transcript?.path;
-		this.stopWorkingLoader();
 		this.clearChildAgentView();
 		this.childViewAgentId = agent.id;
 		this.childViewTranscriptPath = transcriptPath;
@@ -3028,6 +3064,23 @@ export class InteractiveMode {
 
 	private isViewingAgentSession(): boolean {
 		return this.multiAgentStore?.getSelectedAgentId() !== undefined;
+	}
+
+	private subscribeToMultiAgentStore(): void {
+		this.unsubscribeMultiAgentTransitions?.();
+		this.unsubscribeMultiAgentTransitions = undefined;
+		if (!this.multiAgentStore) {
+			return;
+		}
+
+		this.unsubscribeMultiAgentTransitions = this.multiAgentStore.subscribeAgentTransitions((_previous, current) => {
+			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
+				return;
+			}
+			this.syncWorkingLoaderVisibility();
+			this.updateSelectedAgentSelectionWidgets();
+			this.ui.requestRender();
+		});
 	}
 
 	private showInactiveAgentSelectionStatus(selected: ActiveAgentTargetSelectionResult): void {
@@ -3574,6 +3627,7 @@ export class InteractiveMode {
 				if (this.retryLoader) {
 					this.retryLoader.setMessage(this.getWorkingLoaderMessage());
 					this.loadingAnimation = this.retryLoader;
+					this.workingLoaderView = "main";
 					this.retryLoader = undefined;
 				}
 				this.syncWorkingLoaderVisibility();
@@ -6810,6 +6864,8 @@ export class InteractiveMode {
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
+		this.unsubscribeMultiAgentTransitions?.();
+		this.unsubscribeMultiAgentTransitions = undefined;
 		this.cancelPartialUpdateRender();
 		this.disposeActiveBashComponents();
 		this.clearPendingToolComponents();

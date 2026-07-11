@@ -183,6 +183,8 @@ interface InteractiveModeKeyHandlerInternals {
 	selectAgentViewFromBridge(this: unknown, agentId: string): boolean;
 	setWorkingVisible(this: unknown, visible: boolean): void;
 	syncWorkingLoaderVisibility(this: unknown): void;
+	isSelectedChildWorking(this: unknown): boolean;
+	subscribeToMultiAgentStore(this: unknown): void;
 	showInactiveAgentSelectionStatus(this: unknown, selected: unknown): void;
 	showStatus(this: unknown, message: string): void;
 	stopWorkingLoader(this: unknown): void;
@@ -283,7 +285,11 @@ function createTranscriptSwitchFixture(options: {
 		childViewSessionManager: undefined,
 		childViewTranscriptPath: undefined,
 		clearChildAgentView: interactiveModeKeyHandlers.clearChildAgentView,
-		createWorkingLoader: vi.fn(),
+		createWorkingLoader: vi.fn(() => ({
+			invalidate: () => {},
+			render: () => ["Thinking..."],
+			stop: vi.fn(),
+		})),
 		footer: { invalidate: vi.fn() },
 		loadingAnimation: undefined,
 		getMarkdownThemeWithSettings: () => undefined,
@@ -311,6 +317,8 @@ function createTranscriptSwitchFixture(options: {
 		setWorkingVisible: interactiveModeKeyHandlers.setWorkingVisible,
 		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
 		syncWorkingLoaderVisibility: interactiveModeKeyHandlers.syncWorkingLoaderVisibility,
+		isSelectedChildWorking: interactiveModeKeyHandlers.isSelectedChildWorking,
+		subscribeToMultiAgentStore: interactiveModeKeyHandlers.subscribeToMultiAgentStore,
 		showStatus: vi.fn(),
 		statusContainer: new Container(),
 		stopWorkingLoader: interactiveModeKeyHandlers.stopWorkingLoader,
@@ -425,6 +433,7 @@ describe("InteractiveMode key handlers", () => {
 				}
 			},
 			showStatus: vi.fn(),
+			syncWorkingLoaderVisibility: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
@@ -666,6 +675,7 @@ describe("InteractiveMode key handlers", () => {
 			selectedAgentBanner: banner,
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
+			syncWorkingLoaderVisibility: vi.fn(),
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
 			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
@@ -726,6 +736,7 @@ describe("InteractiveMode key handlers", () => {
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
 			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
+			syncWorkingLoaderVisibility: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
@@ -815,24 +826,67 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
-	test("hides the main working loader while viewing a child without clearing other status", () => {
+	test("shows a clean child working loader while viewing a running child", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
-		const stop = vi.fn();
+		const mainLoaderStop = vi.fn();
 		const mainLoader: Component & { stop(): void } = {
 			invalidate: () => {},
 			render: () => ["main working"],
-			stop,
+			stop: mainLoaderStop,
 		};
+		const childLoader: Component & { stop(): void } = {
+			invalidate: () => {},
+			render: () => ["Thinking..."],
+			stop: vi.fn(),
+		};
+		fixture.fakeThis.createWorkingLoader.mockReturnValue(childLoader);
 		const otherStatus = new Text("other status", 0, 0);
 		fixture.fakeThis.loadingAnimation = mainLoader;
-		fixture.fakeThis.statusContainer.addChild(otherStatus);
 		fixture.fakeThis.statusContainer.addChild(mainLoader);
+		fixture.fakeThis.session.isStreaming = true;
+		const running = fixture.store.transitionAgent(
+			fixture.childAgentId,
+			fixture.store.getAgent(fixture.childAgentId)!.revision,
+			"running",
+		);
+		expect(running.ok).toBe(true);
+		fixture.fakeThis.statusContainer.addChild(otherStatus);
 		try {
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
 
-			expect(stop).toHaveBeenCalledTimes(1);
+			expect(mainLoaderStop).toHaveBeenCalledTimes(1);
+			expect(fixture.fakeThis.loadingAnimation).toBe(childLoader);
+			expect(fixture.fakeThis.statusContainer.children).toEqual([otherStatus, childLoader]);
+			expect(fixture.fakeThis.session.isStreaming).toBe(true);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("removes the child working loader when the selected child reaches a terminal state", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const childLoader: Component & { stop(): void } = {
+			invalidate: () => {},
+			render: () => ["Thinking..."],
+			stop: vi.fn(),
+		};
+		fixture.fakeThis.createWorkingLoader.mockReturnValue(childLoader);
+		try {
+			interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+
+			const child = fixture.store.getAgent(fixture.childAgentId)!;
+			const running = fixture.store.transitionAgent(fixture.childAgentId, child.revision, "running");
+			expect(running.ok).toBe(true);
+			if (!running.ok) {
+				throw new Error("expected running transition");
+			}
+			const completed = fixture.store.transitionAgent(fixture.childAgentId, running.agent.revision, "completed");
+			expect(completed.ok).toBe(true);
+			expect(childLoader.stop).toHaveBeenCalledTimes(1);
 			expect(fixture.fakeThis.loadingAnimation).toBeUndefined();
-			expect(fixture.fakeThis.statusContainer.children).toEqual([otherStatus]);
+			expect(fixture.fakeThis.statusContainer.children).not.toContain(childLoader);
+			expect(fixture.store.getSelectedAgentId()).toBeUndefined();
 		} finally {
 			fixture.cleanup();
 		}
@@ -990,6 +1044,7 @@ describe("InteractiveMode key handlers", () => {
 				settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
 				showStatus: vi.fn(),
 				stopWorkingLoader: vi.fn(),
+				syncWorkingLoaderVisibility: vi.fn(),
 				toolOutputExpanded: false,
 				ui: { requestRender: vi.fn() },
 				updateEditorBorderColor: vi.fn(),
@@ -1135,6 +1190,7 @@ describe("InteractiveMode key handlers", () => {
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
 			showStatus: vi.fn(),
+			syncWorkingLoaderVisibility: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
@@ -1179,6 +1235,7 @@ describe("InteractiveMode key handlers", () => {
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
 			showStatus: vi.fn(),
+			syncWorkingLoaderVisibility: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
