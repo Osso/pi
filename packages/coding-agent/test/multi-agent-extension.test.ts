@@ -51,7 +51,10 @@ import multiAgentExtension, {
 	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import { main } from "../src/main.ts";
-import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./suite/harness.ts";
+import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./suite/harness.ts";
+
+const firstPartyGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
+Object.defineProperty(firstPartyGoalExtension, "extensionPath", { value: "<first-party:goal>" });
 
 const externalGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
 Object.defineProperty(externalGoalExtension, "extensionPath", {
@@ -1669,6 +1672,34 @@ describe("multi-agent extension tools", () => {
 		expect(listed.details.agents).toEqual([spawned.details.agent]);
 	});
 
+	it("renders each listed agent identity and active or terminal status in visible content", async () => {
+		const harness = createMultiAgentHarness();
+		const active = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Active Scout",
+			agentType: "explore",
+			prompt: "Inspect active work",
+		});
+		const completed = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Finished Worker",
+			agentType: "implement",
+			prompt: "Inspect finished work",
+		});
+		completeAgent(harness.store, completed.details.agent);
+
+		const listed = await harness.call<ListAgentsDetails>("list_agents", { activeOnly: false });
+		const content = listed.content[0];
+		if (!content || content.type !== "text") {
+			throw new Error("expected visible text content");
+		}
+
+		expect(content.text).toContain(
+			`id=${active.details.agent.id} name="Active Scout" type=explore status=active lifecycle=queued`,
+		);
+		expect(content.text).toContain(
+			`id=${completed.details.agent.id} name="Finished Worker" type=implement status=terminal lifecycle=completed`,
+		);
+	});
+
 	it("lists only active agents by default while allowing inactive agents when requested", async () => {
 		const harness = createMultiAgentHarness();
 		const active = await harness.call<SpawnAgentDetails>("spawn_agent", {
@@ -1840,6 +1871,67 @@ describe("multi-agent extension tools", () => {
 			lifecycle: "starting",
 			revision: running.agent.revision,
 		});
+	});
+
+	it("renders terminal summary and error details in agent_viewer visible content", async () => {
+		const harness = createMultiAgentHarness();
+		const completed = harness.store.spawnAgent({
+			agentType: "implement",
+			cwd: "/repo",
+			displayName: "Completed Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const failed = harness.store.spawnAgent({
+			agentType: "verifier",
+			cwd: "/repo",
+			displayName: "Failed Verifier",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const completedStarting = harness.store.transitionAgent(completed.agent.id, completed.agent.revision, "starting");
+		expect(completedStarting.ok).toBe(true);
+		if (!completedStarting.ok) {
+			throw new Error("expected completed agent to start");
+		}
+		const completedRunning = harness.store.transitionAgent(
+			completed.agent.id,
+			completedStarting.agent.revision,
+			"running",
+		);
+		expect(completedRunning.ok).toBe(true);
+		if (!completedRunning.ok) {
+			throw new Error("expected completed agent to run");
+		}
+		const completedResult = harness.store.transitionAgent(
+			completed.agent.id,
+			completedRunning.agent.revision,
+			"completed",
+			{
+				result: { summary: "Implementation finished" },
+			},
+		);
+		expect(completedResult.ok).toBe(true);
+		const failedStarting = harness.store.transitionAgent(failed.agent.id, failed.agent.revision, "starting");
+		expect(failedStarting.ok).toBe(true);
+		if (!failedStarting.ok) {
+			throw new Error("expected failed agent to start");
+		}
+		const failedResult = harness.store.transitionAgent(failed.agent.id, failedStarting.agent.revision, "failed", {
+			error: { message: "Verification failed", code: "VERIFY_FAILED" },
+		});
+		expect(failedResult.ok).toBe(true);
+
+		const viewedCompleted = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: completed.agent.id });
+		const viewedFailed = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: failed.agent.id });
+		const completedContent = viewedCompleted.content[0];
+		const failedContent = viewedFailed.content[0];
+		if (!completedContent || completedContent.type !== "text" || !failedContent || failedContent.type !== "text") {
+			throw new Error("expected visible text content");
+		}
+
+		expect(completedContent.text).toContain(`status=terminal lifecycle=completed\nSummary: Implementation finished`);
+		expect(failedContent.text).toContain(
+			`status=terminal lifecycle=failed\nError: Verification failed (VERIFY_FAILED)`,
+		);
 	});
 
 	it("projects mailbox inbox, outbox, and acknowledgements without mutating state", async () => {
@@ -2891,7 +2983,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("seeds a session-local goal from the spawn prompt before the child starts", async () => {
+	it("does not seed a session-local goal from the spawn prompt", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
 		parentHarness.sessionManager.setSessionGoalJson(
@@ -2927,13 +3019,13 @@ describe("multi-agent extension tools", () => {
 		});
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
-		expect(JSON.parse(childGoalBeforePrompt ?? "{}")).toMatchObject({ objective: "Map the child scope" });
+		expect(childGoalBeforePrompt).toBeUndefined();
 		expect(JSON.parse(parentHarness.sessionManager.getSessionGoalJson() ?? "{}")).toMatchObject({
 			objective: "parent objective",
 		});
 	});
 
-	it("seeds a session-local goal for production /bg child jobs", async () => {
+	it("does not seed a session-local goal for production /bg child jobs", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
 		let childGoalBeforePrompt: string | undefined;
@@ -2971,7 +3063,7 @@ describe("multi-agent extension tools", () => {
 		}
 		await waitForTerminalAgent(harness, agent.id);
 
-		expect(JSON.parse(childGoalBeforePrompt ?? "{}")).toMatchObject({ objective: "Audit current test failures" });
+		expect(childGoalBeforePrompt).toBeUndefined();
 	});
 
 	it("rejects oversized /bg prompts without creating production child agents", async () => {
@@ -3080,11 +3172,12 @@ describe("multi-agent extension tools", () => {
 		expect(createSession).not.toHaveBeenCalled();
 	});
 
-	it("injects the seeded goal before the production child's first model turn", async () => {
+	it("does not inject goal continuation into a completed production child", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
 		parentHarness.setResponses([fauxAssistantMessage("child done")]);
 		let firstSystemPrompt: string | undefined;
+		let childSession: Harness["session"] | undefined;
 		const captureFirstTurnSystemPrompt: ExtensionFactory = (pi) => {
 			pi.on("before_agent_start", (event) => {
 				firstSystemPrompt = (event as { systemPrompt?: string }).systemPrompt;
@@ -3097,10 +3190,11 @@ describe("multi-agent extension tools", () => {
 				sessionManager: parentHarness.sessionManager,
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
-				extensionFactories: [goalExtension, captureFirstTurnSystemPrompt],
+				extensionFactories: [firstPartyGoalExtension, captureFirstTurnSystemPrompt],
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
+					childSession = result.session;
 					return { session: result.session };
 				},
 			}),
@@ -3109,7 +3203,11 @@ describe("multi-agent extension tools", () => {
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt: "Anchor first child turn" });
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
-		expect(firstSystemPrompt).toContain("Long-running objective: Anchor first child turn");
+		expect(firstSystemPrompt).not.toContain("Long-running objective: Anchor first child turn");
+		expect(childSession?.sessionManager.getSessionGoalJson()).toBeUndefined();
+		expect(
+			childSession?.messages.filter((message) => message.role === "user").map((message) => getMessageText(message)),
+		).toEqual(["Anchor first child turn"]);
 	});
 
 	it("rejects blank prompts before creating production child agents", async () => {
@@ -3135,19 +3233,14 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
-	it("loads goal tools into production child sessions without mutating the parent goal", async () => {
+	it("does not load goal tools into production child sessions", async () => {
 		const parentHarness = await createHarness({ extensionFactories: [goalExtension] });
 		childHarnesses.push(parentHarness);
 		parentHarness.sessionManager.setSessionGoalJson(
 			JSON.stringify({ objective: "parent objective", branch: "test", createdAt: "2026-01-01T00:00:00.000Z" }),
 		);
-		parentHarness.setResponses([
-			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "child objective" }), {
-				stopReason: "toolUse",
-			}),
-			fauxAssistantMessage("child done"),
-		]);
-		let childSessionManager: SessionManager | undefined;
+		parentHarness.setResponses([fauxAssistantMessage("child done")]);
+		let childSession: Harness["session"] | undefined;
 		const harness = createMultiAgentHarness({
 			ctx: {
 				model: parentHarness.getModel(),
@@ -3155,14 +3248,14 @@ describe("multi-agent extension tools", () => {
 				sessionManager: parentHarness.sessionManager,
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
-				extensionFactories: [goalExtension],
+				extensionFactories: [firstPartyGoalExtension],
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({
 						...options,
 						authStorage: parentHarness.authStorage,
 					});
-					childSessionManager = result.session.sessionManager;
+					childSession = result.session;
 					return { session: result.session };
 				},
 			}),
@@ -3174,10 +3267,10 @@ describe("multi-agent extension tools", () => {
 		});
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
-		const parentGoal = JSON.parse(parentHarness.sessionManager.getSessionGoalJson() ?? "{}");
-		const childGoal = JSON.parse(childSessionManager?.getSessionGoalJson() ?? "{}");
-		expect(parentGoal.objective).toBe("parent objective");
-		expect(childGoal.objective).toBe("child objective");
+		expect(childSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
+		expect(childSession?.sessionManager.getSessionGoalJson()).toBeUndefined();
+		expect(parentHarness.session.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(true);
+		expect(parentHarness.sessionManager.getSessionGoalJson()).toContain("parent objective");
 	});
 
 	it("resolves agent profile child sessions from settings", async () => {

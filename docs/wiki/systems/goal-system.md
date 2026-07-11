@@ -12,8 +12,10 @@ The contract lives in `docs/specs/goal-system.md`.
 
 Goal state is stored as JSON in the current session's `session_metadata.goal_json`
 row in the control SQLite database. The same `session_metadata` row stores
-`is_subagent` and `subagent_name` so parent sessions and subagents can keep
-separate objectives.
+`is_subagent` and `subagent_name` for session classification. Production-created
+`spawn_agent` children and `/bg` jobs start without goal metadata; production
+`attach_session_agent` runtimes reuse the target session and may retain existing
+`goal_json`, but all three runtime paths exclude this extension.
 
 The persisted record contains:
 
@@ -94,8 +96,10 @@ registered tool named `manage_goal` regardless of source.
 Fork is the only start reason that inherits from `previousSessionFile`. When a
 normal fork starts with a new session id and no current goal, the extension reads
 the parent's `goal_json` and copies the parent's active goal into the fork's
-metadata row. Subagent sessions are marked with `is_subagent` and do not inherit
-parent goals.
+metadata row. Production-created `spawn_agent` children and `/bg` jobs are marked
+with `is_subagent`, exclude the goal extension, and do not seed or inherit goal
+state. Production `attach_session_agent` runtimes also exclude the extension and
+never seed or copy goal metadata; any existing target `goal_json` remains inert.
 
 ## Automatic Continuation
 
@@ -132,4 +136,8 @@ replacement, removed replacement flag rejection, objective length rejection,
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
 handling, automatic continuation, busy guard, per-session isolation, budget flag
-rejection, and legacy budget field ignorance.
+rejection, and legacy budget field ignorance. Production child exclusion,
+external-tool denial for spawned and attached sessions, inactive Pyrun calls,
+supervisor retention, and no-continuation behavior are covered by
+`packages/coding-agent/test/multi-agent-extension.test.ts`; the Architect policy
+is covered by `packages/coding-agent/test/architect-service.test.ts`.

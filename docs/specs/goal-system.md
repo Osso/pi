@@ -17,13 +17,14 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective.
 - [x] `/goal resume` resumes a paused objective without replacing it.
 - [x] `/goal clear` removes the active objective.
-- [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted, including `spawn_agent` prompts that seed production child goals.
+- [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted; production child prompts are still validated before dispatch.
 - [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) and the replacement flag (`--replace`) are rejected with a visible error and are not persisted.
-- [x] At most one active goal exists per session at a time; separate sessions and subagents in the same project can have distinct active goals.
+- [x] At most one active goal exists per session at a time; separate non-child sessions in the same project can have distinct active goals.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
-- [x] Normal forked sessions inherit the parent goal when no goal exists yet; subagent sessions do not inherit the parent goal and may set an independent goal.
-- [x] Production-created `spawn_agent` child sessions receive a fresh, non-empty session-local goal from the trimmed prompt before their first model turn; blank `spawn_agent` prompts are rejected without creating an agent record.
-- [x] Production-created `/bg` child jobs receive a fresh, non-empty session-local goal from the trimmed background prompt before their first model turn.
+- [x] Normal forked sessions inherit the parent goal when no goal exists yet; production-created `spawn_agent`, `attach_session_agent`, and `/bg` runtimes do not load the goal extension.
+- [x] Production-created `spawn_agent` child sessions validate non-empty prompts before dispatch, but do not seed goal state or load the goal extension; blank prompts are rejected without creating an agent record.
+- [x] Production-created `attach_session_agent` runtimes do not seed or copy goal metadata; any existing `goal_json` remains inert because the goal extension is excluded.
+- [x] Production-created `/bg` child jobs validate non-empty prompts before dispatch, but do not seed goal state or load the goal extension.
 - [x] Corrupt or malformed goal JSON is handled as "no active goal" without crashing the command or turn hook.
 - [x] Completed goals are not treated as active by `/goal`, startup notifications, continuation, or context injection.
 - [x] Paused goals remain visible in `/goal`, startup notifications, and the footer, but do not inject context or continue automatically until `/goal resume` clears the paused state.
@@ -65,12 +66,14 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/src/architect/main.ts` — excludes supervisor-only tools from the resident Architect service.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `manage_goal`, set/view/pause/resume/clear, per-session and subagent goal isolation, default replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `manage_goal`, set/view/pause/resume/clear, per-session goal isolation, default replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
 - `.gitignore` — ignores legacy `.pi/goals/` local goal state files during migration.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, per-session and subagent goal isolation, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, per-session goal isolation, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
+- `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
 
 ## Known gaps (current cycle)
@@ -88,4 +91,4 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - Deploy/test/lint/coverage/Sentry acceptance gates. Those belong to project-specific workflows and skills, not to codex-style `/goal`.
 - Multi-goal stacks or cross-project goals — one active goal per session for now.
 - Automatic remediation — continuation keeps working toward the objective, but the goal system itself does not fix failed work.
-- Goal seeding outside production-created child sessions: externally supplied dispatchers, store-only agent records, and attached/resumed sessions preserve their existing lifecycle semantics. `/bg` child jobs are production-created child sessions and are included.
+- Goal behavior for ordinary sessions and normal forks remains in scope. Production-created `spawn_agent` children, `attach_session_agent` runtimes, and `/bg` jobs have no goal extension, goal commands/tools, prompt injection, footer status, or autonomous continuation. Attached sessions may retain pre-existing `goal_json`, but the child runtime does not interpret it.

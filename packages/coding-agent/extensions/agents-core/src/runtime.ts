@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -44,6 +43,7 @@ import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4000;
+const GOAL_EXTENSION_PATH = "<first-party:goal>";
 
 const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -471,7 +471,10 @@ function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void
 function resolveChildExtensionFactories(
 	extensionFactories: ProductionChildAgentSessionFactoryOptions["extensionFactories"],
 ): ExtensionFactory[] | undefined {
-	return typeof extensionFactories === "function" ? extensionFactories() : extensionFactories;
+	const factories = typeof extensionFactories === "function" ? extensionFactories() : extensionFactories;
+	return factories?.filter(
+		(factory) => (factory as ExtensionFactory & { extensionPath?: string }).extensionPath !== GOAL_EXTENSION_PATH,
+	);
 }
 
 function getSessionTranscriptMetadata(
@@ -517,31 +520,11 @@ export function createProductionChildAgentSessionFactory(
 			thinkingLevel: profile.thinkingLevel,
 		});
 
-		seedChildSessionGoal(sessionManager, agent.cwd, prompt);
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
 		return result.session;
 	};
 	factory[productionChildSessionFactoryMarker] = true;
 	return factory;
-}
-
-function seedChildSessionGoal(sessionManager: SessionManager, cwd: string, prompt: string): void {
-	const objective = prompt.trim();
-	sessionManager.setSessionGoalJson(
-		`${JSON.stringify({ branch: currentBranch(cwd), createdAt: new Date().toISOString(), objective })}\n`,
-	);
-}
-
-function currentBranch(cwd: string): string {
-	try {
-		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	} catch {
-		return "(no branch)";
-	}
 }
 
 export function createProductionAttachedSessionFactory(
@@ -1455,10 +1438,23 @@ function rampToRunning(store: MultiAgentStore, initialAgent: AgentSnapshot): { o
 function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentToolResult<AgentListToolDetails> {
 	const agents = listMatchingAgents(store, params);
 
-	return result(`Found ${agents.length} agent${agents.length === 1 ? "" : "s"}.`, {
+	return result(formatAgentListContent(agents), {
 		activeCount: store.getActiveAgentCount(),
 		agents,
 	});
+}
+
+function formatAgentListContent(agents: AgentSnapshot[]): string {
+	const header = `Found ${agents.length} agent${agents.length === 1 ? "" : "s"}.`;
+	const entries = agents.map(
+		(agent) =>
+			`id=${agent.id} name=${JSON.stringify(agent.displayName)} type=${agent.agentType} status=${agentStatusLabel(agent)} lifecycle=${agent.lifecycle}`,
+	);
+	return [header, ...entries].join("\n");
+}
+
+function agentStatusLabel(agent: AgentSnapshot): "active" | "terminal" {
+	return isActiveLifecycle(agent.lifecycle) ? "active" : "terminal";
 }
 
 function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): AgentSnapshot[] {
@@ -1560,7 +1556,7 @@ function isPersistedAgentSnapshot(value: unknown): value is AgentSnapshot {
 function agentViewerResult(agent: AgentSnapshot, agents: AgentSnapshot[]): AgentToolResult<AgentViewerToolDetails> {
 	const children = agents.filter((candidate) => candidate.parentId === agent.id).map((child) => child.id);
 
-	return result(`Viewing agent ${agent.id}.`, {
+	return result(formatAgentViewerContent(agent), {
 		agent,
 		children,
 		commands: listViewerCommands([agent]),
@@ -1568,6 +1564,21 @@ function agentViewerResult(agent: AgentSnapshot, agents: AgentSnapshot[]): Agent
 		status: viewStatus(agent),
 		transcript: viewTranscript(agent),
 	});
+}
+
+function formatAgentViewerContent(agent: AgentSnapshot): string {
+	const status = agentStatusLabel(agent);
+	const terminal = status === "terminal";
+	const lines = [
+		`Viewing agent ${agent.id}: name=${JSON.stringify(agent.displayName)} type=${agent.agentType} status=${status} lifecycle=${agent.lifecycle}`,
+	];
+	if (terminal && agent.result?.summary) {
+		lines.push(`Summary: ${agent.result.summary}`);
+	}
+	if (terminal && agent.error?.message) {
+		lines.push(`Error: ${agent.error.message}${agent.error.code ? ` (${agent.error.code})` : ""}`);
+	}
+	return lines.join("\n");
 }
 
 function viewStatus(agent: AgentSnapshot): AgentViewerStatus {

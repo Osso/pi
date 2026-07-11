@@ -40,7 +40,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       persisted-store reconciliation, preventing same-PID child startup from retiring or mutating the
       supervisor's main-session state.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
-      list descendants without depending on the TUI.
+      list descendants without depending on the TUI. `list_agents` visible content identifies each
+      returned agent by ID, name, type, active/terminal status, and lifecycle; `agent_viewer` visible
+      content includes the inspected agent's status and terminal result summary or error when present.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
@@ -222,6 +224,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
 - [x] A selected-child banner identifies the agent ID, display name, and lifecycle without exposing
       internal target/view terminology.
+- [x] While a child transcript is selected, the footer shows that child session's model, provider,
+      and thinking level; live placeholders clear the model display, and returning to the main
+      session restores the main footer model.
 - [x] The main-session working loader is hidden while a child transcript is selected, preserves
       unrelated status rows, and is restored after returning to a still-streaming main session.
 - [x] Escape cancels the currently viewed active child-agent turn before falling back to main-thread
