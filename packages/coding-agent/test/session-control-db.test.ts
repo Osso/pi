@@ -589,7 +589,7 @@ describe("session control DB", () => {
 		expect(state).toMatchObject(expectedState);
 		const agentResult = (state?.agents[0] as { result: Record<string, unknown> }).result;
 		expect(Object.hasOwn(agentResult, "__proto__")).toBe(true);
-		expect(agentResult["__proto__"]).toEqual({ keep: true });
+		expect(Reflect.get(agentResult, "__proto__")).toEqual({ keep: true });
 
 		const migratedDb = createSqliteDatabase(controlDbPath);
 		let agentUpdatedAt: string;
