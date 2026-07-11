@@ -928,6 +928,49 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("wait_agents consumes a failed detached Pyrun notification with duration details", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const dispatcher: ChildAgentDispatcher = async () => ({
+			lifecycle: "failed",
+			result: { durationMs: 1234, summary: "Pyrun evaluation failed." },
+		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const tools = collectMultiAgentTools(store, { dispatcher });
+		const spawnAgent = tools.get("spawn_agent");
+		const waitAgents = tools.get("wait_agents");
+		if (!spawnAgent || !waitAgents) {
+			throw new Error("expected spawn_agent and wait_agents tools");
+		}
+		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		await spawnAgent.execute(
+			"spawn",
+			{ displayName: "Pyrun evaluation", prompt: "run code" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
+			await delay(1);
+		}
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
+
+		const waited = await waitAgents.execute("wait", {}, undefined, undefined, ctx);
+
+		expect(waited.content[0]).toMatchObject({ text: "Pyrun evaluation failed. Duration: 1234ms" });
+		expect(waited.details).toMatchObject({
+			agent: { lifecycle: "failed", result: { durationMs: 1234 } },
+			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+		});
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+		]);
+	});
+
 	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

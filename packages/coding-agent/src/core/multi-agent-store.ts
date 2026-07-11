@@ -590,9 +590,20 @@ export class MultiAgentStore {
 	}
 
 	consumeCompletionNotificationsForAgent(agentId: string): AgentMailboxMessage[] {
+		return this.consumeLifecycleNotificationsForAgent(agentId, "completed");
+	}
+
+	consumeFailureNotificationsForAgent(agentId: string): AgentMailboxMessage[] {
+		return this.consumeLifecycleNotificationsForAgent(agentId, "failed");
+	}
+
+	private consumeLifecycleNotificationsForAgent(
+		agentId: string,
+		lifecycle: AgentLifecycleNotificationLifecycle,
+	): AgentMailboxMessage[] {
 		const consumed: AgentMailboxMessage[] = [];
 		for (const message of this.mailboxMessages.values()) {
-			if (!isPendingCompletionNotification(message, agentId)) {
+			if (!isPendingLifecycleNotification(message, agentId, lifecycle)) {
 				continue;
 			}
 			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
@@ -1331,10 +1342,6 @@ function failedNotificationThreadId(agentId: string): string {
 
 function waitingForInputNotificationThreadId(agentId: string): string {
 	return `${WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
-}
-
-function isPendingCompletionNotification(message: AgentMailboxMessage, agentId: string): boolean {
-	return isPendingLifecycleNotification(message, agentId, "completed");
 }
 
 function isPendingLifecycleNotification(

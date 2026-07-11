@@ -1854,6 +1854,10 @@ async function waitAgents(
 	if (pendingCompletion) {
 		return consumeAgentCompletion(store, pendingCompletion, ctx);
 	}
+	const pendingPyrunFailure = findAgentWithPendingPyrunFailure(store);
+	if (pendingPyrunFailure) {
+		return consumeAgentFailure(store, pendingPyrunFailure, ctx);
+	}
 
 	const activeAgents = store.listActiveAgents();
 	if (activeAgents.length === 0) {
@@ -1865,6 +1869,9 @@ async function waitAgents(
 		return errorResult("Wait cancelled.", {});
 	}
 	if (agent.lifecycle !== "completed") {
+		if (isPyrunAgent(agent) && store.listPendingLifecycleNotificationsForAgent(agent.id, "failed").length > 0) {
+			return consumeAgentFailure(store, agent, ctx);
+		}
 		return result(formatAgentStatus(agent), {});
 	}
 	return consumeAgentCompletion(store, agent, ctx);
@@ -1887,11 +1894,25 @@ function consumeAgentCompletion(
 ): AgentToolResult<WaitAgentsToolDetails> {
 	const [completionMessage] = store.consumeCompletionNotificationsForAgent(agent.id);
 	if (completionMessage) {
-		consumeRuntimeCompletionNotification(ctx, store, completionMessage.id);
+		consumeRuntimeLifecycleNotification(ctx, store, completionMessage.id);
 		const body = completionMessage.body ?? formatAgentStatus(agent);
 		return result(body, { agent, message: completionMessage });
 	}
 	return result(formatWaitAgentsCompletion(agent), {});
+}
+
+function consumeAgentFailure(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	ctx: ExtensionContext | undefined,
+): AgentToolResult<WaitAgentsToolDetails> {
+	const [failureMessage] = store.consumeFailureNotificationsForAgent(agent.id);
+	if (failureMessage) {
+		consumeRuntimeLifecycleNotification(ctx, store, failureMessage.id);
+		const body = failureMessage.body ?? formatAgentStatus(agent);
+		return result(body, { agent, message: failureMessage });
+	}
+	return result(formatAgentStatus(agent), {});
 }
 
 async function waitForAnyTerminalAgent(
@@ -1941,7 +1962,7 @@ function isInFlightLifecycle(lifecycle: AgentSnapshot["lifecycle"]): boolean {
 	return isActiveLifecycle(lifecycle) && lifecycle !== "queued" && lifecycle !== "waiting_for_input";
 }
 
-function consumeRuntimeCompletionNotification(
+function consumeRuntimeLifecycleNotification(
 	ctx: ExtensionContext | undefined,
 	store: MultiAgentStore,
 	messageId: string,
@@ -1952,6 +1973,21 @@ function consumeRuntimeCompletionNotification(
 		return;
 	}
 	consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath: persistence.sessionPath });
+}
+
+function findAgentWithPendingPyrunFailure(store: MultiAgentStore): AgentSnapshot | undefined {
+	return store
+		.listAgents()
+		.find(
+			(agent) =>
+				agent.lifecycle === "failed" &&
+				isPyrunAgent(agent) &&
+				store.listPendingLifecycleNotificationsForAgent(agent.id, "failed").length > 0,
+		);
+}
+
+function isPyrunAgent(agent: AgentSnapshot): boolean {
+	return agent.result?.durationMs !== undefined;
 }
 
 function formatWaitAgentsCompletion(agent: AgentSnapshot): string {
