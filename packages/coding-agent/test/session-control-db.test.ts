@@ -1772,9 +1772,19 @@ describe("session control DB", () => {
 		]);
 	});
 
-	it("rejects a different live runtime process without aborting its spawned rows", () => {
+	it("explains how to recover when another live runtime owns the session", () => {
 		const sessionPath = "/sessions/concurrent-runtime.jsonl";
 		const recipient = { agentId: null, sessionId: "concurrent-runtime-session" };
+		writeSessionMetadata(controlDbPath, {
+			sessionPath,
+			id: recipient.sessionId,
+			cwd: "/repo",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:00:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+		});
 		registerRuntimeMailboxListener(controlDbPath, recipient, 111, sessionPath, {
 			runtimeInstanceId: "runtime-a",
 		});
@@ -1790,7 +1800,9 @@ describe("session control DB", () => {
 				isRuntimeProcessAlive: () => true,
 				runtimeInstanceId: "runtime-b",
 			}),
-		).toThrow(/already owned by live Pi process 111/);
+		).toThrow(
+			"Cannot continue session concurrent-runtime-session because it is open in another Pi process (PID 111, cwd /repo). Close that Pi session, run pi to start a new session, or use pi -r to choose another.",
+		);
 
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ pid: 111, sessionId: recipient.sessionId, sessionPath }),

@@ -65,6 +65,7 @@
 
 ### Fixed
 
+- Fixed live session-ownership conflicts to explain that another Pi process has the session open, include its PID and verified cwd when available, and suggest starting or selecting another session.
 - Fixed unknown slash commands to fail with `Unknown slash command: /name` instead of being sent to the model.
 - Fixed Ctrl+D session deletion leaving trashed sessions in metadata-backed resume lists.
 - Fixed `AgentSession` prompt and continue turn-start TOCTOU races by serializing idle checks, compaction preflight, and the Agent core transition; racing steer/follow-up prompts are re-evaluated and queued instead of reaching a core busy error.

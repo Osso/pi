@@ -779,7 +779,24 @@ function assertRuntimeReplacementAllowed(
 	if (existingOwnerPid === null || existingOwnerPid === undefined || existingOwnerPid === pid) return;
 	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	if (!isRuntimeProcessAlive(existingOwnerPid)) return;
-	throw new Error(`Session ${sessionId} is already owned by live Pi process ${existingOwnerPid}`);
+	const cwd = existingListener ? readVerifiedSessionCwd(db, sessionId, existingListener) : undefined;
+	const processContext = cwd ? `PID ${existingOwnerPid}, cwd ${cwd}` : `PID ${existingOwnerPid}`;
+	throw new Error(
+		`Cannot continue session ${sessionId} because it is open in another Pi process (${processContext}). Close that Pi session, run pi to start a new session, or use pi -r to choose another.`,
+	);
+}
+
+function readVerifiedSessionCwd(
+	db: SqliteDatabase,
+	sessionId: string,
+	listener: RuntimeMailboxListenerRow,
+): string | undefined {
+	const sessionPath = trustedRuntimeMailboxSessionPath(listener);
+	if (!sessionPath) return undefined;
+	const row = db
+		.prepare("SELECT cwd FROM session_metadata WHERE session_path = ? AND id = ?")
+		.get(sessionPath, sessionId) as { cwd: string } | undefined;
+	return row?.cwd;
 }
 
 function upsertRuntimeMailboxListenerRow(
