@@ -13,6 +13,7 @@ import {
 	waitForArchitectInterval,
 } from "../src/architect/main.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
+import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
 const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
@@ -46,10 +47,16 @@ describe("resident architect service", () => {
 		try {
 			const sessionManager = SessionManager.create("/home/osso", agentDir, { id: "architect" });
 			const store = createArchitectMultiAgentStore(sessionManager, agentDir);
+			const sessionPath = sessionManager.getSessionFile();
+			if (!sessionPath) throw new Error("Architect session should be persisted");
 
 			expect(store.getPersistenceTarget()).toEqual({
 				controlDbPath: join(agentDir, "control.sqlite"),
-				sessionPath: sessionManager.getSessionFile(),
+				sessionPath,
+			});
+			expect(readSessionMetadata(getControlDbPath(agentDir), sessionPath)).toMatchObject({
+				isArchived: true,
+				archivedAt: expect.any(String),
 			});
 		} finally {
 			rmSync(agentDir, { force: true, recursive: true });

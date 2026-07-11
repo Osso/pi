@@ -7,7 +7,7 @@ import { AuthStorage } from "../core/auth-storage.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { MultiAgentStore } from "../core/multi-agent-store.ts";
 import { createAgentSession } from "../core/sdk.ts";
-import { getControlDbPath } from "../core/session-control-db.ts";
+import { archiveSession, getControlDbPath } from "../core/session-control-db.ts";
 import { SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { ArchitectObserver } from "./observer.ts";
@@ -23,7 +23,12 @@ export function createArchitectSettingsManager(): SettingsManager {
 }
 
 export function createArchitectMultiAgentStore(sessionManager: SessionManager, agentDir: string): MultiAgentStore {
-	sessionManager.setMetadataControlDbPath(getControlDbPath(agentDir));
+	const controlDbPath = getControlDbPath(agentDir);
+	sessionManager.setMetadataControlDbPath(controlDbPath);
+	const sessionPath = sessionManager.getSessionFile();
+	if (sessionPath) {
+		archiveSession(controlDbPath, sessionPath);
+	}
 	return MultiAgentStore.fromSessionManager(sessionManager);
 }
 
