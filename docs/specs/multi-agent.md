@@ -16,7 +16,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Core state is authoritative for every agent; TUI rows, terminal panes, and extension views
       are projections that must resync from core snapshots.
 - [x] Core runtime state is kept separate from first-party extension modules: the core store owns
-      lifecycle, revisions, snapshots, mailbox records, artifacts, and transcript metadata, while
+      lifecycle, revisions, mailbox records, file references, and transcript metadata, while
       extension packages own commands, tools, and presentation surfaces.
 - [x] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
       model/account metadata, permission policy, and monotonic revision.
@@ -51,10 +51,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log.
 - [x] Supervisor session resume restores the persisted multi-agent store into the production
-      first-party store so agent tree, slots, artifacts, mailbox state, and transcript pointers
+      first-party store so agent tree, slots, file references, mailbox state, and transcript pointers
       survive a crash or restart. The selected view is ephemeral UI state and is not persisted.
 - [x] Multi-agent state persists as per-entity rows in the session control DB (one upsert per
-      mutated agent, artifact, or mailbox message), not as snapshots appended to the session
+      mutated agent or mailbox message), not as snapshots appended to the session
       JSONL transcript; transcripts carry conversation history only.
 - [x] Persisted agent, artifact, and message IDs are allocated from per-session counters. Allocation
       reconciles alternate counter state and existing IDs across agent, artifact, mailbox, and runtime
@@ -113,8 +113,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
       delivered state.
 - [x] Child agents can contact the supervisor without direct access to sibling internals.
-- [x] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
-      findings are not copied into every coordination event.
+- [x] Mailbox messages and completion results carry validated absolute `fileRefs` entries so logs,
+      diffs, summaries, and findings are referenced directly without registry indirection.
 - [x] Persisted mailbox message IDs are stable within a session store. Reuse is checked
       transactionally and allowed only when both stored and incoming identities are complete and
       sender, recipient, kind, thread, and message ID identity match; incomplete or conflicting
@@ -185,14 +185,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 ### Extension boundaries
 
 - [x] Multi-agent first-party capabilities are split into explicit extension modules:
-      `agents-core` for spawn/list/wait/cancel/steer/artifact tools, `agent-viewer` for read-only
+      `agents-core` for spawn/list/wait/cancel/steer tools, `agent-viewer` for read-only
       projections and focus commands, and `agents-mailbox` for inbox/outbox/contact/message actions.
 - [x] `agent viewer` is a read-only extension surface for tree/status/transcript inspection plus
       explicit commands such as stop, resume, and steer.
 - [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
       supervisor contact, and inter-agent messages.
-- [x] `agent artifacts` stores shared outputs such as summaries, findings, diffs, and file links
-      outside the mailbox event log.
+- [x] Background logs remain visible through direct absolute `fileRefs` on active and completed agent state.
 - [x] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.
 - [x] `agents-core` exposes `/bg <prompt>` and `/jobs` commands that submit new prompts as
@@ -244,12 +243,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 ## Implementation inventory
 
 - [`packages/coding-agent/src/core/multi-agent-store.ts`](../../packages/coding-agent/src/core/multi-agent-store.ts)
-  defines the first pure in-memory store, lifecycle transitions, revision checks, active-count
-  derivation, steering mailbox acknowledgement behavior, and control-DB-backed row persistence:
-  each agent/artifact/mailbox mutation upserts one row keyed by session path, and restore selects
-  the session's rows. Multi-agent state is mutable runtime state and is not written to the session
-  JSONL transcript. Its current mailbox storage is local-process state and is not the target
-  cross-session transport.
+  defines the authoritative runtime store, lifecycle transitions, revision checks, active-count
+  derivation, mailbox acknowledgement behavior, direct absolute `fileRefs` validation, and
+  control-DB-backed row persistence. Each agent/mailbox mutation upserts one row keyed by session
+  path, and restore selects the session's rows. Multi-agent state is mutable runtime state and is
+  not written to the session JSONL transcript; runtime mailbox transport is separate and carries
+  required store references rather than copied payloads.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   the first multi-agent store API surface.
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
@@ -258,15 +257,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
   re-exports the first-party extension runtime for compatibility with older internal imports.
 - [`packages/coding-agent/extensions/agents-core/src/index.ts`](../../packages/coding-agent/extensions/agents-core/src/index.ts)
-  registers `/bg`, `/jobs`, and spawn/list/wait/cancel/steer/artifact tools against the shared
+  registers `/bg`, `/jobs`, and spawn/list/wait/cancel/steer tools against the shared
   store.
 - [`packages/coding-agent/extensions/agent-viewer/src/index.ts`](../../packages/coding-agent/extensions/agent-viewer/src/index.ts)
   registers the read-only tree/status/transcript projection tool against the shared store.
 - [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
   registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
 - [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
-  owns the existing SQLite control database boundary that the planned runtime mailbox should reuse
-  or extend for cross-session/process delivery.
+  owns the SQLite control database schema, per-session agent/mailbox rows and counters, runtime
+  mailbox transport and listener lifecycle, session health, path relocation, and global spawned-agent
+  reconciliation.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -276,8 +276,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
   core-derived active counts. It also asserts row persistence through the session control DB,
   rehydration after reopening a persisted session, descendant listing below a parent, and
-  child-to-supervisor mailbox contact without sibling targeting. It verifies mailbox artifact
-  references carry only ID/path metadata and do not copy large artifact content, covers stable
+  child-to-supervisor mailbox contact without sibling targeting. It verifies absolute file
+  references are validated at ingress, covers stable
   agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
   current core state. It covers child-agent model/account/budget metadata inheritance, rejects
@@ -289,7 +289,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   visible slot selection is read-only over lifecycle state and conflicting pinned slot claims are
   rejected with the current projection so existing slot bindings stay stable.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
-  asserts the first extension-facing artifact/viewer/mailbox/spawn/list/wait/cancel/contact/steer
+  asserts the first extension-facing viewer/mailbox/spawn/list/wait/cancel/contact/steer
   tool surface is store-backed and does not start child model sessions by default. It also asserts
   recovered attached-session agents are restarted on `session_start` through the attached-session factory
   without treating old process handles as live, recovered agents are consumed so later reloads do not
@@ -297,17 +297,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
-  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agents({})` immediately consumes one pending completion notification, or one pending failure notification for a failed detached Pyrun job, or waits for any agent active at invocation to reach terminal state, returns that winner's completion or status, and exposes the consumed agent and message in `details` while marking the matching runtime mailbox transport row delivered. Non-Pyrun failure waits remain status-only. `list_agents` returns
-  active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
-  ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID, can read an
+  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agents({})` immediately consumes one pending completion notification, or one pending failure notification for a failed detached Pyrun job, or waits for any agent active at invocation to reach terminal state, returns that winner's completion or status, exposes the consumed agent and message in `details`, and marks the matching runtime mailbox transport row delivered. Failed agents expose their failure message and `fileRefs`. `list_agents` returns
+  active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with validated absolute
+  file references. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
   agent's read-only snapshot, status, transcript, child IDs, and stop/steer command descriptor details without advancing lifecycle state. The
   read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
   store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of
   accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
-  while rejecting sibling targets, and `agent_artifacts` records/list shared artifact pointers
-  outside mailbox events. It verifies
-  `createMultiAgentWorkflowOperations()` composes spawn/message/wait/artifact operations through
+  while rejecting sibling targets. It verifies
+  `createMultiAgentWorkflowOperations()` composes spawn/message/wait operations through
   `MultiAgentStore` without owning separate runtime state. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
   aborts a running background child session when the job is cancelled.
@@ -344,11 +343,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
       trees without TUI state.
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
-- [x] Add and implement mailbox artifact references by ID/path without copying large content into
-      coordination events.
-- [x] Add and implement `wait_agents({})` behavior that consumes one pending completion or waits
-      for the first terminal agent from the invocation's active set, returns that winner's completion
-      or status, and consumes only its completion notification.
+- [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
+- [x] Add and implement `wait_agents({})` behavior that consumes one pending terminal notification
+      (completed or failed) or waits for the first terminal agent from the invocation's active set,
+      returns that winner's terminal result, and consumes only its notification.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID
@@ -358,8 +356,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add first `agents mailbox` extension projection tests for inbox/outbox summaries and
       acknowledgements over core mailbox state.
 - [x] Add direct inter-agent mailbox message tests and the smallest sibling-safe send/list surface.
-- [x] Add first artifact store tests for shared summaries/findings/log references outside mailbox
-      events.
+- [x] Add direct-file-reference tests for shared summaries/findings/log visibility outside mailbox
+      payloads.
 - [x] Add workflow-operation tests proving higher-level extensions can compose spawn/message/wait
       without owning separate runtime state.
 - [x] Add focused account/policy inheritance tests for child agent model, account, budget, and
@@ -377,7 +375,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       without lifecycle mutation.
 - [x] Add focused TUI slot persistence tests for stable bindings across list refreshes and pinned
       slot updates.
-- [x] Move spawn/list/wait/cancel/steer/artifact workflow tools into an `agents-core`
+- [x] Move spawn/list/wait/cancel/steer workflow tools into an `agents-core`
       first-party extension package without moving authoritative state out of `MultiAgentStore`.
 - [x] Move read-only tree/status/transcript projection and focus/switch command descriptors into
       an `agent-viewer` first-party extension package.

@@ -78,6 +78,7 @@ export {
 export {
 	type AgentActivity,
 	type AgentCommandResult,
+	type AgentFileReference,
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
 	type AgentNode,

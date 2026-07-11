@@ -29,8 +29,8 @@
 - Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles.
 - Added core system-prompt delegation rules requiring `explore` agents for codebase research, recommending `documentation-update` agents for documentation-impacting changes, and requiring `verifier` agents before completion claims when `spawn_agent` is available.
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
-- Added `Ctrl+B` backgrounding for running bash tool calls, moving detached commands into `/jobs` with log artifacts and `cancel_agent` support.
-- Added `Ctrl+B` backgrounding for running Pyrun evaluations, moving detached evaluations into `/jobs` with log artifacts.
+- Added `Ctrl+B` backgrounding for running bash tool calls, moving detached commands into `/jobs` with direct log file references and `cancel_agent` support.
+- Added `Ctrl+B` backgrounding for running Pyrun evaluations, moving detached evaluations into `/jobs` with direct log file references.
 - Added automatic backgrounding after 120 seconds for detachable bash and Pyrun tool calls.
 - Added public SDK exports for CLI-equivalent model and scoped-model resolution ([#6201](https://github.com/earendil-works/pi/issues/6201)).
 - Added extension entry renderers for persisted display-only session entries that are rendered in interactive mode without being sent to the model context.
@@ -43,6 +43,8 @@
 - Added the public `bash_messages_committed` session event for observing idle or deferred bash messages after they enter session state.
 
 ### Changed
+
+- Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references.
 
 - Changed Codex remote compaction to always use `gpt-5.6-terra`, allowing Luna and other Codex models to retain native compaction history across long sessions.
 - Changed interactive tool result display to retain the first and last 50 logical output lines with an omission marker while preserving full model context, and to hide successful `grep` results while keeping calls and errors visible.

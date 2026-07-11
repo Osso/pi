@@ -36,7 +36,6 @@ export interface PyrunExtensionOptions {
 }
 
 interface PyrunBackgroundJob {
-	artifactId: string;
 	id: string;
 	logPath: string;
 	startedAt: number;
@@ -496,11 +495,10 @@ function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams
 	});
 	const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
 		lastActivity: { description: params.code, toolName: "pyrun_eval" },
+		result: { fileRefs: [{ label: "Pyrun output", path: logPath }] },
 	});
 	const agent = running.ok ? running.agent : spawned.agent;
-	const artifact = store.recordArtifact({ agentId: agent.id, kind: "log", path: logPath, title: "Pyrun output" });
 	return {
-		artifactId: artifact.id,
 		id: agent.id,
 		logPath,
 		startedAt,
@@ -511,9 +509,8 @@ function getPyrunBackgroundDurationMs(job: PyrunBackgroundJob): number {
 	return Math.max(0, Date.now() - job.startedAt);
 }
 
-function updatePyrunLogArtifact(job: PyrunBackgroundJob, output: string): string {
+function updatePyrunLog(job: PyrunBackgroundJob, output: string): void {
 	writeFileSync(job.logPath, output, "utf8");
-	return job.artifactId;
 }
 
 function transitionPyrunJobFailure(store: MultiAgentStore, job: PyrunBackgroundJob, message: string): void {
@@ -521,14 +518,16 @@ function transitionPyrunJobFailure(store: MultiAgentStore, job: PyrunBackgroundJ
 	if (!current || !isActiveLifecycle(current.lifecycle)) return;
 	store.transitionAgent(current.id, current.revision, "failed", {
 		error: { message },
-		result: { durationMs: getPyrunBackgroundDurationMs(job) },
+		result: {
+			fileRefs: [{ label: "Pyrun output", path: job.logPath }],
+			durationMs: getPyrunBackgroundDurationMs(job),
+		},
 	});
 }
 
 function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, result: AgentToolResult<unknown>): void {
-	let artifactId: string;
 	try {
-		artifactId = updatePyrunLogArtifact(job, textFromToolResult(result));
+		updatePyrunLog(job, textFromToolResult(result));
 	} catch (error) {
 		transitionPyrunJobFailure(store, job, error instanceof Error ? error.message : String(error));
 		return;
@@ -539,14 +538,18 @@ function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJo
 	const lifecycle = result.isError ? "failed" : "completed";
 	const summary = result.isError ? "Pyrun evaluation failed." : "Pyrun evaluation completed.";
 	store.transitionAgent(current.id, current.revision, lifecycle, {
-		result: { artifactIds: [artifactId], durationMs: getPyrunBackgroundDurationMs(job), summary },
+		result: {
+			fileRefs: [{ label: "Pyrun output", path: job.logPath }],
+			durationMs: getPyrunBackgroundDurationMs(job),
+			summary,
+		},
 	});
 }
 
 function failPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, error: unknown): void {
 	const message = error instanceof Error ? error.message : String(error);
 	try {
-		updatePyrunLogArtifact(job, message);
+		updatePyrunLog(job, message);
 	} catch (logError) {
 		transitionPyrunJobFailure(store, job, logError instanceof Error ? logError.message : String(logError));
 		return;

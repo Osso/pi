@@ -337,7 +337,7 @@ function createDetachedBashJob(
 	backgroundJobs: BashBackgroundJobsOptions,
 	log: DetachedBashOutputLog,
 ): BashDetachedResult {
-	const agent = spawnDetachedBashAgent(process, backgroundJobs);
+	const agent = spawnDetachedBashAgent(process, backgroundJobs, log.path);
 	const unregisterAbort = registerDetachedBashAbort(process, backgroundJobs, agent.id);
 	void trackDetachedBashExit(process, backgroundJobs, log, agent.id, unregisterAbort);
 
@@ -348,7 +348,11 @@ function createDetachedBashJob(
 	};
 }
 
-function spawnDetachedBashAgent(process: DetachedBashProcess, backgroundJobs: BashBackgroundJobsOptions) {
+function spawnDetachedBashAgent(
+	process: DetachedBashProcess,
+	backgroundJobs: BashBackgroundJobsOptions,
+	logPath: string,
+) {
 	const spawned = backgroundJobs.store.spawnAgent({
 		agentType: "background",
 		cwd: process.cwd,
@@ -359,6 +363,7 @@ function spawnDetachedBashAgent(process: DetachedBashProcess, backgroundJobs: Ba
 	});
 	const running = backgroundJobs.store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
 		lastActivity: { description: process.command, toolName: "bash" },
+		result: { fileRefs: [{ label: "Bash output", path: logPath }] },
 	});
 	return running.ok ? running.agent : spawned.agent;
 }
@@ -404,13 +409,12 @@ async function finishDetachedBashJob(
 	if (process.timeoutHandle) clearTimeout(process.timeoutHandle);
 	if (process.pid) untrackDetachedChildPid(process.pid);
 	await log.close();
-	const artifact = recordDetachedBashLog(backgroundJobs, agentId, log);
 	const current = backgroundJobs.store.getAgent(agentId);
 	if (!current || !isActiveLifecycle(current.lifecycle)) return;
 	const summary = `Process ${process.pid ?? "unknown"} exited with exit code ${exitCode ?? "null"}.`;
 	const lifecycle = exitCode === 0 ? "completed" : "failed";
 	backgroundJobs.store.transitionAgent(current.id, current.revision, lifecycle, {
-		result: { artifactIds: [artifact.id], summary },
+		result: { fileRefs: [{ label: "Bash output", path: log.path }], summary },
 	});
 }
 
@@ -426,20 +430,11 @@ async function failDetachedBashJob(
 	if (process.timeoutHandle) clearTimeout(process.timeoutHandle);
 	if (process.pid) untrackDetachedChildPid(process.pid);
 	await log.close();
-	recordDetachedBashLog(backgroundJobs, agentId, log);
 	const current = backgroundJobs.store.getAgent(agentId);
 	if (!current || !isActiveLifecycle(current.lifecycle)) return;
 	backgroundJobs.store.transitionAgent(current.id, current.revision, "failed", {
 		error: { message: error instanceof Error ? error.message : String(error) },
-	});
-}
-
-function recordDetachedBashLog(backgroundJobs: BashBackgroundJobsOptions, agentId: string, log: DetachedBashOutputLog) {
-	return backgroundJobs.store.recordArtifact({
-		agentId,
-		kind: "log",
-		path: log.path,
-		title: "Bash output",
+		result: { fileRefs: [{ label: "Bash output", path: log.path }] },
 	});
 }
 

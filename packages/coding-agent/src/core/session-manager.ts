@@ -1020,7 +1020,8 @@ function listMetadataSessions(
 	if (listSessionMetadata(controlDbPath).length === 0) return undefined;
 
 	const metadataSessions = listScopedSessionMetadata(controlDbPath, options);
-	return listResumeSessionsFromMetadata(metadataSessions);
+	const resumeSessions = listResumeSessionsFromMetadata(metadataSessions);
+	return resumeSessions.length > 0 ? resumeSessions : undefined;
 }
 
 async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {

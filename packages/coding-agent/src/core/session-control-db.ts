@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import type { AgentFileReference } from "./multi-agent-store.ts";
 import { isPiRuntimeProcessAlive, isVerifiedPiRuntimeProcess } from "./runtime-process.ts";
 import {
 	emptySessionHealth,
@@ -28,21 +29,14 @@ export interface RuntimeMailboxMessage {
 	sender: RuntimeMailboxAddress;
 	kind: RuntimeMailboxMessageKind;
 	body: string;
-	artifactIds?: string[];
-	artifactRefs?: RuntimeMailboxArtifactReference[];
-	storeRef?: RuntimeMailboxStoreRef;
+	fileRefs?: AgentFileReference[];
+	storeRef: RuntimeMailboxStoreRef;
 	status: RuntimeMailboxMessageStatus;
 	createdAt: string;
 	updatedAt: string;
 	claimedAt?: string;
 	deliveredAt?: string;
 	error?: string;
-}
-
-export interface RuntimeMailboxArtifactReference {
-	id?: string;
-	path?: string;
-	label?: string;
 }
 
 export interface RuntimeMailboxStoreRef {
@@ -137,8 +131,6 @@ type RuntimeMailboxRow = {
 	sender_agent_id: string | null;
 	kind: string;
 	body: string;
-	artifact_ids_json: string | null;
-	artifact_refs_json: string | null;
 	store_session_path: string | null;
 	store_message_id: string | null;
 	status: string;
@@ -406,15 +398,13 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 					sender_agent_id,
 					kind,
 					body,
-					artifact_ids_json,
-					artifact_refs_json,
 					store_session_path,
 					store_message_id,
 					status,
 					created_at,
 					updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
 				`,
 				)
 				.run(
@@ -424,8 +414,6 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 					input.sender.agentId,
 					input.kind,
 					"",
-					null,
-					null,
 					input.storeRef.sessionPath,
 					input.storeRef.messageId,
 					now,
@@ -509,6 +497,8 @@ export function claimRuntimeMailboxMessages(
 ): RuntimeMailboxMessage[] {
 	return withControlDb(controlDbPath, (db) => {
 		db.exec("BEGIN IMMEDIATE");
+		let claimedRows: RuntimeMailboxRow[] = [];
+		let claimedAt: string | undefined;
 		try {
 			const rows = db
 				.prepare(
@@ -530,6 +520,8 @@ export function claimRuntimeMailboxMessages(
 			}
 
 			const now = new Date().toISOString();
+			claimedAt = now;
+			claimedRows = rows;
 			for (const row of rows) {
 				db.prepare(
 					`
@@ -540,13 +532,18 @@ export function claimRuntimeMailboxMessages(
 				).run(now, now, row.id);
 			}
 			db.exec("COMMIT");
-			return rows.map((row) =>
-				runtimeMailboxMessageFromRow(db, { ...row, status: "claimed", claimed_at: now, updated_at: now }),
-			);
 		} catch (error) {
 			db.exec("ROLLBACK");
 			throw error;
 		}
+		return claimedRows.map((row) =>
+			runtimeMailboxMessageFromRow(db, {
+				...row,
+				status: "claimed",
+				claimed_at: claimedAt ?? row.claimed_at,
+				updated_at: claimedAt ?? row.updated_at,
+			}),
+		);
 	});
 }
 
@@ -559,29 +556,23 @@ export function readRuntimeMailboxMessageForDelivery(
 			| RuntimeMailboxRow
 			| undefined;
 		if (!row) return undefined;
-		if (!row.store_session_path || !row.store_message_id) {
-			return { message: runtimeMailboxMessageFromRow(db, row), payloadValid: true };
-		}
+		const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${id}`);
 		const store = db
 			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-			.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
-		const parsed = store ? parseJsonObject(store.data) : undefined;
-		const storedOverride =
-			parsed && typeof parsed.body === "string"
-				? {
-						body: parsed.body,
-						artifactIds: Array.isArray(parsed.artifactIds)
-							? parsed.artifactIds.filter((value): value is string => typeof value === "string")
-							: undefined,
-						artifactRefs: Array.isArray(parsed.artifactRefs)
-							? parseArtifactReferences(JSON.stringify(parsed.artifactRefs))
-							: undefined,
-					}
-				: undefined;
+			.get(storeRef.sessionPath, storeRef.messageId) as { data: string } | undefined;
+		if (!store) {
+			throw new Error(`Runtime mailbox store reference is missing: ${storeRef.sessionPath}#${storeRef.messageId}`);
+		}
+		const parsed = parseStoredJsonObject(store.data, "runtime_mailbox_delivery");
+		validateMailboxPayload(parsed, "runtime_mailbox_delivery");
+		const storedOverride = {
+			body: requireStringField(parsed, "body", "runtime_mailbox_delivery"),
+			fileRefs: parseFileRefs(parsed.fileRefs, "runtime_mailbox_delivery"),
+		};
 		return {
 			message: runtimeMailboxMessageFromRow(db, row, storedOverride),
-			payloadData: store?.data,
-			payloadValid: Boolean(parsed && parsed.status === "pending" && typeof parsed.body === "string"),
+			payloadData: store.data,
+			payloadValid: parsed.status === "pending",
 		};
 	});
 }
@@ -598,12 +589,19 @@ export function consumeRuntimeMailboxMessage(controlDbPath: string, id: number):
 				.get(id) as
 				| { status: string; store_session_path: string | null; store_message_id: string | null }
 				| undefined;
-			if (!row || !row.store_session_path || !row.store_message_id) return false;
+			if (!row) return false;
+			const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${id}`);
 			const store = db
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
-			const parsed = store ? parseJsonObject(store.data) : undefined;
-			if (!parsed || parsed.status === "pending") return false;
+				.get(storeRef.sessionPath, storeRef.messageId) as { data: string } | undefined;
+			if (!store) {
+				throw new Error(
+					`Runtime mailbox store reference is missing: ${storeRef.sessionPath}#${storeRef.messageId}`,
+				);
+			}
+			const parsed = parseStoredJsonObject(store.data, "runtime_mailbox_consume");
+			validateMailboxPayload(parsed, "runtime_mailbox_consume");
+			if (parsed.status === "pending") return false;
 			if (parsed.status !== "delivered") return false;
 			if (row.status === "delivered") return true;
 			if (row.status !== "pending" && row.status !== "claimed") return false;
@@ -636,22 +634,17 @@ export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, 
 			if (!row || row.status === "delivered") return row?.status === "delivered";
 			if (row.status !== "pending" && row.status !== "claimed") return false;
 			const now = new Date().toISOString();
-			if (!row.store_session_path || !row.store_message_id) {
-				const updated = db
-					.prepare(
-						`UPDATE runtime_mailbox_messages
-						 SET status = 'delivered', delivered_at = ?, updated_at = ?
-						 WHERE id = ? AND status IN ('pending', 'claimed')`,
-					)
-					.run(now, now, id);
-				if (updated.changes !== 1) throw new Error(`Runtime mailbox delivery lost transport row ${id}`);
-				return true;
-			}
+			const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${id}`);
 			const store = db
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
-			const parsed = store ? parseJsonObject(store.data) : undefined;
-			if (!parsed) return false;
+				.get(storeRef.sessionPath, storeRef.messageId) as { data: string } | undefined;
+			if (!store) {
+				throw new Error(
+					`Runtime mailbox store reference is missing: ${storeRef.sessionPath}#${storeRef.messageId}`,
+				);
+			}
+			const parsed = parseStoredJsonObject(store.data, "runtime_mailbox_delivery");
+			validateMailboxPayload(parsed, "runtime_mailbox_delivery");
 			if (
 				expectedPayloadData !== undefined &&
 				store?.data !== expectedPayloadData &&
@@ -680,8 +673,8 @@ export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, 
 				.run(
 					JSON.stringify({ ...parsed, status: "delivered", updatedAt: now }),
 					now,
-					row.store_session_path,
-					row.store_message_id,
+					storeRef.sessionPath,
+					storeRef.messageId,
 				);
 			if (updatedStore.changes !== 1) throw new Error(`Runtime mailbox delivery lost store row ${id}`);
 			const updatedTransport = db
@@ -1370,6 +1363,11 @@ function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | unde
 
 export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: number): void {
 	withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare("SELECT store_session_path, store_message_id FROM runtime_mailbox_messages WHERE id = ?")
+			.get(id) as Pick<RuntimeMailboxRow, "store_session_path" | "store_message_id"> | undefined;
+		if (!row) return;
+		requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${id}`);
 		const now = new Date().toISOString();
 		db.prepare(
 			`
@@ -1433,21 +1431,18 @@ export function cleanupRuntimeMailboxMessages(controlDbPath: string, nowIso = ne
 function runtimeMailboxMessageFromRow(
 	db: SqliteDatabase,
 	row: RuntimeMailboxRow,
-	storedOverride?: { body: string; artifactIds?: string[]; artifactRefs?: RuntimeMailboxArtifactReference[] },
+	storedOverride?: { body: string; fileRefs?: AgentFileReference[] },
 ): RuntimeMailboxMessage {
+	const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${row.id}`);
 	const stored = storedOverride ?? readReferencedStoreMessage(db, row);
 	return {
 		id: row.id,
 		recipient: { agentId: row.recipient_agent_id, sessionId: row.recipient_session_id },
 		sender: { agentId: row.sender_agent_id, sessionId: row.sender_session_id ?? "" },
 		kind: toRuntimeMailboxMessageKind(row.kind),
-		body: stored?.body ?? row.body,
-		artifactIds: stored ? stored.artifactIds : parseStringArray(row.artifact_ids_json),
-		artifactRefs: stored ? stored.artifactRefs : parseArtifactReferences(row.artifact_refs_json),
-		storeRef:
-			row.store_session_path && row.store_message_id
-				? { messageId: row.store_message_id, sessionPath: row.store_session_path }
-				: undefined,
+		body: stored.body,
+		fileRefs: stored.fileRefs,
+		storeRef,
 		status: toRuntimeMailboxMessageStatus(row.status),
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
@@ -1460,30 +1455,30 @@ function runtimeMailboxMessageFromRow(
 function readReferencedStoreMessage(
 	db: SqliteDatabase,
 	row: RuntimeMailboxRow,
-): { body: string; artifactIds?: string[]; artifactRefs?: RuntimeMailboxArtifactReference[] } | undefined {
-	if (!row.store_session_path || !row.store_message_id) {
-		return undefined;
-	}
+): { body: string; fileRefs?: AgentFileReference[] } {
+	const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${row.id}`);
 	const stored = db
 		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-		.get(row.store_session_path, row.store_message_id) as { data: string } | undefined;
+		.get(storeRef.sessionPath, storeRef.messageId) as { data: string } | undefined;
 	if (!stored) {
-		return undefined;
+		throw new Error(`Runtime mailbox store reference is missing: ${storeRef.sessionPath}#${storeRef.messageId}`);
 	}
-	try {
-		const data = JSON.parse(stored.data) as {
-			body?: string;
-			artifactIds?: string[];
-			artifactRefs?: RuntimeMailboxArtifactReference[];
-		};
-		return {
-			body: data.body ?? "",
-			artifactIds: Array.isArray(data.artifactIds) ? data.artifactIds : undefined,
-			artifactRefs: Array.isArray(data.artifactRefs) ? data.artifactRefs : undefined,
-		};
-	} catch {
-		return undefined;
+	const data = parseStoredJsonObject(stored.data, "runtime_mailbox_store");
+	validateMailboxPayload(data, "runtime_mailbox_store");
+	return {
+		body: requireStringField(data, "body", "runtime_mailbox_store"),
+		fileRefs: parseFileRefs(data.fileRefs, "runtime_mailbox_store"),
+	};
+}
+
+function requireRuntimeMailboxStoreRef(
+	row: Pick<RuntimeMailboxRow, "store_session_path" | "store_message_id">,
+	context: string,
+): RuntimeMailboxStoreRef {
+	if (!row.store_session_path || !row.store_message_id) {
+		throw new Error(`Invalid runtime mailbox row at ${context}: storeRef is required`);
 	}
+	return { messageId: row.store_message_id, sessionPath: row.store_session_path };
 }
 
 function toRuntimeMailboxMessageKind(value: string): RuntimeMailboxMessageKind {
@@ -1507,41 +1502,29 @@ function toRuntimeMailboxMessageStatus(value: string): RuntimeMailboxMessageStat
 	return "failed";
 }
 
-function parseStringArray(value: string | null): string[] | undefined {
-	const parsed = parseJsonArray(value);
-	return parsed?.filter((item): item is string => typeof item === "string");
-}
-
-function parseArtifactReferences(value: string | null): RuntimeMailboxArtifactReference[] | undefined {
-	const parsed = parseJsonArray(value);
-	if (!parsed) {
+function parseFileRefs(value: unknown, context: string): AgentFileReference[] | undefined {
+	if (value === undefined) {
 		return undefined;
 	}
-	return parsed.flatMap((item): RuntimeMailboxArtifactReference[] => {
+	if (!Array.isArray(value)) {
+		throw new Error(`Invalid file references at ${context}: expected an array`);
+	}
+	return value.map((item, index) => {
 		if (!item || typeof item !== "object" || Array.isArray(item)) {
-			return [];
+			throw new Error(`Invalid file reference at ${context}[${index}]`);
 		}
-		const ref = item as Record<string, unknown>;
-		return [
-			{
-				id: typeof ref.id === "string" ? ref.id : undefined,
-				label: typeof ref.label === "string" ? ref.label : undefined,
-				path: typeof ref.path === "string" ? ref.path : undefined,
-			},
-		];
+		const ref = item as { path?: unknown; label?: unknown };
+		if (typeof ref.path !== "string" || !isAbsolute(ref.path)) {
+			throw new Error(`Invalid file reference at ${context}[${index}]: path must be absolute`);
+		}
+		if (ref.label !== undefined && typeof ref.label !== "string") {
+			throw new Error(`Invalid file reference at ${context}[${index}]: label must be a string`);
+		}
+		return {
+			path: ref.path,
+			label: ref.label,
+		};
 	});
-}
-
-function parseJsonArray(value: string | null): unknown[] | undefined {
-	if (!value) {
-		return undefined;
-	}
-	try {
-		const parsed = JSON.parse(value) as unknown;
-		return Array.isArray(parsed) ? parsed : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 export function writeLastMessage(controlDbPath: string, message: { role: "assistant"; content: string }): void {
@@ -1745,9 +1728,8 @@ export function relocateSessionControlData(
 			relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
 			relocateSessionPathPrimaryKey(db, "named_sessions", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
-			relocateMultiAgentSessionRows(db, "multi_agent_artifacts", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
-			relocateSessionPathPrimaryKey(db, "multi_agent_counters", oldSessionPath, newSessionPath, now);
+			relocateSessionPathPrimaryKey(db, "multi_agent_counters_v2", oldSessionPath, newSessionPath, now);
 			relocateRuntimeMailboxListenerPaths(db, oldSessionPath, newSessionPath);
 			relocateRuntimeMailboxMessagePaths(db, oldSessionPath, newSessionPath, now);
 			db.exec("COMMIT");
@@ -1800,7 +1782,7 @@ function relocateSessionPathPrimaryKey(
 
 function relocateMultiAgentSessionRows(
 	db: SqliteDatabase,
-	table: "multi_agent_agents" | "multi_agent_artifacts" | "multi_agent_mailbox_messages",
+	table: "multi_agent_agents" | "multi_agent_mailbox_messages",
 	oldSessionPath: string,
 	newSessionPath: string,
 	now: string,
@@ -2069,21 +2051,19 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 
 export interface MultiAgentCounters {
 	nextAgentNumber: number;
-	nextArtifactNumber: number;
 	nextMessageNumber: number;
 }
 
 export interface MultiAgentPersistedState {
 	agents: unknown[];
-	artifacts: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
 }
 
 function upsertMultiAgentRow(
 	controlDbPath: string,
-	table: "multi_agent_agents" | "multi_agent_artifacts" | "multi_agent_mailbox_messages",
-	idColumn: "agent_id" | "artifact_id" | "message_id",
+	table: "multi_agent_agents" | "multi_agent_mailbox_messages",
+	idColumn: "agent_id" | "message_id",
 	sessionPath: string,
 	id: string,
 	data: unknown,
@@ -2102,6 +2082,10 @@ function upsertMultiAgentRow(
 }
 
 export function upsertMultiAgentAgent(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
+	if (!data || typeof data !== "object" || Array.isArray(data)) {
+		throw new Error(`Invalid persisted agent payload at multi_agent_agents:${sessionPath}#${id}`);
+	}
+	validatePersistedAgentPayload(data as Record<string, unknown>, `multi_agent_agents:${sessionPath}#${id}`);
 	upsertMultiAgentRow(controlDbPath, "multi_agent_agents", "agent_id", sessionPath, id, data);
 }
 
@@ -2310,16 +2294,13 @@ function isActiveSpawnedAgent(agent: Record<string, unknown>): agent is Record<s
 	);
 }
 
-export function upsertMultiAgentArtifact(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
-	upsertMultiAgentRow(controlDbPath, "multi_agent_artifacts", "artifact_id", sessionPath, id, data);
-}
-
 export function upsertMultiAgentMailboxMessage(
 	controlDbPath: string,
 	sessionPath: string,
 	id: string,
 	data: unknown,
 ): void {
+	validateMailboxPayload(data, `multi_agent_mailbox_messages:${sessionPath}#${id}`);
 	withControlDb(controlDbPath, (db) => {
 		db.exec("BEGIN IMMEDIATE");
 		try {
@@ -2398,30 +2379,129 @@ export function markMultiAgentMailboxMessageDelivered(
 	sessionPath: string,
 	messageId: string,
 ): boolean {
+	return updateMultiAgentMailboxMessageStatus(controlDbPath, sessionPath, messageId, "delivered");
+}
+
+export function markMultiAgentMailboxMessageFailed(
+	controlDbPath: string,
+	sessionPath: string,
+	messageId: string,
+	error: string,
+): boolean {
+	return updateMultiAgentMailboxMessageStatus(controlDbPath, sessionPath, messageId, "failed", error);
+}
+
+function updateMultiAgentMailboxMessageStatus(
+	controlDbPath: string,
+	sessionPath: string,
+	messageId: string,
+	status: "delivered" | "failed",
+	error?: string,
+): boolean {
 	return withControlDb(controlDbPath, (db) => {
 		const row = db
 			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 			.get(sessionPath, messageId) as { data: string } | undefined;
-		if (!row) {
-			return false;
-		}
-
+		if (!row) return false;
 		const parsed = parseJsonObject(row.data);
-		if (!parsed || parsed.status !== "pending") {
-			return false;
-		}
-
+		if (!parsed || parsed.status !== "pending") return false;
 		const now = new Date().toISOString();
-		const updated = { ...parsed, status: "delivered", updatedAt: now };
+		const updated = { ...parsed, status, updatedAt: now, ...(error === undefined ? {} : { error }) };
 		db.prepare(
-			`
-			UPDATE multi_agent_mailbox_messages
-			SET data = ?, updated_at = ?
-			WHERE session_path = ? AND message_id = ?
-			`,
+			`UPDATE multi_agent_mailbox_messages
+			 SET data = ?, updated_at = ?
+			 WHERE session_path = ? AND message_id = ?`,
 		).run(JSON.stringify(updated), now, sessionPath, messageId);
 		return true;
 	});
+}
+
+function validateMailboxPayload(data: unknown, context: string): void {
+	if (!data || typeof data !== "object" || Array.isArray(data)) {
+		throw new Error(`Invalid persisted mailbox payload at ${context}`);
+	}
+	const payload = data as Record<string, unknown>;
+	if (Object.keys(payload).length === 0) {
+		throw new Error(`Invalid persisted mailbox payload at ${context}: expected fields`);
+	}
+	rejectLegacyArtifactFields(data, context);
+	for (const field of ["id", "fromAgentId", "toAgentId", "kind", "status", "createdAt", "updatedAt"] as const) {
+		if (payload[field] !== undefined) {
+			requireStringField(payload, field, context);
+		}
+	}
+	if (payload.body !== undefined) {
+		requireStringField(payload, "body", context);
+	}
+	parseFileRefs(payload.fileRefs, context);
+}
+
+function validatePersistedAgentPayload(data: Record<string, unknown>, context: string): void {
+	if (Object.keys(data).length === 0) {
+		throw new Error(`Invalid persisted agent payload at ${context}: expected fields`);
+	}
+	rejectLegacyArtifactFields(data, context);
+	if (
+		data.revision !== undefined &&
+		(typeof data.revision !== "number" || !Number.isInteger(data.revision) || data.revision < 0)
+	) {
+		throw new Error(`Invalid persisted revision at ${context}: expected a non-negative integer`);
+	}
+	if (data.permission !== undefined) {
+		if (!data.permission || typeof data.permission !== "object" || Array.isArray(data.permission)) {
+			throw new Error(`Invalid persisted permission at ${context}`);
+		}
+		const permission = data.permission as Record<string, unknown>;
+		requireStringField(permission, "policy", `${context}.permission`);
+		if (typeof permission.narrowed !== "boolean") {
+			throw new Error(`Invalid persisted narrowed at ${context}.permission: expected a boolean`);
+		}
+	}
+	const result = data.result;
+	if (result !== undefined) {
+		if (!result || typeof result !== "object" || Array.isArray(result)) {
+			throw new Error(`Invalid persisted agent result at ${context}`);
+		}
+		parseFileRefs((result as Record<string, unknown>).fileRefs, `${context}.result`);
+	}
+}
+
+function rejectLegacyArtifactFields(value: unknown, context: string): void {
+	if (Array.isArray(value)) {
+		for (const [index, item] of value.entries()) {
+			rejectLegacyArtifactFields(item, `${context}[${index}]`);
+		}
+		return;
+	}
+	if (!value || typeof value !== "object") {
+		return;
+	}
+	for (const [key, nested] of Object.entries(value)) {
+		if (key === "artifactIds" || key === "artifactRefs") {
+			throw new Error(`Legacy artifact fields are not supported at ${context}.${key}`);
+		}
+		rejectLegacyArtifactFields(nested, `${context}.${key}`);
+	}
+}
+
+function parseStoredJsonObject(value: string, context: string): Record<string, unknown> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(value) as unknown;
+	} catch (error) {
+		throw new Error(`Invalid persisted JSON at ${context}`, { cause: error });
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error(`Invalid persisted object at ${context}`);
+	}
+	return parsed as Record<string, unknown>;
+}
+
+function requireStringField(data: Record<string, unknown>, field: string, context: string): string {
+	if (typeof data[field] !== "string") {
+		throw new Error(`Invalid persisted ${field} at ${context}: expected a string`);
+	}
+	return data[field];
 }
 
 function parseJsonObject(value: string): Record<string, unknown> | undefined {
@@ -2444,58 +2524,29 @@ export function writeMultiAgentCounters(
 	withControlDb(controlDbPath, (db) => {
 		db.prepare(
 			`
-			INSERT INTO multi_agent_counters (
-				session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
+			INSERT INTO multi_agent_counters_v2 (
+				session_path, next_agent_number, next_message_number, updated_at
 			)
-			VALUES (?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?)
 			ON CONFLICT(session_path) DO UPDATE SET
 				next_agent_number = excluded.next_agent_number,
-				next_artifact_number = excluded.next_artifact_number,
 				next_message_number = excluded.next_message_number,
 				updated_at = excluded.updated_at
 			`,
-		).run(
-			sessionPath,
-			counters.nextAgentNumber,
-			counters.nextArtifactNumber,
-			counters.nextMessageNumber,
-			new Date().toISOString(),
-		);
+		).run(sessionPath, counters.nextAgentNumber, counters.nextMessageNumber, new Date().toISOString());
 	});
 }
 
-export type MultiAgentCounterName = "agent" | "artifact" | "message";
+export type MultiAgentCounterName = "agent" | "message";
 
 type MultiAgentCounterRow = {
 	next_agent_number: number;
-	next_artifact_number: number;
 	next_message_number: number;
 };
 
 const MULTI_AGENT_COUNTER_COLUMNS: Record<MultiAgentCounterName, keyof MultiAgentCounterRow> = {
 	agent: "next_agent_number",
-	artifact: "next_artifact_number",
 	message: "next_message_number",
-};
-
-const MULTI_AGENT_COUNTER_ID_SOURCES: Record<
-	MultiAgentCounterName,
-	ReadonlyArray<{
-		table:
-			| "multi_agent_agents"
-			| "multi_agent_artifacts"
-			| "multi_agent_mailbox_messages"
-			| "runtime_mailbox_messages";
-		column: string;
-		prefix: string;
-	}>
-> = {
-	agent: [{ table: "multi_agent_agents", column: "agent_id", prefix: "agent_" }],
-	artifact: [{ table: "multi_agent_artifacts", column: "artifact_id", prefix: "artifact_" }],
-	message: [
-		{ table: "multi_agent_mailbox_messages", column: "message_id", prefix: "message_" },
-		{ table: "runtime_mailbox_messages", column: "store_message_id", prefix: "message_" },
-	],
 };
 
 export function allocateMultiAgentCounter(
@@ -2511,38 +2562,29 @@ export function allocateMultiAgentCounter(
 			const row = db
 				.prepare(
 					`
-					SELECT next_agent_number, next_artifact_number, next_message_number
-					FROM multi_agent_counters WHERE session_path = ?
+					SELECT next_agent_number, next_message_number
+					FROM multi_agent_counters_v2 WHERE session_path = ?
 					`,
 				)
 				.get(sessionPath) as MultiAgentCounterRow | undefined;
 			const counters = {
 				next_agent_number: row?.next_agent_number ?? 1,
-				next_artifact_number: row?.next_artifact_number ?? 1,
 				next_message_number: row?.next_message_number ?? 1,
 			};
-			const counterFloor = Math.max(counters[column], readPersistedIdFloor(db, sessionPath, counterName));
-			const allocated = counterFloor;
+			const allocated = counters[column];
 			counters[column] = allocated + 1;
 			db.prepare(
 				`
-				INSERT INTO multi_agent_counters (
-					session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
+				INSERT INTO multi_agent_counters_v2 (
+					session_path, next_agent_number, next_message_number, updated_at
 				)
-				VALUES (?, ?, ?, ?, ?)
+				VALUES (?, ?, ?, ?)
 				ON CONFLICT(session_path) DO UPDATE SET
 					next_agent_number = excluded.next_agent_number,
-					next_artifact_number = excluded.next_artifact_number,
 					next_message_number = excluded.next_message_number,
 					updated_at = excluded.updated_at
 				`,
-			).run(
-				sessionPath,
-				counters.next_agent_number,
-				counters.next_artifact_number,
-				counters.next_message_number,
-				now,
-			);
+			).run(sessionPath, counters.next_agent_number, counters.next_message_number, now);
 			db.exec("COMMIT");
 			return allocated;
 		} catch (error) {
@@ -2552,82 +2594,41 @@ export function allocateMultiAgentCounter(
 	});
 }
 
-function readPersistedIdFloor(db: SqliteDatabase, sessionPath: string, counterName: MultiAgentCounterName): number {
-	let floor = 1;
-	for (const source of MULTI_AGENT_COUNTER_ID_SOURCES[counterName]) {
-		const suffixStart = source.prefix.length + 1;
-		const row =
-			source.table === "runtime_mailbox_messages"
-				? (db
-						.prepare(
-							`SELECT MAX(CASE
-								WHEN ${source.column} GLOB ?
-									AND substr(${source.column}, ?) <> ''
-									AND substr(${source.column}, ?) NOT GLOB '*[^0-9]*'
-								THEN CAST(substr(${source.column}, ?) AS INTEGER) + 1
-								ELSE 1
-							END) AS floor
-							 FROM ${source.table} WHERE store_session_path = ?`,
-						)
-						.get(`${source.prefix}*`, suffixStart, suffixStart, suffixStart, sessionPath) as {
-						floor: number | null;
-					})
-				: (db
-						.prepare(
-							`SELECT MAX(CASE
-								WHEN ${source.column} GLOB ?
-									AND substr(${source.column}, ?) <> ''
-									AND substr(${source.column}, ?) NOT GLOB '*[^0-9]*'
-								THEN CAST(substr(${source.column}, ?) AS INTEGER) + 1
-								ELSE 1
-							END) AS floor
-							 FROM ${source.table} WHERE session_path = ?`,
-						)
-						.get(`${source.prefix}*`, suffixStart, suffixStart, suffixStart, sessionPath) as {
-						floor: number | null;
-					});
-		floor = Math.max(floor, row.floor ?? 1);
-	}
-	return floor;
-}
-
 export function readMultiAgentState(controlDbPath: string, sessionPath: string): MultiAgentPersistedState | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		const readRows = (table: string): unknown[] =>
+		const readRows = (table: "multi_agent_agents" | "multi_agent_mailbox_messages"): unknown[] =>
 			(
 				db.prepare(`SELECT data FROM ${table} WHERE session_path = ? ORDER BY rowid`).all(sessionPath) as Array<{
 					data: string;
 				}>
-			)
-				.map((row) => {
-					try {
-						return JSON.parse(row.data) as unknown;
-					} catch {
-						return undefined;
-					}
-				})
-				.filter((data) => data !== undefined);
+			).map((row, index) => {
+				const context = `${table}:${sessionPath}[${index}]`;
+				const data = parseStoredJsonObject(row.data, context);
+				if (table === "multi_agent_agents") {
+					validatePersistedAgentPayload(data, context);
+				} else {
+					validateMailboxPayload(data, context);
+				}
+				return data;
+			});
 		const counters = db
 			.prepare(
 				`
-				SELECT next_agent_number, next_artifact_number, next_message_number
-				FROM multi_agent_counters WHERE session_path = ?
+				SELECT next_agent_number, next_message_number
+				FROM multi_agent_counters_v2 WHERE session_path = ?
 				`,
 			)
-			.get(sessionPath) as
-			| { next_agent_number: number; next_artifact_number: number; next_message_number: number }
-			| undefined;
+			.get(sessionPath) as { next_agent_number: number; next_message_number: number } | undefined;
 		const agents = readRows("multi_agent_agents");
-		if (!counters && agents.length === 0) {
+		const mailboxMessages = readRows("multi_agent_mailbox_messages");
+		if (!counters && agents.length === 0 && mailboxMessages.length === 0) {
 			return undefined;
 		}
 		return {
 			agents,
-			artifacts: readRows("multi_agent_artifacts"),
-			mailboxMessages: readRows("multi_agent_mailbox_messages"),
+			mailboxMessages,
 			counters: {
 				nextAgentNumber: counters?.next_agent_number ?? 1,
-				nextArtifactNumber: counters?.next_artifact_number ?? 1,
 				nextMessageNumber: counters?.next_message_number ?? 1,
 			},
 		};
@@ -2674,8 +2675,6 @@ function initializeSchema(db: SqliteDatabase): void {
 			sender_agent_id TEXT,
 			kind TEXT NOT NULL,
 			body TEXT NOT NULL,
-			artifact_ids_json TEXT,
-			artifact_refs_json TEXT,
 			store_session_path TEXT,
 			store_message_id TEXT,
 			status TEXT NOT NULL,
@@ -2747,14 +2746,6 @@ function initializeSchema(db: SqliteDatabase): void {
 			PRIMARY KEY (session_path, agent_id)
 		);
 
-		CREATE TABLE IF NOT EXISTS multi_agent_artifacts (
-			session_path TEXT NOT NULL,
-			artifact_id TEXT NOT NULL,
-			data TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			PRIMARY KEY (session_path, artifact_id)
-		);
-
 		CREATE TABLE IF NOT EXISTS multi_agent_mailbox_messages (
 			session_path TEXT NOT NULL,
 			message_id TEXT NOT NULL,
@@ -2763,10 +2754,9 @@ function initializeSchema(db: SqliteDatabase): void {
 			PRIMARY KEY (session_path, message_id)
 		);
 
-		CREATE TABLE IF NOT EXISTS multi_agent_counters (
+		CREATE TABLE IF NOT EXISTS multi_agent_counters_v2 (
 			session_path TEXT PRIMARY KEY,
 			next_agent_number INTEGER NOT NULL,
-			next_artifact_number INTEGER NOT NULL,
 			next_message_number INTEGER NOT NULL,
 			updated_at TEXT NOT NULL
 		);
@@ -2816,12 +2806,52 @@ function initializeSchema(db: SqliteDatabase): void {
 			PRIMARY KEY (session_id, agent_id_key)
 		);
 	`);
+	migrateLegacyMultiAgentCounters(db);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
 	deduplicateRuntimeMailboxStoreReferences(db);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
-	migrateAlternateMultiAgentCounters(db);
+}
+
+function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
+	const legacyTable = db
+		.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_counters'")
+		.get();
+	if (legacyTable) {
+		const legacyRows = db
+			.prepare("SELECT session_path, next_agent_number, next_message_number, updated_at FROM multi_agent_counters")
+			.all() as Array<{
+			session_path: string;
+			next_agent_number: number;
+			next_message_number: number;
+			updated_at: string;
+		}>;
+		const existing = db.prepare(
+			"SELECT next_agent_number, next_message_number, updated_at FROM multi_agent_counters_v2 WHERE session_path = ?",
+		);
+		const upsert = db.prepare(
+			`INSERT INTO multi_agent_counters_v2 (session_path, next_agent_number, next_message_number, updated_at)
+			 VALUES (?, ?, ?, ?)
+			 ON CONFLICT(session_path) DO UPDATE SET
+			 next_agent_number = excluded.next_agent_number,
+			 next_message_number = excluded.next_message_number,
+			 updated_at = excluded.updated_at`,
+		);
+		for (const row of legacyRows) {
+			const current = existing.get(row.session_path) as
+				| { next_agent_number: number; next_message_number: number; updated_at: string }
+				| undefined;
+			upsert.run(
+				row.session_path,
+				Math.max(current?.next_agent_number ?? 1, row.next_agent_number),
+				Math.max(current?.next_message_number ?? 1, row.next_message_number),
+				current && current.updated_at > row.updated_at ? current.updated_at : row.updated_at,
+			);
+		}
+		db.exec("DROP TABLE multi_agent_counters");
+	}
+	db.exec("DROP TABLE IF EXISTS multi_agent_artifacts");
 }
 
 function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
@@ -2880,59 +2910,6 @@ function deduplicateRuntimeMailboxStoreReferences(db: SqliteDatabase): void {
 			ON runtime_mailbox_messages(store_session_path, store_message_id)
 			WHERE store_session_path IS NOT NULL AND store_message_id IS NOT NULL;
 		`);
-		db.exec("COMMIT");
-	} catch (error) {
-		db.exec("ROLLBACK");
-		throw error;
-	}
-}
-
-function migrateAlternateMultiAgentCounters(db: SqliteDatabase): void {
-	const table = "multi_agent_counters_v2";
-	const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
-	if (!exists) return;
-
-	const columns = new Set(
-		(db.prepare(`PRAGMA table_info(${table})`).all() as TableInfoRow[]).map((entry) => entry.name),
-	);
-	const rows = db
-		.prepare(
-			`SELECT session_path, next_agent_number, next_message_number${columns.has("next_artifact_number") ? ", next_artifact_number" : ""}
-			 FROM ${table}`,
-		)
-		.all() as Array<{
-		session_path: string;
-		next_agent_number: number;
-		next_message_number: number;
-		next_artifact_number?: number;
-	}>;
-
-	db.exec("BEGIN IMMEDIATE");
-	try {
-		const readPrimary = db.prepare(
-			"SELECT next_agent_number, next_artifact_number, next_message_number FROM multi_agent_counters WHERE session_path = ?",
-		);
-		const writePrimary = db.prepare(
-			`INSERT INTO multi_agent_counters (
-				session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
-			) VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT(session_path) DO UPDATE SET
-				next_agent_number = excluded.next_agent_number,
-				next_artifact_number = excluded.next_artifact_number,
-				next_message_number = excluded.next_message_number,
-				updated_at = excluded.updated_at`,
-		);
-		for (const row of rows) {
-			const primary = readPrimary.get(row.session_path) as MultiAgentCounterRow | undefined;
-			writePrimary.run(
-				row.session_path,
-				Math.max(primary?.next_agent_number ?? 1, row.next_agent_number),
-				Math.max(primary?.next_artifact_number ?? 1, row.next_artifact_number ?? 1),
-				Math.max(primary?.next_message_number ?? 1, row.next_message_number),
-				new Date().toISOString(),
-			);
-		}
-		db.exec(`DROP TABLE ${table}`);
 		db.exec("COMMIT");
 	} catch (error) {
 		db.exec("ROLLBACK");

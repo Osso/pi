@@ -81,7 +81,7 @@ function registerCancelAgentTool(store: MultiAgentStore): RegisteredTool {
 }
 
 describe("bash tool background detach", () => {
-	it("detaches a running bash tool into the multi-agent job store and moves later output to a log artifact", async () => {
+	it("detaches a running bash tool into the multi-agent job store and moves later output to a log file", async () => {
 		const cwd = await createTempDir();
 		const scriptPath = join(cwd, "emit-after-detach.mjs");
 		writeFileSync(
@@ -121,10 +121,10 @@ describe("bash tool background detach", () => {
 		const completed = store.getAgent(job.id);
 		expect(completed?.result?.summary).toContain("exit code 0");
 
-		const [artifact] = store.listArtifacts(job.id);
-		expect(artifact).toMatchObject({ kind: "log", title: "Bash output" });
-		expect(artifact.path && existsSync(artifact.path)).toBe(true);
-		expect(readFileSync(artifact.path!, "utf8")).toContain("after-detach");
+		const [fileRef] = completed?.result?.fileRefs ?? [];
+		expect(fileRef).toMatchObject({ label: "Bash output" });
+		expect(fileRef?.path && existsSync(fileRef.path)).toBe(true);
+		expect(fileRef?.path ? readFileSync(fileRef.path, "utf8") : "").toContain("after-detach");
 	});
 
 	it("auto-detaches a running bash tool after the registry threshold", async () => {
@@ -258,9 +258,9 @@ describe("bash tool background detach", () => {
 		);
 		expect((cancelled as AgentToolResult<CancelAgentDetails>).details.agent.lifecycle).toBe("aborted");
 		await waitFor(() => !isProcessAlive(pid), "detached process termination");
-		await waitFor(() => store.listArtifacts(job.id).length === 1, "cancelled process log artifact");
-		const [artifact] = store.listArtifacts(job.id);
-		expect(artifact).toMatchObject({ kind: "log", title: "Bash output" });
-		expect(artifact.path && existsSync(artifact.path)).toBe(true);
+		await waitFor(() => (store.getAgent(job.id)?.result?.fileRefs?.length ?? 0) === 1, "cancelled process log");
+		const [fileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
+		expect(fileRef).toMatchObject({ label: "Bash output" });
+		expect(fileRef?.path && existsSync(fileRef.path)).toBe(true);
 	});
 });

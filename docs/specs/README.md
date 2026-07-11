@@ -32,7 +32,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
 | Slash-command dispatch | [`slash-commands.md`](slash-commands.md) | **NATIVE** | Built-in, extension, skill, and prompt-template command resolution, including unknown-command rejection. |
 | Safe mode (`/safe`) | [`safe-mode.md`](safe-mode.md) | **BUILD** (done) | First-party session-local tool-call allowlist allowing only `web_search` and `ask_questions` while enabled. |
-| Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox/artifact extensions, account-governed budgets/permissions. |
+| Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox extensions, account-governed budgets/permissions. |
 | Tool backgrounding | [`tool-backgrounding.md`](tool-backgrounding.md) | **BUILD** (done) | Shared detach registry with bash and Pyrun background job tracking. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Web search tool | [`web-search-tool.md`](web-search-tool.md) | **BUILD** | First-party `web_search` tool backed by OpenAI Responses hosted search; no legacy web-search flag. |

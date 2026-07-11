@@ -5,13 +5,14 @@ contract lives in [`docs/specs/multi-agent.md`](../../specs/multi-agent.md).
 
 ## Current state
 
-Pi now has the first pure multi-agent store in
-`packages/coding-agent/src/core/multi-agent-store.ts`. It proves the core synchronization rules and
-SessionManager-backed snapshot reload before any child model sessions, subprocesses, or TUI views
-are added.
+Pi now has the authoritative multi-agent store in
+`packages/coding-agent/src/core/multi-agent-store.ts`. It covers core synchronization rules,
+control-DB row reload, direct absolute `fileRefs`, and runtime mailbox transport. Child-session
+dispatch, detached tool jobs, and extension tool surfaces build on that store; incremental event
+replay and the full interactive TUI viewer remain separate work.
 
 `packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
-`agent_artifacts`, `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`, `cancel_agent`,
+`agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`, `cancel_agent`,
 `contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate or read
 `MultiAgentStore`. The read-only `agents_mailbox` tool is temporarily disabled.
 `spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
@@ -25,25 +26,25 @@ does not create live child model sessions yet. `list_agents` returns active agen
 can include inactive agents or scope results to descendants below a parent ID, using core store state
 rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
-arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
-and labels, so large logs or diffs stay outside coordination events. The direct `wait_agents({})`
-tool returns the winning agent's completion or terminal status and consumes only one pending
+arbitrary sibling target. Mailbox messages can carry validated absolute `fileRefs` entries with
+optional labels, so logs and diffs remain direct file references rather than registry records. The direct
+`wait_agents({})` tool returns the winning agent's completion or terminal status and consumes one pending
 notification for that winner. Completion notifications and failed detached Pyrun notifications are
 explicitly delivered through runtime mailbox transport; `wait_agents({})` returns `agent` and
-`message` details and marks the consumed transport row `delivered`. Non-Pyrun failures remain
-status-only. Detached Pyrun results expose `durationMs`, including in their failure notification text.
+`message` details and marks the consumed transport row `delivered`. Failed agents expose their
+failure message and direct `fileRefs`. Detached Pyrun results expose `durationMs`, including in
+their failure notification text.
 Hostrun/Pyrun `pi.agents.wait()` returns `null`.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
 `send_agent_message` creates direct mailbox messages only across parent-child relationships, so
 siblings cannot target each other directly.
-`agent_artifacts` records and lists shared artifact pointers outside mailbox events.
 `agent_viewer` is read-only, requires an agent ID, and returns one agent's snapshot, status,
 transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
 tools and do not mutate agent lifecycle by themselves.
-`createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait/artifact operations
-for higher-level workflow extensions without giving them a separate runtime state store.
+`createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait operations for
+higher-level workflow extensions without giving them a separate runtime state store.
 `spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
 Production child sessions also resolve agent-type profiles from settings. The built-in profiles are
 `explore` (`openai/gpt-5-mini`, low thinking), `verifier` (`openai/gpt-5-mini`, low thinking),
@@ -111,10 +112,8 @@ Existing primitives worth reusing:
 
 Still missing first-party pieces:
 
-- Startup/runtime registration that opts `spawn_agent` into the production child factory.
 - Incremental event replay beyond latest snapshot reload.
-- Read-only TUI agent viewer that never advances child lifecycle on focus or tab switch.
-- Bounded artifact store for storing referenced diff/log/result payloads outside mailbox events.
+- Read-only interactive TUI agent viewer that never advances child lifecycle on focus or tab switch.
 
 ## Architecture decision
 
@@ -136,14 +135,15 @@ child session model/thinking defaults before account-level resource controls gro
 not own mailbox state, workflow state, or UI selection state. `MultiAgentStore` copies account metadata through a whitelist so snapshots cannot
 smuggle mailbox messages, workflow state, or selected-agent UI state into account records.
 
-Workflow extensions compile into core operations: spawn, message, wait, cancel, and artifact reads.
+Workflow extensions compile into core operations: spawn, message, wait, and cancel.
 They do not own lifecycle state.
 
 ## Core store design
 
-`MultiAgentStore` is the first implementation boundary. It should be pure TypeScript state plus a
-small event emitter; no model calls, subprocess spawning, terminal panes, filesystem writes, or TUI
-objects in the first slice.
+`MultiAgentStore` is the authoritative in-process state boundary. It owns pure state transitions,
+projections, mailbox and direct-file-reference validation, and persistence callbacks. Child-session
+dispatch, detached tool jobs, runtime mailbox delivery, and TUI projections live in the surrounding
+core and first-party extension layers; runtime handles remain outside durable store state.
 
 ### State
 
@@ -191,7 +191,7 @@ still mutate lifecycle through revision-checked commands and coordinate through 
 permission contracts as model-backed child agents.
 
 Transcript and event stream fields are durable metadata only. They point to child session/event-log
-artifacts and carry bounded counters such as `eventCount`, `truncated`, and optional `byteLimit`;
+files and carry bounded counters such as `eventCount`, `truncated`, and optional `byteLimit`;
 inline child output is excluded from core snapshots and UI projections.
 
 ### Revisions
@@ -258,7 +258,6 @@ The first store-level commands:
 | `sendSteering(id, expectedRevision, message, target?)` | creates steering message and marks pending | Does not edit prompt buffer. |
 | `ackSteering(id, messageId, expectedRevision, status)` | updates steering status | Status: accepted, rejected, delivered, failed. |
 | `cancelAgent(id, reason?)` | derives the current revision, then moves to `cancelling` or terminal | Runtime handle performs actual abort later. |
-| `recordArtifact(input)` | creates artifact pointer | Stores metadata/pointer, not full large output. |
 | `listAgents(filter?)` | none | Snapshot projection. |
 | `getAgent(id)` | none | Snapshot projection. |
 
@@ -277,7 +276,7 @@ interface AgentMailboxMessage {
 	createdAt: string;
 	updatedAt: string;
 	body?: string;
-	artifactIds?: string[];
+	fileRefs?: Array<{ path: string; label?: string }>;
 	targetCheckpoint?: "next_model_call" | "after_tool_result" | "when_waiting";
 	error?: string;
 }
@@ -289,25 +288,20 @@ checkpoints. Delivery acknowledgement changes message status; it does not mutate
 Structured protocol messages such as cancellation, max-turn wrap-up, and permission clarifications
 must remain tagged as protocol/system messages until explicitly rendered for the model.
 
-### Artifact pointers
+### Direct file references
 
-Large outputs live as artifacts:
+Mailbox messages and agent results carry direct file references. Every `path` is absolute and is
+validated when entering the store, runtime mailbox, or persisted mailbox payload.
 
 ```ts
-interface AgentArtifact {
-	id: string;
-	agentId: string;
-	kind: "summary" | "diff" | "log" | "finding" | "transcript" | "file";
-	title: string;
-	path?: string;
-	inlinePreview?: string;
-	metadata?: Record<string, unknown>;
-	createdAt: string;
+interface AgentFileReference {
+	path: string;
+	label?: string;
 }
 ```
 
-Mailbox messages and agent results reference artifact IDs. This prevents background runs from
-duplicating large logs in every event.
+Background Bash/Pyrun jobs expose their live and terminal log file through `result.fileRefs`, so the
+TUI can read the same file without registry lookup.
 
 ### TUI projection
 
@@ -325,18 +319,16 @@ Rules:
 
 ### Persistence
 
-Persisted multi-agent state lives in per-entity rows in the session control DB, keyed by session
-path. Agent, artifact, and mailbox mutations update their own rows; the session JSONL transcript
-carries conversation history only. Runtime mailbox transport rows reference stored mailbox messages
-by `(store_session_path, store_message_id)` instead of copying their bodies.
+Persisted multi-agent state lives in per-agent and per-mailbox rows in the session control DB, keyed
+by session path. The session JSONL transcript carries conversation history only. Runtime mailbox transport
+rows reference stored mailbox messages by `(store_session_path, store_message_id)` instead of copying bodies;
+payload bodies and absolute `fileRefs` resolve from `multi_agent_mailbox_messages`.
 
-Per-session agent, artifact, and message IDs are allocated transactionally. Allocation reconciles
-alternate counter state and existing IDs across agent, artifact, mailbox, and runtime transport rows
-before advancing, so stale counter rows cannot cause ID reuse. Legacy `multi_agent_counters_v2` rows
-are migrated into authoritative `multi_agent_counters` during schema initialization, then the
-alternate table is dropped. Mailbox message rows may be updated only when both stored and incoming
-identities are complete and their sender, recipient, kind, thread, and message ID identity match;
-incomplete or conflicting reuse fails transactionally without overwriting the existing message.
+Agent and message IDs are allocated transactionally. Legacy counter rows are merged by maximum value
+into `multi_agent_counters_v2` during schema initialization, then the legacy counter and artifact tables
+are dropped so relocation cannot resurrect stale state or reuse IDs. Mailbox message rows may be updated
+only when stored and incoming identities are complete and their sender, recipient, kind, thread, and
+message ID identity match; incomplete or conflicting reuse fails without overwriting the existing row.
 
 Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
 sessions may show previous agents as terminal, detached, or resumable; they must not pretend a dead
@@ -372,16 +364,16 @@ Useful:
 
 - Rich role taxonomy: scout, researcher, planner, worker, reviewer, oracle, verifier.
 - Natural workflow prompts for second opinions, parallel reviews, review loops, and worker handoff.
-- Artifact/result storage, doctor command, bounded fanout/depth, and background completion delivery.
+- Direct file-reference result storage and background completion delivery.
 - Project-agent confirmation and recursion guard.
 
 Avoid in core:
 
 - Large mode/config surface in v1.
 - Workflow graph state as lifecycle source of truth.
-- Giant event logs carrying full outputs instead of artifact pointers.
+- Giant event logs carrying full outputs instead of direct file references.
 
-Reuse mainly as workflow and artifact inspiration.
+Reuse mainly as workflow and direct-file-reference inspiration.
 
 ### tintinweb/pi-subagents
 
@@ -428,7 +420,7 @@ Useful:
 - Minimal subprocess fallback model.
 - Prompt delivery through stdin instead of command-line arguments.
 - Recursive delegation block, project-agent trust confirmation, output truncation, and full-output
-  artifact file with restricted permissions.
+  output file with restricted permissions.
 
 Avoid in core:
 
@@ -487,10 +479,10 @@ Pitfalls:
 ## First native slice
 
 1. Add core types for `AgentNode`, lifecycle state, revision, command result, mailbox message,
-   steering status, and artifact pointer.
-2. Add an in-memory `MultiAgentStore` with pure state transitions and tests for stale revision
+   steering status, and direct file reference.
+2. Add a `MultiAgentStore` with pure state transitions and tests for stale revision
    rejection, active-count derivation, read-only view selection, and steering acknowledgements.
-3. Persist snapshots/events as session custom entries only after the state machine is tested.
+3. Persist agent and mailbox rows in the control DB after the state machine is tested.
 4. Add extension-facing tools on top of the store: spawn/list/wait/cancel/steer.
 5. Add TUI viewer as a projection, then bind `Alt+1` through `Alt+9` to visible slots.
 

@@ -94,16 +94,14 @@ function enqueueStoredRuntimeMessage(
 		kind: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["kind"];
 		recipient: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["recipient"];
 		sender: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["sender"];
-		artifactIds?: string[];
-		artifactRefs?: Array<{ id?: string; path?: string; label?: string }>;
+		fileRefs?: Array<{ path: string; label?: string }>;
 	},
 ): number {
 	storedMessageCounter += 1;
 	const messageId = `message_${storedMessageCounter}`;
 	const sessionPath = "/sessions/test-sender.jsonl";
 	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
-		artifactIds: input.artifactIds,
-		artifactRefs: input.artifactRefs,
+		fileRefs: input.fileRefs,
 		body: input.body,
 		fromAgentId: input.sender.agentId ?? "main",
 		id: messageId,
@@ -150,9 +148,10 @@ describe("session control DB", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.exec(`
-				CREATE TABLE multi_agent_counters_v2 (
+				CREATE TABLE multi_agent_counters (
 					session_path TEXT PRIMARY KEY,
 					next_agent_number INTEGER NOT NULL,
+					next_artifact_number INTEGER NOT NULL,
 					next_message_number INTEGER NOT NULL,
 					updated_at TEXT NOT NULL
 				);
@@ -172,7 +171,7 @@ describe("session control DB", () => {
 		try {
 			expect(
 				verifyDb
-					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_counters_v2'")
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_counters'")
 					.get(),
 			).toBeUndefined();
 		} finally {
@@ -440,8 +439,8 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(consumeRuntimeMailboxMessage(controlDbPath, id)).toBe(false);
-		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("claimed");
+		expect(() => consumeRuntimeMailboxMessage(controlDbPath, id)).toThrow(/Invalid persisted JSON/);
+		expect(() => readRuntimeMailboxMessage(controlDbPath, id)).toThrow(/Invalid persisted JSON/);
 	});
 
 	it("consumes an already-resolved mailbox row by transport ID", () => {
@@ -474,6 +473,78 @@ describe("session control DB", () => {
 				storeRef: { messageId: "missing", sessionPath: "/sessions/missing.jsonl" },
 			}),
 		).toThrow("Runtime mailbox store reference does not exist");
+	});
+
+	it("rejects legacy runtime mailbox rows without a store reference", () => {
+		readMultiAgentState(controlDbPath, "/sessions/legacy-runtime.jsonl");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`INSERT INTO runtime_mailbox_messages
+				 (recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
+				  status, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+			).run(
+				"recipient-session",
+				null,
+				"sender-session",
+				null,
+				"message",
+				"copied legacy body",
+				"2026-07-11T00:00:00.000Z",
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => listRuntimeMailboxMessages(controlDbPath)).toThrow(/storeRef/i);
+		expect(() => markRuntimeMailboxMessageDelivered(controlDbPath, 1)).toThrow(/storeRef/i);
+	});
+
+	it("rejects non-string persisted file reference labels", () => {
+		readMultiAgentState(controlDbPath, "/sessions/invalid-label.jsonl");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(
+				"/sessions/invalid-label.jsonl",
+				"invalid-label",
+				JSON.stringify({
+					body: "invalid",
+					fileRefs: [{ path: "/tmp/output.log", label: 42 }],
+				}),
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, "/sessions/invalid-label.jsonl")).toThrow(/label.*string/i);
+	});
+
+	it("rejects legacy artifact fields during persisted agent restore", () => {
+		readMultiAgentState(controlDbPath, "/sessions/legacy-agent.jsonl");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(
+				"/sessions/legacy-agent.jsonl",
+				"agent-1",
+				JSON.stringify({ id: "agent-1", artifactRefs: [{ path: "/tmp/legacy.log" }] }),
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, "/sessions/legacy-agent.jsonl")).toThrow(
+			/Legacy artifact fields/,
+		);
 	});
 
 	it("deduplicates concurrent runtime mailbox enqueues by store reference", async () => {
@@ -531,9 +602,10 @@ describe("session control DB", () => {
 			db.exec("DROP INDEX runtime_mailbox_store_ref_unique_idx");
 			db.prepare(
 				`INSERT INTO runtime_mailbox_messages
-				 SELECT NULL, recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id,
-				 kind, body, artifact_ids_json, artifact_refs_json, store_session_path, store_message_id,
-				 'delivered', created_at, updated_at, claimed_at, delivered_at, error
+				 (recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
+				  store_session_path, store_message_id, status, created_at, updated_at, claimed_at, delivered_at, error)
+				 SELECT recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
+				  store_session_path, store_message_id, 'delivered', created_at, updated_at, claimed_at, delivered_at, error
 				 FROM runtime_mailbox_messages WHERE id = ?`,
 			).run(id);
 		} finally {
@@ -543,6 +615,41 @@ describe("session control DB", () => {
 		const rows = listRuntimeMailboxMessages(controlDbPath);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.status).toBe("delivered");
+	});
+
+	it("does not resurrect relocated legacy counters at the old session path", () => {
+		const oldPath = "/sessions/legacy-counter-old.jsonl";
+		const newPath = "/sessions/legacy-counter-new.jsonl";
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE multi_agent_counters (
+					session_path TEXT PRIMARY KEY,
+					next_agent_number INTEGER NOT NULL,
+					next_message_number INTEGER NOT NULL,
+					updated_at TEXT NOT NULL
+				)
+			`);
+			db.prepare(
+				`INSERT INTO multi_agent_counters
+				 (session_path, next_agent_number, next_message_number, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(oldPath, 7, 9, "2026-07-11T00:00:00.000Z");
+		} finally {
+			db.close();
+		}
+
+		expect(readMultiAgentState(controlDbPath, oldPath)?.counters).toEqual({
+			nextAgentNumber: 7,
+			nextMessageNumber: 9,
+		});
+		relocateSessionControlData(controlDbPath, oldPath, newPath);
+		expect(readMultiAgentState(controlDbPath, newPath)?.counters).toEqual({
+			nextAgentNumber: 7,
+			nextMessageNumber: 9,
+		});
+		expect(readMultiAgentState(controlDbPath, oldPath)).toBeUndefined();
+		expect(allocateMultiAgentCounter(controlDbPath, oldPath, "agent")).toBe(1);
 	});
 
 	it("relocates runtime mailbox references across an existing destination reference", () => {
@@ -881,7 +988,7 @@ describe("session control DB", () => {
 
 	it("resolves store-referenced runtime mailbox bodies without copying them into transport rows", () => {
 		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
-			artifactRefs: [{ id: "artifact_1", label: "Log", path: "artifacts/run.log" }],
+			fileRefs: [{ label: "Log", path: "/tmp/run.log" }],
 			body: "stored supervisor request",
 			fromAgentId: "agent_1",
 			id: "message_1",
@@ -897,7 +1004,7 @@ describe("session control DB", () => {
 		});
 
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({
-			artifactRefs: [{ id: "artifact_1", label: "Log", path: "artifacts/run.log" }],
+			fileRefs: [{ label: "Log", path: "/tmp/run.log" }],
 			body: "stored supervisor request",
 			kind: "supervisor_request",
 		});
@@ -909,10 +1016,10 @@ describe("session control DB", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			const raw = db
-				.prepare("SELECT body, artifact_refs_json FROM runtime_mailbox_messages WHERE id = ?")
-				.get(messageId) as { body: string; artifact_refs_json: string | null };
+				.prepare("SELECT body, store_session_path FROM runtime_mailbox_messages WHERE id = ?")
+				.get(messageId) as { body: string; store_session_path: string | null };
 			expect(raw.body).toBe("");
-			expect(raw.artifact_refs_json).toBeNull();
+			expect(raw.store_session_path).toBe("/sessions/supervisor.jsonl");
 		} finally {
 			db.close();
 		}
@@ -1011,10 +1118,9 @@ describe("session control DB", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, freshId)).toMatchObject({ status: "claimed" });
 	});
 
-	it("claims runtime mailbox rows even when the referenced store payload is malformed", () => {
+	it("rejects runtime mailbox rows when the referenced store payload is malformed", () => {
 		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
-			artifactIds: ["artifact_1"],
-			body: "bad artifact metadata",
+			body: "bad file metadata",
 			kind: "message",
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_1", sessionId: "child-session" },
@@ -1026,10 +1132,10 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
-
-		expect(claimed).toMatchObject([{ artifactIds: undefined, body: "", id: messageId }]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "claimed" });
+		expect(() => claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" })).toThrow(
+			/Invalid persisted JSON/,
+		);
+		expect(() => readRuntimeMailboxMessage(controlDbPath, messageId)).toThrow(/Invalid persisted JSON/);
 	});
 
 	it("marks runtime mailbox rows delivered only after enqueue and failed on enqueue failure", () => {
@@ -1069,8 +1175,6 @@ describe("session control DB", () => {
 					sender_agent_id TEXT,
 					kind TEXT NOT NULL,
 					body TEXT NOT NULL,
-					artifact_ids_json TEXT,
-					artifact_refs_json TEXT,
 					status TEXT NOT NULL,
 					created_at TEXT NOT NULL,
 					updated_at TEXT NOT NULL,
@@ -1092,7 +1196,7 @@ describe("session control DB", () => {
 		}
 
 		expect(cleanupRuntimeMailboxMessages(controlDbPath, "2026-07-01T00:00:00.000Z")).toBe(1);
-		expect(listRuntimeMailboxMessages(controlDbPath).map((message) => message.body)).toEqual(["new"]);
+		expect(() => listRuntimeMailboxMessages(controlDbPath)).toThrow(/storeRef/);
 	});
 
 	it("retires non-Pi listener ownership before startup reconciliation", async () => {

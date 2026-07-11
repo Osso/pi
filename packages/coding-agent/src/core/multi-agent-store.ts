@@ -1,9 +1,9 @@
+import { isAbsolute } from "node:path";
 import {
 	allocateMultiAgentCounter,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	upsertMultiAgentAgent,
-	upsertMultiAgentArtifact,
 	upsertMultiAgentMailboxMessage,
 } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
@@ -32,19 +32,16 @@ export interface AgentActivity {
 	toolName?: string;
 }
 
-export interface AgentResult {
-	summary?: string;
-	artifactIds?: string[];
-	durationMs?: number;
-}
-
-export interface AgentArtifactReference {
-	id?: string;
-	path?: string;
+export interface AgentFileReference {
+	path: string;
 	label?: string;
 }
 
-export type AgentArtifactKind = "summary" | "diff" | "log" | "finding" | "transcript" | "file";
+export interface AgentResult {
+	summary?: string;
+	fileRefs?: AgentFileReference[];
+	durationMs?: number;
+}
 
 export interface AgentWorkerAdapter {
 	adapter: "runtime" | "terminal" | "subprocess";
@@ -62,26 +59,6 @@ export interface AgentEventStreamMetadata {
 	eventCount: number;
 	truncated: boolean;
 	byteLimit?: number;
-}
-
-export interface AgentArtifact {
-	id: string;
-	agentId: string;
-	kind: AgentArtifactKind;
-	title: string;
-	path?: string;
-	inlinePreview?: string;
-	metadata?: Record<string, unknown>;
-	createdAt: string;
-}
-
-export interface RecordAgentArtifactInput {
-	agentId: string;
-	kind: AgentArtifactKind;
-	title: string;
-	path?: string;
-	inlinePreview?: string;
-	metadata?: Record<string, unknown>;
 }
 
 export interface AgentNode {
@@ -154,8 +131,7 @@ export interface AgentMailboxMessage {
 	createdAt: string;
 	updatedAt: string;
 	body?: string;
-	artifactIds?: string[];
-	artifactRefs?: AgentArtifactReference[];
+	fileRefs?: AgentFileReference[];
 	targetCheckpoint?: SteeringCheckpoint;
 	error?: string;
 }
@@ -165,23 +141,20 @@ export interface SendSteeringInput {
 	body: string;
 	targetCheckpoint?: SteeringCheckpoint;
 	threadId?: string;
-	artifactIds?: string[];
-	artifactRefs?: AgentArtifactReference[];
+	fileRefs?: AgentFileReference[];
 }
 
 export interface ContactSupervisorInput {
 	body: string;
 	threadId?: string;
-	artifactIds?: string[];
-	artifactRefs?: AgentArtifactReference[];
+	fileRefs?: AgentFileReference[];
 }
 
 export interface SendMailboxMessageInput {
 	body: string;
 	toAgentId: string;
 	threadId?: string;
-	artifactIds?: string[];
-	artifactRefs?: AgentArtifactReference[];
+	fileRefs?: AgentFileReference[];
 }
 
 export interface TransitionAgentDetails {
@@ -193,8 +166,8 @@ export interface TransitionAgentDetails {
 type AgentLifecycleNotificationLifecycle = "completed" | "failed" | "waiting_for_input";
 
 interface AgentLifecycleNotificationInput {
-	artifactIds?: string[];
 	body: string;
+	fileRefs?: AgentFileReference[];
 	threadId: string;
 }
 
@@ -307,14 +280,12 @@ const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLif
 
 export class MultiAgentStore {
 	private readonly agents = new Map<string, AgentNode>();
-	private readonly artifacts = new Map<string, AgentArtifact>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
 	private readonly transitionListeners = new Set<AgentTransitionListener>();
 	private readonly abortHandlers = new Map<string, () => void>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
-	private nextArtifactNumber = 1;
 	private nextMessageNumber = 1;
 	private restoreGeneration = 0;
 	private persistence: { controlDbPath: string; sessionPath: string } | undefined;
@@ -354,6 +325,11 @@ export class MultiAgentStore {
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
+		validateAbsolutePath(input.cwd, "spawn_agent.cwd");
+		validateOptionalPath(input.worktree?.path, "spawn_agent.worktree.path");
+		validateOptionalPath(input.transcript?.path, "spawn_agent.transcript.path");
+		validateOptionalPath(input.eventStream?.path, "spawn_agent.eventStream.path");
+		validateOptionalPath(input.worker?.cwd, "spawn_agent.worker.cwd");
 		const timestamp = this.now();
 		const agent: AgentNode = {
 			id: this.createAgentId(),
@@ -622,33 +598,6 @@ export class MultiAgentStore {
 			.map(copyMessage);
 	}
 
-	recordArtifact(input: RecordAgentArtifactInput): AgentArtifact {
-		const artifact: AgentArtifact = {
-			id: this.createArtifactId(),
-			agentId: input.agentId,
-			kind: input.kind,
-			title: input.title,
-			createdAt: this.now(),
-			inlinePreview: input.inlinePreview,
-			metadata: input.metadata ? { ...input.metadata } : undefined,
-			path: input.path,
-		};
-		this.artifacts.set(artifact.id, artifact);
-		this.persistArtifactRow(artifact);
-
-		return copyArtifact(artifact);
-	}
-
-	getArtifact(artifactId: string): AgentArtifact | undefined {
-		const artifact = this.artifacts.get(artifactId);
-		return artifact ? copyArtifact(artifact) : undefined;
-	}
-
-	listArtifacts(agentId?: string): AgentArtifact[] {
-		const artifacts = Array.from(this.artifacts.values(), copyArtifact);
-		return agentId ? artifacts.filter((artifact) => artifact.agentId === agentId) : artifacts;
-	}
-
 	getProjectionSnapshot(): MultiAgentProjectionSnapshot {
 		return {
 			activeCount: this.getActiveAgentCount(),
@@ -714,6 +663,7 @@ export class MultiAgentStore {
 			return { ok: false, error: "not_found", agentId };
 		}
 
+		validateOptionalPath(transcript.path, "update_agent_transcript.path");
 		const updated = this.updateAgentMetadata(current, {
 			transcript: copyTranscript(transcript),
 		});
@@ -767,8 +717,7 @@ export class MultiAgentStore {
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			body: input.body,
-			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
-			artifactRefs: copyArtifactRefs(input.artifactRefs),
+			fileRefs: validateFileRefs(input.fileRefs, "contact_supervisor"),
 		};
 		this.putMailboxMessage(message);
 
@@ -801,8 +750,7 @@ export class MultiAgentStore {
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			body: input.body,
-			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
-			artifactRefs: copyArtifactRefs(input.artifactRefs),
+			fileRefs: validateFileRefs(input.fileRefs, "send_agent_message"),
 		};
 		this.putMailboxMessage(message);
 
@@ -848,8 +796,7 @@ export class MultiAgentStore {
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			body: input.body,
-			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
-			artifactRefs: copyArtifactRefs(input.artifactRefs),
+			fileRefs: validateFileRefs(input.fileRefs, "send_agent_message"),
 		};
 		this.putMailboxMessage(message);
 
@@ -866,13 +813,11 @@ export class MultiAgentStore {
 		toAgentId: string;
 		body: string;
 		threadId?: string;
-		artifactIds?: string[];
-		artifactRefs?: AgentArtifactReference[];
+		fileRefs?: AgentFileReference[];
 	}): AgentMailboxMessage {
 		const timestamp = this.now();
 		const message: AgentMailboxMessage = {
-			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
-			artifactRefs: copyArtifactRefs(input.artifactRefs),
+			fileRefs: validateFileRefs(input.fileRefs, "record_outbound_session_message"),
 			body: input.body,
 			createdAt: timestamp,
 			fromAgentId: input.fromAgentId,
@@ -913,8 +858,7 @@ export class MultiAgentStore {
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			body: input.body,
-			artifactIds: input.artifactIds ? [...input.artifactIds] : undefined,
-			artifactRefs: copyArtifactRefs(input.artifactRefs),
+			fileRefs: validateFileRefs(input.fileRefs, "steer_agent"),
 			targetCheckpoint: input.targetCheckpoint,
 		};
 		this.putMailboxMessage(message);
@@ -999,14 +943,12 @@ export class MultiAgentStore {
 
 	private restoreState(state: MultiAgentPersistedState | undefined): void {
 		this.agents.clear();
-		this.artifacts.clear();
 		this.mailboxMessages.clear();
 		this.abortHandlers.clear();
 		this.lifecycleNotificationListeners.clear();
 		this.transitionListeners.clear();
 		this.selectedAgentId = undefined;
 		this.nextAgentNumber = state?.counters.nextAgentNumber ?? 1;
-		this.nextArtifactNumber = state?.counters.nextArtifactNumber ?? 1;
 		this.nextMessageNumber = state?.counters.nextMessageNumber ?? 1;
 		if (!state) {
 			return;
@@ -1019,11 +961,6 @@ export class MultiAgentStore {
 				this.persistAgentRow(restored.agent);
 			}
 		}
-
-		for (const artifact of state.artifacts as AgentArtifact[]) {
-			this.artifacts.set(artifact.id, copyArtifact(artifact));
-		}
-
 		for (const message of state.mailboxMessages as AgentMailboxMessage[]) {
 			this.mailboxMessages.set(message.id, copyMessage(message));
 		}
@@ -1044,13 +981,6 @@ export class MultiAgentStore {
 			return;
 		}
 		upsertMultiAgentAgent(this.persistence.controlDbPath, this.persistence.sessionPath, agent.id, agent);
-	}
-
-	private persistArtifactRow(artifact: AgentArtifact): void {
-		if (!this.persistence) {
-			return;
-		}
-		upsertMultiAgentArtifact(this.persistence.controlDbPath, this.persistence.sessionPath, artifact.id, artifact);
 	}
 
 	private putMailboxMessage(message: AgentMailboxMessage): void {
@@ -1170,6 +1100,7 @@ export class MultiAgentStore {
 		const updated = {
 			...current,
 			...updates,
+			result: updates.result ? copyResult(updates.result) : current.result,
 			revision: current.revision + 1,
 			updatedAt: this.now(),
 		};
@@ -1196,10 +1127,9 @@ export class MultiAgentStore {
 			return;
 		}
 
-		const artifactIds = agent.result?.artifactIds;
 		this.recordLifecycleNotification(agent, {
-			artifactIds: artifactIds ? [...artifactIds] : undefined,
 			body: formatCompletionNotificationBody(agent),
+			fileRefs: copyFileRefs(agent.result?.fileRefs),
 			threadId: completionNotificationThreadId(agent.id),
 		});
 	}
@@ -1211,6 +1141,7 @@ export class MultiAgentStore {
 
 		this.recordLifecycleNotification(agent, {
 			body: formatFailureNotificationBody(agent),
+			fileRefs: copyFileRefs(agent.result?.fileRefs),
 			threadId: failedNotificationThreadId(agent.id),
 		});
 	}
@@ -1229,7 +1160,6 @@ export class MultiAgentStore {
 	private recordLifecycleNotification(agent: AgentNode, input: AgentLifecycleNotificationInput): void {
 		const timestamp = this.now();
 		const message: AgentMailboxMessage = {
-			artifactIds: input.artifactIds,
 			body: input.body,
 			createdAt: timestamp,
 			fromAgentId: agent.id,
@@ -1239,6 +1169,7 @@ export class MultiAgentStore {
 			threadId: input.threadId,
 			toAgentId: agent.parentId ?? MAIN_THREAD_AGENT_ID,
 			updatedAt: timestamp,
+			fileRefs: validateFileRefs(input.fileRefs, "lifecycle_notification"),
 		};
 		this.putMailboxMessage(message);
 		this.notifyLifecycleNotificationListeners(message);
@@ -1280,17 +1211,12 @@ export class MultiAgentStore {
 		return `agent_${allocated}`;
 	}
 
-	private createArtifactId(): string {
-		const allocated = this.allocateCounter("artifact", this.nextArtifactNumber);
-		return `artifact_${allocated}`;
-	}
-
 	private createMessageId(): string {
 		const allocated = this.allocateCounter("message", this.nextMessageNumber);
 		return `message_${allocated}`;
 	}
 
-	private allocateCounter(counterName: "agent" | "artifact" | "message", currentValue: number): number {
+	private allocateCounter(counterName: "agent" | "message", currentValue: number): number {
 		if (this.persistence) {
 			const allocated = allocateMultiAgentCounter(
 				this.persistence.controlDbPath,
@@ -1305,11 +1231,9 @@ export class MultiAgentStore {
 		return currentValue;
 	}
 
-	private updateLocalCounter(counterName: "agent" | "artifact" | "message", nextValue: number): void {
+	private updateLocalCounter(counterName: "agent" | "message", nextValue: number): void {
 		if (counterName === "agent") {
 			this.nextAgentNumber = nextValue;
-		} else if (counterName === "artifact") {
-			this.nextArtifactNumber = nextValue;
 		} else {
 			this.nextMessageNumber = nextValue;
 		}
@@ -1415,22 +1339,24 @@ function copyAgent(agent: AgentNode): AgentSnapshot {
 		eventStream: copyEventStream(agent.eventStream),
 		transcript: copyTranscript(agent.transcript),
 		worker: copyWorker(agent.worker),
-		worktree: copyOptional(agent.worktree),
+		worktree: copyWorktree(agent.worktree),
 	};
 }
 
 function copyMessage(message: AgentMailboxMessage): AgentMailboxMessage {
 	return {
-		...message,
-		artifactIds: message.artifactIds ? [...message.artifactIds] : undefined,
-		artifactRefs: copyArtifactRefs(message.artifactRefs),
-	};
-}
-
-function copyArtifact(artifact: AgentArtifact): AgentArtifact {
-	return {
-		...artifact,
-		metadata: artifact.metadata ? { ...artifact.metadata } : undefined,
+		body: message.body,
+		createdAt: message.createdAt,
+		error: message.error,
+		fileRefs: copyFileRefs(message.fileRefs),
+		fromAgentId: message.fromAgentId,
+		id: message.id,
+		kind: message.kind,
+		status: message.status,
+		targetCheckpoint: message.targetCheckpoint,
+		threadId: message.threadId,
+		toAgentId: message.toAgentId,
+		updatedAt: message.updatedAt,
 	};
 }
 
@@ -1452,6 +1378,7 @@ function copyWorker(worker: AgentWorkerAdapter | undefined): AgentWorkerAdapter 
 	if (!worker) {
 		return undefined;
 	}
+	validateOptionalPath(worker.cwd, "agent_worker.cwd");
 	return {
 		adapter: worker.adapter,
 		cwd: worker.cwd,
@@ -1463,6 +1390,7 @@ function copyTranscript(transcript: AgentTranscriptMetadata | undefined): AgentT
 	if (!transcript) {
 		return undefined;
 	}
+	validateOptionalPath(transcript.path, "agent_transcript.path");
 	return {
 		path: transcript.path,
 		sessionId: transcript.sessionId,
@@ -1473,6 +1401,7 @@ function copyEventStream(eventStream: AgentEventStreamMetadata | undefined): Age
 	if (!eventStream) {
 		return undefined;
 	}
+	validateAbsolutePath(eventStream.path, "agent_event_stream.path");
 	return {
 		byteLimit: eventStream.byteLimit,
 		eventCount: eventStream.eventCount,
@@ -1485,19 +1414,56 @@ function copyOptional<T extends object>(value: T | undefined): T | undefined {
 	return value ? { ...value } : undefined;
 }
 
-function copyArtifactRefs(refs: AgentArtifactReference[] | undefined): AgentArtifactReference[] | undefined {
-	return refs?.map((ref) => ({
-		id: ref.id,
-		label: ref.label,
-		path: ref.path,
-	}));
+function copyWorktree(worktree: AgentNode["worktree"]): AgentNode["worktree"] {
+	if (!worktree) {
+		return undefined;
+	}
+	validateAbsolutePath(worktree.path, "agent_worktree.path");
+	return { ...worktree };
+}
+
+function validateAbsolutePath(path: string, context: string): void {
+	if (!isAbsolute(path)) {
+		throw new Error(`Invalid path at ${context}: expected an absolute path, received ${path}`);
+	}
+}
+
+function validateOptionalPath(path: string | undefined, context: string): void {
+	if (path !== undefined) {
+		validateAbsolutePath(path, context);
+	}
+}
+
+function copyFileRefs(refs: AgentFileReference[] | undefined): AgentFileReference[] | undefined {
+	return validateFileRefs(refs, "file_reference_copy");
+}
+
+function validateFileRefs(refs: AgentFileReference[] | undefined, context: string): AgentFileReference[] | undefined {
+	if (!refs) {
+		return undefined;
+	}
+	return refs.map((ref, index) => {
+		if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
+			throw new Error(`Invalid file reference at ${context}[${index}]`);
+		}
+		if (typeof ref.path !== "string" || !isAbsolute(ref.path)) {
+			const path = typeof ref.path === "string" ? ref.path : String(ref.path);
+			throw new Error(`Invalid file reference at ${context}[${index}]: path must be absolute, received ${path}`);
+		}
+		if (ref.label !== undefined && typeof ref.label !== "string") {
+			throw new Error(`Invalid file reference at ${context}[${index}]: label must be a string`);
+		}
+		return { path: ref.path, label: ref.label };
+	});
 }
 
 function copyResult(result: AgentResult | undefined): AgentResult | undefined {
-	return result
-		? {
-				...result,
-				artifactIds: result.artifactIds ? [...result.artifactIds] : undefined,
-			}
-		: undefined;
+	if (!result) {
+		return undefined;
+	}
+	return {
+		durationMs: result.durationMs,
+		fileRefs: validateFileRefs(result.fileRefs, "agent_result"),
+		summary: result.summary,
+	};
 }

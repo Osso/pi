@@ -26,14 +26,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
-      (`multi_agent_agents`, `multi_agent_artifacts`, `multi_agent_mailbox_messages`,
-      `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
-- [x] Allocate persisted multi-agent agent, artifact, and message IDs transactionally. Before each
-      allocation, reconcile the stored counter with alternate counter state and existing persisted
-      IDs in the session's agent, artifact, mailbox, and runtime mailbox transport rows, then advance
-      the counter above every observed ID. Legacy `multi_agent_counters_v2` rows migrate into
-      authoritative `multi_agent_counters` during schema initialization, then the alternate table is
-      dropped.
+      (`multi_agent_agents`, `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row
+      upsert per mutation, restore selects the session's rows. Legacy artifact tables/columns are
+      not initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
+      migrated into `multi_agent_counters_v2`.
+- [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
+      merged by maximum value during migration, then the legacy counter and artifact tables are
+      dropped so relocated state cannot be resurrected or reuse IDs.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
@@ -63,8 +62,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       sessions can catch up from an append-only global coordination log.
 - [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
       (`store_session_path`, `store_message_id`) is required at enqueue, reads resolve
-      body/artifact payloads from `multi_agent_mailbox_messages`, and enqueue is idempotent per
-      store reference (one transport row per store message).
+      body/absolute `fileRefs` payloads from `multi_agent_mailbox_messages`, invalid legacy rows without
+      a store reference or with legacy artifact fields are rejected, and enqueue is idempotent per store
+      reference (one transport row per store message).
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
@@ -85,10 +85,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path,
-  schema, incoming-message claim/complete API, last-message API, prompt-history
-  API, session metadata API, runtime-listener/health lifecycle, and persisted spawned-agent
-  ghost reconciliation API.
+- `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path and schema,
+  incoming-message claim/complete API, runtime mailbox transport and listener/health lifecycle,
+  per-session multi-agent rows and counters, prompt-history and session-metadata APIs, and
+  persisted spawned-agent ghost reconciliation.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — built-in tool that appends to the

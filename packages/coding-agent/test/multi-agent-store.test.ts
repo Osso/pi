@@ -247,7 +247,7 @@ describe("MultiAgentStore", () => {
 			parentId: "root",
 			permission: { inheritedFrom: "root", narrowed: true, policy: "on-request" },
 			slot: { index: 2, pinned: true },
-			transcript: { path: "sessions/child.jsonl", sessionId: "session-1" },
+			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "session-1" },
 			worktree: { base: "main", branch: "agent/worker", path: "/repo-worktrees/worker" },
 		});
 
@@ -267,7 +267,7 @@ describe("MultiAgentStore", () => {
 			permission: { inheritedFrom: "root", narrowed: true, policy: "on-request" },
 			revision: spawned.agent.revision + 1,
 			slot: { index: 7, pinned: true },
-			transcript: { path: "sessions/child.jsonl", sessionId: "session-1" },
+			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "session-1" },
 			worktree: { base: "main", branch: "agent/worker", path: "/repo-worktrees/worker" },
 		});
 
@@ -551,7 +551,6 @@ describe("MultiAgentStore", () => {
 				permission: { narrowed: true, policy: "on-request" },
 			});
 			store.selectAgentView(spawned.agent.id);
-			store.recordArtifact({ agentId: spawned.agent.id, kind: "summary", title: "Summary" });
 			const transitioned = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
 			expect(transitioned.ok).toBe(true);
 
@@ -560,7 +559,6 @@ describe("MultiAgentStore", () => {
 			});
 
 			expect(rehydrated.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "starting" });
-			expect(rehydrated.listArtifacts(spawned.agent.id)).toHaveLength(1);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
@@ -1059,7 +1057,6 @@ describe("MultiAgentStore", () => {
 
 		const contact = store.contactSupervisor(child.agent.id, child.agent.revision, {
 			body: "Need clarification on auth scope",
-			artifactIds: ["artifact-1"],
 		});
 
 		expect(contact.ok).toBe(true);
@@ -1072,7 +1069,6 @@ describe("MultiAgentStore", () => {
 			revision: child.agent.revision + 1,
 		});
 		expect(contact.message).toMatchObject({
-			artifactIds: ["artifact-1"],
 			body: "Need clarification on auth scope",
 			fromAgentId: child.agent.id,
 			kind: "supervisor_request",
@@ -1131,69 +1127,6 @@ describe("MultiAgentStore", () => {
 			target: { id: sibling.agent.id },
 		});
 		expect(store.listMailboxMessages()).toHaveLength(1);
-	});
-
-	it("stores mailbox artifact references by metadata without copying content", () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const supervisor = spawnScout(store);
-		const child = store.spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			parentId: supervisor.agent.id,
-			permission: { narrowed: true, policy: "on-request" },
-		});
-
-		const contact = store.contactSupervisor(child.agent.id, child.agent.revision, {
-			artifactRefs: [
-				{
-					id: "diff-1",
-					label: "Auth diff",
-					path: "artifacts/auth.diff",
-					content: "large diff content must not enter the mailbox",
-				} as { content: string; id: string; label: string; path: string },
-			],
-			body: "Review attached diff",
-		});
-
-		expect(contact.ok).toBe(true);
-		if (!contact.ok) {
-			throw new Error("expected supervisor contact to succeed");
-		}
-		expect(contact.message.artifactRefs).toEqual([
-			{
-				id: "diff-1",
-				label: "Auth diff",
-				path: "artifacts/auth.diff",
-			},
-		]);
-		expect(JSON.stringify(contact.message)).not.toContain("large diff content");
-	});
-
-	it("records shared artifacts outside mailbox events", () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = spawnScout(store);
-
-		const artifact = store.recordArtifact({
-			agentId: spawned.agent.id,
-			inlinePreview: "First five log lines",
-			kind: "log",
-			metadata: { exitCode: 1 },
-			path: "artifacts/auth.log",
-			title: "Auth test log",
-		});
-		const contact = store.contactSupervisor(spawned.agent.id, spawned.agent.revision, {
-			artifactRefs: [{ id: artifact.id, label: artifact.title, path: artifact.path }],
-			body: "See log",
-		});
-
-		expect(contact.ok).toBe(true);
-		expect(store.listArtifacts()).toEqual([artifact]);
-		expect(store.getArtifact(artifact.id)).toEqual(artifact);
-		expect(contact.ok && contact.message.artifactRefs).toEqual([
-			{ id: artifact.id, label: "Auth test log", path: "artifacts/auth.log" },
-		]);
-		expect(JSON.stringify(store.listMailboxMessages())).not.toContain("First five log lines");
 	});
 
 	it("wires rehydrated stores to persist later mutations", () => {
@@ -1373,7 +1306,7 @@ describe("MultiAgentStore", () => {
 
 		expect(viewed?.id).toBe(spawned.agent.id);
 		expect(state?.agents).toMatchObject([{ displayName: "Scout", id: spawned.agent.id, lifecycle: "queued" }]);
-		expect(state?.counters).toEqual({ nextAgentNumber: 2, nextArtifactNumber: 1, nextMessageNumber: 1 });
+		expect(state?.counters).toEqual({ nextAgentNumber: 2, nextMessageNumber: 1 });
 		expect(state?.mailboxMessages).toEqual([]);
 		expect(session.getEntries().some((entry) => entry.type === "custom")).toBe(false);
 	});

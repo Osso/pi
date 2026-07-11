@@ -121,6 +121,7 @@ import {
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
 	markMultiAgentMailboxMessageDelivered,
+	markMultiAgentMailboxMessageFailed,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
 	readRuntimeMailboxMessageForDelivery,
@@ -416,7 +417,7 @@ function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSes
 			? [`- agent: ${senderAgent}`]
 			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
 	const sections = ["From:", ...senderLines, "", "Message:", body];
-	return [...sections, ...formatRuntimeMailboxArtifacts(message)].join("\n");
+	return [...sections, ...formatRuntimeMailboxFileReferences(message)].join("\n");
 }
 
 function formatSharedChannelPrompt(messages: SharedChannelMessage[], recipientSessionId: string): string {
@@ -464,25 +465,14 @@ function isSubagentSharedChannelMessage(message: SharedChannelMessage): boolean 
 	return message.sender.agentId !== null;
 }
 
-function formatRuntimeMailboxArtifacts(message: RuntimeMailboxMessage): string[] {
-	const artifactIds = message.artifactIds?.map((artifactId) => `- ${artifactId}`) ?? [];
-	const artifactRefs = message.artifactRefs?.map(formatRuntimeMailboxArtifactReference) ?? [];
-	const sections: string[] = [];
-	if (artifactIds.length > 0) {
-		sections.push(["Artifact IDs:", ...artifactIds].join("\n"));
-	}
-	if (artifactRefs.length > 0) {
-		sections.push(["Artifact references:", ...artifactRefs].join("\n"));
-	}
-	return sections;
+function formatRuntimeMailboxFileReferences(message: RuntimeMailboxMessage): string[] {
+	const fileRefs = message.fileRefs?.map(formatRuntimeMailboxFileReference) ?? [];
+	return fileRefs.length > 0 ? ["Attached files:", ...fileRefs] : [];
 }
 
-function formatRuntimeMailboxArtifactReference(
-	ref: NonNullable<RuntimeMailboxMessage["artifactRefs"]>[number],
-): string {
-	const label = ref.label ?? ref.id ?? ref.path ?? "artifact";
-	const parts = [label, ref.id, ref.path].filter((part): part is string => Boolean(part));
-	return `- ${parts.join(" — ")}`;
+function formatRuntimeMailboxFileReference(ref: NonNullable<RuntimeMailboxMessage["fileRefs"]>[number]): string {
+	const label = ref.label ? `${ref.label} — ` : "";
+	return `- ${label}${ref.path}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -2344,9 +2334,7 @@ export class AgentSession {
 					continue;
 				}
 				if (!delivery?.payloadValid) {
-					if (message.kind === "steer") {
-						this._failStoreSteeringDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
-					}
+					this._failStoreMailboxDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
 					failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
 					continue;
 				}
@@ -2375,9 +2363,7 @@ export class AgentSession {
 						releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
 						continue;
 					}
-					if (message.kind === "steer") {
-						this._failStoreSteeringDelivery(message, error);
-					}
+					this._failStoreMailboxDelivery(message, error);
 					failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
 				}
 			}
@@ -2504,18 +2490,26 @@ export class AgentSession {
 		return agentId;
 	}
 
-	private _failStoreSteeringDelivery(message: RuntimeMailboxMessage, error: unknown): void {
-		const agentId = message.recipient.agentId;
-		const messageId = message.storeRef?.messageId;
-		if (!agentId || !messageId || !this._multiAgentStore) {
-			return;
+	private _failStoreMailboxDelivery(message: RuntimeMailboxMessage, error: unknown): void {
+		const storeRef = message.storeRef;
+		if (!storeRef) return;
+		const failure = errorMessage(error);
+		if (this._multiAgentStore?.getPersistenceTarget()?.sessionPath === storeRef.sessionPath) {
+			this._multiAgentStore.markMailboxMessageFailed(storeRef.messageId, failure);
+		} else {
+			const controlDbPath = this._getRuntimeMailboxControlDbPath();
+			if (controlDbPath) {
+				markMultiAgentMailboxMessageFailed(controlDbPath, storeRef.sessionPath, storeRef.messageId, failure);
+			}
 		}
+		if (message.kind !== "steer") return;
+		const agentId = message.recipient.agentId;
+		if (!agentId || !this._multiAgentStore) return;
 		this._runtimeMailboxSteeringAgentIds.delete(agentId);
-		this._multiAgentStore.markMailboxMessageFailed(messageId, errorMessage(error));
 		const current = this._multiAgentStore.getAgent(agentId);
 		if (current && !this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
 			this._multiAgentStore.transitionAgent(current.id, current.revision, "failed", {
-				error: { message: errorMessage(error) },
+				error: { message: failure },
 			});
 		}
 	}

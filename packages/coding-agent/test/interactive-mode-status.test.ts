@@ -983,18 +983,18 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
-	test("selecting an active child without a transcript path renders its log artifact", () => {
+	test("selecting an active child without a transcript path renders its live log file", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: false });
 		const tmp = mkdtempSync(path.join(tmpdir(), "pi-agent-log-view-"));
 		try {
 			const logPath = path.join(tmp, "agent.log");
 			writeFileSync(logPath, "live log output", "utf8");
-			fixture.store.recordArtifact({
-				agentId: fixture.childAgentId,
-				kind: "log",
-				path: logPath,
-				title: "Pyrun output",
+			const current = fixture.store.getAgent(fixture.childAgentId);
+			if (!current) throw new Error("Expected child agent");
+			const running = fixture.store.transitionAgent(current.id, current.revision, "running", {
+				result: { fileRefs: [{ label: "Pyrun output", path: logPath }] },
 			});
+			expect(running.ok).toBe(true);
 
 			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
 

@@ -1060,7 +1060,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("wait_agents leaves non-Pyrun failed agents with duration status-only", async () => {
+	it("wait_agents consumes failed agents with result file references", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1100,15 +1100,25 @@ describe("runtime SQLite mailbox delivery", () => {
 		await delay(1);
 		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
 			error: { message: "tests failed" },
-			result: { durationMs: 1234, summary: "tests failed" },
+			result: {
+				durationMs: 1234,
+				fileRefs: [{ label: "Worker output", path: "/tmp/worker-failure.log" }],
+				summary: "tests failed",
+			},
 		});
 		expect(failed.ok).toBe(true);
 
 		const waited = await waitedPromise;
 
-		expect(waited.content[0]).toMatchObject({ text: "Worker is failed: tests failed" });
-		expect(waited.details).toEqual({});
-		expect(store.listPendingLifecycleNotificationsForAgent(spawned.agent.id, "failed")).toHaveLength(1);
+		expect(waited.content[0]).toMatchObject({ text: "Worker failed: tests failed. Duration: 1234ms" });
+		expect(waited.details).toMatchObject({
+			message: {
+				body: "Worker failed: tests failed. Duration: 1234ms",
+				fileRefs: [{ label: "Worker output", path: "/tmp/worker-failure.log" }],
+				status: "delivered",
+			},
+		});
+		expect(store.listPendingLifecycleNotificationsForAgent(spawned.agent.id, "failed")).toHaveLength(0);
 	});
 
 	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {
