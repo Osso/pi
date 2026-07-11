@@ -139,7 +139,7 @@ import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager 
 
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
-import type { SlashCommandInfo } from "./slash-commands.ts";
+import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
@@ -1992,6 +1992,9 @@ export class AgentSession {
 				options?.preflightResult?.(true);
 				return;
 			}
+			if (!this._isKnownSlashCommand(text)) {
+				throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
+			}
 		}
 
 		return this._withTurnStartLock((release) => this._promptTurn(text, options, release));
@@ -2144,6 +2147,21 @@ export class AgentSession {
 	/**
 	 * Try to execute an extension command. Returns true if command was found and executed.
 	 */
+	private _slashCommandName(text: string): string {
+		const match = text.match(/^\/([^\s]+)/);
+		return `/${match?.[1] ?? ""}`;
+	}
+
+	private _isKnownSlashCommand(text: string): boolean {
+		const commandName = this._slashCommandName(text).slice(1);
+		if (BUILTIN_SLASH_COMMANDS.some((command) => command.name === commandName)) return true;
+		if (commandName.startsWith("skill:")) {
+			const skillName = commandName.slice("skill:".length);
+			return this.resourceLoader.getSkills().skills.some((skill) => skill.name === skillName);
+		}
+		return this.promptTemplates.some((template) => template.name === commandName);
+	}
+
 	private async _tryExecuteExtensionCommand(text: string): Promise<boolean> {
 		// Parse command name and args
 		const spaceIndex = text.indexOf(" ");

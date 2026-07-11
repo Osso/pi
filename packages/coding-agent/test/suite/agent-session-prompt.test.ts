@@ -285,6 +285,18 @@ describe("AgentSession prompt characterization", () => {
 		expect(readPromptHistory(getControlDbPath(harness.tempDir))).toEqual(["/testcmd hello world"]);
 	});
 
+	it("rejects unknown slash commands instead of sending them to the provider", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("should not run")]);
+
+		await expect(harness.session.prompt("/does-not-exist hello")).rejects.toThrow(
+			"Unknown slash command: /does-not-exist",
+		);
+		expect(harness.session.messages).toEqual([]);
+		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
 	it("does not duplicate a handled extension command already recorded by the editor", async () => {
 		const harness = await createHarness({
 			extensionFactories: [
