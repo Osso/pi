@@ -5580,6 +5580,7 @@ export class InteractiveMode {
 					},
 					showRenameHint: true,
 					keybindings: this.keybindings,
+					controlDbPath: this.options.controlDbPath,
 				},
 
 				this.sessionManager.getSessionFile(),

@@ -47,7 +47,7 @@ export async function selectSession(
 				process.exit(0);
 			},
 			() => ui.requestRender(),
-			{ showRenameHint: false, keybindings },
+			{ showRenameHint: false, keybindings, controlDbPath },
 		);
 
 		ui.addChild(selector);

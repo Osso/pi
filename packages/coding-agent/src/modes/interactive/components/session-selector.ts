@@ -14,6 +14,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../../../core/keybindings.ts";
+import { removeSessionMetadata } from "../../../core/session-control-db.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";
 import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
@@ -714,6 +715,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	}
 
 	private canRename = true;
+	private readonly controlDbPath?: string;
 	private sessionList: SessionList;
 	private header: SessionSelectorHeader;
 	private keybindings: KeybindingsManager;
@@ -773,11 +775,13 @@ export class SessionSelectorComponent extends Container implements Focusable {
 			renameSession?: (sessionPath: string, currentName: string | undefined) => Promise<void>;
 			showRenameHint?: boolean;
 			keybindings?: KeybindingsManager;
+			controlDbPath?: string;
 		},
 		currentSessionFilePath?: string,
 	) {
 		super();
 		this.keybindings = options?.keybindings ?? KeybindingsManager.create();
+		this.controlDbPath = options?.controlDbPath;
 		this.currentSessionsLoader = currentSessionsLoader;
 		this.allSessionsLoader = allSessionsLoader;
 		this.requestRender = requestRender;
@@ -849,6 +853,9 @@ export class SessionSelectorComponent extends Container implements Focusable {
 			const result = await deleteSessionFile(sessionPath);
 
 			if (result.ok) {
+				if (this.controlDbPath) {
+					removeSessionMetadata(this.controlDbPath, sessionPath);
+				}
 				if (this.currentSessions) {
 					this.currentSessions = this.currentSessions.filter((s) => s.path !== sessionPath);
 				}

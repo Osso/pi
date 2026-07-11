@@ -1510,6 +1510,20 @@ export function removeNamedSession(controlDbPath: string, sessionPath: string): 
 	});
 }
 
+export function removeSessionMetadata(controlDbPath: string, sessionPath: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			db.prepare("DELETE FROM named_sessions WHERE session_path = ?").run(sessionPath);
+			db.prepare("DELETE FROM session_metadata WHERE session_path = ?").run(sessionPath);
+			db.exec("COMMIT");
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
 export function listNamedSessions(controlDbPath: string): NamedSession[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import { getControlDbPath } from "../src/core/session-control-db.ts";
+import { getControlDbPath, listSessionMetadata } from "../src/core/session-control-db.ts";
 import { type SessionInfo, SessionManager } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -418,6 +418,67 @@ describe("session selector path/delete interactions", () => {
 		expect(parentOneIndex).toBeGreaterThanOrEqual(0);
 		expect(parentTwoIndex).toBeGreaterThan(parentOneIndex);
 		expect(childTwoIndex).toBeGreaterThan(parentTwoIndex);
+	});
+
+	it("removes deleted sessions from metadata-backed lists", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-delete-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "delete me");
+
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, controlDbPath },
+		);
+		await flushPromises();
+
+		const list = selector.getSessionList();
+		list.handleInput(CTRL_D);
+		list.handleInput("\r");
+		await flushPromises();
+		await flushPromises();
+
+		expect(listSessionMetadata(controlDbPath).some((metadata) => metadata.sessionPath === sessionPath)).toBe(false);
+		expect(stripAnsi(selector.render(120).join("\n"))).not.toContain("delete me");
+	});
+
+	it("deletes only the confirmed session path", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-delete-one-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+		const olderPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "keep me", { timestamp: 1 });
+		const newerPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "delete me", { timestamp: 3 });
+
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, controlDbPath },
+		);
+		await flushPromises();
+
+		const list = selector.getSessionList();
+		expect(list.getSelectedSessionPath()).toBe(newerPath);
+		list.handleInput(CTRL_D);
+		list.handleInput("\r");
+		await flushPromises();
+		await flushPromises();
+
+		const remainingPaths = listSessionMetadata(controlDbPath).map((metadata) => metadata.sessionPath);
+		expect(remainingPaths).toContain(olderPath);
+		expect(remainingPaths).not.toContain(newerPath);
 	});
 
 	it("treats the current session as active across symlink aliases", async () => {
