@@ -724,6 +724,7 @@ describe("pyrun extension", () => {
 
 		await waitFor(() => store.getAgent("agent_1")?.lifecycle === "completed", "detached Pyrun completion");
 		const agent = store.getAgent("agent_1");
+		expect(agent?.worker).toEqual({ adapter: "runtime", handleId: "pyrun" });
 		expect(agent?.result?.durationMs).toEqual(expect.any(Number));
 		expect(store.listPendingLifecycleNotificationsForAgent("agent_1", "completed")[0]?.body).toMatch(
 			/^Pyrun evaluation completed:.*Duration: \d+ms$/,

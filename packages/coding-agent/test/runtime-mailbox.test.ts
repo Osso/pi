@@ -993,6 +993,73 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("wait_agents consumes a detached Pyrun failure after waiting starts", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		if (!waitAgents) {
+			throw new Error("expected wait_agents tool");
+		}
+		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const spawned = store.spawnAgent({
+			agentType: "background",
+			cwd: "/repo",
+			displayName: "Pyrun evaluation",
+			permission: { narrowed: true, policy: "on-request" },
+			worker: { adapter: "runtime", handleId: "pyrun" },
+		});
+		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) {
+			throw new Error("expected Pyrun worker to enter starting state");
+		}
+		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
+		expect(running.ok).toBe(true);
+		if (!running.ok) {
+			throw new Error("expected Pyrun worker to enter running state");
+		}
+
+		const waitedPromise = waitAgents.execute("wait", {}, undefined, undefined, ctx);
+		await delay(1);
+		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+			result: { durationMs: 1234, summary: "Pyrun evaluation failed." },
+		});
+		expect(failed.ok).toBe(true);
+		if (!failed.ok) {
+			throw new Error("expected Pyrun worker to fail");
+		}
+		const [failureMessage] = store.listPendingLifecycleNotificationsForAgent(spawned.agent.id, "failed");
+		const persistence = store.getPersistenceTarget();
+		if (!failureMessage || !persistence) {
+			throw new Error("expected persisted Pyrun failure notification");
+		}
+		enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "system",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: spawned.agent.id, sessionId: parentSession.getSessionId() },
+			storeRef: { messageId: failureMessage.id, sessionPath: persistence.sessionPath },
+		});
+
+		const waited = await waitedPromise;
+
+		expect(waited.content[0]).toMatchObject({ text: "Pyrun evaluation failed. Duration: 1234ms" });
+		expect(waited.details).toMatchObject({
+			agent: {
+				lifecycle: "failed",
+				worker: { adapter: "runtime", handleId: "pyrun" },
+				result: { durationMs: 1234 },
+			},
+			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+		});
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+		]);
+	});
+
 	it("wait_agents leaves non-Pyrun failed agents with duration status-only", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
