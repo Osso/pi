@@ -530,6 +530,7 @@ describe("session control DB", () => {
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
+			db.exec("PRAGMA user_version = 0");
 			db.prepare(
 				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,
@@ -566,7 +567,7 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+		const expectedState = {
 			agents: [
 				{
 					id: "agent-1",
@@ -583,23 +584,83 @@ describe("session control DB", () => {
 					status: "pending",
 				},
 			],
-		});
+		};
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject(expectedState);
 
 		const migratedDb = createSqliteDatabase(controlDbPath);
+		let agentUpdatedAt: string;
 		try {
+			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
+			expect(version.user_version).toBe(1);
 			const agentRow = migratedDb
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(sessionPath, "agent-1") as { data: string };
+				.prepare("SELECT data, updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(sessionPath, "agent-1") as { data: string; updated_at: string };
+			agentUpdatedAt = agentRow.updated_at;
 			const mailboxRow = migratedDb
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 				.get(sessionPath, "message-1") as { data: string };
-			expect(JSON.parse(agentRow.data)).not.toHaveProperty("result.artifactIds");
-			expect(JSON.parse(agentRow.data)).not.toHaveProperty("result.artifactRefs");
-			expect(JSON.parse(mailboxRow.data)).not.toHaveProperty("artifactIds");
-			expect(JSON.parse(mailboxRow.data)).not.toHaveProperty("artifactRefs");
+			expect(agentRow.data).not.toContain('"artifactIds"');
+			expect(agentRow.data).not.toContain('"artifactRefs"');
+			expect(mailboxRow.data).not.toContain('"artifactIds"');
+			expect(mailboxRow.data).not.toContain('"artifactRefs"');
 		} finally {
 			migratedDb.close();
 		}
+
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject(expectedState);
+		const secondReadDb = createSqliteDatabase(controlDbPath);
+		try {
+			const agentRow = secondReadDb
+				.prepare("SELECT updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(sessionPath, "agent-1") as { updated_at: string };
+			expect(agentRow.updated_at).toBe(agentUpdatedAt);
+		} finally {
+			secondReadDb.close();
+		}
+
+		const alreadyMigratedDb = createSqliteDatabase(controlDbPath);
+		try {
+			alreadyMigratedDb
+				.prepare(
+					`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+					 VALUES (?, ?, ?, ?)`,
+				)
+				.run(
+					sessionPath,
+					"agent-2",
+					JSON.stringify({ id: "agent-2", result: { artifactIds: ["artifact-3"] } }),
+					"2026-07-11T00:00:00.000Z",
+				);
+		} finally {
+			alreadyMigratedDb.close();
+		}
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/Legacy artifact fields/);
+	});
+
+	it("keeps strict validation after legacy payload migration", () => {
+		const sessionPath = "/sessions/legacy-invalid.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 0");
+			db.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(
+				sessionPath,
+				"message-1",
+				JSON.stringify({
+					artifactIds: ["artifact-1"],
+					body: "invalid",
+					fileRefs: [{ path: "/tmp/output.log", label: 42 }],
+				}),
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/label.*string/i);
 	});
 
 	it("deduplicates concurrent runtime mailbox enqueues by store reference", async () => {

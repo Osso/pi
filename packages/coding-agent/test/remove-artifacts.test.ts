@@ -107,6 +107,24 @@ describe("artifact removal", () => {
 		);
 	});
 
+	it("rejects removed artifact fields at fresh DB ingress", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-remove-artifacts-fresh-db-"));
+		tempDirs.push(tempDir);
+		const controlDbPath = getControlDbPath(tempDir);
+		const sessionPath = "/sessions/fresh-invalid.jsonl";
+
+		expect(() =>
+			upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
+				result: { artifactIds: ["artifact-1"] },
+			} as never),
+		).toThrow(/Legacy artifact fields/);
+		expect(() =>
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message-1", {
+				artifactRefs: [{ path: "/tmp/legacy.log" }],
+			} as never),
+		).toThrow(/Legacy artifact fields/);
+	});
+
 	it("merges legacy counters by maximum and drops removed artifact storage", () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-remove-artifacts-migration-"));
 		tempDirs.push(tempDir);

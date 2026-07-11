@@ -10,6 +10,8 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
+const CONTROL_DB_SCHEMA_VERSION = 1;
+
 export interface IncomingControlMessage {
 	id: number;
 	content: string;
@@ -2857,6 +2859,9 @@ function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
 
 function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 	withImmediateTransaction(db, () => {
+		const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+		if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+
 		const now = new Date().toISOString();
 		for (const { table, idColumn } of [
 			{ table: "multi_agent_agents", idColumn: "agent_id" },
@@ -2883,6 +2888,7 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 				update.run(JSON.stringify(migrated.value), now, row.session_path, row[idColumn]);
 			}
 		}
+		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
 	});
 }
 
