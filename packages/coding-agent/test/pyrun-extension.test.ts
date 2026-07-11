@@ -712,6 +712,26 @@ describe("pyrun extension", () => {
 		expect(text).toContain("hello");
 	});
 
+	it("records detached Pyrun duration in the agent result and completion notification", async () => {
+		const store = new MultiAgentStore();
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+		const evaluation = harness.evaluate({ code: "run.detachable()" });
+		await delay(10);
+		expect(detachRegistry.detachRunning()).toBe(true);
+		const detached = await evaluation;
+		expect(detached.details).toMatchObject({ backgroundJobId: "agent_1" });
+
+		await waitFor(() => store.getAgent("agent_1")?.lifecycle === "completed", "detached Pyrun completion");
+		const agent = store.getAgent("agent_1");
+		expect(agent?.result?.durationMs).toEqual(expect.any(Number));
+		expect(agent?.result?.durationMs).toBeGreaterThanOrEqual(40);
+		expect(store.listPendingLifecycleNotificationsForAgent("agent_1", "completed")[0]?.body).toMatch(
+			/^Pyrun evaluation completed:.*Duration: \d+ms$/,
+		);
+	});
+
 	it("omits empty Pyrun result values", async () => {
 		const harness = createPyrunHarness();
 
@@ -1441,6 +1461,7 @@ describe("pyrun extension", () => {
 		expect(runningArtifact).toMatchObject({ kind: "log", title: "Pyrun output" });
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
 		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation completed");
+		expect(store.getAgent(job.id)?.result?.durationMs).toBeGreaterThanOrEqual(40);
 		const [artifact] = store.listArtifacts(job.id);
 		expect(store.listArtifacts(job.id)).toHaveLength(1);
 		expect(artifact.id).toBe(runningArtifact.id);
@@ -1467,6 +1488,7 @@ describe("pyrun extension", () => {
 		const [job] = store.listAgents();
 		await waitFor(() => store.getAgent(job.id)?.lifecycle === "failed", "detached Pyrun failure");
 		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation failed");
+		expect(store.getAgent(job.id)?.result?.durationMs).toBeGreaterThanOrEqual(40);
 	});
 
 	it("aborts an in-progress Pyrun evaluation when the agent signal is aborted", async () => {

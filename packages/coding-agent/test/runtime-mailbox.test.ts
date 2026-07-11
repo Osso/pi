@@ -900,7 +900,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		const dispatcher: ChildAgentDispatcher = async () => ({
 			lifecycle: "completed",
-			result: { summary: "tests passed" },
+			result: { durationMs: 1234, summary: "tests passed" },
 		});
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
@@ -921,8 +921,11 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		const waited = await waitAgents.execute("wait", {}, undefined, undefined, ctx);
 
-		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed" });
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
+		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed. Duration: 1234ms" });
+		expect(waited.details).toMatchObject({ agent: { result: { durationMs: 1234 } } });
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{ body: "Worker completed: tests passed. Duration: 1234ms", status: "delivered" },
+		]);
 	});
 
 	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {

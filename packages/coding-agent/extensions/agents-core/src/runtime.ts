@@ -298,6 +298,7 @@ interface ContactSupervisorToolDetails {
 }
 
 interface WaitAgentsToolDetails {
+	agent?: AgentSnapshot;
 	message?: AgentMailboxMessage;
 }
 interface AgentViewerToolDetails {
@@ -1888,7 +1889,7 @@ function consumeAgentCompletion(
 	if (completionMessage) {
 		consumeRuntimeCompletionNotification(ctx, store, completionMessage.id);
 		const body = completionMessage.body ?? formatAgentStatus(agent);
-		return result(body, { message: completionMessage });
+		return result(body, { agent, message: completionMessage });
 	}
 	return result(formatWaitAgentsCompletion(agent), {});
 }

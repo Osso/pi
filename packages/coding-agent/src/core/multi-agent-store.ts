@@ -35,6 +35,7 @@ export interface AgentActivity {
 export interface AgentResult {
 	summary?: string;
 	artifactIds?: string[];
+	durationMs?: number;
 }
 
 export interface AgentArtifactReference {
@@ -1360,12 +1361,22 @@ function lifecycleNotificationThreadId(agentId: string, lifecycle: AgentLifecycl
 
 function formatCompletionNotificationBody(agent: AgentNode): string {
 	const summary = agent.result?.summary?.trim();
-	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
+	const body = summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
+	return appendAgentDuration(body, agent.result?.durationMs);
 }
 
 function formatFailureNotificationBody(agent: AgentNode): string {
 	const errorMessage = agent.error?.message.trim();
-	return errorMessage ? `${agent.displayName} failed: ${errorMessage}` : `${agent.displayName} failed.`;
+	const body = errorMessage ? `${agent.displayName} failed: ${errorMessage}` : `${agent.displayName} failed.`;
+	return appendAgentDuration(body, agent.result?.durationMs);
+}
+
+function appendAgentDuration(body: string, durationMs: number | undefined): string {
+	if (durationMs === undefined) {
+		return body;
+	}
+	const separator = /[.!?]$/.test(body) ? " " : ". ";
+	return `${body}${separator}Duration: ${durationMs}ms`;
 }
 
 function formatWaitingForInputNotificationBody(agent: AgentNode): string {

@@ -39,6 +39,7 @@ interface PyrunBackgroundJob {
 	artifactId: string;
 	id: string;
 	logPath: string;
+	startedAt: number;
 }
 
 type PyrunEvaluate = ReturnType<typeof createPyrunEvalExecutor>;
@@ -482,6 +483,7 @@ function createPyrunPlaceholderLog(params: PyrunEvalParams, logPath: string): vo
 }
 
 function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams, ctx: ExtensionContext): PyrunBackgroundJob {
+	const startedAt = Date.now();
 	const logPath = createPyrunLogPath();
 	createPyrunPlaceholderLog(params, logPath);
 	const spawned = store.spawnAgent({
@@ -501,7 +503,12 @@ function spawnPyrunBackgroundJob(store: MultiAgentStore, params: PyrunEvalParams
 		artifactId: artifact.id,
 		id: agent.id,
 		logPath,
+		startedAt,
 	};
+}
+
+function getPyrunBackgroundDurationMs(job: PyrunBackgroundJob): number {
+	return Math.max(0, Date.now() - job.startedAt);
 }
 
 function updatePyrunLogArtifact(job: PyrunBackgroundJob, output: string): string {
@@ -512,7 +519,10 @@ function updatePyrunLogArtifact(job: PyrunBackgroundJob, output: string): string
 function transitionPyrunJobFailure(store: MultiAgentStore, job: PyrunBackgroundJob, message: string): void {
 	const current = store.getAgent(job.id);
 	if (!current || !isActiveLifecycle(current.lifecycle)) return;
-	store.transitionAgent(current.id, current.revision, "failed", { error: { message } });
+	store.transitionAgent(current.id, current.revision, "failed", {
+		error: { message },
+		result: { durationMs: getPyrunBackgroundDurationMs(job) },
+	});
 }
 
 function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJob, result: AgentToolResult<unknown>): void {
@@ -529,7 +539,7 @@ function finishPyrunBackgroundJob(store: MultiAgentStore, job: PyrunBackgroundJo
 	const lifecycle = result.isError ? "failed" : "completed";
 	const summary = result.isError ? "Pyrun evaluation failed." : "Pyrun evaluation completed.";
 	store.transitionAgent(current.id, current.revision, lifecycle, {
-		result: { artifactIds: [artifactId], summary },
+		result: { artifactIds: [artifactId], durationMs: getPyrunBackgroundDurationMs(job), summary },
 	});
 }
 
