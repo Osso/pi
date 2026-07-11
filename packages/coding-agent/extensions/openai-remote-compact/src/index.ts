@@ -12,6 +12,7 @@ export const OPENAI_REMOTE_COMPACTION_SUMMARY = "OpenAI native compaction stored
 const DETAILS_TYPE = "openai-remote-compaction";
 const DETAILS_VERSION = 1;
 const MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS = 400_000;
+const CODEX_REMOTE_COMPACTION_MODEL = "gpt-5.6-terra";
 
 type OpenAINativeCompactApi = "openai-responses" | "openai-codex-responses";
 type OpenAINativeCompactModel = Model<OpenAINativeCompactApi>;
@@ -102,6 +103,17 @@ function isOpenAICodexResponsesModel(model: Model<Api> | undefined): model is Op
 	);
 }
 
+function isCodexRemoteCompactionModel(model: OpenAINativeCompactModel): boolean {
+	return (
+		model.api === "openai-codex-responses" &&
+		(model.provider === "openai-codex" || model.provider === "openai-codex-gc")
+	);
+}
+
+function getOpenAICompactModelId(model: OpenAINativeCompactModel): string {
+	return isCodexRemoteCompactionModel(model) ? CODEX_REMOTE_COMPACTION_MODEL : model.id;
+}
+
 export function buildOpenAICompactPayload(
 	model: OpenAINativeCompactModel,
 	messages: AgentMessage[],
@@ -126,7 +138,7 @@ export function buildOpenAICompactPayload(
 		new Set(previousReplacementHistory),
 	);
 	return {
-		model: model.id,
+		model: getOpenAICompactModelId(model),
 		input,
 		instructions,
 		tools: [],
@@ -152,7 +164,7 @@ export function extractOpenAICompactDetails(
 		version: DETAILS_VERSION,
 		provider: model.provider,
 		api: model.api,
-		model: model.id,
+		model: getOpenAICompactModelId(model),
 		endpoint,
 		replacementHistory,
 		replacementHistoryBytes,
@@ -245,7 +257,8 @@ function findLatestOpenAIReplacementHistory(
 	model: OpenAINativeCompactModel,
 ): OpenAIResponseItem[] {
 	const details = findLatestOpenAIReplacementHistoryDetails(entries);
-	if (!details || details.provider !== model.provider || details.api !== model.api || details.model !== model.id) return [];
+	if (!details || details.provider !== model.provider || details.api !== model.api) return [];
+	if (!isCodexRemoteCompactionModel(model) && details.model !== model.id) return [];
 	return details.replacementHistory;
 }
 
