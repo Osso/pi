@@ -113,6 +113,7 @@
 - Fixed `wait_agents({})` to observe terminal transitions from detached tool jobs that update the multi-agent store without a child dispatch.
 - Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
 - Fixed runtime mailbox delivery races: when an idle delivery attempt races with an already-active prompt on the recipient, the claimed transport row is released back to pending for bounded redelivery instead of being marked failed. Added regression test `test/runtime-mailbox.test.ts` to prevent regressions.
+- Fixed persisted multi-agent ID reuse when counter rows lagged alternate counter state or existing agent, artifact, mailbox, and runtime transport IDs: allocation now reconciles those sources before advancing, and conflicting mailbox message ID reuse fails explicitly instead of overwriting the existing message.
 - Fixed the interactive retry indicator persisting after a successful retry.
 - Fixed detached Pyrun jobs to record elapsed duration in `durationMs`, include `Duration: Nms` in completion/failure notifications, and made direct `wait_agents({})` consume pending completion notifications and pending failure notifications for detached Pyrun jobs, return the winning agent and message in `details`, and mark the matching runtime mailbox transport row delivered; non-Pyrun failure waits retain their existing behavior.
 

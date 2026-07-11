@@ -28,6 +28,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_artifacts`, `multi_agent_mailbox_messages`,
       `multi_agent_counters`): one row upsert per mutation, restore selects the session's rows.
+- [x] Allocate persisted multi-agent agent, artifact, and message IDs transactionally. Before each
+      allocation, reconcile the stored counter with alternate counter state and existing persisted
+      IDs in the session's agent, artifact, mailbox, and runtime mailbox transport rows, then advance
+      the counter above every observed ID.
+- [x] Reject conflicting reuse of a persisted mailbox message ID: updates are allowed only when the
+      sender, recipient, kind, thread, and message ID identity match; a collision fails explicitly
+      without overwriting the existing row.
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.

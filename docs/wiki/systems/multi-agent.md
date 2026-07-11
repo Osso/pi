@@ -323,13 +323,16 @@ Rules:
 
 ### Persistence
 
-The first persistence slice writes full store snapshots:
+Persisted multi-agent state lives in per-entity rows in the session control DB, keyed by session
+path. Agent, artifact, and mailbox mutations update their own rows; the session JSONL transcript
+carries conversation history only. Runtime mailbox transport rows reference stored mailbox messages
+by `(store_session_path, store_message_id)` instead of copying their bodies.
 
-- Snapshots use `SessionManager.appendCustomEntry()` with `customType: "multi_agent_event"`.
-- `MultiAgentStore.fromSessionManager()` rehydrates the latest valid snapshot from reopened session
-  entries.
-- Agent-visible coordination should use `appendCustomMessageEntry()` later only when a message
-  should enter LLM context.
+Per-session agent, artifact, and message IDs are allocated transactionally. Allocation reconciles
+alternate counter state and existing IDs across agent, artifact, mailbox, and runtime transport rows
+before advancing, so stale counter rows cannot cause ID reuse. Mailbox message rows may be updated
+when their sender, recipient, kind, thread, and message ID identity match; conflicting reuse fails
+explicitly without overwriting the existing message.
 
 Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
 sessions may show previous agents as terminal, detached, or resumable; they must not pretend a dead

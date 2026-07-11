@@ -56,6 +56,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent state persists as per-entity rows in the session control DB (one upsert per
       mutated agent, artifact, or mailbox message), not as snapshots appended to the session
       JSONL transcript; transcripts carry conversation history only.
+- [x] Persisted agent, artifact, and message IDs are allocated from per-session counters. Allocation
+      reconciles alternate counter state and existing IDs across agent, artifact, mailbox, and runtime
+      mailbox transport rows before advancing, so stale counters cannot cause ID reuse.
 - [x] Forked/branched sessions start with an empty multi-agent store: state is keyed by session
       path and deliberately does not follow forks, so the original and the fork can never both
       auto-restart the same child transcripts.
@@ -109,6 +112,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Child agents can contact the supervisor without direct access to sibling internals.
 - [x] Mailbox messages can reference artifacts by ID/path so large diffs, logs, summaries, and
       findings are not copied into every coordination event.
+- [x] Persisted mailbox message IDs are stable within a session store. Reuse is allowed only when
+      sender, recipient, kind, thread, and message ID identity match; conflicting reuse fails
+      explicitly without overwriting the existing message.
 - [x] Cross-session mailbox transport is runtime coordination state and must not be persisted in
       session JSONL transcripts or `MultiAgentStore` session snapshots.
 - [x] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
