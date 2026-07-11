@@ -10,15 +10,24 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Supported running tools auto-detach through the same shared registry after 120 seconds.
 - [x] Auto-detach moves the tool out of the foreground only; explicit tool timeout settings continue to kill/fail the underlying work.
 - [x] Detached bash commands create a background job, write later output to a log artifact, and support cancellation through `cancel_agent`.
-- [x] Detached Pyrun evaluations create a background job, complete independently, and write final output to a log artifact.
-- [x] `wait_agents({})` waits until any detached tool job active at invocation reaches a terminal state.
+- [x] Detached Pyrun evaluations create a background job, complete independently, write final output to a log artifact, and record elapsed time in the agent result's `durationMs` field.
+- [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
+- [x] `wait_agents({})` consumes pending completion notifications, and pending failure notifications for
+      detached Pyrun jobs, before waiting for any detached tool job active at invocation to reach a
+      terminal state. For either supported notification, the direct tool exposes the agent and
+      message in `details`; non-Pyrun failure waits retain their existing behavior.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 
 ## How it works
 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
-- `wait_agents({})` snapshots active background jobs, immediately consumes one pending completion notification when available, or waits for the first terminal job. The direct tool returns that winner's completion or status; the Hostrun/Pyrun bridge returns `null`.
+- `wait_agents({})` snapshots active background jobs, immediately consumes one pending completion
+  notification or pending failure notification for a detached Pyrun job when available, or waits
+  for the first terminal job. The direct tool returns that winner's completion or status; when
+  consuming either supported notification, its `details` include the agent and message, and the
+  matching runtime mailbox transport row is marked delivered. The Hostrun/Pyrun bridge returns
+  `null`.
 
 ## Implementation inventory
 
@@ -31,7 +40,10 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/bash-tool-detach.test.ts`
-- `packages/coding-agent/test/pyrun-extension.test.ts`
+- `packages/coding-agent/test/pyrun-extension.test.ts` — detached Pyrun completion/failure regressions,
+  elapsed `durationMs`, and duration-bearing lifecycle notifications.
+- `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery for
+  completion and failed detached Pyrun notifications, including `wait_agents({})` marking rows delivered.
 - `packages/coding-agent/test/multi-agent-extension.test.ts`
 
 ## Known gaps (current cycle)

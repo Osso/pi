@@ -114,6 +114,7 @@
 - Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
 - Fixed runtime mailbox delivery races: when an idle delivery attempt races with an already-active prompt on the recipient, the claimed transport row is released back to pending for bounded redelivery instead of being marked failed. Added regression test `test/runtime-mailbox.test.ts` to prevent regressions.
 - Fixed the interactive retry indicator persisting after a successful retry.
+- Fixed detached Pyrun jobs to record elapsed duration in `durationMs`, include `Duration: Nms` in completion/failure notifications, and made direct `wait_agents({})` consume pending completion notifications and pending failure notifications for detached Pyrun jobs, return the winning agent and message in `details`, and mark the matching runtime mailbox transport row delivered; non-Pyrun failure waits retain their existing behavior.
 
 ### Removed
 

@@ -92,8 +92,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       invalidates in-flight dispatches before aborting handles.
 - [x] `wait_agents({})` snapshots agents active at invocation and waits until any one reaches a
       terminal state. It first consumes one pending completion notification when available, so a
-      completed agent never requires another wait. Restore clears transient `runtime` worker metadata;
-      persisted metadata never makes a wait poll indefinitely.
+      completed agent never requires another wait; for a failed detached Pyrun job, it also
+      consumes one pending failure notification. When consuming either supported notification,
+      the direct tool exposes the agent snapshot and notification message in `details`. Other
+      terminal failure waits retain their existing status-only behavior. Restore clears transient
+      `runtime` worker metadata; persisted metadata never makes a wait poll indefinitely.
 
 ### Mailbox and steering
 
@@ -152,11 +155,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agents({})` first consumes one pending completion notification; otherwise it waits
-      until any agent active at invocation reaches a terminal state. The direct tool returns the
-      winning agent's completion or terminal status and consumes only that winner's completion
-      notification and matching runtime mailbox transport row. Hostrun/Pyrun `pi.agents.wait()`
-      discards that tool result and returns `null`.
+- [x] `wait_agents({})` first consumes one pending completion notification; for a failed detached
+      Pyrun job, it also consumes one pending failure notification; otherwise it waits until any
+      agent active at invocation reaches a terminal state. The direct tool returns the winning
+      agent's completion or terminal status and, for either supported notification, returns the
+      agent and message in `details` while marking the matching runtime mailbox transport row
+      delivered. Non-Pyrun failure waits retain their existing status-only behavior. Hostrun/Pyrun
+      `pi.agents.wait()` discards that tool result and returns `null`.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
 - [x] The extension context control-DB path falls back to the session's metadata control-DB path,
@@ -282,7 +287,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
   production child factory wrapper, that configured agent profiles can select child model/thinking
-  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agents({})` immediately consumes one pending completion notification or waits for any agent active at invocation to reach terminal state, returns that winner's completion or status, and consumes only that winner's completion notice, that mailbox results remain pending for mailbox delivery, that `list_agents` returns
+  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agents({})` immediately consumes one pending completion notification, or one pending failure notification for a failed detached Pyrun job, or waits for any agent active at invocation to reach terminal state, returns that winner's completion or status, and exposes the consumed agent and message in `details` while marking the matching runtime mailbox transport row delivered. Non-Pyrun failure waits remain status-only. `list_agents` returns
   active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with artifact references by
   ID/path rather than copied content. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
@@ -296,6 +301,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   `MultiAgentStore` without owning separate runtime state. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
   aborts a running background child session when the job is cancelled.
+- [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)
+  verifies explicit runtime mailbox mirroring and delivery for child completion, waiting-for-input,
+  steering, and failed detached Pyrun notifications, including `wait_agents({})` delivery marking.
+- [`packages/coding-agent/test/pyrun-extension.test.ts`](../../packages/coding-agent/test/pyrun-extension.test.ts)
+  covers detached Pyrun completion and failure regressions, including `durationMs` and duration-bearing
+  lifecycle notifications.
 - [`packages/coding-agent/test/keybindings-migration.test.ts`](../../packages/coding-agent/test/keybindings-migration.test.ts)
   verifies the default `Alt+1` through `Alt+9` bindings for visible agent slot actions.
 

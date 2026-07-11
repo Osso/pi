@@ -15,8 +15,9 @@ are added.
 `contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate or read
 `MultiAgentStore`. The read-only `agents_mailbox` tool is temporarily disabled.
 `spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
-injected factory. `wait_agents({})` immediately consumes one pending completion notification or
-waits until any agent active at invocation reaches terminal state.
+injected factory. `wait_agents({})` immediately consumes one pending completion notification, or one
+pending failure notification for a failed detached Pyrun job, before waiting until any agent active at
+invocation reaches terminal state.
 `createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
 `SessionManager.create()` primitives so production callers can create child sessions with the
 parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
@@ -26,8 +27,12 @@ rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry sanitized artifact references with IDs, paths,
 and labels, so large logs or diffs stay outside coordination events. The direct `wait_agents({})`
-tool returns the winning agent's completion or terminal status and consumes only that winner's
-completion notification; Hostrun/Pyrun `pi.agents.wait()` returns `null`.
+tool returns the winning agent's completion or terminal status and consumes only one pending
+notification for that winner. Completion notifications and failed detached Pyrun notifications are
+explicitly delivered through runtime mailbox transport; `wait_agents({})` returns `agent` and
+`message` details and marks the consumed transport row `delivered`. Non-Pyrun failures remain
+status-only. Detached Pyrun results expose `durationMs`, including in their failure notification text.
+Hostrun/Pyrun `pi.agents.wait()` returns `null`.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -78,10 +83,14 @@ Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in 
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. It snapshots active agents at invocation, waits until any
-one reaches terminal state, or immediately consumes one pending completion notification. The store
-removes transient worker metadata on restore, so persisted process metadata cannot keep a wait
-polling forever.
+`wait_agents({})` takes no agent ID. It snapshots active agents at invocation. It first consumes one
+pending completion notification, or one pending failure notification for a failed detached Pyrun job;
+otherwise it waits until any agent active at invocation reaches terminal state. Completion and supported
+Pyrun failure notifications are delivered through the runtime mailbox; consuming one returns `agent`
+and `message` details and marks its transport row `delivered`. Other failures remain status-only.
+Detached Pyrun results include `durationMs`. The store removes transient worker metadata on restore,
+so persisted process metadata cannot keep a wait polling forever. Hostrun/Pyrun `pi.agents.wait()`
+returns `null`.
 
 Existing primitives worth reusing:
 
