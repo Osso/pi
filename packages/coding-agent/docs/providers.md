@@ -25,6 +25,9 @@ Use `/logout` to clear credentials. Tokens are stored in `~/.pi/agent/auth.json`
 
 - Requires ChatGPT Plus or Pro subscription
 - Officially endorsed by OpenAI: [Codex for OSS](https://developers.openai.com/community/codex-for-oss)
+- To configure a second Codex account, run `/login openai-codex-gc`; its credentials are stored separately from `openai-codex`.
+
+When both `openai-codex` and `openai-codex-gc` have credentials, and both expose the active model ID, `AgentSession` automatically switches to the paired provider after a terminal quota, usage-limit, or billing-exhaustion error and continues the request once. It does not switch back and forth within the same user turn. If the paired provider or same model ID is unavailable, the original error is returned.
 
 ### Claude Pro/Max
 

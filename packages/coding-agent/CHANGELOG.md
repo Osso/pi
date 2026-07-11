@@ -17,6 +17,7 @@
 - Added a built-in `ask_questions` tool for structured clarifying questions in interactive sessions.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
+- Added automatic one-time fallback from `openai-codex` to `openai-codex-gc` (and back) after terminal quota, usage-limit, or billing exhaustion when the paired provider has auth for the same model ID; fallback is guarded against provider loops within the user turn.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
 - Added a first-party `web_search` tool for OpenAI Responses hosted web search.
 - Added a generic Pyrun `pi.tools.call(name, params)` bridge for active Pi tools, with `pi.web_search(query)` as a convenience wrapper for `web_search`.
