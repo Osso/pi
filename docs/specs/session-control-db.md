@@ -60,7 +60,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended, and confirms the registered binding `ok`;
       listener retirement removes only the exact `(session_id, agent_id, pid)` binding being
-      disposed.
+      disposed. A conflicting live owner fails with an actionable recovery message naming the PID
+      and verified session cwd when available; it never guesses cwd.
 - [x] Session-path relocation updates the main-listener path assertion in the same SQLite transaction
       as metadata, multi-agent rows, counters, and mailbox references, so no live-store mismatch is
       externally observable.
