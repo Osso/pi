@@ -170,7 +170,7 @@ Standard editing keybindings for delete word, undo, etc. See [docs/keybindings.m
 
 ### Commands
 
-Type `/` in the editor to trigger commands. [Extensions](#extensions) can register custom commands, [skills](#skills) are available as `/skill:name`, and [prompt templates](#prompt-templates) expand via `/templatename`.
+Type `/` in the editor to trigger commands. [Extensions](#extensions) can register custom commands, [skills](#skills) are available as `/skill:name`, and [prompt templates](#prompt-templates) expand via `/templatename`. Slash-prefixed input must name a built-in command, extension command, skill, or prompt template; otherwise pi rejects it with `Unknown slash command: /name` instead of sending it to the model.
 
 | Command | Description |
 |---------|-------------|

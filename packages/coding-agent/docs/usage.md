@@ -31,7 +31,7 @@ See [Keybindings](keybindings.md) for all shortcuts and customization.
 
 ## Slash Commands
 
-Type `/` in the editor to open command completion. Extensions can register custom commands, skills are available as `/skill:name`, and prompt templates expand via `/templatename`.
+Type `/` in the editor to open command completion. Extensions can register custom commands, skills are available as `/skill:name`, and prompt templates expand via `/templatename`. Slash-prefixed input must name a built-in command, extension command, skill, or prompt template; otherwise pi rejects it with `Unknown slash command: /name` instead of sending it to the model.
 
 | Command | Description |
 |---------|-------------|

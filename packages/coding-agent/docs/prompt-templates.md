@@ -54,7 +54,7 @@ This renders in the autocomplete dropdown as:
 
 ## Usage
 
-Type `/` followed by the template name in the editor. Autocomplete shows available templates with descriptions.
+Type `/` followed by the template name in the editor. Autocomplete shows available templates with descriptions. When using `session.prompt()`, an unknown slash command is rejected with `Unknown slash command: /name` instead of being sent to the model.
 
 ```
 /review                           # Expands review.md

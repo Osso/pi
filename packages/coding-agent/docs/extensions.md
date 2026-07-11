@@ -850,14 +850,15 @@ pi.on("user_bash", (event, ctx) => {
 
 #### input
 
-Fired when user input is received, after extension commands are checked but before skill and template expansion. The event sees the raw input text, so `/skill:foo` and `/template` are not yet expanded.
+Fired when user input is received, after extension commands and slash-command validation but before skill and template expansion. The event sees the raw input text, so `/skill:foo` and `/template` are not yet expanded. Unknown slash commands are rejected before this event.
 
 **Processing order:**
 1. Extension commands (`/cmd`) checked first - if found, handler runs and input event is skipped
-2. `input` event fires - can intercept, transform, or handle
-3. If not handled: skill commands (`/skill:name`) expanded to skill content
-4. If not handled: prompt templates (`/template`) expanded to template content
-5. Agent processing begins (`before_agent_start`, etc.)
+2. Unknown slash commands are rejected with `Unknown slash command: /name`; the input event is skipped
+3. `input` event fires - can intercept, transform, or handle
+4. If not handled: skill commands (`/skill:name`) expanded to skill content
+5. If not handled: prompt templates (`/template`) expanded to template content
+6. Agent processing begins (`before_agent_start`, etc.)
 
 ```typescript
 pi.on("input", async (event, ctx) => {

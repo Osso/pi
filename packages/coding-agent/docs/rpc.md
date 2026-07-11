@@ -64,6 +64,8 @@ With images:
 
 If the agent is streaming and no `streamingBehavior` is specified, the command returns an error.
 
+**Unknown slash commands**: If the message starts with `/` but does not name a known built-in command, extension command, skill, or prompt template, `prompt` fails with `Unknown slash command: /name` before acceptance and does not send the message to the provider.
+
 **Extension commands**: If the message is an extension command (e.g., `/mycommand`), it executes immediately even during streaming. Extension commands manage their own LLM interaction via `pi.sendMessage()`.
 
 **Input expansion**: Skill commands (`/skill:name`) and prompt templates (`/template`) are expanded before sending/queueing.
