@@ -83,11 +83,13 @@ Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in 
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. It snapshots active agents at invocation. It first consumes one
-pending completion notification, or one pending failure notification for a failed detached Pyrun job;
-otherwise it waits until any agent active at invocation reaches terminal state. Completion and supported
-Pyrun failure notifications are delivered through the runtime mailbox; consuming one returns `agent`
-and `message` details and marks its transport row `delivered`. Other failures remain status-only.
+`wait_agents({})` takes no agent ID. Startup retries pending lifecycle-notification mirroring after
+registering the runtime listener, and each wait retries it again before consuming notifications. The
+wait snapshots active agents at invocation. It first consumes one pending completion notification, or
+one pending failure notification for a failed detached Pyrun job; otherwise it waits until any agent
+active at invocation reaches terminal state. Completion and supported Pyrun failure notifications are
+delivered through the runtime mailbox; consuming one returns `agent` and `message` details and marks
+its transport row `delivered`. Other failures remain status-only.
 Detached Pyrun results include `durationMs`. The store removes transient worker metadata on restore,
 so persisted process metadata cannot keep a wait polling forever. Hostrun/Pyrun `pi.agents.wait()`
 returns `null`.
@@ -330,9 +332,11 @@ by `(store_session_path, store_message_id)` instead of copying their bodies.
 
 Per-session agent, artifact, and message IDs are allocated transactionally. Allocation reconciles
 alternate counter state and existing IDs across agent, artifact, mailbox, and runtime transport rows
-before advancing, so stale counter rows cannot cause ID reuse. Mailbox message rows may be updated
-when their sender, recipient, kind, thread, and message ID identity match; conflicting reuse fails
-explicitly without overwriting the existing message.
+before advancing, so stale counter rows cannot cause ID reuse. Legacy `multi_agent_counters_v2` rows
+are migrated into authoritative `multi_agent_counters` during schema initialization, then the
+alternate table is dropped. Mailbox message rows may be updated only when both stored and incoming
+identities are complete and their sender, recipient, kind, thread, and message ID identity match;
+incomplete or conflicting reuse fails transactionally without overwriting the existing message.
 
 Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
 sessions may show previous agents as terminal, detached, or resumable; they must not pretend a dead

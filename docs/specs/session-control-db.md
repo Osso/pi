@@ -31,10 +31,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Allocate persisted multi-agent agent, artifact, and message IDs transactionally. Before each
       allocation, reconcile the stored counter with alternate counter state and existing persisted
       IDs in the session's agent, artifact, mailbox, and runtime mailbox transport rows, then advance
-      the counter above every observed ID.
-- [x] Reject conflicting reuse of a persisted mailbox message ID: updates are allowed only when the
-      sender, recipient, kind, thread, and message ID identity match; a collision fails explicitly
-      without overwriting the existing row.
+      the counter above every observed ID. Legacy `multi_agent_counters_v2` rows migrate into
+      authoritative `multi_agent_counters` during schema initialization, then the alternate table is
+      dropped.
+- [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
+      only when both stored and incoming identities are complete and the sender, recipient, kind,
+      thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
+      overwriting the existing row.
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
