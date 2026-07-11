@@ -1850,6 +1850,9 @@ async function waitAgents(
 	if (ctx && isChildAgentRuntime(ctx)) {
 		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {});
 	}
+	if (ctx) {
+		mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
+	}
 	const pendingCompletion = findAgentWithPendingCompletion(store);
 	if (pendingCompletion) {
 		return consumeAgentCompletion(store, pendingCompletion, ctx);
@@ -2206,6 +2209,15 @@ function isWaitingForInputNotification(message: AgentMailboxMessage): boolean {
 	);
 }
 
+function mirrorPendingLifecycleRuntimeMailboxMessages(store: MultiAgentStore, ctx: ExtensionContext): void {
+	for (const agent of store.listAgents()) {
+		if (!isRuntimeMirroredLifecycle(agent.lifecycle)) continue;
+		for (const message of store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle)) {
+			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
+		}
+	}
+}
+
 function mirrorAgentLifecycleRuntimeMailbox(store: MultiAgentStore, agent: AgentSnapshot, ctx: ExtensionContext): void {
 	if (!isRuntimeMirroredLifecycle(agent.lifecycle)) {
 		return;
@@ -2441,6 +2453,11 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 				console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
 			}
 		});
+		try {
+			mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
+		} catch (error) {
+			console.error("Failed to retry pending agent lifecycle notifications:", error);
+		}
 		recoverDetachedAgents({
 			createAttachedSession,
 			ctx,

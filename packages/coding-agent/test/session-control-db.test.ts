@@ -10,6 +10,7 @@ import {
 	abortInactiveSessionSpawnedAgents,
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
 	advanceSharedChannelCursor,
+	allocateMultiAgentCounter,
 	archiveSession,
 	archiveSessionsOlderThan,
 	claimLatestIncomingMessage,
@@ -135,6 +136,50 @@ describe("session control DB", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
 	});
 
+	it("does not reuse mailbox IDs when persisted rows or an alternate counter table are ahead", () => {
+		const sessionPath = "/sessions/supervisor.jsonl";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
+			body: "already allocated",
+			fromAgentId: "agent_3",
+			id: "message_2",
+			kind: "system",
+			status: "delivered",
+			toAgentId: "main",
+		});
+
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE multi_agent_counters_v2 (
+					session_path TEXT PRIMARY KEY,
+					next_agent_number INTEGER NOT NULL,
+					next_message_number INTEGER NOT NULL,
+					updated_at TEXT NOT NULL
+				);
+				INSERT INTO multi_agent_counters (
+					session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
+				) VALUES ('${sessionPath}', 1, 1, 1, '2026-07-11T00:00:00.000Z');
+				INSERT INTO multi_agent_counters_v2 (
+					session_path, next_agent_number, next_message_number, updated_at
+				) VALUES ('${sessionPath}', 1, 7, '2026-07-11T00:00:00.000Z');
+			`);
+		} finally {
+			db.close();
+		}
+
+		expect(allocateMultiAgentCounter(controlDbPath, sessionPath, "message")).toBe(7);
+		const verifyDb = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				verifyDb
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_counters_v2'")
+					.get(),
+			).toBeUndefined();
+		} finally {
+			verifyDb.close();
+		}
+	});
+
 	it("persists Architect requests until the Architect completes them", () => {
 		const requestId = postArchitectRequest(controlDbPath, {
 			senderSessionId: "main-session",
@@ -233,6 +278,38 @@ describe("session control DB", () => {
 		claimPendingArchitectRequests(controlDbPath, "architect-runtime");
 		completeArchitectRequest(controlDbPath, requestId, "architect-runtime");
 		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId], "architect-runtime")).not.toThrow();
+	});
+
+	it("rejects mailbox ID reuse without overwriting the existing message", () => {
+		const sessionPath = "/sessions/supervisor.jsonl";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
+			body: "original",
+			fromAgentId: "agent_3",
+			id: "message_2",
+			kind: "system",
+			status: "delivered",
+			toAgentId: "main",
+		});
+
+		expect(() =>
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
+				body: "replacement",
+				fromAgentId: "agent_13",
+				id: "message_2",
+				kind: "system",
+				status: "pending",
+				toAgentId: "main",
+			}),
+		).toThrow("Mailbox message ID collision");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, "message_2") as { data: string };
+			expect(JSON.parse(row.data)).toMatchObject({ body: "original", fromAgentId: "agent_3", status: "delivered" });
+		} finally {
+			db.close();
+		}
 	});
 
 	it("rejects conflicting duplicate runtime mailbox enqueues", () => {

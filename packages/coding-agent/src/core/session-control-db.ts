@@ -2320,7 +2320,59 @@ export function upsertMultiAgentMailboxMessage(
 	id: string,
 	data: unknown,
 ): void {
-	upsertMultiAgentRow(controlDbPath, "multi_agent_mailbox_messages", "message_id", sessionPath, id, data);
+	withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const serialized = JSON.stringify(data);
+			const existing = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, id) as { data: string } | undefined;
+			if (existing) {
+				const previous = parseJsonObject(existing.data);
+				const next = parseJsonObject(serialized);
+				if (!previous || !next || !sameMailboxMessageIdentity(previous, next, id)) {
+					throw new Error(`Mailbox message ID collision: ${sessionPath}#${id}`);
+				}
+			}
+			db.prepare(
+				`
+				INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT(session_path, message_id) DO UPDATE SET
+					data = excluded.data,
+					updated_at = excluded.updated_at
+				`,
+			).run(sessionPath, id, serialized, new Date().toISOString());
+			db.exec("COMMIT");
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+function sameMailboxMessageIdentity(
+	previous: Record<string, unknown>,
+	next: Record<string, unknown>,
+	id: string,
+): boolean {
+	const requiredIdentity = [previous, next].every(
+		(message) =>
+			typeof message.id === "string" &&
+			typeof message.fromAgentId === "string" &&
+			typeof message.toAgentId === "string" &&
+			typeof message.kind === "string",
+	);
+	if (!requiredIdentity) return false;
+
+	return (
+		previous.id === id &&
+		next.id === id &&
+		previous.fromAgentId === next.fromAgentId &&
+		previous.toAgentId === next.toAgentId &&
+		previous.kind === next.kind &&
+		previous.threadId === next.threadId
+	);
 }
 
 export function getMultiAgentMailboxMessageStatus(
@@ -2426,6 +2478,26 @@ const MULTI_AGENT_COUNTER_COLUMNS: Record<MultiAgentCounterName, keyof MultiAgen
 	message: "next_message_number",
 };
 
+const MULTI_AGENT_COUNTER_ID_SOURCES: Record<
+	MultiAgentCounterName,
+	ReadonlyArray<{
+		table:
+			| "multi_agent_agents"
+			| "multi_agent_artifacts"
+			| "multi_agent_mailbox_messages"
+			| "runtime_mailbox_messages";
+		column: string;
+		prefix: string;
+	}>
+> = {
+	agent: [{ table: "multi_agent_agents", column: "agent_id", prefix: "agent_" }],
+	artifact: [{ table: "multi_agent_artifacts", column: "artifact_id", prefix: "artifact_" }],
+	message: [
+		{ table: "multi_agent_mailbox_messages", column: "message_id", prefix: "message_" },
+		{ table: "runtime_mailbox_messages", column: "store_message_id", prefix: "message_" },
+	],
+};
+
 export function allocateMultiAgentCounter(
 	controlDbPath: string,
 	sessionPath: string,
@@ -2449,7 +2521,8 @@ export function allocateMultiAgentCounter(
 				next_artifact_number: row?.next_artifact_number ?? 1,
 				next_message_number: row?.next_message_number ?? 1,
 			};
-			const allocated = counters[column];
+			const counterFloor = Math.max(counters[column], readPersistedIdFloor(db, sessionPath, counterName));
+			const allocated = counterFloor;
 			counters[column] = allocated + 1;
 			db.prepare(
 				`
@@ -2477,6 +2550,45 @@ export function allocateMultiAgentCounter(
 			throw error;
 		}
 	});
+}
+
+function readPersistedIdFloor(db: SqliteDatabase, sessionPath: string, counterName: MultiAgentCounterName): number {
+	let floor = 1;
+	for (const source of MULTI_AGENT_COUNTER_ID_SOURCES[counterName]) {
+		const suffixStart = source.prefix.length + 1;
+		const row =
+			source.table === "runtime_mailbox_messages"
+				? (db
+						.prepare(
+							`SELECT MAX(CASE
+								WHEN ${source.column} GLOB ?
+									AND substr(${source.column}, ?) <> ''
+									AND substr(${source.column}, ?) NOT GLOB '*[^0-9]*'
+								THEN CAST(substr(${source.column}, ?) AS INTEGER) + 1
+								ELSE 1
+							END) AS floor
+							 FROM ${source.table} WHERE store_session_path = ?`,
+						)
+						.get(`${source.prefix}*`, suffixStart, suffixStart, suffixStart, sessionPath) as {
+						floor: number | null;
+					})
+				: (db
+						.prepare(
+							`SELECT MAX(CASE
+								WHEN ${source.column} GLOB ?
+									AND substr(${source.column}, ?) <> ''
+									AND substr(${source.column}, ?) NOT GLOB '*[^0-9]*'
+								THEN CAST(substr(${source.column}, ?) AS INTEGER) + 1
+								ELSE 1
+							END) AS floor
+							 FROM ${source.table} WHERE session_path = ?`,
+						)
+						.get(`${source.prefix}*`, suffixStart, suffixStart, suffixStart, sessionPath) as {
+						floor: number | null;
+					});
+		floor = Math.max(floor, row.floor ?? 1);
+	}
+	return floor;
 }
 
 export function readMultiAgentState(controlDbPath: string, sessionPath: string): MultiAgentPersistedState | undefined {
@@ -2709,6 +2821,7 @@ function initializeSchema(db: SqliteDatabase): void {
 	deduplicateRuntimeMailboxStoreReferences(db);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
+	migrateAlternateMultiAgentCounters(db);
 }
 
 function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
@@ -2767,6 +2880,59 @@ function deduplicateRuntimeMailboxStoreReferences(db: SqliteDatabase): void {
 			ON runtime_mailbox_messages(store_session_path, store_message_id)
 			WHERE store_session_path IS NOT NULL AND store_message_id IS NOT NULL;
 		`);
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function migrateAlternateMultiAgentCounters(db: SqliteDatabase): void {
+	const table = "multi_agent_counters_v2";
+	const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+	if (!exists) return;
+
+	const columns = new Set(
+		(db.prepare(`PRAGMA table_info(${table})`).all() as TableInfoRow[]).map((entry) => entry.name),
+	);
+	const rows = db
+		.prepare(
+			`SELECT session_path, next_agent_number, next_message_number${columns.has("next_artifact_number") ? ", next_artifact_number" : ""}
+			 FROM ${table}`,
+		)
+		.all() as Array<{
+		session_path: string;
+		next_agent_number: number;
+		next_message_number: number;
+		next_artifact_number?: number;
+	}>;
+
+	db.exec("BEGIN IMMEDIATE");
+	try {
+		const readPrimary = db.prepare(
+			"SELECT next_agent_number, next_artifact_number, next_message_number FROM multi_agent_counters WHERE session_path = ?",
+		);
+		const writePrimary = db.prepare(
+			`INSERT INTO multi_agent_counters (
+				session_path, next_agent_number, next_artifact_number, next_message_number, updated_at
+			) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(session_path) DO UPDATE SET
+				next_agent_number = excluded.next_agent_number,
+				next_artifact_number = excluded.next_artifact_number,
+				next_message_number = excluded.next_message_number,
+				updated_at = excluded.updated_at`,
+		);
+		for (const row of rows) {
+			const primary = readPrimary.get(row.session_path) as MultiAgentCounterRow | undefined;
+			writePrimary.run(
+				row.session_path,
+				Math.max(primary?.next_agent_number ?? 1, row.next_agent_number),
+				Math.max(primary?.next_artifact_number ?? 1, row.next_artifact_number ?? 1),
+				Math.max(primary?.next_message_number ?? 1, row.next_message_number),
+				new Date().toISOString(),
+			);
+		}
+		db.exec(`DROP TABLE ${table}`);
 		db.exec("COMMIT");
 	} catch (error) {
 		db.exec("ROLLBACK");
