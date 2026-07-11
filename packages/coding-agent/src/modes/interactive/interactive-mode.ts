@@ -1983,10 +1983,11 @@ export class InteractiveMode {
 	}
 
 	private getWorkingLoaderMessage(): string {
-		const defaultMessage = this.isViewingAgentSession()
-			? this.defaultWorkingMessage
-			: this.currentWorkingDefaultMessage;
-		return this.workingMessage ?? defaultMessage;
+		if (this.isViewingAgentSession()) {
+			return this.defaultWorkingMessage;
+		}
+
+		return this.workingMessage ?? this.currentWorkingDefaultMessage;
 	}
 
 	private getThinkingWorkingMessage(): string {

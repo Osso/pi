@@ -69,7 +69,12 @@ function createToolExecutionStub(): ToolExecutionStub {
 
 type HandleEvent = (this: HandleEventThis, event: AgentSessionEvent) => Promise<void>;
 
+interface WorkingLoaderInternals {
+	getWorkingLoaderMessage(this: unknown): string;
+}
+
 const handleEvent = (InteractiveMode.prototype as unknown as { handleEvent: HandleEvent }).handleEvent;
+const workingLoader = InteractiveMode.prototype as unknown as WorkingLoaderInternals;
 
 function createAssistantMessage(text: string): AssistantMessage {
 	return {
@@ -432,6 +437,21 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		expect(fakeThis.executingToolNames.has("bash-1")).toBe(false);
 		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
+	});
+
+	test("uses the configured working message in the main view", () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.workingMessage = "Custom extension label";
+
+		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Custom extension label");
+	});
+
+	test("uses the default working message in a child view", () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.multiAgentStore = { getSelectedAgentId: () => "agent_1" };
+		fakeThis.workingMessage = "Custom extension label";
+
+		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Thinking...");
 	});
 
 	test("keeps extension working message override during tool execution", async () => {
