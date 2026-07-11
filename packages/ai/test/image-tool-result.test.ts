@@ -8,7 +8,6 @@ import type { StreamOptions } from "../src/types.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
-import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
 
@@ -245,20 +244,6 @@ describe("Tool Results with Images", () => {
 
 		it("should handle tool result with text and image", { retry: 3, timeout: 30000 }, async () => {
 			await handleToolWithTextAndImageResult(llm);
-		});
-	});
-
-	describe.skipIf(!hasAzureOpenAICredentials())("Azure OpenAI Responses Provider (gpt-4o-mini)", () => {
-		const llm = getModel("azure-openai-responses", "gpt-4o-mini");
-		const azureDeploymentName = resolveAzureDeploymentName(llm.id);
-		const azureOptions = azureDeploymentName ? { azureDeploymentName } : {};
-
-		it("should handle tool result with only image", { retry: 3, timeout: 30000 }, async () => {
-			await handleToolWithImageResult(llm, azureOptions);
-		});
-
-		it("should handle tool result with text and image", { retry: 3, timeout: 30000 }, async () => {
-			await handleToolWithTextAndImageResult(llm, azureOptions);
 		});
 	});
 

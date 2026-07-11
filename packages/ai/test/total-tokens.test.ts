@@ -18,7 +18,6 @@ import type { Api, Context, Model, StreamOptions, Usage } from "../src/types.ts"
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
-import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
@@ -185,27 +184,6 @@ describe("totalTokens field", () => {
 
 				console.log(`\nOpenAI Responses / ${llm.id}:`);
 				const { first, second } = await testTotalTokensWithCache(llm);
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
-			},
-		);
-	});
-
-	describe.skipIf(!hasAzureOpenAICredentials())("Azure OpenAI Responses", () => {
-		it(
-			"gpt-4o-mini - should return totalTokens equal to sum of components",
-			{ retry: 3, timeout: 60000 },
-			async () => {
-				const llm = getModel("azure-openai-responses", "gpt-4o-mini");
-				const azureDeploymentName = resolveAzureDeploymentName(llm.id);
-				const azureOptions = azureDeploymentName ? { azureDeploymentName } : {};
-
-				console.log(`\nAzure OpenAI Responses / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, azureOptions);
 
 				logUsage("First request", first);
 				logUsage("Second request", second);

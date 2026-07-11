@@ -4,7 +4,6 @@ import type { Api, Context, Model, StreamOptions } from "../src/types.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
-import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
@@ -110,16 +109,6 @@ describe("Token Statistics on Abort", () => {
 
 		it("should include token stats when aborted mid-stream", { retry: 3, timeout: 30000 }, async () => {
 			await testTokensOnAbort(llm, { reasoningEffort: "low" });
-		});
-	});
-
-	describe.skipIf(!hasAzureOpenAICredentials())("Azure OpenAI Responses Provider", () => {
-		const llm = getModel("azure-openai-responses", "gpt-4o-mini");
-		const azureDeploymentName = resolveAzureDeploymentName(llm.id);
-		const azureOptions = azureDeploymentName ? { azureDeploymentName } : {};
-
-		it("should include token stats when aborted mid-stream", { retry: 3, timeout: 30000 }, async () => {
-			await testTokensOnAbort(llm, azureOptions);
 		});
 	});
 

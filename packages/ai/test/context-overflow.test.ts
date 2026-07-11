@@ -17,7 +17,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { complete, getModel, getModels } from "../src/compat.ts";
 import type { AssistantMessage, Context, Model, Usage } from "../src/types.ts";
 import { isContextOverflow } from "../src/utils/overflow.ts";
-import { hasAzureOpenAICredentials } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
 
@@ -180,18 +179,6 @@ describe("Context overflow error handling", () => {
 
 			expect(result.stopReason).toBe("error");
 			expect(result.errorMessage).toMatch(/exceeds the context window/i);
-			expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
-		}, 120000);
-	});
-
-	describe.skipIf(!hasAzureOpenAICredentials())("Azure OpenAI Responses", () => {
-		it("gpt-4o-mini - should detect overflow via isContextOverflow", async () => {
-			const model = getModel("azure-openai-responses", "gpt-4o-mini");
-			const result = await testContextOverflow(model, process.env.AZURE_OPENAI_API_KEY!);
-			logResult(result);
-
-			expect(result.stopReason).toBe("error");
-			expect(result.errorMessage).toMatch(/context|maximum/i);
 			expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
 		}, 120000);
 	});

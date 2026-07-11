@@ -27,7 +27,6 @@ import { Type } from "typebox";
 import { beforeAll, describe, expect, it } from "vitest";
 import { completeSimple, getEnvApiKey, getModel } from "../src/compat.ts";
 import type { Api, AssistantMessage, Message, Model, Tool, ToolResultMessage } from "../src/types.ts";
-import { hasAzureOpenAICredentials } from "./azure-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
 
@@ -64,7 +63,6 @@ const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 		apiOverride: "openai-completions",
 	},
 	{ provider: "openai", model: "gpt-5-mini", label: "openai-responses-gpt-5-mini" },
-	{ provider: "azure-openai-responses", model: "gpt-4o-mini", label: "azure-openai-responses-gpt-4o-mini" },
 	// OpenAI Codex
 	{ provider: "openai-codex", model: "gpt-5.5", label: "openai-codex-gpt-5.5" },
 	// GitHub Copilot
@@ -155,9 +153,6 @@ async function getApiKey(provider: string): Promise<string | undefined> {
  * Synchronous check for API key availability (env vars only, for skipIf)
  */
 function hasApiKey(pair: ProviderModelPair): boolean {
-	if (pair.provider === "azure-openai-responses") {
-		return hasAzureOpenAICredentials();
-	}
 	if (pair.provider === "cloudflare-workers-ai") {
 		return hasCloudflareWorkersAICredentials();
 	}

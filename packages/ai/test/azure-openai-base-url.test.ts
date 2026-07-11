@@ -47,6 +47,7 @@ const azureModel: Model<"azure-openai-responses"> = {
 	api: "azure-openai-responses",
 	provider: "custom-azure",
 	baseUrl: "",
+	compat: undefined,
 };
 
 const originalAzureOpenAIBaseUrl = process.env.AZURE_OPENAI_BASE_URL;

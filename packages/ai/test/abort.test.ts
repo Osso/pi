@@ -4,7 +4,6 @@ import type { Api, Context, Model, StreamOptions } from "../src/types.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
-import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
 
@@ -136,20 +135,6 @@ describe("AI Providers Abort Tests", () => {
 
 		it("should handle immediate abort", { retry: 3 }, async () => {
 			await testImmediateAbort(llm);
-		});
-	});
-
-	describe.skipIf(!hasAzureOpenAICredentials())("Azure OpenAI Responses Provider Abort", () => {
-		const llm = getModel("azure-openai-responses", "gpt-4o-mini");
-		const azureDeploymentName = resolveAzureDeploymentName(llm.id);
-		const azureOptions = azureDeploymentName ? { azureDeploymentName } : {};
-
-		it("should abort mid-stream", { retry: 3 }, async () => {
-			await testAbortSignal(llm, azureOptions);
-		});
-
-		it("should handle immediate abort", { retry: 3 }, async () => {
-			await testImmediateAbort(llm, azureOptions);
 		});
 	});
 

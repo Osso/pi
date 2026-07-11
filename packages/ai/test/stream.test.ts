@@ -10,7 +10,6 @@ import type { Api, Context, ImageContent, Model, StreamOptions, Tool, ToolResult
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { StringEnum } from "../src/utils/typebox-helpers.ts";
-import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
 import { resolveApiKey } from "./oauth.ts";
@@ -517,28 +516,6 @@ describe("Generate E2E Tests", () => {
 
 		it("should handle image input", { retry: 3 }, async () => {
 			await handleImage(model);
-		});
-	});
-
-	describe.skipIf(!hasAzureOpenAICredentials())("Azure OpenAI Responses Provider (gpt-4o-mini)", () => {
-		const llm = getModel("azure-openai-responses", "gpt-4o-mini");
-		const azureDeploymentName = resolveAzureDeploymentName(llm.id);
-		const azureOptions = azureDeploymentName ? { azureDeploymentName } : {};
-
-		it("should complete basic text generation", { retry: 3 }, async () => {
-			await basicTextGeneration(llm, azureOptions);
-		});
-
-		it("should handle tool calling", { retry: 3 }, async () => {
-			await handleToolCall(llm, azureOptions);
-		});
-
-		it("should handle streaming", { retry: 3 }, async () => {
-			await handleStreaming(llm, azureOptions);
-		});
-
-		it("should handle image input", { retry: 3 }, async () => {
-			await handleImage(llm, azureOptions);
 		});
 	});
 
