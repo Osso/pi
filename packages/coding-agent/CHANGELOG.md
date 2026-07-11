@@ -5,7 +5,7 @@
 ### Added
 
 - Added persistent session archiving with an Archived resume-picker scope, Ctrl+A selected-session archiving, `pi sessions archive --older-than <days>`, and first-party `/archive` archiving of the current persisted session.
-- Added the resident Architect transcript to the same global non-subagent archive metadata: it can appear in All/Archived scopes and be included by age-based archival while remaining outside Current Folder.
+- Added the resident Architect transcript to the global non-subagent archive metadata with `archived_at` set at startup; it remains outside Current Folder and All scopes while staying resumable from Archived.
 - Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
 - Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, durable `ask_architect` requests, targeted runtime-mailbox advice, and read-only Bubblewrap tool workers.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.

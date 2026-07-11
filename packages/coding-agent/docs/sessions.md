@@ -50,7 +50,7 @@ In the picker you can:
 - archive the selected session with Ctrl+A
 - delete with Ctrl+D, then confirm
 
-Archived sessions are hidden from the normal Current Folder and All scopes but remain resumable from Archived. The resident Architect transcript is stored outside normal project session directories, so it is absent from Current Folder but participates in the global All/Archived scopes and age-based archive command as a non-subagent session.
+Archived sessions are hidden from the normal Current Folder and All scopes but remain resumable from Archived. The resident Architect transcript is stored outside normal project session directories and starts archived, so it is available only from the Archived scope as a non-subagent session.
 
 `/archive` archives only the current persisted session and accepts no arguments:
 
