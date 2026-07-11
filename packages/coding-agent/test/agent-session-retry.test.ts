@@ -315,4 +315,157 @@ describe("AgentSession retry", () => {
 		await session.prompt("Follow-up");
 		expect(callCount).toBe(4);
 	});
+
+	it("falls back to the paired Codex provider after quota exhaustion", async () => {
+		const providers: string[] = [];
+		const model = getModel("openai-codex", "gpt-5.6-luna")!;
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model, systemPrompt: "Test", tools: [] },
+			streamFn: (activeModel) => {
+				providers.push(activeModel.provider);
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					if (activeModel.provider === "openai-codex") {
+						const msg = createAssistantMessage("", {
+							api: "openai-codex-responses",
+							provider: activeModel.provider,
+							model: activeModel.id,
+							stopReason: "error",
+							errorMessage: "You have hit your ChatGPT usage limit",
+						});
+						stream.push({ type: "start", partial: msg });
+						stream.push({ type: "error", reason: "error", error: msg });
+						return;
+					}
+
+					const msg = createAssistantMessage("Recovered with paired account", {
+						api: "openai-codex-responses",
+						provider: activeModel.provider,
+						model: activeModel.id,
+					});
+					stream.push({ type: "start", partial: msg });
+					stream.push({ type: "done", reason: "stop", message: msg });
+				});
+				return stream;
+			},
+		});
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		settingsManager.applyOverrides({ retry: { enabled: false } });
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("openai-codex", "test-key");
+		authStorage.setRuntimeApiKey("openai-codex-gc", "test-key");
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+		const willRetryValues: boolean[] = [];
+		session.subscribe((event) => {
+			if (event.type === "agent_end") willRetryValues.push(event.willRetry);
+		});
+
+		await session.prompt("Test");
+
+		expect(providers).toEqual(["openai-codex", "openai-codex-gc"]);
+		expect(session.model?.provider).toBe("openai-codex-gc");
+		expect(session.model?.id).toBe("gpt-5.6-luna");
+		expect(settingsManager.getDefaultProvider()).toBeUndefined();
+		expect(settingsManager.getDefaultModel()).toBeUndefined();
+		expect(willRetryValues).toEqual([true, false]);
+	});
+
+	it("does not fall back for unrelated billing errors", async () => {
+		const providers: string[] = [];
+		const model = getModel("openai-codex", "gpt-5.6-luna")!;
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model, systemPrompt: "Test", tools: [] },
+			streamFn: (activeModel) => {
+				providers.push(activeModel.provider);
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const msg = createAssistantMessage("", {
+						api: "openai-codex-responses",
+						provider: activeModel.provider,
+						model: activeModel.id,
+						stopReason: "error",
+						errorMessage: "Billing address invalid",
+					});
+					stream.push({ type: "start", partial: msg });
+					stream.push({ type: "error", reason: "error", error: msg });
+				});
+				return stream;
+			},
+		});
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("openai-codex", "test-key");
+		authStorage.setRuntimeApiKey("openai-codex-gc", "test-key");
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		await session.prompt("Test");
+
+		expect(providers).toEqual(["openai-codex"]);
+		expect(session.model?.provider).toBe("openai-codex");
+	});
+
+	it("does not bounce between Codex providers and resets fallback on the next user turn", async () => {
+		const providers: string[] = [];
+		const model = getModel("openai-codex", "gpt-5.6-luna")!;
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model, systemPrompt: "Test", tools: [] },
+			streamFn: (activeModel) => {
+				providers.push(activeModel.provider);
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const msg = createAssistantMessage("", {
+						api: "openai-codex-responses",
+						provider: activeModel.provider,
+						model: activeModel.id,
+						stopReason: "error",
+						errorMessage: "You have hit your ChatGPT usage limit",
+					});
+					stream.push({ type: "start", partial: msg });
+					stream.push({ type: "error", reason: "error", error: msg });
+				});
+				return stream;
+			},
+		});
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("openai-codex", "test-key");
+		authStorage.setRuntimeApiKey("openai-codex-gc", "test-key");
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		await session.prompt("First turn");
+		expect(providers).toEqual(["openai-codex", "openai-codex-gc"]);
+
+		await session.prompt("Second turn");
+		expect(providers).toEqual(["openai-codex", "openai-codex-gc", "openai-codex-gc", "openai-codex"]);
+	});
 });

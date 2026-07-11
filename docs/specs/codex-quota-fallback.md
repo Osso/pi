@@ -15,10 +15,10 @@ behavior.
 
 - [x] Detect a terminal quota/usage/billing exhaustion error and select the paired Codex provider
       only when the same model ID is registered there and that model has configured auth.
-- [ ] Leave the original error unchanged when the active provider is not a paired Codex provider,
+- [x] Leave the original error unchanged when the active provider is not a paired Codex provider,
       the paired model ID is missing, or the paired provider has no configured auth.
 - [x] Do not treat unrelated provider errors as quota fallback candidates.
-- [ ] Require the failed assistant message's provider and model to match the active session model
+- [x] Require the failed assistant message's provider and model to match the active session model
       before considering fallback.
 
 ### Continuation
@@ -26,13 +26,13 @@ behavior.
 - [x] Remove the failed assistant response from live agent context, switch providers while keeping
       the model ID, and continue the interrupted request.
 - [x] Keep automatic fallback session-local; do not rewrite the configured default provider/model.
-- [ ] Attempt paired-provider fallback at most once per user turn.
-- [ ] Never bounce between paired providers after the fallback attempt has been used in the turn.
-- [ ] Reset the fallback guard when the next user message starts a new turn.
+- [x] Attempt paired-provider fallback at most once per user turn.
+- [x] Never bounce between paired providers after the fallback attempt has been used in the turn.
+- [x] Reset the fallback guard when the next user message starts a new turn.
 
 ### Events
 
-- [ ] Emit `model_select` with `source: "fallback"` when the paired provider is selected.
+- [x] Emit `model_select` with `source: "fallback"` when the paired provider is selected.
 - [x] Report `agent_end.willRetry: true` while quota fallback continuation is pending, even when
       generic retry is disabled, and report `false` after the final response.
 
@@ -53,11 +53,13 @@ behavior.
   - `falls back to the paired Codex provider after quota exhaustion` — paired provider, model ID,
     session-local defaults, and `agent_end.willRetry` behavior.
   - `does not fall back for unrelated billing errors` — narrowed eligibility matcher.
+  - `does not bounce between Codex providers and resets fallback on the next user turn` — one
+    fallback per turn, reverse pairing, and next-turn guard reset.
 
 ## Known gaps (current cycle)
 
-- [ ] Add regression coverage for missing paired auth/model, a non-paired active provider, failed
-      message provider/model mismatches, and the one-at-a-time/reset guard.
+- [ ] Add regression coverage for missing paired auth/model, a non-paired active provider, and
+      failed message provider/model mismatches.
 - [ ] Add regression coverage that `model_select` reports `source: "fallback"`.
 
 ## Out of scope

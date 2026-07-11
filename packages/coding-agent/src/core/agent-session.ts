@@ -109,6 +109,9 @@ import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 
+const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
+	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
+
 import {
 	abortInactiveSessionSpawnedAgents,
 	advanceSharedChannelCursor,
@@ -156,6 +159,12 @@ const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 3_000;
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
+const CODEX_PROVIDER_PAIRS = new Map([
+	["openai-codex", "openai-codex-gc"],
+	["openai-codex-gc", "openai-codex"],
+]);
+const QUOTA_EXHAUSTION_PATTERN =
+	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
 
 // Once this process has ever advertised its pid as a runtime mailbox listener, stray
 // SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
@@ -528,6 +537,7 @@ export class AgentSession {
 	// Retry state
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
+	private _quotaFallbackAttempted = false;
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
@@ -692,6 +702,10 @@ export class AgentSession {
 		}
 
 		if (this._extensionRunner.hasHandlers("compaction")) {
+			return undefined;
+		}
+
+		if (!this.settingsManager.getCompactionEnabled()) {
 			return undefined;
 		}
 
@@ -1068,6 +1082,7 @@ export class AgentSession {
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
 			this._lengthRecoveryAttempted = false;
+			this._quotaFallbackAttempted = false;
 			const messageText = this._getUserMessageText(event.message);
 			if (messageText) {
 				// Check steering queue first
@@ -1211,16 +1226,18 @@ export class AgentSession {
 	}
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
-		const settings = this.settingsManager.getRetrySettings();
-		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
-			return false;
-		}
-
 		for (let i = event.messages.length - 1; i >= 0; i--) {
 			const message = event.messages[i];
-			if (message.role === "assistant") {
-				return this._isRetryableError(message as AssistantMessage);
+			if (message.role !== "assistant") {
+				continue;
 			}
+
+			const assistant = message as AssistantMessage;
+			if (this._findQuotaFallbackModel(assistant)) {
+				return true;
+			}
+			const settings = this.settingsManager.getRetrySettings();
+			return settings.enabled && this._retryAttempt < settings.maxRetries && this._isRetryableError(assistant);
 		}
 		return false;
 	}
@@ -1897,6 +1914,10 @@ export class AgentSession {
 		this._lastAssistantMessage = undefined;
 		if (!msg) {
 			return false;
+		}
+
+		if (await this._prepareQuotaFallback(msg)) {
+			return true;
 		}
 
 		if (this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
@@ -2796,7 +2817,7 @@ export class AgentSession {
 	private async _emitModelSelect(
 		nextModel: Model<any>,
 		previousModel: Model<any> | undefined,
-		source: "set" | "cycle" | "restore",
+		source: "set" | "cycle" | "restore" | "fallback",
 	): Promise<void> {
 		if (modelsAreEqual(previousModel, nextModel)) return;
 		await this._extensionRunner.emit({
@@ -3033,10 +3054,10 @@ export class AgentSession {
 				throw new Error(formatNoModelSelectedMessage());
 			}
 
-			const { apiKey, headers, env } = await this._getCompactionRequestAuth(this.model);
-
 			const pathEntries = this.sessionManager.getBranch();
 			const settings = this.settingsManager.getCompactionSettings();
+			const auth = settings.enabled ? await this._getCompactionRequestAuth(this.model) : {};
+			const { apiKey, headers, env } = auth;
 
 			const preparation = prepareCompaction(pathEntries, settings);
 			if (!preparation) {
@@ -3106,6 +3127,8 @@ export class AgentSession {
 				compactedResultBytes = extensionCompaction.compactedResultBytes;
 				source = extensionCompaction.source;
 				providerNative = extensionCompaction.providerNative;
+			} else if (!settings.enabled) {
+				throw new Error(BUILT_IN_COMPACTION_DISABLED_MESSAGE);
 			} else {
 				// Generate compaction result
 				const result = await compact(
@@ -3245,7 +3268,6 @@ export class AgentSession {
 	 */
 	private async _checkCompaction(assistantMessage: AssistantMessage, postRunCheck = true): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
-		if (!settings.enabled) return false;
 
 		// Skip if message was aborted (user cancelled) - unless this is the pre-prompt check
 		if (postRunCheck && assistantMessage.stopReason === "aborted") return false;
@@ -3331,7 +3353,7 @@ export class AgentSession {
 		} else {
 			contextTokens = directContextTokens;
 		}
-		if (shouldCompact(contextTokens, contextWindow, settings)) {
+		if (shouldCompact(contextTokens, contextWindow, { ...settings, enabled: true })) {
 			// A "length"-stopped turn was truncated mid-work: compact and resume it once.
 			// Pre-prompt checks must not resume - the incoming user prompt supersedes the
 			// truncated turn.
@@ -3365,16 +3387,18 @@ export class AgentSession {
 			let apiKey: string | undefined;
 			let headers: Record<string, string> | undefined;
 			let env: Record<string, string> | undefined;
-			if (this.agent.streamFn === streamSimple) {
-				const authResult = await this._modelRegistry.getApiKeyAndHeaders(this.model);
-				if (!authResult.ok || !authResult.apiKey) {
-					return false;
+			if (settings.enabled) {
+				if (this.agent.streamFn === streamSimple) {
+					const authResult = await this._modelRegistry.getApiKeyAndHeaders(this.model);
+					if (!authResult.ok || !authResult.apiKey) {
+						return false;
+					}
+					apiKey = authResult.apiKey;
+					headers = authResult.headers;
+					env = authResult.env;
+				} else {
+					({ apiKey, headers, env } = await this._getCompactionRequestAuth(this.model));
 				}
-				apiKey = authResult.apiKey;
-				headers = authResult.headers;
-				env = authResult.env;
-			} else {
-				({ apiKey, headers, env } = await this._getCompactionRequestAuth(this.model));
 			}
 
 			const pathEntries = this.sessionManager.getBranch();
@@ -3463,6 +3487,8 @@ export class AgentSession {
 				compactedResultBytes = extensionCompaction.compactedResultBytes;
 				source = extensionCompaction.source;
 				providerNative = extensionCompaction.providerNative;
+			} else if (!settings.enabled) {
+				throw new Error(BUILT_IN_COMPACTION_DISABLED_MESSAGE);
 			} else {
 				// Generate compaction result
 				const compactResult = await compact(
@@ -4041,6 +4067,46 @@ export class AgentSession {
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, this.model?.contextWindow ?? 0)) return false;
 		return isRetryableAssistantError(message);
+	}
+
+	private _findQuotaFallbackModel(message: AssistantMessage): Model<any> | undefined {
+		if (this._quotaFallbackAttempted || message.stopReason !== "error" || !message.errorMessage) {
+			return undefined;
+		}
+		if (!QUOTA_EXHAUSTION_PATTERN.test(message.errorMessage)) {
+			return undefined;
+		}
+
+		const currentModel = this.model;
+		if (!currentModel || message.provider !== currentModel.provider || message.model !== currentModel.id) {
+			return undefined;
+		}
+		const pairedProvider = CODEX_PROVIDER_PAIRS.get(message.provider);
+		if (!pairedProvider) {
+			return undefined;
+		}
+
+		const fallbackModel = this._modelRegistry.find(pairedProvider, message.model);
+		return fallbackModel && this._modelRegistry.hasConfiguredAuth(fallbackModel) ? fallbackModel : undefined;
+	}
+
+	private async _prepareQuotaFallback(message: AssistantMessage): Promise<boolean> {
+		const fallbackModel = this._findQuotaFallbackModel(message);
+		if (!fallbackModel) {
+			return false;
+		}
+
+		this._quotaFallbackAttempted = true;
+		const messages = this.agent.state.messages;
+		if (messages.at(-1)?.role === "assistant") {
+			this.agent.state.messages = messages.slice(0, -1);
+		}
+
+		const previousModel = this.model;
+		this.agent.state.model = fallbackModel;
+		this.sessionManager.appendModelChange(fallbackModel.provider, fallbackModel.id);
+		await this._emitModelSelect(fallbackModel, previousModel, "fallback");
+		return true;
 	}
 
 	/**
