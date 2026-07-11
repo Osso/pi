@@ -525,26 +525,81 @@ describe("session control DB", () => {
 		expect(() => readMultiAgentState(controlDbPath, "/sessions/invalid-label.jsonl")).toThrow(/label.*string/i);
 	});
 
-	it("rejects legacy artifact fields during persisted agent restore", () => {
-		readMultiAgentState(controlDbPath, "/sessions/legacy-agent.jsonl");
+	it("migrates legacy artifact fields before persisted agent restore", () => {
+		const sessionPath = "/sessions/legacy-agent.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.prepare(
 				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,
 			).run(
-				"/sessions/legacy-agent.jsonl",
+				sessionPath,
 				"agent-1",
-				JSON.stringify({ id: "agent-1", artifactRefs: [{ path: "/tmp/legacy.log" }] }),
+				JSON.stringify({
+					id: "agent-1",
+					result: {
+						artifactIds: ["artifact-1"],
+						artifactRefs: [{ path: "/tmp/legacy.log" }],
+						fileRefs: [{ path: "/tmp/current.log", label: "Current" }],
+						summary: "done",
+					},
+				}),
+				"2026-07-11T00:00:00.000Z",
+			);
+			db.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(
+				sessionPath,
+				"message-1",
+				JSON.stringify({
+					artifactIds: ["artifact-2"],
+					artifactRefs: [{ path: "/tmp/legacy-mailbox.log" }],
+					body: "legacy mailbox",
+					fileRefs: [{ path: "/tmp/mailbox.log" }],
+					status: "pending",
+				}),
 				"2026-07-11T00:00:00.000Z",
 			);
 		} finally {
 			db.close();
 		}
 
-		expect(() => readMultiAgentState(controlDbPath, "/sessions/legacy-agent.jsonl")).toThrow(
-			/Legacy artifact fields/,
-		);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [
+				{
+					id: "agent-1",
+					result: {
+						fileRefs: [{ path: "/tmp/current.log", label: "Current" }],
+						summary: "done",
+					},
+				},
+			],
+			mailboxMessages: [
+				{
+					body: "legacy mailbox",
+					fileRefs: [{ path: "/tmp/mailbox.log" }],
+					status: "pending",
+				},
+			],
+		});
+
+		const migratedDb = createSqliteDatabase(controlDbPath);
+		try {
+			const agentRow = migratedDb
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(sessionPath, "agent-1") as { data: string };
+			const mailboxRow = migratedDb
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, "message-1") as { data: string };
+			expect(JSON.parse(agentRow.data)).not.toHaveProperty("result.artifactIds");
+			expect(JSON.parse(agentRow.data)).not.toHaveProperty("result.artifactRefs");
+			expect(JSON.parse(mailboxRow.data)).not.toHaveProperty("artifactIds");
+			expect(JSON.parse(mailboxRow.data)).not.toHaveProperty("artifactRefs");
+		} finally {
+			migratedDb.close();
+		}
 	});
 
 	it("deduplicates concurrent runtime mailbox enqueues by store reference", async () => {

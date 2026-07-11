@@ -2807,6 +2807,7 @@ function initializeSchema(db: SqliteDatabase): void {
 		);
 	`);
 	migrateLegacyMultiAgentCounters(db);
+	migrateLegacyMultiAgentPayloads(db);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
 	deduplicateRuntimeMailboxStoreReferences(db);
@@ -2852,6 +2853,63 @@ function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
 		db.exec("DROP TABLE multi_agent_counters");
 	}
 	db.exec("DROP TABLE IF EXISTS multi_agent_artifacts");
+}
+
+function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
+	withImmediateTransaction(db, () => {
+		const now = new Date().toISOString();
+		for (const { table, idColumn } of [
+			{ table: "multi_agent_agents", idColumn: "agent_id" },
+			{ table: "multi_agent_mailbox_messages", idColumn: "message_id" },
+		] as const) {
+			const rows = db.prepare(`SELECT session_path, ${idColumn}, data FROM ${table}`).all() as Array<{
+				session_path: string;
+				data: string;
+				[key: string]: string;
+			}>;
+			const update = db.prepare(
+				`UPDATE ${table} SET data = ?, updated_at = ? WHERE session_path = ? AND ${idColumn} = ?`,
+			);
+			for (const row of rows) {
+				let parsed: unknown;
+				try {
+					parsed = JSON.parse(row.data) as unknown;
+				} catch {
+					// Leave malformed payloads for the normal restore validator to report with row context.
+					continue;
+				}
+				const migrated = stripLegacyArtifactFields(parsed);
+				if (!migrated.changed) continue;
+				update.run(JSON.stringify(migrated.value), now, row.session_path, row[idColumn]);
+			}
+		}
+	});
+}
+
+function stripLegacyArtifactFields(value: unknown): { value: unknown; changed: boolean } {
+	if (Array.isArray(value)) {
+		let changed = false;
+		const migrated = value.map((item) => {
+			const result = stripLegacyArtifactFields(item);
+			changed ||= result.changed;
+			return result.value;
+		});
+		return { value: changed ? migrated : value, changed };
+	}
+	if (!value || typeof value !== "object") return { value, changed: false };
+
+	let changed = false;
+	const migrated: Record<string, unknown> = {};
+	for (const [key, nested] of Object.entries(value)) {
+		if (key === "artifactIds" || key === "artifactRefs") {
+			changed = true;
+			continue;
+		}
+		const result = stripLegacyArtifactFields(nested);
+		changed ||= result.changed;
+		migrated[key] = result.value;
+	}
+	return { value: changed ? migrated : value, changed };
 }
 
 function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
