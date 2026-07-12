@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	claimRuntimeMailboxMessages,
@@ -87,6 +88,35 @@ function runtimeMailboxPrompt(body: string): string {
 
 function sharedChannelPrompt(body: string, sessionId = "sender-session"): string {
 	return ["From shared channel:", `- session: ${sessionId}`, "- agent: main", "", "Message:", body].join("\n");
+}
+
+function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: string, cwd: string): AgentSnapshot {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("expected store persistence target");
+	const coordinator = new LifecycleCoordinator({
+		controlDbPath: persistence.controlDbPath,
+		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+		createLeaseId: () => "runtime-mailbox-lease",
+		now: () => new Date().toISOString(),
+		reservationDurationMs: 60_000,
+		runtimeIncarnation: "runtime-mailbox-test",
+		sessionPath: persistence.sessionPath,
+	});
+	const created = coordinator.createChild({
+		agentType: "verifier",
+		cwd,
+		displayName: "Verifier",
+		ownerSessionId,
+		permission: { narrowed: true, policy: "on-request" },
+		transcript: { sessionId: ownerSessionId },
+	});
+	if (!created.ok) throw new Error(`could not create reserved test agent: ${created.error}`);
+	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	if (!starting.ok) throw new Error(`could not start reserved test agent: ${starting.error}`);
+	const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+	if (!running.ok) throw new Error(`could not run reserved test agent: ${running.error}`);
+	store.publishLifecycleCoordinatorSnapshot(running.agent);
+	return running.agent;
 }
 
 function collectMultiAgentTools(
@@ -1557,19 +1587,9 @@ describe("runtime SQLite mailbox delivery", () => {
 		store.setPersistenceSessionManager(harness.sessionManager);
 		await harness.session.bindExtensions({ controlDbPath });
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("steer done")]);
-		const spawned = store.spawnAgent({
-			agentType: "verifier",
-			cwd: harness.tempDir,
-			displayName: "Verifier",
-			lifecycle: "starting",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			transcript: { sessionId: harness.sessionManager.getSessionId() },
-		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
-		const steered = store.sendSteering(spawned.agent.id, running.agent.revision, {
+		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
+		const spawned = { agent: running };
+		const steered = store.sendSteering(running.id, running.revision, {
 			body: "Continue verification",
 			fromAgentId: "supervisor",
 		});
@@ -1609,19 +1629,9 @@ describe("runtime SQLite mailbox delivery", () => {
 		store.setPersistenceSessionManager(harness.sessionManager);
 		await harness.session.bindExtensions({ controlDbPath });
 		harness.setResponses([fauxAssistantMessage("idle steer done")]);
-		const spawned = store.spawnAgent({
-			agentType: "verifier",
-			cwd: harness.tempDir,
-			displayName: "Verifier",
-			lifecycle: "starting",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			transcript: { sessionId: harness.sessionManager.getSessionId() },
-		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
-		const steered = store.sendSteering(spawned.agent.id, running.agent.revision, {
+		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
+		const spawned = { agent: running };
+		const steered = store.sendSteering(running.id, running.revision, {
 			body: "Continue verification while idle",
 			fromAgentId: "supervisor",
 		});
@@ -1664,19 +1674,9 @@ describe("runtime SQLite mailbox delivery", () => {
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		store.setPersistenceSessionManager(harness.sessionManager);
 		await harness.session.bindExtensions({ controlDbPath });
-		const spawned = store.spawnAgent({
-			agentType: "verifier",
-			cwd: harness.tempDir,
-			displayName: "Verifier",
-			lifecycle: "starting",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			transcript: { sessionId: harness.sessionManager.getSessionId() },
-		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
-		const steered = store.sendSteering(spawned.agent.id, running.agent.revision, {
+		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
+		const spawned = { agent: running };
+		const steered = store.sendSteering(running.id, running.revision, {
 			body: "Continue verification without auth",
 			fromAgentId: "supervisor",
 		});

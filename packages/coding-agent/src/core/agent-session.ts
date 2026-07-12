@@ -99,7 +99,7 @@ import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { parseModelPattern, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
-import type { AgentLifecycleState, MultiAgentStore } from "./multi-agent-store.ts";
+import type { AgentLifecycleState, AgentSnapshot, MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	type ApprovalRecentDecision,
 	appendApprovalMemory,
@@ -130,6 +130,7 @@ import {
 	markMultiAgentMailboxMessageFailed,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
+	readMultiAgentDispatchLease,
 	readRuntimeMailboxMessageForDelivery,
 	readSharedChannelTail,
 	recordPromptHistoryEntry,
@@ -1231,18 +1232,51 @@ export class AgentSession {
 		if (!current || this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
 			return;
 		}
-		const resultDetails = summary ? { result: { summary } } : {};
-		const errorDetails = lifecycle === "failed" ? { error: { message: "Runtime mailbox steering turn failed" } } : {};
-		const transitioned = this._multiAgentStore.transitionAgent(current.id, current.revision, lifecycle, {
-			...resultDetails,
-			...errorDetails,
-		});
-		if (!transitioned.ok) {
-			console.error(`Failed to complete runtime mailbox steering for ${current.id}: ${transitioned.error}`);
+		if (!this._isTerminalMultiAgentLifecycle(lifecycle)) return;
+		const result = summary ? { summary } : undefined;
+		const error = lifecycle === "failed" ? { message: "Runtime mailbox steering turn failed" } : undefined;
+		if (!this._finalizeReservedMultiAgent(current, lifecycle, { error, result })) {
+			console.error(
+				`Failed to complete runtime mailbox steering for ${current.id}: lifecycle reservation unavailable`,
+			);
 		}
 	}
 
-	private _isTerminalMultiAgentLifecycle(lifecycle: AgentLifecycleState): boolean {
+	private _finalizeReservedMultiAgent(
+		agent: AgentSnapshot,
+		terminalLifecycle: "completed" | "failed" | "aborted",
+		metadata: { error?: { message: string }; result?: { summary: string } },
+	): boolean {
+		const store = this._multiAgentStore;
+		const persistence = store?.getPersistenceTarget();
+		if (!store || !persistence) return false;
+		const reservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
+		if (!reservation) return false;
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+			createLeaseId: randomUUID,
+			now: () => new Date().toISOString(),
+			reservationDurationMs: 30_000,
+			runtimeIncarnation: this._detachedJobRuntimeIncarnation,
+			sessionPath: persistence.sessionPath,
+		});
+		const finalized = coordinator.finalizeChild({
+			agent,
+			error: metadata.error,
+			eventPayload: metadata,
+			reservation,
+			result: metadata.result,
+			terminalLifecycle,
+		});
+		if (!finalized.ok) return false;
+		store.publishLifecycleCoordinatorSnapshot(finalized.agent);
+		return true;
+	}
+
+	private _isTerminalMultiAgentLifecycle(
+		lifecycle: AgentLifecycleState,
+	): lifecycle is "completed" | "failed" | "aborted" {
 		return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "aborted";
 	}
 
@@ -2672,9 +2706,7 @@ export class AgentSession {
 		this._runtimeMailboxSteeringAgentIds.delete(agentId);
 		const current = this._multiAgentStore.getAgent(agentId);
 		if (current && !this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
-			this._multiAgentStore.transitionAgent(current.id, current.revision, "failed", {
-				error: { message: failure },
-			});
+			this._finalizeReservedMultiAgent(current, "failed", { error: { message: failure } });
 		}
 	}
 
