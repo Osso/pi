@@ -525,6 +525,19 @@ describe("session control DB", () => {
 		expect(() => readMultiAgentState(controlDbPath, "/sessions/invalid-label.jsonl")).toThrow(/label.*string/i);
 	});
 
+	it("rejects a control database created by a newer lifecycle protocol", () => {
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 999");
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, "/sessions/newer-protocol.jsonl")).toThrow(
+			/unsupported control database schema version 999/i,
+		);
+	});
+
 	it("migrates legacy artifact fields from a pre-upgrade database", () => {
 		const sessionPath = "/sessions/legacy-agent.jsonl";
 		const db = createSqliteDatabase(controlDbPath);

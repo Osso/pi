@@ -2668,6 +2668,7 @@ function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) 
 }
 
 function initializeSchema(db: SqliteDatabase): void {
+	assertSupportedControlDbSchemaVersion(db);
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS incoming_messages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2832,6 +2833,15 @@ function initializeSchema(db: SqliteDatabase): void {
 	deduplicateRuntimeMailboxStoreReferences(db);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
+}
+
+function assertSupportedControlDbSchemaVersion(db: SqliteDatabase): void {
+	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+	if (schemaVersion.user_version > CONTROL_DB_SCHEMA_VERSION) {
+		throw new Error(
+			`Unsupported control database schema version ${schemaVersion.user_version}; this Pi runtime supports up to version ${CONTROL_DB_SCHEMA_VERSION}`,
+		);
+	}
 }
 
 function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
