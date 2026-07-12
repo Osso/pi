@@ -317,6 +317,21 @@ function createMultiAgentHarness(
 	};
 }
 
+async function waitForAgentLifecycle(
+	harness: ReturnType<typeof createMultiAgentHarness>,
+	agentId: string,
+	lifecycle: AgentSnapshot["lifecycle"],
+): Promise<AgentSnapshot> {
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		const agent = harness.store.getAgent(agentId);
+		if (agent?.lifecycle === lifecycle) return agent;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	throw new Error(
+		`Timed out waiting for ${agentId} to reach ${lifecycle}; current=${harness.store.getAgent(agentId)?.lifecycle ?? "missing"}`,
+	);
+}
+
 async function waitForTerminalAgent(
 	harness: ReturnType<typeof createMultiAgentHarness>,
 	agentId: string,
@@ -596,7 +611,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("rejects cancellation for prompted attached sessions until attached dispatch is migrated", async () => {
+	it("cancels prompted attached sessions through their fenced reservation", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-dispatch-attached-session-"));
 		try {
 			const savedSessionId = "019f29f4-0000-7000-8000-000000000003";
@@ -604,7 +619,7 @@ describe("multi-agent extension tools", () => {
 			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
 			savedSession.appendMessage(fauxAssistantMessage("saved response"));
 			const childPrompt = deferred<void>();
-			const abort = vi.fn();
+			const abort = vi.fn(() => childPrompt.resolve(undefined));
 			const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
 				expect(agent.transcript).toEqual({ path: savedSession.getSessionFile(), sessionId: savedSessionId });
 				expect(sessionPath).toBe(savedSession.getSessionFile());
@@ -621,11 +636,7 @@ describe("multi-agent extension tools", () => {
 				path: savedSession.getSessionFile(),
 				prompt: "Continue saved work",
 			});
-			await Promise.resolve();
-			const running = harness.store.getAgent(attached.details.agent.id);
-			if (!running) {
-				throw new Error("expected attached agent");
-			}
+			const running = await waitForAgentLifecycle(harness, attached.details.agent.id, "running");
 			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 				agentId: running.id,
 				reason: "user requested",
@@ -633,12 +644,9 @@ describe("multi-agent extension tools", () => {
 
 			expect(attached.details).toMatchObject({ dispatched: true, prompt: "Continue saved work" });
 			expect(running).toMatchObject({ lifecycle: "running", transcript: { sessionId: savedSessionId } });
-			expect(abort).not.toHaveBeenCalled();
-			expect(cancelled.content).toEqual([
-				{ text: `Could not cancel ${running.id}: lifecycle reservation unavailable`, type: "text" },
-			]);
-			expect(cancelled.details.agent).toMatchObject({ id: running.id, lifecycle: "running" });
-			childPrompt.resolve(undefined);
+			expect(abort).toHaveBeenCalledOnce();
+			expect(cancelled.content).toEqual([{ text: `Cancelled ${running.displayName}.`, type: "text" }]);
+			expect(cancelled.details.agent).toMatchObject({ id: running.id, lifecycle: "aborted" });
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}

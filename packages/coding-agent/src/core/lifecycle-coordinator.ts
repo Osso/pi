@@ -1,5 +1,6 @@
 import type { AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
 import {
+	acquireAttachedRuntimeLease,
 	acquireMultiAgentRecoveryLeaderLease,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentTerminalMutation,
@@ -30,6 +31,10 @@ export interface CreateChildCommandInput extends SpawnAgentInput {
 export type CreateChildCommandResult =
 	| { ok: true; agent: AgentSnapshot; reservation: MultiAgentDispatchLease }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
+
+export type AcquireAttachedRuntimeCommandResult =
+	| { ok: true; agent: AgentSnapshot; reservation: MultiAgentDispatchLease }
+	| { ok: false; error: "agent_not_found" | "invalid_agent" | "lease_held" | "mutation_mismatch" };
 
 export interface ReservedLifecycleCommandInput {
 	agent: AgentSnapshot;
@@ -75,6 +80,22 @@ export class LifecycleCoordinator {
 
 	constructor(options: LifecycleCoordinatorOptions) {
 		this.options = options;
+	}
+
+	acquireAttachedRuntime(agent: AgentSnapshot, ownerSessionId: string): AcquireAttachedRuntimeCommandResult {
+		const nowIso = this.options.now();
+		const result = acquireAttachedRuntimeLease(this.options.controlDbPath, {
+			agentId: agent.id,
+			expectedRevision: agent.revision,
+			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
+			leaseId: this.options.createLeaseId(),
+			nowIso,
+			owner: { agentId: null, sessionId: ownerSessionId },
+			runtimeIncarnation: this.options.runtimeIncarnation,
+			sessionPath: this.options.sessionPath,
+		});
+		if (!result.ok) return result;
+		return { agent: result.agent, ok: true, reservation: result.lease };
 	}
 
 	beginChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {

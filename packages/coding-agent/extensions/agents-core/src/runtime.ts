@@ -706,6 +706,7 @@ export function createHostrunMultiAgentRequestHandler(
 				dispatches: activeDispatches,
 				handles: backgroundSessions,
 				params: request.params as AttachSessionAgentParams,
+				reservations,
 				store,
 				waitingDesktopNotifications,
 			});
@@ -1024,6 +1025,7 @@ interface AttachSessionAgentRuntimeInput {
 	dispatches: ActiveAgentDispatches;
 	handles?: BackgroundSessionHandles;
 	params: AttachSessionAgentParams;
+	reservations: Map<string, ReservedAgentRuntime>;
 	pi?: ExtensionAPI;
 	store: MultiAgentStore;
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
@@ -1072,6 +1074,7 @@ async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promis
 				dispatches: input.dispatches,
 				handles: input.handles,
 				pi: input.pi,
+				reservations: input.reservations,
 				prompt,
 				store,
 				target: attached.agent,
@@ -1111,6 +1114,7 @@ interface AttachSessionDispatchInput {
 	dispatches: ActiveAgentDispatches;
 	handles?: BackgroundSessionHandles;
 	pi?: ExtensionAPI;
+	reservations: Map<string, ReservedAgentRuntime>;
 	prompt: string;
 	store: MultiAgentStore;
 	target: AgentSnapshot;
@@ -1122,34 +1126,57 @@ type AttachSessionResult =
 	| { ok: false; error: string; parent?: AgentSnapshot };
 
 function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentSnapshot | undefined {
+	const reservedRuntime = reserveAttachedRuntime(input);
+	if (!reservedRuntime) return undefined;
+	const target = reservedRuntime.ownership.agent;
+	input.reservations.set(target.id, reservedRuntime);
+	input.store.publishLifecycleCoordinatorSnapshot(target);
 	const createAttachedSession = input.createAttachedSession;
 	if (createAttachedSession) {
-		return startToolDispatch(
+		const dispatched = startToolDispatch(
 			input.store,
 			input.dispatches,
-			input.target,
-			() => dispatchAttachedChildSession(input, createAttachedSession),
+			target,
+			() => dispatchReservedAttachedChildSession(input, createAttachedSession, reservedRuntime),
 			input.ctx,
 			input.pi,
 			input.desktopNotifier,
 			input.waitingDesktopNotifications,
 			input.handles,
 		);
+		releaseReservationAfterDispatch(input.dispatches, input.reservations, target.id);
+		return dispatched;
 	}
 	const dispatcher = input.dispatcher;
 	if (!dispatcher) {
 		return undefined;
 	}
-	return startToolDispatch(
+	const dispatched = startToolDispatch(
 		input.store,
 		input.dispatches,
-		input.target,
-		() => dispatchAgent(input.store, dispatcher, input.target, input.prompt, input.ctx),
+		target,
+		() => dispatchReservedAttachedAgent(input, dispatcher, reservedRuntime),
 		input.ctx,
 		input.pi,
 		input.desktopNotifier,
 		input.waitingDesktopNotifications,
 	);
+	releaseReservationAfterDispatch(input.dispatches, input.reservations, target.id);
+	return dispatched;
+}
+
+function reserveAttachedRuntime(input: AttachSessionDispatchInput): ReservedAgentRuntime | undefined {
+	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
+	if (!coordinator) return undefined;
+	const persistence = input.store.getPersistenceTarget();
+	if (!persistence) return undefined;
+	const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
+	const acquired = coordinator.acquireAttachedRuntime(input.target, ownerSessionId);
+	if (!acquired.ok) return undefined;
+	return {
+		coordinator,
+		ownership: { agent: acquired.agent, reservation: acquired.reservation },
+	};
 }
 
 function recoverDetachedAgents(
@@ -1225,18 +1252,58 @@ function scheduleSpawnedAgentRecovery(
 	recoveryTimers.set(agent.id, timer);
 }
 
-function dispatchAttachedChildSession(
+function dispatchReservedAttachedChildSession(
 	input: AttachSessionDispatchInput,
 	createAttachedSession: AttachedSessionFactory,
+	reservedRuntime: ReservedAgentRuntime,
 ): Promise<AgentSnapshot> {
-	return dispatchAgentSession(
+	const factory = (dispatchInput: ChildAgentDispatchInput) =>
+		createAttachedSession({ ...dispatchInput, sessionPath: input.target.transcript?.path ?? "" });
+	if (reservedRuntime.ownership.agent.lifecycle === "running") {
+		return runAgentSession(
+			input.store,
+			factory,
+			reservedRuntime.ownership.agent,
+			input.prompt,
+			input.ctx,
+			input.handles,
+			undefined,
+			reservedRuntime,
+		);
+	}
+	return dispatchReservedAgentSession(
 		input.store,
-		(dispatchInput) =>
-			createAttachedSession({ ...dispatchInput, sessionPath: input.target.transcript?.path ?? "" }),
-		input.target,
+		factory,
+		reservedRuntime.ownership,
+		reservedRuntime.coordinator,
 		input.prompt,
 		input.ctx,
 		input.handles,
+	);
+}
+
+function dispatchReservedAttachedAgent(
+	input: AttachSessionDispatchInput,
+	dispatcher: ChildAgentDispatcher,
+	reservedRuntime: ReservedAgentRuntime,
+): Promise<AgentSnapshot> {
+	if (reservedRuntime.ownership.agent.lifecycle === "running") {
+		return runAgentDispatcher(
+			input.store,
+			dispatcher,
+			reservedRuntime.ownership.agent,
+			input.prompt,
+			input.ctx,
+			reservedRuntime,
+		);
+	}
+	return dispatchReservedAgent(
+		input.store,
+		dispatcher,
+		reservedRuntime.ownership,
+		reservedRuntime.coordinator,
+		input.prompt,
+		input.ctx,
 	);
 }
 
@@ -1461,6 +1528,7 @@ async function dispatchReservedAgentSession(
 	ctx: ExtensionContext,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
+	const restoreGeneration = store.getRestoreGeneration();
 	let childSession: ChildAgentSession;
 	try {
 		childSession = await createChildSession({ agent: ownership.agent, ctx, prompt });
@@ -1480,6 +1548,11 @@ async function dispatchReservedAgentSession(
 		store.publishLifecycleCoordinatorSnapshot(failed.agent);
 		return failed.agent;
 	}
+	if (store.getRestoreGeneration() !== restoreGeneration) {
+		childSession.abort?.();
+		childSession.dispose?.();
+		return store.getAgent(ownership.agent.id) ?? ownership.agent;
+	}
 	const running = coordinator.confirmChildRuntime(ownership);
 	if (!running.ok) {
 		childSession.abort?.();
@@ -1487,10 +1560,20 @@ async function dispatchReservedAgentSession(
 		return ownership.agent;
 	}
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
-	return runAgentSession(store, createChildSession, running.agent, prompt, ctx, handles, childSession, {
-		coordinator,
-		ownership: { agent: running.agent, reservation: ownership.reservation },
-	});
+	return runAgentSession(
+		store,
+		createChildSession,
+		running.agent,
+		prompt,
+		ctx,
+		handles,
+		childSession,
+		{
+			coordinator,
+			ownership: { agent: running.agent, reservation: ownership.reservation },
+		},
+		restoreGeneration,
+	);
 }
 
 async function runAgentSession(
@@ -1502,8 +1585,9 @@ async function runAgentSession(
 	handles?: BackgroundSessionHandles,
 	createdSession?: ChildAgentSession,
 	reservedRuntime?: ReservedAgentRuntime,
+	expectedRestoreGeneration?: number,
 ): Promise<AgentSnapshot> {
-	const restoreGeneration = store.getRestoreGeneration();
+	const restoreGeneration = expectedRestoreGeneration ?? store.getRestoreGeneration();
 	const running = { agent: runningAgent };
 	let childSession: ChildAgentSession | undefined;
 	let unregisterAbortHandler: (() => void) | undefined;
@@ -1525,19 +1609,28 @@ async function runAgentSession(
 			store.updateAgentTranscript(running.agent.id, activeSession.transcript);
 		}
 		await activeSession.prompt(prompt);
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime);
+		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		while (true) {
 			const summary = lastAssistantText(activeSession.messages);
-			const completed = transitionRunningAgent(
-				store,
-				running.agent,
-				"completed",
-				{
-					result: summary ? { summary } : undefined,
-				},
-				restoreGeneration,
-			);
+			const result = summary ? { summary } : undefined;
+			const currentSnapshot = store.getAgent(running.agent.id);
+			const completed = reservedRuntime
+				? finalizeReservedRuntime(
+						store,
+						currentSnapshot ?? running.agent,
+						"completed",
+						{ result },
+						reservedRuntime,
+						restoreGeneration,
+					)
+				: transitionRunningAgent(
+						store,
+						running.agent,
+						"completed",
+						{ result },
+						restoreGeneration,
+					);
 			if (completed.lifecycle !== "steering_pending") {
 				return completed;
 			}
@@ -1552,17 +1645,13 @@ async function runAgentSession(
 		}
 
 	} catch (error) {
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime);
+		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
-		return transitionRunningAgent(
-			store,
-			running.agent,
-			"failed",
-			{
-				error: { message: error instanceof Error ? error.message : String(error) },
-			},
-			restoreGeneration,
-		);
+		const failure = { message: error instanceof Error ? error.message : String(error) };
+		const current = store.getAgent(running.agent.id) ?? running.agent;
+		return reservedRuntime
+			? finalizeReservedRuntime(store, current, "failed", { error: failure }, reservedRuntime, restoreGeneration)
+			: transitionRunningAgent(store, running.agent, "failed", { error: failure }, restoreGeneration);
 	} finally {
 		unregisterAbortHandler?.();
 		handles?.delete(running.agent.id);
@@ -1611,7 +1700,7 @@ async function runAgentDispatcher(
 	const running = { agent: runningAgent };
 	try {
 		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime);
+		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		return transitionRunningAgent(
 			store,
@@ -1624,7 +1713,7 @@ async function runAgentDispatcher(
 			restoreGeneration,
 		);
 	} catch (error) {
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime);
+		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		return transitionRunningAgent(
 			store,
@@ -1638,12 +1727,37 @@ async function runAgentDispatcher(
 	}
 }
 
+function finalizeReservedRuntime(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	terminalLifecycle: "completed" | "failed" | "aborted",
+	metadata: { error?: AgentSnapshot["error"]; result?: AgentSnapshot["result"] },
+	reservedRuntime: ReservedAgentRuntime,
+	expectedRestoreGeneration?: number,
+): AgentSnapshot {
+	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) return agent;
+	if (!isActiveLifecycle(agent.lifecycle)) return agent;
+	const finalized = reservedRuntime.coordinator.finalizeChild({
+		agent,
+		error: metadata.error,
+		eventPayload: metadata,
+		reservation: reservedRuntime.ownership.reservation,
+		result: metadata.result,
+		terminalLifecycle,
+	});
+	if (!finalized.ok) return store.getAgent(agent.id) ?? agent;
+	store.publishLifecycleCoordinatorSnapshot(finalized.agent);
+	return finalized.agent;
+}
+
 function acknowledgeCancelledRuntime(
 	store: MultiAgentStore,
 	agentId: string,
 	reservedRuntime: ReservedAgentRuntime | undefined,
+	expectedRestoreGeneration?: number,
 ): AgentSnapshot | undefined {
 	if (!reservedRuntime) return undefined;
+	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) return undefined;
 	const current = store.getAgent(agentId);
 	if (current?.lifecycle !== "cancelling") return undefined;
 	const acknowledged = reservedRuntime.coordinator.acknowledgeCancellation({
@@ -2789,6 +2903,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			dispatches: activeDispatches,
 			handles: backgroundSessions,
 			pi,
+			reservations,
 			store,
 			waitingDesktopNotifications,
 		}, recoveryTimers);
@@ -2803,7 +2918,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		recoveryTimers.clear();
 		const reservedAgentIds = new Set(reservations.keys());
 		const cancellationRoots = [...reservedAgentIds].filter((agentId) => {
-			const parentId = store.getAgent(agentId)?.parentId;
+			const agent = store.getAgent(agentId);
+			if (agent?.origin === "attached") return false;
+			const parentId = agent?.parentId;
 			return !parentId || !reservedAgentIds.has(parentId);
 		});
 		for (const agentId of cancellationRoots) {
@@ -2811,7 +2928,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		}
 		store.invalidateInFlightDispatches();
 		for (const agentId of backgroundSessions.keys()) {
-			if (!reservedAgentIds.has(agentId)) store.abortAgentHandle(agentId);
+			const attached = store.getAgent(agentId)?.origin === "attached";
+			if (attached || !reservedAgentIds.has(agentId)) store.abortAgentHandle(agentId);
 		}
 		for (const agentId of waitingDesktopNotifications.keys()) {
 			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
@@ -2886,6 +3004,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					handles: backgroundSessions,
 					params,
 					pi,
+					reservations,
 					store,
 					waitingDesktopNotifications,
 				}),

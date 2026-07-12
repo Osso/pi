@@ -2771,7 +2771,7 @@ function canPersistTerminalTransition(
 			? new Set(["running", "waiting_for_input"])
 			: requested === "aborted"
 				? new Set(["queued", "starting", "running", "waiting_for_input", "steering_pending", "cancelling"])
-				: new Set(["starting", "running", "steering_pending", "cancelling"]);
+				: new Set(["starting", "running", "waiting_for_input", "steering_pending", "cancelling"]);
 	return allowedFrom.has(current);
 }
 

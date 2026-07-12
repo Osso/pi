@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
 	listRuntimeMailboxMessages,
+	readMultiAgentAgent,
 	readMultiAgentDispatchLease,
 	readMultiAgentState,
 	upsertMultiAgentAgent,
@@ -62,6 +63,32 @@ describe("LifecycleCoordinator child creation", () => {
 		});
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toEqual([result.agent]);
 		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toEqual(result.reservation);
+	});
+
+	it("acquires attached runtime ownership without changing lifecycle revision", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
+			agentType: "resumed-session",
+			createdAt: "2026-07-11T19:00:00.000Z",
+			cwd: "/tmp/worktree",
+			displayName: "Attached",
+			id: "attached-1",
+			lifecycle: "running",
+			origin: "attached",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T19:00:00.000Z",
+		});
+		const agent = readMultiAgentAgent(controlDbPath, sessionPath, "attached-1");
+		if (!agent) throw new Error("Expected attached test agent");
+		const result = createCoordinator(controlDbPath, sessionPath).acquireAttachedRuntime(agent, "supervisor-session");
+
+		expect(result).toMatchObject({
+			agent: { id: "attached-1", lifecycle: "running", revision: 4 },
+			ok: true,
+			reservation: { fencingEpoch: 1, leaseId: "lease-child" },
+		});
 	});
 
 	it("fences runtime start and running confirmation with the committed reservation", () => {
