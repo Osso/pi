@@ -812,6 +812,18 @@ describe("session control DB", () => {
 				updatedAt: "2026-07-11T00:00:30.000Z",
 			}),
 		).toThrow("Generic agent upsert cannot mutate leased lifecycle row");
+		const unauthorized = createSqliteDatabase(controlDbPath);
+		try {
+			registerLifecycleProtocolVersion(unauthorized);
+			const current = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as Record<string, unknown>;
+			expect(() =>
+				unauthorized
+					.prepare("UPDATE multi_agent_agents SET data = ? WHERE session_path = ? AND agent_id = ?")
+					.run(JSON.stringify({ ...current, lifecycle: "failed", revision: 99 }), sessionPath, agentId),
+			).toThrow("Unauthorized lifecycle writer");
+		} finally {
+			unauthorized.close();
+		}
 
 		const mutation = {
 			agentId,

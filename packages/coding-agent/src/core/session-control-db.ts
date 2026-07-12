@@ -13,6 +13,8 @@ import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabas
 
 const CONTROL_DB_SCHEMA_VERSION = 8;
 const LIFECYCLE_PROTOCOL_VERSION_FUNCTION = "pi_lifecycle_protocol_version";
+const LIFECYCLE_WRITER_AUTHORIZED_FUNCTION = "pi_lifecycle_writer_authorized";
+const lifecycleWriterAuthorization = new WeakMap<SqliteDatabase, { depth: number }>();
 
 export interface IncomingControlMessage {
 	id: number;
@@ -2650,9 +2652,13 @@ export function commitMultiAgentSteeringMutation(
 				},
 				input.updatedAt,
 			);
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
+			withAuthorizedLifecycleWrite(db, () =>
+				db
+					.prepare(
+						"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+					)
+					.run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId),
+			);
 			return {
 				agent: updated as unknown as AgentSnapshot,
 				message: input.message,
@@ -2716,9 +2722,13 @@ export function commitMultiAgentSteeringDelivery(
 				updatedAt,
 			};
 			const updatedMessage = { ...message, status: "delivered", updatedAt };
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), updatedAt, input.sessionPath, input.agentId);
+			withAuthorizedLifecycleWrite(db, () =>
+				db
+					.prepare(
+						"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+					)
+					.run(JSON.stringify(updatedAgent), updatedAt, input.sessionPath, input.agentId),
+			);
 			db.prepare(
 				"UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE session_path = ? AND message_id = ?",
 			).run(JSON.stringify(updatedMessage), updatedAt, input.sessionPath, input.messageId);
@@ -2761,9 +2771,13 @@ export function commitMultiAgentLifecycleMutation(
 				revision: input.expectedRevision + 1,
 				updatedAt: input.updatedAt,
 			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
+			withAuthorizedLifecycleWrite(db, () =>
+				db
+					.prepare(
+						"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+					)
+					.run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId),
+			);
 			if (input.detachedCancellation) persistDetachedCancellationCommand(db, input, updated.revision);
 			return { ok: true, agent: updated };
 		}),
@@ -2879,9 +2893,13 @@ export function commitMultiAgentTerminalMutation(
 				revision: terminalRevision,
 				updatedAt: input.updatedAt,
 			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), input.updatedAt, input.sessionPath, input.agentId);
+			withAuthorizedLifecycleWrite(db, () =>
+				db
+					.prepare(
+						"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+					)
+					.run(JSON.stringify(updatedAgent), input.updatedAt, input.sessionPath, input.agentId),
+			);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_events (
 					session_path, agent_id, terminal_revision, event_kind, payload, created_at
@@ -3066,11 +3084,10 @@ function persistDetachedJobTerminal(
 		updatedAt: envelope.terminalAt,
 		worker: undefined,
 	};
-	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updated),
-		envelope.terminalAt,
-		sessionPath,
-		envelope.jobId,
+	withAuthorizedLifecycleWrite(db, () =>
+		db
+			.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?")
+			.run(JSON.stringify(updated), envelope.terminalAt, sessionPath, envelope.jobId),
 	);
 	db.prepare(
 		`INSERT INTO multi_agent_terminal_events
@@ -3201,9 +3218,13 @@ export function recoverExpiredMultiAgentRuntime(
 				previousFencingEpoch: previousLease.fencing_epoch,
 				recoveryLeaderFencingEpoch: input.recoveryLeader.fencingEpoch,
 			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.nowIso, input.sessionPath, input.agentId);
+			withAuthorizedLifecycleWrite(db, () =>
+				db
+					.prepare(
+						"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+					)
+					.run(JSON.stringify(updated), input.nowIso, input.sessionPath, input.agentId),
+			);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_events
 					(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
@@ -4114,6 +4135,20 @@ function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) 
 
 export function registerLifecycleProtocolVersion(db: SqliteDatabase): void {
 	db.function(LIFECYCLE_PROTOCOL_VERSION_FUNCTION, () => CONTROL_DB_SCHEMA_VERSION);
+	const authorization = { depth: 0 };
+	lifecycleWriterAuthorization.set(db, authorization);
+	db.function(LIFECYCLE_WRITER_AUTHORIZED_FUNCTION, () => (authorization.depth > 0 ? 1 : 0));
+}
+
+function withAuthorizedLifecycleWrite<T>(db: SqliteDatabase, callback: () => T): T {
+	const authorization = lifecycleWriterAuthorization.get(db);
+	if (!authorization) throw new Error("Lifecycle writer authorization is not registered");
+	authorization.depth += 1;
+	try {
+		return callback();
+	} finally {
+		authorization.depth -= 1;
+	}
 }
 
 function initializeSchema(db: SqliteDatabase): void {
@@ -4348,6 +4383,7 @@ function initializeSchema(db: SqliteDatabase): void {
 	`);
 	migrateLegacyMultiAgentCounters(db);
 	migrateLegacyMultiAgentPayloads(db);
+	createLifecycleAuthorityTriggers(db);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
 	deduplicateRuntimeMailboxStoreReferences(db);
@@ -4474,11 +4510,10 @@ function migrateLegacyLifecycleRows(db: SqliteDatabase, nowIso: string): void {
 			updatedAt: nowIso,
 			worker: undefined,
 		};
-		db.prepare(`UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?`).run(
-			JSON.stringify(updated),
-			nowIso,
-			row.session_path,
-			row.agent_id,
+		withAuthorizedLifecycleWrite(db, () =>
+			db
+				.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?")
+				.run(JSON.stringify(updated), nowIso, row.session_path, row.agent_id),
 		);
 		const payload = JSON.stringify({
 			agentId: row.agent_id,
@@ -4493,6 +4528,21 @@ function migrateLegacyLifecycleRows(db: SqliteDatabase, nowIso: string): void {
 			`INSERT INTO multi_agent_terminal_outbox (session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at) VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
 		).run(row.session_path, row.agent_id, terminalRevision, nowIso);
 	}
+}
+
+function createLifecycleAuthorityTriggers(db: SqliteDatabase): void {
+	db.exec(`
+		CREATE TRIGGER IF NOT EXISTS multi_agent_agents_require_authorized_lifecycle_update
+		BEFORE UPDATE OF data ON multi_agent_agents
+		FOR EACH ROW
+		WHEN (
+			json_extract(OLD.data, '$.lifecycle') IS NOT json_extract(NEW.data, '$.lifecycle')
+			OR json_extract(OLD.data, '$.revision') IS NOT json_extract(NEW.data, '$.revision')
+		) AND ${LIFECYCLE_WRITER_AUTHORIZED_FUNCTION}() != 1
+		BEGIN
+			SELECT RAISE(ABORT, 'Unauthorized lifecycle writer');
+		END;
+	`);
 }
 
 function createLifecycleProtocolWriterTriggers(db: SqliteDatabase): void {

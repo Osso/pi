@@ -120,7 +120,9 @@ runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact ac
 the same merge rule and no longer advances the lifecycle revision token. Pinned-slot metadata follows
 the same rule, including clear operations. Generic full-row agent upsert is limited to unleased
 bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
-every row after a dispatch lease identity exists.
+every row after a dispatch lease identity exists. A SQLite trigger independently rejects every
+agent-data UPDATE that changes lifecycle or revision unless the connection is inside an explicitly
+authorized coordinator, detached-runner finalizer, recovery, or offline-migration write scope.
 
 ## What it must do
 
