@@ -36,9 +36,10 @@ import {
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
-	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	listSessionMetadata,
+	listUnseenMultiAgentTerminalEvents,
+	markMultiAgentTerminalEventSeen,
 	readMultiAgentDispatchLease,
 	readMultiAgentState,
 	readSessionMetadata,
@@ -2105,17 +2106,12 @@ async function waitAgents(
 	if (ctx && isChildAgentRuntime(ctx)) {
 		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {});
 	}
-	if (ctx) {
-		mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
-	}
-	const pendingCompletion = findAgentWithPendingCompletion(store);
-	if (pendingCompletion) {
-		return consumeAgentCompletion(store, pendingCompletion, ctx);
-	}
-	const pendingFailure = findAgentWithPendingFailure(store);
-	if (pendingFailure) {
-		return consumeAgentFailure(store, pendingFailure, ctx);
-	}
+	if (ctx) mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) return errorResult("wait_agents requires a persisted supervisor session.", {});
+	const consumerId = `wait:${ctx?.sessionManager?.getSessionId() ?? persistence.sessionPath}:${randomUUID()}`;
+	const committed = readWaitTerminalEvent(store, persistence.controlDbPath, persistence.sessionPath, consumerId);
+	if (committed) return committed;
 
 	const activeAgents = store.listActiveAgents();
 	if (activeAgents.length === 0) {
@@ -2123,68 +2119,30 @@ async function waitAgents(
 	}
 
 	const agent = await waitForAnyTerminalAgent(store, activeAgents, signal);
-	if (!agent) {
-		return errorResult("Wait cancelled.", {});
-	}
-	if (agent.lifecycle !== "completed") {
-		if (agent.lifecycle === "failed" && store.listPendingLifecycleNotificationsForAgent(agent.id, "failed").length > 0) {
-			return consumeAgentFailure(store, agent, ctx);
-		}
-		return result(formatAgentStatus(agent), {});
-	}
-	return consumeAgentCompletion(store, agent, ctx);
-}
-
-function findAgentWithPendingCompletion(store: MultiAgentStore): AgentSnapshot | undefined {
-	return store.listAgents().find(
-		(agent) =>
-			agent.lifecycle === "completed" &&
-			store.listPendingLifecycleNotificationsForAgent(agent.id, "completed").length > 0,
+	if (!agent) return errorResult("Wait cancelled.", {});
+	return (
+		readWaitTerminalEvent(store, persistence.controlDbPath, persistence.sessionPath, consumerId, agent.id) ??
+		errorResult(`Terminal event unavailable for ${agent.id}.`, { agent })
 	);
 }
 
-function consumeAgentCompletion(
+function readWaitTerminalEvent(
 	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	ctx: ExtensionContext | undefined,
-): AgentToolResult<WaitAgentsToolDetails> {
-	return consumeAgentTerminalNotification(store, agent, ctx);
-}
-
-function findAgentWithPendingTerminalNotification(store: MultiAgentStore): AgentSnapshot | undefined {
-	return store.listAgents().find(
-		(agent) =>
-			(agent.lifecycle === "completed" || agent.lifecycle === "failed") &&
-			store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle).length > 0,
+	controlDbPath: string,
+	sessionPath: string,
+	consumerId: string,
+	agentId?: string,
+): AgentToolResult<WaitAgentsToolDetails> | undefined {
+	const event = listUnseenMultiAgentTerminalEvents(controlDbPath, consumerId).find(
+		(candidate) => candidate.sessionPath === sessionPath && (!agentId || candidate.agentId === agentId),
 	);
-}
-
-function consumeAgentTerminalNotification(
-	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	ctx: ExtensionContext | undefined,
-): AgentToolResult<WaitAgentsToolDetails> {
-	const [completionMessage] = store.consumeCompletionNotificationsForAgent(agent.id);
-	if (completionMessage) {
-		consumeRuntimeLifecycleNotification(ctx, store, completionMessage.id);
-		const body = completionMessage.body ?? formatAgentStatus(agent);
-		return result(body, { agent, message: completionMessage });
-	}
-	return result(formatWaitAgentsCompletion(agent), {});
-}
-
-function consumeAgentFailure(
-	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	ctx: ExtensionContext | undefined,
-): AgentToolResult<WaitAgentsToolDetails> {
-	const [failureMessage] = store.consumeFailureNotificationsForAgent(agent.id);
-	if (failureMessage) {
-		consumeRuntimeLifecycleNotification(ctx, store, failureMessage.id);
-		const body = failureMessage.body ?? formatAgentStatus(agent);
-		return result(body, { agent, message: failureMessage });
-	}
-	return result(formatAgentStatus(agent), {});
+	if (!event) return undefined;
+	if (!markMultiAgentTerminalEventSeen(controlDbPath, consumerId, event, new Date().toISOString())) return undefined;
+	const agent = store.getAgent(event.agentId);
+	if (!agent) return undefined;
+	const lifecycle = agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
+	const message = lifecycle ? store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0] : undefined;
+	return result(message?.body ?? formatAgentStatus(agent), message ? { agent, message } : { agent });
 }
 
 async function waitForAnyTerminalAgent(
@@ -2232,32 +2190,6 @@ function findFirstTerminalAgent(store: MultiAgentStore, agents: AgentSnapshot[])
 
 function isInFlightLifecycle(lifecycle: AgentSnapshot["lifecycle"]): boolean {
 	return isActiveLifecycle(lifecycle) && lifecycle !== "queued" && lifecycle !== "waiting_for_input";
-}
-
-function consumeRuntimeLifecycleNotification(
-	ctx: ExtensionContext | undefined,
-	store: MultiAgentStore,
-	messageId: string,
-): void {
-	const controlDbPath = ctx?.controlDbPath;
-	const persistence = store.getPersistenceTarget();
-	if (!controlDbPath || !persistence || persistence.controlDbPath !== controlDbPath) {
-		return;
-	}
-	consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath: persistence.sessionPath });
-}
-
-function findAgentWithPendingFailure(store: MultiAgentStore): AgentSnapshot | undefined {
-	return store.listAgents().find(
-		(agent) =>
-			agent.lifecycle === "failed" &&
-			store.listPendingLifecycleNotificationsForAgent(agent.id, "failed").length > 0,
-	);
-}
-
-function formatWaitAgentsCompletion(agent: AgentSnapshot): string {
-	const summary = agent.result?.summary?.trim();
-	return summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
 }
 
 function formatAgentStatus(agent: AgentSnapshot): string {

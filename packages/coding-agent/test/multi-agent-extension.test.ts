@@ -162,7 +162,7 @@ interface MailboxDetails {
 
 function expectWaitCompletionMessage(result: AgentToolResult<Record<string, unknown>>, body: string): void {
 	expect(result.content).toEqual([{ text: body, type: "text" }]);
-	expect(result.details).toMatchObject({ message: { body, status: "delivered" } });
+	expect(result.details).toMatchObject({ message: { body, status: "pending" } });
 }
 
 function mailboxDetails(store: MultiAgentStore, agentId?: string): MailboxDetails {
@@ -1098,35 +1098,6 @@ describe("multi-agent extension tools", () => {
 			lifecycle: "completed",
 			result: { summary: "done" },
 		});
-	});
-
-	it("wait_agents observes terminal transitions from detached agents", async () => {
-		const session = createControlDbSession();
-		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
-			agentType: "implement",
-			cwd: "/repo",
-			displayName: "Detached child",
-			permission: { narrowed: true, policy: "on-request" },
-			transcript: { path: "/sessions/detached-child.jsonl", sessionId: "detached-child-session" },
-		});
-		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected start");
-		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
-		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
-		const harness = createMultiAgentHarness({ store });
-
-		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {});
-		expect(await resolvesWithin(waitPromise, 20)).toBe(false);
-		const current = store.getAgent(interrupted.agent.id);
-		if (!current) throw new Error("expected detached agent");
-		expect(store.transitionAgent(current.id, current.revision, "aborted").ok).toBe(true);
-		const waited = await waitPromise;
-
-		expect(waited.details).toEqual({});
-		expect(waited.content).toEqual([{ text: "Detached child is aborted.", type: "text" }]);
 	});
 
 	it("cancels a Hostrun wait for detached background agents", async () => {
@@ -2418,31 +2389,30 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
 	});
 
-	it("wait_agents does not repeat an already delivered completion", async () => {
-		const harness = createMultiAgentHarness();
-		const spawned = spawnStoreFixture(harness.store, {
+	it("lets simultaneous and late waiters observe the same terminal revision", async () => {
+		const finishGate = deferred<void>();
+		const dispatcher: ChildAgentDispatcher = async () => {
+			await finishGate.promise;
+			return { lifecycle: "completed", result: { summary: "fan-out done" } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			displayName: "Worker",
-			prompt: "Complete before wait",
+			prompt: "Complete for every waiter",
 		});
-		const starting = harness.store.transitionAgent(
-			spawned.details.agent.id,
-			spawned.details.agent.revision,
-			"starting",
-		);
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) throw new Error("expected starting transition");
-		const running = harness.store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
-		const completed = harness.store.transitionAgent(running.agent.id, running.agent.revision, "completed", {
-			result: { summary: "already delivered" },
-		});
-		expect(completed.ok).toBe(true);
-		harness.store.consumeCompletionNotificationsForAgent(spawned.details.agent.id);
+		const first = harness.call<WaitAgentsDetails>("wait_agents", {});
+		const second = harness.call<WaitAgentsDetails>("wait_agents", {});
+		finishGate.resolve(undefined);
+		const [firstResult, secondResult] = await Promise.all([first, second]);
+		const lateResult = await harness.call<WaitAgentsDetails>("wait_agents", {});
 
-		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
-
-		expect(waited).toEqual({ content: [], details: {} });
+		for (const waited of [firstResult, secondResult, lateResult]) {
+			expect(waited.content).toEqual([{ text: "Worker completed: fan-out done", type: "text" }]);
+			expect(waited.details).toMatchObject({
+				agent: { id: spawned.details.agent.id, lifecycle: "completed", revision: 4 },
+				message: { status: "pending" },
+			});
+		}
 	});
 
 	it("wait_agents waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
@@ -2491,7 +2461,7 @@ describe("multi-agent extension tools", () => {
 			body: "Worker completed: done",
 			fromAgentId: spawned.details.agent.id,
 			kind: "system",
-			status: "delivered",
+			status: "pending",
 			toAgentId: parent.agent.id,
 		});
 		expect(store.getAgent(spawned.details.agent.id)).toMatchObject({
@@ -2512,7 +2482,7 @@ describe("multi-agent extension tools", () => {
 				body: "Worker completed: done",
 				fromAgentId: spawned.details.agent.id,
 				kind: "system",
-				status: "delivered",
+				status: "pending",
 				toAgentId: parent.agent.id,
 			},
 		]);
@@ -2522,7 +2492,7 @@ describe("multi-agent extension tools", () => {
 			),
 		).toMatchObject([
 			{ kind: "system", status: "pending" },
-			{ kind: "system", status: "delivered" },
+			{ kind: "system", status: "pending" },
 		]);
 	});
 
@@ -2573,42 +2543,6 @@ describe("multi-agent extension tools", () => {
 				toAgentId: "main",
 			},
 		]);
-	});
-
-	it("wait_agents returns no output once store state is terminal even when a tracked dispatch is still settling", async () => {
-		const dispatchGate = deferred<void>();
-		const terminalGate = deferred<void>();
-		const terminalState = deferred<void>();
-		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
-			await terminalGate.promise;
-			store.transitionAgent(agent.id, agent.revision, "completed", { result: { summary: "done" } });
-			terminalState.resolve(undefined);
-			await dispatchGate.promise;
-			return { lifecycle: "completed", result: { summary: "late" } };
-		};
-		const harness = createMultiAgentHarness({ dispatcher, store });
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Worker",
-			prompt: "Implement auth tests",
-		});
-
-		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {});
-		const didResolveBeforeTerminal = await resolvesWithin(waitPromise, 20);
-		terminalGate.resolve(undefined);
-		await terminalState.promise;
-		const didResolveAfterTerminal = await resolvesWithin(waitPromise, 100);
-		dispatchGate.resolve(undefined);
-		const waited = await waitPromise;
-
-		expect(didResolveBeforeTerminal).toBe(false);
-		expect(didResolveAfterTerminal).toBe(true);
-		expectWaitCompletionMessage(waited, "Worker completed: done");
-		expect(store.getAgent(spawned.details.agent.id)).toMatchObject({
-			id: spawned.details.agent.id,
-			lifecycle: "completed",
-			result: { summary: "done" },
-		});
 	});
 
 	it("dispatches a real child runner behind spawn_agent without TUI coupling", async () => {
@@ -2682,7 +2616,7 @@ describe("multi-agent extension tools", () => {
 			message: {
 				body: "failing workflow failed: Pyrun evaluation failed.",
 				fileRefs: [{ label: "Pyrun output", path: "/tmp/pyrun-failure.log" }],
-				status: "delivered",
+				status: "pending",
 			},
 		});
 	});

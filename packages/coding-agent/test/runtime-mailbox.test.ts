@@ -1003,7 +1003,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("Hostrun agents.wait consumes the mirrored completion notification", async () => {
+	it("Hostrun agents.wait observes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1026,10 +1026,10 @@ describe("runtime SQLite mailbox delivery", () => {
 		const waited = await handler({ method: "agents.wait", params: {} }, ctx, undefined);
 
 		expect(waited).toBeNull();
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
 	});
 
-	it("wait_agents consumes the mirrored completion notification", async () => {
+	it("wait_agents observes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1059,11 +1059,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed. Duration: 1234ms" });
 		expect(waited.details).toMatchObject({ agent: { result: { durationMs: 1234 } } });
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Worker completed: tests passed. Duration: 1234ms", status: "delivered" },
+			{ body: "Worker completed: tests passed. Duration: 1234ms", status: "pending" },
 		]);
 	});
 
-	it("wait_agents consumes a failed detached Pyrun notification with duration details", async () => {
+	it("wait_agents observes a failed detached Pyrun notification with duration details", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1105,14 +1105,14 @@ describe("runtime SQLite mailbox delivery", () => {
 				worker: { adapter: "runtime", handleId: "pyrun" },
 				result: { durationMs: 1234 },
 			},
-			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		});
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		]);
 	});
 
-	it("wait_agents consumes a detached Pyrun failure after waiting starts", async () => {
+	it("wait_agents observes a detached Pyrun failure after waiting starts", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1156,14 +1156,14 @@ describe("runtime SQLite mailbox delivery", () => {
 				worker: { adapter: "runtime", handleId: "pyrun" },
 				result: { durationMs: 1234 },
 			},
-			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		});
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
+			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		]);
 	});
 
-	it("wait_agents consumes failed agents with result file references", async () => {
+	it("wait_agents observes failed agents with result file references", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1205,10 +1205,10 @@ describe("runtime SQLite mailbox delivery", () => {
 			message: {
 				body: "Worker failed: tests failed. Duration: 1234ms",
 				fileRefs: [{ label: "Worker output", path: "/tmp/worker-failure.log" }],
-				status: "delivered",
+				status: "pending",
 			},
 		});
-		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed")).toHaveLength(0);
+		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed")).toHaveLength(1);
 	});
 
 	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {

@@ -110,7 +110,10 @@ rebound on session changes and shared by direct tools plus Hostrun/Pyrun handler
 listeners are limited to desktop-notification state and do not mirror transport. Terminal outbox
 claims expire after a bounded lease, stale claims requeue, delivery failures retry the same pending
 mailbox record, exhausted attempts become poisoned, acknowledgements require the active claim ID,
-and delivered/poisoned rows are removed only after the retention window.
+and delivered/poisoned rows are removed only after the retention window. `wait_agents` allocates an
+independent terminal-event cursor per invocation, reads committed terminal events before subscribing,
+rechecks state after subscription, and never consumes the shared mailbox transport row. Concurrent
+and late waiters therefore observe the same terminal revision independently.
 
 ## What it must do
 
