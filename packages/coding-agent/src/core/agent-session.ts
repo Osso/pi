@@ -149,6 +149,7 @@ import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader }
 import type { SettingsManager } from "./settings-manager.ts";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
+import { deliverTerminalOutboxProjections } from "./terminal-outbox-delivery.ts";
 
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
@@ -625,6 +626,7 @@ export class AgentSession {
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
 	private readonly _detachedJobRuntimeIncarnation = randomUUID();
+	private readonly _terminalOutboxClaimId = randomUUID();
 	private _multiAgentAgentId: string | undefined;
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
@@ -2379,9 +2381,22 @@ export class AgentSession {
 		if (this._disableRuntimeCoordinationInbound || this._disposed) {
 			return false;
 		}
+		this._drainTerminalOutboxProjections();
 		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
 		const channelQueued = await this._drainSharedChannelMessages(options);
 		return mailboxQueued || channelQueued;
+	}
+
+	private _drainTerminalOutboxProjections(): void {
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		const store = this._multiAgentStore;
+		if (!controlDbPath || !store) return;
+		deliverTerminalOutboxProjections({
+			claimId: this._terminalOutboxClaimId,
+			controlDbPath,
+			now: () => new Date().toISOString(),
+			store,
+		});
 	}
 
 	private async _drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {

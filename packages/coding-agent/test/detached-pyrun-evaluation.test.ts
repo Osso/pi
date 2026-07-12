@@ -7,6 +7,7 @@ import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { getControlDbPath, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 
 const temporaryDirectories: string[] = [];
@@ -67,6 +68,24 @@ describe("durable detached Pyrun evaluation", () => {
 				| undefined;
 			return agent?.lifecycle === "completed";
 		});
+		expect(store.getAgent("agent_1")?.lifecycle).toBe("running");
+		expect(
+			deliverTerminalOutboxProjections({
+				claimId: "test-projection",
+				controlDbPath,
+				now: () => new Date().toISOString(),
+				store,
+			}),
+		).toBe(1);
+		expect(store.getAgent("agent_1")?.lifecycle).toBe("completed");
+		expect(
+			deliverTerminalOutboxProjections({
+				claimId: "test-projection",
+				controlDbPath,
+				now: () => new Date().toISOString(),
+				store,
+			}),
+		).toBe(0);
 	});
 });
 
