@@ -103,6 +103,7 @@
 
 ### Fixed
 
+- Fixed uncaught CLI startup failures printing Node.js stack traces instead of a concise error message.
 - Fixed extension-origin goal start and continuation messages appearing in the editor's typed prompt history after transcript rendering.
 - Cancellation remains durably `cancelling` when a runtime abort callback throws; the failure is reported without bypassing bounded settlement or fenced recovery.
 - Fixed GPT-5.6 Sol automatic compaction to trigger at exactly 272,000 context tokens, before requests enter the higher long-context pricing tier.

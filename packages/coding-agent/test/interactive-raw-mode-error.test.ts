@@ -1,7 +1,35 @@
 import { TerminalRawModeError } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { runInteractiveActionOrReportTerminalError } from "../src/main.ts";
+import { runCliActionOrReportError, runInteractiveActionOrReportTerminalError } from "../src/main.ts";
 import { showDeprecationWarnings } from "../src/migrations.ts";
+
+describe("CLI startup errors", () => {
+	const previousExitCode = process.exitCode;
+
+	afterEach(() => {
+		process.exitCode = previousExitCode;
+		vi.restoreAllMocks();
+	});
+
+	test("reports startup failures without an uncaught stack trace", async () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await runCliActionOrReportError(async () => {
+			throw new Error(
+				"Cannot activate lifecycle protocol version 8 while Pi runtimes are active (PIDs: 43600). Restart all Pi runtimes, then retry",
+			);
+		});
+
+		expect(process.exitCode).toBe(1);
+		expect(errorSpy).toHaveBeenCalledOnce();
+		expect(errorSpy).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"Error: Cannot activate lifecycle protocol version 8 while Pi runtimes are active (PIDs: 43600). Restart all Pi runtimes, then retry",
+			),
+		);
+		expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("session-control-db.ts"));
+	});
+});
 
 describe("interactive raw mode startup errors", () => {
 	const previousExitCode = process.exitCode;

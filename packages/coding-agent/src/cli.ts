@@ -7,7 +7,7 @@
  */
 import { APP_NAME } from "./config.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
-import { main } from "./main.ts";
+import { main, runCliActionOrReportError } from "./main.ts";
 
 process.title = APP_NAME;
 process.env.PI_CODING_AGENT = "true";
@@ -17,4 +17,4 @@ process.emitWarning = (() => {}) as typeof process.emitWarning;
 // Runtime settings are applied once SettingsManager has loaded global/project settings.
 configureHttpDispatcher();
 
-await main(process.argv.slice(2));
+await runCliActionOrReportError(() => main(process.argv.slice(2)));
