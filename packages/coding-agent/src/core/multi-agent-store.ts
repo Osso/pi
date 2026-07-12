@@ -363,10 +363,10 @@ export class MultiAgentStore {
 		if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
 			this.retryOrRecordTerminalNotification(current, "failed");
 		}
-		if (this.selectedAgentId === current.id) this.selectedAgentId = undefined;
 		if (!previous) return;
 		this.notifyAgentUpdateListeners(previous, current);
 		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		if (this.selectedAgentId === current.id) this.selectedAgentId = undefined;
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {

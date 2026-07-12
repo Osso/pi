@@ -8,6 +8,8 @@ import hostrunExtension, { type HostrunExtensionOptions } from "../extensions/ho
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -668,6 +670,10 @@ describe("hostrun extension", () => {
 
 	it("returns null from Hostrun pi.agents.wait through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		const controlDbPath = getControlDbPath(tempDir);
+		sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(sessionManager);
 		const harness = createHostrunHarness({
 			piRequestHandlers: [
 				createHostrunMultiAgentRequestHandler({
@@ -676,9 +682,10 @@ describe("hostrun extension", () => {
 				}),
 			],
 		});
+		const context = { controlDbPath, sessionManager };
 
-		await harness.evaluate({ code: "pi.agents.spawn({ prompt: 'inspect X' })" });
-		const result = await harness.evaluate({ code: "pi.agents.wait()" });
+		await harness.evaluate({ code: "pi.agents.spawn({ prompt: 'inspect X' })" }, undefined, undefined, context);
+		const result = await harness.evaluate({ code: "pi.agents.wait()" }, undefined, undefined, context);
 
 		expect(result.details.value).toBeNull();
 		expect(store.getAgent("agent_1")).toMatchObject({ lifecycle: "completed", result: { summary: "done" } });
