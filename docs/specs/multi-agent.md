@@ -161,12 +161,19 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   transition to `running`. Production `spawn_agent` requires a persisted supervisor session and
   fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Terminal replay
   validates the current full lease predicate before idempotency, so an old owner cannot replay a
-  finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links cannot
-  self-reference or form cycles. Cancellation is cascading:
+  finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links
+  cannot self-reference or form cycles. Cancellation is cascading:
   cancelling a parent issues cancellation intents to active descendants, while each descendant
   still terminalizes through its own fenced command. A parent cannot become terminal while any
   descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry
   for descendants before terminalizing the parent.
+- Externally visible child effects use a deterministic operation identity derived from the durable
+  agent identity and command/tool-call revision when the target adapter supports idempotency keys.
+  Before starting an effect, the runtime must prove its current lease; loss or failed renewal stops
+  new effects. Spawned children are not reassigned or automatically replayed after owner loss, which
+  avoids duplicating effects against providers without idempotency support. Effects already accepted
+  by a non-idempotent external provider cannot be revoked by fencing; their outcome is recorded as an
+  explicit uncertainty on lost-runtime recovery rather than retried or reported as definitely absent.
 - Race outcomes are ordered by the coordinator's serialized commit order, never by wall-clock,
   PID, callback order, or notification delivery. A committed terminal result wins all later
   requests; an accepted cancellation wins over a later natural-completion attempt and moves the
