@@ -2052,6 +2052,12 @@ export class InteractiveMode {
 		}, MIN_VISIBLE_ELAPSED_MS);
 	}
 
+	private restartThinkingTimer(): void {
+		if (this.executingToolNames.size === 0) {
+			this.startThinkingTimer();
+		}
+	}
+
 	private stopThinkingTimer(): void {
 		if (this.thinkingTimer) {
 			clearInterval(this.thinkingTimer);
@@ -3947,6 +3953,7 @@ export class InteractiveMode {
 				this.executingToolNames.delete(event.toolCallId);
 				this.executingToolStartedAt.delete(event.toolCallId);
 				this.stopToolWaitingTimerIfIdle();
+				this.restartThinkingTimer();
 				this.setWorkingMessageForActiveTools();
 				if (component) {
 					this.ui.requestRender();

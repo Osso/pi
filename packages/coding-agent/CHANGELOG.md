@@ -102,6 +102,7 @@
 
 ### Fixed
 
+- Fixed the interactive thinking elapsed timer to restart after each completed tool call instead of accumulating across the entire assistant turn.
 - Removed Node-only SQLite lifecycle-authorization UDFs and triggers that crashed standalone Bun startup; lifecycle authority remains enforced by coordinator/repository construction, complete fenced transaction predicates, schema-version startup checks, and production source-scan guards.
 - Fixed uncaught CLI startup failures printing Node.js stack traces instead of a concise error message.
 - Fixed extension-origin goal start and continuation messages appearing in the editor's typed prompt history after transcript rendering.
