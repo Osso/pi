@@ -159,7 +159,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   root; nested children require an existing persisted parent. Runtime construction begins only after a
   full-predicate coordinator transition to `starting`, and ownership is confirmed by another fenced
   transition to `running`. Production `spawn_agent` requires a persisted supervisor session and
-  fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Parent links cannot
+  fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Terminal replay
+  validates the current full lease predicate before idempotency, so an old owner cannot replay a
+  finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links cannot
   self-reference or form cycles. Cancellation is cascading:
   cancelling a parent issues cancellation intents to active descendants, while each descendant
   still terminalizes through its own fenced command. A parent cannot become terminal while any

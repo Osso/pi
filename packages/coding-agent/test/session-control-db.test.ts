@@ -795,6 +795,86 @@ describe("session control DB", () => {
 		}
 	});
 
+	it("rejects every stale writer after a higher dispatch fencing epoch is acquired", () => {
+		const sessionPath = "/sessions/stale-writers.jsonl";
+		const agentId = "agent-stale";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "test",
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Stale writer",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 3,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const staleIdentity = {
+			agentId,
+			leaseId: "lease-a",
+			owner: { agentId: null, sessionId: "supervisor-a" },
+			runtimeIncarnation: "runtime-a",
+			sessionPath,
+		};
+		acquireMultiAgentDispatchLease(controlDbPath, {
+			...staleIdentity,
+			expiresAt: "2026-07-11T00:01:00.000Z",
+			nowIso: "2026-07-11T00:00:00.000Z",
+		});
+		const terminalMutation = {
+			...staleIdentity,
+			eventKind: "completed",
+			eventPayload: { result: { summary: "done" } },
+			expectedRevision: 3,
+			fencingEpoch: 1,
+			terminalLifecycle: "completed" as const,
+			updatedAt: "2026-07-11T00:00:30.000Z",
+		};
+		expect(commitMultiAgentTerminalMutation(controlDbPath, terminalMutation)).toMatchObject({ ok: true });
+		expect(
+			acquireMultiAgentDispatchLease(controlDbPath, {
+				agentId,
+				expiresAt: "2026-07-11T00:03:00.000Z",
+				leaseId: "lease-b",
+				nowIso: "2026-07-11T00:02:00.000Z",
+				owner: { agentId: null, sessionId: "supervisor-b" },
+				runtimeIncarnation: "runtime-b",
+				sessionPath,
+			}),
+		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
+
+		expect(
+			renewMultiAgentDispatchLease(controlDbPath, {
+				...staleIdentity,
+				expectedFencingEpoch: 1,
+				expiresAt: "2026-07-11T00:04:00.000Z",
+				nowIso: "2026-07-11T00:02:30.000Z",
+			}),
+		).toMatchObject({ ok: false, error: "lease_mismatch" });
+		expect(
+			commitMultiAgentLifecycleMutation(controlDbPath, {
+				...staleIdentity,
+				expectedRevision: 4,
+				fencingEpoch: 1,
+				requestedLifecycle: "running",
+				updatedAt: "2026-07-11T00:02:30.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(commitMultiAgentTerminalMutation(controlDbPath, terminalMutation)).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
+		});
+
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
+		} finally {
+			db.close();
+		}
+	});
+
 	it("creates immutable terminal event and outbox schema", () => {
 		readMultiAgentState(controlDbPath, "/sessions/terminal-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);

@@ -2470,6 +2470,8 @@ export function commitMultiAgentTerminalMutation(
 				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
 			if (!agentRow) return { ok: false, error: "agent_not_found" };
 			const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!dispatchLeaseMatchesTerminalMutation(lease, input)) return { ok: false, error: "mutation_mismatch" };
 			const terminalRevision = input.expectedRevision + 1;
 			if (agent.revision === terminalRevision && agent.lifecycle === input.terminalLifecycle) {
 				return terminalMutationReplayResult(db, input, terminalRevision);
@@ -2478,8 +2480,6 @@ export function commitMultiAgentTerminalMutation(
 			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
 				return { ok: false, error: "invalid_transition" };
 			}
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!dispatchLeaseMatchesTerminalMutation(lease, input)) return { ok: false, error: "mutation_mismatch" };
 
 			const updatedAgent = {
 				...agent,
