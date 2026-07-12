@@ -13,6 +13,7 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import type {
@@ -60,6 +61,8 @@ import {
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { sendDesktopNotification } from "./desktop-notification.ts";
+import { createDetachedJobLifecycleController } from "./detached-job-lifecycle.ts";
+import type { DetachedJobLifecycleController } from "./detached-job-runner.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
@@ -92,6 +95,7 @@ import {
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { ApprovalReviewerResult as ExtensionApprovalReviewerResult } from "./extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
+import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { parseModelPattern, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
@@ -620,6 +624,7 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
+	private readonly _detachedJobRuntimeIncarnation = randomUUID();
 	private _multiAgentAgentId: string | undefined;
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
@@ -2342,6 +2347,30 @@ export class AgentSession {
 		return this._multiAgentAgentId ?? null;
 	}
 
+	private _getDetachedJobLifecycleController(): DetachedJobLifecycleController | undefined {
+		const store = this._multiAgentStore;
+		const persistence = store?.getPersistenceTarget();
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!store || !persistence || !controlDbPath) return undefined;
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+			createLeaseId: randomUUID,
+			now: () => new Date().toISOString(),
+			reservationDurationMs: 30_000,
+			runtimeIncarnation: this._detachedJobRuntimeIncarnation,
+			sessionPath: persistence.sessionPath,
+		});
+		return createDetachedJobLifecycleController({
+			artifactRoot: this._agentDir,
+			controlDbPath,
+			coordinator,
+			ownerSessionId: this.sessionId,
+			sessionPath: persistence.sessionPath,
+			store,
+		});
+	}
+
 	async drainRuntimeCoordination(): Promise<void> {
 		await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
 	}
@@ -4021,7 +4050,9 @@ export class AgentSession {
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
 					bash: {
-						backgroundJobs: this._multiAgentStore ? { store: this._multiAgentStore } : undefined,
+						backgroundJobs: this._multiAgentStore
+							? { lifecycle: this._getDetachedJobLifecycleController(), store: this._multiAgentStore }
+							: undefined,
 						commandPrefix: shellCommandPrefix,
 						detachRegistry: this._toolDetachRegistry,
 						shellPath,

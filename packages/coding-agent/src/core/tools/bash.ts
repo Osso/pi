@@ -18,6 +18,7 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
+import type { DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
 import { type ToolDetachHandle, ToolDetachRegistry } from "../tool-detach-registry.ts";
@@ -77,6 +78,7 @@ export interface BashDetachOptions {
 }
 
 export interface BashBackgroundJobsOptions {
+	lifecycle?: DetachedJobLifecycleController;
 	store: MultiAgentStore;
 }
 

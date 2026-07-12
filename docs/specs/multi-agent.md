@@ -146,7 +146,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   fixes the original terminal timestamp so DB-outage retries never substitute retry time. The runner
   lifecycle controller adapter gives Bash and Pyrun one shared boundary to allocate the job identity,
   create deterministic artifacts, reserve/confirm that exact ID through `LifecycleCoordinator`,
-  publish committed projections, and submit the envelope finalizer. The finalize repository operation
+  publish committed projections, and submit the envelope finalizer. AgentSession constructs the Bash
+  controller lazily from the current store/session/control-DB binding, so session switches cannot
+  retain an old session path; one runtime incarnation remains stable for the AgentSession lifetime. The finalize repository operation
   accepts only session path plus envelope path, revalidates output and
   checksum, requires exact revision/lease/incarnation/epoch and a lease live at that terminal time,
   permits only `running|cancelling` terminal settlement, and commits state/event/outbox atomically.

@@ -4,6 +4,7 @@
 
 ### Added
 
+- AgentSession now injects a lazily constructed, session-current detached-job lifecycle controller into first-party Bash background-job options, preserving one runtime incarnation while avoiding stale session paths after switches.
 - Added a shared detached-job lifecycle controller adapter covering identity allocation, deterministic artifacts, coordinator reservation/running confirmation, projection publication, and exact envelope finalization for Bash/Pyrun callers.
 - Added coordinator support for preallocated child IDs so detached runners can bind durable output artifacts before payload spawn without persisting lifecycle rows for foreground-only execution.
 - Added an exact detached-job `finalize` repository transaction that validates the immutable terminal envelope/output, enforces revision/lease/incarnation/fencing and terminal-time lease validity, restricts settlement to running/cancelling jobs, and atomically commits terminal state, event, and outbox with idempotent exact-envelope retry.
