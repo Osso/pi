@@ -53,10 +53,24 @@ export type DetachedJobLifecycleCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface LaunchDetachedBashInput {
+	args: string[];
+	command: string;
+	cwd: string;
+	env: NodeJS.ProcessEnv;
+}
+
+export interface LaunchedDetachedBashJob {
+	manifestPath: string;
+	reservation: DetachedJobReservation;
+	runnerPid: number;
+}
+
 export interface DetachedJobLifecycleController {
 	allocateJobId(): string;
 	cancel(reservation: DetachedJobReservation, reason?: string): DetachedJobLifecycleCommandResult;
 	createArtifacts(jobId: string): DetachedJobArtifacts;
+	launchBash(input: LaunchDetachedBashInput): LaunchedDetachedBashJob;
 	observe(jobId: string): AgentSnapshot | undefined;
 	reserve(input: ReserveDetachedJobInput): DetachedJobReservation;
 	finalize(envelopePath: string): { ok: boolean; terminalRevision?: number; error?: string };

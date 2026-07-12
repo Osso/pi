@@ -23,6 +23,7 @@ export interface DetachedBashLaunchManifestData {
 	command: string;
 	controlDbPath: string;
 	cwd: string;
+	env: NodeJS.ProcessEnv;
 	identity: DetachedJobLeaseIdentity;
 	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
@@ -78,6 +79,7 @@ export async function runDetachedBashRunner(
 		args: manifest.args,
 		command: manifest.command,
 		cwd: manifest.cwd,
+		env: manifest.env,
 		identityPath: join(manifest.artifacts.directory, "payload.json"),
 		stderrPath: manifest.artifacts.outputPath,
 		stdoutPath: manifest.artifacts.outputPath,

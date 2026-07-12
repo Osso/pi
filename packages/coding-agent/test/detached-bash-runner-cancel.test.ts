@@ -58,6 +58,7 @@ describe("detached Bash runner cancellation", () => {
 			command: process.execPath,
 			controlDbPath,
 			cwd: root,
+			env: process.env,
 			identity: reservation.identity,
 			runnerAddress,
 			sessionPath,

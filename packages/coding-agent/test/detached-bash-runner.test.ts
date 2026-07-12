@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	finalizeDetachedEnvelopeWithRetry,
-	launchDetachedBashRunner,
 	runDetachedBashRunner,
 	writeDetachedBashLaunchManifest,
 } from "../src/core/detached-bash-runner.ts";
@@ -60,6 +59,7 @@ describe("detached Bash runner", () => {
 			command: process.execPath,
 			controlDbPath,
 			cwd: root,
+			env: process.env,
 			identity: reservation.identity,
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			sessionPath,
@@ -102,32 +102,15 @@ describe("detached Bash runner", () => {
 			sessionPath,
 			store,
 		});
-		const jobId = lifecycle.allocateJobId();
-		const artifacts = lifecycle.createArtifacts(jobId);
-		const manifestPath = join(artifacts.directory, "launch.json");
-		const runnerPid = launchDetachedBashRunner(manifestPath, {
-			entryPath: join(import.meta.dirname, "../src/core/detached-bash-runner-entry.ts"),
-		});
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		expect(existsSync(`${manifestPath}.runner-error`)).toBe(false);
-		const reservation = lifecycle.reserve({
-			agentType: "bash",
-			cwd: root,
-			displayName: "Bash command",
-			jobId,
-			workerHandleId: String(runnerPid),
-		});
-		writeDetachedBashLaunchManifest(manifestPath, {
+		const launched = lifecycle.launchBash({
 			args: ["-e", 'setTimeout(() => console.log("independent"), 300)'],
-			artifacts,
 			command: process.execPath,
-			controlDbPath,
 			cwd: root,
-			identity: reservation.identity,
-			runnerAddress: { agentId: jobId, sessionId: "main" },
-			sessionPath,
+			env: process.env,
 		});
-
+		const { artifacts } = launched.reservation;
+		const runnerPid = launched.runnerPid;
+		expect(existsSync(`${launched.manifestPath}.runner-error`)).toBe(false);
 		const identityPath = join(artifacts.directory, "payload.json");
 		await waitFor(() => existsSync(identityPath));
 		const payloadIdentity = JSON.parse(readFileSync(identityPath, "utf8"));
