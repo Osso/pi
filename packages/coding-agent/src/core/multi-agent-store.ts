@@ -3,6 +3,7 @@ import {
 	allocateMultiAgentCounter,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
+	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
@@ -782,7 +783,7 @@ export class MultiAgentStore {
 		};
 		this.putMailboxMessage(message);
 
-		const updated = this.updateAgent(current, {
+		const updated = this.updateAgentMetadata(current, {
 			lastActivity: { description: "Contacted supervisor" },
 		});
 
@@ -815,7 +816,7 @@ export class MultiAgentStore {
 		};
 		this.putMailboxMessage(message);
 
-		const updated = this.updateAgent(target, {
+		const updated = this.updateAgentMetadata(target, {
 			lastActivity: { description: "Received mailbox message" },
 		});
 
@@ -861,7 +862,7 @@ export class MultiAgentStore {
 		};
 		this.putMailboxMessage(message);
 
-		const updated = this.updateAgent(current, {
+		const updated = this.updateAgentMetadata(current, {
 			lastActivity: { description: "Sent mailbox message" },
 		});
 
@@ -1169,19 +1170,30 @@ export class MultiAgentStore {
 		return updated;
 	}
 
-	private updateAgentMetadata(current: AgentNode, updates: Partial<Pick<AgentNode, "transcript">>): AgentNode {
+	private updateAgentMetadata(
+		current: AgentNode,
+		updates: Partial<Pick<AgentNode, "lastActivity" | "transcript">>,
+	): AgentNode {
 		const updatedAt = this.now();
 		const persisted = this.persistence
-			? updateMultiAgentAgentTranscript(
-					this.persistence.controlDbPath,
-					this.persistence.sessionPath,
-					current.id,
-					updates.transcript,
-					updatedAt,
-				)
+			? updates.transcript
+				? updateMultiAgentAgentTranscript(
+						this.persistence.controlDbPath,
+						this.persistence.sessionPath,
+						current.id,
+						updates.transcript,
+						updatedAt,
+					)
+				: updateMultiAgentAgentActivity(
+						this.persistence.controlDbPath,
+						this.persistence.sessionPath,
+						current.id,
+						updates.lastActivity,
+						updatedAt,
+					)
 			: undefined;
 		if (this.persistence && !persisted) {
-			throw new Error(`Persisted agent ${current.id} disappeared during transcript update`);
+			throw new Error(`Persisted agent ${current.id} disappeared during metadata update`);
 		}
 		const updated = persisted ?? { ...current, ...updates, updatedAt };
 		this.agents.set(updated.id, updated);

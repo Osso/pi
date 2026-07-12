@@ -116,7 +116,8 @@ rechecks state after subscription, and never consumes the shared mailbox transpo
 and late waiters therefore observe the same terminal revision independently. Runtime transcript
 metadata updates merge into the latest persisted agent snapshot inside an immediate transaction and
 cannot rewrite lifecycle or revision from a stale in-memory projection; restore never writes its
-runtime-only worker-handle cleanup back to lifecycle storage.
+runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata uses
+the same merge rule and no longer advances the lifecycle revision token.
 
 ## What it must do
 

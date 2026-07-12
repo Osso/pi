@@ -3673,11 +3673,31 @@ function upsertMultiAgentRow(
 	});
 }
 
+export function updateMultiAgentAgentActivity(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	lastActivity: AgentSnapshot["lastActivity"],
+	updatedAt: string,
+): AgentSnapshot | undefined {
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { lastActivity }, updatedAt);
+}
+
 export function updateMultiAgentAgentTranscript(
 	controlDbPath: string,
 	sessionPath: string,
 	agentId: string,
 	transcript: AgentSnapshot["transcript"],
+	updatedAt: string,
+): AgentSnapshot | undefined {
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { transcript }, updatedAt);
+}
+
+function updateMultiAgentAgentMetadata(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	metadata: Pick<AgentSnapshot, "lastActivity"> | Pick<AgentSnapshot, "transcript">,
 	updatedAt: string,
 ): AgentSnapshot | undefined {
 	return withControlDb(controlDbPath, (db) =>
@@ -3688,7 +3708,7 @@ export function updateMultiAgentAgentTranscript(
 			if (!row) return undefined;
 			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
 			validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
-			const updated = { ...agent, transcript, updatedAt } as AgentSnapshot;
+			const updated = { ...agent, ...metadata, updatedAt } as AgentSnapshot;
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
 			).run(JSON.stringify(updated), updatedAt, sessionPath, agentId);

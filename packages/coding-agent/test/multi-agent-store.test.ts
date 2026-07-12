@@ -1143,7 +1143,7 @@ describe("MultiAgentStore", () => {
 		expect(contact.agent).toMatchObject({
 			id: child.agent.id,
 			lastActivity: { description: "Contacted supervisor" },
-			revision: child.agent.revision + 1,
+			revision: child.agent.revision,
 		});
 		expect(contact.message).toMatchObject({
 			body: "Need clarification on auth scope",
@@ -1195,7 +1195,7 @@ describe("MultiAgentStore", () => {
 		expect(sentToChild.agent).toMatchObject({
 			id: parent.agent.id,
 			lastActivity: { description: "Sent mailbox message" },
-			revision: parent.agent.revision + 1,
+			revision: parent.agent.revision,
 		});
 		expect(siblingAttempt).toMatchObject({
 			ok: false,

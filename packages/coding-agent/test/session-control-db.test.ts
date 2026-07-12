@@ -76,6 +76,7 @@ import {
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
+	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
@@ -927,6 +928,19 @@ describe("session control DB", () => {
 			lifecycle: "completed",
 			revision: 5,
 			transcript: { path: "/sessions/child.jsonl", sessionId: "child-session" },
+		});
+		expect(
+			updateMultiAgentAgentActivity(
+				controlDbPath,
+				sessionPath,
+				"agent-1",
+				{ description: "Received mailbox message" },
+				"2026-07-11T00:03:00.000Z",
+			),
+		).toMatchObject({
+			lastActivity: { description: "Received mailbox message" },
+			lifecycle: "completed",
+			revision: 5,
 		});
 	});
 

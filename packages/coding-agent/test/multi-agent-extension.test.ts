@@ -2185,7 +2185,7 @@ describe("multi-agent extension tools", () => {
 		expect(contact.details.agent).toMatchObject({
 			id: child.details.agent.id,
 			lastActivity: { description: "Contacted supervisor" },
-			revision: child.details.agent.revision + 1,
+			revision: child.details.agent.revision,
 		});
 		expect(contact.details.message).toMatchObject({
 			body: "Need auth scope",
