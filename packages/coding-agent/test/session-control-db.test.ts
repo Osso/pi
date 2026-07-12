@@ -569,6 +569,29 @@ describe("session control DB", () => {
 		}
 	});
 
+	it("creates the fenced recovery leader lease schema", () => {
+		readMultiAgentState(controlDbPath, "/sessions/recovery-leader-schema.jsonl");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const columns = db.prepare("PRAGMA table_info(multi_agent_recovery_leader)").all() as Array<{
+				name: string;
+				notnull: number;
+			}>;
+			expect(columns.map((column) => column.name)).toEqual([
+				"singleton_id",
+				"lease_id",
+				"runtime_incarnation",
+				"owner_session_id",
+				"fencing_epoch",
+				"renewed_at",
+				"expires_at",
+			]);
+			expect(columns.find((column) => column.name === "fencing_epoch")?.notnull).toBe(1);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("fences dispatch lease acquisition, renewal, takeover, and release", () => {
 		const identity = {
 			agentId: "agent-1",
@@ -766,7 +789,7 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(4);
+			expect(version.user_version).toBe(5);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -890,7 +913,7 @@ describe("session control DB", () => {
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(4);
+			expect(version.user_version).toBe(5);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
