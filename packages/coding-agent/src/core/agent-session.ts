@@ -268,6 +268,20 @@ export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
 // Types
 // ============================================================================
 
+export type MultiAgentRuntimeRole = "standalone" | "orchestrator" | "child" | "observer";
+
+export interface MultiAgentExecutionCapability {
+	readonly kind: "multi-agent-execution";
+}
+
+const issuedMultiAgentExecutionCapabilities = new WeakSet<MultiAgentExecutionCapability>();
+
+export function createMultiAgentExecutionCapability(): MultiAgentExecutionCapability {
+	const capability: MultiAgentExecutionCapability = Object.freeze({ kind: "multi-agent-execution" });
+	issuedMultiAgentExecutionCapabilities.add(capability);
+	return capability;
+}
+
 export interface AgentSessionConfig {
 	agent: Agent;
 	sessionManager: SessionManager;
@@ -291,6 +305,8 @@ export interface AgentSessionConfig {
 	permissionPromptTool?: string;
 	/** Shared multi-agent store used for detached tool background jobs. */
 	multiAgentStore?: MultiAgentStore;
+	multiAgentRuntimeRole?: MultiAgentRuntimeRole;
+	multiAgentExecutionCapability?: MultiAgentExecutionCapability;
 	/** Current multi-agent runtime agent identity, when this session is running as a child agent. */
 	multiAgentAgentId?: string;
 	/** Parent runtime session ID for supervisor-directed messages from attached agents. */
@@ -499,6 +515,18 @@ function isSessionBusyPromptError(error: unknown): boolean {
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 
+function validateMultiAgentRuntimeRole(config: AgentSessionConfig): void {
+	const role = config.multiAgentRuntimeRole ?? "standalone";
+	const capability = config.multiAgentExecutionCapability;
+	const hasIssuedCapability = capability !== undefined && issuedMultiAgentExecutionCapabilities.has(capability);
+	if (role === "orchestrator" && !hasIssuedCapability) {
+		throw new Error("Multi-agent orchestrator requires an issued execution capability");
+	}
+	if (role !== "orchestrator" && capability !== undefined) {
+		throw new Error(`Multi-agent ${role} runtime cannot receive execution capability`);
+	}
+}
+
 // ============================================================================
 // AgentSession Class
 // ============================================================================
@@ -599,6 +627,7 @@ export class AgentSession {
 	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
+		validateMultiAgentRuntimeRole(config);
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
 		this.settingsManager = config.settingsManager;
