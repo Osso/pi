@@ -2759,7 +2759,7 @@ function canPersistLifecycleTransition(current: unknown, requested: string): boo
 		starting: ["running", "cancelling", "failed", "aborted"],
 		running: ["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"],
 		waiting_for_input: ["running", "steering_pending", "cancelling", "completed", "aborted"],
-		steering_pending: ["running", "waiting_for_input", "cancelling", "failed", "aborted"],
+		steering_pending: ["running", "cancelling", "failed", "aborted"],
 		cancelling: ["aborted", "failed"],
 		completed: [],
 		failed: [],

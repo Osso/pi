@@ -751,10 +751,62 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			message: { id: "message_1" },
 			ok: true,
 		});
+		expect(
+			commitMultiAgentLifecycleMutation(controlDbPath, {
+				agentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				processIdentity: testProcessIdentity("steer-runtime"),
+				requestedLifecycle: "waiting_for_input",
+				sessionPath,
+				updatedAt: "2026-07-11T00:02:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
+		expect(
+			commitMultiAgentTerminalMutation(controlDbPath, {
+				agentId,
+				eventKind: "completed",
+				eventPayload: { result: { summary: "too early" } },
+				owner: { agentId: null, sessionId: "supervisor" },
+				processIdentity: testProcessIdentity("steer-runtime"),
+				sessionPath,
+				terminalLifecycle: "completed",
+				updatedAt: "2026-07-11T00:02:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
 			agents: [{ id: agentId, lifecycle: "steering_pending", revision: 4 }],
 			mailboxMessages: [{ id: "message_1", status: "pending" }],
 		});
+		expect(
+			commitMultiAgentLifecycleMutation(controlDbPath, {
+				agentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				processIdentity: testProcessIdentity("steer-runtime"),
+				requestedLifecycle: "running",
+				sessionPath,
+				updatedAt: "2026-07-11T00:03:00.000Z",
+			}),
+		).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 5 } });
+		expect(
+			commitMultiAgentLifecycleMutation(controlDbPath, {
+				agentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				processIdentity: testProcessIdentity("steer-runtime"),
+				requestedLifecycle: "waiting_for_input",
+				sessionPath,
+				updatedAt: "2026-07-11T00:04:00.000Z",
+			}),
+		).toMatchObject({ ok: true, agent: { lifecycle: "waiting_for_input", revision: 6 } });
+		const lateSteering = commitMultiAgentSteeringMutation(controlDbPath, {
+			agentId,
+			message: { ...message, body: "Wake after idle", id: "message_2", updatedAt: "2026-07-11T00:05:00.000Z" },
+			owner: { agentId: null, sessionId: "supervisor" },
+			requestedLifecycle: "steering_pending",
+			processIdentity: testProcessIdentity("steer-runtime"),
+			sessionPath,
+			updatedAt: "2026-07-11T00:05:00.000Z",
+		});
+		expect(lateSteering).toMatchObject({ ok: true, agent: { lifecycle: "steering_pending", revision: 7 } });
 	});
 
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {
