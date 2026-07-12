@@ -2,7 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claimDetachedJobControlCommands, claimDetachedJobRuntimeCommands } from "../src/core/detached-job-control.ts";
+import {
+	claimDetachedJobControlCommands,
+	claimDetachedJobRuntimeCommands,
+	enqueueDetachedJobStatusRequest,
+} from "../src/core/detached-job-control.ts";
 import type { DetachedJobLeaseIdentity } from "../src/core/detached-job-runner.ts";
 import {
 	enqueueRuntimeMailboxMessage,
@@ -38,6 +42,28 @@ describe("detached job runtime mailbox control", () => {
 			{ command: "cancel", identity: cancellingIdentity, reason: "user requested", transportId: 1 },
 		]);
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([{ id: 1, status: "delivered" }]);
+	});
+
+	it("accepts a status request only at the exact current revision", () => {
+		const fixture = createFixture();
+		enqueueDetachedJobStatusRequest({
+			controlDbPath: fixture.controlDbPath,
+			identity,
+			requesterAddress: { agentId: null, sessionId: "supervisor-1" },
+			requestId: "status-1",
+			runnerAddress: fixture.recipient,
+			sessionPath: fixture.sessionPath,
+		});
+
+		expect(claimDetachedJobRuntimeCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([
+			{
+				command: "status",
+				identity,
+				replyTo: { agentId: null, sessionId: "supervisor-1" },
+				requestId: "status-1",
+				transportId: 1,
+			},
+		]);
 	});
 
 	it("accepts a bridge response only at the exact current revision", () => {

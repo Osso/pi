@@ -5,6 +5,7 @@ import { dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	claimDetachedJobRuntimeCommands,
+	enqueueDetachedJobStatusResponse,
 	type DetachedJobCancelCommand,
 	type DetachedJobResponseCommand,
 } from "../../../src/core/detached-job-control.ts";
@@ -143,8 +144,27 @@ function applyDetachedPyrunRuntimeCommands(
 		control.identity,
 	);
 	for (const command of commands) {
-		if (command.command === "respond") settleBridgeResponse(pendingRequests, command);
-		else if (!control.cancel) {
+		if (command.command === "respond") {
+			settleBridgeResponse(pendingRequests, command);
+			continue;
+		}
+		if (command.command === "status") {
+			enqueueDetachedJobStatusResponse({
+				controlDbPath: manifest.controlDbPath,
+				identity: control.identity,
+				replyTo: command.replyTo,
+				requestId: command.requestId,
+				runnerAddress: manifest.runnerAddress,
+				sessionPath: manifest.sessionPath,
+				status: {
+					outputPath: manifest.artifacts.outputPath,
+					pendingRequestCount: pendingRequests.size,
+					state: "running",
+				},
+			});
+			continue;
+		}
+		if (!control.cancel) {
 			control.cancel = command;
 			control.identity = command.identity;
 			abort.abort();

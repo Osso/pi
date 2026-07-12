@@ -2,6 +2,7 @@ import type { DetachedJobLeaseIdentity } from "./detached-job-runner.ts";
 import {
 	claimRuntimeMailboxMessages,
 	deliverRuntimeMailboxMessage,
+	enqueueStoredRuntimeMailboxMessage,
 	failRuntimeMailboxMessage,
 	type RuntimeMailboxAddress,
 } from "./session-control-db.ts";
@@ -10,6 +11,14 @@ export interface DetachedJobCancelCommand {
 	command: "cancel";
 	identity: DetachedJobLeaseIdentity;
 	reason?: string;
+	transportId: number;
+}
+
+export interface DetachedJobStatusCommand {
+	command: "status";
+	identity: DetachedJobLeaseIdentity;
+	replyTo: RuntimeMailboxAddress;
+	requestId: string;
 	transportId: number;
 }
 
@@ -22,10 +31,14 @@ export interface DetachedJobResponseCommand {
 	transportId: number;
 }
 
-export type DetachedJobRuntimeCommand = DetachedJobCancelCommand | DetachedJobResponseCommand;
+export type DetachedJobRuntimeCommand =
+	| DetachedJobCancelCommand
+	| DetachedJobStatusCommand
+	| DetachedJobResponseCommand;
 
 type StoredDetachedJobRuntimeCommand =
 	| Omit<DetachedJobCancelCommand, "transportId">
+	| Omit<DetachedJobStatusCommand, "transportId">
 	| Omit<DetachedJobResponseCommand, "transportId">;
 
 export function claimDetachedJobRuntimeCommands(
@@ -49,6 +62,67 @@ export function claimDetachedJobRuntimeCommands(
 	return commands;
 }
 
+export function enqueueDetachedJobStatusRequest(input: {
+	controlDbPath: string;
+	identity: DetachedJobLeaseIdentity;
+	requesterAddress: RuntimeMailboxAddress;
+	requestId: string;
+	runnerAddress: RuntimeMailboxAddress;
+	sessionPath: string;
+}): number {
+	const messageId = `detached-status-request:${input.identity.jobId}:${input.requestId}`;
+	return enqueueStoredRuntimeMailboxMessage(input.controlDbPath, {
+		kind: "system",
+		message: {
+			body: JSON.stringify({
+				command: "status",
+				identity: input.identity,
+				replyTo: input.requesterAddress,
+				requestId: input.requestId,
+			}),
+			fromAgentId: input.requesterAddress.agentId ?? "main",
+			id: messageId,
+			kind: "system",
+			status: "pending",
+			toAgentId: input.identity.jobId,
+		},
+		recipient: input.runnerAddress,
+		sender: input.requesterAddress,
+		storeRef: { messageId, sessionPath: input.sessionPath },
+	});
+}
+
+export function enqueueDetachedJobStatusResponse(input: {
+	controlDbPath: string;
+	identity: DetachedJobLeaseIdentity;
+	replyTo: RuntimeMailboxAddress;
+	requestId: string;
+	runnerAddress: RuntimeMailboxAddress;
+	sessionPath: string;
+	status: Record<string, unknown>;
+}): number {
+	const messageId = `detached-status:${input.identity.jobId}:${input.requestId}`;
+	return enqueueStoredRuntimeMailboxMessage(input.controlDbPath, {
+		kind: "system",
+		message: {
+			body: JSON.stringify({
+				command: "respond",
+				identity: input.identity,
+				requestId: input.requestId,
+				result: input.status,
+			}),
+			fromAgentId: input.identity.jobId,
+			id: messageId,
+			kind: "system",
+			status: "pending",
+			toAgentId: input.replyTo.agentId ?? "main",
+		},
+		recipient: input.replyTo,
+		sender: input.runnerAddress,
+		storeRef: { messageId, sessionPath: input.sessionPath },
+	});
+}
+
 export function claimDetachedJobControlCommands(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
@@ -70,6 +144,18 @@ function parseRuntimeCommand(body: string): StoredDetachedJobRuntimeCommand | un
 				reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
 			};
 		}
+		if (
+			parsed.command === "status" &&
+			typeof parsed.requestId === "string" &&
+			isRuntimeMailboxAddress(parsed.replyTo)
+		) {
+			return {
+				command: "status",
+				identity: parsed.identity,
+				replyTo: parsed.replyTo,
+				requestId: parsed.requestId,
+			};
+		}
 		if (parsed.command === "respond" && typeof parsed.requestId === "string") {
 			return {
 				command: "respond",
@@ -83,6 +169,14 @@ function parseRuntimeCommand(body: string): StoredDetachedJobRuntimeCommand | un
 	} catch {
 		return undefined;
 	}
+}
+
+function isRuntimeMailboxAddress(value: unknown): value is RuntimeMailboxAddress {
+	if (!isRecord(value)) return false;
+	return (
+		typeof value.sessionId === "string" &&
+		(value.agentId === null || value.agentId === undefined || typeof value.agentId === "string")
+	);
 }
 
 function isDetachedJobIdentity(value: unknown): value is DetachedJobLeaseIdentity {

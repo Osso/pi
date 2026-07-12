@@ -4,7 +4,7 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, w
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type GatedDetachedPayloadExit, spawnGatedDetachedPayload } from "./detached-job-bootstrap.ts";
-import { claimDetachedJobControlCommands } from "./detached-job-control.ts";
+import { claimDetachedJobRuntimeCommands, enqueueDetachedJobStatusResponse } from "./detached-job-control.ts";
 import {
 	type DetachedJobArtifacts,
 	type DetachedJobLeaseIdentity,
@@ -124,10 +124,22 @@ async function waitForDetachedBashExit(
 			timedOut = true;
 			signalPayloadGroup(payload.pid);
 		}
-		const [cancel] = claimDetachedJobControlCommands(manifest.controlDbPath, manifest.runnerAddress, identity);
-		if (cancel) {
-			identity = cancel.identity;
-			cancelReason = cancel.reason ?? "cancelled";
+		for (const command of claimDetachedJobRuntimeCommands(manifest.controlDbPath, manifest.runnerAddress, identity)) {
+			if (command.command === "status") {
+				enqueueDetachedJobStatusResponse({
+					controlDbPath: manifest.controlDbPath,
+					identity,
+					replyTo: command.replyTo,
+					requestId: command.requestId,
+					runnerAddress: manifest.runnerAddress,
+					sessionPath: manifest.sessionPath,
+					status: { outputPath: manifest.artifacts.outputPath, payloadPid: payload.pid, state: "running" },
+				});
+				continue;
+			}
+			if (command.command !== "cancel") continue;
+			identity = command.identity;
+			cancelReason = command.reason ?? "cancelled";
 			signalPayloadGroup(payload.pid);
 		}
 		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
