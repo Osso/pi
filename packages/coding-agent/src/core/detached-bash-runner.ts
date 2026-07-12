@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnGatedDetachedPayload } from "./detached-job-bootstrap.ts";
 import {
 	type DetachedJobArtifacts,
@@ -45,6 +47,24 @@ export function writeDetachedBashLaunchManifest(path: string, data: DetachedBash
 	fsyncDirectory(dirname(path));
 }
 
+export function launchDetachedBashRunner(manifestPath: string, options?: { entryPath?: string }): number {
+	const entryPath = options?.entryPath ?? defaultRunnerEntryPath();
+	const nodeArgs =
+		extname(entryPath) === ".ts"
+			? ["--experimental-strip-types", entryPath, manifestPath]
+			: [entryPath, manifestPath];
+	const child = spawn(process.execPath, nodeArgs, {
+		cwd: dirname(manifestPath),
+		detached: true,
+		env: { HOME: process.env.HOME, PATH: process.env.PATH },
+		stdio: "ignore",
+	});
+	if (!child.pid) throw new Error("Could not launch detached Bash runner");
+	child.once("error", () => undefined);
+	child.unref();
+	return child.pid;
+}
+
 export async function runDetachedBashRunner(
 	manifestPath: string,
 	options?: { now?: () => string },
@@ -86,6 +106,11 @@ export async function finalizeDetachedEnvelopeWithRetry<T>(
 			await sleep(retryDelayMs);
 		}
 	}
+}
+
+function defaultRunnerEntryPath(): string {
+	const sourceExtension = extname(fileURLToPath(import.meta.url));
+	return fileURLToPath(new URL(`./detached-bash-runner-entry${sourceExtension}`, import.meta.url));
 }
 
 function readDetachedBashLaunchManifest(path: string): DetachedBashLaunchManifest {
