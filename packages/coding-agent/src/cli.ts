@@ -7,14 +7,18 @@
  */
 import { APP_NAME } from "./config.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
+import { runInternalDetachedRunner } from "./internal-runner.ts";
 import { main, runCliActionOrReportError } from "./main.ts";
 
-process.title = APP_NAME;
-process.env.PI_CODING_AGENT = "true";
-process.emitWarning = (() => {}) as typeof process.emitWarning;
+const internalRunnerHandled = await runInternalDetachedRunner(process.argv.slice(2));
+if (!internalRunnerHandled) {
+	process.title = APP_NAME;
+	process.env.PI_CODING_AGENT = "true";
+	process.emitWarning = (() => {}) as typeof process.emitWarning;
 
-// Configure undici's global dispatcher before provider SDKs issue requests.
-// Runtime settings are applied once SettingsManager has loaded global/project settings.
-configureHttpDispatcher();
+	// Configure undici's global dispatcher before provider SDKs issue requests.
+	// Runtime settings are applied once SettingsManager has loaded global/project settings.
+	configureHttpDispatcher();
 
-await runCliActionOrReportError(() => main(process.argv.slice(2)));
+	await runCliActionOrReportError(() => main(process.argv.slice(2)));
+}

@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./harness.ts";
 
 async function createWaitingHarness(
@@ -59,6 +59,35 @@ async function createWaitingHarness(
 
 describe("AgentSession queue characterization", () => {
 	const harnesses: Harness[] = [];
+
+	it("drains after-tool-result steering at the pre-model-call boundary", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Return a fixed result",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "echoed" }], details: {} }),
+		};
+		const harness = await createHarness({ initialActiveToolNames: ["echo"], tools: [echoTool] });
+		harness.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("echo", {}, { id: "echo-call" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		harnesses.push(harness);
+
+		const internals = harness.session as unknown as {
+			_drainRuntimeCoordinationMessages: (options: {
+				checkpoint?: string;
+				triggerIfIdle: boolean;
+			}) => Promise<boolean>;
+		};
+		const drain = vi.spyOn(internals, "_drainRuntimeCoordinationMessages").mockResolvedValue(false);
+
+		await harness.session.prompt("start");
+		expect(harness.eventsOfType("tool_execution_start")).toHaveLength(1);
+
+		expect(drain).toHaveBeenCalledWith({ checkpoint: "after_tool_result", triggerIfIdle: false });
+	});
 
 	afterEach(() => {
 		while (harnesses.length > 0) {

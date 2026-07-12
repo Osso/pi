@@ -27,8 +27,6 @@ interface TransitionAgentDetails {
 
 const terminalStates = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 const allowedTransitions: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
-	["queued", new Set(["starting", "cancelling", "aborted"])],
-	["starting", new Set(["running", "cancelling", "failed", "aborted"])],
 	["running", new Set(["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"])],
 	["waiting_for_input", new Set(["running", "steering_pending", "cancelling", "completed", "aborted"])],
 	["steering_pending", new Set(["running", "waiting_for_input", "cancelling", "failed", "aborted"])],
@@ -80,7 +78,7 @@ function spawnTestAgent(store: MultiAgentStore, input: SpawnAgentInput): { agent
 		displayName: input.displayName,
 		eventStream: input.eventStream,
 		id: store.allocateAgentIdForLifecycleCoordinator(),
-		lifecycle: input.lifecycle ?? "queued",
+		lifecycle: "running",
 		model: input.model,
 		origin: input.origin,
 		parentId: input.parentId,
@@ -124,7 +122,6 @@ function attachTestSessionAgent(store: MultiAgentStore, parentId: string, input:
 	return spawnTestChildAgent(store, parentId, {
 		...input,
 		agentType: input.agentType || "resumed-session",
-		lifecycle: input.lifecycle ?? "waiting_for_input",
 		origin: "attached",
 	});
 }
@@ -200,24 +197,21 @@ function transitionReservedAgent(
 	}
 	const command = { agent: reserved.agent, ownership: reserved.ownership };
 	const result =
-		requested === "starting"
-			? reserved.coordinator.beginChildRuntime(command)
-			: requested === "running"
-				? reserved.coordinator.confirmChildRuntime(command)
-				: requested === "waiting_for_input"
-					? reserved.coordinator.markWaitingForInput(command)
-					: requested === "cancelling"
-						? reserved.coordinator.requestCancellation(command)
-						: requested === "completed" || requested === "failed" || requested === "aborted"
-							? reserved.coordinator.finalizeChild({
-									agent: reserved.agent,
-									error: details.error,
-									eventPayload: details,
-									ownership: reserved.ownership,
-									result: details.result,
-									terminalLifecycle: requested,
-								})
-							: { error: "invalid_transition" as const, ok: false as const };
+		requested === "running"
+			? reserved.coordinator.confirmChildRuntime(command)
+			: requested === "waiting_for_input"
+				? reserved.coordinator.markWaitingForInput(command)
+				: requested === "cancelling"
+					? reserved.coordinator.requestCancellation(command)
+					: requested === "completed" || requested === "failed" || requested === "aborted"
+						? reserved.coordinator.finalizeChild({
+								agent: reserved.agent,
+								error: details.error,
+								ownership: reserved.ownership,
+								result: details.result,
+								terminalLifecycle: requested,
+							})
+						: { error: "invalid_transition" as const, ok: false as const };
 	if (!result.ok) return result;
 	if (requested === "completed" || requested === "failed" || requested === "aborted") {
 		deliverTerminalProjection(store);
@@ -318,6 +312,7 @@ function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): bool
 interface ReservedAgent {
 	agent: AgentSnapshot;
 	coordinator: LifecycleCoordinator;
+	coordinatorOptions: { controlDbPath: string; sessionPath: string };
 	ownership: MultiAgentRuntimeOwnership;
 }
 
@@ -341,6 +336,7 @@ function reservedAgent(store: MultiAgentStore, agentId: string): ReservedAgent |
 			processIdentity: ownership.processIdentity ?? testProcessIdentity("legacy-test-runtime"),
 			sessionPath: persistence.sessionPath,
 		}),
+		coordinatorOptions: { controlDbPath: persistence.controlDbPath, sessionPath: persistence.sessionPath },
 		ownership,
 	};
 }

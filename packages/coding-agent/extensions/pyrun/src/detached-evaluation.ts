@@ -3,9 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { createDetachedJobLifecycleController } from "../../../src/core/detached-job-lifecycle.ts";
-import { readDetachedJobTerminalEnvelope } from "../../../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts";
-import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import { isActiveLifecycle, type AgentSnapshot, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import {
@@ -94,6 +93,7 @@ async function observeDetachedPyrunEvaluation(input: Parameters<typeof runDurabl
 	let detached = false;
 	let outputOffset = 0;
 	let result: CanonicalPyrunEvalResult | undefined;
+	let terminalAgent: AgentSnapshot | undefined;
 	const unregister = input.detachRegistry.register({ detach: () => (detached ? false : (detached = true)) });
 	const cancel = () => input.controller.cancel(input.ownership, "Pyrun tool call aborted");
 	input.signal?.addEventListener("abort", cancel, { once: true });
@@ -102,13 +102,14 @@ async function observeDetachedPyrunEvaluation(input: Parameters<typeof runDurabl
 			const records = readNewArtifactRecords(input.ownership.artifacts.outputPath, outputOffset);
 			outputOffset = records.offset;
 			result = consumeArtifactRecords(records.values, input.onUpdate) ?? result;
-			const agent = input.controller.observe(input.ownership.agent.id);
-			if (agent && !isActiveLifecycle(agent.lifecycle)) break;
+			terminalAgent = input.controller.observe(input.ownership.agent.id);
+			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
 			if (detached) return detachedResult(input.params, input.ownership.agent.id, input.ownership.artifacts.outputPath);
 			await new Promise((resolve) => setTimeout(resolve, ARTIFACT_POLL_MS));
 		}
 		if (result) return formatCanonicalPyrunEvalResult(input.params, result);
-		return formatTerminalEnvelopeError(input.params, input.ownership.artifacts.terminalEnvelopePath);
+		if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
+		return formatTerminalAgentError(input.params, terminalAgent);
 	} finally {
 		unregister();
 		input.signal?.removeEventListener("abort", cancel);
@@ -127,9 +128,8 @@ function consumeArtifactRecords(
 	return result;
 }
 
-function formatTerminalEnvelopeError(params: PyrunEvalParams, envelopePath: string): AgentToolResult<unknown> {
-	const envelope = readDetachedJobTerminalEnvelope(envelopePath);
-	const error = "error" in envelope.outcome ? envelope.outcome.error.message : envelope.outcome.kind;
+function formatTerminalAgentError(params: PyrunEvalParams, agent: AgentSnapshot): AgentToolResult<unknown> {
+	const error = agent.error?.message ?? agent.result?.summary ?? `Pyrun evaluation ${agent.lifecycle}`;
 	return {
 		content: [{ type: "text", text: `${params.code}\n\nError: ${error}` }],
 		details: { error, executed: params.code, type: "error" },

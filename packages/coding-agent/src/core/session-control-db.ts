@@ -1,5 +1,5 @@
 import { isAbsolute, join } from "node:path";
-import { type DetachedJobTerminalEnvelope, readDetachedJobTerminalEnvelope } from "./detached-job-runner.ts";
+import type { DetachedJobTerminalInput } from "./detached-job-runner.ts";
 import type { AgentFileReference, AgentMailboxMessage, AgentSnapshot } from "./multi-agent-store.ts";
 import {
 	isPiRuntimeProcessAlive,
@@ -16,7 +16,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 12;
+const CONTROL_DB_SCHEMA_VERSION = 13;
 
 export interface IncomingControlMessage {
 	id: number;
@@ -38,6 +38,7 @@ export interface RuntimeMailboxMessage {
 	kind: RuntimeMailboxMessageKind;
 	body: string;
 	fileRefs?: AgentFileReference[];
+	targetCheckpoint?: "next_model_call" | "after_tool_result" | "when_waiting";
 	storeRef: RuntimeMailboxStoreRef;
 	status: RuntimeMailboxMessageStatus;
 	createdAt: string;
@@ -180,6 +181,12 @@ type RuntimeMailboxListedRow = {
 	session_path: string | null;
 	session_path_asserted_at: string | null;
 	updated_at: string;
+};
+
+type PendingRuntimeMailboxStoreRefRow = {
+	store_data: string | null;
+	store_message_id: string | null;
+	store_session_path: string | null;
 };
 
 export interface RuntimeMailboxListener {
@@ -671,6 +678,7 @@ export function readRuntimeMailboxMessageForDelivery(
 		const storedOverride = {
 			body: requireStringField(parsed, "body", "runtime_mailbox_delivery"),
 			fileRefs: parseFileRefs(parsed.fileRefs, "runtime_mailbox_delivery"),
+			targetCheckpoint: parseSteeringCheckpoint(parsed.targetCheckpoint, "runtime_mailbox_delivery"),
 		};
 		return {
 			message: runtimeMailboxMessageFromRow(db, row, storedOverride),
@@ -1263,6 +1271,69 @@ export function readSharedChannelCursor(controlDbPath: string, recipient: Runtim
 	});
 }
 
+export function hasPendingRuntimeCoordinationMessage(controlDbPath: string, recipient: RuntimeMailboxAddress): boolean {
+	return withControlDb(controlDbPath, (db) => {
+		if (hasDeliverableRuntimeMailboxMessage(db, recipient)) {
+			return true;
+		}
+		if (recipient.agentId !== null) {
+			return false;
+		}
+		const cursor = readSharedChannelCursorRow(db, recipient);
+		if (cursor === undefined) {
+			return false;
+		}
+		const row = db
+			.prepare(
+				`
+				SELECT 1 AS present
+				FROM shared_channel_messages
+				WHERE id > ?
+					AND sender_agent_id IS NULL
+					AND sender_session_id <> ?
+				LIMIT 1
+				`,
+			)
+			.get(cursor, recipient.sessionId) as { present: number } | undefined;
+		return row !== undefined;
+	});
+}
+
+function hasDeliverableRuntimeMailboxMessage(db: SqliteDatabase, recipient: RuntimeMailboxAddress): boolean {
+	const rows = db
+		.prepare(
+			`
+			SELECT
+				runtime.store_session_path,
+				runtime.store_message_id,
+				stored.data AS store_data
+			FROM runtime_mailbox_messages AS runtime
+			JOIN multi_agent_mailbox_messages AS stored
+				ON stored.session_path = runtime.store_session_path
+				AND stored.message_id = runtime.store_message_id
+			WHERE runtime.status = 'pending'
+				AND runtime.store_session_path IS NOT NULL
+				AND runtime.store_message_id IS NOT NULL
+				AND runtime.recipient_session_id = ?
+				AND ((? IS NULL AND runtime.recipient_agent_id IS NULL) OR runtime.recipient_agent_id = ?)
+			ORDER BY runtime.id ASC
+			`,
+		)
+		.all(recipient.sessionId, recipient.agentId, recipient.agentId) as PendingRuntimeMailboxStoreRefRow[];
+	return rows.some((row) => {
+		const message = parseJsonObject(row.store_data ?? "");
+		return message?.status === "pending" && !isLifecycleNotificationPayload(message);
+	});
+}
+
+function isLifecycleNotificationPayload(message: Record<string, unknown>): boolean {
+	const threadId = message.threadId;
+	if (message.kind !== "system" || typeof threadId !== "string") return false;
+	return ["agent-completed:", "agent-failed:", "agent-waiting-for-input:"].some((prefix) =>
+		threadId.startsWith(prefix),
+	);
+}
+
 export function initializeSharedChannelCursorAtTail(controlDbPath: string, recipient: RuntimeMailboxAddress): number {
 	return withControlDb(controlDbPath, (db) => {
 		const existing = readSharedChannelCursorRow(db, recipient);
@@ -1557,7 +1628,11 @@ export function cleanupRuntimeMailboxMessages(controlDbPath: string, nowIso = ne
 function runtimeMailboxMessageFromRow(
 	db: SqliteDatabase,
 	row: RuntimeMailboxRow,
-	storedOverride?: { body: string; fileRefs?: AgentFileReference[] },
+	storedOverride?: {
+		body: string;
+		fileRefs?: AgentFileReference[];
+		targetCheckpoint?: RuntimeMailboxMessage["targetCheckpoint"];
+	},
 ): RuntimeMailboxMessage {
 	const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${row.id}`);
 	const stored = storedOverride ?? readReferencedStoreMessage(db, row);
@@ -1568,6 +1643,7 @@ function runtimeMailboxMessageFromRow(
 		kind: toRuntimeMailboxMessageKind(row.kind),
 		body: stored.body,
 		fileRefs: stored.fileRefs,
+		targetCheckpoint: stored.targetCheckpoint,
 		storeRef,
 		status: toRuntimeMailboxMessageStatus(row.status),
 		createdAt: row.created_at,
@@ -1581,7 +1657,7 @@ function runtimeMailboxMessageFromRow(
 function readReferencedStoreMessage(
 	db: SqliteDatabase,
 	row: RuntimeMailboxRow,
-): { body: string; fileRefs?: AgentFileReference[] } {
+): { body: string; fileRefs?: AgentFileReference[]; targetCheckpoint?: RuntimeMailboxMessage["targetCheckpoint"] } {
 	const storeRef = requireRuntimeMailboxStoreRef(row, `runtime_mailbox_messages:${row.id}`);
 	const stored = db
 		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
@@ -1594,6 +1670,7 @@ function readReferencedStoreMessage(
 	return {
 		body: requireStringField(data, "body", "runtime_mailbox_store"),
 		fileRefs: parseFileRefs(data.fileRefs, "runtime_mailbox_store"),
+		targetCheckpoint: parseSteeringCheckpoint(data.targetCheckpoint, "runtime_mailbox_store"),
 	};
 }
 
@@ -1626,6 +1703,12 @@ function toRuntimeMailboxMessageStatus(value: string): RuntimeMailboxMessageStat
 		return value;
 	}
 	return "failed";
+}
+
+function parseSteeringCheckpoint(value: unknown, context: string): RuntimeMailboxMessage["targetCheckpoint"] {
+	if (value === undefined) return undefined;
+	if (value === "next_model_call" || value === "after_tool_result" || value === "when_waiting") return value;
+	throw new Error(`Invalid steering checkpoint at ${context}`);
 }
 
 function parseFileRefs(value: unknown, context: string): AgentFileReference[] | undefined {
@@ -2194,6 +2277,16 @@ export type CreateMultiAgentChildWithRuntimeOwnershipResult =
 	| { ok: true; agent: object; ownership: MultiAgentRuntimeOwnership }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
 
+export interface CreateFailedMultiAgentChildInput {
+	agent: AgentSnapshot;
+	nowIso: string;
+	sessionPath: string;
+}
+
+export type CreateFailedMultiAgentChildResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "agent_exists" | "parent_not_found" };
+
 export interface MultiAgentRuntimeOwnership {
 	sessionPath: string;
 	agentId: string;
@@ -2256,15 +2349,6 @@ export interface ClaimMultiAgentTerminalOutboxOptions {
 	staleClaimBefore?: string;
 }
 
-export interface MultiAgentTerminalEvent {
-	sessionPath: string;
-	agentId: string;
-	terminalRevision: number;
-	eventKind: string;
-	payload: unknown;
-	createdAt: string;
-}
-
 export interface CommitMultiAgentLifecycleMutationInput {
 	sessionPath: string;
 	agentId: string;
@@ -2304,7 +2388,6 @@ export interface CommitMultiAgentTerminalMutationInput {
 	owner: { sessionId: string; agentId: string | null };
 	terminalLifecycle: "completed" | "failed" | "aborted";
 	eventKind: string;
-	eventPayload: unknown;
 	agentDetails?: { error?: unknown; result?: unknown };
 	updatedAt: string;
 }
@@ -2315,7 +2398,7 @@ export type CommitMultiAgentTerminalMutationResult =
 
 export interface FinalizeDetachedJobInput {
 	sessionPath: string;
-	envelopePath: string;
+	terminal: DetachedJobTerminalInput;
 }
 
 export type FinalizeDetachedJobResult =
@@ -2467,75 +2550,6 @@ function readTerminalOutboxAttempt(
 			)
 			.get(row.session_path, row.agent_id, row.terminal_revision, row.event_kind) as { attempt_count: number }
 	).attempt_count;
-}
-
-export function listUnseenMultiAgentTerminalEvents(
-	controlDbPath: string,
-	consumerId: string,
-): MultiAgentTerminalEvent[] {
-	return withControlDb(controlDbPath, (db) => {
-		const rows = db
-			.prepare(
-				`SELECT events.session_path, events.agent_id, events.terminal_revision,
-			 events.event_kind, events.payload, events.created_at
-			 FROM multi_agent_terminal_events AS events
-			 LEFT JOIN multi_agent_terminal_cursors AS cursors
-			 ON cursors.consumer_id = ? AND cursors.session_path = events.session_path
-			 AND cursors.agent_id = events.agent_id AND cursors.terminal_revision = events.terminal_revision
-			 AND cursors.event_kind = events.event_kind
-			 WHERE cursors.consumer_id IS NULL
-			 ORDER BY events.created_at, events.session_path, events.agent_id, events.terminal_revision, events.event_kind`,
-			)
-			.all(consumerId) as Array<{
-			session_path: string;
-			agent_id: string;
-			terminal_revision: number;
-			event_kind: string;
-			payload: string;
-			created_at: string;
-		}>;
-		return rows.map((row) => ({
-			agentId: row.agent_id,
-			createdAt: row.created_at,
-			eventKind: row.event_kind,
-			payload: parseStoredJson(row.payload, `multi_agent_terminal_events:${row.session_path}#${row.agent_id}`),
-			sessionPath: row.session_path,
-			terminalRevision: row.terminal_revision,
-		}));
-	});
-}
-
-export function markMultiAgentTerminalEventSeen(
-	controlDbPath: string,
-	consumerId: string,
-	event: Pick<MultiAgentTerminalEvent, "sessionPath" | "agentId" | "terminalRevision" | "eventKind">,
-	seenAt: string,
-): boolean {
-	return withControlDb(controlDbPath, (db) => {
-		const result = db
-			.prepare(
-				`INSERT INTO multi_agent_terminal_cursors (
-			 consumer_id, session_path, agent_id, terminal_revision, event_kind, seen_at
-			 ) SELECT ?, ?, ?, ?, ?, ?
-			 WHERE EXISTS (
-			 SELECT 1 FROM multi_agent_terminal_events
-			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?
-			 ) ON CONFLICT DO NOTHING`,
-			)
-			.run(
-				consumerId,
-				event.sessionPath,
-				event.agentId,
-				event.terminalRevision,
-				event.eventKind,
-				seenAt,
-				event.sessionPath,
-				event.agentId,
-				event.terminalRevision,
-				event.eventKind,
-			);
-		return result.changes === 1;
-	});
 }
 
 export function commitMultiAgentSteeringMutation(
@@ -2755,8 +2769,6 @@ function buildDetachedCancellationMessage(
 function canPersistLifecycleTransition(current: unknown, requested: string): boolean {
 	if (typeof current !== "string") return false;
 	const transitions: Record<string, readonly string[]> = {
-		queued: ["starting", "cancelling", "aborted"],
-		starting: ["running", "cancelling", "failed", "aborted"],
 		running: ["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"],
 		waiting_for_input: ["running", "steering_pending", "cancelling", "completed", "aborted"],
 		steering_pending: ["running", "cancelling", "failed", "aborted"],
@@ -2784,15 +2796,8 @@ export function commitMultiAgentTerminalMutation(
 			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			if (!runtimeOwnershipMatchesTerminalMutation(ownership, input))
 				return { ok: false, error: "mutation_mismatch" };
-			const terminalEventPayload = buildTerminalEventPayload(
-				agent,
-				input.terminalLifecycle,
-				input.owner,
-				input.processIdentity,
-				input.eventPayload,
-			);
 			if (agent.lifecycle === input.terminalLifecycle) {
-				return terminalMutationReplayResult(db, input, terminalEventPayload, Number(agent.revision));
+				return terminalMutationReplayResult(db, input, agent, Number(agent.revision));
 			}
 			const terminalRevision = Number(agent.revision) + 1;
 			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
@@ -2812,18 +2817,6 @@ export function commitMultiAgentTerminalMutation(
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
 			).run(JSON.stringify(updatedAgent), input.updatedAt, input.sessionPath, input.agentId);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_events (
-					session_path, agent_id, terminal_revision, event_kind, payload, created_at
-				) VALUES (?, ?, ?, ?, ?, ?)`,
-			).run(
-				input.sessionPath,
-				input.agentId,
-				terminalRevision,
-				input.eventKind,
-				JSON.stringify(terminalEventPayload),
-				input.updatedAt,
-			);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_outbox (
 					session_path, agent_id, terminal_revision, event_kind, status,
@@ -2866,40 +2859,20 @@ function isNonterminalLifecycle(lifecycle: unknown): boolean {
 function terminalMutationReplayResult(
 	db: SqliteDatabase,
 	input: CommitMultiAgentTerminalMutationInput,
-	terminalEventPayload: Record<string, unknown>,
+	agent: Record<string, unknown>,
 	terminalRevision: number,
 ): CommitMultiAgentTerminalMutationResult {
-	const row = db
+	for (const [key, value] of Object.entries(input.agentDetails ?? {})) {
+		if (JSON.stringify(agent[key]) !== JSON.stringify(value)) return { ok: false, error: "mutation_mismatch" };
+	}
+	const outbox = db
 		.prepare(
-			`SELECT payload FROM multi_agent_terminal_events
+			`SELECT 1 FROM multi_agent_terminal_outbox
 			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
 		)
-		.get(input.sessionPath, input.agentId, terminalRevision, input.eventKind) as { payload: string } | undefined;
-	if (row?.payload !== JSON.stringify(terminalEventPayload)) return { ok: false, error: "mutation_mismatch" };
+		.get(input.sessionPath, input.agentId, terminalRevision, input.eventKind);
+	if (!outbox) return { ok: false, error: "mutation_mismatch" };
 	return { ok: true, terminalRevision };
-}
-
-function buildTerminalEventPayload(
-	agent: Record<string, unknown>,
-	lifecycle: "completed" | "failed" | "aborted",
-	owner: { sessionId: string; agentId: string | null },
-	processIdentity: ProcessIdentity,
-	details: unknown,
-): Record<string, unknown> {
-	return {
-		agent: {
-			id: agent.id,
-			parentId: typeof agent.parentId === "string" ? agent.parentId : "main",
-		},
-		authorization: {
-			owner,
-			processIdentity,
-		},
-		outcome: {
-			details,
-			lifecycle,
-		},
-	};
 }
 
 function canPersistTerminalTransition(
@@ -2910,9 +2883,7 @@ function canPersistTerminalTransition(
 	const allowedFrom =
 		requested === "completed"
 			? new Set(["running", "waiting_for_input"])
-			: requested === "aborted"
-				? new Set(["queued", "starting", "running", "waiting_for_input", "steering_pending", "cancelling"])
-				: new Set(["starting", "running", "waiting_for_input", "steering_pending", "cancelling"]);
+			: new Set(["running", "waiting_for_input", "steering_pending", "cancelling"]);
 	return allowedFrom.has(current);
 }
 
@@ -2924,71 +2895,55 @@ function runtimeOwnershipMatchesTerminalMutation(
 }
 
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
-	const envelope = readDetachedJobTerminalEnvelope(input.envelopePath);
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => finalizeDetachedJobTransaction(db, input.sessionPath, envelope)),
+		withImmediateTransaction(db, () => finalizeDetachedJobTransaction(db, input.sessionPath, input.terminal)),
 	);
 }
 
 function finalizeDetachedJobTransaction(
 	db: SqliteDatabase,
 	sessionPath: string,
-	envelope: DetachedJobTerminalEnvelope,
+	terminal: DetachedJobTerminalInput,
 ): FinalizeDetachedJobResult {
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-		.get(sessionPath, envelope.jobId) as { data: string } | undefined;
+		.get(sessionPath, terminal.jobId) as { data: string } | undefined;
 	if (!row) return { ok: false, error: "agent_not_found" };
-	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
 	const persistedLifecycle = typeof agent.lifecycle === "string" ? agent.lifecycle : undefined;
 	const terminalLifecycle =
 		persistedLifecycle === "completed" || persistedLifecycle === "failed" || persistedLifecycle === "aborted"
 			? persistedLifecycle
 			: persistedLifecycle === "cancelling"
 				? "aborted"
-				: envelope.outcome.kind;
+				: terminal.outcome.kind;
 	const eventKind = `detached_job_${terminalLifecycle}`;
-	const terminalEventPayload = buildTerminalEventPayload(
-		agent,
-		terminalLifecycle,
-		envelope.owner,
-		envelope.processIdentity,
-		envelope,
-	);
-	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, envelope.jobId);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, terminal.jobId);
 	if (
 		!ownership ||
 		!runtimeOwnerMatches(ownership, {
-			agentId: envelope.jobId,
-			owner: envelope.owner,
-			processIdentity: envelope.processIdentity,
+			agentId: terminal.jobId,
+			owner: terminal.owner,
+			processIdentity: terminal.processIdentity,
 			sessionPath,
 		})
 	) {
 		return { ok: false, error: "mutation_mismatch" };
 	}
 	if (agent.lifecycle === terminalLifecycle) {
-		return detachedJobReplayResult(
-			db,
-			sessionPath,
-			envelope,
-			terminalEventPayload,
-			Number(agent.revision),
-			eventKind,
-		);
+		return detachedJobReplayResult(db, sessionPath, terminal, agent, Number(agent.revision), eventKind);
 	}
 	const terminalRevision = Number(agent.revision) + 1;
 	const canFinalize = agent.lifecycle === "running" || agent.lifecycle === "cancelling";
-	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, envelope.jobId)) {
+	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, terminal.jobId)) {
 		return { ok: false, error: "invalid_transition" };
 	}
 	const terminalAgent = persistDetachedJobTerminal(
 		db,
 		sessionPath,
-		envelope,
+		terminal,
 		agent,
 		ownership,
-		terminalEventPayload,
 		terminalLifecycle,
 		terminalRevision,
 		eventKind,
@@ -2999,115 +2954,106 @@ function finalizeDetachedJobTransaction(
 function detachedJobReplayResult(
 	db: SqliteDatabase,
 	sessionPath: string,
-	envelope: DetachedJobTerminalEnvelope,
-	terminalEventPayload: Record<string, unknown>,
+	terminal: DetachedJobTerminalInput,
+	terminalAgent: Record<string, unknown>,
 	terminalRevision: number,
 	eventKind: string,
 ): FinalizeDetachedJobResult {
-	const event = db
+	const expectedDetails = detachedJobAgentDetails(
+		terminal,
+		terminalAgent.lifecycle as "completed" | "failed" | "aborted",
+	);
+	for (const [key, value] of Object.entries(expectedDetails)) {
+		if (JSON.stringify(terminalAgent[key]) !== JSON.stringify(value))
+			return { ok: false, error: "mutation_mismatch" };
+	}
+	const outbox = db
 		.prepare(
-			`SELECT payload FROM multi_agent_terminal_events
+			`SELECT 1 FROM multi_agent_terminal_outbox
 			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
 		)
-		.get(sessionPath, envelope.jobId, terminalRevision, eventKind) as { payload: string } | undefined;
-	if (event?.payload !== JSON.stringify(terminalEventPayload)) return { ok: false, error: "mutation_mismatch" };
-	const row = db
-		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-		.get(sessionPath, envelope.jobId) as { data: string };
-	const terminalAgent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
-	validatePersistedAgentPayload(terminalAgent, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+		.get(sessionPath, terminal.jobId, terminalRevision, eventKind);
+	if (!outbox) return { ok: false, error: "mutation_mismatch" };
+	validatePersistedAgentPayload(terminalAgent, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
 	return { ok: true, terminalAgent: terminalAgent as unknown as AgentSnapshot, terminalRevision };
 }
 
 function persistDetachedJobTerminal(
 	db: SqliteDatabase,
 	sessionPath: string,
-	envelope: DetachedJobTerminalEnvelope,
+	terminal: DetachedJobTerminalInput,
 	agent: Record<string, unknown>,
 	ownership: MultiAgentRuntimeOwnershipRow,
-	terminalEventPayload: Record<string, unknown>,
 	terminalLifecycle: "completed" | "failed" | "aborted",
 	terminalRevision: number,
 	eventKind: string,
 ): AgentSnapshot {
 	const updated = {
 		...agent,
-		...detachedJobAgentDetails(envelope, terminalLifecycle),
+		...detachedJobAgentDetails(terminal, terminalLifecycle),
 		lifecycle: terminalLifecycle,
 		revision: terminalRevision,
-		updatedAt: envelope.terminalAt,
+		updatedAt: terminal.terminalAt,
 		worker: undefined,
 	};
 	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
 		JSON.stringify(updated),
-		envelope.terminalAt,
+		terminal.terminalAt,
 		sessionPath,
-		envelope.jobId,
-	);
-	db.prepare(
-		`INSERT INTO multi_agent_terminal_events
-			(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-	).run(
-		sessionPath,
-		envelope.jobId,
-		terminalRevision,
-		eventKind,
-		JSON.stringify(terminalEventPayload),
-		envelope.terminalAt,
+		terminal.jobId,
 	);
 	db.prepare(
 		`INSERT INTO multi_agent_terminal_outbox
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
-	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, envelope.terminalAt);
-	persistDetachedJobTerminalTransport(db, sessionPath, envelope, ownership, terminalRevision, eventKind);
-	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+	).run(sessionPath, terminal.jobId, terminalRevision, eventKind, terminal.terminalAt);
+	persistDetachedJobTerminalTransport(db, sessionPath, terminal, ownership, terminalRevision, eventKind);
+	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
 	return updated as unknown as AgentSnapshot;
 }
 
 function persistDetachedJobTerminalTransport(
 	db: SqliteDatabase,
 	sessionPath: string,
-	envelope: DetachedJobTerminalEnvelope,
+	terminal: DetachedJobTerminalInput,
 	ownership: MultiAgentRuntimeOwnershipRow,
 	terminalRevision: number,
 	eventKind: string,
 ): void {
 	const ownerSessionId = ownership.owner_session_id;
-	if (!ownerSessionId) throw new Error(`Detached job ${envelope.jobId} ownership has no owner session`);
-	const messageId = `terminal:${envelope.jobId}:${terminalRevision}:${eventKind}`;
-	const body = JSON.stringify({ agentId: envelope.jobId, eventKind, terminalRevision, type: "multi_agent_terminal" });
+	if (!ownerSessionId) throw new Error(`Detached job ${terminal.jobId} ownership has no owner session`);
+	const messageId = `terminal:${terminal.jobId}:${terminalRevision}:${eventKind}`;
+	const body = JSON.stringify({ agentId: terminal.jobId, eventKind, terminalRevision, type: "multi_agent_terminal" });
 	persistStoredRuntimeMailboxMessage(db, {
 		kind: "system",
 		message: {
 			body,
-			createdAt: envelope.terminalAt,
-			fromAgentId: envelope.jobId,
+			createdAt: terminal.terminalAt,
+			fromAgentId: terminal.jobId,
 			id: messageId,
 			kind: "system",
 			status: "pending",
 			toAgentId: ownership.owner_agent_id ?? "main",
-			updatedAt: envelope.terminalAt,
+			updatedAt: terminal.terminalAt,
 		},
 		recipient: { agentId: ownership.owner_agent_id, sessionId: ownerSessionId },
-		sender: { agentId: envelope.jobId, sessionId: ownerSessionId },
+		sender: { agentId: terminal.jobId, sessionId: ownerSessionId },
 		storeRef: { messageId, sessionPath },
-		updatedAt: envelope.terminalAt,
+		updatedAt: terminal.terminalAt,
 	});
 }
 
 function detachedJobAgentDetails(
-	envelope: DetachedJobTerminalEnvelope,
+	terminal: DetachedJobTerminalInput,
 	terminalLifecycle: "completed" | "failed" | "aborted",
 ): Record<string, unknown> {
-	const fileRefs = [{ label: envelope.output.label, path: envelope.output.path }];
+	const fileRefs = [{ label: terminal.output.label, path: terminal.output.path }];
 	if (terminalLifecycle === "aborted") return { result: { fileRefs } };
-	if (envelope.outcome.kind === "completed") {
-		return { result: { fileRefs, summary: envelope.outcome.summary } };
+	if (terminal.outcome.kind === "completed") {
+		return { result: { fileRefs, summary: terminal.outcome.summary } };
 	}
-	if (envelope.outcome.kind === "failed") {
-		return { error: envelope.outcome.error, result: { fileRefs, summary: envelope.outcome.error.message } };
+	if (terminal.outcome.kind === "failed") {
+		return { error: terminal.outcome.error, result: { fileRefs, summary: terminal.outcome.error.message } };
 	}
 	return { result: { fileRefs } };
 }
@@ -3127,7 +3073,7 @@ export function recoverDeadMultiAgentRuntime(
 				.get(sessionPath, agentId) as { data: string } | undefined;
 			if (!row) return { ok: false, error: "agent_not_found" };
 			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle) && agent.lifecycle !== "queued") {
+			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
 				return { ok: false, error: "invalid_transition" };
 			}
 			const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
@@ -3160,21 +3106,57 @@ export function recoverDeadMultiAgentRuntime(
 				updatedAt: input.nowIso,
 				worker: undefined,
 			};
-			const payload = { agentId, error, parentId: agent.parentId ?? null };
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
 			).run(JSON.stringify(updated), input.nowIso, sessionPath, agentId);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_events
-					(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
-				 VALUES (?, ?, ?, 'lost_runtime', ?, ?)`,
-			).run(sessionPath, agentId, terminalRevision, JSON.stringify(payload), input.nowIso);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_outbox
 					(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 				 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
 			).run(sessionPath, agentId, terminalRevision, input.nowIso);
 			return { ok: true, agent: updated, terminalRevision };
+		}),
+	);
+}
+
+export function createFailedMultiAgentChild(
+	controlDbPath: string,
+	input: CreateFailedMultiAgentChildInput,
+): CreateFailedMultiAgentChildResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const agent = input.agent as AgentSnapshot & Record<string, unknown>;
+			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${agent.id}`);
+			if (agent.lifecycle !== "failed" || agent.revision !== 1) {
+				throw new Error("Failed child creation requires failed revision 1");
+			}
+			const parentId = agent.parentId;
+			if (
+				!parentId ||
+				(parentId !== "main" &&
+					!db
+						.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+						.get(input.sessionPath, parentId))
+			) {
+				return { ok: false, error: "parent_not_found" };
+			}
+			if (
+				db
+					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+					.get(input.sessionPath, agent.id)
+			) {
+				return { ok: false, error: "agent_exists" };
+			}
+			db.prepare(
+				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+			).run(input.sessionPath, agent.id, JSON.stringify(agent), input.nowIso);
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_outbox (
+					session_path, agent_id, terminal_revision, event_kind, status,
+					claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+				) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+			).run(input.sessionPath, agent.id, input.nowIso);
+			return { ok: true, agent };
 		}),
 	);
 }
@@ -3189,8 +3171,8 @@ export function createMultiAgentChildWithRuntimeOwnership(
 			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
 			if (agent.id !== input.agentId)
 				throw new Error("Child agent payload ID does not match runtime ownership identity");
-			if (agent.lifecycle !== "queued" || agent.revision !== 1) {
-				throw new Error("Child runtime ownership requires queued revision 1");
+			if (agent.lifecycle !== "running" || agent.revision !== 1) {
+				throw new Error("Child runtime ownership requires running revision 1");
 			}
 			const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
 			if (
@@ -3353,11 +3335,7 @@ function registeredSupervisorOwnsSession(
 
 function isRecoverableRuntimeLifecycle(value: unknown): boolean {
 	return (
-		value === "waiting_for_input" ||
-		value === "starting" ||
-		value === "running" ||
-		value === "steering_pending" ||
-		value === "cancelling"
+		value === "waiting_for_input" || value === "running" || value === "steering_pending" || value === "cancelling"
 	);
 }
 
@@ -3677,6 +3655,7 @@ function validateMailboxPayload(data: unknown, context: string): void {
 		requireStringField(payload, "body", context);
 	}
 	parseFileRefs(payload.fileRefs, context);
+	parseSteeringCheckpoint(payload.targetCheckpoint, context);
 }
 
 function validatePersistedAgentPayload(data: Record<string, unknown>, context: string): void {
@@ -3724,14 +3703,6 @@ function rejectLegacyArtifactFields(value: unknown, context: string): void {
 			throw new Error(`Legacy artifact fields are not supported at ${context}.${key}`);
 		}
 		rejectLegacyArtifactFields(nested, `${context}.${key}`);
-	}
-}
-
-function parseStoredJson(value: string, context: string): unknown {
-	try {
-		return JSON.parse(value) as unknown;
-	} catch {
-		throw new Error(`Invalid persisted JSON at ${context}`);
 	}
 }
 
@@ -4024,16 +3995,6 @@ function initializeSchema(db: SqliteDatabase): void {
 			PRIMARY KEY (session_path, agent_id)
 		);
 
-		CREATE TABLE IF NOT EXISTS multi_agent_terminal_events (
-			session_path TEXT NOT NULL,
-			agent_id TEXT NOT NULL,
-			terminal_revision INTEGER NOT NULL,
-			event_kind TEXT NOT NULL,
-			payload TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind)
-		);
-
 		CREATE TABLE IF NOT EXISTS multi_agent_terminal_outbox (
 			session_path TEXT NOT NULL,
 			agent_id TEXT NOT NULL,
@@ -4046,27 +4007,11 @@ function initializeSchema(db: SqliteDatabase): void {
 			attempt_count INTEGER NOT NULL DEFAULT 0,
 			last_error TEXT,
 			updated_at TEXT NOT NULL,
-			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind),
-			FOREIGN KEY (session_path, agent_id, terminal_revision, event_kind)
-				REFERENCES multi_agent_terminal_events(session_path, agent_id, terminal_revision, event_kind)
-				ON DELETE CASCADE
+			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind)
 		);
 
 		CREATE INDEX IF NOT EXISTS multi_agent_terminal_outbox_status_idx
 		ON multi_agent_terminal_outbox(status, updated_at);
-
-		CREATE TABLE IF NOT EXISTS multi_agent_terminal_cursors (
-			consumer_id TEXT NOT NULL,
-			session_path TEXT NOT NULL,
-			agent_id TEXT NOT NULL,
-			terminal_revision INTEGER NOT NULL,
-			event_kind TEXT NOT NULL,
-			seen_at TEXT NOT NULL,
-			PRIMARY KEY (consumer_id, session_path, agent_id, terminal_revision, event_kind),
-			FOREIGN KEY (session_path, agent_id, terminal_revision, event_kind)
-				REFERENCES multi_agent_terminal_events(session_path, agent_id, terminal_revision, event_kind)
-				ON DELETE CASCADE
-		);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_mailbox_messages (
 			session_path TEXT NOT NULL,
@@ -4193,12 +4138,11 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
-		if (currentSchemaVersion.user_version > 0) {
-			assertLifecycleProtocolMigrationQuiescent(db);
-		}
+		assertLifecycleProtocolMigrationQuiescent(db);
 
 		dropLifecycleAccessControlTriggers(db);
 		db.exec("DROP TABLE IF EXISTS multi_agent_recovery_leader");
+		migrateTerminalOutboxSchema(db);
 		migrateRuntimeOwnerTable(db);
 		const now = new Date().toISOString();
 		migrateLegacyLifecycleRows(db, now);
@@ -4241,6 +4185,37 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
 	throw new Error(
 		`Cannot activate lifecycle protocol version ${CONTROL_DB_SCHEMA_VERSION} while lifecycle owners are active (PIDs: ${uniqueLivePids.join(", ")}). Stop all Pi and detached runner processes, then retry`,
 	);
+}
+
+function migrateTerminalOutboxSchema(db: SqliteDatabase): void {
+	const eventTableExists = db
+		.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_terminal_events'")
+		.get();
+	if (!eventTableExists) return;
+	db.exec(`
+		DROP TABLE IF EXISTS multi_agent_terminal_cursors;
+		ALTER TABLE multi_agent_terminal_outbox RENAME TO multi_agent_terminal_outbox_v12;
+		CREATE TABLE multi_agent_terminal_outbox (
+			session_path TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			terminal_revision INTEGER NOT NULL,
+			event_kind TEXT NOT NULL,
+			status TEXT NOT NULL,
+			claim_id TEXT,
+			claimed_at TEXT,
+			delivered_at TEXT,
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind)
+		);
+		INSERT INTO multi_agent_terminal_outbox
+		SELECT * FROM multi_agent_terminal_outbox_v12;
+		DROP TABLE multi_agent_terminal_outbox_v12;
+		DROP TABLE multi_agent_terminal_events;
+		CREATE INDEX IF NOT EXISTS multi_agent_terminal_outbox_status_idx
+		ON multi_agent_terminal_outbox(status, updated_at);
+	`);
 }
 
 function migrateRuntimeOwnerTable(db: SqliteDatabase): void {
@@ -4320,15 +4295,6 @@ function migrateLegacyLifecycleRows(db: SqliteDatabase, nowIso: string): void {
 			row.session_path,
 			row.agent_id,
 		);
-		const payload = JSON.stringify({
-			agentId: row.agent_id,
-			error,
-			lifecycle: "failed",
-			parentId: agent.parentId ?? null,
-		});
-		db.prepare(
-			`INSERT INTO multi_agent_terminal_events (session_path, agent_id, terminal_revision, event_kind, payload, created_at) VALUES (?, ?, ?, 'lost_runtime', ?, ?)`,
-		).run(row.session_path, row.agent_id, terminalRevision, payload, nowIso);
 		db.prepare(
 			`INSERT INTO multi_agent_terminal_outbox (session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at) VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
 		).run(row.session_path, row.agent_id, terminalRevision, nowIso);

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
-import { writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
+import { createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
@@ -46,25 +46,25 @@ describe("detached job lifecycle controller", () => {
 			workerHandleId: "123",
 		});
 		expect(ownership).toMatchObject({
-			agent: { id: jobId, lifecycle: "running", revision: 3 },
+			agent: { id: jobId, lifecycle: "running", revision: 1 },
 			artifacts,
 		});
 		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "running" });
 
 		writeFileSync(artifacts.outputPath, "done", { mode: 0o600 });
-		writeDetachedJobTerminalEnvelope(
+		const terminal = createDetachedJobTerminalInput(
 			artifacts,
 			ownership.identity,
 			{ exitCode: 0, kind: "completed", summary: "done" },
 			"2026-07-11T22:00:30.000Z",
 		);
-		expect(fixture.controller.finalize(artifacts.terminalEnvelopePath)).toMatchObject({
+		expect(finalizeDetachedJob(fixture.controlDbPath, { sessionPath: fixture.sessionPath, terminal })).toMatchObject({
 			ok: true,
-			terminalAgent: { id: jobId, lifecycle: "completed", revision: 4 },
-			terminalRevision: 4,
+			terminalAgent: { id: jobId, lifecycle: "completed", revision: 2 },
+			terminalRevision: 2,
 		});
 		expect(readMultiAgentState(fixture.controlDbPath, fixture.sessionPath)?.agents).toMatchObject([
-			{ id: jobId, lifecycle: "completed", revision: 4 },
+			{ id: jobId, lifecycle: "completed", revision: 2 },
 		]);
 	});
 
@@ -81,10 +81,10 @@ describe("detached job lifecycle controller", () => {
 		});
 
 		expect(fixture.controller.cancel(ownership, "user requested")).toMatchObject({
-			agent: { id: jobId, lifecycle: "cancelling", revision: 4 },
+			agent: { id: jobId, lifecycle: "cancelling", revision: 2 },
 			ok: true,
 		});
-		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "cancelling", revision: 4 });
+		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "cancelling", revision: 2 });
 	});
 
 	it("observes and publishes a terminal snapshot committed by an external runner", () => {
@@ -100,21 +100,19 @@ describe("detached job lifecycle controller", () => {
 			workerHandleId: "runner-1",
 		});
 		writeFileSync(artifacts.outputPath, "done", { mode: 0o600 });
-		writeDetachedJobTerminalEnvelope(
+		const terminal = createDetachedJobTerminalInput(
 			artifacts,
 			ownership.identity,
 			{ exitCode: 0, kind: "completed" },
 			"2026-07-11T22:00:30.000Z",
 		);
-		expect(
-			finalizeDetachedJob(fixture.controlDbPath, {
-				envelopePath: artifacts.terminalEnvelopePath,
-				sessionPath: fixture.sessionPath,
-			}),
-		).toMatchObject({ ok: true, terminalRevision: 4 });
-		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "running", revision: 3 });
+		expect(finalizeDetachedJob(fixture.controlDbPath, { sessionPath: fixture.sessionPath, terminal })).toMatchObject({
+			ok: true,
+			terminalRevision: 2,
+		});
+		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "running", revision: 1 });
 
-		expect(fixture.controller.observe(jobId)).toMatchObject({ id: jobId, lifecycle: "completed", revision: 4 });
-		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "completed", revision: 4 });
+		expect(fixture.controller.observe(jobId)).toMatchObject({ id: jobId, lifecycle: "completed", revision: 2 });
+		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "completed", revision: 2 });
 	});
 });

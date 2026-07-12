@@ -15,13 +15,9 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
-import {
-	type DetachedJobArtifacts,
-	type DetachedJobLifecycleController,
-	readDetachedJobTerminalEnvelope,
-} from "../detached-job-runner.ts";
+import type { DetachedJobArtifacts, DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
-import { isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
+import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
 import { type ToolDetachHandle, ToolDetachRegistry } from "../tool-detach-registry.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
@@ -340,6 +336,7 @@ async function executeRunnerOwnedBash(
 	});
 	let outputOffset = 0;
 	let aborted = false;
+	let terminalAgent: AgentSnapshot | undefined;
 	const requestCancellation = () => {
 		aborted = true;
 		options.lifecycle.cancel(launched.ownership, "Bash tool call aborted");
@@ -355,8 +352,8 @@ async function executeRunnerOwnedBash(
 				options.onData(output.subarray(outputOffset));
 				outputOffset = output.length;
 			}
-			const agent = options.lifecycle.observe(launched.ownership.agent.id);
-			if (agent && !isActiveLifecycle(agent.lifecycle)) break;
+			terminalAgent = options.lifecycle.observe(launched.ownership.agent.id);
+			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
 			if (options.detach.signal.aborted) {
 				return {
 					exitCode: null,
@@ -369,12 +366,12 @@ async function executeRunnerOwnedBash(
 			}
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
-		const envelope = readDetachedJobTerminalEnvelope(launched.ownership.artifacts.terminalEnvelopePath);
-		if (aborted || envelope.outcome.kind === "aborted") throw new Error("aborted");
-		if (envelope.outcome.kind === "failed" && envelope.outcome.error.message.includes("timed out")) {
+		if (!terminalAgent) throw new Error("Detached Bash job terminal state is unavailable");
+		if (aborted || terminalAgent.lifecycle === "aborted") throw new Error("aborted");
+		if (terminalAgent.lifecycle === "failed" && terminalAgent.error?.message.includes("timed out")) {
 			throw new Error(`timeout:${options.timeout}`);
 		}
-		return { exitCode: envelope.outcome.kind === "completed" ? (envelope.outcome.exitCode ?? 0) : 1 };
+		return { exitCode: terminalAgent.lifecycle === "completed" ? 0 : 1 };
 	} finally {
 		options.signal?.removeEventListener("abort", requestCancellation);
 	}

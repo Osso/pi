@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
+import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import {
 	acquireMultiAgentRuntimeOwnership,
 	advanceSharedChannelCursor,
@@ -45,9 +45,7 @@ import {
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
-	listUnseenMultiAgentTerminalEvents,
 	markMultiAgentMailboxMessageDelivered,
-	markMultiAgentTerminalEventSeen,
 	markRuntimeMailboxMessageDelivered,
 	postArchitectRequest,
 	postSharedChannelMessage,
@@ -551,7 +549,7 @@ describe("session control DB", () => {
 			`import { bootstrapMultiAgentAgent, readMultiAgentState } from ${JSON.stringify(moduleUrl)};
 const controlDbPath = process.argv[2];
 const sessionPath = "/sessions/bun-runtime.jsonl";
-bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", { id: "agent-1", lifecycle: "queued", revision: 1 });
+bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", { id: "agent-1", lifecycle: "running", revision: 1 });
 const state = readMultiAgentState(controlDbPath, sessionPath);
 if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did not persist the agent");
 `,
@@ -602,10 +600,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			displayName: "Parent",
 			agentType: "main",
 			id: "agent-parent",
-			lifecycle: "queued",
+			lifecycle: "running",
 			parentId: undefined,
 			permission: { narrowed: true, policy: "on-request" },
-			revision: 0,
+			revision: 1,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
 		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
@@ -616,7 +614,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				displayName: "Child",
 				agentType: "implement",
 				id: "agent-child",
-				lifecycle: "queued",
+				lifecycle: "running",
 				parentId: "agent-parent",
 				permission: { narrowed: true, policy: "on-request" },
 				revision: 1,
@@ -628,7 +626,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath,
 		});
 		expect(created).toMatchObject({
-			agent: { id: "agent-child", lifecycle: "queued", parentId: "agent-parent", revision: 1 },
+			agent: { id: "agent-child", lifecycle: "running", parentId: "agent-parent", revision: 1 },
 			ok: true,
 		});
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
@@ -647,7 +645,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			displayName: "CAS agent",
 			agentType: "test",
 			id: agentId,
-			lifecycle: "queued",
+			lifecycle: "running",
 			parentId: undefined,
 			permission: { narrowed: true, policy: "on-request" },
 			revision: 0,
@@ -663,7 +661,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const command = {
 			agentId,
 			owner: { agentId: null, sessionId: "supervisor" },
-			requestedLifecycle: "starting" as const,
+			requestedLifecycle: "waiting_for_input" as const,
 			processIdentity: testProcessIdentity("runtime-cas"),
 			sessionPath,
 			updatedAt: "2026-07-11T00:01:00.000Z",
@@ -678,7 +676,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				ok: false,
 			});
 			expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
-				{ lifecycle: "queued", revision: 0 },
+				{ lifecycle: "running", revision: 0 },
 			]);
 		}
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
@@ -704,7 +702,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		);
 		expect(results.filter((result) => (result as { ok: boolean }).ok)).toHaveLength(2);
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
-			{ lifecycle: "starting", revision: 1 },
+			{ lifecycle: "waiting_for_input", revision: 1 },
 		]);
 	});
 
@@ -765,7 +763,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			commitMultiAgentTerminalMutation(controlDbPath, {
 				agentId,
 				eventKind: "completed",
-				eventPayload: { result: { summary: "too early" } },
 				owner: { agentId: null, sessionId: "supervisor" },
 				processIdentity: testProcessIdentity("steer-runtime"),
 				sessionPath,
@@ -848,7 +845,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const mutation = {
 			agentId,
 			eventKind: "completed",
-			eventPayload: { result: { summary: "done" } },
 			owner: { agentId: null, sessionId: "supervisor" },
 			processIdentity: testProcessIdentity("runtime-terminal"),
 			sessionPath,
@@ -858,30 +854,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const committed = commitMultiAgentTerminalMutation(controlDbPath, mutation);
 		expect(committed).toMatchObject({ ok: true, terminalRevision: 5 });
 		expect(commitMultiAgentTerminalMutation(controlDbPath, mutation)).toEqual(committed);
-
-		const firstConsumer = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a");
-		const secondConsumer = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b");
-		expect(firstConsumer).toMatchObject([
-			{
-				agentId,
-				eventKind: "completed",
-				payload: {
-					agent: { id: agentId, parentId: "main" },
-					authorization: {
-						owner: mutation.owner,
-						processIdentity: mutation.processIdentity,
-					},
-					outcome: { details: mutation.eventPayload, lifecycle: "completed" },
-				},
-				terminalRevision: 5,
-			},
-		]);
-		expect(secondConsumer).toEqual(firstConsumer);
-		expect(markMultiAgentTerminalEventSeen(controlDbPath, "waiter-a", firstConsumer[0]!, mutation.updatedAt)).toBe(
-			true,
-		);
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a")).toEqual([]);
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b")).toEqual(secondConsumer);
 
 		expect(
 			claimMultiAgentTerminalOutbox(controlDbPath, "wrong-session", mutation.updatedAt, {
@@ -895,13 +867,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const retried = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", "2026-07-11T00:03:00.000Z");
 		expect(retried).toMatchObject({ attemptCount: 2, claimId: "delivery-b", status: "claimed" });
 		expect(deliverMultiAgentTerminalOutbox(controlDbPath, retried!, "2026-07-11T00:04:00.000Z")).toBe(true);
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b")).toEqual(secondConsumer);
-		expect(
-			commitMultiAgentTerminalMutation(controlDbPath, {
-				...mutation,
-				eventPayload: { result: { summary: "conflicting" } },
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
 
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -913,7 +878,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				).data,
 			) as Record<string, unknown>;
 			expect(agent).toMatchObject({ lifecycle: "completed", revision: 5 });
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
 		} finally {
 			db.close();
@@ -925,11 +889,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_events
-				 (session_path, agent_id, terminal_revision, event_kind, payload, created_at)
-				 VALUES (?, 'agent-1', 2, 'failed', '{}', ?)`,
-			).run(sessionPath, "2026-07-11T00:00:00.000Z");
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_outbox
 				 (session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
@@ -1011,7 +970,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		).toMatchObject({ lifecycle: "completed", revision: 5, slot: { index: 3, pinned: true } });
 	});
 
-	it("finalizes a detached job from its exact durable envelope", () => {
+	it("finalizes a detached job from its exact terminal input", () => {
 		const sessionPath = "/sessions/detached-finalize.jsonl";
 		const agentId = "job-1";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
@@ -1035,7 +994,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detached-finalize-")), agentId);
 		writeFileSync(artifacts.outputPath, "runner output", { mode: 0o600 });
-		const envelope = writeDetachedJobTerminalEnvelope(
+		const terminal = createDetachedJobTerminalInput(
 			artifacts,
 			{
 				jobId: agentId,
@@ -1047,36 +1006,19 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			"2026-07-11T22:00:00.000Z",
 		);
 
-		const finalized = finalizeDetachedJob(controlDbPath, {
-			envelopePath: artifacts.terminalEnvelopePath,
-			sessionPath,
-		});
+		const finalized = finalizeDetachedJob(controlDbPath, { sessionPath, terminal });
 		expect(finalized).toMatchObject({
 			ok: true,
 			terminalAgent: { id: agentId, lifecycle: "completed", revision: 5 },
 			terminalRevision: 5,
 		});
-		expect(finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath })).toEqual(
-			finalized,
-		);
+		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toEqual(finalized);
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{
 				id: agentId,
 				lifecycle: "completed",
-				result: { fileRefs: [{ path: envelope.output.path }], summary: "done" },
+				result: { fileRefs: [{ path: terminal.output.path }], summary: "done" },
 				revision: 5,
-			},
-		]);
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "detached-test")).toMatchObject([
-			{
-				agentId,
-				eventKind: "detached_job_completed",
-				payload: {
-					agent: { id: agentId, parentId: "main" },
-					authorization: { owner: envelope.owner, processIdentity: envelope.processIdentity },
-					outcome: { details: envelope, lifecycle: "completed" },
-				},
-				terminalRevision: 5,
 			},
 		]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
@@ -1100,12 +1042,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				sessionPath,
 			}),
 		).toMatchObject({ ok: true });
-		expect(finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath })).toEqual(
-			{
-				ok: false,
-				error: "mutation_mismatch",
-			},
-		);
+		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
+		});
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
@@ -1154,61 +1094,30 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			).toMatchObject({ ok: true, agent: { lifecycle: "cancelling", revision: 5 } });
 			const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detached-cancel-race-")), agentId);
 			writeFileSync(artifacts.outputPath, "runner completed before seeing cancel", { mode: 0o600 });
-			const envelope = writeDetachedJobTerminalEnvelope(
+			const terminal = createDetachedJobTerminalInput(
 				artifacts,
 				{ jobId: agentId, outputLabel, owner, processIdentity },
 				{ exitCode: 0, kind: "completed", summary: "natural completion" },
 				"2026-07-11T21:00:02.000Z",
 			);
 
-			const finalized = finalizeDetachedJob(controlDbPath, {
-				envelopePath: artifacts.terminalEnvelopePath,
-				sessionPath,
-			});
+			const finalized = finalizeDetachedJob(controlDbPath, { sessionPath, terminal });
 			expect(finalized).toMatchObject({
 				ok: true,
 				terminalAgent: { id: agentId, lifecycle: "aborted", revision: 6 },
 				terminalRevision: 6,
 			});
-			expect(
-				finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath }),
-			).toEqual(finalized);
-			expect(listUnseenMultiAgentTerminalEvents(controlDbPath, `cancel-race-test:${outputLabel}`)).toMatchObject([
-				{
-					agentId,
-					eventKind: "detached_job_aborted",
-					payload: {
-						agent: { id: agentId, parentId: "main" },
-						authorization: { owner: envelope.owner, processIdentity: envelope.processIdentity },
-						outcome: { details: envelope, lifecycle: "aborted" },
-					},
-					terminalRevision: 6,
-				},
-			]);
+			expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toEqual(finalized);
 		},
 	);
 
-	it("creates immutable terminal event and outbox schema", () => {
+	it("creates terminal outbox schema without event or cursor tables", () => {
 		readMultiAgentState(controlDbPath, "/sessions/terminal-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			const eventColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_events)").all() as Array<{
-				name: string;
-			}>;
 			const outboxColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_outbox)").all() as Array<{
 				name: string;
 			}>;
-			const cursorColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_cursors)").all() as Array<{
-				name: string;
-			}>;
-			expect(eventColumns.map((column) => column.name)).toEqual([
-				"session_path",
-				"agent_id",
-				"terminal_revision",
-				"event_kind",
-				"payload",
-				"created_at",
-			]);
 			expect(outboxColumns.map((column) => column.name)).toEqual([
 				"session_path",
 				"agent_id",
@@ -1222,14 +1131,16 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				"last_error",
 				"updated_at",
 			]);
-			expect(cursorColumns.map((column) => column.name)).toEqual([
-				"consumer_id",
-				"session_path",
-				"agent_id",
-				"terminal_revision",
-				"event_kind",
-				"seen_at",
-			]);
+			expect(
+				db
+					.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_terminal_events'")
+					.get(),
+			).toBeUndefined();
+			expect(
+				db
+					.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_terminal_cursors'")
+					.get(),
+			).toBeUndefined();
 		} finally {
 			db.close();
 		}
@@ -1269,7 +1180,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				cwd: "/repo",
 				displayName: "Dead child",
 				id: agentId,
-				lifecycle: "queued",
+				lifecycle: "running",
 				parentId: "main",
 				permission: { narrowed: true, policy: "on-request" },
 				revision: 1,
@@ -1359,7 +1270,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				"owner_session_id",
 				"owner_agent_id",
 			]);
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(12);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(13);
 		} finally {
 			migratedDb.close();
 		}
@@ -1414,7 +1325,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
 					.get("multi_agent_dispatch_leases"),
 			).toBeUndefined();
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(12);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(13);
 		} finally {
 			migratedDb.close();
 		}
@@ -1460,9 +1371,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					)
 					.get(sessionPath, "queued"),
 			).toEqual({ process_identity: null });
-			expect(
-				db.prepare("SELECT event_kind FROM multi_agent_terminal_events WHERE agent_id = 'running'").get(),
-			).toEqual({ event_kind: "lost_runtime" });
 			expect(db.prepare("SELECT status FROM multi_agent_terminal_outbox WHERE agent_id = 'running'").get()).toEqual({
 				status: "pending",
 			});
@@ -1525,6 +1433,34 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			offlineDb.close();
 		}
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+	});
+
+	it("requires lifecycle writer quiescence for a version-zero database with lifecycle tables", () => {
+		const sessionPath = "/sessions/version-zero-quiescence.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 0");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_listeners (
+					recipient_session_id, recipient_agent_id_key, pid, runtime_instance_id,
+					session_path, session_path_asserted_at, updated_at
+				) VALUES (?, '', ?, ?, ?, ?, ?)`,
+			).run(
+				"live-supervisor",
+				process.pid,
+				"old-runtime",
+				sessionPath,
+				"2026-07-11T00:00:00.000Z",
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(
+			/stop all pi and detached runner processes/i,
+		);
 	});
 
 	it("migrates legacy artifact fields from a pre-upgrade database", () => {
@@ -1597,7 +1533,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(12);
+			expect(version.user_version).toBe(13);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1718,7 +1654,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(12);
+			expect(version.user_version).toBe(13);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
@@ -2579,7 +2515,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const missingHealthSessionPath = "/sessions/missing-health.jsonl";
 		const missingMetadataSessionPath = "/sessions/missing-metadata.jsonl";
 		const inactiveSessionId = "inactive-supervisor";
-		const activeLifecycles = ["starting", "running", "waiting_for_input", "steering_pending", "cancelling"] as const;
+		const activeLifecycles = ["running", "waiting_for_input", "steering_pending", "cancelling"] as const;
 
 		for (const [sessionPath, id] of [
 			[inactiveSessionPath, inactiveSessionId],
@@ -2619,7 +2555,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			});
 		}
 		for (const [id, lifecycle, origin] of [
-			["queued", "queued", "spawned"],
+			["running-extra", "running", "spawned"],
 			["completed", "completed", "spawned"],
 			["failed", "failed", "spawned"],
 			["aborted", "aborted", "spawned"],

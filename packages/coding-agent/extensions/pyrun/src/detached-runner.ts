@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isBunBinary } from "../../../src/config.ts";
 import {
 	claimDetachedJobRuntimeCommands,
 	enqueueDetachedJobStatusResponse,
@@ -10,16 +11,16 @@ import {
 	type DetachedJobResponseCommand,
 } from "../../../src/core/detached-job-control.ts";
 import {
+	createDetachedJobTerminalInput,
 	type DetachedJobArtifacts,
 	type DetachedJobOwnershipIdentity,
 	type DetachedJobOutcome,
-	writeDetachedJobTerminalEnvelope,
 } from "../../../src/core/detached-job-runner.ts";
 import {
 	finalizeDetachedJob,
 	type RuntimeMailboxAddress,
 } from "../../../src/core/session-control-db.ts";
-import { finalizeDetachedEnvelopeWithRetry } from "../../../src/core/detached-bash-runner.ts";
+import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import { enqueueDetachedPyrunBridgeRequest } from "./detached-bridge.ts";
 import {
 	type CanonicalPyrunEvalParams,
@@ -29,6 +30,7 @@ import {
 	type PyrunRunnerOptions,
 } from "./runner.ts";
 
+export const DETACHED_PYRUN_RUNNER_MODE = "--internal-detached-pyrun-runner";
 const DETACHED_PYRUN_LAUNCH_VERSION = 1;
 const CONTROL_POLL_MS = 25;
 const LAUNCH_MANIFEST_POLL_MS = 10;
@@ -76,10 +78,25 @@ type PyrunSettlement =
 	| { cancel?: DetachedJobCancelCommand; identity: DetachedJobOwnershipIdentity; result: CanonicalPyrunEvalResult }
 	| { cancel?: DetachedJobCancelCommand; error: unknown; identity: DetachedJobOwnershipIdentity };
 
-export function launchDetachedPyrunRunner(manifestPath: string, options?: { entryPath?: string }): number {
+export function getDetachedPyrunRunnerInvocation(
+	manifestPath: string,
+	options?: { compiled?: boolean; entryPath?: string; executablePath?: string },
+): { args: string[]; executable: string } {
+	const executable = options?.executablePath ?? process.execPath;
+	if (options?.compiled && !options.entryPath) {
+		return { args: [DETACHED_PYRUN_RUNNER_MODE, manifestPath], executable };
+	}
 	const entryPath = options?.entryPath ?? defaultRunnerEntryPath();
-	const nodeArgs = extname(entryPath) === ".ts" ? ["--experimental-strip-types", entryPath, manifestPath] : [entryPath, manifestPath];
-	const child = spawn(process.execPath, nodeArgs, {
+	const args = extname(entryPath) === ".ts" ? ["--experimental-strip-types", entryPath, manifestPath] : [entryPath, manifestPath];
+	return { args, executable };
+}
+
+export function launchDetachedPyrunRunner(manifestPath: string, options?: { entryPath?: string }): number {
+	const invocation = getDetachedPyrunRunnerInvocation(manifestPath, {
+		compiled: isBunBinary,
+		entryPath: options?.entryPath,
+	});
+	const child = spawn(invocation.executable, invocation.args, {
 		cwd: dirname(manifestPath),
 		detached: true,
 		env: { HOME: process.env.HOME, PATH: process.env.PATH },
@@ -210,10 +227,14 @@ async function finalizeDetachedPyrunSettlement(
 		? { kind: "result", result: settlement.result }
 		: { error: errorMessage(settlement.error), kind: "error" };
 	appendArtifactRecord(manifest.artifacts.outputPath, record);
-	writeDetachedJobTerminalEnvelope(manifest.artifacts, settlement.identity, outcome, new Date().toISOString());
-	const finalized = await finalizeDetachedEnvelopeWithRetry(
-		manifest.artifacts.terminalEnvelopePath,
-		(envelopePath) => finalizeDetachedJob(manifest.controlDbPath, { envelopePath, sessionPath: manifest.sessionPath }),
+	const terminal = createDetachedJobTerminalInput(
+		manifest.artifacts,
+		settlement.identity,
+		outcome,
+		new Date().toISOString(),
+	);
+	const finalized = await finalizeDetachedJobWithRetry(terminal, (terminalInput) =>
+		finalizeDetachedJob(manifest.controlDbPath, { sessionPath: manifest.sessionPath, terminal: terminalInput }),
 	);
 	if (!finalized.ok) throw new Error(`Could not finalize detached Pyrun job: ${finalized.error}`);
 	return { terminalRevision: finalized.terminalRevision };

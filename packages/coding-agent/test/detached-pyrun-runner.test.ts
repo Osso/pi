@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe("detached Pyrun runner", () => {
-	it("owns evaluation output and commits one exact terminal envelope", async () => {
+	it("owns evaluation output and commits one exact terminal input", async () => {
 		const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-"));
 		temporaryDirectories.push(root);
 		const runnerPath = join(root, "fake-pyrun.mjs");
@@ -140,7 +140,7 @@ describe("detached Pyrun runner", () => {
 		expect(output).toContain('"kind":"progress"');
 		expect(output).toContain('"value":[{"id":"model-1"}]');
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
-			{ id: jobId, lifecycle: "completed", revision: 4 },
+			{ id: jobId, lifecycle: "completed", revision: 2 },
 		]);
 	});
 });

@@ -66,16 +66,9 @@ describe("artifact removal", () => {
 	it("carries absolute file references on completion notifications", () => {
 		const store = createStore();
 		const agent = spawnAgent(store);
-		const started = legacyMultiAgentStore(store).transitionAgent(agent.agent.id, agent.agent.revision, "starting");
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected starting transition");
-		const running = legacyMultiAgentStore(store).transitionAgent(started.agent.id, started.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
-
 		const completed = legacyMultiAgentStore(store).transitionAgent(
-			running.agent.id,
-			running.agent.revision,
+			agent.agent.id,
+			agent.agent.revision,
 			"completed",
 			{
 				result: { summary: "done", fileRefs: [{ path: "/tmp/output.log", label: "Output" }] } as never,

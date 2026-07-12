@@ -20,6 +20,7 @@ import {
 	readRuntimeMailboxMessage,
 	readSessionHealth,
 	readSharedChannelCursor,
+	registerRuntimeMailboxListener,
 	upsertMultiAgentMailboxMessage,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -113,22 +114,18 @@ function createReservedRuntimeAgent(
 		processIdentity: testProcessIdentity("runtime-mailbox-test"),
 		sessionPath: persistence.sessionPath,
 	});
-	const created = coordinator.createChild({
+	const prepared = coordinator.prepareChild({
 		agentType: input.agentType ?? "verifier",
 		cwd,
 		displayName: input.displayName ?? "Verifier",
-		ownerSessionId,
 		permission: { narrowed: true, policy: "on-request" },
 		transcript: { sessionId: ownerSessionId },
 		worker: input.worker,
 	});
+	const created = coordinator.commitRunningChild(prepared, ownerSessionId);
 	if (!created.ok) throw new Error(`could not create reserved test agent: ${created.error}`);
-	const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
-	if (!starting.ok) throw new Error(`could not start reserved test agent: ${starting.error}`);
-	const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
-	if (!running.ok) throw new Error(`could not run reserved test agent: ${running.error}`);
-	store.publishLifecycleCoordinatorSnapshot(running.agent);
-	return { agent: running.agent, coordinator, ownership: created.ownership };
+	store.publishLifecycleCoordinatorSnapshot(created.agent);
+	return { agent: created.agent, coordinator, ownership: created.ownership };
 }
 
 function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: string, cwd: string): AgentSnapshot {
@@ -143,7 +140,6 @@ function finalizeReservedRuntimeAgent(
 	const finalized = runtime.coordinator.finalizeChild({
 		agent: runtime.agent,
 		error: input.error,
-		eventPayload: input,
 		ownership: runtime.ownership,
 		result: input.result,
 		terminalLifecycle: "failed",
@@ -710,16 +706,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const starting = legacyMultiAgentStore(store).transitionAgent(child.agent.id, child.agent.revision, "starting");
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) throw new Error("expected starting transition");
-		const running = legacyMultiAgentStore(store).transitionAgent(child.agent.id, starting.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
-
 		const waiting = legacyMultiAgentStore(store).transitionAgent(
 			child.agent.id,
-			running.agent.revision,
+			child.agent.revision,
 			"waiting_for_input",
 		);
 
@@ -1158,6 +1147,80 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"wait_agents wakes for a deliverable runtime mailbox message without consuming transport delivery",
+		async () => {
+			tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+			const controlDbPath = getControlDbPath(tempDir);
+			const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+			parentSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+			store.setPersistenceSessionManager(parentSession);
+			const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
+			const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+			if (!waitAgents) throw new Error("expected wait_agents tool");
+			registerRuntimeMailboxListener(
+				controlDbPath,
+				{ agentId: null, sessionId: parentSession.getSessionId() },
+				process.pid,
+			);
+
+			const waiting = waitAgents.execute(
+				"wait",
+				{},
+				undefined,
+				undefined,
+				createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+			);
+			await delay(1);
+			const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+				body: "Need parent review",
+				kind: "message",
+				recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+				sender: { agentId: runtime.agent.id, sessionId: "child-session" },
+			});
+
+			const waited = await waiting;
+
+			expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
+			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
+		},
+	);
+
+	it("wait_agents wakes for an eligible shared-channel message without advancing its cursor", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
+		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		const waiting = waitAgents.execute(
+			"wait",
+			{},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+		await Promise.resolve();
+		const messageId = postSharedChannelMessage(controlDbPath, {
+			body: "Coordination changed",
+			sender: { agentId: null, sessionId: "sender-session" },
+		});
+
+		await vi.advanceTimersByTimeAsync(3_000);
+		const waited = await waiting;
+
+		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
+		expect(messageId).toBeGreaterThan(initialCursor);
+	});
+
 	it("wait_agents observes failed agents with result file references", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -1203,7 +1266,7 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "pending",
 			},
 		});
-		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed")).toHaveLength(1);
+		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed")).toHaveLength(0);
 	});
 
 	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {

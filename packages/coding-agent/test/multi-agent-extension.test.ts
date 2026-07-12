@@ -13,7 +13,7 @@ import {
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
-import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
+import { createDetachedJobArtifacts } from "../src/core/detached-job-runner.ts";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -71,13 +71,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function completeAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
-	const started = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "starting");
-	expect(started.ok).toBe(true);
-	if (!started.ok) throw new Error("expected starting transition");
-	const running = legacyMultiAgentStore(store).transitionAgent(agent.id, started.agent.revision, "running");
-	expect(running.ok).toBe(true);
-	if (!running.ok) throw new Error("expected running transition");
-	const completed = legacyMultiAgentStore(store).transitionAgent(agent.id, running.agent.revision, "completed");
+	const completed = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "completed");
 	expect(completed.ok).toBe(true);
 	if (!completed.ok) throw new Error("expected completed transition");
 	return completed.agent;
@@ -240,7 +234,6 @@ function spawnStoreFixture(
 	input: {
 		agentType?: string;
 		displayName?: string;
-		lifecycle?: "queued" | "starting" | "waiting_for_input";
 		parentId?: string;
 		prompt: string;
 	},
@@ -249,7 +242,6 @@ function spawnStoreFixture(
 		agentType: input.agentType?.trim() || "default",
 		cwd: "/repo",
 		displayName: input.displayName?.trim() || input.agentType?.trim() || "Agent",
-		lifecycle: input.lifecycle,
 		parentId: input.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	}).agent;
@@ -831,16 +823,6 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
-		const started = legacyMultiAgentStore(source).transitionAgent(
-			interrupted.agent.id,
-			interrupted.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected recovered agent to start");
-		expect(
-			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
-		).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -874,6 +856,49 @@ describe("multi-agent extension tools", () => {
 			result: { summary: "recovered complete" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
+	});
+
+	it("resumes a persisted running agent when its owning supervisor has no local runtime handle", async () => {
+		const session = createControlDbSession();
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
+		const persistence = source.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted store fixture");
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => source.allocateAgentIdForLifecycleCoordinator(),
+			now: () => "2026-06-21T00:00:00.000Z",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath: persistence.sessionPath,
+		});
+		const prepared = coordinator.prepareChild({
+			agentType: "implement",
+			cwd: "/repo",
+			displayName: "Missing runtime",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/missing-runtime.jsonl", sessionId: "missing-runtime-session" },
+		});
+		const created = coordinator.commitRunningChild(prepared, persistence.sessionPath);
+		expect(created.ok).toBe(true);
+		if (!created.ok) throw new Error("expected running child");
+		source.publishLifecycleCoordinatorSnapshot(created.agent);
+		const prompts: string[] = [];
+		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:01.000Z" });
+		const harness = createMultiAgentHarness({
+			createAttachedSession: async ({ agent }) => ({
+				messages: [fauxAssistantMessage("resumed")],
+				prompt: async (prompt) => {
+					prompts.push(prompt);
+				},
+				transcript: agent.transcript,
+			}),
+			store,
+		});
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		await waitForTerminalAgent(harness, created.agent.id);
+
+		expect(prompts).toEqual([expect.stringContaining("Continue the conversation")]);
 	});
 
 	it("ignores old dispatch completions after the store is rebound to another session", async () => {
@@ -918,7 +943,7 @@ describe("multi-agent extension tools", () => {
 
 			expect(store.getAgent(replacementAgent.agent.id)).toMatchObject({
 				displayName: "Scout",
-				lifecycle: "queued",
+				lifecycle: "running",
 				transcript: undefined,
 			});
 		} finally {
@@ -1039,21 +1064,7 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/spawned-child.jsonl", sessionId: "spawned-child-session" },
 		});
-		const started = legacyMultiAgentStore(source).transitionAgent(
-			interrupted.agent.id,
-			interrupted.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected spawned child to start");
-		const running = legacyMultiAgentStore(source).transitionAgent(
-			interrupted.agent.id,
-			started.agent.revision,
-			"running",
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected spawned child to run");
-		const steering = legacyMultiAgentStore(source).sendSteering(interrupted.agent.id, running.agent.revision, {
+		const steering = legacyMultiAgentStore(source).sendSteering(interrupted.agent.id, interrupted.agent.revision, {
 			body: "Continue after recovery",
 			fromAgentId: "main",
 			targetCheckpoint: "next_model_call",
@@ -1097,10 +1108,15 @@ describe("multi-agent extension tools", () => {
 			agentType: "explore",
 			cwd: "/repo",
 			displayName: "Waiting child",
-			lifecycle: "waiting_for_input",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/waiting-child.jsonl", sessionId: "waiting-child-session" },
 		});
+		const waiting = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			interrupted.agent.revision,
+			"waiting_for_input",
+		);
+		expect(waiting.ok).toBe(true);
 		addDeadProcessOwner(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1124,20 +1140,10 @@ describe("multi-agent extension tools", () => {
 			agentType: "background",
 			cwd: "/repo",
 			displayName: "Background tool",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "runtime", handleId: "live-background-job" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(
-			spawned.agent.id,
-			spawned.agent.revision,
-			"running",
-			{
-				lastActivity: { description: "sleep", toolName: "bash" },
-			},
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected background job to be running");
+		const running = { ok: true as const, agent: spawned.agent };
 
 		const waited = harness.call<WaitAgentsDetails>("wait_agents", {});
 		expect(await resolvesWithin(waited, 10)).toBe(false);
@@ -1164,23 +1170,13 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const spawned = legacyMultiAgentStore(source).spawnAgent({
+		legacyMultiAgentStore(source).spawnAgent({
 			agentType: "background",
 			cwd: "/repo",
 			displayName: "Detached background tool",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "subprocess", handleId: "stale-process" },
 		});
-		const running = legacyMultiAgentStore(source).transitionAgent(
-			spawned.agent.id,
-			spawned.agent.revision,
-			"running",
-			{
-				lastActivity: { description: "sleep", toolName: "bash" },
-			},
-		);
-		expect(running.ok).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const handler = createHostrunMultiAgentRequestHandler({ store });
 		const controller = new AbortController();
@@ -1203,16 +1199,6 @@ describe("multi-agent extension tools", () => {
 			displayName: "No transcript",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const started = legacyMultiAgentStore(source).transitionAgent(
-			interrupted.agent.id,
-			interrupted.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected start");
-		expect(
-			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
-		).toBe(true);
 		addDeadProcessOwner(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
@@ -1226,7 +1212,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("commits a dead detached runner's durable terminal envelope before lost-runtime recovery", async () => {
+	it("marks a detached runner failed when it dies before committing terminal state", async () => {
 		const artifactRoot = mkdtempSync(join(tmpdir(), "pi-detached-recovery-"));
 		try {
 			const session = createControlDbSession();
@@ -1246,35 +1232,18 @@ describe("multi-agent extension tools", () => {
 				processIdentity,
 				sessionPath: persistence.sessionPath,
 			});
-			const created = coordinator.createChild({
+			const prepared = coordinator.prepareChild({
 				agentId,
 				agentType: "background",
 				cwd: "/repo",
 				displayName: "Pyrun evaluation",
-				ownerSessionId: owner.sessionId,
 				permission: { narrowed: true, policy: "on-request" },
 				result: { fileRefs: [{ label: "Pyrun output", path: artifacts.outputPath }] },
 			});
+			const created = coordinator.commitRunningChild(prepared, owner.sessionId);
 			expect(created.ok).toBe(true);
 			if (!created.ok) throw new Error("expected child ownership");
-			const started = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
-			expect(started.ok).toBe(true);
-			if (!started.ok) throw new Error("expected start");
-			const running = coordinator.confirmChildRuntime({ agent: started.agent, ownership: created.ownership });
-			expect(running.ok).toBe(true);
-			if (!running.ok) throw new Error("expected running");
-			source.publishLifecycleCoordinatorSnapshot(running.agent);
-			writeDetachedJobTerminalEnvelope(
-				artifacts,
-				{
-					jobId: agentId,
-					outputLabel: "Pyrun output",
-					owner,
-					processIdentity,
-				},
-				{ kind: "completed", summary: "detached completion survived" },
-				"2026-06-21T00:00:01.000Z",
-			);
+			source.publishLifecycleCoordinatorSnapshot(created.agent);
 			const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:02.000Z" });
 			const harness = createMultiAgentHarness({ store });
 
@@ -1282,8 +1251,8 @@ describe("multi-agent extension tools", () => {
 			await delay(20);
 
 			expect(store.getAgent(agentId)).toMatchObject({
-				lifecycle: "completed",
-				result: { summary: "detached completion survived" },
+				error: { code: "lost_runtime" },
+				lifecycle: "failed",
 			});
 		} finally {
 			rmSync(artifactRoot, { force: true, recursive: true });
@@ -1301,22 +1270,8 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/cancelling.jsonl", sessionId: "cancelling-session" },
 		});
-		const started = legacyMultiAgentStore(source).transitionAgent(
-			cancelled.agent.id,
-			cancelled.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected start");
-		const running = legacyMultiAgentStore(source).transitionAgent(
-			cancelled.agent.id,
-			started.agent.revision,
-			"running",
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running");
 		expect(
-			legacyMultiAgentStore(source).transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok,
+			legacyMultiAgentStore(source).transitionAgent(cancelled.agent.id, cancelled.agent.revision, "cancelling").ok,
 		).toBe(true);
 		addDeadProcessOwner(source, cancelled.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
@@ -1339,11 +1294,16 @@ describe("multi-agent extension tools", () => {
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Idle work",
-			lifecycle: "waiting_for_input",
 			origin: "attached",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/idle.jsonl", sessionId: "idle-session" },
 		});
+		const waiting = legacyMultiAgentStore(store).transitionAgent(
+			idle.agent.id,
+			idle.agent.revision,
+			"waiting_for_input",
+		);
+		expect(waiting.ok).toBe(true);
 		const createAttachedSession = vi.fn<AttachedSessionFactory>();
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
@@ -1365,16 +1325,6 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
-		const started = legacyMultiAgentStore(source).transitionAgent(
-			interrupted.agent.id,
-			interrupted.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected recovered agent to start");
-		expect(
-			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
-		).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1403,16 +1353,6 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
-		const started = legacyMultiAgentStore(source).transitionAgent(
-			interrupted.agent.id,
-			interrupted.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected recovered agent to start");
-		expect(
-			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
-		).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1658,7 +1598,6 @@ describe("multi-agent extension tools", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const selectAgentView = vi.fn((agentId: string) => store.selectActiveAgentTarget(agentId) !== undefined);
@@ -1815,37 +1754,27 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "cancelling" });
 	});
 
-	it("does not prompt a child session cancelled while the session factory is starting", async () => {
+	it("persists a spawned child as running only after session construction succeeds", async () => {
 		const factoryGate = deferred<void>();
-		const abort = vi.fn();
-		const prompt = vi.fn(async () => {});
+		const promptGate = deferred<void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const createChildSession: ChildAgentSessionFactory = async () => {
 			await factoryGate.promise;
-			return { abort, messages: [], prompt };
+			return { messages: [], prompt: async () => promptGate.promise };
 		};
-		const harness = createMultiAgentHarness({ createChildSession, runtimeHandles, store });
+		const harness = createMultiAgentHarness({ createChildSession, store });
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawnPromise = harness.call<SpawnAgentDetails>("spawn_agent", {
 			displayName: "Worker",
 			prompt: "production work",
 		});
-		const current = store.getAgent(spawned.details.agent.id);
-		if (!current) throw new Error("expected spawned agent");
-		const cancelled = legacyMultiAgentStore(store).transitionAgent(current.id, current.revision, "aborted");
-		expect(cancelled.ok).toBe(true);
-		expect(store.abortAgentHandle(current.id)).toBe(false);
+		await delay(1);
+		expect(store.listAgents()).toEqual([]);
 
 		factoryGate.resolve();
-		for (let attempt = 0; attempt < 20 && abort.mock.calls.length === 0; attempt += 1) {
-			await delay(1);
-		}
-
-		expect(abort).toHaveBeenCalledOnce();
-		expect(prompt).not.toHaveBeenCalled();
-		expect(runtimeHandles.sessions.has(current.id)).toBe(false);
-		expect(store.getAgent(current.id)).toMatchObject({ lifecycle: "aborted" });
+		const spawned = await spawnPromise;
+		expect(store.getAgent(spawned.details.agent.id)).toMatchObject({ lifecycle: "running", revision: 1 });
+		promptGate.resolve();
 	});
 
 	it("cancels after child transcript metadata attaches without caller revision", async () => {
@@ -1954,7 +1883,7 @@ describe("multi-agent extension tools", () => {
 		}
 
 		expect(content.text).toContain(
-			`id=${active.details.agent.id} name="Active Scout" type=explore status=active lifecycle=queued`,
+			`id=${active.details.agent.id} name="Active Scout" type=explore status=active lifecycle=running`,
 		);
 		expect(content.text).toContain(
 			`id=${completed.details.agent.id} name="Finished Worker" type=implement status=terminal lifecycle=completed`,
@@ -2063,19 +1992,19 @@ describe("multi-agent extension tools", () => {
 		const afterView = harness.store.getAgent(child.details.agent.id);
 
 		expect(viewed.details).toMatchObject({
-			agent: { id: child.details.agent.id, lifecycle: "queued", revision: pinned.agent.revision },
+			agent: { id: child.details.agent.id, lifecycle: "running", revision: pinned.agent.revision },
 			children: [],
 			parentId: parent.details.agent.id,
 			status: {
 				agentId: child.details.agent.id,
-				lifecycle: "queued",
+				lifecycle: "running",
 				revision: pinned.agent.revision,
 				terminal: false,
 			},
 		});
 		expect(afterView).toMatchObject({
 			id: child.details.agent.id,
-			lifecycle: "queued",
+			lifecycle: "running",
 			revision: pinned.agent.revision,
 		});
 	});
@@ -2097,23 +2026,15 @@ describe("multi-agent extension tools", () => {
 			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
 			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "child-session" },
 		});
-		const running = legacyMultiAgentStore(harness.store).transitionAgent(
-			child.agent.id,
-			child.agent.revision,
-			"starting",
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected child start");
-		}
+		const running = { ok: true as const, agent: child.agent };
 
 		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: child.agent.id });
 
 		expect(viewed.details).toMatchObject({
-			agent: { id: child.agent.id, lifecycle: "starting", revision: running.agent.revision },
+			agent: { id: child.agent.id, lifecycle: "running", revision: running.agent.revision },
 			children: [],
 			parentId: parent.agent.id,
-			status: { agentId: child.agent.id, lifecycle: "starting", revision: running.agent.revision, terminal: false },
+			status: { agentId: child.agent.id, lifecycle: "running", revision: running.agent.revision, terminal: false },
 			transcript: { agentId: child.agent.id, path: "/tmp/sessions/child.jsonl", sessionId: "child-session" },
 		});
 		expect(viewed.details.commands).toEqual(
@@ -2124,7 +2045,7 @@ describe("multi-agent extension tools", () => {
 		);
 		expect(harness.store.getAgent(child.agent.id)).toMatchObject({
 			id: child.agent.id,
-			lifecycle: "starting",
+			lifecycle: "running",
 			revision: running.agent.revision,
 		});
 	});
@@ -2143,45 +2064,18 @@ describe("multi-agent extension tools", () => {
 			displayName: "Failed Verifier",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const completedStarting = legacyMultiAgentStore(harness.store).transitionAgent(
-			completed.agent.id,
-			completed.agent.revision,
-			"starting",
-		);
-		expect(completedStarting.ok).toBe(true);
-		if (!completedStarting.ok) {
-			throw new Error("expected completed agent to start");
-		}
-		const completedRunning = legacyMultiAgentStore(harness.store).transitionAgent(
-			completed.agent.id,
-			completedStarting.agent.revision,
-			"running",
-		);
-		expect(completedRunning.ok).toBe(true);
-		if (!completedRunning.ok) {
-			throw new Error("expected completed agent to run");
-		}
 		const completedResult = legacyMultiAgentStore(harness.store).transitionAgent(
 			completed.agent.id,
-			completedRunning.agent.revision,
+			completed.agent.revision,
 			"completed",
 			{
 				result: { summary: "Implementation finished" },
 			},
 		);
 		expect(completedResult.ok).toBe(true);
-		const failedStarting = legacyMultiAgentStore(harness.store).transitionAgent(
-			failed.agent.id,
-			failed.agent.revision,
-			"starting",
-		);
-		expect(failedStarting.ok).toBe(true);
-		if (!failedStarting.ok) {
-			throw new Error("expected failed agent to start");
-		}
 		const failedResult = legacyMultiAgentStore(harness.store).transitionAgent(
 			failed.agent.id,
-			failedStarting.agent.revision,
+			failed.agent.revision,
 			"failed",
 			{
 				error: { message: "Verification failed", code: "VERIFY_FAILED" },
@@ -2211,24 +2105,7 @@ describe("multi-agent extension tools", () => {
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
 		});
-		const started = legacyMultiAgentStore(harness.store).transitionAgent(
-			child.details.agent.id,
-			child.details.agent.revision,
-			"starting",
-		);
-		expect(started.ok).toBe(true);
-		if (!started.ok) {
-			throw new Error("expected starting transition");
-		}
-		const running = legacyMultiAgentStore(harness.store).transitionAgent(
-			child.details.agent.id,
-			started.agent.revision,
-			"running",
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected running transition");
-		}
+		const running = { ok: true as const, agent: child.details.agent };
 		addActiveDispatchLease(harness.store, running.agent.id);
 		const steered = await harness.call<SteerAgentDetails>("steer_agent", {
 			agentId: child.details.agent.id,
@@ -2418,25 +2295,19 @@ describe("multi-agent extension tools", () => {
 			processIdentity: testProcessIdentity("detached-pyrun-cancel"),
 			sessionPath: persistence.sessionPath,
 		});
-		const created = coordinator.createChild({
+		const prepared = coordinator.prepareChild({
 			agentId,
 			agentType: "background",
 			cwd: "/repo",
 			displayName: "Pyrun evaluation",
-			ownerSessionId: persistence.sessionPath,
 			permission: { narrowed: true, policy: "on-request" },
 			result: { fileRefs: [{ label: "Pyrun output", path: "/tmp/pyrun-output.log" }] },
 			worker: { adapter: "runtime", cwd: "/repo", handleId: "123" },
 		});
+		const created = coordinator.commitRunningChild(prepared, persistence.sessionPath);
 		expect(created.ok).toBe(true);
 		if (!created.ok) throw new Error("expected child ownership");
-		const started = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
-		expect(started.ok).toBe(true);
-		if (!started.ok) throw new Error("expected start");
-		const running = coordinator.confirmChildRuntime({ agent: started.agent, ownership: created.ownership });
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running");
-		harness.store.publishLifecycleCoordinatorSnapshot(running.agent);
+		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
 
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId,
@@ -2468,7 +2339,7 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.content).toEqual([
 			{ text: `Could not cancel ${agent.id}: runtime ownership unavailable`, type: "text" },
 		]);
-		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "queued", revision: agent.revision });
+		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "running", revision: agent.revision });
 		expect(cancelled.details.reason).toBe("user stopped it");
 	});
 
@@ -2484,15 +2355,10 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Reviewer",
-			lifecycle: "starting",
 			prompt: "Review auth",
 		});
 		const agent = spawned.details.agent;
-		const started = legacyMultiAgentStore(harness.store).transitionAgent(agent.id, agent.revision, "running");
-		expect(started.ok).toBe(true);
-		if (!started.ok) {
-			throw new Error("expected running transition");
-		}
+		const started = { ok: true as const, agent };
 		addActiveDispatchLease(harness.store, agent.id);
 
 		const steered = await harness.call<SteerAgentDetails>("steer_agent", {
@@ -2673,7 +2539,7 @@ describe("multi-agent extension tools", () => {
 		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
 	});
 
-	it("lets simultaneous and late waiters observe the same terminal revision", async () => {
+	it("lets simultaneous waiters observe completion while late waits return immediately", async () => {
 		const finishGate = deferred<void>();
 		const dispatcher: ChildAgentDispatcher = async () => {
 			await finishGate.promise;
@@ -2690,13 +2556,17 @@ describe("multi-agent extension tools", () => {
 		const [firstResult, secondResult] = await Promise.all([first, second]);
 		const lateResult = await harness.call<WaitAgentsDetails>("wait_agents", {});
 
-		for (const waited of [firstResult, secondResult, lateResult]) {
-			expect(waited.content).toEqual([{ text: "Worker completed: fan-out done", type: "text" }]);
-			expect(waited.details).toMatchObject({
-				agent: { id: spawned.details.agent.id, lifecycle: "completed", revision: 4 },
-				message: { status: "pending" },
-			});
-		}
+		const completedWaits = [firstResult, secondResult].filter((waited) => waited.details.message !== undefined);
+		const statusWaits = [firstResult, secondResult].filter((waited) => waited.details.message === undefined);
+		expect(completedWaits).toHaveLength(1);
+		expect(completedWaits[0]?.content).toEqual([{ text: "Worker completed: fan-out done", type: "text" }]);
+		expect(completedWaits[0]?.details).toMatchObject({
+			agent: { id: spawned.details.agent.id, lifecycle: "completed", revision: 2 },
+			message: { status: "pending" },
+		});
+		expect(statusWaits).toHaveLength(1);
+		expect(statusWaits[0]?.content).toEqual([{ text: "Worker is completed: fan-out done", type: "text" }]);
+		expect(lateResult.content).toEqual([]);
 	});
 
 	it("wait_agents waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
@@ -2766,7 +2636,7 @@ describe("multi-agent extension tools", () => {
 				body: "Worker completed: done",
 				fromAgentId: spawned.details.agent.id,
 				kind: "system",
-				status: "pending",
+				status: "delivered",
 				toAgentId: parent.agent.id,
 			},
 		]);
@@ -2788,20 +2658,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const starting = legacyMultiAgentStore(store).transitionAgent(
-			spawned.agent.id,
-			spawned.agent.revision,
-			"starting",
-		);
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) throw new Error("expected starting transition");
-		const running = legacyMultiAgentStore(store).transitionAgent(
-			starting.agent.id,
-			starting.agent.revision,
-			"running",
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
+		const running = { ok: true as const, agent: spawned.agent };
 		const waiting = legacyMultiAgentStore(store).transitionAgent(
 			running.agent.id,
 			running.agent.revision,
@@ -2922,7 +2779,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("fenced-fails a child when runtime construction throws before running confirmation", async () => {
+	it("persists a child directly as failed when runtime construction throws", async () => {
 		const harness = createMultiAgentHarness({
 			createChildSession: async () => {
 				throw new Error("factory unavailable");
@@ -2935,7 +2792,7 @@ describe("multi-agent extension tools", () => {
 		});
 		const terminal = await waitForTerminalAgent(harness, spawned.details.agent.id);
 
-		expect(terminal).toMatchObject({ lifecycle: "failed", revision: 3 });
+		expect(terminal).toMatchObject({ lifecycle: "failed", revision: 1 });
 	});
 
 	it("dispatches a real child AgentSession behind spawn_agent", async () => {
@@ -3013,7 +2870,7 @@ describe("multi-agent extension tools", () => {
 		expect(waited.lifecycle).toBe("completed");
 		expect(harness.store.listMailboxMessages()).toEqual([
 			expect.objectContaining({ body: "Check final blockers", status: "delivered" }),
-			expect.objectContaining({ kind: "system", status: "pending" }),
+			expect.objectContaining({ kind: "system", status: "delivered" }),
 		]);
 	});
 

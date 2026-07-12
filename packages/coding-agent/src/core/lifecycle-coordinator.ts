@@ -6,6 +6,7 @@ import {
 	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
+	createFailedMultiAgentChild,
 	createMultiAgentAttachment,
 	createMultiAgentChildWithRuntimeOwnership,
 	type MultiAgentRuntimeOwnership,
@@ -23,15 +24,17 @@ export interface LifecycleCoordinatorOptions {
 	sessionPath: string;
 }
 
-export interface CreateChildCommandInput extends SpawnAgentInput {
+export interface PrepareChildCommandInput extends SpawnAgentInput {
 	agentId?: string;
-	ownerSessionId: string;
-	processIdentity?: ProcessIdentity;
 	result?: AgentSnapshot["result"];
 }
 
 export type CreateChildCommandResult =
 	| { ok: true; agent: AgentSnapshot; ownership: MultiAgentRuntimeOwnership }
+	| { ok: false; error: "agent_exists" | "parent_not_found" };
+
+export type CommitFailedChildCommandResult =
+	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
 
 export type CreateAttachmentCommandResult =
@@ -81,7 +84,6 @@ export type RecoverDeadChildCommandResult =
 
 export interface FinalizeChildCommandInput extends OwnedLifecycleCommandInput {
 	error?: AgentSnapshot["error"];
-	eventPayload: unknown;
 	result?: AgentSnapshot["result"];
 	terminalLifecycle: "completed" | "failed" | "aborted";
 }
@@ -127,10 +129,6 @@ export class LifecycleCoordinator {
 		});
 		if (!result.ok) return result;
 		return { agent: result.agent, ok: true, ownership: result.ownership };
-	}
-
-	beginChildRuntime(input: OwnedLifecycleCommandInput): LifecycleCommandResult {
-		return this.commitReservedLifecycle(input, "starting");
 	}
 
 	confirmChildRuntime(input: OwnedLifecycleCommandInput): LifecycleCommandResult {
@@ -185,7 +183,6 @@ export class LifecycleCoordinator {
 	acknowledgeCancellation(input: OwnedLifecycleCommandInput & { reason?: string }): LifecycleCommandResult {
 		return this.finalizeChild({
 			agent: input.agent,
-			eventPayload: { reason: input.reason },
 			ownership: input.ownership,
 			terminalLifecycle: "aborted",
 		});
@@ -219,7 +216,6 @@ export class LifecycleCoordinator {
 			agentDetails: { error: input.error, result: input.result },
 			agentId: input.agent.id,
 			eventKind: input.terminalLifecycle,
-			eventPayload: input.eventPayload,
 			owner: identity.owner,
 			processIdentity: identity.processIdentity,
 			sessionPath: this.options.sessionPath,
@@ -232,22 +228,51 @@ export class LifecycleCoordinator {
 		return { ok: true, agent: committed };
 	}
 
-	createChild(input: CreateChildCommandInput): CreateChildCommandResult {
+	prepareChild(input: PrepareChildCommandInput): AgentSnapshot {
+		return this.buildChildSnapshot(input);
+	}
+
+	commitFailedChild(agent: AgentSnapshot, error: NonNullable<AgentSnapshot["error"]>): CommitFailedChildCommandResult {
+		if (agent.revision !== 1) throw new Error("Constructed child failure must persist at revision 1");
 		const nowIso = this.options.now();
-		const agentId = input.agentId ?? this.options.createAgentId();
-		const parentId = input.parentId ?? MAIN_THREAD_AGENT_ID;
-		const agent: AgentSnapshot = {
+		const failedAgent: AgentSnapshot = {
+			...agent,
+			error,
+			lifecycle: "failed",
+			updatedAt: nowIso,
+		};
+		return createFailedMultiAgentChild(this.options.controlDbPath, {
+			agent: failedAgent,
+			nowIso,
+			sessionPath: this.options.sessionPath,
+		});
+	}
+
+	commitRunningChild(
+		agent: AgentSnapshot,
+		ownerSessionId: string,
+		processIdentity: ProcessIdentity = this.options.processIdentity,
+	): CreateChildCommandResult {
+		if (agent.lifecycle !== "running" || agent.revision !== 1) {
+			throw new Error("Constructed child must enter persistence as running revision 1");
+		}
+		return this.persistChildWithOwnership(agent, ownerSessionId, processIdentity);
+	}
+
+	private buildChildSnapshot(input: PrepareChildCommandInput): AgentSnapshot {
+		const nowIso = this.options.now();
+		return {
 			account: input.account,
 			agentType: input.agentType,
 			createdAt: nowIso,
 			cwd: input.cwd,
 			displayName: input.displayName,
 			eventStream: input.eventStream,
-			id: agentId,
-			lifecycle: "queued",
+			id: input.agentId ?? this.options.createAgentId(),
+			lifecycle: "running",
 			model: input.model,
 			origin: input.origin,
-			parentId,
+			parentId: input.parentId ?? MAIN_THREAD_AGENT_ID,
 			permission: { ...input.permission },
 			result: input.result,
 			revision: 1,
@@ -257,12 +282,19 @@ export class LifecycleCoordinator {
 			worker: input.worker,
 			worktree: input.worktree,
 		};
+	}
+
+	private persistChildWithOwnership(
+		agent: AgentSnapshot,
+		ownerSessionId: string,
+		processIdentity: ProcessIdentity,
+	): CreateChildCommandResult {
 		const result = createMultiAgentChildWithRuntimeOwnership(this.options.controlDbPath, {
 			agent,
-			agentId,
-			nowIso,
-			owner: { agentId: null, sessionId: input.ownerSessionId },
-			processIdentity: input.processIdentity ?? this.options.processIdentity,
+			agentId: agent.id,
+			nowIso: this.options.now(),
+			owner: { agentId: null, sessionId: ownerSessionId },
+			processIdentity,
 			sessionPath: this.options.sessionPath,
 		});
 		if (!result.ok) return result;
@@ -271,7 +303,7 @@ export class LifecycleCoordinator {
 
 	private commitReservedLifecycle(
 		input: OwnedLifecycleCommandInput,
-		requestedLifecycle: "starting" | "running" | "waiting_for_input" | "cancelling",
+		requestedLifecycle: "running" | "waiting_for_input" | "cancelling",
 		detachedCancellation?: { outputLabel: string; reason?: string },
 	): LifecycleCommandResult {
 		const ownership = input.ownership;

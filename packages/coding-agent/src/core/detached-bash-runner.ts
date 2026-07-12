@@ -3,16 +3,19 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isBunBinary } from "../config.ts";
 import { type GatedDetachedPayloadExit, spawnGatedDetachedPayload } from "./detached-job-bootstrap.ts";
 import { claimDetachedJobRuntimeCommands, enqueueDetachedJobStatusResponse } from "./detached-job-control.ts";
 import {
+	createDetachedJobTerminalInput,
 	type DetachedJobArtifacts,
 	type DetachedJobOutcome,
 	type DetachedJobOwnershipIdentity,
-	writeDetachedJobTerminalEnvelope,
+	type DetachedJobTerminalInput,
 } from "./detached-job-runner.ts";
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
 
+export const DETACHED_BASH_RUNNER_MODE = "--internal-detached-bash-runner";
 const DETACHED_BASH_LAUNCH_VERSION = 1;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
@@ -53,13 +56,28 @@ export function writeDetachedBashLaunchManifest(path: string, data: DetachedBash
 	fsyncDirectory(dirname(path));
 }
 
-export function launchDetachedBashRunner(manifestPath: string, options?: { entryPath?: string }): number {
+export function getDetachedBashRunnerInvocation(
+	manifestPath: string,
+	options?: { compiled?: boolean; entryPath?: string; executablePath?: string },
+): { args: string[]; executable: string } {
+	const executable = options?.executablePath ?? process.execPath;
+	if (options?.compiled && !options.entryPath) {
+		return { args: [DETACHED_BASH_RUNNER_MODE, manifestPath], executable };
+	}
 	const entryPath = options?.entryPath ?? defaultRunnerEntryPath();
-	const nodeArgs =
+	const args =
 		extname(entryPath) === ".ts"
 			? ["--experimental-strip-types", entryPath, manifestPath]
 			: [entryPath, manifestPath];
-	const child = spawn(process.execPath, nodeArgs, {
+	return { args, executable };
+}
+
+export function launchDetachedBashRunner(manifestPath: string, options?: { entryPath?: string }): number {
+	const invocation = getDetachedBashRunnerInvocation(manifestPath, {
+		compiled: isBunBinary,
+		entryPath: options?.entryPath,
+	});
+	const child = spawn(invocation.executable, invocation.args, {
 		cwd: dirname(manifestPath),
 		detached: true,
 		env: { HOME: process.env.HOME, PATH: process.env.PATH },
@@ -93,10 +111,14 @@ export async function runDetachedBashRunner(
 		: controlled.cancelReason
 			? ({ kind: "aborted", reason: controlled.cancelReason } as const)
 			: detachedBashOutcome(controlled.exit.exitCode, controlled.exit.signal);
-	const terminalAt = options?.now?.() ?? new Date().toISOString();
-	writeDetachedJobTerminalEnvelope(manifest.artifacts, controlled.identity, outcome, terminalAt);
-	const finalized = await finalizeDetachedEnvelopeWithRetry(manifest.artifacts.terminalEnvelopePath, (envelopePath) =>
-		finalizeDetachedJob(manifest.controlDbPath, { envelopePath, sessionPath: manifest.sessionPath }),
+	const terminal = createDetachedJobTerminalInput(
+		manifest.artifacts,
+		controlled.identity,
+		outcome,
+		options?.now?.() ?? new Date().toISOString(),
+	);
+	const finalized = await finalizeDetachedJobWithRetry(terminal, (terminalInput) =>
+		finalizeDetachedJob(manifest.controlDbPath, { sessionPath: manifest.sessionPath, terminal: terminalInput }),
 	);
 	if (!finalized.ok) throw new Error(`Could not finalize detached Bash job: ${finalized.error}`);
 	return { exitCode: controlled.exit.exitCode, terminalRevision: finalized.terminalRevision };
@@ -155,9 +177,9 @@ function signalPayloadGroup(pid: number): void {
 	}
 }
 
-export async function finalizeDetachedEnvelopeWithRetry<T>(
-	envelopePath: string,
-	finalize: (envelopePath: string) => T,
+export async function finalizeDetachedJobWithRetry<T>(
+	terminal: DetachedJobTerminalInput,
+	finalize: (terminal: DetachedJobTerminalInput) => T,
 	options?: { retryDelayMs?: number; sleep?: (milliseconds: number) => Promise<void> },
 ): Promise<T> {
 	const retryDelayMs = options?.retryDelayMs ?? 250;
@@ -165,7 +187,7 @@ export async function finalizeDetachedEnvelopeWithRetry<T>(
 		options?.sleep ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
 	for (;;) {
 		try {
-			return finalize(envelopePath);
+			return finalize(terminal);
 		} catch {
 			await sleep(retryDelayMs);
 		}

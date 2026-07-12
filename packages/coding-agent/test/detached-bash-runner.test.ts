@@ -1,13 +1,14 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	finalizeDetachedEnvelopeWithRetry,
+	finalizeDetachedJobWithRetry,
 	runDetachedBashRunner,
 	writeDetachedBashLaunchManifest,
 } from "../src/core/detached-bash-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
+import { createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readMultiAgentState } from "../src/core/session-control-db.ts";
@@ -20,7 +21,7 @@ afterEach(() => {
 });
 
 describe("detached Bash runner", () => {
-	it("owns payload exit and commits one exact terminal envelope", async () => {
+	it("owns payload exit and commits one exact terminal input", async () => {
 		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-runner-"));
 		temporaryDirectories.push(root);
 		const controlDbPath = join(root, "control.sqlite");
@@ -67,15 +68,19 @@ describe("detached Bash runner", () => {
 
 		expect(await runDetachedBashRunner(manifestPath, { now: () => "2026-07-11T22:00:30.000Z" })).toEqual({
 			exitCode: 0,
-			terminalRevision: 4,
+			terminalRevision: 2,
 		});
 		expect(readFileSync(markerPath, "utf8")).toBe("ran");
 		expect(readFileSync(artifacts.outputPath, "utf8")).toContain("done");
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
-			{ id: jobId, lifecycle: "completed", revision: 4 },
+			{ id: jobId, lifecycle: "completed", revision: 2 },
 		]);
-		const envelope = JSON.parse(readFileSync(artifacts.terminalEnvelopePath, "utf8"));
-		expect(envelope).toMatchObject({ jobId, outcome: { exitCode: 0, kind: "completed" } });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{
+				id: jobId,
+				result: { fileRefs: [{ path: artifacts.outputPath }], summary: "Process exited successfully." },
+			},
+		]);
 	});
 
 	it("launches an independent runner that remains the payload parent", async () => {
@@ -120,12 +125,27 @@ describe("detached Bash runner", () => {
 		expect(readFileSync(artifacts.outputPath, "utf8")).toContain("independent");
 	});
 
-	it("retries the same terminal envelope after transient database failures", async () => {
-		const attempts: string[] = [];
-		const result = await finalizeDetachedEnvelopeWithRetry(
-			"/jobs/job-1/terminal.json",
-			(envelopePath) => {
-				attempts.push(envelopePath);
+	it("retries the same terminal input after transient database failures", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-retry-"));
+		temporaryDirectories.push(root);
+		const outputPath = join(root, "output.log");
+		writeFileSync(outputPath, "done", { mode: 0o600 });
+		const terminal = createDetachedJobTerminalInput(
+			{ directory: root, outputPath },
+			{
+				jobId: "job-1",
+				owner: { agentId: null, sessionId: "runner" },
+				outputLabel: "Bash output",
+				processIdentity: testProcessIdentity("retry"),
+			},
+			{ kind: "completed", summary: "done" },
+			"2026-07-11T22:00:00.000Z",
+		);
+		const attempts: (typeof terminal)[] = [];
+		const result = await finalizeDetachedJobWithRetry(
+			terminal,
+			(terminalInput) => {
+				attempts.push(terminalInput);
 				if (attempts.length < 3) throw new Error("database unavailable");
 				return { ok: true, terminalRevision: 8 };
 			},
@@ -133,7 +153,7 @@ describe("detached Bash runner", () => {
 		);
 
 		expect(result).toEqual({ ok: true, terminalRevision: 8 });
-		expect(attempts).toEqual(["/jobs/job-1/terminal.json", "/jobs/job-1/terminal.json", "/jobs/job-1/terminal.json"]);
+		expect(attempts).toEqual([terminal, terminal, terminal]);
 	});
 });
 

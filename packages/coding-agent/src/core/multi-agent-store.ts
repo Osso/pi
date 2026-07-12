@@ -11,8 +11,6 @@ import {
 import type { SessionManager } from "./session-manager.ts";
 
 export type AgentLifecycleState =
-	| "queued"
-	| "starting"
 	| "running"
 	| "waiting_for_input"
 	| "steering_pending"
@@ -104,7 +102,6 @@ export interface SpawnAgentInput {
 	origin?: AgentNode["origin"];
 	cwd: string;
 	permission: AgentNode["permission"];
-	lifecycle?: "queued" | "starting" | "waiting_for_input";
 	worktree?: AgentNode["worktree"];
 	model?: AgentNode["model"];
 	account?: AgentNode["account"];

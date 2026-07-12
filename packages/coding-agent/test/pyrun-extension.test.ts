@@ -1156,7 +1156,6 @@ describe("pyrun extension", () => {
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		store.selectAgentView(spawned.agent.id);
@@ -1175,16 +1174,10 @@ describe("pyrun extension", () => {
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected run to succeed");
-		}
 		expect(
-			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok,
+			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
 		store.selectAgentView(spawned.agent.id);
 		const harness = createPyrunHarness({
@@ -1218,7 +1211,6 @@ describe("pyrun extension", () => {
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
@@ -1241,16 +1233,10 @@ describe("pyrun extension", () => {
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected run to succeed");
-		}
 		expect(
-			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok,
+			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
@@ -1315,7 +1301,6 @@ describe("pyrun extension", () => {
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
@@ -1347,7 +1332,6 @@ describe("pyrun extension", () => {
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({

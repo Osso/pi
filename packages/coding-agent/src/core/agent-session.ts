@@ -99,7 +99,7 @@ import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { parseModelPattern, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
-import type { AgentLifecycleState, AgentSnapshot, MultiAgentStore } from "./multi-agent-store.ts";
+import type { AgentLifecycleState, AgentSnapshot, MultiAgentStore, SteeringCheckpoint } from "./multi-agent-store.ts";
 import {
 	type ApprovalRecentDecision,
 	appendApprovalMemory,
@@ -437,22 +437,6 @@ function estimateCompactedContextTokens(input: CompactedContextEstimateInput): C
 		estimatedTokensAfter: keptFromPreviousContextTokens + compactedResultTokens,
 		keptFromPreviousContextTokens,
 	};
-}
-
-function isMultiAgentTerminalTransport(body: string): boolean {
-	try {
-		const value = JSON.parse(body) as unknown;
-		if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-		const record = value as Record<string, unknown>;
-		return (
-			record.type === "multi_agent_terminal" &&
-			typeof record.agentId === "string" &&
-			typeof record.eventKind === "string" &&
-			typeof record.terminalRevision === "number"
-		);
-	} catch {
-		return false;
-	}
 }
 
 function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSessionId: string): string {
@@ -1092,6 +1076,9 @@ export class AgentSession {
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
+			if (turn.toolResults.length > 0) {
+				await this._drainRuntimeCoordinationMessages({ checkpoint: "after_tool_result", triggerIfIdle: false });
+			}
 
 			return {
 				...previousSnapshot,
@@ -1261,7 +1248,6 @@ export class AgentSession {
 		const finalized = coordinator.finalizeChild({
 			agent,
 			error: metadata.error,
-			eventPayload: metadata,
 			ownership,
 			result: metadata.result,
 			terminalLifecycle,
@@ -2027,7 +2013,7 @@ export class AgentSession {
 			return true;
 		}
 
-		return this._drainRuntimeCoordinationMessages({ triggerIfIdle: false });
+		return this._drainRuntimeCoordinationMessages({ checkpoint: "next_model_call", triggerIfIdle: false });
 	}
 
 	/**
@@ -2435,13 +2421,17 @@ export class AgentSession {
 		await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
 	}
 
-	private async _drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+	private async _drainRuntimeCoordinationMessages(options: {
+		checkpoint?: SteeringCheckpoint;
+		triggerIfIdle: boolean;
+	}): Promise<boolean> {
 		if (this._disableRuntimeCoordinationInbound || this._disposed) {
 			return false;
 		}
 		this._drainTerminalOutboxProjections();
 		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
-		const channelQueued = await this._drainSharedChannelMessages(options);
+		const channelQueued =
+			options.checkpoint === "after_tool_result" ? false : await this._drainSharedChannelMessages(options);
 		return mailboxQueued || channelQueued;
 	}
 
@@ -2457,7 +2447,10 @@ export class AgentSession {
 		});
 	}
 
-	private async _drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
+	private async _drainRuntimeMailboxMessages(options: {
+		checkpoint?: SteeringCheckpoint;
+		triggerIfIdle: boolean;
+	}): Promise<boolean> {
 		if (this._runtimeMailboxDrainInProgress) {
 			return false;
 		}
@@ -2480,7 +2473,7 @@ export class AgentSession {
 
 	private async _drainClaimedRuntimeMailboxMessages(
 		controlDbPath: string,
-		options: { triggerIfIdle: boolean },
+		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
 	): Promise<boolean> {
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		recoverStaleRuntimeMailboxClaims(controlDbPath, recipient);
@@ -2498,7 +2491,7 @@ export class AgentSession {
 		controlDbPath: string,
 		recipientSessionId: string,
 		claimedMessage: RuntimeMailboxMessage,
-		options: { triggerIfIdle: boolean },
+		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
 	): Promise<boolean> {
 		const delivery = readRuntimeMailboxMessageForDelivery(controlDbPath, claimedMessage.id);
 		const message = delivery?.message ?? claimedMessage;
@@ -2508,7 +2501,10 @@ export class AgentSession {
 			failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
 			return false;
 		}
-		if (this._deliverTerminalProjectionMessage(controlDbPath, message, delivery.payloadData)) return false;
+		if (!this._isRuntimeMailboxMessageDue(message, options)) {
+			releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
+			return false;
+		}
 		if (await this._interceptRuntimeMailboxMessage(controlDbPath, message, delivery.payloadData)) return false;
 		const triggerIfIdle = options.triggerIfIdle && !this.isStreaming;
 		try {
@@ -2529,17 +2525,16 @@ export class AgentSession {
 		}
 	}
 
-	private _deliverTerminalProjectionMessage(
-		controlDbPath: string,
+	private _isRuntimeMailboxMessageDue(
 		message: RuntimeMailboxMessage,
-		payloadData: string | undefined,
+		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
 	): boolean {
-		if (message.kind !== "system" || !isMultiAgentTerminalTransport(message.body)) return false;
-		this._drainTerminalOutboxProjections();
-		if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, payloadData)) {
-			throw new Error(`Terminal runtime mailbox delivery failed for row ${message.id}`);
-		}
-		return true;
+		if (options.checkpoint === "after_tool_result" && message.kind !== "steer") return false;
+		if (message.kind !== "steer") return true;
+		const checkpoint = message.targetCheckpoint ?? "next_model_call";
+		if (checkpoint === "after_tool_result") return options.checkpoint === "after_tool_result";
+		if (checkpoint === "when_waiting") return options.triggerIfIdle && !this.isStreaming;
+		return options.checkpoint === "next_model_call" || options.triggerIfIdle;
 	}
 
 	private async _deliverRuntimeMailboxPrompt(

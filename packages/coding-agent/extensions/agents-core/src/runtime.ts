@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -40,10 +38,8 @@ import {
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
 	enqueueRuntimeMailboxMessage,
+	hasPendingRuntimeCoordinationMessage,
 	listSessionMetadata,
-	listUnseenMultiAgentTerminalEvents,
-	markMultiAgentTerminalEventSeen,
-	finalizeDetachedJob,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSessionMetadata,
@@ -73,7 +69,6 @@ const spawnAgentSchema = Type.Object({
 	displayName: Type.Optional(Type.String()),
 	parentId: Type.Optional(Type.String()),
 	prompt: Type.String(),
-	lifecycle: Type.Optional(Type.Union([Type.Literal("queued"), Type.Literal("starting")])),
 });
 
 const listAgentsSchema = Type.Object({
@@ -151,6 +146,7 @@ const RUNTIME_PROCESS_IDENTITY = readProcessIdentity(process.pid);
 const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
+const RUNTIME_COORDINATION_POLL_INTERVAL_MS = 3_000;
 const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
 
 export type AgentDesktopNotification = DesktopNotification;
@@ -416,6 +412,7 @@ function startBackgroundDispatch(
 	runtime: OwnedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionCommandContext,
+	createdSession?: ChildAgentSession,
 ): AgentSnapshot {
 	const agent = runtime.lifecycle.agent;
 	if (background.createChildSession) {
@@ -423,13 +420,15 @@ function startBackgroundDispatch(
 			background.store,
 			background.dispatches,
 			agent,
-			dispatchReservedAgentSession(
+			runAgentSession(
 				background.store,
 				background.createChildSession,
-				runtime,
+				agent,
 				prompt,
 				ctx,
 				background.handles,
+				createdSession,
+				runtime,
 			),
 			runtime,
 			background.handles,
@@ -444,7 +443,7 @@ function startBackgroundDispatch(
 			background.store,
 			background.dispatches,
 			agent,
-			dispatchReservedAgent(background.store, background.dispatcher, runtime, prompt, ctx),
+			runAgentDispatcher(background.store, background.dispatcher, agent, prompt, ctx, runtime),
 			runtime,
 			background.handles,
 		);
@@ -456,7 +455,11 @@ function startBackgroundDispatch(
 	return agent;
 }
 
-function backgroundCommand(background: BackgroundDispatchContext, args: string, ctx: ExtensionCommandContext): void {
+async function backgroundCommand(
+	background: BackgroundDispatchContext,
+	args: string,
+	ctx: ExtensionCommandContext,
+): Promise<void> {
 	if (isChildAgentRuntime(ctx)) {
 		ctx.ui.notify(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, "error");
 		return;
@@ -475,30 +478,51 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 		ctx.ui.notify("Background jobs require a persisted supervisor session.", "error");
 		return;
 	}
-	const created = coordinator.createChild({
+	let prepared = coordinator.prepareChild({
 		agentType: "background",
 		cwd: ctx.cwd,
 		displayName: "Background Job",
-		ownerSessionId: ctx.sessionManager?.getSessionId() ?? background.store.getPersistenceTarget()?.sessionPath ?? "",
 		permission: { narrowed: true, policy: "on-request" },
 	});
+	const abortController = new AbortController();
+	let childSession: ChildAgentSession | undefined;
+	if (background.createChildSession) {
+		try {
+			childSession = await background.createChildSession({
+				agent: prepared,
+				ctx,
+				prompt,
+				signal: abortController.signal,
+			});
+		} catch (error) {
+			const runtimeError = {
+				code: "runtime_spawn_failed",
+				message: error instanceof Error ? error.message : String(error),
+			};
+			const failed = coordinator.commitFailedChild(prepared, runtimeError);
+			if (failed.ok) publishCoordinatorSnapshot(background.store, failed.agent);
+			ctx.ui.notify(`Could not create background job: ${runtimeError.message}`, "error");
+			return;
+		}
+		if (childSession.transcript) prepared = { ...prepared, transcript: childSession.transcript };
+	}
+	const created = coordinator.commitRunningChild(
+		prepared,
+		ctx.sessionManager?.getSessionId() ?? background.store.getPersistenceTarget()?.sessionPath ?? "",
+	);
 	if (!created.ok) {
+		childSession?.dispose?.();
 		ctx.ui.notify(`Could not create background job: ${created.error}`, "error");
 		return;
 	}
-	const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
-	if (!starting.ok) {
-		ctx.ui.notify(`Could not reserve background runtime: ${starting.error}`, "error");
-		return;
-	}
-	background.store.publishLifecycleCoordinatorSnapshot(starting.agent);
+	background.store.publishLifecycleCoordinatorSnapshot(created.agent);
 	const runtime = {
-		abortController: new AbortController(),
+		abortController,
 		coordinator,
-		lifecycle: { agent: starting.agent, ownership: created.ownership },
+		lifecycle: { agent: created.agent, ownership: created.ownership },
 	};
-	background.ownerships.set(starting.agent.id, runtime);
-	const agent = startBackgroundDispatch(background, runtime, prompt, ctx);
+	background.ownerships.set(created.agent.id, runtime);
+	const agent = startBackgroundDispatch(background, runtime, prompt, ctx, childSession);
 	ctx.ui.setEditorText("");
 	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agents to wait for any completion.`, "info");
 }
@@ -912,44 +936,74 @@ async function spawnAgent(
 			prompt: params.prompt,
 		});
 	}
-	const created = coordinator.createChild({
+	let prepared = coordinator.prepareChild({
 		agentType,
 		cwd: ctx.cwd,
 		displayName,
 		model: profile.modelMetadata,
-		ownerSessionId: ctx.sessionManager?.getSessionId() ?? store.getPersistenceTarget()?.sessionPath ?? "",
 		parentId: params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
-	if (!created.ok) {
-		return errorResult(`spawn_agent failed: ${created.error}`, {
-			agent: emptyAgent("spawn_agent"),
-			dispatched: false,
-			prompt: params.prompt,
-		});
-	}
-	const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
-	if (!starting.ok) {
-		return errorResult(`spawn_agent failed to reserve runtime start: ${starting.error}`, {
-			agent: created.agent,
-			dispatched: false,
-			prompt: params.prompt,
-		});
-	}
-	store.publishLifecycleCoordinatorSnapshot(starting.agent);
-	const lifecycle: OwnedLifecycleCommandInput = {
-		agent: starting.agent,
-		ownership: created.ownership,
-	};
-	const runtime = { abortController: new AbortController(), coordinator, lifecycle };
-	ownerships.set(starting.agent.id, runtime);
-
+	const abortController = new AbortController();
+	let childSession: ChildAgentSession | undefined;
 	if (createChildSession) {
+		try {
+			childSession = await createChildSession({
+				agent: prepared,
+				ctx,
+				prompt: params.prompt,
+				signal: abortController.signal,
+			});
+		} catch (error) {
+			const runtimeError = {
+				code: "runtime_spawn_failed",
+				message: error instanceof Error ? error.message : String(error),
+			};
+			const failed = coordinator.commitFailedChild(prepared, runtimeError);
+			if (failed.ok) publishCoordinatorSnapshot(store, failed.agent);
+			return errorResult(`spawn_agent failed to construct child session: ${runtimeError.message}`, {
+				agent: failed.ok ? failed.agent : prepared,
+				dispatched: false,
+				prompt: params.prompt,
+			});
+		}
+		if (childSession.transcript) prepared = { ...prepared, transcript: childSession.transcript };
+	}
+	const created = coordinator.commitRunningChild(
+		prepared,
+		ctx.sessionManager?.getSessionId() ?? store.getPersistenceTarget()?.sessionPath ?? "",
+	);
+	if (!created.ok) {
+		childSession?.dispose?.();
+		return errorResult(`spawn_agent failed: ${created.error}`, {
+			agent: prepared,
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
+	store.publishLifecycleCoordinatorSnapshot(created.agent);
+	const lifecycle: OwnedLifecycleCommandInput = { agent: created.agent, ownership: created.ownership };
+	const runtime = { abortController, coordinator, lifecycle };
+	ownerships.set(created.agent.id, runtime);
+
+	if (createChildSession && childSession) {
+		const restoreGeneration = store.getRestoreGeneration();
 		const agent = startToolDispatch(
 			store,
 			dispatches,
-			starting.agent,
-			() => dispatchReservedAgentSession(store, createChildSession, runtime, params.prompt, ctx, handles),
+			created.agent,
+			() =>
+				runAgentSession(
+					store,
+					createChildSession,
+					created.agent,
+					params.prompt,
+					ctx,
+					handles,
+					childSession,
+					runtime,
+					restoreGeneration,
+				),
 			desktopNotifier,
 			waitingDesktopNotifications,
 			handles,
@@ -967,8 +1021,8 @@ async function spawnAgent(
 		const agent = startToolDispatch(
 			store,
 			dispatches,
-			starting.agent,
-			() => dispatchReservedAgent(store, dispatcher, runtime, params.prompt, ctx),
+			created.agent,
+			() => runAgentDispatcher(store, dispatcher, created.agent, params.prompt, ctx, runtime),
 			desktopNotifier,
 			waitingDesktopNotifications,
 			undefined,
@@ -1166,43 +1220,19 @@ function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "targe
 }
 
 function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target">, agent: AgentSnapshot): void {
-	if (input.dispatches.has(agent.id) || agent.lifecycle === "queued") return;
+	if (input.dispatches.has(agent.id)) return;
 	if (!isInFlightLifecycle(agent.lifecycle)) return;
+	if (agent.lifecycle !== "cancelling" && input.createAttachedSession && agent.transcript?.path) {
+		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+		return;
+	}
 	if (hasLiveAgentOwner(input, agent)) return;
-	if (finalizeDeadDetachedEnvelope(input, agent)) return;
 	if (agent.lifecycle === "cancelling") {
 		resolveDeadAgentRuntime(input, agent);
 		return;
 	}
-	if (input.createAttachedSession && agent.transcript?.path) {
-		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
-		return;
-	}
 	if (agent.transcript?.path) return;
 	resolveDeadAgentRuntime(input, agent);
-}
-
-function finalizeDeadDetachedEnvelope(
-	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
-	agent: AgentSnapshot,
-): boolean {
-	const persistence = input.store.getPersistenceTarget();
-	const outputPath = agent.result?.fileRefs?.[0]?.path;
-	if (!persistence || !outputPath) return false;
-	const envelopePath = join(dirname(outputPath), "terminal.json");
-	if (!existsSync(envelopePath)) return false;
-	try {
-		const finalized = finalizeDetachedJob(persistence.controlDbPath, {
-			envelopePath,
-			sessionPath: persistence.sessionPath,
-		});
-		if (!finalized.ok) return false;
-		publishCoordinatorSnapshot(input.store, finalized.terminalAgent);
-		return true;
-	} catch (error) {
-		console.error(`Could not recover detached terminal envelope for ${agent.id}: ${String(error)}`);
-		return false;
-	}
 }
 
 function resolveDeadAgentRuntime(
@@ -1481,7 +1511,6 @@ async function dispatchReservedAgentSession(
 		const failed = coordinator.finalizeChild({
 			agent: lifecycle.agent,
 			error: runtimeError,
-			eventPayload: { error: runtimeError },
 			ownership: lifecycle.ownership,
 			terminalLifecycle: "failed",
 		});
@@ -1686,7 +1715,6 @@ function finalizeReservedRuntime(
 	const finalized = reservedRuntime.coordinator.finalizeChild({
 		agent,
 		error: metadata.error,
-		eventPayload: metadata,
 		ownership: reservedRuntime.lifecycle.ownership,
 		result: metadata.result,
 		terminalLifecycle,
@@ -2092,6 +2120,127 @@ function formatSentMessageTarget(message: AgentMailboxMessage, toSessionId: stri
 	return toSessionId ? `${message.toAgentId} in session ${toSessionId}` : message.toAgentId;
 }
 
+type WaitAgentsWake =
+	| { kind: "agent"; agent: AgentSnapshot }
+	| { kind: "cancelled" }
+	| { kind: "coordination" }
+	| { kind: "error"; error: unknown }
+	| { kind: "none" };
+
+type RuntimeCoordinationRecipient = {
+	address: RuntimeMailboxAddress;
+	controlDbPath: string;
+};
+
+class WaitAgentsWakeWatcher {
+	private readonly activeAgents: AgentSnapshot[];
+	private readonly controlDbPath: string;
+	private readonly recipient: RuntimeCoordinationRecipient | undefined;
+	private readonly sessionPath: string;
+	private readonly signal: AbortSignal | undefined;
+	private readonly store: MultiAgentStore;
+	private pollTimer: ReturnType<typeof setInterval> | undefined;
+	private resolve: ((wake: WaitAgentsWake) => void) | undefined;
+	private runtimeSignalHandler: (() => void) | undefined;
+	private settled = false;
+	private unsubscribeAgentTransitions = () => {};
+
+	constructor(
+		store: MultiAgentStore,
+		activeAgents: AgentSnapshot[],
+		controlDbPath: string,
+		sessionPath: string,
+		signal: AbortSignal | undefined,
+		recipient: RuntimeCoordinationRecipient | undefined,
+	) {
+		this.activeAgents = activeAgents;
+		this.controlDbPath = controlDbPath;
+		this.sessionPath = sessionPath;
+		this.recipient = recipient;
+		this.signal = signal;
+		this.store = store;
+	}
+
+	wait(): Promise<WaitAgentsWake> {
+		if (this.signal?.aborted) {
+			return Promise.resolve({ kind: "cancelled" });
+		}
+		return new Promise((resolve) => {
+			this.resolve = resolve;
+			this.start();
+		});
+	}
+
+	private start(): void {
+		const trackedAgentIds = new Set(this.activeAgents.map((agent) => agent.id));
+		if (trackedAgentIds.size === 0) {
+			this.finish({ kind: "none" });
+			return;
+		}
+		const readTrackedTerminal = (): AgentSnapshot | undefined => {
+			const agents = (readMultiAgentState(this.controlDbPath, this.sessionPath)?.agents ?? []) as AgentSnapshot[];
+			return agents.find((agent) => trackedAgentIds.has(agent.id) && !isActiveLifecycle(agent.lifecycle));
+		};
+		this.unsubscribeAgentTransitions = this.store.subscribeAgentTransitions(() => {
+			const terminal = readTrackedTerminal();
+			if (terminal) this.finish({ agent: terminal, kind: "agent" });
+		});
+		this.signal?.addEventListener("abort", this.onAbort, { once: true });
+		this.startRuntimeCoordinationWatch();
+
+		const terminalAgent = readTrackedTerminal();
+		if (terminalAgent) {
+			this.finish({ agent: terminalAgent, kind: "agent" });
+			return;
+		}
+		this.checkCoordination();
+	}
+
+	private startRuntimeCoordinationWatch(): void {
+		if (!this.recipient) return;
+		this.pollTimer = setInterval(this.checkCoordination, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
+		if (process.platform === "win32") return;
+		this.runtimeSignalHandler = this.checkCoordination;
+		process.prependListener("SIGUSR2", this.runtimeSignalHandler);
+	}
+
+	private readonly onAbort = () => {
+		this.finish({ kind: "cancelled" });
+	};
+
+	private readonly checkCoordination = () => {
+		if (!this.recipient) return;
+		try {
+			if (hasPendingRuntimeCoordinationMessage(this.recipient.controlDbPath, this.recipient.address)) {
+				this.finish({ kind: "coordination" });
+			}
+		} catch (error) {
+			this.finish({ error, kind: "error" });
+		}
+	};
+
+	private finish(wake: WaitAgentsWake): void {
+		if (this.settled) return;
+		this.settled = true;
+		this.cleanup();
+		this.resolve?.(wake);
+		this.resolve = undefined;
+	}
+
+	private cleanup(): void {
+		this.unsubscribeAgentTransitions();
+		if (this.pollTimer) {
+			clearInterval(this.pollTimer);
+			this.pollTimer = undefined;
+		}
+		if (this.runtimeSignalHandler) {
+			process.off("SIGUSR2", this.runtimeSignalHandler);
+			this.runtimeSignalHandler = undefined;
+		}
+		this.signal?.removeEventListener("abort", this.onAbort);
+	}
+}
+
 async function waitAgents(
 	store: MultiAgentStore,
 	signal: AbortSignal | undefined,
@@ -2103,96 +2252,79 @@ async function waitAgents(
 	if (ctx) mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return errorResult("wait_agents requires a persisted supervisor session.", {});
-	const consumerId = `wait:${ctx?.sessionManager?.getSessionId() ?? persistence.sessionPath}:${randomUUID()}`;
-	const activeAgents = store.listActiveAgents();
-	const trackedAgentIds = new Set(activeAgents.map((agent) => agent.id));
-	const committed = readWaitTerminalEvent(
+	const pending = takePendingTerminalNotification(store, persistence.controlDbPath, persistence.sessionPath);
+	if (pending) return pending;
+	const wake = await waitForAgentOrCoordination(
 		store,
 		persistence.controlDbPath,
 		persistence.sessionPath,
-		consumerId,
-		trackedAgentIds.size > 0 ? trackedAgentIds : undefined,
+		signal,
+		runtimeCoordinationRecipient(ctx),
 	);
-	if (committed) return committed;
-
-
-	if (activeAgents.length === 0) {
-		return emptyResult();
+	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
+	if (wake.kind === "coordination") return result("Mailbox or shared-channel message received.", {});
+	if (wake.kind === "error") {
+		const message = wake.error instanceof Error ? wake.error.message : String(wake.error);
+		return errorResult(`Wait failed: ${message}`, {});
 	}
-
-	const agent = await waitForAnyTerminalAgent(store, activeAgents, signal);
-	if (!agent) return errorResult("Wait cancelled.", {});
+	if (wake.kind === "none") return emptyResult();
 	return (
-		readWaitTerminalEvent(store, persistence.controlDbPath, persistence.sessionPath, consumerId, new Set([agent.id])) ??
-		errorResult(`Terminal event unavailable for ${agent.id}.`, { agent })
+		takePendingTerminalNotification(store, persistence.controlDbPath, persistence.sessionPath) ??
+		result(formatAgentStatus(wake.agent), { agent: wake.agent })
 	);
 }
 
-function readWaitTerminalEvent(
+function runtimeCoordinationRecipient(
+	ctx: ExtensionContext | undefined,
+): RuntimeCoordinationRecipient | undefined {
+	if (!ctx?.controlDbPath) return undefined;
+	return {
+		address: {
+			agentId: ctx.multiAgentAgentId ?? null,
+			sessionId: ctx.sessionManager.getSessionId(),
+		},
+		controlDbPath: ctx.controlDbPath,
+	};
+}
+
+function takePendingTerminalNotification(
 	store: MultiAgentStore,
 	controlDbPath: string,
 	sessionPath: string,
-	consumerId: string,
-	agentIds?: ReadonlySet<string>,
 ): AgentToolResult<WaitAgentsToolDetails> | undefined {
-	const candidates = listUnseenMultiAgentTerminalEvents(controlDbPath, consumerId).filter(
-		(candidate) => candidate.sessionPath === sessionPath && (!agentIds || agentIds.has(candidate.agentId)),
-	);
-	const event = agentIds ? candidates[0] : candidates.at(-1);
-	if (!event) return undefined;
-	if (!markMultiAgentTerminalEventSeen(controlDbPath, consumerId, event, new Date().toISOString())) return undefined;
-	const agent = store.getAgent(event.agentId);
-	if (!agent) return undefined;
-	const lifecycle = agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
-	const message = lifecycle ? store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0] : undefined;
-	return result(message?.body ?? formatAgentStatus(agent), message ? { agent, message } : { agent });
-}
-
-async function waitForAnyTerminalAgent(
-	store: MultiAgentStore,
-	activeAgents: AgentSnapshot[],
-	signal: AbortSignal | undefined,
-): Promise<AgentSnapshot | undefined> {
-	if (signal?.aborted) {
-		return undefined;
+	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
+	for (const agent of agents) {
+		const lifecycle = agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
+		if (!lifecycle) continue;
+		const message = store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
+		if (!message) continue;
+		store.markMailboxMessageDelivered(message.id);
+		return result(message.body ?? formatAgentStatus(agent), { agent, message });
 	}
-	const trackedAgentIds = new Set(activeAgents.map((agent) => agent.id));
-
-	return new Promise((resolve) => {
-		let settled = false;
-		let unsubscribe = () => {};
-		const finish = (agent: AgentSnapshot | undefined) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			unsubscribe();
-			signal?.removeEventListener("abort", onAbort);
-			resolve(agent);
-		};
-		const onAbort = () => finish(undefined);
-		unsubscribe = store.subscribeAgentTransitions((_previous, current) => {
-			if (trackedAgentIds.has(current.id) && !isActiveLifecycle(current.lifecycle)) {
-				finish(current);
-			}
-		});
-		signal?.addEventListener("abort", onAbort, { once: true });
-
-		const terminalAgent = findFirstTerminalAgent(store, activeAgents);
-		if (terminalAgent) {
-			finish(terminalAgent);
-		}
-	});
+	return undefined;
 }
 
-function findFirstTerminalAgent(store: MultiAgentStore, agents: AgentSnapshot[]): AgentSnapshot | undefined {
-	return agents
-		.map((agent) => store.getAgent(agent.id))
-		.find((agent) => agent !== undefined && !isActiveLifecycle(agent.lifecycle));
+async function waitForAgentOrCoordination(
+	store: MultiAgentStore,
+	controlDbPath: string,
+	sessionPath: string,
+	signal: AbortSignal | undefined,
+	recipient: RuntimeCoordinationRecipient | undefined,
+): Promise<WaitAgentsWake> {
+	if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
+	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
+	return new WaitAgentsWakeWatcher(
+		store,
+		agents.filter((agent) => isActiveLifecycle(agent.lifecycle)),
+		controlDbPath,
+		sessionPath,
+		signal,
+		recipient,
+	).wait();
 }
 
 function isInFlightLifecycle(lifecycle: AgentSnapshot["lifecycle"]): boolean {
-	return isActiveLifecycle(lifecycle) && lifecycle !== "queued" && lifecycle !== "waiting_for_input";
+	return isActiveLifecycle(lifecycle) && lifecycle !== "waiting_for_input";
 }
 
 function formatAgentStatus(agent: AgentSnapshot): string {
@@ -2893,7 +3025,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		defineTool({
 			name: "wait_agents",
 			label: "Wait Agents",
-			description: "Wait until any active agent reaches a terminal state and consume that agent's completion notification.",
+			description:
+				"Wait until any active agent reaches a terminal state or coordination input arrives, then consume the winning agent completion notification.",
 			approvalRequired: false,
 			parameters: waitAgentsSchema,
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {

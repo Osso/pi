@@ -278,10 +278,10 @@ describe("session directory", () => {
 				revision: 1,
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
-			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "queued", {
-				id: "queued",
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "running-extra", {
+				id: "running-extra",
 				origin: "spawned",
-				lifecycle: "queued",
+				lifecycle: "running",
 				revision: 1,
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
@@ -304,7 +304,7 @@ describe("session directory", () => {
 					revision: 1,
 				},
 				{ id: "attached", lifecycle: "waiting_for_input", revision: 1 },
-				{ id: "queued", lifecycle: "queued", revision: 1 },
+				{ id: "running-extra", lifecycle: "running", revision: 1 },
 			]);
 			expect(readMultiAgentState(controlDbPath, "/sessions/session-live.jsonl")?.agents).toMatchObject([
 				{ id: "live", lifecycle: "running", revision: 1 },
