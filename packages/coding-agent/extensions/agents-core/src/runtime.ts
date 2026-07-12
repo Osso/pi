@@ -2255,6 +2255,14 @@ export async function cancelReservedAgentRuntime(
 	return cancelOneReservedAgentRuntime(store, runtimeHandles, agentId, ctx, reason);
 }
 
+function abortAgentHandleSafely(store: MultiAgentStore, agentId: string): void {
+	try {
+		store.abortAgentHandle(agentId);
+	} catch (error) {
+		console.error(`Failed to abort agent runtime ${agentId}:`, error);
+	}
+}
+
 async function cancelOneReservedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
@@ -2272,7 +2280,7 @@ async function cancelOneReservedAgentRuntime(
 	});
 	if (!cancelling.ok) return { ok: false, error: "mutation_rejected", agent: current };
 	store.publishLifecycleCoordinatorSnapshot(cancelling.agent);
-	store.abortAgentHandle(agentId);
+	abortAgentHandleSafely(store, agentId);
 	const dispatch = runtimeHandles.dispatches.get(agentId);
 	if (dispatch) {
 		await Promise.race([
@@ -2823,7 +2831,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		}
 		for (const agentId of backgroundSessions.keys()) {
 			const attached = store.getAgent(agentId)?.origin === "attached";
-			if (attached || !reservedAgentIds.has(agentId)) store.abortAgentHandle(agentId);
+			if (attached || !reservedAgentIds.has(agentId)) abortAgentHandleSafely(store, agentId);
 		}
 		for (const agentId of waitingDesktopNotifications.keys()) {
 			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);

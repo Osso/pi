@@ -102,6 +102,7 @@
 
 ### Fixed
 
+- Cancellation remains durably `cancelling` when a runtime abort callback throws; the failure is reported without bypassing bounded settlement or fenced recovery.
 - Fixed GPT-5.6 Sol automatic compaction to trigger at exactly 272,000 context tokens, before requests enter the higher long-context pricing tier.
 - Fixed non-supervisor agent runtimes to deny the `manage_goal` capability even when an external extension re-registers the tool; spawned, attached, `/bg`, and Architect runtimes now exclude it while supervisors retain it.
 - Fixed disabled compaction handlers returning no result to fail explicitly without invoking built-in compaction.

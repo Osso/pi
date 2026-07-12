@@ -1430,6 +1430,31 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "cancelling" });
 	});
 
+	it("keeps cancellation committed when the runtime abort handler throws", async () => {
+		const childPrompt = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort: () => {
+				throw new Error("abort failed");
+			},
+			messages: [],
+			prompt: async () => childPrompt.promise,
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "sleep 100",
+		});
+		await Promise.resolve();
+
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: spawned.details.agent.id,
+			reason: "user requested",
+		});
+
+		expect(cancelled.details.agent).toMatchObject({ lifecycle: "cancelling" });
+		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
+	});
+
 	it("keeps a spawn_agent child cancelling when abort does not acknowledge exit", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
