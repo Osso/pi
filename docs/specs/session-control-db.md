@@ -77,10 +77,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
-- [x] Provide recovery-leader and fenced lifecycle transactions for global orphan reconciliation.
-      Session health and exact listener-path assertions identify candidate stores, but only the current
-      recovery leader may mutate an active row, and every mutation includes expected revision plus the
-      acquired lease/incarnation/fencing identity. Verified administrative restart may commit an
+- [x] Provide fenced lifecycle transactions for session-owned orphan reconciliation. Session health and
+      exact listener-path assertions identify the one owning supervisor; unrelated sessions do not elect
+      or share a recovery leader. Every mutation includes expected revision plus the acquired
+      lease/incarnation/fencing identity. Verified administrative restart may commit an
       explicit interruption; generic owner loss or lease expiry commits `failed/lost_runtime`, never a
       direct JSON rewrite or inferred abort. Attached, queued, terminal, current-live, and uncertain
       process-backed rows follow their explicit recovery policy.

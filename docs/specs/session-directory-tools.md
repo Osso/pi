@@ -42,7 +42,7 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] Registering a different PID for a session advances its agent generation; registration from a
       confirmed live runtime clears stale death for the bound generation.
 - [x] Ended sessions are not eligible to receive messages.
-- [x] After listener retirement and health synchronization, `list_sessions` invokes recovery-leader
+- [x] After listener retirement and health synchronization, `list_sessions` invokes session-owned
       reconciliation for candidate persisted stores. Health/path metadata selects candidates only;
       lifecycle changes require coordinator ownership and the complete revision/lease/incarnation/
       fencing predicate. Generic lost owners resolve as `failed/lost_runtime`, while uncertain live

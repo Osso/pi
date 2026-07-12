@@ -203,9 +203,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   full-predicate coordinator transition to `starting`; `running` is confirmed only after construction
   succeeds. Construction failure commits `failed`, error projection, terminal event, and outbox through
   the current reservation before any `running` state is exposed. If the supervisor dies after
-  reservation commit, resumed production sessions schedule recovery at lease expiry; the coordinator
-  acquires recovery leadership, takes the next dispatch epoch, commits `failed/lost_runtime`, and
-  retries after leader contention. Runtime-listener registration never mutates lifecycle rows. Production `spawn_agent` requires a persisted supervisor session and
+  reservation commit, the resumed owning supervisor schedules recovery at lease expiry; the coordinator
+  takes the next per-agent dispatch epoch and commits `failed/lost_runtime`. Unrelated supervisor sessions
+  do not coordinate or contend for global recovery leadership. Runtime-listener registration never mutates lifecycle rows. Production `spawn_agent` requires a persisted supervisor session and
   fails closed otherwise; it has no direct store creation or lifecycle-ramp path. First-party `/bg`
   child-session jobs use the same coordinator reservation/start/confirmation path and retain their
   reservation identity for cancellation and terminal settlement. Terminal replay
@@ -240,9 +240,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Every state and terminal mutation also requires the lease expiry to be later than the command
   timestamp; an expired owner is fenced even before another runtime takes over. Owner loss or lease
   expiry fences the old runtime, and late finalizers fail the mutation predicate rather than
-  rewriting state. Expired-runtime recovery requires the live recovery-leader lease, the expected
-  agent revision, and an expired dispatch lease; one transaction acquires the next dispatch fencing
-  epoch and commits `failed/lost_runtime` plus its terminal event/outbox. The expiry/owner-loss path
+  rewriting state. Expired-runtime recovery requires the owning supervisor, the expected agent revision,
+  and an expired dispatch lease; one transaction acquires the next dispatch fencing epoch and commits
+  `failed/lost_runtime` plus its terminal event/outbox. The expiry/owner-loss path
   is never reported as a confirmed abort.
 - Each terminal transition inserts exactly one immutable terminal event/outbox record in the same
   SQLite transaction as the state and revision change. Its identity is unique

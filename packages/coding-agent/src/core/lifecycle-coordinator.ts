@@ -1,7 +1,6 @@
 import type { AgentMailboxMessage, AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
 import {
 	acquireAttachedRuntimeLease,
-	acquireMultiAgentRecoveryLeaderLease,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
@@ -10,7 +9,6 @@ import {
 	createMultiAgentChildWithDispatchReservation,
 	type MultiAgentDispatchLease,
 	recoverExpiredMultiAgentRuntime,
-	releaseMultiAgentRecoveryLeaderLease,
 	renewMultiAgentDispatchLease,
 } from "./session-control-db.ts";
 
@@ -83,13 +81,7 @@ export type RecoverExpiredChildCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| {
 			ok: false;
-			error:
-				| "agent_not_found"
-				| "invalid_transition"
-				| "lease_held"
-				| "lease_not_expired"
-				| "mutation_mismatch"
-				| "not_recovery_leader";
+			error: "agent_not_found" | "invalid_transition" | "lease_not_expired" | "mutation_mismatch";
 	  };
 
 export interface FinalizeChildCommandInput extends ReservedLifecycleCommandInput {
@@ -232,25 +224,10 @@ export class LifecycleCoordinator {
 
 	recoverExpiredChild(input: RecoverExpiredChildCommandInput): RecoverExpiredChildCommandResult {
 		const nowIso = this.options.now();
-		const leaderLeaseId = this.options.createLeaseId();
-		const leader = acquireMultiAgentRecoveryLeaderLease(this.options.controlDbPath, {
-			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
-			leaseId: leaderLeaseId,
-			nowIso,
-			ownerSessionId: input.ownerSessionId,
-			runtimeIncarnation: this.options.runtimeIncarnation,
-		});
-		if (!leader.ok) return { ok: false, error: "lease_held" };
 		const recovered = recoverExpiredMultiAgentRuntime(this.options.controlDbPath, {
 			agentId: input.agent.id,
 			expectedRevision: input.agent.revision,
 			nowIso,
-			recoveryLeader: {
-				fencingEpoch: leader.lease.fencingEpoch,
-				leaseId: leaderLeaseId,
-				ownerSessionId: input.ownerSessionId,
-				runtimeIncarnation: this.options.runtimeIncarnation,
-			},
 			replacementLease: {
 				agentId: input.agent.id,
 				leaseId: this.options.createLeaseId(),
@@ -259,12 +236,6 @@ export class LifecycleCoordinator {
 				sessionPath: this.options.sessionPath,
 			},
 			sessionPath: this.options.sessionPath,
-		});
-		releaseMultiAgentRecoveryLeaderLease(this.options.controlDbPath, {
-			expectedFencingEpoch: leader.lease.fencingEpoch,
-			leaseId: leaderLeaseId,
-			ownerSessionId: input.ownerSessionId,
-			runtimeIncarnation: this.options.runtimeIncarnation,
 		});
 		if (!recovered.ok) return recovered;
 		return {

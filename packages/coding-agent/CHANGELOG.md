@@ -58,6 +58,7 @@
 
 ### Changed
 
+- Removed global multi-agent recovery leadership; each session has one supervisor owner, and expired-agent recovery relies on the complete per-agent revision/lease/incarnation/fencing transaction without cross-session contention.
 - Persisted session agents now use the same recovery and shutdown behavior regardless of whether `spawn_agent` created a new session or `attach_session_agent` selected an existing session; origin remains construction provenance only.
 - Child and attached agent dispatches now renew their fenced lifecycle reservation while running; lease takeover aborts cooperative dispatcher/session work and prevents stale terminal settlement.
 - Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
@@ -77,9 +78,8 @@
 - Added atomic terminal-outbox claim, retry, failure, and delivery transitions independent from terminal-event observation.
 - Added per-consumer terminal-event cursor storage keyed by immutable event identity for non-destructive fan-out.
 - Added immutable multi-agent terminal event and delivery outbox storage keyed by agent, terminal revision, and event kind.
-- Added a durable multi-agent recovery-leader lease with live-owner rejection, expiry takeover, monotonic fencing, exact renewal, and compare-release so competing sweepers cannot reconcile concurrently. Resumed production sessions now schedule spawned-agent recovery at dispatch lease expiry, atomically verify recovery leadership, take the next dispatch epoch, and commit `failed/lost_runtime` with one terminal event/outbox; leader contention retries instead of abandoning the row. Runtime-listener registration no longer directly aborts lifecycle rows.
 - Added durable multi-agent dispatch leases with runtime/owner identity, monotonic fencing epochs, renewal/expiry takeover, recovery ownership, and exact-identity compare-and-release.
-- Fenced persisted multi-agent lifecycle writes by control-DB protocol version: newer schemas are rejected before initialization, upgrades require all Pi runtimes to be quiescent, and SQLite triggers reject agent-row writes from legacy or unregistered connections.
+- Fenced persisted multi-agent lifecycle schema activation by control-DB protocol version: newer schemas are rejected before initialization and upgrades require all Pi runtimes to be quiescent.
 - Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references. A durable control-DB schema migration cleans legacy persisted `artifactIds` and `artifactRefs` fields once, then installs SQLite INSERT/UPDATE triggers so older binaries cannot reintroduce them.
 
 - Changed Codex remote compaction to always use `gpt-5.6-terra`, allowing Luna and other Codex models to retain native compaction history across long sessions.

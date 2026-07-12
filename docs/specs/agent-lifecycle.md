@@ -163,10 +163,11 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] `queued` agents survive restore unchanged and are not recovered.
-- [x] After a runtime registers its current mailbox listener, one recovery leader reconciles orphaned
-      active rows through fenced coordinator recovery commands. Main listener rows assert exact session
-      path and runtime incarnation; changed incarnation or owner takeover advances fencing. A different
-      verified live Pi PID already owning the session rejects replacement. Session relocation moves the
+- [x] After a runtime registers its current mailbox listener, that session's sole supervisor reconciles
+      its orphaned active rows through fenced coordinator recovery commands. Main listener rows assert
+      exact session path and runtime incarnation; changed incarnation or owner takeover advances fencing.
+      A different verified live Pi PID already owning the session rejects replacement. There is no global
+      recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session relocation moves the
       assertion transactionally with the store. Verified administrative restart may terminalize owned
       work through the coordinator, but generic owner loss or lease expiry resolves as
       `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Queued, terminal,
@@ -199,8 +200,8 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/lifecycle-coordinator.ts` — sole control-plane lifecycle commands.
-- `packages/coding-agent/src/core/session-control-db.ts` — fenced repository transactions, leases,
-  terminal events/outbox, recovery leadership, and SQLite writer enforcement.
+- `packages/coding-agent/src/core/session-control-db.ts` — fenced repository transactions, per-agent
+  leases, terminal events/outbox, and schema/version enforcement.
 - `packages/coding-agent/src/core/multi-agent-store.ts` — read/projection state, metadata, listeners,
   and restore-time removal of runtime-only worker handles; no lifecycle mutation API.
 - `packages/coding-agent/extensions/agents-core/src/runtime.ts` — coordinator-backed dispatch,

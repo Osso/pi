@@ -10,7 +10,6 @@ import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "..
 import {
 	acquireAttachedRuntimeLease,
 	acquireMultiAgentDispatchLease,
-	acquireMultiAgentRecoveryLeaderLease,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -56,7 +55,6 @@ import {
 	readIncomingMessageStatus,
 	readLastMessage,
 	readMultiAgentDispatchLease,
-	readMultiAgentRecoveryLeaderLease,
 	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
@@ -67,12 +65,10 @@ import {
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
 	releaseMultiAgentDispatchLease,
-	releaseMultiAgentRecoveryLeaderLease,
 	relocateSessionControlData,
 	removeNamedSession,
 	renewArchitectRequestClaims,
 	renewMultiAgentDispatchLease,
-	renewMultiAgentRecoveryLeaderLease,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
@@ -1321,84 +1317,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
-	it("creates the fenced recovery leader lease schema", () => {
-		readMultiAgentState(controlDbPath, "/sessions/recovery-leader-schema.jsonl");
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			const columns = db.prepare("PRAGMA table_info(multi_agent_recovery_leader)").all() as Array<{
-				name: string;
-				notnull: number;
-			}>;
-			expect(columns.map((column) => column.name)).toEqual([
-				"singleton_id",
-				"lease_id",
-				"runtime_incarnation",
-				"owner_session_id",
-				"fencing_epoch",
-				"renewed_at",
-				"expires_at",
-			]);
-			expect(columns.find((column) => column.name === "fencing_epoch")?.notnull).toBe(1);
-		} finally {
-			db.close();
-		}
-	});
-
-	it("fences recovery leader acquisition, renewal, takeover, and release", () => {
-		const identity = {
-			leaseId: "recovery-lease-a",
-			ownerSessionId: "supervisor-a",
-			runtimeIncarnation: "runtime-a",
-		};
-		const acquired = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
-			...identity,
-			expiresAt: "2026-07-11T00:01:00.000Z",
-			nowIso: "2026-07-11T00:00:00.000Z",
-		});
-		expect(acquired).toMatchObject({ ok: true, lease: { fencingEpoch: 1, leaseId: identity.leaseId } });
-
-		const held = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
-			expiresAt: "2026-07-11T00:02:00.000Z",
-			leaseId: "recovery-lease-b",
-			nowIso: "2026-07-11T00:00:30.000Z",
-			ownerSessionId: "supervisor-b",
-			runtimeIncarnation: "runtime-b",
-		});
-		expect(held).toMatchObject({ ok: false, error: "lease_held", current: { leaseId: identity.leaseId } });
-
-		expect(
-			renewMultiAgentRecoveryLeaderLease(controlDbPath, {
-				...identity,
-				expectedFencingEpoch: 1,
-				expiresAt: "2026-07-11T00:03:00.000Z",
-				nowIso: "2026-07-11T00:00:45.000Z",
-			}),
-		).toMatchObject({ ok: true, lease: { expiresAt: "2026-07-11T00:03:00.000Z" } });
-
-		const takeover = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
-			expiresAt: "2026-07-11T00:05:00.000Z",
-			leaseId: "recovery-lease-b",
-			nowIso: "2026-07-11T00:04:00.000Z",
-			ownerSessionId: "supervisor-b",
-			runtimeIncarnation: "runtime-b",
-		});
-		expect(takeover).toMatchObject({ ok: true, lease: { fencingEpoch: 2, leaseId: "recovery-lease-b" } });
-		expect(releaseMultiAgentRecoveryLeaderLease(controlDbPath, { ...identity, expectedFencingEpoch: 1 })).toBe(false);
-		expect(
-			releaseMultiAgentRecoveryLeaderLease(controlDbPath, {
-				expectedFencingEpoch: 2,
-				leaseId: "recovery-lease-b",
-				ownerSessionId: "supervisor-b",
-				runtimeIncarnation: "runtime-b",
-			}),
-		).toBe(true);
-		expect(readMultiAgentRecoveryLeaderLease(controlDbPath)).toMatchObject({
-			fencingEpoch: 2,
-			leaseId: undefined,
-		});
-	});
-
-	it("atomically fences and terminalizes an expired reserved runtime under recovery leadership", () => {
+	it("atomically fences and terminalizes an expired reserved runtime", () => {
 		const sessionPath = "/sessions/expired-runtime.jsonl";
 		const agentId = "agent-expired";
 		const created = createMultiAgentChildWithDispatchReservation(controlDbPath, {
@@ -1423,25 +1342,11 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath,
 		});
 		expect(created.ok).toBe(true);
-		const leader = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
-			expiresAt: "2026-07-11T00:05:00.000Z",
-			leaseId: "leader-a",
-			nowIso: "2026-07-11T00:02:00.000Z",
-			ownerSessionId: "recovery-session",
-			runtimeIncarnation: "recovery-runtime",
-		});
-		expect(leader).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
 
 		const recovered = recoverExpiredMultiAgentRuntime(controlDbPath, {
 			agentId,
 			expectedRevision: 1,
 			nowIso: "2026-07-11T00:02:00.000Z",
-			recoveryLeader: {
-				fencingEpoch: 1,
-				leaseId: "leader-a",
-				ownerSessionId: "recovery-session",
-				runtimeIncarnation: "recovery-runtime",
-			},
 			replacementLease: {
 				agentId,
 				leaseId: "recovery-dispatch",
@@ -1462,27 +1367,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			leaseId: "recovery-dispatch",
 			recoveryOwnerId: "recovery-session",
 		});
-		expect(
-			recoverExpiredMultiAgentRuntime(controlDbPath, {
-				agentId,
-				expectedRevision: 1,
-				nowIso: "2026-07-11T00:02:01.000Z",
-				recoveryLeader: {
-					fencingEpoch: 0,
-					leaseId: "stale-leader",
-					ownerSessionId: "stale",
-					runtimeIncarnation: "stale",
-				},
-				replacementLease: {
-					agentId,
-					leaseId: "stale-dispatch",
-					owner: { agentId: null, sessionId: "stale" },
-					runtimeIncarnation: "stale",
-					sessionPath,
-				},
-				sessionPath,
-			}),
-		).toEqual({ ok: false, error: "not_recovery_leader" });
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "recovery-test")).toMatchObject([
 			{ agentId, eventKind: "lost_runtime", terminalRevision: 2 },
 		]);
@@ -1753,7 +1637,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(9);
+			expect(version.user_version).toBe(10);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1874,7 +1758,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(9);
+			expect(version.user_version).toBe(10);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
