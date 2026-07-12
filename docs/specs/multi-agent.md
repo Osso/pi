@@ -144,7 +144,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   size and SHA-256, records the full lease/revision/fencing identity and exact outcome, checksums the
   envelope, atomically renames it into place, and fsyncs the containing directory. The envelope also
   fixes the original terminal timestamp so DB-outage retries never substitute retry time. The runner
-  finalize repository operation accepts only session path plus envelope path, revalidates output and
+  lifecycle controller adapter gives Bash and Pyrun one shared boundary to allocate the job identity,
+  create deterministic artifacts, reserve/confirm that exact ID through `LifecycleCoordinator`,
+  publish committed projections, and submit the envelope finalizer. The finalize repository operation
+  accepts only session path plus envelope path, revalidates output and
   checksum, requires exact revision/lease/incarnation/epoch and a lease live at that terminal time,
   permits only `running|cancelling` terminal settlement, and commits state/event/outbox atomically.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through

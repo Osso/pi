@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { AgentSnapshot } from "./multi-agent-store.ts";
 
 const DETACHED_JOB_ENVELOPE_VERSION = 1;
 
@@ -29,6 +30,28 @@ export interface DetachedJobTerminalEnvelope extends DetachedJobLeaseIdentity {
 	outcome: DetachedJobOutcome;
 	output: { path: string; size: number; sha256: string };
 	checksum: string;
+}
+
+export interface DetachedJobReservation {
+	agent: AgentSnapshot;
+	artifacts: DetachedJobArtifacts;
+	identity: DetachedJobLeaseIdentity;
+}
+
+export interface ReserveDetachedJobInput {
+	agentType: "bash" | "pyrun";
+	cwd: string;
+	displayName: string;
+	jobId: string;
+	workerHandleId: string;
+}
+
+export interface DetachedJobLifecycleController {
+	allocateJobId(): string;
+	createArtifacts(jobId: string): DetachedJobArtifacts;
+	reserve(input: ReserveDetachedJobInput): DetachedJobReservation;
+	publish(agent: AgentSnapshot): void;
+	finalize(envelopePath: string): { ok: boolean; terminalRevision?: number; error?: string };
 }
 
 export interface DetachedJobRunnerContract {
