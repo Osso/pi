@@ -1039,6 +1039,71 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it.each(["Bash output", "Pyrun output"])(
+		"treats %s exact-owner exit evidence as aborted when cancellation committed first",
+		(outputLabel) => {
+			const sessionPath = "/sessions/detached-cancel-race.jsonl";
+			const agentId = "job-cancel-race";
+			const owner = { agentId: null, sessionId: "runner" };
+			const processIdentity = testProcessIdentity("cancel-race-runner");
+			bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+				agentType: "background",
+				createdAt: "2026-07-11T21:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Detached job",
+				id: agentId,
+				lifecycle: "running",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 4,
+				updatedAt: "2026-07-11T21:00:00.000Z",
+			});
+			expect(
+				acquireMultiAgentRuntimeOwnership(controlDbPath, {
+					agentId,
+					nowIso: "2026-07-11T21:00:00.000Z",
+					owner,
+					processIdentity,
+					sessionPath,
+				}),
+			).toMatchObject({ ok: true });
+			expect(
+				commitMultiAgentLifecycleMutation(controlDbPath, {
+					agentId,
+					owner,
+					processIdentity,
+					requestedLifecycle: "cancelling",
+					sessionPath,
+					updatedAt: "2026-07-11T21:00:01.000Z",
+				}),
+			).toMatchObject({ ok: true, agent: { lifecycle: "cancelling", revision: 5 } });
+			const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detached-cancel-race-")), agentId);
+			writeFileSync(artifacts.outputPath, "runner completed before seeing cancel", { mode: 0o600 });
+			const envelope = writeDetachedJobTerminalEnvelope(
+				artifacts,
+				{ jobId: agentId, outputLabel, owner, processIdentity },
+				{ exitCode: 0, kind: "completed", summary: "natural completion" },
+				"2026-07-11T21:00:02.000Z",
+			);
+
+			const finalized = finalizeDetachedJob(controlDbPath, {
+				envelopePath: artifacts.terminalEnvelopePath,
+				sessionPath,
+			});
+			expect(finalized).toMatchObject({
+				ok: true,
+				terminalAgent: { id: agentId, lifecycle: "aborted", revision: 6 },
+				terminalRevision: 6,
+			});
+			expect(
+				finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath }),
+			).toEqual(finalized);
+			expect(listUnseenMultiAgentTerminalEvents(controlDbPath, `cancel-race-test:${outputLabel}`)).toMatchObject([
+				{ agentId, eventKind: "detached_job_aborted", payload: envelope, terminalRevision: 6 },
+			]);
+		},
+	);
+
 	it("creates immutable terminal event and outbox schema", () => {
 		readMultiAgentState(controlDbPath, "/sessions/terminal-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);

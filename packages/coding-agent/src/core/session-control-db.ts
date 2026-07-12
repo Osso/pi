@@ -2902,7 +2902,13 @@ function finalizeDetachedJobTransaction(
 		.get(sessionPath, envelope.jobId) as { data: string } | undefined;
 	if (!row) return { ok: false, error: "agent_not_found" };
 	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
-	const terminalLifecycle = envelope.outcome.kind;
+	const persistedLifecycle = typeof agent.lifecycle === "string" ? agent.lifecycle : undefined;
+	const terminalLifecycle =
+		persistedLifecycle === "completed" || persistedLifecycle === "failed" || persistedLifecycle === "aborted"
+			? persistedLifecycle
+			: persistedLifecycle === "cancelling"
+				? "aborted"
+				: envelope.outcome.kind;
 	const eventKind = `detached_job_${terminalLifecycle}`;
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, envelope.jobId);
 	if (
@@ -2920,9 +2926,7 @@ function finalizeDetachedJobTransaction(
 		return detachedJobReplayResult(db, sessionPath, envelope, Number(agent.revision), eventKind);
 	}
 	const terminalRevision = Number(agent.revision) + 1;
-	const canFinalize =
-		agent.lifecycle === "running" ||
-		(agent.lifecycle === "cancelling" && (terminalLifecycle === "aborted" || terminalLifecycle === "failed"));
+	const canFinalize = agent.lifecycle === "running" || agent.lifecycle === "cancelling";
 	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, envelope.jobId)) {
 		return { ok: false, error: "invalid_transition" };
 	}
@@ -2932,6 +2936,7 @@ function finalizeDetachedJobTransaction(
 		envelope,
 		agent,
 		ownership,
+		terminalLifecycle,
 		terminalRevision,
 		eventKind,
 	);
@@ -2966,13 +2971,14 @@ function persistDetachedJobTerminal(
 	envelope: DetachedJobTerminalEnvelope,
 	agent: Record<string, unknown>,
 	ownership: MultiAgentRuntimeOwnershipRow,
+	terminalLifecycle: "completed" | "failed" | "aborted",
 	terminalRevision: number,
 	eventKind: string,
 ): AgentSnapshot {
 	const updated = {
 		...agent,
-		...detachedJobAgentDetails(envelope),
-		lifecycle: envelope.outcome.kind,
+		...detachedJobAgentDetails(envelope, terminalLifecycle),
+		lifecycle: terminalLifecycle,
 		revision: terminalRevision,
 		updatedAt: envelope.terminalAt,
 		worker: undefined,
@@ -3029,8 +3035,12 @@ function persistDetachedJobTerminalTransport(
 	});
 }
 
-function detachedJobAgentDetails(envelope: DetachedJobTerminalEnvelope): Record<string, unknown> {
+function detachedJobAgentDetails(
+	envelope: DetachedJobTerminalEnvelope,
+	terminalLifecycle: "completed" | "failed" | "aborted",
+): Record<string, unknown> {
 	const fileRefs = [{ label: envelope.output.label, path: envelope.output.path }];
+	if (terminalLifecycle === "aborted") return { result: { fileRefs } };
 	if (envelope.outcome.kind === "completed") {
 		return { result: { fileRefs, summary: envelope.outcome.summary } };
 	}
