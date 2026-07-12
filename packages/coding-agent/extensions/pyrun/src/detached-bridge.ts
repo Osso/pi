@@ -85,13 +85,11 @@ export function validateDetachedPyrunBridgeRequest(input: {
 	const lease = readMultiAgentDispatchLease(input.controlDbPath, input.sessionPath, identity.jobId);
 	return (
 		agent?.lifecycle === "running" &&
-		agent.revision === identity.expectedRevision &&
-		lease?.leaseId === identity.leaseId &&
-		lease.runtimeIncarnation === identity.runtimeIncarnation &&
-		lease.fencingEpoch === identity.fencingEpoch &&
-		lease.owner.sessionId === input.supervisorSessionId &&
-		typeof lease.expiresAt === "string" &&
-		lease.expiresAt > input.nowIso
+		identity.owner.sessionId === input.supervisorSessionId &&
+		lease?.owner.sessionId === identity.owner.sessionId &&
+		lease.owner.agentId === identity.owner.agentId &&
+		lease.processIdentity?.pid === identity.processIdentity.pid &&
+		lease.processIdentity.startTimeTicks === identity.processIdentity.startTimeTicks
 	);
 }
 

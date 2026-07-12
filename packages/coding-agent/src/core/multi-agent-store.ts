@@ -695,19 +695,10 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
-	contactSupervisor(
-		agentId: string,
-		expectedRevision: number,
-		input: ContactSupervisorInput,
-	): SupervisorContactResult {
+	contactSupervisor(agentId: string, input: ContactSupervisorInput): SupervisorContactResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
 			return { ok: false, error: "not_found", agentId };
-		}
-
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
 		}
 
 		const timestamp = this.now();

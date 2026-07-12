@@ -21,6 +21,7 @@ import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 interface PyrunEvalParams {
 	code: string;
@@ -224,10 +225,8 @@ function requestDetachedCancellation(store: MultiAgentStore, agentId: string): v
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath: persistence.controlDbPath,
 		createAgentId: () => "unused",
-		createLeaseId: () => "unused",
 		now: () => new Date().toISOString(),
-		reservationDurationMs: 30_000,
-		runtimeIncarnation: "test-supervisor",
+		processIdentity: testProcessIdentity("test-supervisor"),
 		sessionPath: persistence.sessionPath,
 	});
 	const cancelled = coordinator.requestDetachedCancellation({

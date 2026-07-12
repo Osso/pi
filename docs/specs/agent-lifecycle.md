@@ -56,7 +56,7 @@ State meanings:
 `LifecycleCoordinator` is the sole authority for lifecycle commands. The coordinator serializes
 control-plane requests and delegates persistence to a repository/SQLite transaction that repeats
 transition legality and authorization checks. Detached runners are execution-plane exceptions only:
-they may submit the exact fenced terminal-finalize command for their own lease, but cannot spawn,
+they may submit the exact terminal-finalize command for their own process identity, but cannot spawn,
 dispatch, cancel, recover, or mutate graph state.
 
 Runtime roles are exclusive:
@@ -68,20 +68,20 @@ Runtime roles are exclusive:
   rejects orchestration commands before creating lifecycle rows.
 - Help/inventory startup paths that do not construct an `AgentSession` are outside this invariant.
 
-Every lifecycle mutation must match the complete predicate
-`(agent_id, expected_revision, lease_id, runtime_incarnation, fencing_epoch)`. The repository and
-SQLite transaction re-check every field; missing or stale fields fail explicitly. A terminal retry
-is valid only when it is an idempotent replay of the same committed terminal event.
+Every lifecycle mutation must match the persisted agent and exact owner process identity
+`(session_id, agent_id, owner_session_id, owner_agent_id, pid, startTimeTicks)`. Repository code reads
+and increments revision inside the SQLite transaction; callers never supply it. A terminal retry is
+valid only when it is an idempotent replay of the same committed terminal event.
 
 Dispatch and graph invariants:
 
-- A `queued` agent is either unreserved and dispatchable or owns exactly one live reservation.
-  Reservation acquisition, reservation identity, lifecycle state, and revision commit atomically.
-- Child row creation, its single parent link, initial revision, and either a committed reservation
+- A `queued` agent is either unowned and dispatchable or owns exactly one live process identity.
+  Process ownership, lifecycle state, and initial revision commit atomically.
+- Child row creation, its single parent link, initial revision, and either committed process ownership
   or an explicitly unreserved dispatchable state commit atomically. Parent links cannot self-reference
   or form cycles.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
-  reaches a terminal state through its own fenced command. A parent remains nonterminal until every
+  reaches a terminal state through its own exact-owner command. A parent remains nonterminal until every
   descendant is terminal or has been resolved as `failed` with `lost_runtime`; no terminal parent may
   coexist with a nonterminal descendant.
 
@@ -91,18 +91,17 @@ wall-clock time, or mailbox delivery:
 1. A committed terminal result wins all later requests. Duplicate aborts or finalizers return the
    existing outcome and cannot advance revision or emit another terminal event.
 2. An accepted cancellation request wins over a later natural-completion attempt and moves the agent
-   to `cancelling`. Only an exit acknowledgement from the current lease, runtime incarnation, and
-   fencing epoch may then produce `aborted`.
-3. Owner loss or lease expiry fences the old runtime. Lease expiry alone is not proof that the process
-   exited, so recovery resolves the agent as `failed` with a `lost_runtime` cause rather than falsely
-   recording `aborted`.
-4. Any late finalizer, heartbeat, exit acknowledgement, or outbox write from the fenced runtime fails
-   the complete mutation predicate and cannot rewrite lifecycle state or terminal-event identity.
+   to `cancelling`. Only an exit acknowledgement from the exact owner process identity may then
+   produce `aborted`.
+3. Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
+   Recovery is authorized only after that exact process identity is gone; PID reuse does not match.
+4. Any late finalizer, exit acknowledgement, or outbox write from a different process identity fails
+   the ownership predicate and cannot rewrite lifecycle state or terminal-event identity.
 
 Every terminal transition commits its state/revision mutation and exactly one immutable terminal
 event/outbox record in the same SQLite transaction. Event identity is unique
 `(agent_id, terminal_revision, event_kind)`; the payload includes the terminal outcome, cause/error or
-result reference, agent/parent identity, and authorizing fencing identity. Redelivery reuses the same
+result reference, agent/parent identity, and authorizing process identity. Redelivery reuses the same
 identity and payload. Ordinary coordinator projection is notification-free for terminal states;
 only a claimed terminal outbox record may project the terminal snapshot and create its completion or
 failure mailbox notification. Runtime transport uses one session-bound lifecycle mirror that is
@@ -118,11 +117,11 @@ metadata updates merge into the latest persisted agent snapshot inside an immedi
 cannot rewrite lifecycle or revision from a stale in-memory projection; restore never writes its
 runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata uses
 the same merge rule and no longer advances the lifecycle revision token. Pinned-slot metadata follows
-the same rule, including clear operations. Generic full-row agent upsert is limited to unleased
+the same rule, including clear operations. Generic full-row agent upsert is limited to unowned
 bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
-every row after a dispatch lease identity exists. Repository transactions re-check complete fenced
-mutation predicates before lifecycle writes, while schema-version startup checks reject incompatible
-runtimes. A source-scan regression also fails if production modules call direct store lifecycle
+every row after runtime ownership exists. Repository transactions read current revision internally and
+re-check exact session/agent/process ownership before lifecycle writes; callers never supply revision.
+Schema-version startup checks reject incompatible runtimes. A source-scan regression also fails if production modules call direct store lifecycle
 methods or the bootstrap writer outside authority modules. SQLite connection access control and
 arbitrary same-UID raw SQL are outside this authority model.
 
@@ -130,7 +129,7 @@ arbitrary same-UID raw SQL are outside this authority model.
 
 ### Transitions
 
-- [x] Transitions are revision-checked; a stale revision is rejected with `stale_revision`.
+- [x] Repository transactions read and increment revision internally; model/tool callers never supply it.
 - [x] Transitions not in the allowed map are rejected with `invalid_transition`.
 - [x] Terminal states (`completed`, `failed`, `aborted`) admit no further transitions.
 - [x] Self-transitions are no-ops for non-terminal states and rejected for terminal states.
@@ -145,40 +144,36 @@ arbitrary same-UID raw SQL are outside this authority model.
 ### Restore and recovery (derived liveness)
 
 Shutdown ordering is strict. The runtime first stops accepting orchestration work, then invalidates
-the local dispatch generation so late callbacks cannot publish into a rebound store. It stops lease
-renewal and locally aborts session runtimes without inventing a terminal result; persisted agents remain
+the local dispatch generation so late callbacks cannot publish into a rebound store. It locally aborts session runtimes without inventing a terminal result; persisted agents remain
 recoverable regardless of whether their backing session was newly created or selected from an existing
 session. Runtime mailbox polling/heartbeat stops and listener ownership retires only after local abort
 dispatch completes, so no command is accepted under a listener that has already surrendered ownership.
 
 Detached runner recovery preserves evidence rather than inferring process outcomes. The live runner
-owns retries of its immutable terminal envelope. After runner loss, only the agent's owning supervisor
-may submit an orphan envelope through the coordinator, and only before acquiring a higher fencing epoch;
-the repository still validates the original full lease identity and terminal timestamp. A possibly live payload is not
-proof of completion, and an expired lease is not proof of exit. If exact envelope finalization is no
-longer authorized, recovery records `failed/lost_runtime` with outcome uncertainty. A cancellation that
-committed before a pending natural-result finalizer wins by revision; the stale natural envelope cannot
-replace it, and `aborted` still requires the current runner's fenced exit acknowledgement.
+owns retries of its immutable terminal envelope. After runner loss, only the agent's owning supervisor may submit an orphan envelope through the
+coordinator. The repository validates the exact runner process identity. A possibly live payload is not
+proof of completion. If exact envelope finalization is no longer authorized, recovery records
+`failed/lost_runtime` with outcome uncertainty. A cancellation committed before a pending natural-result
+finalizer wins by transaction order; `aborted` still requires the exact runner's exit acknowledgement.
 
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] `queued` agents survive restore unchanged and are not recovered.
 - [x] After a runtime registers its current mailbox listener, that session's sole supervisor reconciles
-      its orphaned active rows through fenced coordinator recovery commands. Main listener rows assert
-      exact session path and runtime incarnation; changed incarnation or owner takeover advances fencing.
-      A different verified live Pi PID already owning the session rejects replacement. There is no global
-      recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session relocation moves the
-      assertion transactionally with the store. Verified administrative restart may terminalize owned
-      work through the coordinator, but generic owner loss or lease expiry resolves as
+      its orphaned active rows through coordinator recovery commands. Runtime ownership stores the exact
+      `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no
+      global recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session
+      relocation moves the assertion transactionally with the store. Verified administrative restart may
+      terminalize owned work through the coordinator; exact owner-process exit resolves as
       `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Queued, terminal,
       current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.
 - [x] Any detached `starting`, `running`, or `steering_pending` agent with a transcript is resumed through
       the same session dispatch path; the `origin` field records construction provenance and does not
-      select runtime behavior. `cancelling` agents resolve through fenced recovery without restarting a prompt.
+      select runtime behavior. `cancelling` agents resolve through dead-owner recovery without restarting a prompt.
 - [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
-      `running` while the dispatch and handle are re-established.
+      `running` while the dispatch and handle are re-established under the new process identity.
 - [x] A detached in-flight agent with no transcript is marked `failed/lost_runtime` with an explicit
       recovery error at recovery time.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
@@ -200,8 +195,8 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/lifecycle-coordinator.ts` — sole control-plane lifecycle commands.
-- `packages/coding-agent/src/core/session-control-db.ts` — fenced repository transactions, per-agent
-  leases, terminal events/outbox, and schema/version enforcement.
+- `packages/coding-agent/src/core/session-control-db.ts` — exact process-owner transactions,
+  terminal events/outbox, and schema/version enforcement.
 - `packages/coding-agent/src/core/multi-agent-store.ts` — read/projection state, metadata, listeners,
   and restore-time removal of runtime-only worker handles; no lifecycle mutation API.
 - `packages/coding-agent/extensions/agents-core/src/runtime.ts` — coordinator-backed dispatch,
@@ -212,7 +207,7 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/lifecycle-coordinator.test.ts` and repository tests — transition rules,
-  complete-predicate fencing, terminal immutability, recovery, and race precedence.
+  exact process ownership, terminal immutability, recovery, and race precedence.
 - `packages/coding-agent/test/multi-agent-store.test.ts` — projection, metadata, and restore behavior.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — dispatch transitions, recovery
   gating, shutdown behavior, cancel/steer tool paths.

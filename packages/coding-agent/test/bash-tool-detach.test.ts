@@ -13,6 +13,7 @@ import {
 	BashToolDetachRegistry,
 	createBashToolDefinition,
 } from "../src/core/tools/bash.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 interface CancelAgentDetails extends Record<string, unknown> {
 	agent: { id: string; lifecycle: string; revision: number };
@@ -79,14 +80,11 @@ function createBackgroundJobs(root: string, store: MultiAgentStore): BashBackgro
 		getMetadataControlDbPath: () => controlDbPath,
 		getSessionFile: () => sessionPath,
 	} as never);
-	let leaseNumber = 0;
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-		createLeaseId: () => `lease-${++leaseNumber}`,
 		now: () => new Date().toISOString(),
-		reservationDurationMs: 60_000,
-		runtimeIncarnation: "bash-test-runtime",
+		processIdentity: testProcessIdentity("bash-test-runtime"),
 		sessionPath,
 	});
 	return {

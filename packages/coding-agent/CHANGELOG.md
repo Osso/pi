@@ -5,18 +5,18 @@
 ### Breaking Changes
 
 - Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
-- Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unleased bootstrap/migration rows.
-- Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` fenced commands.
+- Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unowned bootstrap/migration rows.
+- Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` exact-owner commands.
 
 ### Added
 
-- Added durable detached Bash and Pyrun runner foundations with independent payload ownership, direct artifact output, immutable terminal envelopes, runtime-mailbox cancellation, and fenced terminal transactions. Detach-eligible Bash now launches through the durable runner and no longer uses Pi-owned exit, abort, or finalization paths; Pyrun extension cutover remains pending.
+- Added durable detached Bash and Pyrun runner foundations with independent payload ownership, direct artifact output, immutable terminal envelopes, runtime-mailbox cancellation, and exact process-owner terminal transactions. Detach-eligible Bash now launches through the durable runner and no longer uses Pi-owned exit, abort, or finalization paths; Pyrun extension cutover remains pending.
 - Added the public `runtime_mailbox` extension event for consuming validated durable protocol messages before prompt conversion; handled messages are delivered atomically, handler failures fail transport, and unhandled messages retain normal prompt delivery.
-- AgentSession now injects a lazily constructed, session-current detached-job lifecycle controller into first-party Bash background-job options, preserving one runtime incarnation while avoiding stale session paths after switches.
-- Added a shared detached-job lifecycle controller adapter covering identity allocation, deterministic artifacts, coordinator reservation/running confirmation, projection publication, and exact envelope finalization for Bash/Pyrun callers.
+- AgentSession now injects a lazily constructed, session-current detached-job lifecycle controller into first-party Bash background-job options, preserving exact process ownership while avoiding stale session paths after switches.
+- Added a shared detached-job lifecycle controller adapter covering identity allocation, deterministic artifacts, coordinator process-ownership/running confirmation, projection publication, and exact envelope finalization for Bash/Pyrun callers.
 - Added coordinator support for preallocated child IDs so detached runners can bind durable output artifacts before payload spawn without persisting lifecycle rows for foreground-only execution.
-- Added an exact detached-job `finalize` repository transaction that validates the immutable terminal envelope/output, enforces revision/lease/incarnation/fencing and terminal-time lease validity, restricts settlement to running/cancelling jobs, and atomically commits terminal state, event, and outbox with idempotent exact-envelope retry.
-- Added a shared detached-job runner artifact contract with identity-bound directories, direct durable output paths, and immutable fsynced terminal envelopes containing lease/revision/fencing identity, exact outcome, output size/hash, and envelope checksum validation.
+- Added an exact detached-job `finalize` repository transaction that validates the immutable terminal envelope/output and exact runner process identity, restricts settlement to running/cancelling jobs, and atomically commits terminal state, event, and outbox with idempotent exact-envelope retry.
+- Added a shared detached-job runner artifact contract with identity-bound directories, direct durable output paths, and immutable fsynced terminal envelopes containing exact runner process identity, outcome, output size/hash, and envelope checksum validation.
 - Added persistent session archiving with an Archived resume-picker scope, Ctrl+A selected-session archiving, `pi sessions archive --older-than <days>`, and first-party `/archive` archiving of the current persisted session.
 - Added the resident Architect transcript to the global non-subagent archive metadata with `archived_at` set at startup; it remains outside Current Folder and All scopes while staying resumable from Archived.
 - Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
@@ -58,27 +58,27 @@
 
 ### Changed
 
-- Removed global multi-agent recovery leadership; each session has one supervisor owner, and expired-agent recovery relies on the complete per-agent revision/lease/incarnation/fencing transaction without cross-session contention.
+- Removed global multi-agent recovery leadership; each session has one supervisor owner, and dead-process recovery uses the exact persisted `(pid, startTimeTicks)` identity without cross-session contention.
 - Persisted session agents now use the same recovery and shutdown behavior regardless of whether `spawn_agent` created a new session or `attach_session_agent` selected an existing session; origin remains construction provenance only.
-- Child and attached agent dispatches now renew their fenced lifecycle reservation while running; lease takeover aborts cooperative dispatcher/session work and prevents stale terminal settlement.
-- Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
+- Replaced renewable dispatch reservations with exact Linux process ownership; lifecycle recovery checks `(pid, /proc/<pid>/stat startTimeTicks)` immediately, including PID-reuse protection, with no renewal timer or expiry takeover.
+- Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject owned lifecycle rows, restricting it to unowned bootstrap/migration data after production command families acquire process ownership.
 - Transcript, mailbox/contact activity, and pinned-slot metadata now merge transactionally into the latest persisted agent snapshot without rewriting lifecycle/revision from stale store state; metadata updates no longer advance the lifecycle revision token, and restore no longer persists runtime worker-handle cleanup.
 - Terminal completion and failure mailbox notifications now originate only from claimed terminal outbox records; ordinary coordinator snapshot projection no longer creates parallel terminal notifications. Runtime transport now uses one session-bound lifecycle mirror shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` now uses independent terminal-event cursors, closes the pre-subscription completion race, supports simultaneous and late waiter fan-out, and no longer consumes runtime transport rows.
-- Lifecycle and terminal mutations now reject expired dispatch leases even before fencing takeover, closing a lease-partition window. Added deterministic race coverage for completion-before-cancel, cancellation-before-completion, duplicate exit acknowledgement, and expired-owner mutations.
-- Removed attached-session recovery's direct `cancelling` to `aborted` rewrite; without fenced exit acknowledgement the row remains nonterminal for later ownership recovery.
+- Lifecycle and terminal transactions now read/increment revision internally and validate exact process ownership. Tools no longer supply mutable revisions; duplicate transitions are idempotent.
+- Removed attached-session recovery's direct `cancelling` to `aborted` rewrite; without exact-owner exit acknowledgement the row remains nonterminal for later ownership recovery.
 - Routed selected-agent Escape, descendant cascade, and reserved-runtime shutdown cancellation through the same coordinator operation as `cancel_agent`; InteractiveMode no longer directly terminalizes or aborts store state. SQLite now rejects parent terminalization while any persisted descendant remains nonterminal.
-- Routed `cancel_agent` for reserved `spawn_agent` and `/bg` children through fenced coordinator cancellation: commit `cancelling`, request runtime abort, wait up to five seconds, and commit `aborted` only after exit acknowledgement. Hung aborts remain cancelling for lease-expiry recovery, stale acknowledgements cannot terminalize after an epoch change, and unreserved attached/legacy rows fail closed.
-- Routed first-party `/bg` child-session job creation and startup through the same fenced coordinator reservation path as `spawn_agent`, removing its direct store spawn/ramp authority.
-- Routed production `spawn_agent` child creation and runtime startup through `LifecycleCoordinator`: persisted sessions atomically create a queued revision-1 child plus its first fenced dispatch reservation, fence `starting`, construct the runtime, and only then fence `running` by revision, lease, incarnation, owner, and epoch. Runtime-construction failures commit `failed` plus error details and their terminal event/outbox through the same fenced coordinator transaction. Sessionless orchestration now fails closed instead of creating non-durable work. Terminal replay also revalidates the current lease before idempotency, rejecting stale finalizers and duplicate event/outbox writes after epoch takeover.
+- Routed `cancel_agent` for owned `spawn_agent` and `/bg` children through coordinator cancellation: commit `cancelling`, request runtime abort, wait up to five seconds, and commit `aborted` only after acknowledgement from the exact owner process. Hung aborts remain cancelling until dead-process recovery; foreign acknowledgements fail closed.
+- Routed first-party `/bg` child-session job creation and startup through the same coordinator process-ownership path as `spawn_agent`, removing its direct store spawn/ramp authority.
+- Routed production `spawn_agent` child creation and runtime startup through `LifecycleCoordinator`: persisted sessions atomically create a queued child with exact process ownership, commit `starting`, construct the runtime, and only then commit `running`. Repository transactions manage revision internally. Runtime-construction failures commit `failed` plus error details and their terminal event/outbox through the same coordinator transaction. Sessionless orchestration fails closed.
 - Removed store-only `spawn_agent`: spawning now fails before persistence unless an executable child-session factory or dispatcher is configured; dormant session attachment remains explicit.
 - Added typed multi-agent runtime roles and constructor-entry capability validation: orchestrators require an issued execution capability, while child and non-orchestrator runtimes reject it.
-- Added a complete-predicate nonterminal lifecycle CAS with legal transition checks and single-winner SQLite contention semantics.
-- Added an atomic fenced terminal lifecycle transaction that updates the agent and inserts its immutable terminal event and pending delivery outbox row together.
-- Added deterministic offline lifecycle migration: legacy queued agents become explicit unreserved epoch-0 rows, while unfenced active agents become `failed/lost_runtime` with terminal event/outbox records.
+- Added exact-process-owner nonterminal lifecycle transactions with legal transition checks and serialized SQLite contention semantics.
+- Added an atomic exact-owner terminal lifecycle transaction that updates the agent and inserts its immutable terminal event and pending delivery outbox row together.
+- Added deterministic offline lifecycle migration: legacy queued agents become explicit unowned rows, while legacy active agents become `failed/lost_runtime` with terminal event/outbox records.
 - Added atomic terminal-outbox claim, retry, failure, and delivery transitions independent from terminal-event observation.
 - Added per-consumer terminal-event cursor storage keyed by immutable event identity for non-destructive fan-out.
 - Added immutable multi-agent terminal event and delivery outbox storage keyed by agent, terminal revision, and event kind.
-- Added durable multi-agent dispatch leases with runtime/owner identity, monotonic fencing epochs, renewal/expiry takeover, recovery ownership, and exact-identity compare-and-release.
+- Added durable multi-agent runtime ownership keyed by session/agent and exact `(pid, startTimeTicks)` identity, with atomic compare-and-release and no lease ID, expiry, renewal, fencing epoch, or recovery-owner field.
 - Fenced persisted multi-agent lifecycle schema activation by control-DB protocol version: newer schemas are rejected before initialization and upgrades require all Pi runtimes to be quiescent.
 - Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references. A durable control-DB schema migration cleans legacy persisted `artifactIds` and `artifactRefs` fields once, then installs SQLite INSERT/UPDATE triggers so older binaries cannot reintroduce them.
 
@@ -103,10 +103,10 @@
 ### Fixed
 
 - Fixed the interactive thinking elapsed timer to restart after each completed tool call instead of accumulating across the entire assistant turn.
-- Removed Node-only SQLite lifecycle-authorization UDFs and triggers that crashed standalone Bun startup; lifecycle authority remains enforced by coordinator/repository construction, complete fenced transaction predicates, schema-version startup checks, and production source-scan guards.
+- Removed Node-only SQLite lifecycle-authorization UDFs and triggers that crashed standalone Bun startup; lifecycle authority remains enforced by coordinator/repository construction, exact process-owner transaction predicates, schema-version startup checks, and production source-scan guards.
 - Fixed uncaught CLI startup failures printing Node.js stack traces instead of a concise error message.
 - Fixed extension-origin goal start and continuation messages appearing in the editor's typed prompt history after transcript rendering.
-- Cancellation remains durably `cancelling` when a runtime abort callback throws; the failure is reported without bypassing bounded settlement or fenced recovery.
+- Cancellation remains durably `cancelling` when a runtime abort callback throws; the failure is reported without bypassing bounded settlement or dead-owner recovery.
 - Fixed GPT-5.6 Sol automatic compaction to trigger at exactly 272,000 context tokens, before requests enter the higher long-context pricing tier.
 - Fixed non-supervisor agent runtimes to deny the `manage_goal` capability even when an external extension re-registers the tool; spawned, attached, `/bg`, and Architect runtimes now exclude it while supervisors retain it.
 - Fixed disabled compaction handlers returning no result to fail explicitly without invoking built-in compaction.

@@ -6,6 +6,7 @@ import { createDetachedJobLifecycleController } from "../../../src/core/detached
 import { readDetachedJobTerminalEnvelope } from "../../../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts";
 import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import { readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import {
 	createCanonicalPyrunEvalParams,
@@ -18,7 +19,6 @@ import {
 } from "./detached-runner.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 
-const DETACHED_PYRUN_RUNTIME_INCARNATION = randomUUID();
 const ARTIFACT_POLL_MS = 25;
 
 export async function runDurableDetachablePyrunEvaluation(input: {
@@ -48,10 +48,8 @@ function createPyrunLifecycleController(
 		coordinator: new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => input.store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: randomUUID,
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 30_000,
-			runtimeIncarnation: DETACHED_PYRUN_RUNTIME_INCARNATION,
+			processIdentity: readProcessIdentity(process.pid),
 			sessionPath: persistence.sessionPath,
 		}),
 		ownerSessionId: input.ctx.sessionManager.getSessionId(),
@@ -74,6 +72,7 @@ function launchReservedPyrunRunner(
 		cwd: input.ctx.cwd,
 		displayName: "Pyrun evaluation",
 		jobId,
+		processIdentity: readProcessIdentity(runnerPid),
 		workerHandleId: String(runnerPid),
 	});
 	writeDetachedPyrunLaunchManifest(manifestPath, {

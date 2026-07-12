@@ -16,6 +16,7 @@ import {
 	readMultiAgentDispatchLease,
 } from "../../src/core/session-control-db.ts";
 import { deliverTerminalOutboxProjections } from "../../src/core/terminal-outbox-delivery.ts";
+import { testProcessIdentity } from "./process-identity.ts";
 
 interface TransitionAgentDetails {
 	error?: AgentSnapshot["error"];
@@ -263,10 +264,8 @@ function reservedAgent(store: MultiAgentStore, agentId: string): ReservedAgent |
 		coordinator: new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: randomUUID,
-			now: () => reservation.renewedAt ?? shiftIso(agent.updatedAt, -2),
-			reservationDurationMs: 1,
-			runtimeIncarnation: reservation.runtimeIncarnation ?? "legacy-test-runtime",
+			now: () => shiftIso(agent.updatedAt, -2),
+			processIdentity: reservation.processIdentity ?? testProcessIdentity("legacy-test-runtime"),
 			sessionPath: persistence.sessionPath,
 		}),
 		reservation,
@@ -280,11 +279,9 @@ function acquireTestReservation(
 ): MultiAgentDispatchLease {
 	const result = acquireMultiAgentDispatchLease(controlDbPath, {
 		agentId: agent.id,
-		expiresAt: agent.updatedAt,
-		leaseId: randomUUID(),
 		nowIso: shiftIso(agent.updatedAt, -2),
 		owner: { agentId: agent.parentId ?? null, sessionId: "legacy-test-session" },
-		runtimeIncarnation: "legacy-test-runtime",
+		processIdentity: testProcessIdentity("legacy-test-runtime"),
 		sessionPath,
 	});
 	if (!result.ok) throw new Error(`Could not acquire test reservation for ${agent.id}: ${result.error}`);

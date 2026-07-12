@@ -1289,7 +1289,7 @@ describe("MultiAgentStore", () => {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 
-		const contact = store.contactSupervisor(child.agent.id, child.agent.revision, {
+		const contact = store.contactSupervisor(child.agent.id, {
 			body: "Need clarification on auth scope",
 		});
 
@@ -1401,8 +1401,8 @@ describe("MultiAgentStore", () => {
 			now: () => "2026-06-21T00:00:02.000Z",
 		});
 
-		const leftContact = left.contactSupervisor(first.agent.id, first.agent.revision, { body: "left" });
-		const rightContact = right.contactSupervisor(second.agent.id, second.agent.revision, { body: "right" });
+		const leftContact = left.contactSupervisor(first.agent.id, { body: "left" });
+		const rightContact = right.contactSupervisor(second.agent.id, { body: "right" });
 		const controlDbPath = session.getMetadataControlDbPath();
 		const sessionPath = session.getSessionFile();
 		if (!controlDbPath || !sessionPath) throw new Error("expected control DB session");

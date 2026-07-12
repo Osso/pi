@@ -183,30 +183,24 @@ function isDetachedJobIdentity(value: unknown): value is DetachedJobLeaseIdentit
 	if (!isRecord(value)) return false;
 	return (
 		typeof value.jobId === "string" &&
-		typeof value.expectedRevision === "number" &&
-		typeof value.leaseId === "string" &&
-		typeof value.runtimeIncarnation === "string" &&
-		typeof value.fencingEpoch === "number" &&
+		isRecord(value.owner) &&
+		typeof value.owner.sessionId === "string" &&
+		(value.owner.agentId === null || typeof value.owner.agentId === "string") &&
+		isRecord(value.processIdentity) &&
+		Number.isSafeInteger(value.processIdentity.pid) &&
+		Number.isSafeInteger(value.processIdentity.startTimeTicks) &&
 		typeof value.outputLabel === "string"
 	);
 }
 
 function commandIdentityMatches(command: StoredDetachedJobRuntimeCommand, current: DetachedJobLeaseIdentity): boolean {
-	const expectedRevision = command.command === "cancel" ? current.expectedRevision + 1 : current.expectedRevision;
-	return sameLeaseIdentity(command.identity, current, expectedRevision);
-}
-
-function sameLeaseIdentity(
-	candidate: DetachedJobLeaseIdentity,
-	current: DetachedJobLeaseIdentity,
-	expectedRevision: number,
-): boolean {
+	const candidate = command.identity;
 	return (
 		candidate.jobId === current.jobId &&
-		candidate.expectedRevision === expectedRevision &&
-		candidate.leaseId === current.leaseId &&
-		candidate.runtimeIncarnation === current.runtimeIncarnation &&
-		candidate.fencingEpoch === current.fencingEpoch &&
+		candidate.owner.sessionId === current.owner.sessionId &&
+		candidate.owner.agentId === current.owner.agentId &&
+		candidate.processIdentity.pid === current.processIdentity.pid &&
+		candidate.processIdentity.startTimeTicks === current.processIdentity.startTimeTicks &&
 		candidate.outputLabel === current.outputLabel
 	);
 }

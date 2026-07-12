@@ -44,9 +44,9 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] Ended sessions are not eligible to receive messages.
 - [x] After listener retirement and health synchronization, `list_sessions` invokes session-owned
       reconciliation for candidate persisted stores. Health/path metadata selects candidates only;
-      lifecycle changes require coordinator ownership and the complete revision/lease/incarnation/
-      fencing predicate. Generic lost owners resolve as `failed/lost_runtime`, while uncertain live
-      processes remain unchanged.
+      lifecycle changes require the exact persisted owner process identity `(pid, startTimeTicks)`;
+      repository transactions manage revision internally. Confirmed dead owners resolve as
+      `failed/lost_runtime`, while uncertain live processes remain unchanged.
 
 ### Broadcast surface
 

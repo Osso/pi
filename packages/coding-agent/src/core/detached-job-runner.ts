@@ -2,16 +2,15 @@ import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
+import type { ProcessIdentity } from "./runtime-process.ts";
 import type { MultiAgentDispatchLease } from "./session-control-db.ts";
 
 const DETACHED_JOB_ENVELOPE_VERSION = 1;
 
 export interface DetachedJobLeaseIdentity {
 	jobId: string;
-	expectedRevision: number;
-	leaseId: string;
-	runtimeIncarnation: string;
-	fencingEpoch: number;
+	owner: { sessionId: string; agentId: string | null };
+	processIdentity: ProcessIdentity;
 	outputLabel: string;
 }
 
@@ -46,6 +45,7 @@ export interface ReserveDetachedJobInput {
 	cwd: string;
 	displayName: string;
 	jobId: string;
+	processIdentity: ProcessIdentity;
 	workerHandleId: string;
 }
 

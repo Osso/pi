@@ -46,13 +46,13 @@ import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
 	type ChildAgentDispatcher,
-	type ChildAgentDispatchInput,
 	type ChildAgentSessionFactory,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import { main } from "../src/main.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./suite/harness.ts";
 
 const firstPartyGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
@@ -201,16 +201,14 @@ const commandSourceInfo = {
 	source: "extension",
 } as const;
 
-function addExpiredDispatchLease(store: MultiAgentStore, agentId: string): void {
+function addDeadProcessOwner(store: MultiAgentStore, agentId: string): void {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected persisted store fixture");
 	const acquired = acquireMultiAgentDispatchLease(persistence.controlDbPath, {
 		agentId,
-		expiresAt: "2026-06-21T00:00:01.000Z",
-		leaseId: `expired-${agentId}`,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },
-		runtimeIncarnation: "dead-runtime",
+		processIdentity: testProcessIdentity("dead-runtime"),
 		sessionPath: persistence.sessionPath,
 	});
 	if (!acquired.ok) throw new Error(`failed to add expired dispatch lease: ${acquired.error}`);
@@ -221,11 +219,9 @@ function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
 	if (!persistence) throw new Error("expected persisted store fixture");
 	const acquired = acquireMultiAgentDispatchLease(persistence.controlDbPath, {
 		agentId,
-		expiresAt: "2099-01-01T00:00:00.000Z",
-		leaseId: `active-${agentId}`,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },
-		runtimeIncarnation: "active-runtime",
+		processIdentity: CURRENT_PROCESS_IDENTITY,
 		sessionPath: persistence.sessionPath,
 	});
 	if (!acquired.ok) throw new Error(`failed to add active dispatch lease: ${acquired.error}`);
@@ -623,7 +619,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("cancels prompted attached sessions through their fenced reservation", async () => {
+	it("cancels prompted attached sessions through their exact process ownership", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-dispatch-attached-session-"));
 		try {
 			const savedSessionId = "019f29f4-0000-7000-8000-000000000003";
@@ -1044,7 +1040,7 @@ describe("multi-agent extension tools", () => {
 			targetCheckpoint: "next_model_call",
 		});
 		expect(steering.ok).toBe(true);
-		addExpiredDispatchLease(source, interrupted.agent.id);
+		addDeadProcessOwner(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1086,7 +1082,7 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/waiting-child.jsonl", sessionId: "waiting-child-session" },
 		});
-		addExpiredDispatchLease(source, interrupted.agent.id);
+		addDeadProcessOwner(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1178,7 +1174,7 @@ describe("multi-agent extension tools", () => {
 		expect(waited).toBeNull();
 	});
 
-	it("fails spawned agents without a transcript after lease expiry", async () => {
+	it("fails spawned agents without a transcript after their owner process exits", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1198,7 +1194,7 @@ describe("multi-agent extension tools", () => {
 		expect(
 			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
 		).toBe(true);
-		addExpiredDispatchLease(source, interrupted.agent.id);
+		addDeadProcessOwner(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
 
@@ -1211,7 +1207,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("fails cancelling spawned agents as lost runtimes after lease expiry", async () => {
+	it("fails cancelling spawned agents as lost runtimes after their owner process exits", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1239,7 +1235,7 @@ describe("multi-agent extension tools", () => {
 		expect(
 			legacyMultiAgentStore(source).transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok,
 		).toBe(true);
-		addExpiredDispatchLease(source, cancelled.agent.id);
+		addDeadProcessOwner(source, cancelled.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const createAttachedSession = vi.fn<AttachedSessionFactory>();
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
@@ -2436,55 +2432,6 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("aborts dispatcher work after reservation ownership is lost", async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-07-11T20:00:00.000Z"));
-		try {
-			const continueGate = deferred<void>();
-			const externalWork = vi.fn();
-			const dispatcher: ChildAgentDispatcher = async (input) => {
-				await continueGate.promise;
-				const signal = (input as ChildAgentDispatchInput & { signal?: AbortSignal }).signal;
-				if (!signal?.aborted) externalWork();
-				return { lifecycle: "completed" };
-			};
-			const harness = createMultiAgentHarness({ dispatcher });
-			const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
-				displayName: "Partitioned worker",
-				prompt: "Do guarded work",
-			});
-			const persistence = harness.store.getPersistenceTarget();
-			if (!persistence) throw new Error("Expected persisted store");
-			const db = createSqliteDatabase(persistence.controlDbPath);
-			try {
-				db.prepare(
-					"UPDATE multi_agent_dispatch_leases SET expires_at = ? WHERE session_path = ? AND agent_id = ?",
-				).run("2026-07-11T19:59:59.000Z", persistence.sessionPath, spawned.details.agent.id);
-			} finally {
-				db.close();
-			}
-			expect(
-				acquireMultiAgentDispatchLease(persistence.controlDbPath, {
-					agentId: spawned.details.agent.id,
-					expiresAt: "2026-07-11T21:00:00.000Z",
-					leaseId: "replacement-lease",
-					nowIso: "2026-07-11T20:00:01.000Z",
-					owner: { agentId: null, sessionId: "replacement-session" },
-					runtimeIncarnation: "replacement-runtime",
-					sessionPath: persistence.sessionPath,
-				}),
-			).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
-
-			await vi.advanceTimersByTimeAsync(10_000);
-			continueGate.resolve(undefined);
-			for (let attempt = 0; attempt < 20; attempt += 1) await Promise.resolve();
-
-			expect(externalWork).not.toHaveBeenCalled();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
 	it("wait_agents returns when any active agent reaches a terminal state", async () => {
 		const firstGate = deferred<void>();
 		const secondGate = deferred<void>();
@@ -2574,7 +2521,7 @@ describe("multi-agent extension tools", () => {
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const contacted = store.contactSupervisor(child.agent.id, child.agent.revision, {
+		const contacted = store.contactSupervisor(child.agent.id, {
 			fileRefs: [{ label: "Test log", path: "/tmp/test.log" }],
 			body: "Review log",
 		});

@@ -21,6 +21,7 @@ import {
 	LifecycleCoordinator,
 	type ReservedLifecycleCommandInput,
 } from "../../../src/core/lifecycle-coordinator.ts";
+import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
@@ -105,7 +106,6 @@ const steerAgentSchema = Type.Object({
 const contactSupervisorSchema = Type.Object({
 	agentId: Type.String(),
 	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
-	expectedRevision: Type.Number(),
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
 });
@@ -143,10 +143,8 @@ type ResolvedAgentProfile = {
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const MAIN_THREAD_AGENT_ID = "main";
-const CHILD_DISPATCH_RESERVATION_MS = 30_000;
-const CHILD_DISPATCH_RENEWAL_MS = 10_000;
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
-const RUNTIME_INCARNATION = randomUUID();
+const RUNTIME_PROCESS_IDENTITY = readProcessIdentity(process.pid);
 const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
@@ -857,10 +855,8 @@ function createLifecycleCoordinator(store: MultiAgentStore, ctx: ExtensionContex
 	return new LifecycleCoordinator({
 		controlDbPath: persistence.controlDbPath,
 		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-		createLeaseId: randomUUID,
 		now: () => new Date().toISOString(),
-		reservationDurationMs: CHILD_DISPATCH_RESERVATION_MS,
-		runtimeIncarnation: RUNTIME_INCARNATION,
+		processIdentity: RUNTIME_PROCESS_IDENTITY,
 		sessionPath: persistence.sessionPath,
 	});
 }
@@ -1157,28 +1153,21 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): ReservedAgen
 	};
 }
 
-function recoverAgents(
-	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
-	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
-): void {
+function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
 	if (input.ctx.multiAgentAgentId) {
 		return;
 	}
 	for (const agent of input.store.listActiveAgents()) {
-		recoverAgent(input, agent, recoveryTimers);
+		recoverAgent(input, agent);
 	}
 }
 
-function recoverAgent(
-	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
-	agent: AgentSnapshot,
-	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
-): void {
+function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target">, agent: AgentSnapshot): void {
 	if (input.dispatches.has(agent.id) || agent.lifecycle === "queued") return;
 	if (!isInFlightLifecycle(agent.lifecycle)) return;
-	if (scheduleAgentRecoveryAfterLiveLease(input, agent, recoveryTimers)) return;
+	if (hasLiveAgentOwner(input, agent)) return;
 	if (agent.lifecycle === "cancelling") {
-		resolveExpiredAgentRuntime(input, agent);
+		resolveDeadAgentRuntime(input, agent);
 		return;
 	}
 	if (input.createAttachedSession && agent.transcript?.path) {
@@ -1205,7 +1194,7 @@ function recoverAgent(
 	input.reservations.delete(agent.id);
 }
 
-function resolveExpiredAgentRuntime(
+function resolveDeadAgentRuntime(
 	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
 	agent: AgentSnapshot,
 ): void {
@@ -1216,29 +1205,18 @@ function resolveExpiredAgentRuntime(
 	const expiredReservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
 	if (!expiredReservation) return;
 	const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
-	const recovered = coordinator.recoverExpiredChild({ agent, ownerSessionId, reservation: expiredReservation });
+	const recovered = coordinator.recoverDeadChild({ agent, ownerSessionId, reservation: expiredReservation });
 	if (recovered.ok) publishCoordinatorSnapshot(input.store, recovered.agent);
 }
 
-function scheduleAgentRecoveryAfterLiveLease(
+function hasLiveAgentOwner(
 	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
 	agent: AgentSnapshot,
-	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
 ): boolean {
-	if (recoveryTimers.has(agent.id)) return true;
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return false;
 	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	if (!lease?.expiresAt || Date.parse(lease.expiresAt) <= Date.now()) return false;
-	const delayMs = Math.max(0, Date.parse(lease.expiresAt) - Date.now() + 1);
-	const timer = setTimeout(() => {
-		recoveryTimers.delete(agent.id);
-		const current = input.store.getAgent(agent.id);
-		if (!current || !isActiveLifecycle(current.lifecycle)) return;
-		recoverAgent(input, current, recoveryTimers);
-	}, delayMs);
-	recoveryTimers.set(agent.id, timer);
-	return true;
+	return lease?.processIdentity ? isProcessIdentityAlive(lease.processIdentity) : false;
 }
 
 function dispatchReservedAttachedChildSession(
@@ -1443,7 +1421,6 @@ function trackAgentDispatch(
 	reservedRuntime: ReservedAgentRuntime,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
-	const stopReservationRenewal = startReservationRenewal(reservedRuntime);
 	const restoreGeneration = store.getRestoreGeneration();
 	const trackedDispatch = dispatch.catch((error: unknown) => {
 		const current = store.getAgent(agent.id) ?? agent;
@@ -1458,7 +1435,6 @@ function trackAgentDispatch(
 	});
 	dispatches.set(agent.id, trackedDispatch);
 	void trackedDispatch.finally(() => {
-		stopReservationRenewal();
 		if (dispatches.get(agent.id) === trackedDispatch) {
 			handles?.delete(agent.id);
 			dispatches.delete(agent.id);
@@ -1466,24 +1442,6 @@ function trackAgentDispatch(
 	});
 
 	return trackedDispatch;
-}
-
-function startReservationRenewal(runtime: ReservedAgentRuntime): () => void {
-	const stop = (): void => clearInterval(timer);
-	const timer = setInterval(() => {
-		const renewed = runtime.coordinator.renewReservation(runtime.ownership);
-		if (!renewed.ok) {
-			stop();
-			runtime.abortController.abort();
-			return;
-		}
-		runtime.ownership = { ...runtime.ownership, reservation: renewed.reservation };
-	}, CHILD_DISPATCH_RENEWAL_MS);
-	runtime.abortController.signal.addEventListener("abort", stop, { once: true });
-	return () => {
-		runtime.abortController.signal.removeEventListener("abort", stop);
-		stop();
-	};
 }
 
 async function dispatchReservedAgentSession(
@@ -2308,7 +2266,7 @@ function cancelPersistedDetachedRuntime(
 	}
 	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
 	const coordinator = createLifecycleCoordinator(store, ctx);
-	if (!lease?.leaseId || !lease.runtimeIncarnation || !lease.owner.sessionId || !coordinator) {
+	if (!lease?.processIdentity || !lease.owner.sessionId || !coordinator) {
 		return { ok: false, error: "lifecycle_reservation_unavailable", agent };
 	}
 	const cancelled = coordinator.requestDetachedCancellation({
@@ -2363,7 +2321,7 @@ function contactSupervisor(
 			message: emptySupervisorRequest(params.agentId, params.message),
 		});
 	}
-	const contacted = store.contactSupervisor(params.agentId, params.expectedRevision, {
+	const contacted = store.contactSupervisor(params.agentId, {
 		fileRefs: params.fileRefs,
 		body: params.message,
 		threadId: params.threadId,
@@ -2789,7 +2747,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const activeDispatches = runtimeHandles.dispatches;
 	const reservations = runtimeHandles.reservations;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
-	const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	const backgroundDispatch = {
 		createChildSession,
 		dispatcher,
@@ -2813,15 +2770,13 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			reservations,
 			store,
 			waitingDesktopNotifications,
-		}, recoveryTimers);
+		});
 	});
 	pi.on?.("session_shutdown", async (event) => {
 		if (event.reason === "reload") {
 			return;
 		}
 		runtimeLifecycleMirror.dispose();
-		for (const timer of recoveryTimers.values()) clearTimeout(timer);
-		recoveryTimers.clear();
 		store.invalidateInFlightDispatches();
 		for (const runtime of reservations.values()) runtime.abortController.abort();
 		for (const agentId of backgroundSessions.keys()) {

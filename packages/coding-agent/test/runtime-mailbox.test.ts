@@ -26,6 +26,7 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 let storedMessageCounter = 0;
 
@@ -108,10 +109,8 @@ function createReservedRuntimeAgent(
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath: persistence.controlDbPath,
 		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-		createLeaseId: () => "runtime-mailbox-lease",
 		now: () => new Date().toISOString(),
-		reservationDurationMs: 60_000,
-		runtimeIncarnation: "runtime-mailbox-test",
+		processIdentity: testProcessIdentity("runtime-mailbox-test"),
 		sessionPath: persistence.sessionPath,
 	});
 	const created = coordinator.createChild({

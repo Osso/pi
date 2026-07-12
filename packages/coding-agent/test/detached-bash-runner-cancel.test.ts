@@ -11,6 +11,7 @@ import {
 	readMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -29,10 +30,8 @@ describe("detached Bash runner cancellation", () => {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath,
 			createAgentId: () => runnerAddress.agentId,
-			createLeaseId: () => "lease-1",
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 60_000,
-			runtimeIncarnation: "runner-1",
+			processIdentity: testProcessIdentity("runner-1"),
 			sessionPath,
 		});
 		const lifecycle = createDetachedJobLifecycleController({
@@ -49,6 +48,7 @@ describe("detached Bash runner cancellation", () => {
 			cwd: root,
 			displayName: "Bash command",
 			jobId: runnerAddress.agentId,
+			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: "runner-pending",
 		});
 		const manifestPath = join(artifacts.directory, "launch.json");
@@ -71,9 +71,8 @@ describe("detached Bash runner cancellation", () => {
 		});
 		expect(cancelling.ok).toBe(true);
 		if (!cancelling.ok) return;
-		const cancellingIdentity = { ...reservation.identity, expectedRevision: cancelling.agent.revision };
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {
-			body: JSON.stringify({ command: "cancel", identity: cancellingIdentity, reason: "test cancel" }),
+			body: JSON.stringify({ command: "cancel", identity: reservation.identity, reason: "test cancel" }),
 			fromAgentId: "main",
 			id: "message_1",
 			kind: "system",

@@ -36,10 +36,11 @@ owned by a replacement process.
    listener and PID with `timeout` health, remains ended/ineligible, and cannot have its active
    spawned rows reconciled from heartbeat age alone. PID evidence never restores `ok` health.
 5. Mark health rows without a retained current binding ended.
-6. After listener/health synchronization, invoke recovery-leader reconciliation for candidate
+6. After listener/health synchronization, invoke owning-supervisor reconciliation for candidate
    stores. Health and exact path assertions select candidates but do not authorize lifecycle writes.
-   The recovery leader acquires fenced ownership and commits through coordinator/repository
-   transactions. Generic owner loss resolves as `failed/lost_runtime`; uncertain process-backed,
+   The session's sole supervisor commits through coordinator/repository transactions using the exact
+   persisted `(pid, startTimeTicks)` owner identity. Confirmed owner-process exit resolves as
+   `failed/lost_runtime`; uncertain process-backed,
    attached, queued, terminal, and current-live rows follow their explicit recovery policy.
 7. Exclude every ended row when `includeEnded` is `false`.
 

@@ -112,6 +112,7 @@ import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { readProcessIdentity } from "./runtime-process.ts";
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
@@ -641,7 +642,7 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
-	private readonly _detachedJobRuntimeIncarnation = randomUUID();
+	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
 	private readonly _terminalOutboxClaimId = randomUUID();
 	private _multiAgentAgentId: string | undefined;
 	private _multiAgentParentSessionId: string | undefined;
@@ -1255,10 +1256,8 @@ export class AgentSession {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: randomUUID,
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 30_000,
-			runtimeIncarnation: this._detachedJobRuntimeIncarnation,
+			processIdentity: this._detachedJobProcessIdentity,
 			sessionPath: persistence.sessionPath,
 		});
 		const finalized = coordinator.finalizeChild({
@@ -2420,10 +2419,8 @@ export class AgentSession {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: randomUUID,
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 30_000,
-			runtimeIncarnation: this._detachedJobRuntimeIncarnation,
+			processIdentity: this._detachedJobProcessIdentity,
 			sessionPath: persistence.sessionPath,
 		});
 		return createDetachedJobLifecycleController({
@@ -2701,10 +2698,8 @@ export class AgentSession {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => this._multiAgentStore?.allocateAgentIdForLifecycleCoordinator() ?? "",
-			createLeaseId: randomUUID,
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 30_000,
-			runtimeIncarnation: this._detachedJobRuntimeIncarnation,
+			processIdentity: this._detachedJobProcessIdentity,
 			sessionPath: persistence.sessionPath,
 		});
 		const delivered = coordinator.acknowledgeSteeringDelivery({ agent: current, messageId, reservation });

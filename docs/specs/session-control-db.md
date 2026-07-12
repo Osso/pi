@@ -30,13 +30,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       `multi_agent_terminal_outbox`, `multi_agent_terminal_cursors`,
       `multi_agent_mailbox_messages`,
       `multi_agent_counters_v2`): one row
-      upsert per mutation, restore selects the session's rows. Dispatch lease acquisition is
-      transactional; live leases reject competing owners, expired takeover increments the durable
-      fencing epoch, renewal and release require the exact lease/runtime/owner/epoch identity, and
-      release preserves the epoch while clearing ownership. The one owning supervisor recovers expired
-      agents through the same per-agent revision/lease/incarnation/fencing transaction; unrelated sessions
-      never coordinate lifecycle recovery. Terminal lifecycle commits verify the stored revision and full
-      lease/runtime/owner/fencing identity, then update the agent row and insert
+      upsert per mutation, restore selects the session's rows. Runtime ownership acquisition is
+      transactional and stores the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`;
+      a live exact owner rejects replacement, while a dead identity permits takeover without timers,
+      heartbeats, expiry, renewal, lease IDs, or fencing counters. The one owning supervisor recovers its
+      dead-process agents; unrelated sessions never coordinate lifecycle recovery. Lifecycle transactions
+      read revision internally, verify session/agent/process ownership, then update the agent row and insert
       its immutable terminal event and pending outbox row in one immediate SQLite transaction. Exact
       retries return the committed terminal revision without rewriting rows; conflicting payloads or stale
       predicates fail without creating another event or outbox record. Per-consumer cursor rows acknowledge
@@ -44,13 +43,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       can independently observe the same terminal revision. Outbox rows use atomic single-claim delivery;
       failures return the same row to pending with an incremented attempt count and retained error, while
       successful delivery finalizes only transport state and never consumes terminal-event visibility.
-      Child creation can atomically validate its parent, insert the queued child row, and acquire its
-      first live dispatch reservation at fencing epoch 1; duplicate child IDs or missing parents commit
-      neither row. Offline lifecycle migration creates explicit unreserved epoch-0 dispatch rows for legacy queued
-      agents and resolves unfenced active rows as `failed/lost_runtime` with atomic terminal event/outbox
-      records; it never guesses that an orphaned runtime was aborted. Nonterminal lifecycle CAS uses the
-      same complete revision/lease/runtime/owner/fencing predicate; concurrent SQLite contenders serialize
-      so exactly one increments the revision and every stale component rejects without side effects. Legacy artifact tables/columns are not
+      Child creation can atomically validate its parent, insert the queued child row, and assign its exact
+      owner process; duplicate child IDs or missing parents commit neither row. Offline lifecycle migration
+      creates explicit unowned rows for legacy queued agents and resolves legacy active rows as
+      `failed/lost_runtime` with atomic terminal event/outbox records; it never guesses that an orphaned
+      runtime was aborted. Concurrent SQLite contenders serialize, repository code reads/increments revision
+      internally, repeated identical transitions are idempotent, and mismatched process ownership rejects
+      without side effects. Legacy artifact tables/columns are not
       initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
       migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
@@ -77,13 +76,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
-- [x] Provide fenced lifecycle transactions for session-owned orphan reconciliation. Session health and
-      exact listener-path assertions identify the one owning supervisor; unrelated sessions do not elect
-      or share a recovery leader. Every mutation includes expected revision plus the acquired
-      lease/incarnation/fencing identity. Verified administrative restart may commit an
-      explicit interruption; generic owner loss or lease expiry commits `failed/lost_runtime`, never a
-      direct JSON rewrite or inferred abort. Attached, queued, terminal, current-live, and uncertain
-      process-backed rows follow their explicit recovery policy.
+- [x] Provide exact-owner lifecycle transactions for session-owned orphan reconciliation. Session health
+      and exact listener-path assertions identify the one owning supervisor; unrelated sessions do not
+      elect or share a recovery leader. Mutations use the persisted owner session/agent plus exact process
+      identity; revision is repository-managed and never supplied by tools. Verified administrative restart
+      may commit an explicit interruption; confirmed exact owner-process exit commits
+      `failed/lost_runtime`, never a direct JSON rewrite or inferred abort. Attached, queued, terminal,
+      current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended, and confirms the registered binding `ok`;

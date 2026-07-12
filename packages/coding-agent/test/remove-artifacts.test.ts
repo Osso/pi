@@ -44,7 +44,7 @@ describe("artifact removal", () => {
 		const agent = spawnAgent(store);
 
 		expect(() =>
-			store.contactSupervisor(agent.agent.id, agent.agent.revision, {
+			store.contactSupervisor(agent.agent.id, {
 				body: "See the log",
 				fileRefs: [{ path: "relative/output.log" }],
 			} as never),
@@ -56,7 +56,7 @@ describe("artifact removal", () => {
 		const agent = spawnAgent(store);
 
 		expect(() =>
-			store.contactSupervisor(agent.agent.id, agent.agent.revision, {
+			store.contactSupervisor(agent.agent.id, {
 				body: "See the log",
 				fileRefs: [{ path: "/tmp/output.log", label: 42 }],
 			} as never),

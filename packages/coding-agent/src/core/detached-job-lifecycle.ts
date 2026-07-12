@@ -8,6 +8,7 @@ import {
 } from "./detached-job-runner.ts";
 import type { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
+import { readProcessIdentity } from "./runtime-process.ts";
 import { finalizeDetachedJob, readMultiAgentAgent } from "./session-control-db.ts";
 
 export interface DetachedJobLifecycleControllerOptions {
@@ -66,6 +67,7 @@ function launchDetachedBashJob(
 		cwd: input.cwd,
 		displayName: "Bash command",
 		jobId,
+		processIdentity: readProcessIdentity(runnerPid),
 		workerHandleId: String(runnerPid),
 	});
 	writeDetachedBashLaunchManifest(manifestPath, {
@@ -96,6 +98,7 @@ function reserveDetachedJob(
 		displayName: input.displayName,
 		ownerSessionId: options.ownerSessionId,
 		permission: { narrowed: true, policy: "on-request" },
+		processIdentity: input.processIdentity,
 		result: { fileRefs: [{ label: outputLabel, path: artifacts.outputPath }] },
 		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId },
 	});
@@ -105,20 +108,20 @@ function reserveDetachedJob(
 	const running = options.coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
 	if (!running.ok) throw new Error(`Could not confirm detached ${input.agentType} job: ${running.error}`);
 	options.store.publishLifecycleCoordinatorSnapshot(running.agent);
-	const leaseId = created.reservation.leaseId;
-	const runtimeIncarnation = created.reservation.runtimeIncarnation;
-	if (!leaseId || !runtimeIncarnation) throw new Error("Detached job reservation identity is incomplete");
+	const processIdentity = created.reservation.processIdentity;
+	if (!processIdentity) throw new Error("Detached job ownership identity is incomplete");
 	return {
 		agent: running.agent,
 		artifacts,
 		controlReservation: created.reservation,
 		identity: {
-			expectedRevision: running.agent.revision,
-			fencingEpoch: created.reservation.fencingEpoch,
 			jobId: input.jobId,
+			owner: {
+				agentId: created.reservation.owner.agentId,
+				sessionId: created.reservation.owner.sessionId ?? options.ownerSessionId,
+			},
 			outputLabel,
-			leaseId,
-			runtimeIncarnation,
+			processIdentity,
 		},
 	};
 }

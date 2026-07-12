@@ -19,6 +19,7 @@ import {
 	listRuntimeMailboxMessages,
 	readMultiAgentState,
 } from "../src/core/session-control-db.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -51,10 +52,8 @@ describe("detached Pyrun runner", () => {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: () => "lease-pyrun",
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 60_000,
-			runtimeIncarnation: "pyrun-runner",
+			processIdentity: testProcessIdentity("pyrun-runner"),
 			sessionPath,
 		});
 		const lifecycle = createDetachedJobLifecycleController({
@@ -78,6 +77,7 @@ describe("detached Pyrun runner", () => {
 			cwd: root,
 			displayName: "Pyrun evaluation",
 			jobId,
+			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: String(runnerPid),
 		});
 		const supervisorAddress = { agentId: null, sessionId: "main" };
@@ -117,7 +117,7 @@ describe("detached Pyrun runner", () => {
 				nowIso: new Date().toISOString(),
 				request: {
 					...bridgeRequest,
-					identity: { ...bridgeRequest.identity, expectedRevision: bridgeRequest.identity.expectedRevision + 1 },
+					identity: { ...bridgeRequest.identity, processIdentity: testProcessIdentity("stale-runner") },
 				},
 				sessionPath,
 				supervisorSessionId: "main",

@@ -8,7 +8,6 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
 import {
-	acquireAttachedRuntimeLease,
 	acquireMultiAgentDispatchLease,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
@@ -61,14 +60,12 @@ import {
 	readSessionHealth,
 	readSessionMetadata,
 	readSharedChannelCursor,
-	recoverExpiredMultiAgentRuntime,
+	recoverDeadMultiAgentRuntime,
 	recoverStaleRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
-	releaseMultiAgentDispatchLease,
 	relocateSessionControlData,
 	removeNamedSession,
 	renewArchitectRequestClaims,
-	renewMultiAgentDispatchLease,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
@@ -88,6 +85,7 @@ import {
 	createReadOnlySqliteDatabase,
 	createSqliteDatabase,
 } from "../src/core/sqlite.ts";
+import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 
 let storedMessageCounter = 0;
 
@@ -576,7 +574,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		);
 	});
 
-	it("creates the fenced dispatch reservation schema", () => {
+	it("creates the exact process ownership schema", () => {
 		readMultiAgentState(controlDbPath, "/sessions/dispatch-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -587,16 +585,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			expect(columns.map((column) => column.name)).toEqual([
 				"session_path",
 				"agent_id",
-				"lease_id",
-				"runtime_incarnation",
+				"process_identity",
 				"owner_session_id",
 				"owner_agent_id",
-				"fencing_epoch",
-				"renewed_at",
-				"expires_at",
-				"recovery_owner_id",
 			]);
-			expect(columns.find((column) => column.name === "fencing_epoch")?.notnull).toBe(1);
 		} finally {
 			db.close();
 		}
@@ -630,29 +622,23 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				revision: 1,
 				updatedAt: "2026-07-11T00:00:00.000Z",
 			},
-			expiresAt: "2026-07-11T00:10:00.000Z",
-			leaseId: "lease-child",
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "runtime-child",
+			processIdentity: testProcessIdentity("runtime-child"),
 			sessionPath,
 		});
 		expect(created).toMatchObject({
 			agent: { id: "agent-child", lifecycle: "queued", parentId: "agent-parent", revision: 1 },
-			lease: { fencingEpoch: 1, leaseId: "lease-child" },
 			ok: true,
 		});
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ id: "agent-parent" },
 			{ id: "agent-child", parentId: "agent-parent" },
 		]);
-		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toMatchObject({
-			fencingEpoch: 1,
-			leaseId: "lease-child",
-		});
+		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toMatchObject({});
 	});
 
-	it("applies lifecycle CAS only for the complete ownership predicate", async () => {
+	it("serializes lifecycle mutation under the complete process ownership predicate", async () => {
 		const sessionPath = "/sessions/lifecycle-cas.jsonl";
 		const agentId = "agent-cas";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
@@ -669,30 +655,22 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		acquireMultiAgentDispatchLease(controlDbPath, {
 			agentId,
-			expiresAt: "2026-07-11T00:10:00.000Z",
-			leaseId: "lease-cas",
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "runtime-cas",
+			processIdentity: testProcessIdentity("runtime-cas"),
 			sessionPath,
 		});
 		const command = {
 			agentId,
-			expectedRevision: 0,
-			fencingEpoch: 1,
-			leaseId: "lease-cas",
 			owner: { agentId: null, sessionId: "supervisor" },
 			requestedLifecycle: "starting" as const,
-			runtimeIncarnation: "runtime-cas",
+			processIdentity: testProcessIdentity("runtime-cas"),
 			sessionPath,
 			updatedAt: "2026-07-11T00:01:00.000Z",
 		};
 		const mismatchedCommands = [
-			{ ...command, expectedRevision: 1 },
-			{ ...command, leaseId: "wrong-lease" },
-			{ ...command, runtimeIncarnation: "wrong-runtime" },
+			{ ...command, processIdentity: testProcessIdentity("wrong-runtime") },
 			{ ...command, owner: { agentId: null, sessionId: "wrong-owner" } },
-			{ ...command, fencingEpoch: 0 },
 		];
 		for (const mismatched of mismatchedCommands) {
 			expect(commitMultiAgentLifecycleMutation(controlDbPath, mismatched)).toEqual({
@@ -724,8 +702,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					}),
 			),
 		);
-		expect(results.filter((result) => (result as { ok: boolean }).ok)).toHaveLength(1);
-		expect(results).toContainEqual({ ok: false, error: "mutation_mismatch" });
+		expect(results.filter((result) => (result as { ok: boolean }).ok)).toHaveLength(2);
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ lifecycle: "starting", revision: 1 },
 		]);
@@ -742,16 +719,13 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 3,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		const lease = acquireMultiAgentDispatchLease(controlDbPath, {
+		acquireMultiAgentDispatchLease(controlDbPath, {
 			agentId,
-			expiresAt: "2026-07-11T00:10:00.000Z",
-			leaseId: "steer-lease",
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "steer-runtime",
+			processIdentity: testProcessIdentity("steer-runtime"),
 			sessionPath,
 		});
-		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
 		const message = {
 			body: "Continue",
 			createdAt: "2026-07-11T00:01:00.000Z",
@@ -764,13 +738,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		};
 		const committed = commitMultiAgentSteeringMutation(controlDbPath, {
 			agentId,
-			expectedRevision: 3,
-			fencingEpoch: 1,
-			leaseId: "steer-lease",
 			message,
 			owner: { agentId: null, sessionId: "supervisor" },
 			requestedLifecycle: "steering_pending",
-			runtimeIncarnation: "steer-runtime",
+			processIdentity: testProcessIdentity("steer-runtime"),
 			sessionPath,
 			updatedAt: message.updatedAt,
 		});
@@ -801,16 +772,13 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 4,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		const lease = acquireMultiAgentDispatchLease(controlDbPath, {
+		acquireMultiAgentDispatchLease(controlDbPath, {
 			agentId,
-			expiresAt: "2026-07-11T00:10:00.000Z",
-			leaseId: "lease-terminal",
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "runtime-terminal",
+			processIdentity: testProcessIdentity("runtime-terminal"),
 			sessionPath,
 		});
-		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
 		expect(() =>
 			bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 				createdAt: "2026-07-11T00:00:00.000Z",
@@ -829,11 +797,8 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			agentId,
 			eventKind: "completed",
 			eventPayload: { result: { summary: "done" } },
-			expectedRevision: 4,
-			fencingEpoch: 1,
-			leaseId: "lease-terminal",
 			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "runtime-terminal",
+			processIdentity: testProcessIdentity("runtime-terminal"),
 			sessionPath,
 			terminalLifecycle: "completed" as const,
 			updatedAt: "2026-07-11T00:01:00.000Z",
@@ -997,11 +962,9 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		acquireMultiAgentDispatchLease(controlDbPath, {
 			agentId,
-			expiresAt: "2026-07-11T23:00:00.000Z",
-			leaseId: "lease-1",
 			nowIso: "2026-07-11T21:00:00.000Z",
 			owner: { agentId: null, sessionId: "runner" },
-			runtimeIncarnation: "runtime-1",
+			processIdentity: testProcessIdentity("runtime-1"),
 			sessionPath,
 		});
 		const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detached-finalize-")), agentId);
@@ -1009,12 +972,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const envelope = writeDetachedJobTerminalEnvelope(
 			artifacts,
 			{
-				expectedRevision: 4,
-				fencingEpoch: 1,
 				jobId: agentId,
-				leaseId: "lease-1",
+				owner: { agentId: null, sessionId: "runner" },
 				outputLabel: "Bash output",
-				runtimeIncarnation: "runtime-1",
+				processIdentity: testProcessIdentity("runtime-1"),
 			},
 			{ exitCode: 0, kind: "completed", summary: "done" },
 			"2026-07-11T22:00:00.000Z",
@@ -1058,14 +1019,12 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(
 			acquireMultiAgentDispatchLease(controlDbPath, {
 				agentId,
-				expiresAt: "2026-07-12T00:00:00.000Z",
-				leaseId: "lease-2",
 				nowIso: "2026-07-11T23:01:00.000Z",
 				owner: { agentId: null, sessionId: "runner-2" },
-				runtimeIncarnation: "runtime-2",
+				processIdentity: testProcessIdentity("runtime-2"),
 				sessionPath,
 			}),
-		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
+		).toMatchObject({ ok: true });
 		expect(finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath })).toEqual(
 			{
 				ok: false,
@@ -1074,196 +1033,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
-		} finally {
-			db.close();
-		}
-	});
-
-	it("rejects every stale writer after a higher dispatch fencing epoch is acquired", () => {
-		const sessionPath = "/sessions/stale-writers.jsonl";
-		const agentId = "agent-stale";
-		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
-			agentType: "test",
-			createdAt: "2026-07-11T00:00:00.000Z",
-			cwd: "/repo",
-			displayName: "Stale writer",
-			id: agentId,
-			lifecycle: "running",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			revision: 3,
-			updatedAt: "2026-07-11T00:00:00.000Z",
-		});
-		const staleIdentity = {
-			agentId,
-			leaseId: "lease-a",
-			owner: { agentId: null, sessionId: "supervisor-a" },
-			runtimeIncarnation: "runtime-a",
-			sessionPath,
-		};
-		acquireMultiAgentDispatchLease(controlDbPath, {
-			...staleIdentity,
-			expiresAt: "2026-07-11T00:01:00.000Z",
-			nowIso: "2026-07-11T00:00:00.000Z",
-		});
-		const terminalMutation = {
-			...staleIdentity,
-			eventKind: "completed",
-			eventPayload: { result: { summary: "done" } },
-			expectedRevision: 3,
-			fencingEpoch: 1,
-			terminalLifecycle: "completed" as const,
-			updatedAt: "2026-07-11T00:00:30.000Z",
-		};
-		expect(commitMultiAgentTerminalMutation(controlDbPath, terminalMutation)).toMatchObject({ ok: true });
-		expect(
-			acquireMultiAgentDispatchLease(controlDbPath, {
-				agentId,
-				expiresAt: "2026-07-11T00:03:00.000Z",
-				leaseId: "lease-b",
-				nowIso: "2026-07-11T00:02:00.000Z",
-				owner: { agentId: null, sessionId: "supervisor-b" },
-				runtimeIncarnation: "runtime-b",
-				sessionPath,
-			}),
-		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
-
-		expect(
-			renewMultiAgentDispatchLease(controlDbPath, {
-				...staleIdentity,
-				expectedFencingEpoch: 1,
-				expiresAt: "2026-07-11T00:04:00.000Z",
-				nowIso: "2026-07-11T00:02:30.000Z",
-			}),
-		).toMatchObject({ ok: false, error: "lease_mismatch" });
-		expect(
-			commitMultiAgentLifecycleMutation(controlDbPath, {
-				...staleIdentity,
-				expectedRevision: 4,
-				fencingEpoch: 1,
-				requestedLifecycle: "running",
-				updatedAt: "2026-07-11T00:02:30.000Z",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
-		expect(commitMultiAgentTerminalMutation(controlDbPath, terminalMutation)).toEqual({
-			ok: false,
-			error: "mutation_mismatch",
-		});
-
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
-		} finally {
-			db.close();
-		}
-	});
-
-	it("lets a higher-epoch runtime complete exactly once while stale writers fail and wait cursors fan out", () => {
-		const sessionPath = "/sessions/two-runtime-fencing.jsonl";
-		const agentId = "agent-fenced";
-		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
-			agentType: "test",
-			createdAt: "2026-07-11T00:00:00.000Z",
-			cwd: "/repo",
-			displayName: "Fenced worker",
-			id: agentId,
-			lifecycle: "running",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			revision: 3,
-			updatedAt: "2026-07-11T00:00:00.000Z",
-		});
-		const runtimeA = {
-			agentId,
-			leaseId: "lease-a",
-			owner: { agentId: null, sessionId: "supervisor-a" },
-			runtimeIncarnation: "runtime-a",
-			sessionPath,
-		};
-		expect(
-			acquireMultiAgentDispatchLease(controlDbPath, {
-				...runtimeA,
-				expiresAt: "2026-07-11T00:01:00.000Z",
-				nowIso: "2026-07-11T00:00:00.000Z",
-			}),
-		).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
-		const runtimeB = {
-			agentId,
-			leaseId: "lease-b",
-			owner: { agentId: null, sessionId: "supervisor-b" },
-			runtimeIncarnation: "runtime-b",
-			sessionPath,
-		};
-		expect(
-			acquireMultiAgentDispatchLease(controlDbPath, {
-				...runtimeB,
-				expiresAt: "2026-07-11T00:03:00.000Z",
-				nowIso: "2026-07-11T00:02:00.000Z",
-			}),
-		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
-
-		expect(
-			renewMultiAgentDispatchLease(controlDbPath, {
-				...runtimeA,
-				expectedFencingEpoch: 1,
-				expiresAt: "2026-07-11T00:04:00.000Z",
-				nowIso: "2026-07-11T00:02:30.000Z",
-			}),
-		).toMatchObject({ ok: false, error: "lease_mismatch" });
-		expect(
-			commitMultiAgentLifecycleMutation(controlDbPath, {
-				...runtimeA,
-				expectedRevision: 3,
-				fencingEpoch: 1,
-				requestedLifecycle: "waiting_for_input",
-				updatedAt: "2026-07-11T00:02:30.000Z",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
-		expect(
-			commitMultiAgentTerminalMutation(controlDbPath, {
-				...runtimeA,
-				eventKind: "completed",
-				eventPayload: { result: { summary: "stale A" } },
-				expectedRevision: 3,
-				fencingEpoch: 1,
-				terminalLifecycle: "completed",
-				updatedAt: "2026-07-11T00:02:30.000Z",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
-
-		const completion = {
-			...runtimeB,
-			eventKind: "completed",
-			eventPayload: { result: { summary: "runtime B" } },
-			expectedRevision: 3,
-			fencingEpoch: 2,
-			terminalLifecycle: "completed" as const,
-			updatedAt: "2026-07-11T00:02:30.000Z",
-		};
-		const completed = commitMultiAgentTerminalMutation(controlDbPath, completion);
-		expect(completed).toEqual({ ok: true, terminalRevision: 4 });
-		expect(commitMultiAgentTerminalMutation(controlDbPath, completion)).toEqual(completed);
-		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
-			{ id: agentId, lifecycle: "completed", revision: 4 },
-		]);
-
-		const firstWaiter = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-1");
-		const secondWaiter = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-2");
-		expect(firstWaiter).toMatchObject([{ agentId, terminalRevision: 4, eventKind: "completed" }]);
-		expect(secondWaiter).toEqual(firstWaiter);
-		const terminalEvent = firstWaiter[0];
-		if (!terminalEvent) throw new Error("Expected terminal event");
-		expect(
-			markMultiAgentTerminalEventSeen(controlDbPath, "waiter-1", terminalEvent, "2026-07-11T00:02:31.000Z"),
-		).toBe(true);
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-1")).toEqual([]);
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-2")).toEqual(secondWaiter);
-
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
 		} finally {
 			db.close();
@@ -1317,15 +1086,39 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
-	it("atomically fences and terminalizes an expired reserved runtime", () => {
-		const sessionPath = "/sessions/expired-runtime.jsonl";
-		const agentId = "agent-expired";
+	it("blocks live process takeover and permits takeover after exact owner death", () => {
+		const sessionPath = "/sessions/process-owner.jsonl";
+		const agentId = "agent-owner";
+		const liveIdentity = CURRENT_PROCESS_IDENTITY;
+		const first = acquireMultiAgentDispatchLease(controlDbPath, {
+			agentId,
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor-a" },
+			processIdentity: liveIdentity,
+			sessionPath,
+		});
+		expect(first).toMatchObject({ ok: true });
+		expect(
+			acquireMultiAgentDispatchLease(controlDbPath, {
+				agentId,
+				nowIso: "2026-07-11T00:00:01.000Z",
+				owner: { agentId: null, sessionId: "supervisor-b" },
+				processIdentity: testProcessIdentity("replacement"),
+				sessionPath,
+			}),
+		).toMatchObject({ ok: false, error: "lease_held" });
+	});
+
+	it("terminalizes an agent only after its exact owner process is dead", () => {
+		const sessionPath = "/sessions/dead-owner.jsonl";
+		const agentId = "agent-dead";
+		const processIdentity = testProcessIdentity("dead-owner");
 		const created = createMultiAgentChildWithDispatchReservation(controlDbPath, {
 			agent: {
 				agentType: "worker",
 				createdAt: "2026-07-11T00:00:00.000Z",
 				cwd: "/repo",
-				displayName: "Expired child",
+				displayName: "Dead child",
 				id: agentId,
 				lifecycle: "queued",
 				parentId: "main",
@@ -1334,215 +1127,80 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				updatedAt: "2026-07-11T00:00:00.000Z",
 			},
 			agentId,
-			expiresAt: "2026-07-11T00:01:00.000Z",
-			leaseId: "dispatch-a",
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor-a" },
-			runtimeIncarnation: "runtime-a",
+			processIdentity,
 			sessionPath,
 		});
 		expect(created.ok).toBe(true);
-		expect(
-			renewMultiAgentDispatchLease(controlDbPath, {
+		const recovered = recoverDeadMultiAgentRuntime(controlDbPath, {
+			expectedOwner: {
 				agentId,
-				expectedFencingEpoch: 1,
-				expiresAt: "2026-07-11T00:03:00.000Z",
-				leaseId: "dispatch-a",
-				nowIso: "2026-07-11T00:00:30.000Z",
 				owner: { agentId: null, sessionId: "supervisor-a" },
-				runtimeIncarnation: "runtime-a",
-				sessionPath,
-			}),
-		).toMatchObject({ ok: true });
-
-		expect(
-			recoverExpiredMultiAgentRuntime(controlDbPath, {
-				expectedLease: {
-					agentId,
-					expiresAt: "2026-07-11T00:01:00.000Z",
-					fencingEpoch: 1,
-					leaseId: "dispatch-a",
-					owner: { agentId: null, sessionId: "supervisor-a" },
-					runtimeIncarnation: "runtime-a",
-					sessionPath,
-				},
-				expectedRevision: 1,
-				nowIso: "2026-07-11T00:04:00.000Z",
-				replacementLease: {
-					agentId,
-					leaseId: "stale-expiry-recovery",
-					owner: { agentId: null, sessionId: "supervisor-a" },
-					runtimeIncarnation: "recovery-runtime",
-					sessionPath,
-				},
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
-
-		expect(
-			recoverExpiredMultiAgentRuntime(controlDbPath, {
-				expectedLease: {
-					agentId,
-					expiresAt: "2026-07-11T00:03:00.000Z",
-					fencingEpoch: 1,
-					leaseId: "dispatch-a",
-					owner: { agentId: null, sessionId: "supervisor-a" },
-					runtimeIncarnation: "stale-runtime",
-					sessionPath,
-				},
-				expectedRevision: 1,
-				nowIso: "2026-07-11T00:04:00.000Z",
-				replacementLease: {
-					agentId,
-					leaseId: "stale-recovery",
-					owner: { agentId: null, sessionId: "supervisor-a" },
-					runtimeIncarnation: "recovery-runtime",
-					sessionPath,
-				},
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
-
-		const recovered = recoverExpiredMultiAgentRuntime(controlDbPath, {
-			expectedLease: {
-				agentId,
-				expiresAt: "2026-07-11T00:03:00.000Z",
-				fencingEpoch: 1,
-				leaseId: "dispatch-a",
-				owner: { agentId: null, sessionId: "supervisor-a" },
-				runtimeIncarnation: "runtime-a",
+				processIdentity,
 				sessionPath,
 			},
-			expectedRevision: 1,
-			nowIso: "2026-07-11T00:04:00.000Z",
-			replacementLease: {
-				agentId,
-				leaseId: "recovery-dispatch",
-				owner: { agentId: null, sessionId: "recovery-session" },
-				runtimeIncarnation: "recovery-runtime",
-				sessionPath,
-			},
+			nowIso: "2026-07-11T00:00:01.000Z",
 		});
-		expect(recovered).toMatchObject({
-			agent: { error: { code: "lost_runtime" }, lifecycle: "failed", revision: 2 },
-			fencingEpoch: 2,
-			ok: true,
-			terminalRevision: 2,
-		});
-		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, agentId)).toMatchObject({
-			fencingEpoch: 2,
-			leaseId: "recovery-dispatch",
-			recoveryOwnerId: "recovery-session",
-		});
-		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "recovery-test")).toMatchObject([
-			{ agentId, eventKind: "lost_runtime", terminalRevision: 2 },
-		]);
+		expect(recovered).toMatchObject({ ok: true, agent: { lifecycle: "failed", revision: 2 } });
 	});
 
-	it("acquires resumed runtime ownership from the exact agent revision regardless of origin", () => {
-		const sessionPath = "/sessions/resumed-runtime.jsonl";
-		const agentId = "resumed-1";
+	it("removes renewable lease columns when migrating version ten ownership rows", () => {
+		const sessionPath = "/sessions/version-ten-owner.jsonl";
+		const agentId = "legacy-active";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
-			agentType: "resumed-session",
+			agentType: "worker",
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
-			displayName: "Resumed",
+			displayName: "Legacy active",
 			id: agentId,
-			lifecycle: "waiting_for_input",
-			origin: "spawned",
+			lifecycle: "running",
+			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
-			revision: 4,
+			revision: 2,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		const input = {
-			agentId,
-			expectedRevision: 4,
-			expiresAt: "2026-07-11T00:02:00.000Z",
-			leaseId: "resumed-lease",
-			nowIso: "2026-07-11T00:01:00.000Z",
-			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "resumed-runtime",
-			sessionPath,
-		};
+		const legacyDb = createSqliteDatabase(controlDbPath);
+		try {
+			legacyDb.exec(`
+				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN lease_id TEXT;
+				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN fencing_epoch INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN renewed_at TEXT;
+				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN expires_at TEXT;
+				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN recovery_owner_id TEXT;
+				PRAGMA user_version = 10;
+			`);
+			legacyDb
+				.prepare(
+					`INSERT INTO multi_agent_dispatch_leases
+					(session_path, agent_id, lease_id, process_identity, owner_session_id, fencing_epoch, expires_at)
+				 VALUES (?, ?, 'legacy-lease', 'legacy-runtime', 'supervisor', 4, '2099-01-01T00:00:00.000Z')`,
+				)
+				.run(sessionPath, agentId);
+		} finally {
+			legacyDb.close();
+		}
 
-		expect(acquireAttachedRuntimeLease(controlDbPath, { ...input, expectedRevision: 3 })).toEqual({
-			error: "mutation_mismatch",
-			ok: false,
-		});
-		expect(acquireAttachedRuntimeLease(controlDbPath, input)).toMatchObject({
-			agent: { id: agentId, origin: "spawned", revision: 4 },
-			lease: { fencingEpoch: 1, leaseId: "resumed-lease" },
-			ok: true,
-		});
-		expect(
-			acquireAttachedRuntimeLease(controlDbPath, {
-				...input,
-				leaseId: "second-lease",
-				runtimeIncarnation: "second-runtime",
-			}),
-		).toEqual({ error: "lease_held", ok: false });
-	});
-
-	it("fences dispatch lease acquisition, renewal, takeover, and release", () => {
-		const identity = {
-			agentId: "agent-1",
-			leaseId: "lease-a",
-			owner: { agentId: null, sessionId: "supervisor-a" },
-			runtimeIncarnation: "runtime-a",
-			sessionPath: "/sessions/leases.jsonl",
-		};
-		const acquired = acquireMultiAgentDispatchLease(controlDbPath, {
-			...identity,
-			expiresAt: "2026-07-11T00:01:00.000Z",
-			nowIso: "2026-07-11T00:00:00.000Z",
-		});
-		expect(acquired).toMatchObject({ ok: true, lease: { fencingEpoch: 1, leaseId: "lease-a" } });
-
-		const held = acquireMultiAgentDispatchLease(controlDbPath, {
-			...identity,
-			leaseId: "lease-b",
-			owner: { agentId: "agent-parent", sessionId: "supervisor-b" },
-			runtimeIncarnation: "runtime-b",
-			expiresAt: "2026-07-11T00:02:00.000Z",
-			nowIso: "2026-07-11T00:00:30.000Z",
-		});
-		expect(held).toMatchObject({ ok: false, error: "lease_held", current: { leaseId: "lease-a" } });
-
-		expect(
-			renewMultiAgentDispatchLease(controlDbPath, {
-				...identity,
-				expectedFencingEpoch: 1,
-				expiresAt: "2026-07-11T00:03:00.000Z",
-				nowIso: "2026-07-11T00:00:45.000Z",
-			}),
-		).toMatchObject({ ok: true, lease: { expiresAt: "2026-07-11T00:03:00.000Z" } });
-
-		const takeover = acquireMultiAgentDispatchLease(controlDbPath, {
-			...identity,
-			leaseId: "lease-b",
-			owner: { agentId: "agent-parent", sessionId: "supervisor-b" },
-			recoveryOwnerId: "recovery-1",
-			runtimeIncarnation: "runtime-b",
-			expiresAt: "2026-07-11T00:05:00.000Z",
-			nowIso: "2026-07-11T00:04:00.000Z",
-		});
-		expect(takeover).toMatchObject({
-			ok: true,
-			lease: { fencingEpoch: 2, leaseId: "lease-b", recoveryOwnerId: "recovery-1" },
-		});
-
-		expect(releaseMultiAgentDispatchLease(controlDbPath, { ...identity, expectedFencingEpoch: 1 })).toBe(false);
-		expect(
-			releaseMultiAgentDispatchLease(controlDbPath, {
-				...identity,
-				expectedFencingEpoch: 2,
-				leaseId: "lease-b",
-				owner: { agentId: "agent-parent", sessionId: "supervisor-b" },
-				runtimeIncarnation: "runtime-b",
-			}),
-		).toBe(true);
-		expect(readMultiAgentDispatchLease(controlDbPath, identity.sessionPath, identity.agentId)).toMatchObject({
-			fencingEpoch: 2,
-			leaseId: undefined,
-		});
+		const state = readMultiAgentState(controlDbPath, sessionPath);
+		expect(state?.agents).toMatchObject([
+			{ id: agentId, lifecycle: "failed", revision: 3, error: { code: "lost_runtime" } },
+		]);
+		const migratedDb = createSqliteDatabase(controlDbPath);
+		try {
+			const columns = migratedDb.prepare("PRAGMA table_info(multi_agent_dispatch_leases)").all() as Array<{
+				name: string;
+			}>;
+			expect(columns.map((column) => column.name)).toEqual([
+				"session_path",
+				"agent_id",
+				"process_identity",
+				"owner_session_id",
+				"owner_agent_id",
+			]);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(11);
+		} finally {
+			migratedDb.close();
+		}
 	});
 
 	it("migrates legacy queued rows and terminalizes orphaned active rows as lost runtime", () => {
@@ -1581,10 +1239,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			expect(
 				db
 					.prepare(
-						"SELECT fencing_epoch, lease_id FROM multi_agent_dispatch_leases WHERE session_path = ? AND agent_id = ?",
+						"SELECT process_identity FROM multi_agent_dispatch_leases WHERE session_path = ? AND agent_id = ?",
 					)
 					.get(sessionPath, "queued"),
-			).toEqual({ fencing_epoch: 0, lease_id: null });
+			).toEqual({ process_identity: null });
 			expect(
 				db.prepare("SELECT event_kind FROM multi_agent_terminal_events WHERE agent_id = 'running'").get(),
 			).toEqual({ event_kind: "lost_runtime" });
@@ -1594,6 +1252,24 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		} finally {
 			db.close();
 		}
+	});
+
+	it("requires detached process-owner quiescence before activating a newer protocol", () => {
+		const sessionPath = "/sessions/detached-quiescence.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`INSERT INTO multi_agent_dispatch_leases
+					(session_path, agent_id, process_identity, owner_session_id, owner_agent_id)
+				 VALUES (?, 'agent-live', ?, 'supervisor', NULL)`,
+			).run(sessionPath, JSON.stringify(CURRENT_PROCESS_IDENTITY));
+			db.exec("PRAGMA user_version = 10");
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/lifecycle owners are active/);
 	});
 
 	it("requires lifecycle writer quiescence before activating a newer protocol", () => {
@@ -1619,7 +1295,9 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			db.close();
 		}
 
-		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/restart all pi runtimes/i);
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(
+			/stop all pi and detached runner processes/i,
+		);
 
 		const offlineDb = createSqliteDatabase(controlDbPath);
 		try {
@@ -1702,7 +1380,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(10);
+			expect(version.user_version).toBe(11);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1823,7 +1501,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(10);
+			expect(version.user_version).toBe(11);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
@@ -2957,7 +2635,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			{ agentId: null, sessionId: "reused-pid-session" },
 			123,
 			sessionPath,
-			{ runtimeInstanceId: "runtime-a" },
+			{ runtimeInstanceId: JSON.stringify({ pid: 123, startTimeTicks: 1 }) },
 		);
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 			id: "running",
@@ -2978,7 +2656,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			{ agentId: null, sessionId: "reused-pid-session" },
 			123,
 			sessionPath,
-			{ runtimeInstanceId: "runtime-b" },
+			{ runtimeInstanceId: JSON.stringify({ pid: 123, startTimeTicks: 2 }) },
 		);
 
 		expect(readSessionHealth(controlDbPath, "reused-pid-session")).toMatchObject({

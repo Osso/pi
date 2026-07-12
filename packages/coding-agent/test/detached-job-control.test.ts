@@ -13,15 +13,14 @@ import {
 	listRuntimeMailboxMessages,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 const identity: DetachedJobLeaseIdentity = {
-	expectedRevision: 3,
-	fencingEpoch: 7,
 	jobId: "agent_1",
-	leaseId: "lease-1",
+	owner: { agentId: null, sessionId: "supervisor-1" },
 	outputLabel: "Bash output",
-	runtimeIncarnation: "runner-1",
+	processIdentity: testProcessIdentity("runner-1"),
 };
 
 afterEach(() => {
@@ -29,22 +28,21 @@ afterEach(() => {
 });
 
 describe("detached job runtime mailbox control", () => {
-	it("accepts a newer cancellation revision under the exact lease and consumes the command", () => {
+	it("accepts cancellation from the exact owner process and consumes the command", () => {
 		const fixture = createFixture();
-		const cancellingIdentity = { ...identity, expectedRevision: identity.expectedRevision + 1 };
 		enqueueControl(fixture, "message_1", {
 			command: "cancel",
-			identity: cancellingIdentity,
+			identity,
 			reason: "user requested",
 		});
 
 		expect(claimDetachedJobControlCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([
-			{ command: "cancel", identity: cancellingIdentity, reason: "user requested", transportId: 1 },
+			{ command: "cancel", identity, reason: "user requested", transportId: 1 },
 		]);
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([{ id: 1, status: "delivered" }]);
 	});
 
-	it("accepts a status request only at the exact current revision", () => {
+	it("accepts a status request only from the exact owner process", () => {
 		const fixture = createFixture();
 		enqueueDetachedJobStatusRequest({
 			controlDbPath: fixture.controlDbPath,
@@ -66,7 +64,7 @@ describe("detached job runtime mailbox control", () => {
 		]);
 	});
 
-	it("accepts a bridge response only at the exact current revision", () => {
+	it("accepts a bridge response only from the exact owner process", () => {
 		const fixture = createFixture();
 		enqueueControl(fixture, "message_1", {
 			command: "respond",
@@ -86,41 +84,14 @@ describe("detached job runtime mailbox control", () => {
 		]);
 	});
 
-	it("rejects a bridge response from a different revision", () => {
+	it("rejects a bridge response without ownership identity", () => {
 		const fixture = createFixture();
 		enqueueControl(fixture, "message_1", {
 			command: "respond",
-			identity: { ...identity, expectedRevision: identity.expectedRevision + 1 },
 			requestId: "request-1",
 		});
 
 		expect(claimDetachedJobRuntimeCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([]);
-		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([
-			{ error: "Detached job control identity mismatch", id: 1, status: "failed" },
-		]);
-	});
-
-	it("rejects a skipped cancellation revision without returning a payload command", () => {
-		const fixture = createFixture();
-		enqueueControl(fixture, "message_1", {
-			command: "cancel",
-			identity: { ...identity, expectedRevision: identity.expectedRevision + 2 },
-		});
-
-		expect(claimDetachedJobControlCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([]);
-		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([
-			{ error: "Detached job control identity mismatch", id: 1, status: "failed" },
-		]);
-	});
-
-	it("rejects a stale fencing epoch without returning a payload command", () => {
-		const fixture = createFixture();
-		enqueueControl(fixture, "message_1", {
-			command: "cancel",
-			identity: { ...identity, fencingEpoch: identity.fencingEpoch - 1 },
-		});
-
-		expect(claimDetachedJobControlCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([]);
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([
 			{ error: "Detached job control identity mismatch", id: 1, status: "failed" },
 		]);

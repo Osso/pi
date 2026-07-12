@@ -12,6 +12,7 @@ import {
 	readMultiAgentState,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 
 function createCoordinator(
 	controlDbPath: string,
@@ -22,10 +23,8 @@ function createCoordinator(
 	return new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId,
-		createLeaseId: () => "lease-child",
 		now,
-		reservationDurationMs: 30_000,
-		runtimeIncarnation: "runtime-1",
+		processIdentity: CURRENT_PROCESS_IDENTITY,
 		sessionPath,
 	});
 }
@@ -57,16 +56,14 @@ describe("LifecycleCoordinator child creation", () => {
 		});
 		expect(result.reservation).toMatchObject({
 			agentId: "agent-child",
-			fencingEpoch: 1,
-			leaseId: "lease-child",
 			owner: { agentId: null, sessionId: "supervisor-session" },
-			runtimeIncarnation: "runtime-1",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
 		});
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toEqual([result.agent]);
 		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toEqual(result.reservation);
 	});
 
-	it("acquires attached runtime ownership without changing lifecycle revision", () => {
+	it("acquires attached runtime ownership while advancing the repository revision", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
@@ -86,9 +83,16 @@ describe("LifecycleCoordinator child creation", () => {
 		const result = createCoordinator(controlDbPath, sessionPath).acquireAttachedRuntime(agent, "supervisor-session");
 
 		expect(result).toMatchObject({
-			agent: { id: "attached-1", lifecycle: "running", revision: 4 },
+			agent: { id: "attached-1", lifecycle: "running", revision: 5 },
 			ok: true,
-			reservation: { fencingEpoch: 1, leaseId: "lease-child" },
+			reservation: { processIdentity: CURRENT_PROCESS_IDENTITY },
+		});
+		if (!result.ok) return;
+		expect(
+			createCoordinator(controlDbPath, sessionPath).acquireAttachedRuntime(result.agent, "other-session"),
+		).toEqual({
+			ok: false,
+			error: "lease_held",
 		});
 	});
 
@@ -107,39 +111,23 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(running).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 3 } });
 	});
 
-	it("renews the current reservation and rejects renewal after a partition takeover", () => {
-		let nowIso = "2026-07-11T20:00:00.000Z";
+	it("rejects ownership takeover while the exact owner process is alive", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
-		const coordinator = createCoordinator(controlDbPath, sessionPath, () => nowIso);
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
 		const created = coordinator.createChild(childInput());
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
 
-		nowIso = "2026-07-11T20:00:20.000Z";
-		const renewed = coordinator.renewReservation({ agent: created.agent, reservation: created.reservation });
-		expect(renewed).toMatchObject({
-			ok: true,
-			reservation: { expiresAt: "2026-07-11T20:00:50.000Z", fencingEpoch: 1 },
-		});
-		if (!renewed.ok) return;
-
 		expect(
 			acquireMultiAgentDispatchLease(controlDbPath, {
 				agentId: created.agent.id,
-				expiresAt: "2026-07-11T20:02:00.000Z",
-				leaseId: "lease-takeover",
 				nowIso: "2026-07-11T20:01:00.000Z",
 				owner: { agentId: null, sessionId: "supervisor-2" },
-				runtimeIncarnation: "runtime-2",
+				processIdentity: testProcessIdentity("runtime-2"),
 				sessionPath,
 			}),
-		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
-		nowIso = "2026-07-11T20:01:01.000Z";
-		expect(coordinator.renewReservation({ agent: created.agent, reservation: renewed.reservation })).toEqual({
-			error: "mutation_mismatch",
-			ok: false,
-		});
+		).toMatchObject({ ok: false, error: "lease_held" });
 	});
 
 	it("requires cancelling before a fenced abort acknowledgement", () => {
@@ -169,7 +157,7 @@ describe("LifecycleCoordinator child creation", () => {
 			coordinator.acknowledgeCancellation({
 				agent: cancelling.agent,
 				reason: "late duplicate",
-				reservation: { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 },
+				reservation: { ...created.reservation, processIdentity: testProcessIdentity("wrong-owner") },
 			}),
 		).toEqual({ ok: false, error: "mutation_mismatch" });
 	});
@@ -204,12 +192,10 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(JSON.parse(message?.body ?? "")).toMatchObject({
 			command: "cancel",
 			identity: {
-				expectedRevision: 4,
-				fencingEpoch: created.reservation.fencingEpoch,
 				jobId: running.agent.id,
-				leaseId: created.reservation.leaseId,
 				outputLabel: "Bash output",
-				runtimeIncarnation: created.reservation.runtimeIncarnation,
+				owner: created.reservation.owner,
+				processIdentity: created.reservation.processIdentity,
 			},
 			reason: "user requested",
 		});
@@ -317,7 +303,7 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(completed).toMatchObject({ ok: true, agent: { lifecycle: "completed", revision: 4 } });
 		expect(coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation })).toEqual({
 			ok: false,
-			error: "mutation_mismatch",
+			error: "invalid_transition",
 		});
 	});
 
@@ -351,28 +337,6 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(coordinator.acknowledgeCancellation(acknowledgement)).toEqual(first);
 	});
 
-	it("rejects state mutation and finalization after lease expiry without takeover", () => {
-		let nowIso = "2026-07-11T20:00:00.000Z";
-		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
-		const sessionPath = "/tmp/supervisor.jsonl";
-		const coordinator = createCoordinator(controlDbPath, sessionPath, () => nowIso);
-		const created = coordinator.createChild(childInput());
-		if (!created.ok) return;
-		nowIso = "2026-07-11T20:00:31.000Z";
-		expect(coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation })).toEqual({
-			ok: false,
-			error: "mutation_mismatch",
-		});
-		expect(
-			coordinator.finalizeChild({
-				agent: created.agent,
-				eventPayload: { error: { code: "late" } },
-				reservation: created.reservation,
-				terminalLifecycle: "failed",
-			}),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
-	});
-
 	it("terminalizes runtime construction failure from starting with one fenced event", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
@@ -393,7 +357,7 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(failed).toMatchObject({ ok: true, agent: { lifecycle: "failed", revision: 3 } });
 	});
 
-	it("rejects runtime confirmation after the reservation fencing epoch changes", () => {
+	it("rejects runtime confirmation from a different owner process", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
 		const coordinator = createCoordinator(controlDbPath, sessionPath);
@@ -401,7 +365,7 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
 
-		const staleReservation = { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 };
+		const staleReservation = { ...created.reservation, processIdentity: testProcessIdentity("stale-owner") };
 		expect(coordinator.beginChildRuntime({ agent: created.agent, reservation: staleReservation })).toEqual({
 			ok: false,
 			error: "mutation_mismatch",
@@ -421,10 +385,8 @@ describe("LifecycleCoordinator child creation", () => {
 				generatedIds += 1;
 				return `generated-${generatedIds}`;
 			},
-			createLeaseId: () => "lease-child",
 			now: () => "2026-07-11T20:00:00.000Z",
-			reservationDurationMs: 30_000,
-			runtimeIncarnation: "runtime-1",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
 			sessionPath,
 		});
 

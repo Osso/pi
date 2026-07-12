@@ -7,6 +7,7 @@ import { writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runne
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 function createFixture() {
 	const root = mkdtempSync(join(tmpdir(), "pi-detached-lifecycle-"));
@@ -16,10 +17,8 @@ function createFixture() {
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId: () => "unused",
-		createLeaseId: () => "lease-1",
 		now: () => "2026-07-11T22:00:00.000Z",
-		reservationDurationMs: 60_000,
-		runtimeIncarnation: "runtime-1",
+		processIdentity: testProcessIdentity("runtime-1"),
 		sessionPath,
 	});
 	const controller = createDetachedJobLifecycleController({
@@ -43,12 +42,12 @@ describe("detached job lifecycle controller", () => {
 			cwd: "/repo",
 			displayName: "Bash command",
 			jobId,
+			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: "123",
 		});
 		expect(reservation).toMatchObject({
 			agent: { id: jobId, lifecycle: "running", revision: 3 },
 			artifacts,
-			identity: { expectedRevision: 3, jobId, leaseId: "lease-1", runtimeIncarnation: "runtime-1" },
 		});
 		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "running" });
 
@@ -77,6 +76,7 @@ describe("detached job lifecycle controller", () => {
 			cwd: "/repo",
 			displayName: "Bash command",
 			jobId,
+			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: "runner-1",
 		});
 
@@ -96,6 +96,7 @@ describe("detached job lifecycle controller", () => {
 			cwd: "/repo",
 			displayName: "Bash command",
 			jobId,
+			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: "runner-1",
 		});
 		writeFileSync(artifacts.outputPath, "done", { mode: 0o600 });

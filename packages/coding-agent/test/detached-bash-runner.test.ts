@@ -11,6 +11,7 @@ import { createDetachedJobLifecycleController } from "../src/core/detached-job-l
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readMultiAgentState } from "../src/core/session-control-db.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -28,10 +29,8 @@ describe("detached Bash runner", () => {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: () => "lease-1",
 			now: () => "2026-07-11T22:00:00.000Z",
-			reservationDurationMs: 60_000,
-			runtimeIncarnation: "runner-1",
+			processIdentity: testProcessIdentity("runner-1"),
 			sessionPath,
 		});
 		const lifecycle = createDetachedJobLifecycleController({
@@ -49,6 +48,7 @@ describe("detached Bash runner", () => {
 			cwd: root,
 			displayName: "Bash command",
 			jobId,
+			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: "runner-pending",
 		});
 		const markerPath = join(root, "payload-ran");
@@ -88,10 +88,8 @@ describe("detached Bash runner", () => {
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			createLeaseId: () => "lease-process",
 			now: () => new Date().toISOString(),
-			reservationDurationMs: 60_000,
-			runtimeIncarnation: "runner-process",
+			processIdentity: testProcessIdentity("runner-process"),
 			sessionPath,
 		});
 		const lifecycle = createDetachedJobLifecycleController({

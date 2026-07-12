@@ -1,4 +1,5 @@
 import type { AgentMailboxMessage, AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
+import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	acquireAttachedRuntimeLease,
 	commitMultiAgentLifecycleMutation,
@@ -8,8 +9,8 @@ import {
 	createMultiAgentAttachment,
 	createMultiAgentChildWithDispatchReservation,
 	type MultiAgentDispatchLease,
-	recoverExpiredMultiAgentRuntime,
-	renewMultiAgentDispatchLease,
+	readMultiAgentAgent,
+	recoverDeadMultiAgentRuntime,
 } from "./session-control-db.ts";
 
 const MAIN_THREAD_AGENT_ID = "main";
@@ -17,16 +18,15 @@ const MAIN_THREAD_AGENT_ID = "main";
 export interface LifecycleCoordinatorOptions {
 	controlDbPath: string;
 	createAgentId: () => string;
-	createLeaseId: () => string;
 	now: () => string;
-	reservationDurationMs: number;
-	runtimeIncarnation: string;
+	processIdentity: ProcessIdentity;
 	sessionPath: string;
 }
 
 export interface CreateChildCommandInput extends SpawnAgentInput {
 	agentId?: string;
 	ownerSessionId: string;
+	processIdentity?: ProcessIdentity;
 	result?: AgentSnapshot["result"];
 }
 
@@ -68,19 +68,15 @@ export type ReservedLifecycleCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
-export type RenewReservationCommandResult =
-	| { ok: true; reservation: MultiAgentDispatchLease }
-	| { ok: false; error: "mutation_mismatch" };
-
-export interface RecoverExpiredChildCommandInput extends ReservedLifecycleCommandInput {
+export interface RecoverDeadChildCommandInput extends ReservedLifecycleCommandInput {
 	ownerSessionId: string;
 }
 
-export type RecoverExpiredChildCommandResult =
+export type RecoverDeadChildCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| {
 			ok: false;
-			error: "agent_not_found" | "invalid_transition" | "lease_not_expired" | "mutation_mismatch";
+			error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" | "owner_alive";
 	  };
 
 export interface FinalizeChildCommandInput extends ReservedLifecycleCommandInput {
@@ -123,12 +119,9 @@ export class LifecycleCoordinator {
 		const nowIso = this.options.now();
 		const result = acquireAttachedRuntimeLease(this.options.controlDbPath, {
 			agentId: agent.id,
-			expectedRevision: agent.revision,
-			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
-			leaseId: this.options.createLeaseId(),
 			nowIso,
 			owner: { agentId: null, sessionId: ownerSessionId },
-			runtimeIncarnation: this.options.runtimeIncarnation,
+			processIdentity: this.options.processIdentity,
 			sessionPath: this.options.sessionPath,
 		});
 		if (!result.ok) return result;
@@ -148,13 +141,10 @@ export class LifecycleCoordinator {
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const result = commitMultiAgentSteeringDelivery(this.options.controlDbPath, {
 			agentId: input.agent.id,
-			expectedRevision: input.agent.revision,
-			fencingEpoch: input.reservation.fencingEpoch,
-			leaseId: identity.leaseId,
 			messageId: input.messageId,
 			owner: identity.owner,
 			requestedLifecycle: "running",
-			runtimeIncarnation: identity.runtimeIncarnation,
+			processIdentity: identity.processIdentity,
 			sessionPath: this.options.sessionPath,
 			updatedAt: this.options.now(),
 		});
@@ -166,13 +156,10 @@ export class LifecycleCoordinator {
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const result = commitMultiAgentSteeringMutation(this.options.controlDbPath, {
 			agentId: input.agent.id,
-			expectedRevision: input.agent.revision,
-			fencingEpoch: input.reservation.fencingEpoch,
-			leaseId: identity.leaseId,
 			message: input.message,
 			owner: identity.owner,
 			requestedLifecycle: "steering_pending",
-			runtimeIncarnation: identity.runtimeIncarnation,
+			processIdentity: identity.processIdentity,
 			sessionPath: this.options.sessionPath,
 			updatedAt: input.message.updatedAt,
 		});
@@ -185,24 +172,6 @@ export class LifecycleCoordinator {
 
 	requestCancellation(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "cancelling");
-	}
-
-	renewReservation(input: ReservedLifecycleCommandInput): RenewReservationCommandResult {
-		const identity = this.readReservationIdentity(input.reservation);
-		if (!identity) return { ok: false, error: "mutation_mismatch" };
-		const nowIso = this.options.now();
-		const result = renewMultiAgentDispatchLease(this.options.controlDbPath, {
-			agentId: input.agent.id,
-			expectedFencingEpoch: input.reservation.fencingEpoch,
-			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
-			leaseId: identity.leaseId,
-			nowIso,
-			owner: identity.owner,
-			runtimeIncarnation: identity.runtimeIncarnation,
-			sessionPath: this.options.sessionPath,
-		});
-		if (!result.ok) return { ok: false, error: "mutation_mismatch" };
-		return { ok: true, reservation: result.lease };
 	}
 
 	requestDetachedCancellation(input: DetachedCancellationCommandInput): ReservedLifecycleCommandResult {
@@ -221,7 +190,7 @@ export class LifecycleCoordinator {
 		});
 	}
 
-	recoverExpiredChild(input: RecoverExpiredChildCommandInput): RecoverExpiredChildCommandResult {
+	recoverDeadChild(input: RecoverDeadChildCommandInput): RecoverDeadChildCommandResult {
 		const identity = this.readReservationIdentity(input.reservation);
 		if (
 			!identity ||
@@ -232,33 +201,12 @@ export class LifecycleCoordinator {
 			return { ok: false, error: "mutation_mismatch" };
 		}
 		const nowIso = this.options.now();
-		const recovered = recoverExpiredMultiAgentRuntime(this.options.controlDbPath, {
-			expectedLease: { ...identity, fencingEpoch: input.reservation.fencingEpoch },
-			expectedRevision: input.agent.revision,
+		const recovered = recoverDeadMultiAgentRuntime(this.options.controlDbPath, {
+			expectedOwner: identity,
 			nowIso,
-			replacementLease: {
-				agentId: input.agent.id,
-				leaseId: this.options.createLeaseId(),
-				owner: { agentId: null, sessionId: input.ownerSessionId },
-				runtimeIncarnation: this.options.runtimeIncarnation,
-				sessionPath: this.options.sessionPath,
-			},
 		});
 		if (!recovered.ok) return recovered;
-		return {
-			ok: true,
-			agent: {
-				...input.agent,
-				error: {
-					code: "lost_runtime",
-					message: "Agent runtime ownership expired before terminal confirmation.",
-				},
-				lifecycle: "failed",
-				revision: recovered.terminalRevision,
-				updatedAt: nowIso,
-				worker: undefined,
-			},
-		};
+		return { ok: true, agent: recovered.agent as unknown as AgentSnapshot };
 	}
 
 	finalizeChild(input: FinalizeChildCommandInput): ReservedLifecycleCommandResult {
@@ -270,27 +218,16 @@ export class LifecycleCoordinator {
 			agentId: input.agent.id,
 			eventKind: input.terminalLifecycle,
 			eventPayload: input.eventPayload,
-			expectedRevision: input.agent.revision,
-			fencingEpoch: input.reservation.fencingEpoch,
-			leaseId: identity.leaseId,
 			owner: identity.owner,
-			runtimeIncarnation: identity.runtimeIncarnation,
+			processIdentity: identity.processIdentity,
 			sessionPath: this.options.sessionPath,
 			terminalLifecycle: input.terminalLifecycle,
 			updatedAt,
 		});
 		if (!result.ok) return result;
-		return {
-			ok: true,
-			agent: {
-				...input.agent,
-				error: input.error,
-				lifecycle: input.terminalLifecycle,
-				result: input.result,
-				revision: result.terminalRevision,
-				updatedAt,
-			},
-		};
+		const committed = readMultiAgentAgent(this.options.controlDbPath, this.options.sessionPath, input.agent.id);
+		if (!committed) return { ok: false, error: "agent_not_found" };
+		return { ok: true, agent: committed };
 	}
 
 	createChild(input: CreateChildCommandInput): CreateChildCommandResult {
@@ -321,11 +258,9 @@ export class LifecycleCoordinator {
 		const result = createMultiAgentChildWithDispatchReservation(this.options.controlDbPath, {
 			agent,
 			agentId,
-			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
-			leaseId: this.options.createLeaseId(),
 			nowIso,
 			owner: { agentId: null, sessionId: input.ownerSessionId },
-			runtimeIncarnation: this.options.runtimeIncarnation,
+			processIdentity: input.processIdentity ?? this.options.processIdentity,
 			sessionPath: this.options.sessionPath,
 		});
 		if (!result.ok) return result;
@@ -344,45 +279,29 @@ export class LifecycleCoordinator {
 		const result = commitMultiAgentLifecycleMutation(this.options.controlDbPath, {
 			agentId: input.agent.id,
 			detachedCancellation,
-			expectedRevision: input.agent.revision,
-			fencingEpoch: reservation.fencingEpoch,
-			leaseId: identity.leaseId,
 			owner: identity.owner,
 			requestedLifecycle,
-			runtimeIncarnation: identity.runtimeIncarnation,
+			processIdentity: identity.processIdentity,
 			sessionPath: this.options.sessionPath,
 			updatedAt,
 		});
 		if (!result.ok) return result;
-		return {
-			ok: true,
-			agent: { ...input.agent, lifecycle: requestedLifecycle, revision: input.agent.revision + 1, updatedAt },
-		};
+		return { ok: true, agent: result.agent as unknown as AgentSnapshot };
 	}
 
 	private readReservationIdentity(reservation: MultiAgentDispatchLease):
 		| {
 				agentId: string;
-				expiresAt: string;
-				leaseId: string;
 				owner: { agentId: string | null; sessionId: string };
-				runtimeIncarnation: string;
+				processIdentity: ProcessIdentity;
 				sessionPath: string;
 		  }
 		| undefined {
-		if (
-			!reservation.expiresAt ||
-			!reservation.leaseId ||
-			!reservation.runtimeIncarnation ||
-			!reservation.owner.sessionId
-		)
-			return undefined;
+		if (!reservation.processIdentity || !reservation.owner.sessionId) return undefined;
 		return {
 			agentId: reservation.agentId,
-			expiresAt: reservation.expiresAt,
-			leaseId: reservation.leaseId,
 			owner: { agentId: reservation.owner.agentId, sessionId: reservation.owner.sessionId },
-			runtimeIncarnation: reservation.runtimeIncarnation,
+			processIdentity: reservation.processIdentity,
 			sessionPath: reservation.sessionPath,
 		};
 	}

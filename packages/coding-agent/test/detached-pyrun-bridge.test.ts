@@ -10,6 +10,7 @@ import {
 import { claimDetachedJobRuntimeCommands } from "../src/core/detached-job-control.ts";
 import type { DetachedJobLeaseIdentity } from "../src/core/detached-job-runner.ts";
 import { claimRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -26,12 +27,10 @@ describe("detached Pyrun bridge", () => {
 		const runnerAddress = { agentId: "agent_1", sessionId: "supervisor-1" };
 		const supervisorAddress = { agentId: null, sessionId: "supervisor-1" };
 		const identity: DetachedJobLeaseIdentity = {
-			expectedRevision: 3,
-			fencingEpoch: 4,
 			jobId: "agent_1",
-			leaseId: "lease-1",
+			owner: { agentId: null, sessionId: "supervisor-1" },
 			outputLabel: "Pyrun output",
-			runtimeIncarnation: "runner-1",
+			processIdentity: testProcessIdentity("runner-1"),
 		};
 		const requestId = enqueueDetachedPyrunBridgeRequest({
 			controlDbPath,

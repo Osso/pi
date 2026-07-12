@@ -7,14 +7,13 @@ import {
 	readDetachedJobTerminalEnvelope,
 	writeDetachedJobTerminalEnvelope,
 } from "../src/core/detached-job-runner.ts";
+import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const identity = {
-	expectedRevision: 4,
-	fencingEpoch: 7,
 	jobId: "job-1",
-	leaseId: "lease-1",
+	owner: { agentId: null, sessionId: "supervisor-1" },
 	outputLabel: "Bash output",
-	runtimeIncarnation: "runtime-1",
+	processIdentity: testProcessIdentity("runtime-1"),
 };
 
 describe("detached job runner artifacts", () => {
@@ -70,7 +69,7 @@ describe("detached job runner artifacts", () => {
 			"2026-07-11T22:00:00.000Z",
 		);
 		const envelope = JSON.parse(readFileSync(artifacts.terminalEnvelopePath, "utf8")) as Record<string, unknown>;
-		envelope.fencingEpoch = 8;
+		envelope.processIdentity = testProcessIdentity("tampered-owner");
 		writeFileSync(artifacts.terminalEnvelopePath, JSON.stringify(envelope));
 
 		expect(() => readDetachedJobTerminalEnvelope(artifacts.terminalEnvelopePath)).toThrow(
