@@ -24,10 +24,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, and
       `aborted`. The state graph, state meanings, and restore-time rewrite rules live in
       [agent-lifecycle.md](agent-lifecycle.md).
-- [x] Commands that mutate agent state carry an expected revision and fail with a conflict when
-      the caller is acting on stale state. Model-facing tools may derive the current revision
-      internally before calling core store operations when exposing the revision would make the
-      tool awkward to use.
+- [x] Lifecycle commands carry the complete `(agent_id, expected_revision, lease_id,
+      runtime_incarnation, fencing_epoch)` predicate and fail on any stale component. Model-facing
+      tools may derive current state internally, but coordinator/repository commit remains fenced.
 - [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
@@ -45,9 +44,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       content includes the inspected agent's status and terminal result summary or error when present.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
-- [x] `spawn_agent` requires an executable child-session factory or dispatcher before persisting any row;
-      it has no store-only queued fallback. Dormant promptless session attachment remains the explicit
-      non-executable operation.
+- [x] `spawn_agent` requires the issued execution capability and atomically reserves executable child
+      work before runtime construction; it has no optional dispatcher or store-only queued fallback.
+      Dormant promptless session attachment remains the explicit non-executable operation.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
 - [x] Agent-type profiles can select a child model/thinking level; built-in `explore`, `verifier`,
@@ -75,45 +74,27 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Forked/branched sessions start with an empty multi-agent store: state is keyed by session
       path and deliberately does not follow forks, so the original and the fork can never both
       auto-restart the same child transcripts.
-- [x] In-memory (non-persisted) sessions do not retain multi-agent state across an in-process
-      restart: with no session file there is no persistence key, and restore clears the store.
-      This is an accepted limitation of non-persisted sessions.
+- [x] Production multi-agent orchestration requires a persisted supervisor session/control-DB key and
+      fails closed without one. In-memory stores are projection-only test fixtures, not an alternate
+      production lifecycle mode.
 - [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth, and restore
       only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
       is derived at session start from active lifecycle plus the absence of a live dispatch — see
       [agent-lifecycle.md](agent-lifecycle.md).
 - [x] On supervisor session start, detached in-flight attached agents with transcript paths restart
-      through the same attached-session dispatch path used by `attach_session_agent`, preserving their
-      agent ID, cwd, permission, model/account metadata, and runtime mailbox/lifecycle plumbing;
-      attached agents already waiting for input are not auto-prompted. After current runtime mailbox
-      listener registration, `abortInactiveSessionSpawnedAgents()` globally terminalizes active
-      spawned agents (explicit `spawned` origin or absent origin) in persisted stores with matching
-      supervisor metadata and either explicitly ended (`pid: NULL`) health or a non-current duplicate
-      metadata path for the same session ID. Main listener rows freshly assert the exact live session
-      path and runtime incarnation. A changed incarnation advances health generation and aborts active
-      spawned rows in the exact store even when the PID is reused. Replacement by a different PID is
-      rejected while the predecessor is still a verified live Pi runtime. Startup reconciliation
-      retires non-Pi listener ownership before trusting any asserted live path. Path relocation moves
-      the path assertion transactionally with the store. Pathless or legacy timestamp-only heartbeats
-      invalidate assertion trust instead of preserving stale paths.
-      It writes
-      `aborted` with a `supervisor_restarted` interruption error, including waiting children;
-      attached, queued, terminal, missing-health, current live, and stale-but-process-backed timeout
-      records remain unchanged. Runtime-process verification recognizes Pi executables and source, Bun,
-      or built `packages/coding-agent` entrypoints in relative or absolute form. Session-directory
-      listener/health synchronization runs the same
-      idempotent reconciliation immediately.
-      Dispatch finalizers are guarded
-      by store restore generation so stale completions cannot mutate a rebound store, and shutdown
-      invalidates in-flight dispatches before aborting handles.
-- [x] `wait_agents({})` snapshots agents active at invocation and waits until any one reaches a
-      terminal state. Pending lifecycle notifications are retried after startup listener setup and
-      immediately before each wait. It first consumes one pending completion notification when
-      available, so a completed agent never requires another wait; for a failed detached Pyrun job,
-      it also consumes one pending failure notification. When consuming either supported notification,
-      the direct tool exposes the agent snapshot and notification message in `details`. Other
-      terminal failure waits retain their existing status-only behavior. Restore clears transient
-      `runtime` worker metadata; persisted metadata never makes a wait poll indefinitely.
+      through fenced attached-session lease reacquisition, preserving identity and metadata; attached
+      agents already waiting for input are not auto-prompted. After listener registration, one recovery
+      leader reconciles candidate orphan rows through coordinator/repository commands using session
+      health, exact path assertion, expected revision, lease, runtime incarnation, and fencing epoch.
+      Verified administrative restart may commit an explicit interruption, but generic owner loss or
+      lease expiry resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred abort.
+      Dispatch finalizers are fenced by reservation identity and store restore generation; shutdown
+      stops admissions, invalidates local dispatches, commits cancellation, then invokes abort.
+- [x] `wait_agents({})` snapshots agents active at invocation, allocates an independent terminal-event
+      cursor, checks committed events before and after subscription, and waits until any one reaches a
+      terminal revision. It never consumes shared mailbox delivery, so simultaneous and late waiters
+      observe the same terminal fact. Restore clears transient `runtime` worker metadata without
+      rewriting durable lifecycle.
 
 ### Runtime construction inventory
 
@@ -334,18 +315,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agents({})` first consumes one pending completion notification; for a failed detached
-      Pyrun job, it also consumes one pending failure notification; otherwise it waits until any
-      agent active at invocation reaches a terminal state. The direct tool returns the winning
-      agent's completion or terminal status and, for either supported notification, returns the
-      agent and message in `details` while marking the matching runtime mailbox transport row
-      delivered. Non-Pyrun failure waits retain their existing status-only behavior. Hostrun/Pyrun
-      `pi.agents.wait()` discards that tool result and returns `null`.
+- [x] `wait_agents({})` observes terminal events through an independent cursor, checks before and
+      after subscription, and otherwise waits until any agent active at invocation reaches a terminal
+      revision. It does not consume or acknowledge runtime-mailbox transport rows; Hostrun/Pyrun uses
+      the same operation.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
-- [x] The extension context control-DB path falls back to the session's metadata control-DB path,
-      so subagent sessions mirror mailbox messages through the same runtime transport as top-level
-      sessions.
+- [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so all
+      runtime mailbox transport uses one durable database without path fallback.
 - [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
       no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray
       wake signal (stale listener row, signal pending across a session switch) terminate the
@@ -414,18 +391,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 ## Implementation inventory
 
+- [`packages/coding-agent/src/core/lifecycle-coordinator.ts`](../../packages/coding-agent/src/core/lifecycle-coordinator.ts)
+  owns control-plane lifecycle commands and delegates every commit to fenced repository transactions.
 - [`packages/coding-agent/src/core/multi-agent-store.ts`](../../packages/coding-agent/src/core/multi-agent-store.ts)
-  defines the authoritative runtime store, lifecycle transitions, revision checks, active-count
-  derivation, mailbox acknowledgement behavior, direct absolute `fileRefs` validation, and
-  control-DB-backed row persistence. Each agent/mailbox mutation upserts one row keyed by session
-  path, and restore selects the session's rows. Multi-agent state is mutable runtime state and is
-  not written to the session JSONL transcript; runtime mailbox transport is separate and carries
-  required store references rather than copied payloads.
+  defines the in-process projection, metadata, listener, mailbox-validation, and UI-selection surface;
+  it exposes no lifecycle or steering mutation methods.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
-  the first multi-agent store API surface.
+  projection and metadata types, not direct lifecycle command APIs.
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
-  provides the shared store-backed registration helpers, background job commands, production
-  child-session factory, workflow operations, and compatibility aggregate factory.
+  provides capability-gated tools, coordinator-backed child dispatch/cancellation/steering/recovery,
+  background jobs, fan-out waits, and the production child-session factory.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
   re-exports the first-party extension runtime for compatibility with older internal imports.
 - [`packages/coding-agent/extensions/agents-core/src/index.ts`](../../packages/coding-agent/extensions/agents-core/src/index.ts)
@@ -436,9 +411,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
   registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
 - [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
-  owns the SQLite control database schema, per-session agent/mailbox rows and counters, runtime
-  mailbox transport and listener lifecycle, session health, path relocation, and global spawned-agent
-  reconciliation.
+  owns SQLite schema, fenced lifecycle/steering/terminal transactions, dispatch and recovery leases,
+  immutable terminal events/outbox/cursors, runtime mailbox transport, session health, and path relocation.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -461,15 +435,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   visible slot selection is read-only over lifecycle state and conflicting pinned slot claims are
   rejected with the current projection so existing slot bindings stay stable.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
-  asserts the first extension-facing viewer/mailbox/spawn/list/wait/cancel/contact/steer
-  tool surface is store-backed and does not start child model sessions by default. It also asserts
+  asserts the first extension-facing viewer/mailbox/spawn/list/wait/cancel/contact/steer tool
+  surface is capability-gated and coordinator-backed; executable spawn always starts reserved child work. It also asserts
   recovered attached-session agents are restarted on `session_start` through the attached-session factory
   without treating old process handles as live, recovered agents are consumed so later reloads do not
   auto-prompt them again, idle waiting agents are not auto-prompted, child runtimes do not run supervisor
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
-  the spawn tool can call an injected child dispatcher, a real child `AgentSession` factory, or the
-  production child factory wrapper, that configured agent profiles can select child model/thinking
-  settings for `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`, that `wait_agents({})` immediately consumes one pending completion notification, or one pending failure notification for a failed detached Pyrun job, or waits for any agent active at invocation to reach terminal state, returns that winner's completion or status, exposes the consumed agent and message in `details`, and marks the matching runtime mailbox transport row delivered. Failed agents expose their failure message and `fileRefs`. `list_agents` returns
+  the production child factory and configured agent profiles select child model/thinking settings for
+  `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
+  supports simultaneous and late terminal-event observers without consuming mailbox delivery. Failed
+  agents expose their failure message and `fileRefs`. `list_agents` returns
   active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with validated absolute
   file references. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
@@ -501,11 +476,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add and implement store persistence tests for control-DB row persistence, automatic
       persistence after mutations, in-place production-store restore, empty-session clearing, and
       lifecycle-preserving restore of interrupted agents.
-- [x] Add failing extension-tool tests for spawn/list/wait/cancel/steer over `MultiAgentStore`
-      without spawning real child model sessions.
-- [x] Implement extension-facing spawn/list/wait/cancel/steer tools over `MultiAgentStore`, update
-      `docs/specs/multi-agent.md`, run targeted tests and `npm run check`.
-- [x] Add and implement injected child-dispatcher tests behind `spawn_agent` plus terminal-state
+- [x] Add failing extension-tool tests for spawn/list/wait/cancel/steer boundaries without provider calls.
+- [x] Implement extension-facing spawn/list/wait/cancel/steer tools over coordinator commands and store
+      projections, update `docs/specs/multi-agent.md`, run targeted tests and `npm run check`.
+- [x] Add coordinator-backed executable child-dispatch tests behind `spawn_agent` plus terminal-event
       `wait_agents({})` behavior without TUI coupling.
 - [x] Add and implement real child `AgentSession` factory tests behind `spawn_agent` and
       terminal-state `wait_agents({})` behavior without TUI coupling.
@@ -515,9 +489,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       trees without TUI state.
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
 - [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
-- [x] Add and implement `wait_agents({})` behavior that consumes one pending terminal notification
-      (completed or failed) or waits for the first terminal agent from the invocation's active set,
-      returns that winner's terminal result, and consumes only its notification.
+- [x] Add and implement `wait_agents({})` fan-out behavior using independent terminal-event cursors;
+      simultaneous and late waiters observe the same terminal revision without consuming mailbox delivery.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID
@@ -546,8 +519,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       without lifecycle mutation.
 - [x] Add focused TUI slot persistence tests for stable bindings across list refreshes and pinned
       slot updates.
-- [x] Move spawn/list/wait/cancel/steer workflow tools into an `agents-core`
-      first-party extension package without moving authoritative state out of `MultiAgentStore`.
+- [x] Move spawn/list/wait/cancel/steer workflow tools into an `agents-core` first-party extension
+      package while keeping lifecycle authority in coordinator/repository transactions.
 - [x] Move read-only tree/status/transcript projection and focus/switch command descriptors into
       an `agent-viewer` first-party extension package.
 - [x] Move inbox/outbox summaries, acknowledgements, supervisor contact, and direct message actions into an

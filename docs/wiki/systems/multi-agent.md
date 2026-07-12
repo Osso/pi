@@ -5,36 +5,26 @@ contract lives in [`docs/specs/multi-agent.md`](../../specs/multi-agent.md).
 
 ## Current state
 
-Pi now has the authoritative multi-agent store in
-`packages/coding-agent/src/core/multi-agent-store.ts`. It covers core synchronization rules,
-control-DB row reload, direct absolute `fileRefs`, and runtime mailbox transport. Child-session
-dispatch, detached tool jobs, and extension tool surfaces build on that store; incremental event
-replay and the full interactive TUI viewer remain separate work.
+Pi now uses `LifecycleCoordinator` as the sole control-plane lifecycle authority. Coordinator
+commands commit through fenced control-DB transactions, while `MultiAgentStore` projects committed
+agent/mailbox state for tools and UI. Detached Bash and Pyrun runners may submit only their own exact
+fenced terminal envelope. Child-session dispatch, attached-session recovery, cancellation, steering,
+and waits use the same repository authority.
 
-`packages/coding-agent/src/extensions/multi-agent.ts` adds the first store-backed tool surface:
-`agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`, `cancel_agent`,
-`contact_supervisor`, `send_agent_message`, and `steer_agent`. These tools mutate or read
-`MultiAgentStore`. The read-only `agents_mailbox` tool is temporarily disabled.
-`spawn_agent` can call an injected child dispatcher or create a child `AgentSession` through an
-injected factory. `wait_agents({})` immediately consumes one pending completion notification, or one
-pending failure notification for a failed detached Pyrun job, before waiting until any agent active at
-invocation reaches terminal state.
-`createProductionChildAgentSessionFactory()` now wraps the normal `createAgentSession()` and
-`SessionManager.create()` primitives so production callers can create child sessions with the
-parent cwd, model, model registry, and `parentSession` metadata. The default path intentionally
-does not create live child model sessions yet. `list_agents` returns active agents by default and
+The first-party agent extensions expose `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`,
+`cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent`. Orchestration-capable
+main runtimes must receive an issued execution capability before these tools or main-runtime listeners
+are exposed. `spawn_agent` always reserves and launches executable child work; promptless saved-session
+attachment is a separate operation. Production has no optional dispatcher or dormant-row fallback. `list_agents` returns active agents by default and
 can include inactive agents or scope results to descendants below a parent ID, using core store state
 rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry validated absolute `fileRefs` entries with
-optional labels, so logs and diffs remain direct file references rather than registry records. The direct
-`wait_agents({})` tool returns the winning agent's completion or terminal status and consumes one pending
-notification for that winner. Completion notifications and failed detached Pyrun notifications are
-explicitly delivered through runtime mailbox transport; `wait_agents({})` returns `agent` and
-`message` details and marks the consumed transport row `delivered`. Failed agents expose their
-failure message and direct `fileRefs`. Detached Pyrun results expose `durationMs`, including in
-their failure notification text.
-Hostrun/Pyrun `pi.agents.wait()` returns `null`.
+optional labels, so logs and diffs remain direct file references rather than registry records.
+`wait_agents({})` allocates an independent terminal-event cursor, checks committed events before and
+after subscribing, and returns when any active agent reaches a terminal revision. It never consumes
+the shared runtime-mailbox delivery row, so simultaneous and late waiters can observe the same result.
+Hostrun/Pyrun `pi.agents.wait()` uses the same fan-out semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -44,8 +34,8 @@ siblings cannot target each other directly.
 transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
 tools and do not mutate agent lifecycle by themselves.
 Higher-level workflow extensions must invoke the registered agent tools or Hostrun/Pyrun request handler;
-they cannot create dormant agent rows through a store-backed spawn helper.
-`spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
+they cannot create dormant agent rows or call store lifecycle mutators. Coordinator child creation
+inherits parent model/account budget metadata and rejects permission broadening.
 Production child sessions also resolve agent-type profiles from settings. The built-in profiles are
 `explore` (`openai/gpt-5-mini`, low thinking), `verifier` (`openai/gpt-5-mini`, low thinking),
 `implement` (`openai/gpt-5.5`, medium thinking), and `reviewer` (`openai/gpt-5.5`, medium
@@ -60,10 +50,10 @@ reconciliation. They also reject direct `spawn_agent`, `attach_session_agent`, a
 calls, the equivalent Hostrun/Pyrun bridge methods, and `/bg`; production child sessions exclude
 those tools as a second boundary.
 
-At supervisor start, queued rows remain queued. After a current runtime mailbox listener registers,
-`abortInactiveSessionSpawnedAgents()` transactionally scans persisted stores with matching
-`session_metadata`. It selects explicitly ended stores (`session_health.pid = NULL`) and duplicate
-metadata paths differing from the exact live path freshly asserted on that session's main listener.
+At supervisor start, queued rows remain queued. After the current runtime mailbox listener registers,
+one recovery leader reconciles orphaned active rows through coordinator recovery commands. Recovery
+uses session health, exact listener-path assertions, runtime incarnation, lease identity, and fencing
+epoch; it never rewrites lifecycle JSON directly.
 The listener also persists a per-process runtime incarnation. If a new Pi runtime reuses the same PID,
 registration advances the session health generation and aborts active spawned rows in that exact
 store; attached rows remain recoverable. A different PID cannot replace the listener while its
@@ -73,27 +63,21 @@ alone is not PID ownership: inventory preserves uncertain live processes to avoi
 while mailbox wakeups require verified Pi command ownership before signalling.
 The path assertion is trusted only while its assertion
 timestamp matches the listener heartbeat; pathless or legacy timestamp-only heartbeats invalidate it.
-Session-path relocation moves the assertion in the same transaction as the store. Any active spawned
-row (explicit `origin: "spawned"` or absent origin)
-becomes
-`aborted` with a `supervisor_restarted` interruption error; the update increments revision, clears
-worker metadata, and preserves unrelated JSON. Attached, queued, terminal, missing-health, current
-live, and stale-but-process-backed timeout rows stay unchanged. Runtime-process verification recognizes
+Session-path relocation moves the assertion in the same transaction as the store. Verified
+administrative shutdown/restart may terminalize owned work through a fenced coordinator command.
+Generic owner loss or lease expiry is not proof of exit: recovery records `failed/lost_runtime`, while
+attached, queued, terminal, current-live, and uncertain process-backed rows follow their explicit
+recovery policies. Runtime-process verification recognizes
 Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
 `list_sessions` invokes the same reconciliation immediately after listener/health
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. Startup retries pending lifecycle-notification mirroring after
-registering the runtime listener, and each wait retries it again before consuming notifications. The
-wait snapshots active agents at invocation. It first consumes one pending completion notification, or
-one pending failure notification for a failed detached Pyrun job; otherwise it waits until any agent
-active at invocation reaches terminal state. Completion and supported Pyrun failure notifications are
-delivered through the runtime mailbox; consuming one returns `agent` and `message` details and marks
-its transport row `delivered`. Other failures remain status-only.
-Detached Pyrun results include `durationMs`. The store removes transient worker metadata on restore,
-so persisted process metadata cannot keep a wait polling forever. Hostrun/Pyrun `pi.agents.wait()`
-returns `null`.
+`wait_agents({})` takes no agent ID. Each invocation snapshots active agents and owns a distinct
+terminal-event cursor. It reads committed terminal events before subscription, subscribes, then
+rechecks to close the completion race. Mailbox transport delivery and acknowledgement are independent
+of wait observation. The store removes transient worker metadata on restore, but durable lifecycle
+state remains unchanged until a fenced command commits.
 
 Existing primitives worth reusing:
 
@@ -117,11 +101,13 @@ Still missing first-party pieces:
 
 ## Architecture decision
 
-Native multi-agent should be an in-process core service, not a terminal-pane or subprocess
-orchestrator.
+Native multi-agent is a durable control-DB lifecycle service, not a terminal-pane, subprocess, or
+in-memory store authority.
 
-Core owns truth. TUI, terminal panes, extension widgets, and workflow commands are projections or
-clients. Mutating commands carry an expected revision and fail on stale state. Viewing an agent is
+`LifecycleCoordinator` owns control-plane commands; repository/SQLite transactions own durable graph,
+lease, event, and outbox truth. `MultiAgentStore`, TUI, terminal panes, extension widgets, and workflow
+commands are projections or clients. Mutating commands carry the complete revision/lease/incarnation/
+fencing predicate and fail on stale ownership. Viewing an agent is
 read-only: switching tabs, opening a transcript, or pressing `Alt+1` through `Alt+9` must not wake,
 resume, close, interrupt, or otherwise advance a child.
 
@@ -140,10 +126,11 @@ They do not own lifecycle state.
 
 ## Core store design
 
-`MultiAgentStore` is the authoritative in-process state boundary. It owns pure state transitions,
-projections, mailbox and direct-file-reference validation, and persistence callbacks. Child-session
-dispatch, detached tool jobs, runtime mailbox delivery, and TUI projections live in the surrounding
-core and first-party extension layers; runtime handles remain outside durable store state.
+`MultiAgentStore` is the in-process projection boundary. It owns copied projections, UI selection,
+mailbox/direct-file-reference validation, listeners, and metadata helpers. It does not expose lifecycle
+or steering mutation methods. Child-session dispatch, detached jobs, cancellation, steering, recovery,
+and terminalization enter through `LifecycleCoordinator` or the runner's exact terminal-finalize
+transaction; runtime handles remain outside durable store state.
 
 ### State
 
@@ -196,10 +183,10 @@ inline child output is excluded from core snapshots and UI projections.
 
 ### Revisions
 
-Every state mutation increments the target agent revision. Commands that mutate a specific agent
-and accept caller-supplied concurrency guards must include `expectedRevision`. Model-facing tools may
-derive the current revision internally when exposing it would make the tool awkward; `cancel_agent`
-derives the current revision before aborting. `send_agent_message` derives its sender from the
+Every lifecycle mutation increments the target agent revision. Coordinator commands include
+`expectedRevision`, lease ID, runtime incarnation, and fencing epoch. Model-facing tools may derive the
+current revision internally, but repository commit still requires the complete predicate; `cancel_agent`
+derives current state before committing cancellation and invoking abort. `send_agent_message` derives its sender from the
 current session instead of accepting caller-supplied sender/revision fields. If an
 `expectedRevision` guard does not match, the store returns:
 
@@ -231,8 +218,8 @@ Allowed lifecycle transitions:
 
 | From | To |
 |---|---|
-| `queued` | `starting`, `aborted` |
-| `starting` | `running`, `failed`, `aborted` |
+| `queued` | `starting`, `cancelling`, `aborted` |
+| `starting` | `running`, `cancelling`, `failed`, `aborted` |
 | `running` | `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, `aborted` |
 | `waiting_for_input` | `running`, `steering_pending`, `cancelling`, `completed`, `aborted` |
 | `steering_pending` | `running`, `waiting_for_input`, `cancelling`, `failed`, `aborted` |
@@ -243,23 +230,18 @@ Terminal states are `completed`, `failed`, and `aborted`.
 
 Active counts are derived from non-terminal states only. They are not cached by the TUI.
 
-### Core commands
+### Command boundaries
 
-The first store-level commands:
-
-| Command | Mutation | Notes |
+| Boundary | Mutation | Notes |
 |---|---|---|
-| `spawnAgent(input)` | creates `AgentNode` at `queued` or `starting` | Does not call a model in first slice. |
-| `transitionAgent(id, expectedRevision, lifecycle, details?)` | lifecycle update | Enforces transition table. |
-| `selectAgentView(id)` | none | Returns a snapshot and records UI-only selection outside lifecycle state. |
-| `pinAgentSlot(id, expectedRevision, slot)` | slot update | Stable `Alt+number` mapping. |
-| `clearAgentSlot(id, expectedRevision)` | slot update | Does not affect lifecycle. |
-| `sendMailboxMessage(input)` | creates message | Used for supervisor contact and peer messages. |
-| `sendSteering(id, expectedRevision, message, target?)` | creates steering message and marks pending | Does not edit prompt buffer. |
-| `ackSteering(id, messageId, expectedRevision, status)` | updates steering status | Status: accepted, rejected, delivered, failed. |
-| `cancelAgent(id, reason?)` | derives the current revision, then moves to `cancelling` or terminal | Runtime handle performs actual abort later. |
-| `listAgents(filter?)` | none | Snapshot projection. |
-| `getAgent(id)` | none | Snapshot projection. |
+| `LifecycleCoordinator.createChild` | child row, parent link, queued state, reservation | Atomic executable spawn admission. |
+| `beginChildRuntime` / `confirmChildRuntime` | `starting` / `running` | Requires the committed reservation identity. |
+| `requestSteering` / `acknowledgeSteeringDelivery` | steering message and lifecycle | Atomic mailbox transport reference plus fenced state update. |
+| `requestCancellation` / exit acknowledgement | `cancelling` / terminal | Abort follows committed cancellation; terminal state requires fenced acknowledgement. |
+| `finalizeChild` | terminal state, event, outbox | One transaction; duplicate exact result is idempotent. |
+| detached runner `finalize` | own terminal state, event, outbox | Exact immutable envelope and current lease only. |
+| `selectAgentView`, slot and metadata helpers | projection/metadata only | Cannot mutate lifecycle or revision. |
+| `listAgents`, `getAgent` | none | Snapshot projections. |
 
 ### Mailbox
 
@@ -334,8 +316,8 @@ only when stored and incoming identities are complete and their sender, recipien
 message ID identity match; incomplete or conflicting reuse fails without overwriting the existing row.
 
 Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
-sessions may show previous agents as terminal, detached, or resumable; they must not pretend a dead
-runtime is still running.
+sessions preserve the last committed lifecycle; recovery must acquire fenced ownership or report
+`lost_runtime`, never infer a terminal outcome from a missing in-memory handle.
 
 ## Extension audit
 
@@ -420,7 +402,7 @@ Source: <https://pi.dev/packages/pi-sub-agent>
 
 Useful:
 
-- Minimal subprocess fallback model.
+- Minimal subprocess adapter model.
 - Prompt delivery through stdin instead of command-line arguments.
 - Recursive delegation block, project-agent trust confirmation, output truncation, and full-output
   output file with restricted permissions.
@@ -430,7 +412,7 @@ Avoid in core:
 - Synchronous-only result model.
 - No mailbox, steering acknowledgement, or resume semantics.
 
-Keep subprocess execution as fallback/isolation mode, not the primary architecture.
+Keep subprocess execution as an explicit isolation adapter, never a lifecycle-authority fallback.
 
 ### pi-intercom
 
@@ -479,15 +461,12 @@ Pitfalls:
   messages.
 - A capped UI message mirror is not a transcript.
 
-## First native slice
+## Implemented boundary
 
-1. Add core types for `AgentNode`, lifecycle state, revision, command result, mailbox message,
-   steering status, and direct file reference.
-2. Add a `MultiAgentStore` with pure state transitions and tests for stale revision
-   rejection, active-count derivation, read-only view selection, and steering acknowledgements.
-3. Persist agent and mailbox rows in the control DB after the state machine is tested.
-4. Add extension-facing tools on top of the store: spawn/list/wait/cancel/steer.
-5. Add TUI viewer as a projection, then bind `Alt+1` through `Alt+9` to visible slots.
-
-The first code slice should not spawn real child model sessions. It should prove the core state
-machine and UI/core synchronization rules first.
+- Control-DB repository transactions enforce lifecycle transition legality and the complete fenced
+  mutation predicate.
+- Orchestration-capable runtimes require issued execution capability before agent tools/listeners load.
+- Spawn, cancellation, attached recovery, steering, detached Bash/Pyrun finalization, terminal events,
+  outbox delivery, and fan-out waits use the durable lifecycle protocol.
+- `MultiAgentStore` remains a projection and metadata surface; direct lifecycle methods are deleted.
+- TUI/view selection and pinned slots remain read-only with respect to lifecycle.

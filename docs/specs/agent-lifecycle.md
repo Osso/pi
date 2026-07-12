@@ -165,25 +165,14 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] `queued` agents survive restore unchanged and are not recovered.
-- [x] After a runtime registers its current mailbox listener,
-      `abortInactiveSessionSpawnedAgents()` globally terminalizes active spawned agents (`origin:
-      "spawned"` or absent) in persisted supervisor stores with matching metadata and either an
-      explicitly ended (`pid: NULL`) health row or a non-current duplicate metadata path for the
-      same session ID. Main listener rows freshly assert the exact live session path and a runtime
-      incarnation ID; a changed incarnation advances health generation and aborts active spawned rows
-      in that exact store even when the OS has reused the same PID. A different live Pi PID already
-      owning the session rejects replacement, so concurrent opens cannot abort its spawned work.
-      Startup reconciliation retires listener ownership whose PID no longer belongs to Pi before
-      trusting asserted paths. Reconciliation trusts a path only when its assertion timestamp matches
-      the listener heartbeat, and path relocation moves the
-      assertion transactionally with the store. Reconciliation may write
-      `aborted` with an explicit `supervisor_restarted` interruption error, including
-      `waiting_for_input`, only as a coordinator-owned administrative interruption with verified
-      supervisor identity; it is not inferred from lease expiry alone. Generic owner loss or
-      lease expiry follows the `failed`/`lost_runtime` rule above and prevents active-count and TUI liveness ghosts in historical
-      non-current stores. Attached, queued, terminal, missing-health, current live, and stale-but-
-      process-backed timeout rows remain unchanged. Runtime-process verification recognizes Pi executables
-      and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
+- [x] After a runtime registers its current mailbox listener, one recovery leader reconciles orphaned
+      active rows through fenced coordinator recovery commands. Main listener rows assert exact session
+      path and runtime incarnation; changed incarnation or owner takeover advances fencing. A different
+      verified live Pi PID already owning the session rejects replacement. Session relocation moves the
+      assertion transactionally with the store. Verified administrative restart may terminalize owned
+      work through the coordinator, but generic owner loss or lease expiry resolves as
+      `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Attached, queued,
+      terminal, current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
 - [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
       auto-restarted through the attached-session dispatch path.
@@ -198,9 +187,10 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
       same-PID main listener or run supervisor-wide recovery.
-- [x] `wait_agents({})` snapshots active agents at invocation and returns when any one becomes
-      terminal, or immediately consumes one pending completion notification. Detached Bash and Pyrun
-      jobs use a transient `runtime` worker marker; restore clears it and never keeps a wait alive.
+- [x] `wait_agents({})` snapshots active agents at invocation, uses an independent terminal-event
+      cursor, checks committed events before and after subscription, and returns when any one becomes
+      terminal. It never consumes shared mailbox delivery. Detached Bash and Pyrun jobs use a transient
+      `runtime` worker marker; restore clears it without rewriting durable lifecycle.
 
 ## How it works
 
@@ -211,16 +201,21 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/multi-agent-store.ts` — state machine (`ALLOWED_TRANSITIONS`,
-  `transitionAgent`), restore-time correction (`restoreAgentSnapshot`), recovery set.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — dispatch-driven transitions,
-  session-start recovery, session-shutdown handling, cancel/steer tools.
-- `packages/coding-agent/src/main.ts` — production store construction and per-session restore.
+- `packages/coding-agent/src/core/lifecycle-coordinator.ts` — sole control-plane lifecycle commands.
+- `packages/coding-agent/src/core/session-control-db.ts` — fenced repository transactions, leases,
+  terminal events/outbox, recovery leadership, and SQLite writer enforcement.
+- `packages/coding-agent/src/core/multi-agent-store.ts` — read/projection state, metadata, listeners,
+  and restore-time removal of runtime-only worker handles; no lifecycle mutation API.
+- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — coordinator-backed dispatch,
+  cancellation, steering, attached recovery, waits, and shutdown ordering.
+- `packages/coding-agent/src/core/detached-job-lifecycle.ts` — detached runner lifecycle adapter.
+- `packages/coding-agent/src/main.ts` — runtime-role/capability construction and per-session restore.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/multi-agent-store.test.ts` — transition rules, revision checks,
-  terminal immutability, restore/recovery corrections.
+- `packages/coding-agent/test/lifecycle-coordinator.test.ts` and repository tests — transition rules,
+  complete-predicate fencing, terminal immutability, recovery, and race precedence.
+- `packages/coding-agent/test/multi-agent-store.test.ts` — projection, metadata, and restore behavior.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — dispatch transitions, recovery
   gating, shutdown behavior, cancel/steer tool paths.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — steering/mailbox-driven transitions.

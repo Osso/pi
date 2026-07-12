@@ -77,16 +77,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
       `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
       heartbeat/check fields.
-- [x] Provide `abortInactiveSessionSpawnedAgents()` as the transactional global reconciliation API
-      for persisted multi-agent rows: a store with matching `session_metadata` can abort active
-      spawned agents when its `session_health.pid` is `NULL` or when its metadata path differs from
-      the exact live path freshly asserted on the main runtime listener for that session ID. The
-      assertion is trusted only when `session_path_asserted_at` matches the listener heartbeat;
-      pathless or legacy timestamp-only heartbeats invalidate it and conservatively protect all
-      duplicate paths until re-registration. Reconciliation preserves unrelated agent JSON,
-      increments revision, clears worker
-      metadata, writes `supervisor_restarted`, and is idempotent; attached, queued, terminal,
-      missing-health, current live, and stale-but-process-backed timeout rows remain unchanged.
+- [x] Provide recovery-leader and fenced lifecycle transactions for global orphan reconciliation.
+      Session health and exact listener-path assertions identify candidate stores, but only the current
+      recovery leader may mutate an active row, and every mutation includes expected revision plus the
+      acquired lease/incarnation/fencing identity. Verified administrative restart may commit an
+      explicit interruption; generic owner loss or lease expiry commits `failed/lost_runtime`, never a
+      direct JSON rewrite or inferred abort. Attached, queued, terminal, current-live, and uncertain
+      process-backed rows follow their explicit recovery policy.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended, and confirms the registered binding `ok`;
@@ -117,8 +114,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## How it works
 
-- [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) — startup reconciliation and
-  persisted agent lifecycle.
+- [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) — coordinator-owned startup
+  recovery and persisted agent lifecycle.
 - [docs/wiki/systems/session-directory-tools.md](../wiki/systems/session-directory-tools.md) —
   liveness synchronization followed by global reconciliation.
 

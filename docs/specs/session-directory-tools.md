@@ -42,13 +42,11 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] Registering a different PID for a session advances its agent generation; registration from a
       confirmed live runtime clears stale death for the bound generation.
 - [x] Ended sessions are not eligible to receive messages.
-- [x] After listener retirement and health synchronization, `list_sessions` calls the global
-      `abortInactiveSessionSpawnedAgents()` reconciliation for persisted spawned-agent rows. It
-      changes stores with matching metadata and either explicitly ended (`pid: NULL`) health or a
-      path differing from the exact live path freshly asserted on that session's main listener.
-      Pathless or legacy timestamp-only heartbeats invalidate assertion trust and protect all
-      duplicates until re-registration. This clears historical active ghosts immediately without
-      scanning on mailbox heartbeats.
+- [x] After listener retirement and health synchronization, `list_sessions` invokes recovery-leader
+      reconciliation for candidate persisted stores. Health/path metadata selects candidates only;
+      lifecycle changes require coordinator ownership and the complete revision/lease/incarnation/
+      fencing predicate. Generic lost owners resolve as `failed/lost_runtime`, while uncertain live
+      processes remain unchanged.
 
 ### Broadcast surface
 

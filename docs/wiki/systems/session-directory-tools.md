@@ -36,13 +36,11 @@ owned by a replacement process.
    listener and PID with `timeout` health, remains ended/ineligible, and cannot have its active
    spawned rows reconciled from heartbeat age alone. PID evidence never restores `ok` health.
 5. Mark health rows without a retained current binding ended.
-6. After this listener/health synchronization, call global
-   `abortInactiveSessionSpawnedAgents()`. It changes active spawned rows in stores with exact
-   `session_metadata` and either explicitly ended `session_health.pid = NULL` or a path differing
-   from the exact freshly asserted live path on that session's main listener. Unknown or invalidated
-   assertions protect all duplicates until re-registration; attached, queued, terminal,
-   missing-health, current live, and stale-but-process-backed timeout
-   rows remain unchanged, so repeated calls are idempotent.
+6. After listener/health synchronization, invoke recovery-leader reconciliation for candidate
+   stores. Health and exact path assertions select candidates but do not authorize lifecycle writes.
+   The recovery leader acquires fenced ownership and commits through coordinator/repository
+   transactions. Generic owner loss resolves as `failed/lost_runtime`; uncertain process-backed,
+   attached, queued, terminal, and current-live rows follow their explicit recovery policy.
 7. Exclude every ended row when `includeEnded` is `false`.
 
 `broadcast` selects recipients from the same reconciled current-binding inventory. Resident
