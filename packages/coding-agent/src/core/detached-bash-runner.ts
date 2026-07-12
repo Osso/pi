@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type GatedDetachedPayloadExit, spawnGatedDetachedPayload } from "./detached-job-bootstrap.ts";
@@ -14,6 +14,8 @@ import {
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
 
 const DETACHED_BASH_LAUNCH_VERSION = 1;
+const LAUNCH_MANIFEST_POLL_MS = 10;
+const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
 export interface DetachedBashLaunchManifestData {
 	args: string[];
@@ -71,7 +73,7 @@ export async function runDetachedBashRunner(
 	manifestPath: string,
 	options?: { now?: () => string },
 ): Promise<DetachedBashRunnerResult> {
-	const manifest = readDetachedBashLaunchManifest(manifestPath);
+	const manifest = await waitForDetachedBashLaunchManifest(manifestPath);
 	const payload = spawnGatedDetachedPayload({
 		args: manifest.args,
 		command: manifest.command,
@@ -145,6 +147,15 @@ export async function finalizeDetachedEnvelopeWithRetry<T>(
 function defaultRunnerEntryPath(): string {
 	const sourceExtension = extname(fileURLToPath(import.meta.url));
 	return fileURLToPath(new URL(`./detached-bash-runner-entry${sourceExtension}`, import.meta.url));
+}
+
+async function waitForDetachedBashLaunchManifest(path: string): Promise<DetachedBashLaunchManifest> {
+	const deadline = Date.now() + LAUNCH_MANIFEST_TIMEOUT_MS;
+	while (!existsSync(path)) {
+		if (Date.now() >= deadline) throw new Error(`Timed out waiting for detached Bash launch manifest: ${path}`);
+		await new Promise((resolve) => setTimeout(resolve, LAUNCH_MANIFEST_POLL_MS));
+	}
+	return readDetachedBashLaunchManifest(path);
 }
 
 function readDetachedBashLaunchManifest(path: string): DetachedBashLaunchManifest {
