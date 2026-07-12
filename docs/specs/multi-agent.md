@@ -112,6 +112,53 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       terminal failure waits retain their existing status-only behavior. Restore clears transient
       `runtime` worker metadata; persisted metadata never makes a wait poll indefinitely.
 
+### Phase 1 authority and invariants
+
+- `LifecycleCoordinator` is the sole control-plane and runtime-command authority. Spawn, attach,
+  dispatch, lease renewal/release, steering, cancellation, recovery, parent/child graph changes,
+  and terminalization are submitted as coordinator commands; callers do not write lifecycle rows
+  directly. Detached Bash/Pyrun runners are the only exception: they are execution-plane workers
+  authorized to submit one exact, fenced terminal-finalize operation for their own lease and may
+  not create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
+- The repository and SQLite transaction are a second enforcement boundary, not a trust-through
+  path. They re-check transition legality, authorization, and the complete mutation predicate
+  before committing any lifecycle or terminal-event change. A coordinator response is successful
+  only after the durable mutation commits.
+- Runtime roles are typed and exclusive. An orchestration-capable main runtime must receive a
+  non-null execution capability and validate it before orchestration tools or the main runtime
+  listener become visible; construction fails before either is exposed when capability is absent.
+  A child runtime is address-scoped execution only and can never receive that capability or expose
+  orchestration commands. Non-AgentSession help/inventory startup remains outside this invariant.
+- Every lifecycle mutation carries the fencing tuple
+  `(agent_id, expected_revision, lease_id, runtime_incarnation, fencing_epoch)`. Missing, stale,
+  foreign, or partially matching fields fail the mutation; terminal retries are accepted only as
+  an idempotent replay of the same committed terminal event.
+- A queued agent is either unreserved and dispatchable or owns exactly one live dispatch
+  reservation. Reservation acquisition, reservation identity, lifecycle state, and revision are
+  committed atomically. No transaction may expose a dispatchable queued row with two reservations,
+  an expired/foreign reservation, or an unowned reservation that a runner can execute.
+- Child creation is one coordinator transaction: child row, single parent link, initial revision,
+  and either the committed dispatch reservation or an explicitly unreserved dispatchable state are
+  created together. Parent links cannot self-reference or form cycles. Cancellation is cascading:
+  cancelling a parent issues cancellation intents to active descendants, while each descendant
+  still terminalizes through its own fenced command. A parent cannot become terminal while any
+  descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry
+  for descendants before terminalizing the parent.
+- Race outcomes are ordered by the coordinator's serialized commit order, never by wall-clock,
+  PID, callback order, or notification delivery. A committed terminal result wins all later
+  requests; an accepted cancellation wins over a later natural-completion attempt and moves the
+  agent to `cancelling`; only a current fenced exit acknowledgement can then produce `aborted`.
+  Duplicate aborts return the existing outcome without a new revision or event. Owner loss or
+  lease expiry fences the old runtime, and late finalizers fail the mutation predicate rather than
+  rewriting state. The expiry/owner-loss path is resolved as `failed` with a `lost_runtime` cause,
+  not as a confirmed abort.
+- Each terminal transition inserts exactly one immutable terminal event/outbox record in the same
+  SQLite transaction as the state and revision change. Its identity is unique
+  `(agent_id, terminal_revision, event_kind)`, and its payload is complete and immutable: terminal
+  outcome, cause/error or result reference, parent/agent identity, and the fencing identity that
+  authorized the commit are retained for every consumer. Redelivery and retries reuse that identity
+  and payload; they never create a second terminal fact.
+
 ### Mailbox and steering
 
 - [x] Steering is delivered through the mailbox as a command, not by editing a live prompt/input
