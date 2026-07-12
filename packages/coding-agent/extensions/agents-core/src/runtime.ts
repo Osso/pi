@@ -648,8 +648,10 @@ export function createHostrunMultiAgentRequestHandler(
 	const backgroundSessions = runtimeHandles.sessions;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
+	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 
 	return async (request, ctx, signal) => {
+		runtimeLifecycleMirror.bind(ctx);
 		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
 			throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
 		}
@@ -951,8 +953,6 @@ async function spawnAgent(
 			dispatches,
 			starting.agent,
 			() => dispatchReservedAgentSession(store, createChildSession, ownership, coordinator, params.prompt, ctx, handles),
-			ctx,
-			pi,
 			desktopNotifier,
 			waitingDesktopNotifications,
 			handles,
@@ -972,8 +972,6 @@ async function spawnAgent(
 			dispatches,
 			starting.agent,
 			() => dispatchReservedAgent(store, dispatcher, ownership, coordinator, params.prompt, ctx),
-			ctx,
-			pi,
 			desktopNotifier,
 			waitingDesktopNotifications,
 			undefined,
@@ -1120,8 +1118,6 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 			input.dispatches,
 			target,
 			() => dispatchReservedAttachedChildSession(input, createAttachedSession, reservedRuntime),
-			input.ctx,
-			input.pi,
 			input.desktopNotifier,
 			input.waitingDesktopNotifications,
 			input.handles,
@@ -1139,8 +1135,6 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 		input.dispatches,
 		target,
 		() => dispatchReservedAttachedAgent(input, dispatcher, reservedRuntime),
-		input.ctx,
-		input.pi,
 		input.desktopNotifier,
 		input.waitingDesktopNotifications,
 		undefined,
@@ -1433,8 +1427,6 @@ function startToolDispatch(
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: () => Promise<AgentSnapshot>,
-	ctx: ExtensionContext,
-	pi: ExtensionAPI | undefined,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	handles: BackgroundSessionHandles | undefined,
@@ -1450,20 +1442,8 @@ function startToolDispatch(
 		} else {
 			closeWaitingDesktopNotification(message.fromAgentId, waitingDesktopNotifications);
 		}
-		try {
-			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
-		} catch (error) {
-			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
-		}
 	});
 	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch(), reservedRuntime, handles);
-	void trackedDispatch.then((agent) => {
-		try {
-			mirrorAgentLifecycleRuntimeMailbox(store, agent, ctx);
-		} catch (error) {
-			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
-		}
-	});
 	void trackedDispatch.finally(() => {
 		unsubscribeLifecycleNotifications();
 		closeWaitingDesktopNotificationWhenNotWaiting(store, agent.id, waitingDesktopNotifications);
@@ -2582,6 +2562,39 @@ function isWaitingForInputNotification(message: AgentMailboxMessage): boolean {
 	);
 }
 
+interface RuntimeLifecycleMirror {
+	bind(ctx: ExtensionContext): void;
+	dispose(): void;
+}
+
+function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleMirror {
+	let boundSessionId: string | undefined;
+	let unsubscribe: (() => void) | undefined;
+	return {
+		bind(ctx) {
+			const sessionManager = ctx.sessionManager;
+			if (!sessionManager) return;
+			const sessionId = sessionManager.getSessionId();
+			if (boundSessionId === sessionId && unsubscribe) return;
+			unsubscribe?.();
+			boundSessionId = sessionId;
+			unsubscribe = store.subscribeLifecycleNotifications((message) => {
+				try {
+					mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
+				} catch (error) {
+					console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
+				}
+			});
+			mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
+		},
+		dispose() {
+			unsubscribe?.();
+			unsubscribe = undefined;
+			boundSessionId = undefined;
+		},
+	};
+}
+
 function mirrorPendingLifecycleRuntimeMailboxMessages(store: MultiAgentStore, ctx: ExtensionContext): void {
 	for (const agent of store.listAgents()) {
 		if (!isRuntimeMirroredLifecycle(agent.lifecycle)) continue;
@@ -2589,17 +2602,6 @@ function mirrorPendingLifecycleRuntimeMailboxMessages(store: MultiAgentStore, ct
 			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
 		}
 	}
-}
-
-function mirrorAgentLifecycleRuntimeMailbox(store: MultiAgentStore, agent: AgentSnapshot, ctx: ExtensionContext): void {
-	if (!isRuntimeMirroredLifecycle(agent.lifecycle)) {
-		return;
-	}
-	const notification = store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle)[0];
-	if (!notification) {
-		return;
-	}
-	mirrorLifecycleRuntimeMailboxMessage(store, notification, ctx);
 }
 
 // Transport rows never copy message bodies: they reference the persisted store row that
@@ -2826,22 +2828,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		reservations,
 		store,
 	};
-	let unsubscribeRuntimeLifecycleMirror: (() => void) | undefined;
+	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 
 	pi.on?.("session_start", async (_event, ctx) => {
-		unsubscribeRuntimeLifecycleMirror?.();
-		unsubscribeRuntimeLifecycleMirror = store.subscribeLifecycleNotifications((message) => {
-			try {
-				mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
-			} catch (error) {
-				console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
-			}
-		});
-		try {
-			mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
-		} catch (error) {
-			console.error("Failed to retry pending agent lifecycle notifications:", error);
-		}
+		runtimeLifecycleMirror.bind(ctx);
 		recoverDetachedAgents({
 			createAttachedSession,
 			ctx,
@@ -2859,8 +2849,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		if (event.reason === "reload") {
 			return;
 		}
-		unsubscribeRuntimeLifecycleMirror?.();
-		unsubscribeRuntimeLifecycleMirror = undefined;
+		runtimeLifecycleMirror.dispose();
 		for (const timer of recoveryTimers.values()) clearTimeout(timer);
 		recoveryTimers.clear();
 		const reservedAgentIds = new Set(reservations.keys());
@@ -2887,7 +2876,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 
 	pi.registerCommand("bg", {
 		description: "Run a prompt as a background agent job.",
-		handler: async (args, ctx) => backgroundCommand(backgroundDispatch, args, ctx),
+		handler: async (args, ctx) => {
+			runtimeLifecycleMirror.bind(ctx);
+			return backgroundCommand(backgroundDispatch, args, ctx);
+		},
 	});
 
 	pi.registerCommand("jobs", {
@@ -2906,8 +2898,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			],
 			approvalRequired: false,
 			parameters: spawnAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				spawnAgent(
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+				runtimeLifecycleMirror.bind(ctx);
+				return spawnAgent(
 					store,
 					createChildSession,
 					dispatcher,
@@ -2919,7 +2912,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					waitingDesktopNotifications,
 					pi,
 					backgroundSessions,
-				),
+				);
+			},
 		}),
 	);
 
@@ -2941,8 +2935,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Attach or resume an existing saved session as an agent without changing its session ID.",
 			approvalRequired: false,
 			parameters: attachSessionAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				attachSessionAgent({
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+				runtimeLifecycleMirror.bind(ctx);
+				return attachSessionAgent({
 					createAttachedSession,
 					ctx,
 					desktopNotifier,
@@ -2954,7 +2949,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					reservations,
 					store,
 					waitingDesktopNotifications,
-				}),
+				});
+			},
 		}),
 	);
 
@@ -2966,6 +2962,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			approvalRequired: false,
 			parameters: waitAgentsSchema,
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+				runtimeLifecycleMirror.bind(ctx);
 				assertNoWaitAgentsParams(params, "wait_agents");
 				return waitAgents(store, signal, ctx);
 			},

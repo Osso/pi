@@ -105,7 +105,9 @@ event/outbox record in the same SQLite transaction. Event identity is unique
 result reference, agent/parent identity, and authorizing fencing identity. Redelivery reuses the same
 identity and payload. Ordinary coordinator projection is notification-free for terminal states;
 only a claimed terminal outbox record may project the terminal snapshot and create its completion or
-failure mailbox notification.
+failure mailbox notification. Runtime transport uses one session-bound lifecycle mirror that is
+rebound on session changes and shared by direct tools plus Hostrun/Pyrun handlers; dispatch-local
+listeners are limited to desktop-notification state and do not mirror transport.
 
 ## What it must do
 

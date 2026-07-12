@@ -56,7 +56,7 @@
 
 ### Changed
 
-- Terminal completion and failure mailbox notifications now originate only from claimed terminal outbox records; ordinary coordinator snapshot projection no longer creates parallel terminal notifications.
+- Terminal completion and failure mailbox notifications now originate only from claimed terminal outbox records; ordinary coordinator snapshot projection no longer creates parallel terminal notifications. Runtime transport now uses one session-bound lifecycle mirror shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors.
 - Lifecycle and terminal mutations now reject expired dispatch leases even before fencing takeover, closing a lease-partition window. Added deterministic race coverage for completion-before-cancel, cancellation-before-completion, duplicate exit acknowledgement, and expired-owner mutations.
 - Removed attached-session recovery's direct `cancelling` to `aborted` rewrite; without fenced exit acknowledgement the row remains nonterminal for later ownership recovery.
 - Routed selected-agent Escape, descendant cascade, and reserved-runtime shutdown cancellation through the same coordinator operation as `cancel_agent`; InteractiveMode no longer directly terminalizes or aborts store state. SQLite now rejects parent terminalization while any persisted descendant remains nonterminal.
