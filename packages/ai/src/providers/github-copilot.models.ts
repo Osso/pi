@@ -251,7 +251,7 @@ export const GITHUB_COPILOT_MODELS = {
 			cacheRead: 0.2,
 			cacheWrite: 0,
 		},
-		contextWindow: 200000,
+		contextWindow: 1000000,
 		maxTokens: 64000,
 	} satisfies Model<"openai-completions">,
 	"gemini-3.5-flash": {
@@ -384,7 +384,7 @@ export const GITHUB_COPILOT_MODELS = {
 			cacheRead: 0.25,
 			cacheWrite: 0,
 		},
-		contextWindow: 400000,
+		contextWindow: 1050000,
 		maxTokens: 128000,
 	} satisfies Model<"openai-responses">,
 	"gpt-5.4-mini": {

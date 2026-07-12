@@ -724,7 +724,7 @@ export const OPENCODE_MODELS = {
 			cacheRead: 0,
 			cacheWrite: 0,
 		},
-		contextWindow: 256000,
+		contextWindow: 190000,
 		maxTokens: 64000,
 	} satisfies Model<"openai-completions">,
 	"kimi-k2.5": {

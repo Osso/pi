@@ -3268,9 +3268,9 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 		reasoning: true,
 		input: ["text"],
 		cost: {
-			input: 3,
-			output: 10.25,
-			cacheRead: 0.5,
+			input: 2.1,
+			output: 6.6,
+			cacheRead: 0.21,
 			cacheWrite: 0,
 		},
 		contextWindow: 1000000,
