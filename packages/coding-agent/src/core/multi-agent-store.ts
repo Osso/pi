@@ -1,7 +1,6 @@
 import { isAbsolute } from "node:path";
 import {
 	allocateMultiAgentCounter,
-	bootstrapMultiAgentAgent,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
@@ -367,70 +366,6 @@ export class MultiAgentStore {
 		this.notifyAgentUpdateListeners(previous, current);
 		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 		if (this.selectedAgentId === current.id) this.selectedAgentId = undefined;
-	}
-
-	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
-		validateAbsolutePath(input.cwd, "spawn_agent.cwd");
-		validateOptionalPath(input.worktree?.path, "spawn_agent.worktree.path");
-		validateOptionalPath(input.transcript?.path, "spawn_agent.transcript.path");
-		validateOptionalPath(input.eventStream?.path, "spawn_agent.eventStream.path");
-		validateOptionalPath(input.worker?.cwd, "spawn_agent.worker.cwd");
-		const timestamp = this.now();
-		const agent: AgentNode = {
-			id: this.createAgentId(),
-			parentId: input.parentId,
-			displayName: input.displayName,
-			agentType: input.agentType,
-			origin: input.origin,
-			lifecycle: input.lifecycle ?? "queued",
-			revision: 1,
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			cwd: input.cwd,
-			permission: { ...input.permission },
-			account: copyAccount(input.account),
-			model: copyOptional(input.model),
-			slot: copyOptional(input.slot),
-			eventStream: copyEventStream(input.eventStream),
-			transcript: copyTranscript(input.transcript),
-			worker: copyWorker(input.worker),
-			worktree: copyOptional(input.worktree),
-		};
-
-		this.agents.set(agent.id, agent);
-		this.persistAgentRow(agent);
-
-		return { agent: copyAgent(agent) };
-	}
-
-	spawnChildAgent(parentId: string, input: SpawnChildAgentInput): SpawnChildAgentResult {
-		const parent = this.agents.get(parentId);
-		if (!parent) {
-			return { ok: false, error: "parent_not_found", parentId };
-		}
-
-		if (wouldBroadenPermission(parent.permission, input.permission)) {
-			return { ok: false, error: "permission_broadened", parent: copyAgent(parent), requested: input.permission };
-		}
-
-		const spawned = this.spawnAgent({
-			...input,
-			account: copyAccount(input.account) ?? copyAccount(parent.account),
-			model: copyOptional(input.model) ?? copyOptional(parent.model),
-			parentId,
-		});
-
-		return { ok: true, agent: spawned.agent };
-	}
-
-	attachSessionAgent(parentId: string, input: AttachSessionAgentInput): SpawnChildAgentResult {
-		return this.spawnChildAgent(parentId, {
-			...input,
-			agentType: input.agentType || "resumed-session",
-			lifecycle: input.lifecycle ?? "waiting_for_input",
-			origin: "attached",
-			transcript: copyTranscript(input.transcript),
-		});
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {
@@ -892,13 +827,6 @@ export class MultiAgentStore {
 		return { agent: { ...restored, worker: undefined }, corrected: true };
 	}
 
-	private persistAgentRow(agent: AgentNode): void {
-		if (!this.persistence) {
-			return;
-		}
-		bootstrapMultiAgentAgent(this.persistence.controlDbPath, this.persistence.sessionPath, agent.id, agent);
-	}
-
 	private putMailboxMessage(message: AgentMailboxMessage): void {
 		this.mailboxMessages.set(message.id, message);
 		if (!this.persistence) {
@@ -1259,18 +1187,6 @@ function appendAgentDuration(body: string, durationMs: number | undefined): stri
 
 function formatWaitingForInputNotificationBody(agent: AgentNode): string {
 	return `${agent.displayName} is waiting for input.`;
-}
-
-function wouldBroadenPermission(parent: AgentNode["permission"], requested: AgentNode["permission"]): boolean {
-	if (!requested.narrowed) {
-		return true;
-	}
-
-	if (requested.policy !== parent.policy) {
-		return true;
-	}
-
-	return false;
 }
 
 function copyAgent(agent: AgentNode): AgentSnapshot {

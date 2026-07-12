@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Removed `MultiAgentStore.spawnAgent`, `spawnChildAgent`, and `attachSessionAgent`; persisted creation must go through `LifecycleCoordinator`, while `MultiAgentStore` only projects committed snapshots.
 - Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
 - Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unowned bootstrap/migration rows.
 - Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` exact-owner commands.

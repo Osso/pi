@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { MultiAgentStore, type SpawnAgentInput } from "../src/core/multi-agent-store.ts";
 import { getControlDbPath, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
@@ -780,7 +780,7 @@ describe("MultiAgentStore", () => {
 					path: join(tempDir, "agent-transcript.jsonl"),
 					sessionId: "child-session",
 				},
-			} as Parameters<MultiAgentStore["spawnAgent"]>[0] & {
+			} as SpawnAgentInput & {
 				eventStream: { eventCount: number; inlineEvents: string[]; path: string; truncated: boolean };
 				transcript: { inlineMessages: string[]; path: string; sessionId: string };
 			});

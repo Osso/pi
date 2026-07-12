@@ -4,11 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const packageRoot = join(import.meta.dirname, "..");
 const productionRoots = [join(packageRoot, "src"), join(packageRoot, "extensions")];
-const excludedFiles = new Set([
-	"src/core/lifecycle-coordinator.ts",
-	"src/core/multi-agent-store.ts",
-	"src/core/session-control-db.ts",
-]);
+const excludedFiles = new Set(["src/core/lifecycle-coordinator.ts", "src/core/session-control-db.ts"]);
 const forbiddenCalls = [
 	".ackSteering(",
 	".attachSessionAgent(",
@@ -25,6 +21,9 @@ describe("lifecycle authority", () => {
 		expect(source).not.toContain("\n\ttransitionAgent(");
 		expect(source).not.toContain("\n\tsendSteering(");
 		expect(source).not.toContain("\n\tackSteering(");
+		expect(source).not.toContain("\n\tattachSessionAgent(");
+		expect(source).not.toContain("\n\tspawnAgent(");
+		expect(source).not.toContain("\n\tspawnChildAgent(");
 	});
 
 	it("contains no production direct lifecycle writers outside authority modules", () => {

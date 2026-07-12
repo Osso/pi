@@ -13,11 +13,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 ### Core runtime
 
-- [x] Core state is authoritative for every agent; TUI rows, terminal panes, and extension views
-      are projections that must resync from core snapshots.
-- [x] Core runtime state is kept separate from first-party extension modules: the core store owns
-      lifecycle, revisions, mailbox records, file references, and transcript metadata, while
-      extension packages own commands, tools, and presentation surfaces.
+- [x] The lifecycle repository and `LifecycleCoordinator` are authoritative for every agent;
+      `MultiAgentStore`, TUI rows, terminal panes, and extension views are projections that must resync
+      from committed snapshots.
+- [x] Core runtime state is kept separate from first-party extension modules: repository transactions
+      own lifecycle, revisions, mailbox records, file references, and transcript metadata, while
+      `MultiAgentStore` projects committed state and extension packages own commands, tools, and
+      presentation surfaces. `MultiAgentStore` exposes no child/attachment creation or lifecycle mutation
+      methods.
 - [x] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
       model/account metadata, permission policy, and monotonic revision.
 - [x] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,

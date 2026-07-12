@@ -12,6 +12,7 @@ import type {
 } from "../../src/core/multi-agent-store.ts";
 import {
 	acquireMultiAgentRuntimeOwnership,
+	bootstrapMultiAgentAgent,
 	type MultiAgentRuntimeOwnership,
 	readMultiAgentRuntimeOwnership,
 } from "../../src/core/session-control-db.ts";
@@ -46,11 +47,11 @@ export function legacyMultiAgentStore(store: MultiAgentStore) {
 			status: Exclude<MailboxMessageStatus, "pending">,
 		) => acknowledgeSteering(store, agentId, expectedRevision, messageId, status),
 		attachSessionAgent: (parentId: string, input: AttachSessionAgentInput) =>
-			store.attachSessionAgent(parentId, input),
+			attachTestSessionAgent(store, parentId, input),
 		sendSteering: (agentId: string, expectedRevision: number, input: SendSteeringInput) =>
 			requestSteering(store, agentId, expectedRevision, input),
-		spawnAgent: (input: SpawnAgentInput) => store.spawnAgent(input),
-		spawnChildAgent: (parentId: string, input: SpawnChildAgentInput) => store.spawnChildAgent(parentId, input),
+		spawnAgent: (input: SpawnAgentInput) => spawnTestAgent(store, input),
+		spawnChildAgent: (parentId: string, input: SpawnChildAgentInput) => spawnTestChildAgent(store, parentId, input),
 		transitionAgent: (
 			agentId: string,
 			expectedRevision: number,
@@ -58,6 +59,74 @@ export function legacyMultiAgentStore(store: MultiAgentStore) {
 			details: TransitionAgentDetails = {},
 		) => transitionAgent(store, agentId, expectedRevision, requested, details),
 	};
+}
+
+function spawnTestAgent(store: MultiAgentStore, input: SpawnAgentInput): { agent: AgentSnapshot } {
+	const timestamp = new Date().toISOString();
+	const agent: AgentSnapshot = {
+		account: input.account
+			? {
+					budgetId: input.account.budgetId,
+					concurrencyCap: input.account.concurrencyCap,
+					id: input.account.id,
+					providerFallback: input.account.providerFallback ? [...input.account.providerFallback] : undefined,
+					rateLimit: input.account.rateLimit ? { ...input.account.rateLimit } : undefined,
+					tokenBudget: input.account.tokenBudget ? { ...input.account.tokenBudget } : undefined,
+				}
+			: undefined,
+		agentType: input.agentType,
+		createdAt: timestamp,
+		cwd: input.cwd,
+		displayName: input.displayName,
+		eventStream: input.eventStream,
+		id: store.allocateAgentIdForLifecycleCoordinator(),
+		lifecycle: input.lifecycle ?? "queued",
+		model: input.model,
+		origin: input.origin,
+		parentId: input.parentId,
+		permission: { ...input.permission },
+		revision: 1,
+		slot: input.slot,
+		transcript: input.transcript,
+		updatedAt: timestamp,
+		worker: input.worker,
+		worktree: input.worktree,
+	};
+	const persistence = store.getPersistenceTarget();
+	if (persistence) {
+		bootstrapMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, agent.id, agent);
+	}
+	store.publishLifecycleCoordinatorSnapshot(agent);
+	return { agent };
+}
+
+function spawnTestChildAgent(store: MultiAgentStore, parentId: string, input: SpawnChildAgentInput) {
+	const parent = store.getAgent(parentId);
+	if (!parent) return { error: "parent_not_found" as const, ok: false as const, parentId };
+	if (!input.permission.narrowed || input.permission.policy !== parent.permission.policy) {
+		return {
+			error: "permission_broadened" as const,
+			ok: false as const,
+			parent,
+			requested: input.permission,
+		};
+	}
+	const spawned = spawnTestAgent(store, {
+		...input,
+		account: input.account ?? parent.account,
+		model: input.model ?? parent.model,
+		parentId,
+	});
+	return { agent: spawned.agent, ok: true as const };
+}
+
+function attachTestSessionAgent(store: MultiAgentStore, parentId: string, input: AttachSessionAgentInput) {
+	return spawnTestChildAgent(store, parentId, {
+		...input,
+		agentType: input.agentType || "resumed-session",
+		lifecycle: input.lifecycle ?? "waiting_for_input",
+		origin: "attached",
+	});
 }
 
 function acknowledgeSteering(
