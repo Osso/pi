@@ -806,15 +806,23 @@ ctx.ui.setWidget("my-widget", undefined);
 
 ### Pattern 6: Custom Footer
 
-Replace the footer. `footerData` exposes data not otherwise accessible to extensions.
+Replace the footer. `footerData` is available in TUI mode and exposes the read-only `ReadonlyFooterDataProvider` surface.
 
 ```typescript
+import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
+
 ctx.ui.setFooter((tui, theme, footerData) => ({
   invalidate() {},
   render(width: number): string[] {
     // footerData.getGitBranch(): string | null
+    // footerData.getExecutableName(): string | undefined
     // footerData.getExtensionStatuses(): ReadonlyMap<string, string>
-    return [`${ctx.model?.id} (${footerData.getGitBranch() || "no git"})`];
+    // footerData.getAvailableProviderCount(): number
+    // footerData.getSessionOverride(): FooterSessionOverride | undefined
+    // footerData.onBranchChange(callback): () => void
+    const selectedSession = footerData.getSessionOverride();
+    const model = selectedSession?.model ?? ctx.model;
+    return [`${model?.id} (${footerData.getGitBranch() || "no git"})`];
   },
   dispose: footerData.onBranchChange(() => tui.requestRender()), // reactive
 }));
@@ -822,7 +830,7 @@ ctx.ui.setFooter((tui, theme, footerData) => ({
 ctx.ui.setFooter(undefined); // restore default
 ```
 
-Token stats available via `ctx.sessionManager.getBranch()` and `ctx.model`.
+Token stats are available via `ctx.sessionManager` and `ctx.model`. When the TUI displays a selected child agent, `footerData.getSessionOverride()` supplies that child's session manager, model, thinking level, context usage, and cwd. It becomes `undefined` again when the main session is selected.
 
 **Examples:** [custom-footer.ts](../examples/extensions/custom-footer.ts)
 

@@ -87,6 +87,17 @@ type RebindContext = {
 	updateEditorBorderColor: () => void;
 	updateTerminalTitle: () => void;
 	updateTerminalCurrentDirectory: () => void;
+	clearChildAgentView?: () => void;
+	childViewSessionManager?: object;
+	childViewAgentId?: string;
+	childViewTranscriptPath?: string;
+	childViewTranscriptWatcher?: { close(): void } | null;
+	childViewTranscriptWatchPath?: string;
+	childViewTranscriptReloadTimer?: ReturnType<typeof setTimeout>;
+	childViewTranscriptWatchRetryTimer?: ReturnType<typeof setTimeout>;
+	childViewTranscriptReloadRetries?: number;
+	footer?: { clearSessionOverride: () => void; setSession: (session: unknown) => void };
+	footerDataProvider?: { clearSessionOverride: () => void };
 };
 
 type ReloadCommandContext = {
@@ -138,6 +149,7 @@ type InteractiveModePrototype = {
 		options?: { extensions?: Array<{ path: string }>; force?: boolean; showDiagnosticsWhenQuiet?: boolean },
 	): void;
 	rebindCurrentSession(this: RebindContext, options?: { renderBeforeBind?: boolean }): Promise<void>;
+	clearChildAgentView(this: RebindContext): void;
 	handleReloadCommand(this: ReloadCommandContext): Promise<void>;
 };
 
@@ -291,6 +303,7 @@ describe("regression #5943: session_start transient UI", () => {
 		try {
 			const context: RebindContext = {
 				cancelPartialUpdateRender: () => {},
+				clearChildAgentView: () => {},
 				applyRuntimeSettings: () => events.push("apply"),
 				renderCurrentSessionState: () => events.push("render"),
 				bindCurrentSessionExtensions: async () => {
@@ -315,6 +328,68 @@ describe("regression #5943: session_start transient UI", () => {
 		}
 	});
 
+	it("clears selected child view resources before rebinding the main session", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: string[] = [];
+			const watcher = { close: vi.fn() };
+			const footer = {
+				clearSessionOverride: vi.fn(),
+				setSession: vi.fn(),
+			};
+			const timer = setTimeout(() => {}, 60_000);
+			let context: RebindContext;
+			context = {
+				childViewAgentId: "agent_child",
+				childViewSessionManager: {},
+				childViewTranscriptPath: "/tmp/child-session.jsonl",
+				childViewTranscriptWatchPath: "/tmp/child-session.jsonl",
+				childViewTranscriptReloadRetries: 2,
+				childViewTranscriptReloadTimer: timer,
+				childViewTranscriptWatchRetryTimer: setTimeout(() => {}, 60_000),
+				childViewTranscriptWatcher: watcher,
+				clearChildAgentView: () => {
+					events.push("clear-child");
+					interactiveModePrototype.clearChildAgentView.call(context);
+				},
+				cancelPartialUpdateRender: () => {},
+				applyRuntimeSettings: () => {
+					events.push("apply-main");
+					footer.setSession("main");
+				},
+				renderCurrentSessionState: () => events.push("render-main"),
+				bindCurrentSessionExtensions: async () => {
+					events.push("bind-main");
+				},
+				subscribeToAgent: () => events.push("subscribe-main"),
+				updateAvailableProviderCount: async () => {},
+				updateEditorBorderColor: () => {},
+				updateTerminalTitle: () => {},
+				updateTerminalCurrentDirectory: () => {},
+				footer,
+				footerDataProvider: { clearSessionOverride: vi.fn() },
+			};
+
+			await interactiveModePrototype.rebindCurrentSession.call(context, { renderBeforeBind: true });
+
+			expect(events.slice(0, 3)).toEqual(["clear-child", "apply-main", "render-main"]);
+			expect(watcher.close).toHaveBeenCalledTimes(1);
+			expect(context.childViewAgentId).toBeUndefined();
+			expect(context.childViewSessionManager).toBeUndefined();
+			expect(context.childViewTranscriptPath).toBeUndefined();
+			expect(context.childViewTranscriptWatcher).toBeNull();
+			expect(context.childViewTranscriptWatchPath).toBeUndefined();
+			expect(context.childViewTranscriptReloadTimer).toBeUndefined();
+			expect(context.childViewTranscriptWatchRetryTimer).toBeUndefined();
+			expect(context.childViewTranscriptReloadRetries).toBe(0);
+			expect(footer.clearSessionOverride).toHaveBeenCalledTimes(1);
+			expect(footer.setSession).toHaveBeenCalledWith("main");
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("subscribes before replacement session_start handlers send messages", async () => {
 		const events: string[] = [];
 		const harness = await createHarness({
@@ -334,6 +409,7 @@ describe("regression #5943: session_start transient UI", () => {
 		try {
 			const context: RebindContext = {
 				cancelPartialUpdateRender: () => {},
+				clearChildAgentView: () => {},
 				applyRuntimeSettings: () => {},
 				renderCurrentSessionState: () => events.push("render"),
 				bindCurrentSessionExtensions: async () => {
@@ -388,6 +464,7 @@ describe("regression #5943: session_start transient UI", () => {
 		try {
 			const context: RebindContext = {
 				cancelPartialUpdateRender: () => {},
+				clearChildAgentView: () => {},
 				applyRuntimeSettings: () => {},
 				renderCurrentSessionState: () => events.push("render"),
 				bindCurrentSessionExtensions: async () => {

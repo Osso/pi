@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -165,6 +165,10 @@ interface InteractiveModeKeyHandlerInternals {
 	readAgentLogPreview(this: unknown, logPath: string): string;
 	readAgentLogPreviewUnchecked(this: unknown, logPath: string): string;
 	reloadSelectedAgentTranscript(this: unknown): void;
+	retrySelectedAgentTranscriptReload(this: unknown): void;
+	scheduleSelectedAgentTranscriptWatchRetry(this: unknown): void;
+	scheduleSelectedAgentTranscriptReload(this: unknown): void;
+	cancelSelectedAgentTranscriptReload(this: unknown): void;
 	renderLiveAgentPlaceholder(this: unknown, agent: unknown, transcriptPath: string | undefined): void;
 	renderSelectedAgentView(this: unknown): boolean;
 	renderSessionContext(
@@ -192,6 +196,7 @@ interface InteractiveModeKeyHandlerInternals {
 	updateSelectedAgentSelectionWidgets(this: unknown): void;
 	watchSelectedAgentTranscript(this: unknown, transcriptPath: string): void;
 	setDefaultExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
+	stop(this: unknown): void;
 	setExtensionFooter(this: unknown, factory: (() => Component & { dispose?(): void }) | undefined): void;
 	resetExtensionUI(this: unknown): void;
 	cancelSelectedAgentTurn(this: unknown): boolean;
@@ -203,6 +208,7 @@ const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as Inter
 
 type TranscriptSwitchFixture = {
 	childAgentId: string;
+	childTranscriptPath: string;
 	cleanup: () => void;
 	fakeThis: {
 		addMessageToChat: typeof interactiveModeKeyHandlers.addMessageToChat;
@@ -211,10 +217,19 @@ type TranscriptSwitchFixture = {
 		childViewAgentId?: string;
 		childViewSessionManager?: SessionManager;
 		childViewTranscriptPath?: string;
+		childViewTranscriptReloadTimer?: ReturnType<typeof setTimeout>;
 		childViewTranscriptWatcher?: { close(): void } | null;
 		clearChildAgentView: typeof interactiveModeKeyHandlers.clearChildAgentView;
 		createWorkingLoader: ReturnType<typeof vi.fn>;
-		footer: { invalidate: ReturnType<typeof vi.fn> };
+		footer: {
+			invalidate: ReturnType<typeof vi.fn>;
+			setSessionOverride: ReturnType<typeof vi.fn>;
+			clearSessionOverride: ReturnType<typeof vi.fn>;
+		};
+		footerDataProvider: {
+			setSessionOverride: ReturnType<typeof vi.fn>;
+			clearSessionOverride: ReturnType<typeof vi.fn>;
+		};
 		loadingAnimation: (Component & { stop(): void }) | undefined;
 		getMarkdownThemeWithSettings: () => undefined;
 		getRegisteredToolDefinition: (name: string) => ToolDefinition | undefined;
@@ -229,6 +244,8 @@ type TranscriptSwitchFixture = {
 		readAgentLogPreview: typeof interactiveModeKeyHandlers.readAgentLogPreview;
 		readAgentLogPreviewUnchecked: typeof interactiveModeKeyHandlers.readAgentLogPreviewUnchecked;
 		reloadSelectedAgentTranscript: typeof interactiveModeKeyHandlers.reloadSelectedAgentTranscript;
+		retrySelectedAgentTranscriptReload: typeof interactiveModeKeyHandlers.retrySelectedAgentTranscriptReload;
+		scheduleSelectedAgentTranscriptWatchRetry: typeof interactiveModeKeyHandlers.scheduleSelectedAgentTranscriptWatchRetry;
 		renderLiveAgentPlaceholder: typeof interactiveModeKeyHandlers.renderLiveAgentPlaceholder;
 		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
 		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
@@ -265,7 +282,12 @@ function createTranscriptSwitchFixture(options: {
 	parent.appendMessage(fauxAssistantMessage("parent reply"));
 	const child = SessionManager.create(options.childCwd ?? "/repo", tmp);
 	child.appendMessage({ role: "user", content: "child transcript only", timestamp: 2 });
+	child.appendModelChange("child-provider", "child-model");
 	child.appendMessage(fauxAssistantMessage("child reply"));
+	const childTranscriptPath = child.getSessionFile();
+	if (!childTranscriptPath) {
+		throw new Error("expected child transcript path");
+	}
 	const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 	const spawned = store.spawnAgent({
 		agentType: "worker",
@@ -274,7 +296,7 @@ function createTranscriptSwitchFixture(options: {
 		lifecycle: "starting",
 		permission: { narrowed: true, policy: "on-request" },
 		transcript: {
-			path: options.withChildPath ? child.getSessionFile() : undefined,
+			path: options.withChildPath ? childTranscriptPath : undefined,
 			sessionId: child.getSessionId(),
 		},
 	});
@@ -285,6 +307,7 @@ function createTranscriptSwitchFixture(options: {
 		childViewAgentId: undefined,
 		childViewSessionManager: undefined,
 		childViewTranscriptPath: undefined,
+		childViewTranscriptReloadTimer: undefined,
 		childViewTranscriptWatcher: null,
 		clearChildAgentView: interactiveModeKeyHandlers.clearChildAgentView,
 		createWorkingLoader: vi.fn(() => ({
@@ -292,7 +315,15 @@ function createTranscriptSwitchFixture(options: {
 			render: () => ["Thinking..."],
 			stop: vi.fn(),
 		})),
-		footer: { invalidate: vi.fn() },
+		footer: {
+			invalidate: vi.fn(),
+			setSessionOverride: vi.fn(),
+			clearSessionOverride: vi.fn(),
+		},
+		footerDataProvider: {
+			setSessionOverride: vi.fn(),
+			clearSessionOverride: vi.fn(),
+		},
 		loadingAnimation: undefined,
 		getMarkdownThemeWithSettings: () => undefined,
 		getRegisteredToolDefinition: () => undefined,
@@ -304,6 +335,10 @@ function createTranscriptSwitchFixture(options: {
 		renderProjectTrustWarningIfNeeded: () => {},
 		openChildAgentView: interactiveModeKeyHandlers.openChildAgentView,
 		reloadSelectedAgentTranscript: interactiveModeKeyHandlers.reloadSelectedAgentTranscript,
+		retrySelectedAgentTranscriptReload: interactiveModeKeyHandlers.retrySelectedAgentTranscriptReload,
+		scheduleSelectedAgentTranscriptWatchRetry: interactiveModeKeyHandlers.scheduleSelectedAgentTranscriptWatchRetry,
+		scheduleSelectedAgentTranscriptReload: interactiveModeKeyHandlers.scheduleSelectedAgentTranscriptReload,
+		cancelSelectedAgentTranscriptReload: interactiveModeKeyHandlers.cancelSelectedAgentTranscriptReload,
 		findReadableAgentLogPath: interactiveModeKeyHandlers.findReadableAgentLogPath,
 		readAgentLogPreview: interactiveModeKeyHandlers.readAgentLogPreview,
 		readAgentLogPreviewUnchecked: interactiveModeKeyHandlers.readAgentLogPreviewUnchecked,
@@ -314,7 +349,15 @@ function createTranscriptSwitchFixture(options: {
 		renderSessionItems: interactiveModeKeyHandlers.renderSessionItems,
 		selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 		selectedAgentBanner: new AgentSelectionBannerComponent(store),
-		session: { isStreaming: false },
+		session: {
+			isStreaming: false,
+			modelRegistry: {
+				find: (provider: string, modelId: string) =>
+					provider === "faux" && modelId === "faux-1"
+						? { id: modelId, provider, reasoning: true, contextWindow: 128_000 }
+						: undefined,
+			},
+		},
 		sessionManager: parent,
 		setWorkingVisible: interactiveModeKeyHandlers.setWorkingVisible,
 		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
@@ -334,6 +377,7 @@ function createTranscriptSwitchFixture(options: {
 	};
 	return {
 		childAgentId: spawned.agent.id,
+		childTranscriptPath,
 		cleanup: () => rmSync(tmp, { force: true, recursive: true }),
 		fakeThis,
 		store,
@@ -757,7 +801,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
-	test("selecting an active child view renders the child transcript instead of the parent transcript", () => {
+	test("selecting an active child view renders the child transcript and updates the footer model", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
 		try {
 			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
@@ -767,9 +811,18 @@ describe("InteractiveMode key handlers", () => {
 			expect(fixture.fakeThis.childViewSessionManager?.getSessionId()).toBe(
 				fixture.store.getAgent(fixture.childAgentId)?.transcript?.sessionId,
 			);
+			expect(fixture.fakeThis.footer.setSessionOverride).toHaveBeenCalledWith(
+				expect.objectContaining({
+					model: expect.objectContaining({ provider: "faux", id: "faux-1" }),
+					thinkingLevel: "off",
+				}),
+			);
 			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
 			expect(output).toContain("child transcript only");
 			expect(output).not.toContain("parent transcript only");
+
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, "main")).toBe(true);
+			expect(fixture.fakeThis.footer.clearSessionOverride).toHaveBeenCalledTimes(2);
 		} finally {
 			fixture.cleanup();
 		}
@@ -919,6 +972,180 @@ describe("InteractiveMode key handlers", () => {
 		},
 	);
 
+	test("live child placeholders clear the footer model instead of inventing one", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: false });
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			expect(fixture.fakeThis.footer.setSessionOverride).toHaveBeenCalledWith(
+				expect.objectContaining({ model: null }),
+			);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("selected child upgrades from a placeholder when a later metadata update supplies its transcript path", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: false });
+		const transcriptPath = fixture.childTranscriptPath;
+		const transcriptContents = readFileSync(transcriptPath, "utf8");
+		rmSync(transcriptPath);
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
+
+			const currentBeforeAssignment = fixture.store.getAgent(fixture.childAgentId);
+			const sessionId = currentBeforeAssignment?.transcript?.sessionId;
+			if (!currentBeforeAssignment || !sessionId) {
+				throw new Error("expected child transcript metadata");
+			}
+			const current = fixture.store.getAgent(fixture.childAgentId);
+			if (!current) {
+				throw new Error("expected child agent");
+			}
+			const transitioned = fixture.store.transitionAgent(current.id, current.revision, "running");
+			expect(transitioned.ok).toBe(true);
+			const assigned = fixture.store.updateAgentTranscript(fixture.childAgentId, {
+				sessionId,
+				path: transcriptPath,
+			});
+			expect(assigned.ok).toBe(true);
+
+			expect(fixture.fakeThis.childViewTranscriptPath).toBe(transcriptPath);
+			expect(fixture.fakeThis.watchSelectedAgentTranscript).toHaveBeenCalledWith(transcriptPath);
+
+			writeFileSync(transcriptPath, transcriptContents, "utf8");
+			interactiveModeKeyHandlers.reloadSelectedAgentTranscript.call(fixture.fakeThis);
+
+			expect(fixture.fakeThis.childViewSessionManager).toBeDefined();
+			expect(fixture.fakeThis.footer.setSessionOverride).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					model: expect.objectContaining({ provider: "faux", id: "faux-1" }),
+				}),
+			);
+			expect(normalizeRenderedOutput(fixture.fakeThis.chatContainer)).toContain("child transcript only");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("partial trailing JSONL keeps the current child view and retries after the append completes", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const transcriptPath = fixture.childTranscriptPath;
+		const validTranscript = readFileSync(transcriptPath, "utf8");
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			const currentSessionId = fixture.fakeThis.childViewSessionManager?.getSessionId();
+			writeFileSync(transcriptPath, `${validTranscript}{"type":"message"`, "utf8");
+
+			expect(() => interactiveModeKeyHandlers.reloadSelectedAgentTranscript.call(fixture.fakeThis)).not.toThrow();
+			expect(fixture.fakeThis.childViewSessionManager?.getSessionId()).toBe(currentSessionId);
+			expect(fixture.fakeThis.childViewTranscriptReloadTimer).toBeDefined();
+
+			writeFileSync(transcriptPath, validTranscript, "utf8");
+			SessionManager.open(transcriptPath).appendMessage(fauxAssistantMessage("recovered child reply"));
+			interactiveModeKeyHandlers.reloadSelectedAgentTranscript.call(fixture.fakeThis);
+
+			expect(normalizeRenderedOutput(fixture.fakeThis.chatContainer)).toContain("recovered child reply");
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("watcher recovery reloads a transcript written during watcher downtime", () => {
+		vi.useFakeTimers();
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			const watchSelectedAgentTranscript = vi.fn();
+			const scheduleSelectedAgentTranscriptReload = vi.fn();
+			const productionThis = {
+				...fixture.fakeThis,
+				childViewTranscriptWatchRetryTimer: undefined,
+				watchSelectedAgentTranscript,
+				scheduleSelectedAgentTranscriptReload,
+			};
+
+			interactiveModeKeyHandlers.scheduleSelectedAgentTranscriptWatchRetry.call(productionThis);
+			vi.advanceTimersByTime(5_000);
+
+			expect(watchSelectedAgentTranscript).toHaveBeenCalledWith(fixture.childTranscriptPath);
+			expect(scheduleSelectedAgentTranscriptReload).toHaveBeenCalledOnce();
+		} finally {
+			fixture.cleanup();
+			vi.useRealTimers();
+		}
+	});
+
+	test("malformed child transcripts stop bounded retries and recover on a later watcher event", async () => {
+		vi.useFakeTimers();
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const transcriptPath = fixture.childTranscriptPath;
+		const validTranscript = readFileSync(transcriptPath, "utf8");
+		writeFileSync(transcriptPath, '{"type":"message"', "utf8");
+		const productionThis = {
+			...fixture.fakeThis,
+			watchSelectedAgentTranscript: interactiveModeKeyHandlers.watchSelectedAgentTranscript,
+		};
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(productionThis, fixture.childAgentId)).toBe(true);
+			interactiveModeKeyHandlers.reloadSelectedAgentTranscript.call(productionThis);
+			for (let attempt = 0; attempt < 3; attempt += 1) {
+				vi.advanceTimersByTime(50);
+			}
+			expect(productionThis.childViewTranscriptReloadTimer).toBeUndefined();
+
+			writeFileSync(transcriptPath, validTranscript, "utf8");
+			const watcher = productionThis.childViewTranscriptWatcher as unknown as {
+				emit(event: string, ...args: unknown[]): boolean;
+			} | null;
+			watcher?.emit("change", transcriptPath);
+			vi.advanceTimersByTime(50);
+
+			expect(productionThis.childViewSessionManager).toBeDefined();
+			expect(normalizeRenderedOutput(productionThis.chatContainer)).toContain("child transcript only");
+		} finally {
+			interactiveModeKeyHandlers.clearChildAgentView.call(productionThis);
+			fixture.cleanup();
+			vi.useRealTimers();
+		}
+	});
+
+	test("stop tears down the selected child transcript watcher and reload timer", () => {
+		vi.useFakeTimers();
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const watcher = { close: vi.fn() };
+		try {
+			fixture.fakeThis.childViewTranscriptWatcher = watcher;
+			fixture.fakeThis.childViewTranscriptReloadTimer = setTimeout(() => {}, 60_000);
+			const fakeThis = {
+				...fixture.fakeThis,
+				settingsManager: { getShowTerminalProgress: () => false },
+				themeController: { disableAutoSync: vi.fn() },
+				clearExtensionTerminalInputListeners: vi.fn(),
+				customFooter: undefined,
+				defaultExtensionFooter: undefined,
+				footer: { ...fixture.fakeThis.footer, dispose: vi.fn() },
+				footerDataProvider: { dispose: vi.fn(), clearSessionOverride: vi.fn() },
+				cancelPartialUpdateRender: vi.fn(),
+				disposeActiveBashComponents: vi.fn(),
+				clearPendingToolComponents: vi.fn(),
+				closeResponseCompleteNotification: vi.fn(),
+				clipboardTempFiles: { cleanupAll: vi.fn() },
+				isInitialized: false,
+				unregisterSignalHandlers: vi.fn(),
+			};
+
+			interactiveModeKeyHandlers.stop.call(fakeThis);
+
+			expect(watcher.close).toHaveBeenCalledTimes(1);
+			expect(fakeThis.childViewTranscriptWatcher).toBeNull();
+			expect(fakeThis.childViewTranscriptReloadTimer).toBeUndefined();
+		} finally {
+			fixture.cleanup();
+			vi.useRealTimers();
+		}
+	});
+
 	test("selecting main restores the parent transcript and active main working loader", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
 		const mainLoader: Component & { stop(): void } = {
@@ -1049,7 +1276,15 @@ describe("InteractiveMode key handlers", () => {
 				childViewSessionManager: previousSession,
 				childViewTranscriptPath: previousSession.getSessionFile(),
 				clearChildAgentView: interactiveModeKeyHandlers.clearChildAgentView,
-				footer: { invalidate: vi.fn() },
+				footer: {
+					invalidate: vi.fn(),
+					setSessionOverride: vi.fn(),
+					clearSessionOverride: vi.fn(),
+				},
+				footerDataProvider: {
+					setSessionOverride: vi.fn(),
+					clearSessionOverride: vi.fn(),
+				},
 				getMarkdownThemeWithSettings: () => undefined,
 				getRegisteredToolDefinition: () => undefined,
 				getUserMessageText: interactiveModeKeyHandlers.getUserMessageText,

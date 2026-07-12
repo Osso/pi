@@ -64,7 +64,7 @@ import {
 } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
-import type { CompactionSourceInfo } from "../../core/compaction/index.ts";
+import { type CompactionSourceInfo, estimateContextTokens } from "../../core/compaction/index.ts";
 import {
 	type DesktopNotificationHandle,
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -125,7 +125,7 @@ import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelo
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { createClipboardTempFileTracker } from "../../utils/clipboard-temp-files.ts";
-import { closeWatcher, watchWithErrorHandler } from "../../utils/fs-watch.ts";
+import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "../../utils/fs-watch.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
@@ -136,6 +136,22 @@ import { AgentSelectionBannerComponent } from "./components/agent-selection-bann
 
 const MAX_AGENT_LOG_VIEW_BYTES = 32 * 1024;
 const CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS = 50;
+
+function isCompleteJsonlFile(filePath: string): boolean {
+	const size = fs.statSync(filePath).size;
+	if (size === 0) {
+		return true;
+	}
+	const buffer = Buffer.alloc(1);
+	const file = fs.openSync(filePath, "r");
+	try {
+		fs.readSync(file, buffer, 0, 1, size - 1);
+	} finally {
+		fs.closeSync(file);
+	}
+	return buffer[0] === 0x0a;
+}
+const MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES = 3;
 const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>([
 	"starting",
 	"running",
@@ -443,7 +459,7 @@ export class InteractiveMode {
 
 	// Agent subscription unsubscribe function
 	private unsubscribe?: () => void;
-	private unsubscribeMultiAgentTransitions?: () => void;
+	private unsubscribeMultiAgentUpdates?: () => void;
 	private signalCleanupHandlers: Array<() => void> = [];
 
 	// Track if editor is in bash mode (text starts with !)
@@ -506,7 +522,10 @@ export class InteractiveMode {
 	private childViewAgentId: string | undefined;
 	private childViewTranscriptPath: string | undefined;
 	private childViewTranscriptWatcher: FSWatcher | null = null;
+	private childViewTranscriptWatchPath: string | undefined;
 	private childViewTranscriptReloadTimer: ReturnType<typeof setTimeout> | undefined;
+	private childViewTranscriptWatchRetryTimer: ReturnType<typeof setTimeout> | undefined;
+	private childViewTranscriptReloadRetries = 0;
 	private unregisterAgentSlotInputHandler: (() => void) | undefined;
 	private terminalCurrentDirectory: string | undefined;
 
@@ -1884,6 +1903,8 @@ export class InteractiveMode {
 	}
 
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
+		this.clearChildAgentView();
+		this.multiAgentStore?.clearSelectedAgentView();
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 		this.cancelPartialUpdateRender();
@@ -2942,12 +2963,20 @@ export class InteractiveMode {
 			return true;
 		}
 
-		this.childViewSessionManager = SessionManager.open(transcriptPath, this.sessionManager.getSessionDir());
+		try {
+			this.childViewSessionManager = SessionManager.open(transcriptPath, this.sessionManager.getSessionDir());
+		} catch {
+			this.renderLiveAgentPlaceholder(agent, transcriptPath);
+			this.scheduleSelectedAgentTranscriptReload(false);
+			return true;
+		}
 		this.watchSelectedAgentTranscript(transcriptPath);
 		return this.renderSelectedAgentView();
 	}
 
 	private clearChildAgentView(): void {
+		this.footer.clearSessionOverride();
+		this.footerDataProvider.clearSessionOverride();
 		this.childViewSessionManager = undefined;
 		this.childViewAgentId = undefined;
 		this.childViewTranscriptPath = undefined;
@@ -2955,23 +2984,60 @@ export class InteractiveMode {
 			clearTimeout(this.childViewTranscriptReloadTimer);
 			this.childViewTranscriptReloadTimer = undefined;
 		}
+		this.childViewTranscriptReloadRetries = 0;
+		if (this.childViewTranscriptWatchRetryTimer) {
+			clearTimeout(this.childViewTranscriptWatchRetryTimer);
+			this.childViewTranscriptWatchRetryTimer = undefined;
+		}
 		closeWatcher(this.childViewTranscriptWatcher);
 		this.childViewTranscriptWatcher = null;
+		this.childViewTranscriptWatchPath = undefined;
 	}
 
 	private watchSelectedAgentTranscript(transcriptPath: string): void {
+		const watchPath = fs.existsSync(transcriptPath) ? transcriptPath : path.dirname(transcriptPath);
+		const targetName = path.basename(transcriptPath);
+		closeWatcher(this.childViewTranscriptWatcher);
+		this.childViewTranscriptWatchPath = watchPath;
 		this.childViewTranscriptWatcher = watchWithErrorHandler(
-			transcriptPath,
-			() => this.scheduleSelectedAgentTranscriptReload(),
+			watchPath,
+			(_eventType, filename) => {
+				if (watchPath !== transcriptPath && filename !== null && filename !== targetName) {
+					return;
+				}
+				this.scheduleSelectedAgentTranscriptReload();
+			},
 			() => {
 				closeWatcher(this.childViewTranscriptWatcher);
 				this.childViewTranscriptWatcher = null;
+				this.childViewTranscriptWatchPath = undefined;
+				this.scheduleSelectedAgentTranscriptWatchRetry();
 			},
 		);
 	}
 
-	private scheduleSelectedAgentTranscriptReload(): void {
+	private scheduleSelectedAgentTranscriptWatchRetry(): void {
+		if (this.childViewTranscriptWatchRetryTimer) {
+			return;
+		}
+		this.childViewTranscriptWatchRetryTimer = setTimeout(() => {
+			this.childViewTranscriptWatchRetryTimer = undefined;
+			if (!this.childViewTranscriptPath || !this.childViewAgentId) {
+				return;
+			}
+			if (this.multiAgentStore?.getSelectedAgentId() !== this.childViewAgentId) {
+				return;
+			}
+			this.watchSelectedAgentTranscript(this.childViewTranscriptPath);
+			this.scheduleSelectedAgentTranscriptReload();
+		}, FS_WATCH_RETRY_DELAY_MS);
+	}
+
+	private scheduleSelectedAgentTranscriptReload(resetRetries = true): void {
 		this.cancelSelectedAgentTranscriptReload();
+		if (resetRetries) {
+			this.childViewTranscriptReloadRetries = 0;
+		}
 		this.childViewTranscriptReloadTimer = setTimeout(
 			() => this.reloadSelectedAgentTranscript(),
 			CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS,
@@ -2987,7 +3053,7 @@ export class InteractiveMode {
 	}
 
 	private reloadSelectedAgentTranscript(): void {
-		this.childViewTranscriptReloadTimer = undefined;
+		this.cancelSelectedAgentTranscriptReload();
 		if (!this.childViewAgentId || !this.childViewTranscriptPath) {
 			return;
 		}
@@ -2995,16 +3061,44 @@ export class InteractiveMode {
 			return;
 		}
 		if (!fs.existsSync(this.childViewTranscriptPath)) {
+			if (this.childViewTranscriptWatchPath === this.childViewTranscriptPath) {
+				this.watchSelectedAgentTranscript(this.childViewTranscriptPath);
+			}
 			return;
 		}
 
-		this.childViewSessionManager = SessionManager.open(
-			this.childViewTranscriptPath,
-			this.sessionManager.getSessionDir(),
-		);
+		try {
+			if (!isCompleteJsonlFile(this.childViewTranscriptPath)) {
+				this.retrySelectedAgentTranscriptReload();
+				return;
+			}
+		} catch {
+			this.retrySelectedAgentTranscriptReload();
+			return;
+		}
+
+		try {
+			const sessionManager = SessionManager.open(this.childViewTranscriptPath, this.sessionManager.getSessionDir());
+			this.childViewSessionManager = sessionManager;
+			this.childViewTranscriptReloadRetries = 0;
+			if (this.childViewTranscriptWatchPath !== this.childViewTranscriptPath) {
+				this.watchSelectedAgentTranscript(this.childViewTranscriptPath);
+			}
+		} catch {
+			this.retrySelectedAgentTranscriptReload();
+			return;
+		}
 		if (this.renderSelectedAgentView()) {
 			this.ui.requestRender();
 		}
+	}
+
+	private retrySelectedAgentTranscriptReload(): void {
+		if (this.childViewTranscriptReloadRetries >= MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES) {
+			return;
+		}
+		this.childViewTranscriptReloadRetries += 1;
+		this.scheduleSelectedAgentTranscriptReload(false);
 	}
 
 	private findReadableAgentLogPath(agent: AgentSnapshot): string | undefined {
@@ -3039,6 +3133,18 @@ export class InteractiveMode {
 	}
 
 	private renderLiveAgentPlaceholder(agent: AgentSnapshot, transcriptPath: string | undefined): void {
+		const footerOverride = {
+			cwd: agent.cwd,
+			sessionManager: null,
+			model: null,
+			thinkingLevel: "off",
+			contextUsage: undefined,
+		};
+		this.footer.setSessionOverride(footerOverride);
+		this.footerDataProvider.setSessionOverride(footerOverride);
+		if (transcriptPath) {
+			this.watchSelectedAgentTranscript(transcriptPath);
+		}
 		const transcriptStatus = transcriptPath
 			? `Transcript file has not been written yet: ${transcriptPath}`
 			: "Transcript file has not been assigned yet.";
@@ -3062,8 +3168,31 @@ export class InteractiveMode {
 			return false;
 		}
 
+		const sessionContext = this.childViewSessionManager.buildSessionContext();
+		const model = sessionContext.model
+			? this.session.modelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId)
+			: undefined;
+		const contextWindow = model?.contextWindow ?? 0;
+		const contextEstimate = estimateContextTokens(sessionContext.messages);
+		const contextUsage =
+			contextWindow > 0
+				? {
+						tokens: contextEstimate.tokens,
+						contextWindow,
+						percent: (contextEstimate.tokens / contextWindow) * 100,
+					}
+				: undefined;
+		const footerOverride = {
+			cwd: this.childViewSessionManager.getCwd(),
+			sessionManager: this.childViewSessionManager,
+			model: model ?? null,
+			thinkingLevel: sessionContext.thinkingLevel,
+			contextUsage,
+		};
+		this.footer.setSessionOverride(footerOverride);
+		this.footerDataProvider.setSessionOverride(footerOverride);
 		this.chatContainer.clear();
-		this.renderSessionContext(this.childViewSessionManager.buildSessionContext(), {
+		this.renderSessionContext(sessionContext, {
 			sourceCwd: this.childViewSessionManager.getCwd(),
 		});
 		return true;
@@ -3080,13 +3209,13 @@ export class InteractiveMode {
 	}
 
 	private subscribeToMultiAgentStore(): void {
-		this.unsubscribeMultiAgentTransitions?.();
-		this.unsubscribeMultiAgentTransitions = undefined;
+		this.unsubscribeMultiAgentUpdates?.();
+		this.unsubscribeMultiAgentUpdates = undefined;
 		if (!this.multiAgentStore) {
 			return;
 		}
 
-		this.unsubscribeMultiAgentTransitions = this.multiAgentStore.subscribeAgentTransitions((_previous, current) => {
+		this.unsubscribeMultiAgentUpdates = this.multiAgentStore.subscribeAgentUpdates((_previous, current) => {
 			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
 				return;
 			}
@@ -3099,6 +3228,10 @@ export class InteractiveMode {
 				this.updateSelectedAgentSelectionWidgets();
 				this.ui.requestRender();
 				return;
+			}
+			const transcriptPath = current.transcript?.path;
+			if (transcriptPath && transcriptPath !== this.childViewTranscriptPath) {
+				this.openChildAgentView(current);
 			}
 			this.syncWorkingLoaderVisibility();
 			this.updateSelectedAgentSelectionWidgets();
@@ -6899,6 +7032,7 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
+		this.clearChildAgentView();
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
 		this.customFooter?.dispose?.();
@@ -6908,8 +7042,8 @@ export class InteractiveMode {
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
-		this.unsubscribeMultiAgentTransitions?.();
-		this.unsubscribeMultiAgentTransitions = undefined;
+		this.unsubscribeMultiAgentUpdates?.();
+		this.unsubscribeMultiAgentUpdates = undefined;
 		this.cancelPartialUpdateRender();
 		this.disposeActiveBashComponents();
 		this.clearPendingToolComponents();

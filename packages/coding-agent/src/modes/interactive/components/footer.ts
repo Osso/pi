@@ -2,7 +2,8 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
-import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
+import type { ContextUsage } from "../../../core/extensions/types.ts";
+import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { theme } from "../theme/theme.ts";
 
 /**
@@ -35,7 +36,7 @@ type SessionFooterData = {
 	cacheWrite: number;
 	cost: number;
 	latestCacheHitRate: number | undefined;
-	contextUsage: ReturnType<AgentSession["getContextUsage"]>;
+	contextUsage: ContextUsage | undefined;
 	sessionName: string | undefined;
 };
 
@@ -62,6 +63,7 @@ export class FooterComponent implements Component {
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
 	private cachedSessionData: SessionFooterData | undefined;
+	private sessionOverride: FooterSessionOverride | undefined;
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -71,10 +73,21 @@ export class FooterComponent implements Component {
 	setSession(session: AgentSession): void {
 		this.session = session;
 		this.cachedSessionData = undefined;
+		this.clearSessionOverride();
 	}
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
+	}
+
+	setSessionOverride(override: FooterSessionOverride): void {
+		this.sessionOverride = override;
+		this.cachedSessionData = undefined;
+	}
+
+	clearSessionOverride(): void {
+		this.sessionOverride = undefined;
+		this.cachedSessionData = undefined;
 	}
 
 	/** Clear cached footer data after session data changes. */
@@ -95,6 +108,7 @@ export class FooterComponent implements Component {
 			return this.cachedSessionData;
 		}
 
+		const sessionManager = this.sessionOverride ? this.sessionOverride.sessionManager : this.session.sessionManager;
 		const data: SessionFooterData = {
 			input: 0,
 			output: 0,
@@ -102,10 +116,10 @@ export class FooterComponent implements Component {
 			cacheWrite: 0,
 			cost: 0,
 			latestCacheHitRate: undefined,
-			contextUsage: this.session.getContextUsage(),
-			sessionName: this.session.sessionManager.getSessionName(),
+			contextUsage: this.sessionOverride ? this.sessionOverride.contextUsage : this.session.getContextUsage(),
+			sessionName: sessionManager?.getSessionName(),
 		};
-		for (const entry of this.session.sessionManager.getEntries()) {
+		for (const entry of sessionManager?.getEntries() ?? []) {
 			if (entry.type !== "message" || entry.message.role !== "assistant") {
 				continue;
 			}
@@ -126,20 +140,26 @@ export class FooterComponent implements Component {
 
 	render(width: number): string[] {
 		const state = this.session.state;
+		const displayedModel = this.sessionOverride === undefined ? state.model : this.sessionOverride.model;
+		const displayedThinkingLevel = this.sessionOverride?.thinkingLevel ?? state.thinkingLevel;
 		const sessionData = this.getSessionData();
 
 		// Calculate context usage from session (handles compaction correctly).
 		// After compaction, tokens are unknown until the next LLM response.
 		const contextUsage = sessionData.contextUsage;
-		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
+		const contextWindow =
+			contextUsage?.contextWindow ??
+			displayedModel?.contextWindow ??
+			(this.sessionOverride ? 0 : (state.model?.contextWindow ?? 0));
 		const contextPercentValue = contextUsage?.percent ?? 0;
-		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
+		const contextPercent = contextUsage?.percent == null ? "?" : contextUsage.percent.toFixed(1);
 
 		// Replace home directory with ~
-		let pwd = formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
+		const cwd = this.sessionOverride?.cwd ?? this.session.sessionManager.getCwd();
+		let pwd = formatCwdForFooter(cwd, process.env.HOME || process.env.USERPROFILE);
 
-		// Add git branch if available
-		const branch = this.footerData.getGitBranch();
+		// The shared provider watches the main session repository. Omit its branch in child views.
+		const branch = this.sessionOverride ? null : this.footerData.getGitBranch();
 		if (branch) {
 			pwd = `${pwd} (${branch})`;
 		}
@@ -163,7 +183,7 @@ export class FooterComponent implements Component {
 		}
 
 		// Show cost with "(sub)" indicator if using OAuth subscription
-		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
+		const usingSubscription = displayedModel ? this.session.modelRegistry.isUsingOAuth(displayedModel) : false;
 		if (sessionData.cost || usingSubscription) {
 			const costStr = `$${sessionData.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
 			statsParts.push(costStr);
@@ -191,7 +211,7 @@ export class FooterComponent implements Component {
 		let statsLeft = statsParts.join(" ");
 
 		// Add model name on the right side, plus thinking level if model supports it
-		const modelName = state.model?.id || "no-model";
+		const modelName = displayedModel?.id || "no-model";
 
 		let statsLeftWidth = visibleWidth(statsLeft);
 
@@ -206,15 +226,15 @@ export class FooterComponent implements Component {
 
 		// Add effort indicator if model supports reasoning
 		let rightSideWithoutProvider = modelName;
-		if (state.model?.reasoning) {
-			const effortLevel = state.thinkingLevel || "off";
+		if (displayedModel?.reasoning) {
+			const effortLevel = displayedThinkingLevel ?? "off";
 			rightSideWithoutProvider = `${modelName} • effort ${effortLevel}`;
 		}
 
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room
 		let rightSide = rightSideWithoutProvider;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
-			rightSide = `(${state.model!.provider}) ${rightSideWithoutProvider}`;
+		if (this.footerData.getAvailableProviderCount() > 1 && displayedModel) {
+			rightSide = `(${displayedModel.provider}) ${rightSideWithoutProvider}`;
 			if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) {
 				// Too wide, fall back
 				rightSide = rightSideWithoutProvider;

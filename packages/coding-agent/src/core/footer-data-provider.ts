@@ -1,12 +1,23 @@
+import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { type ExecFileException, execFile, spawnSync } from "child_process";
 import { existsSync, type FSWatcher, readFileSync, type Stats, statSync, unwatchFile, watchFile } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "../utils/fs-watch.ts";
+import type { ContextUsage } from "./extensions/types.ts";
+import type { ReadonlySessionManager } from "./session-manager.ts";
 
 type GitPaths = {
 	repoDir: string;
 	commonGitDir: string;
 	headPath: string;
+};
+
+export type FooterSessionOverride = {
+	cwd: string;
+	sessionManager: ReadonlySessionManager | null;
+	model: Model<Api> | null;
+	thinkingLevel: string;
+	contextUsage: ContextUsage | undefined;
 };
 
 /**
@@ -136,6 +147,7 @@ export class FooterDataProvider {
 	private refreshInFlight = false;
 	private refreshPending = false;
 	private disposed = false;
+	private sessionOverride: FooterSessionOverride | undefined;
 
 	constructor(cwd: string) {
 		this.cwd = cwd;
@@ -165,6 +177,18 @@ export class FooterDataProvider {
 	onBranchChange(callback: () => void): () => void {
 		this.branchChangeCallbacks.add(callback);
 		return () => this.branchChangeCallbacks.delete(callback);
+	}
+
+	getSessionOverride(): FooterSessionOverride | undefined {
+		return this.sessionOverride;
+	}
+
+	setSessionOverride(override: FooterSessionOverride): void {
+		this.sessionOverride = override;
+	}
+
+	clearSessionOverride(): void {
+		this.sessionOverride = undefined;
 	}
 
 	/** Internal: set extension status */
@@ -417,5 +441,10 @@ export class FooterDataProvider {
 /** Read-only view for extensions - excludes setExtensionStatus, setAvailableProviderCount and dispose */
 export type ReadonlyFooterDataProvider = Pick<
 	FooterDataProvider,
-	"getGitBranch" | "getExecutableName" | "getExtensionStatuses" | "getAvailableProviderCount" | "onBranchChange"
+	| "getGitBranch"
+	| "getExecutableName"
+	| "getExtensionStatuses"
+	| "getAvailableProviderCount"
+	| "getSessionOverride"
+	| "onBranchChange"
 >;

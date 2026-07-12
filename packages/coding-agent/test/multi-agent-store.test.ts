@@ -75,6 +75,83 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
+	it("notifies subscribers for lifecycle and transcript metadata updates", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const spawned = spawnScout(store);
+		const updates: Array<[string, string | undefined]> = [];
+		store.subscribeAgentUpdates((previous, current) => {
+			updates.push([previous.lifecycle, current.transcript?.path]);
+		});
+
+		const started = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		expect(started.ok).toBe(true);
+		const transcript = store.updateAgentTranscript(spawned.agent.id, {
+			path: "/tmp/child-session.jsonl",
+			sessionId: "child-session",
+		});
+
+		expect(transcript.ok).toBe(true);
+		expect(updates).toEqual([
+			["queued", undefined],
+			["starting", "/tmp/child-session.jsonl"],
+		]);
+	});
+
+	it("isolates throwing update subscribers from persisted terminal notifications", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-update-listener-"));
+		try {
+			const session = createControlDbSession(tempDir);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(session);
+			const spawned = spawnScout(store);
+			const throwingUpdate = vi.fn(() => {
+				throw new Error("update listener failed");
+			});
+			const otherUpdate = vi.fn();
+			const transitions: Array<string | undefined> = [];
+			const lifecycleNotifications: string[] = [];
+			store.subscribeAgentUpdates(throwingUpdate);
+			store.subscribeAgentUpdates(otherUpdate);
+			store.subscribeAgentTransitions((_previous, current) => transitions.push(current.lifecycle));
+			store.subscribeLifecycleNotifications((message) => {
+				if (message.body !== undefined) {
+					lifecycleNotifications.push(message.body);
+				}
+			});
+
+			const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+			expect(starting.ok).toBe(true);
+			if (!starting.ok) {
+				throw new Error("expected starting transition");
+			}
+			const running = store.transitionAgent(spawned.agent.id, starting.agent.revision, "running");
+			expect(running.ok).toBe(true);
+			if (!running.ok) {
+				throw new Error("expected running transition");
+			}
+			const completed = store.transitionAgent(spawned.agent.id, running.agent.revision, "completed");
+
+			expect(completed).toMatchObject({ ok: true, agent: { lifecycle: "completed" } });
+			expect(throwingUpdate).toHaveBeenCalledTimes(3);
+			expect(otherUpdate).toHaveBeenCalledTimes(3);
+			expect(transitions).toEqual(["starting", "running", "completed"]);
+			expect(lifecycleNotifications).toEqual(["Scout completed."]);
+
+			const controlDbPath = session.getMetadataControlDbPath();
+			const sessionPath = session.getSessionFile();
+			if (!controlDbPath || !sessionPath) {
+				throw new Error("expected control DB session");
+			}
+			const state = readMultiAgentState(controlDbPath, sessionPath);
+			expect(state?.agents).toMatchObject([{ id: spawned.agent.id, lifecycle: "completed" }]);
+			expect(state?.mailboxMessages).toMatchObject([
+				{ fromAgentId: spawned.agent.id, status: "pending", threadId: `agent-completed:${spawned.agent.id}` },
+			]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("keeps view selection read-only", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);

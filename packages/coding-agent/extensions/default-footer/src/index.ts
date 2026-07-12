@@ -2,7 +2,10 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
-import type { ReadonlyFooterDataProvider } from "../../../src/core/footer-data-provider.ts";
+import type {
+	FooterSessionOverride,
+	ReadonlyFooterDataProvider,
+} from "../../../src/core/footer-data-provider.ts";
 import {
 	type AgentLifecycleState,
 	type AgentSnapshot,
@@ -50,9 +53,21 @@ function formatCost(cost: number): string | undefined {
 	return `cost $${cost.toFixed(2)}`;
 }
 
-function formatContextUsage(ctx: ExtensionContext): string {
-	const usage = ctx.getContextUsage();
-	const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+function footerSession(input: DefaultFooterComponentInput): FooterSessionOverride {
+	return (
+		input.footerData.getSessionOverride() ?? {
+			cwd: input.ctx.sessionManager.getCwd(),
+			sessionManager: input.ctx.sessionManager,
+			model: input.ctx.model ?? null,
+			thinkingLevel: input.ctx.getThinkingLevel?.() ?? "off",
+			contextUsage: input.ctx.getContextUsage(),
+		}
+	);
+}
+
+function formatContextUsage(session: FooterSessionOverride): string {
+	const usage = session.contextUsage;
+	const contextWindow = usage?.contextWindow ?? session.model?.contextWindow ?? 0;
 	const percent = usage?.percent;
 	if (percent === null || percent === undefined) {
 		return `ctx ?/${formatTokens(contextWindow)}`;
@@ -135,11 +150,11 @@ export function countDefaultFooterAgents(store: MultiAgentStore): DefaultFooterA
 	return counts;
 }
 
-function sessionUsage(ctx: ExtensionContext): { input: number; output: number; cost: number } {
+function sessionUsage(session: FooterSessionOverride): { input: number; output: number; cost: number } {
 	let input = 0;
 	let output = 0;
 	let cost = 0;
-	for (const entry of ctx.sessionManager.getEntries()) {
+	for (const entry of session.sessionManager?.getEntries() ?? []) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") {
 			continue;
 		}
@@ -152,7 +167,8 @@ function sessionUsage(ctx: ExtensionContext): { input: number; output: number; c
 }
 
 function formatStats(input: DefaultFooterComponentInput): string {
-	const usage = sessionUsage(input.ctx);
+	const session = footerSession(input);
+	const usage = sessionUsage(session);
 	const executableName = input.footerData.getExecutableName();
 	const parts = [
 		executableName ? `[${executableName}]` : undefined,
@@ -162,16 +178,17 @@ function formatStats(input: DefaultFooterComponentInput): string {
 	if (usage.input > 0) parts.push(`in ${formatTokens(usage.input)}`);
 	if (usage.output > 0) parts.push(`out ${formatTokens(usage.output)}`);
 	parts.push(formatCost(usage.cost));
-	parts.push(formatContextUsage(input.ctx));
+	parts.push(formatContextUsage(session));
 
 	return parts.filter((part): part is string => part !== undefined).join(" ");
 }
 
 function formatRightSide(input: DefaultFooterComponentInput): string {
-	const modelName = input.ctx.model?.id || "no-model";
-	const effortSuffix = input.ctx.model?.reasoning ? ` • effort ${input.ctx.getThinkingLevel?.() ?? "off"}` : "";
-	if (input.footerData.getAvailableProviderCount() > 1 && input.ctx.model) {
-		return `(${input.ctx.model.provider}) ${modelName}${effortSuffix}`;
+	const session = footerSession(input);
+	const modelName = session.model?.id || "no-model";
+	const effortSuffix = session.model?.reasoning ? ` • effort ${session.thinkingLevel}` : "";
+	if (input.footerData.getAvailableProviderCount() > 1 && session.model) {
+		return `(${session.model.provider}) ${modelName}${effortSuffix}`;
 	}
 	return `${modelName}${effortSuffix}`;
 }
@@ -187,12 +204,14 @@ function formatStatsLine(input: DefaultFooterComponentInput, width: number): str
 }
 
 function formatPwdLine(input: DefaultFooterComponentInput, width: number): string {
-	let pwd = formatCwd(input.ctx.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
-	const branch = input.footerData.getGitBranch();
+	const session = footerSession(input);
+	const sessionManager = session.sessionManager;
+	let pwd = formatCwd(session.cwd, process.env.HOME || process.env.USERPROFILE);
+	const branch = input.footerData.getSessionOverride() ? null : input.footerData.getGitBranch();
 	if (branch) {
 		pwd = `${pwd} (${branch})`;
 	}
-	const sessionName = input.ctx.sessionManager.getSessionName();
+	const sessionName = sessionManager?.getSessionName();
 	if (sessionName) {
 		pwd = `${pwd} • ${sessionName}`;
 	}

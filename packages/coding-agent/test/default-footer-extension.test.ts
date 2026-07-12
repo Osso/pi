@@ -5,8 +5,8 @@ import defaultFooterExtension, {
 	type DefaultFooterAgentLifecycleCounts,
 } from "../extensions/default-footer/src/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
-import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../src/index.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -47,6 +47,7 @@ function createFooterData(executableName?: string): ReadonlyFooterDataProvider {
 		getExecutableName: () => executableName,
 		getExtensionStatuses: () => new Map<string, string>(),
 		getGitBranch: () => "main",
+		getSessionOverride: () => undefined,
 		onBranchChange: () => () => {},
 	};
 }
@@ -172,6 +173,58 @@ describe("default footer extension", () => {
 		const line = stripAnsi(component?.render(160)[1] ?? "");
 
 		expect(line).toContain("selected #2 Second waiting for input");
+	});
+
+	it("renders selected child session data and restores the main session", () => {
+		initTheme(undefined, false);
+		let override: ReturnType<ReadonlyFooterDataProvider["getSessionOverride"]>;
+		const footerData: ReadonlyFooterDataProvider = {
+			...createFooterData(),
+			getSessionOverride: () => override,
+		};
+		const footer = createDefaultFooterComponent({
+			ctx: createContext({ input: 11, output: 7, cacheRead: 0, cacheWrite: 0, cost: { total: 1 } }),
+			footerData,
+			theme,
+		});
+
+		override = {
+			cwd: "/tmp/child",
+			sessionManager: {
+				getCwd: () => "/tmp/child",
+				getEntries: () => [
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							usage: { input: 23, output: 19, cacheRead: 0, cacheWrite: 0, cost: { total: 2 } },
+						},
+					},
+				],
+				getSessionName: () => "child",
+			} as unknown as FooterSessionOverride["sessionManager"],
+			model: {
+				id: "child-model",
+				provider: "child",
+				contextWindow: 100_000,
+				reasoning: true,
+			} as unknown as FooterSessionOverride["model"],
+			thinkingLevel: "high",
+			contextUsage: { contextWindow: 100_000, percent: 25, tokens: 25_000 },
+		};
+
+		const childOutput = stripAnsi(footer.render(160).join("\n"));
+		expect(childOutput).toContain("/tmp/child • child");
+		expect(childOutput).not.toContain("/tmp/child (main)");
+		expect(childOutput).toContain("in 23 out 19 cost $2.00 ctx 25.0%/100k");
+		expect(childOutput).toContain("child-model • effort high");
+		expect(childOutput).not.toContain("test-model");
+
+		override = undefined;
+		const mainOutput = stripAnsi(footer.render(160).join("\n"));
+		expect(mainOutput).toContain("/tmp/project (main)");
+		expect(mainOutput).toContain("test-model");
+		expect(mainOutput).not.toContain("child-model");
 	});
 
 	it("shows effort next to reasoning models", () => {

@@ -231,6 +231,7 @@ export interface MultiAgentStoreOptions {
 
 export type AgentLifecycleNotificationListener = (message: AgentMailboxMessage) => void;
 export type AgentTransitionListener = (previous: AgentSnapshot, current: AgentSnapshot) => void;
+export type AgentUpdateListener = (previous: AgentSnapshot, current: AgentSnapshot) => void;
 
 export interface AgentSlotProjection {
 	agentId: string;
@@ -283,6 +284,7 @@ export class MultiAgentStore {
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
 	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
 	private readonly transitionListeners = new Set<AgentTransitionListener>();
+	private readonly updateListeners = new Set<AgentUpdateListener>();
 	private readonly abortHandlers = new Map<string, () => void>();
 	private readonly now: () => string;
 	private nextAgentNumber = 1;
@@ -303,6 +305,11 @@ export class MultiAgentStore {
 	subscribeAgentTransitions(listener: AgentTransitionListener): () => void {
 		this.transitionListeners.add(listener);
 		return () => this.transitionListeners.delete(listener);
+	}
+
+	subscribeAgentUpdates(listener: AgentUpdateListener): () => void {
+		this.updateListeners.add(listener);
+		return () => this.updateListeners.delete(listener);
 	}
 
 	registerAgentAbortHandler(agentId: string, handler: () => void): () => void {
@@ -1106,6 +1113,7 @@ export class MultiAgentStore {
 		};
 		this.agents.set(updated.id, updated);
 		this.persistAgentRow(updated);
+		this.notifyAgentUpdateListeners(current, updated);
 
 		return updated;
 	}
@@ -1118,6 +1126,7 @@ export class MultiAgentStore {
 		};
 		this.agents.set(updated.id, updated);
 		this.persistAgentRow(updated);
+		this.notifyAgentUpdateListeners(current, updated);
 
 		return updated;
 	}
@@ -1193,6 +1202,18 @@ export class MultiAgentStore {
 		const currentSnapshot = copyAgent(current);
 		for (const listener of this.transitionListeners) {
 			listener(previousSnapshot, currentSnapshot);
+		}
+	}
+
+	private notifyAgentUpdateListeners(previous: AgentNode, current: AgentNode): void {
+		const previousSnapshot = copyAgent(previous);
+		const currentSnapshot = copyAgent(current);
+		for (const listener of this.updateListeners) {
+			try {
+				listener(previousSnapshot, currentSnapshot);
+			} catch (error) {
+				console.error("MultiAgentStore agent update listener failed:", error);
+			}
 		}
 	}
 

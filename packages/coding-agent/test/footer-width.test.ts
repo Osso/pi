@@ -1,3 +1,4 @@
+import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
@@ -78,6 +79,7 @@ function createFooterData(providerCount: number, executableName?: string): Reado
 		getExecutableName: () => executableName,
 		getExtensionStatuses: () => new Map<string, string>(),
 		getAvailableProviderCount: () => providerCount,
+		getSessionOverride: () => undefined,
 		onBranchChange: (callback: () => void) => {
 			void callback;
 			return () => {};
@@ -193,6 +195,28 @@ describe("FooterComponent width handling", () => {
 		expect(secondSessionReads).toBe(1);
 	});
 
+	it("restores the new session model when the session changes", () => {
+		const firstSession = createSession({ sessionName: "", modelId: "first-model" });
+		const secondSession = createSession({ sessionName: "", modelId: "second-model" });
+		const faux = registerFauxProvider({ models: [{ id: "child-model" }] });
+		const childModel = faux.getModel("child-model");
+		if (!childModel) throw new Error("expected faux child model");
+		const footer = new FooterComponent(firstSession, createFooterData(1));
+
+		footer.setSessionOverride({
+			cwd: firstSession.sessionManager.getCwd(),
+			sessionManager: firstSession.sessionManager,
+			model: childModel,
+			thinkingLevel: "off",
+			contextUsage: { tokens: 1, contextWindow: childModel.contextWindow, percent: 0.1 },
+		});
+		footer.setSession(secondSession);
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+		expect(statsLine).toContain("second-model");
+		expect(statsLine).not.toContain("child-model");
+	});
+
 	it("shows the latest cache hit rate when cache usage is present", () => {
 		const session = createSession({
 			sessionName: "",
@@ -221,5 +245,78 @@ describe("FooterComponent width handling", () => {
 
 		const statsLine = stripAnsi(footer.render(120)[1]);
 		expect(statsLine).toContain("effort-model • effort medium");
+	});
+
+	it("shows a selected child model and restores the main model", () => {
+		const session = createSession({ sessionName: "", modelId: "main-model" });
+		const faux = registerFauxProvider({ models: [{ id: "child-model" }] });
+		const childModel = faux.getModel("child-model");
+		if (!childModel) throw new Error("expected faux child model");
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		footer.setSessionOverride({
+			cwd: session.sessionManager.getCwd(),
+			sessionManager: session.sessionManager,
+			model: childModel,
+			thinkingLevel: "off",
+			contextUsage: { tokens: 1, contextWindow: childModel.contextWindow, percent: 0.1 },
+		});
+		let statsLine = stripAnsi(footer.render(120)[1]);
+		expect(statsLine).toContain("child-model");
+		expect(statsLine).not.toContain("main-model");
+
+		footer.clearSessionOverride();
+		statsLine = stripAnsi(footer.render(120)[1]);
+		expect(statsLine).toContain("main-model");
+		expect(statsLine).not.toContain("child-model");
+	});
+
+	it("renders selected transcript stats with the resolved child model", () => {
+		const faux = registerFauxProvider({ models: [{ id: "child-model", reasoning: true }] });
+		const mainSession = createSession({
+			sessionName: "main",
+			modelId: "main-model",
+			usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, cost: { total: 1.25 } },
+		});
+		const childSession = createSession({
+			sessionName: "child",
+			usage: { input: 2_000, output: 300, cacheRead: 100, cacheWrite: 50, cost: { total: 0.75 } },
+		});
+		const childModel = faux.getModel("child-model");
+		if (!childModel) throw new Error("expected faux child model");
+		const footer = new FooterComponent(mainSession, createFooterData(1));
+
+		footer.setSessionOverride({
+			cwd: childSession.sessionManager.getCwd(),
+			sessionManager: childSession.sessionManager,
+			model: childModel,
+			thinkingLevel: "high",
+			contextUsage: { tokens: 4_000, contextWindow: childModel.contextWindow, percent: 3.125 },
+		});
+
+		const statsLine = stripAnsi(footer.render(160)[1]);
+		expect(statsLine).toContain("↑2.0k");
+		expect(statsLine).toContain("↓300");
+		expect(statsLine).toContain("$0.750");
+		expect(statsLine).toContain("child-model • effort high");
+		expect(statsLine).not.toContain("↑100");
+		expect(statsLine).not.toContain("main-model");
+	});
+
+	it("does not invent a model for a live child without a transcript", () => {
+		const session = createSession({ sessionName: "", modelId: "main-model" });
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		footer.setSessionOverride({
+			cwd: session.sessionManager.getCwd(),
+			sessionManager: session.sessionManager,
+			model: null,
+			thinkingLevel: "off",
+			contextUsage: undefined,
+		});
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		expect(statsLine).toContain("no-model");
+		expect(statsLine).not.toContain("main-model");
 	});
 });
