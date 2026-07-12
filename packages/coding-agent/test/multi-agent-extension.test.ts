@@ -445,8 +445,10 @@ function restoreOptionalEnv(name: string, value: string | undefined): void {
 
 describe("multi-agent extension tools", () => {
 	const childHarnesses: Harness[] = [];
+	const childSessions: Harness["session"][] = [];
 
 	afterEach(async () => {
+		for (const session of childSessions.splice(0)) session.dispose();
 		const completedHarnesses = childHarnesses.splice(0);
 		for (const harness of completedHarnesses) harness.session.dispose();
 		await delay(100);
@@ -3012,12 +3014,14 @@ describe("multi-agent extension tools", () => {
 				sessionManager: parentHarness.sessionManager,
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
+				agentDir: parentHarness.tempDir,
 				extensionFactories: [externalGoalExtension, probeExtension],
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
 					const session = result.session;
 					childSession = session;
+					childSessions.push(session);
 					await session.bindExtensions({ mode: "print" });
 					return { session };
 				},
@@ -3039,11 +3043,13 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
 		let attachedSession: Harness["session"] | undefined;
 		const attachedFactory = createProductionAttachedSessionFactory({
+			agentDir: parentHarness.tempDir,
 			extensionFactories: [externalGoalExtension],
 			createSession: async (options) => {
 				const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
 				const session = result.session;
 				attachedSession = session;
+				childSessions.push(session);
 				return { session };
 			},
 		});
@@ -3445,11 +3451,13 @@ describe("multi-agent extension tools", () => {
 				sessionManager: parentHarness.sessionManager,
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
+				agentDir: parentHarness.tempDir,
 				extensionFactories: [firstPartyGoalExtension, captureFirstTurnSystemPrompt],
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
 					childSession = result.session;
+					childSessions.push(result.session);
 					return { session: result.session };
 				},
 			}),
@@ -3503,6 +3511,7 @@ describe("multi-agent extension tools", () => {
 				sessionManager: parentHarness.sessionManager,
 			},
 			createChildSession: createProductionChildAgentSessionFactory({
+				agentDir: parentHarness.tempDir,
 				extensionFactories: [firstPartyGoalExtension],
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
@@ -3511,6 +3520,7 @@ describe("multi-agent extension tools", () => {
 						authStorage: parentHarness.authStorage,
 					});
 					childSession = result.session;
+					childSessions.push(result.session);
 					return { session: result.session };
 				},
 			}),
