@@ -236,7 +236,9 @@ function createMultiAgentHarness(
 	const commands = new Map<string, RegisteredCommand>();
 	const eventHandlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void | Promise<void>>>();
 	const tools = new Map<string, RegisteredTool>();
-	const store = options.store ?? new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+	const store =
+		options.store ??
+		MultiAgentStore.fromSessionManager(createControlDbSession(), { now: () => "2026-06-21T00:00:00.000Z" });
 	const pi = {
 		on(eventName: string, handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>) {
 			eventHandlers.set(eventName, [...(eventHandlers.get(eventName) ?? []), handler]);
