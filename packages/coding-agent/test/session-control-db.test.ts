@@ -606,7 +606,7 @@ describe("session control DB", () => {
 				lifecycle: "queued",
 				parentId: "agent-parent",
 				permission: { narrowed: true, policy: "on-request" },
-				revision: 0,
+				revision: 1,
 				updatedAt: "2026-07-11T00:00:00.000Z",
 			},
 			expiresAt: "2026-07-11T00:10:00.000Z",
@@ -617,7 +617,7 @@ describe("session control DB", () => {
 			sessionPath,
 		});
 		expect(created).toMatchObject({
-			agent: { id: "agent-child", lifecycle: "queued", parentId: "agent-parent", revision: 0 },
+			agent: { id: "agent-child", lifecycle: "queued", parentId: "agent-parent", revision: 1 },
 			lease: { fencingEpoch: 1, leaseId: "lease-child" },
 			ok: true,
 		});

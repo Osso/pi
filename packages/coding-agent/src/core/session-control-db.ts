@@ -2070,11 +2070,11 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 }
 
 export interface CreateMultiAgentChildWithDispatchReservationInput extends AcquireMultiAgentDispatchLeaseInput {
-	agent: Record<string, unknown>;
+	agent: object;
 }
 
 export type CreateMultiAgentChildWithDispatchReservationResult =
-	| { ok: true; agent: Record<string, unknown>; lease: MultiAgentDispatchLease }
+	| { ok: true; agent: object; lease: MultiAgentDispatchLease }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
 
 export interface MultiAgentDispatchLease {
@@ -2678,15 +2678,19 @@ export function createMultiAgentChildWithDispatchReservation(
 ): CreateMultiAgentChildWithDispatchReservationResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			validatePersistedAgentPayload(input.agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			if (input.agent.id !== input.agentId)
-				throw new Error("Child agent payload ID does not match reservation identity");
-			const parentId = typeof input.agent.parentId === "string" ? input.agent.parentId : undefined;
+			const agent = input.agent as Record<string, unknown>;
+			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			if (agent.id !== input.agentId) throw new Error("Child agent payload ID does not match reservation identity");
+			if (agent.lifecycle !== "queued" || agent.revision !== 1) {
+				throw new Error("Child dispatch reservation requires queued revision 1");
+			}
+			const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
 			if (
 				!parentId ||
-				!db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, parentId)
+				(parentId !== "main" &&
+					!db
+						.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+						.get(input.sessionPath, parentId))
 			) {
 				return { ok: false, error: "parent_not_found" };
 			}

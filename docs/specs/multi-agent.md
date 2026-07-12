@@ -155,7 +155,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   an expired/foreign reservation, or an unowned reservation that a runner can execute.
 - Child creation is one coordinator transaction: child row, single parent link, initial revision,
   and either the committed dispatch reservation or an explicitly unreserved dispatchable state are
-  created together. Parent links cannot self-reference or form cycles. Cancellation is cascading:
+  created together. Main-runtime children use the synthetic `main` identity as the durable session
+  root; nested children require an existing persisted parent. Parent links cannot self-reference or form cycles. Cancellation is cascading:
   cancelling a parent issues cancellation intents to active descendants, while each descendant
   still terminalizes through its own fenced command. A parent cannot become terminal while any
   descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry
