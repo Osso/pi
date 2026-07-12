@@ -2126,6 +2126,53 @@ export interface ReleaseMultiAgentDispatchLeaseInput extends MultiAgentDispatchL
 	expectedFencingEpoch: number;
 }
 
+export interface MultiAgentRecoveryLeaderLease {
+	leaseId?: string;
+	runtimeIncarnation?: string;
+	ownerSessionId?: string;
+	fencingEpoch: number;
+	renewedAt?: string;
+	expiresAt?: string;
+}
+
+interface MultiAgentRecoveryLeaderLeaseRow {
+	lease_id: string | null;
+	runtime_incarnation: string | null;
+	owner_session_id: string | null;
+	fencing_epoch: number;
+	renewed_at: string | null;
+	expires_at: string | null;
+}
+
+export interface MultiAgentRecoveryLeaderIdentity {
+	leaseId: string;
+	runtimeIncarnation: string;
+	ownerSessionId: string;
+}
+
+export interface AcquireMultiAgentRecoveryLeaderLeaseInput extends MultiAgentRecoveryLeaderIdentity {
+	nowIso: string;
+	expiresAt: string;
+}
+
+export type AcquireMultiAgentRecoveryLeaderLeaseResult =
+	| { ok: true; lease: MultiAgentRecoveryLeaderLease }
+	| { ok: false; error: "lease_held"; current: MultiAgentRecoveryLeaderLease };
+
+export interface RenewMultiAgentRecoveryLeaderLeaseInput extends MultiAgentRecoveryLeaderIdentity {
+	expectedFencingEpoch: number;
+	nowIso: string;
+	expiresAt: string;
+}
+
+export type RenewMultiAgentRecoveryLeaderLeaseResult =
+	| { ok: true; lease: MultiAgentRecoveryLeaderLease }
+	| { ok: false; error: "lease_mismatch"; current: MultiAgentRecoveryLeaderLease | undefined };
+
+export interface ReleaseMultiAgentRecoveryLeaderLeaseInput extends MultiAgentRecoveryLeaderIdentity {
+	expectedFencingEpoch: number;
+}
+
 export interface MultiAgentCounters {
 	nextAgentNumber: number;
 	nextMessageNumber: number;
@@ -2135,6 +2182,123 @@ export interface MultiAgentPersistedState {
 	agents: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
+}
+
+export function readMultiAgentRecoveryLeaderLease(controlDbPath: string): MultiAgentRecoveryLeaderLease | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = readMultiAgentRecoveryLeaderLeaseRow(db);
+		return row ? multiAgentRecoveryLeaderLeaseFromRow(row) : undefined;
+	});
+}
+
+export function acquireMultiAgentRecoveryLeaderLease(
+	controlDbPath: string,
+	input: AcquireMultiAgentRecoveryLeaderLeaseInput,
+): AcquireMultiAgentRecoveryLeaderLeaseResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const currentRow = readMultiAgentRecoveryLeaderLeaseRow(db);
+			if (currentRow?.lease_id && currentRow.expires_at && currentRow.expires_at > input.nowIso) {
+				return { ok: false, error: "lease_held", current: multiAgentRecoveryLeaderLeaseFromRow(currentRow) };
+			}
+			const fencingEpoch = (currentRow?.fencing_epoch ?? 0) + 1;
+			db.prepare(
+				`INSERT INTO multi_agent_recovery_leader (
+					singleton_id, lease_id, runtime_incarnation, owner_session_id,
+					fencing_epoch, renewed_at, expires_at
+				) VALUES (1, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(singleton_id) DO UPDATE SET
+					lease_id = excluded.lease_id,
+					runtime_incarnation = excluded.runtime_incarnation,
+					owner_session_id = excluded.owner_session_id,
+					fencing_epoch = excluded.fencing_epoch,
+					renewed_at = excluded.renewed_at,
+					expires_at = excluded.expires_at`,
+			).run(
+				input.leaseId,
+				input.runtimeIncarnation,
+				input.ownerSessionId,
+				fencingEpoch,
+				input.nowIso,
+				input.expiresAt,
+			);
+			const acquired = readMultiAgentRecoveryLeaderLeaseRow(db);
+			if (!acquired) throw new Error("Recovery leader lease acquisition did not persist");
+			return { ok: true, lease: multiAgentRecoveryLeaderLeaseFromRow(acquired) };
+		}),
+	);
+}
+
+export function renewMultiAgentRecoveryLeaderLease(
+	controlDbPath: string,
+	input: RenewMultiAgentRecoveryLeaderLeaseInput,
+): RenewMultiAgentRecoveryLeaderLeaseResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const result = db
+				.prepare(
+					`UPDATE multi_agent_recovery_leader
+					 SET renewed_at = ?, expires_at = ?
+					 WHERE singleton_id = 1 AND lease_id = ? AND runtime_incarnation = ?
+					 AND owner_session_id = ? AND fencing_epoch = ?`,
+				)
+				.run(
+					input.nowIso,
+					input.expiresAt,
+					input.leaseId,
+					input.runtimeIncarnation,
+					input.ownerSessionId,
+					input.expectedFencingEpoch,
+				);
+			const currentRow = readMultiAgentRecoveryLeaderLeaseRow(db);
+			if (result.changes !== 1) {
+				return {
+					ok: false,
+					error: "lease_mismatch",
+					current: currentRow ? multiAgentRecoveryLeaderLeaseFromRow(currentRow) : undefined,
+				};
+			}
+			if (!currentRow) throw new Error("Recovery leader lease renewal lost its row");
+			return { ok: true, lease: multiAgentRecoveryLeaderLeaseFromRow(currentRow) };
+		}),
+	);
+}
+
+export function releaseMultiAgentRecoveryLeaderLease(
+	controlDbPath: string,
+	input: ReleaseMultiAgentRecoveryLeaderLeaseInput,
+): boolean {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const result = db
+				.prepare(
+					`UPDATE multi_agent_recovery_leader
+					 SET lease_id = NULL, runtime_incarnation = NULL, owner_session_id = NULL,
+					 renewed_at = NULL, expires_at = NULL
+					 WHERE singleton_id = 1 AND lease_id = ? AND runtime_incarnation = ?
+					 AND owner_session_id = ? AND fencing_epoch = ?`,
+				)
+				.run(input.leaseId, input.runtimeIncarnation, input.ownerSessionId, input.expectedFencingEpoch);
+			return result.changes === 1;
+		}),
+	);
+}
+
+function readMultiAgentRecoveryLeaderLeaseRow(db: SqliteDatabase): MultiAgentRecoveryLeaderLeaseRow | undefined {
+	return db.prepare("SELECT * FROM multi_agent_recovery_leader WHERE singleton_id = 1").get() as
+		| MultiAgentRecoveryLeaderLeaseRow
+		| undefined;
+}
+
+function multiAgentRecoveryLeaderLeaseFromRow(row: MultiAgentRecoveryLeaderLeaseRow): MultiAgentRecoveryLeaderLease {
+	return {
+		expiresAt: row.expires_at ?? undefined,
+		fencingEpoch: row.fencing_epoch,
+		leaseId: row.lease_id ?? undefined,
+		ownerSessionId: row.owner_session_id ?? undefined,
+		renewedAt: row.renewed_at ?? undefined,
+		runtimeIncarnation: row.runtime_incarnation ?? undefined,
+	};
 }
 
 export function readMultiAgentDispatchLease(

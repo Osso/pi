@@ -10,6 +10,7 @@ import {
 	abortInactiveSessionSpawnedAgents,
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
 	acquireMultiAgentDispatchLease,
+	acquireMultiAgentRecoveryLeaderLease,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -42,6 +43,7 @@ import {
 	readIncomingMessageStatus,
 	readLastMessage,
 	readMultiAgentDispatchLease,
+	readMultiAgentRecoveryLeaderLease,
 	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
@@ -52,10 +54,12 @@ import {
 	registerLifecycleProtocolVersion,
 	registerRuntimeMailboxListener,
 	releaseMultiAgentDispatchLease,
+	releaseMultiAgentRecoveryLeaderLease,
 	relocateSessionControlData,
 	removeNamedSession,
 	renewArchitectRequestClaims,
 	renewMultiAgentDispatchLease,
+	renewMultiAgentRecoveryLeaderLease,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
@@ -590,6 +594,60 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("fences recovery leader acquisition, renewal, takeover, and release", () => {
+		const identity = {
+			leaseId: "recovery-lease-a",
+			ownerSessionId: "supervisor-a",
+			runtimeIncarnation: "runtime-a",
+		};
+		const acquired = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
+			...identity,
+			expiresAt: "2026-07-11T00:01:00.000Z",
+			nowIso: "2026-07-11T00:00:00.000Z",
+		});
+		expect(acquired).toMatchObject({ ok: true, lease: { fencingEpoch: 1, leaseId: identity.leaseId } });
+
+		const held = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
+			expiresAt: "2026-07-11T00:02:00.000Z",
+			leaseId: "recovery-lease-b",
+			nowIso: "2026-07-11T00:00:30.000Z",
+			ownerSessionId: "supervisor-b",
+			runtimeIncarnation: "runtime-b",
+		});
+		expect(held).toMatchObject({ ok: false, error: "lease_held", current: { leaseId: identity.leaseId } });
+
+		expect(
+			renewMultiAgentRecoveryLeaderLease(controlDbPath, {
+				...identity,
+				expectedFencingEpoch: 1,
+				expiresAt: "2026-07-11T00:03:00.000Z",
+				nowIso: "2026-07-11T00:00:45.000Z",
+			}),
+		).toMatchObject({ ok: true, lease: { expiresAt: "2026-07-11T00:03:00.000Z" } });
+
+		const takeover = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
+			expiresAt: "2026-07-11T00:05:00.000Z",
+			leaseId: "recovery-lease-b",
+			nowIso: "2026-07-11T00:04:00.000Z",
+			ownerSessionId: "supervisor-b",
+			runtimeIncarnation: "runtime-b",
+		});
+		expect(takeover).toMatchObject({ ok: true, lease: { fencingEpoch: 2, leaseId: "recovery-lease-b" } });
+		expect(releaseMultiAgentRecoveryLeaderLease(controlDbPath, { ...identity, expectedFencingEpoch: 1 })).toBe(false);
+		expect(
+			releaseMultiAgentRecoveryLeaderLease(controlDbPath, {
+				expectedFencingEpoch: 2,
+				leaseId: "recovery-lease-b",
+				ownerSessionId: "supervisor-b",
+				runtimeIncarnation: "runtime-b",
+			}),
+		).toBe(true);
+		expect(readMultiAgentRecoveryLeaderLease(controlDbPath)).toMatchObject({
+			fencingEpoch: 2,
+			leaseId: undefined,
+		});
 	});
 
 	it("fences dispatch lease acquisition, renewal, takeover, and release", () => {
