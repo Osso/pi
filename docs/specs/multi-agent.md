@@ -181,8 +181,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   agent to `cancelling`; only a current fenced exit acknowledgement can then produce `aborted`.
   Duplicate aborts return the existing outcome without a new revision or event. Owner loss or
   lease expiry fences the old runtime, and late finalizers fail the mutation predicate rather than
-  rewriting state. The expiry/owner-loss path is resolved as `failed` with a `lost_runtime` cause,
-  not as a confirmed abort.
+  rewriting state. Expired-runtime recovery requires the live recovery-leader lease, the expected
+  agent revision, and an expired dispatch lease; one transaction acquires the next dispatch fencing
+  epoch and commits `failed/lost_runtime` plus its terminal event/outbox. The expiry/owner-loss path
+  is never reported as a confirmed abort.
 - Each terminal transition inserts exactly one immutable terminal event/outbox record in the same
   SQLite transaction as the state and revision change. Its identity is unique
   `(agent_id, terminal_revision, event_kind)`, and its payload is complete and immutable: terminal

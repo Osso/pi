@@ -2187,6 +2187,27 @@ export type CommitMultiAgentTerminalMutationResult =
 	| { ok: true; terminalRevision: number }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface RecoverExpiredMultiAgentRuntimeInput {
+	sessionPath: string;
+	agentId: string;
+	expectedRevision: number;
+	nowIso: string;
+	recoveryLeader: MultiAgentRecoveryLeaderIdentity & { fencingEpoch: number };
+	replacementLease: MultiAgentDispatchLeaseIdentity;
+}
+
+export type RecoverExpiredMultiAgentRuntimeResult =
+	| { ok: true; agent: Record<string, unknown>; fencingEpoch: number; terminalRevision: number }
+	| {
+			ok: false;
+			error:
+				| "agent_not_found"
+				| "invalid_transition"
+				| "lease_not_expired"
+				| "mutation_mismatch"
+				| "not_recovery_leader";
+	  };
+
 export interface MultiAgentRecoveryLeaderLease {
 	leaseId?: string;
 	runtimeIncarnation?: string;
@@ -2554,6 +2575,96 @@ function dispatchLeaseMatchesTerminalMutation(
 		lease.owner_session_id === input.owner.sessionId &&
 		lease.owner_agent_id === input.owner.agentId &&
 		lease.fencing_epoch === input.fencingEpoch
+	);
+}
+
+export function recoverExpiredMultiAgentRuntime(
+	controlDbPath: string,
+	input: RecoverExpiredMultiAgentRuntimeInput,
+): RecoverExpiredMultiAgentRuntimeResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const leader = readMultiAgentRecoveryLeaderLeaseRow(db);
+			const ownsRecovery =
+				leader?.lease_id === input.recoveryLeader.leaseId &&
+				leader.runtime_incarnation === input.recoveryLeader.runtimeIncarnation &&
+				leader.owner_session_id === input.recoveryLeader.ownerSessionId &&
+				leader.fencing_epoch === input.recoveryLeader.fencingEpoch &&
+				leader.expires_at !== null &&
+				leader.expires_at > input.nowIso;
+			if (!ownsRecovery) return { ok: false, error: "not_recovery_leader" };
+
+			const row = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+			if (!row) return { ok: false, error: "agent_not_found" };
+			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			if (agent.revision !== input.expectedRevision) return { ok: false, error: "mutation_mismatch" };
+			const recoverableLifecycle =
+				typeof agent.lifecycle === "string" &&
+				["queued", "starting", "running", "waiting_for_input", "steering_pending", "cancelling"].includes(
+					agent.lifecycle,
+				);
+			if (!recoverableLifecycle) return { ok: false, error: "invalid_transition" };
+			const previousLease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!previousLease?.expires_at || previousLease.expires_at > input.nowIso) {
+				return { ok: false, error: "lease_not_expired" };
+			}
+			const fencingEpoch = previousLease.fencing_epoch + 1;
+			db.prepare(
+				`UPDATE multi_agent_dispatch_leases SET
+					lease_id = ?, runtime_incarnation = ?, owner_session_id = ?, owner_agent_id = ?,
+					fencing_epoch = ?, renewed_at = ?, expires_at = ?, recovery_owner_id = ?
+				 WHERE session_path = ? AND agent_id = ? AND fencing_epoch = ?`,
+			).run(
+				input.replacementLease.leaseId,
+				input.replacementLease.runtimeIncarnation,
+				input.replacementLease.owner.sessionId,
+				input.replacementLease.owner.agentId,
+				fencingEpoch,
+				input.nowIso,
+				input.nowIso,
+				input.recoveryLeader.ownerSessionId,
+				input.sessionPath,
+				input.agentId,
+				previousLease.fencing_epoch,
+			);
+			const terminalRevision = input.expectedRevision + 1;
+			const error = {
+				code: "lost_runtime",
+				message: "Agent runtime ownership expired before terminal confirmation.",
+			};
+			const updated = {
+				...agent,
+				error,
+				lifecycle: "failed",
+				revision: terminalRevision,
+				updatedAt: input.nowIso,
+				worker: undefined,
+			};
+			const payload = {
+				agentId: input.agentId,
+				error,
+				fencingEpoch,
+				parentId: agent.parentId ?? null,
+				previousFencingEpoch: previousLease.fencing_epoch,
+				recoveryLeaderFencingEpoch: input.recoveryLeader.fencingEpoch,
+			};
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updated), input.nowIso, input.sessionPath, input.agentId);
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_events
+					(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
+				 VALUES (?, ?, ?, 'lost_runtime', ?, ?)`,
+			).run(input.sessionPath, input.agentId, terminalRevision, JSON.stringify(payload), input.nowIso);
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_outbox
+					(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+				 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
+			).run(input.sessionPath, input.agentId, terminalRevision, input.nowIso);
+			return { ok: true, agent: updated, fencingEpoch, terminalRevision };
+		}),
 	);
 }
 

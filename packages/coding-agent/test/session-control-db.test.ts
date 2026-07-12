@@ -58,6 +58,7 @@ import {
 	readSessionHealth,
 	readSessionMetadata,
 	readSharedChannelCursor,
+	recoverExpiredMultiAgentRuntime,
 	recoverStaleRuntimeMailboxClaims,
 	registerLifecycleProtocolVersion,
 	registerRuntimeMailboxListener,
@@ -997,6 +998,96 @@ describe("session control DB", () => {
 			fencingEpoch: 2,
 			leaseId: undefined,
 		});
+	});
+
+	it("atomically fences and terminalizes an expired reserved runtime under recovery leadership", () => {
+		const sessionPath = "/sessions/expired-runtime.jsonl";
+		const agentId = "agent-expired";
+		const created = createMultiAgentChildWithDispatchReservation(controlDbPath, {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-07-11T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Expired child",
+				id: agentId,
+				lifecycle: "queued",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-07-11T00:00:00.000Z",
+			},
+			agentId,
+			expiresAt: "2026-07-11T00:01:00.000Z",
+			leaseId: "dispatch-a",
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor-a" },
+			runtimeIncarnation: "runtime-a",
+			sessionPath,
+		});
+		expect(created.ok).toBe(true);
+		const leader = acquireMultiAgentRecoveryLeaderLease(controlDbPath, {
+			expiresAt: "2026-07-11T00:05:00.000Z",
+			leaseId: "leader-a",
+			nowIso: "2026-07-11T00:02:00.000Z",
+			ownerSessionId: "recovery-session",
+			runtimeIncarnation: "recovery-runtime",
+		});
+		expect(leader).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
+
+		const recovered = recoverExpiredMultiAgentRuntime(controlDbPath, {
+			agentId,
+			expectedRevision: 1,
+			nowIso: "2026-07-11T00:02:00.000Z",
+			recoveryLeader: {
+				fencingEpoch: 1,
+				leaseId: "leader-a",
+				ownerSessionId: "recovery-session",
+				runtimeIncarnation: "recovery-runtime",
+			},
+			replacementLease: {
+				agentId,
+				leaseId: "recovery-dispatch",
+				owner: { agentId: null, sessionId: "recovery-session" },
+				runtimeIncarnation: "recovery-runtime",
+				sessionPath,
+			},
+			sessionPath,
+		});
+		expect(recovered).toMatchObject({
+			agent: { error: { code: "lost_runtime" }, lifecycle: "failed", revision: 2 },
+			fencingEpoch: 2,
+			ok: true,
+			terminalRevision: 2,
+		});
+		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, agentId)).toMatchObject({
+			fencingEpoch: 2,
+			leaseId: "recovery-dispatch",
+			recoveryOwnerId: "recovery-session",
+		});
+		expect(
+			recoverExpiredMultiAgentRuntime(controlDbPath, {
+				agentId,
+				expectedRevision: 1,
+				nowIso: "2026-07-11T00:02:01.000Z",
+				recoveryLeader: {
+					fencingEpoch: 0,
+					leaseId: "stale-leader",
+					ownerSessionId: "stale",
+					runtimeIncarnation: "stale",
+				},
+				replacementLease: {
+					agentId,
+					leaseId: "stale-dispatch",
+					owner: { agentId: null, sessionId: "stale" },
+					runtimeIncarnation: "stale",
+					sessionPath,
+				},
+				sessionPath,
+			}),
+		).toEqual({ ok: false, error: "not_recovery_leader" });
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "recovery-test")).toMatchObject([
+			{ agentId, eventKind: "lost_runtime", terminalRevision: 2 },
+		]);
 	});
 
 	it("fences dispatch lease acquisition, renewal, takeover, and release", () => {
