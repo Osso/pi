@@ -1160,6 +1160,116 @@ describe("session control DB", () => {
 		}
 	});
 
+	it("lets a higher-epoch runtime complete exactly once while stale writers fail and wait cursors fan out", () => {
+		const sessionPath = "/sessions/two-runtime-fencing.jsonl";
+		const agentId = "agent-fenced";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "test",
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Fenced worker",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 3,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const runtimeA = {
+			agentId,
+			leaseId: "lease-a",
+			owner: { agentId: null, sessionId: "supervisor-a" },
+			runtimeIncarnation: "runtime-a",
+			sessionPath,
+		};
+		expect(
+			acquireMultiAgentDispatchLease(controlDbPath, {
+				...runtimeA,
+				expiresAt: "2026-07-11T00:01:00.000Z",
+				nowIso: "2026-07-11T00:00:00.000Z",
+			}),
+		).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
+		const runtimeB = {
+			agentId,
+			leaseId: "lease-b",
+			owner: { agentId: null, sessionId: "supervisor-b" },
+			runtimeIncarnation: "runtime-b",
+			sessionPath,
+		};
+		expect(
+			acquireMultiAgentDispatchLease(controlDbPath, {
+				...runtimeB,
+				expiresAt: "2026-07-11T00:03:00.000Z",
+				nowIso: "2026-07-11T00:02:00.000Z",
+			}),
+		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
+
+		expect(
+			renewMultiAgentDispatchLease(controlDbPath, {
+				...runtimeA,
+				expectedFencingEpoch: 1,
+				expiresAt: "2026-07-11T00:04:00.000Z",
+				nowIso: "2026-07-11T00:02:30.000Z",
+			}),
+		).toMatchObject({ ok: false, error: "lease_mismatch" });
+		expect(
+			commitMultiAgentLifecycleMutation(controlDbPath, {
+				...runtimeA,
+				expectedRevision: 3,
+				fencingEpoch: 1,
+				requestedLifecycle: "waiting_for_input",
+				updatedAt: "2026-07-11T00:02:30.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(
+			commitMultiAgentTerminalMutation(controlDbPath, {
+				...runtimeA,
+				eventKind: "completed",
+				eventPayload: { result: { summary: "stale A" } },
+				expectedRevision: 3,
+				fencingEpoch: 1,
+				terminalLifecycle: "completed",
+				updatedAt: "2026-07-11T00:02:30.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+
+		const completion = {
+			...runtimeB,
+			eventKind: "completed",
+			eventPayload: { result: { summary: "runtime B" } },
+			expectedRevision: 3,
+			fencingEpoch: 2,
+			terminalLifecycle: "completed" as const,
+			updatedAt: "2026-07-11T00:02:30.000Z",
+		};
+		const completed = commitMultiAgentTerminalMutation(controlDbPath, completion);
+		expect(completed).toEqual({ ok: true, terminalRevision: 4 });
+		expect(commitMultiAgentTerminalMutation(controlDbPath, completion)).toEqual(completed);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: agentId, lifecycle: "completed", revision: 4 },
+		]);
+
+		const firstWaiter = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-1");
+		const secondWaiter = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-2");
+		expect(firstWaiter).toMatchObject([{ agentId, terminalRevision: 4, eventKind: "completed" }]);
+		expect(secondWaiter).toEqual(firstWaiter);
+		const terminalEvent = firstWaiter[0];
+		if (!terminalEvent) throw new Error("Expected terminal event");
+		expect(
+			markMultiAgentTerminalEventSeen(controlDbPath, "waiter-1", terminalEvent, "2026-07-11T00:02:31.000Z"),
+		).toBe(true);
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-1")).toEqual([]);
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-2")).toEqual(secondWaiter);
+
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
+		} finally {
+			db.close();
+		}
+	});
+
 	it("creates immutable terminal event and outbox schema", () => {
 		readMultiAgentState(controlDbPath, "/sessions/terminal-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);
