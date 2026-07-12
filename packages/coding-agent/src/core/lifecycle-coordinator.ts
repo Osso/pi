@@ -1,6 +1,7 @@
 import type { AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
 import {
 	commitMultiAgentLifecycleMutation,
+	commitMultiAgentTerminalMutation,
 	createMultiAgentChildWithDispatchReservation,
 	type MultiAgentDispatchLease,
 } from "./session-control-db.ts";
@@ -34,6 +35,13 @@ export type ReservedLifecycleCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface FinalizeChildCommandInput extends ReservedLifecycleCommandInput {
+	error?: AgentSnapshot["error"];
+	eventPayload: unknown;
+	result?: AgentSnapshot["result"];
+	terminalLifecycle: "completed" | "failed" | "aborted";
+}
+
 export class LifecycleCoordinator {
 	private readonly options: LifecycleCoordinatorOptions;
 
@@ -47,6 +55,38 @@ export class LifecycleCoordinator {
 
 	confirmChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "running");
+	}
+
+	finalizeChild(input: FinalizeChildCommandInput): ReservedLifecycleCommandResult {
+		const identity = this.readReservationIdentity(input.reservation);
+		if (!identity) return { ok: false, error: "mutation_mismatch" };
+		const updatedAt = this.options.now();
+		const result = commitMultiAgentTerminalMutation(this.options.controlDbPath, {
+			agentDetails: { error: input.error, result: input.result },
+			agentId: input.agent.id,
+			eventKind: input.terminalLifecycle,
+			eventPayload: input.eventPayload,
+			expectedRevision: input.agent.revision,
+			fencingEpoch: input.reservation.fencingEpoch,
+			leaseId: identity.leaseId,
+			owner: identity.owner,
+			runtimeIncarnation: identity.runtimeIncarnation,
+			sessionPath: this.options.sessionPath,
+			terminalLifecycle: input.terminalLifecycle,
+			updatedAt,
+		});
+		if (!result.ok) return result;
+		return {
+			ok: true,
+			agent: {
+				...input.agent,
+				error: input.error,
+				lifecycle: input.terminalLifecycle,
+				result: input.result,
+				revision: result.terminalRevision,
+				updatedAt,
+			},
+		};
 	}
 
 	createChild(input: CreateChildCommandInput): CreateChildCommandResult {
@@ -92,18 +132,17 @@ export class LifecycleCoordinator {
 		requestedLifecycle: "starting" | "running",
 	): ReservedLifecycleCommandResult {
 		const reservation = input.reservation;
-		if (!reservation.leaseId || !reservation.runtimeIncarnation || !reservation.owner.sessionId) {
-			return { ok: false, error: "mutation_mismatch" };
-		}
+		const identity = this.readReservationIdentity(reservation);
+		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentLifecycleMutation(this.options.controlDbPath, {
 			agentId: input.agent.id,
 			expectedRevision: input.agent.revision,
 			fencingEpoch: reservation.fencingEpoch,
-			leaseId: reservation.leaseId,
-			owner: { agentId: reservation.owner.agentId, sessionId: reservation.owner.sessionId },
+			leaseId: identity.leaseId,
+			owner: identity.owner,
 			requestedLifecycle,
-			runtimeIncarnation: reservation.runtimeIncarnation,
+			runtimeIncarnation: identity.runtimeIncarnation,
 			sessionPath: this.options.sessionPath,
 			updatedAt,
 		});
@@ -111,6 +150,21 @@ export class LifecycleCoordinator {
 		return {
 			ok: true,
 			agent: { ...input.agent, lifecycle: requestedLifecycle, revision: input.agent.revision + 1, updatedAt },
+		};
+	}
+
+	private readReservationIdentity(reservation: MultiAgentDispatchLease):
+		| {
+				leaseId: string;
+				owner: { agentId: string | null; sessionId: string };
+				runtimeIncarnation: string;
+		  }
+		| undefined {
+		if (!reservation.leaseId || !reservation.runtimeIncarnation || !reservation.owner.sessionId) return undefined;
+		return {
+			leaseId: reservation.leaseId,
+			owner: { agentId: reservation.owner.agentId, sessionId: reservation.owner.sessionId },
+			runtimeIncarnation: reservation.runtimeIncarnation,
 		};
 	}
 }

@@ -1368,10 +1368,33 @@ async function dispatchReservedAgentSession(
 	ctx: ExtensionContext,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
+	let childSession: ChildAgentSession;
+	try {
+		childSession = await createChildSession({ agent: ownership.agent, ctx, prompt });
+	} catch (error) {
+		const runtimeError = {
+			code: "runtime_spawn_failed",
+			message: error instanceof Error ? error.message : String(error),
+		};
+		const failed = coordinator.finalizeChild({
+			agent: ownership.agent,
+			error: runtimeError,
+			eventPayload: { error: runtimeError },
+			reservation: ownership.reservation,
+			terminalLifecycle: "failed",
+		});
+		if (!failed.ok) return ownership.agent;
+		store.publishLifecycleCoordinatorSnapshot(failed.agent);
+		return failed.agent;
+	}
 	const running = coordinator.confirmChildRuntime(ownership);
-	if (!running.ok) return ownership.agent;
+	if (!running.ok) {
+		childSession.abort?.();
+		childSession.dispose?.();
+		return ownership.agent;
+	}
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
-	return runAgentSession(store, createChildSession, running.agent, prompt, ctx, handles);
+	return runAgentSession(store, createChildSession, running.agent, prompt, ctx, handles, childSession);
 }
 
 async function runAgentSession(
@@ -1381,13 +1404,14 @@ async function runAgentSession(
 	prompt: string,
 	ctx: ExtensionContext,
 	handles?: BackgroundSessionHandles,
+	createdSession?: ChildAgentSession,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
 	const running = { agent: runningAgent };
 	let childSession: ChildAgentSession | undefined;
 	let unregisterAbortHandler: (() => void) | undefined;
 	try {
-		const activeSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		const activeSession = createdSession ?? (await createChildSession({ agent: running.agent, ctx, prompt }));
 		childSession = activeSession;
 		const current = store.getAgent(running.agent.id);
 		if (store.getRestoreGeneration() !== restoreGeneration || !current || !isActiveLifecycle(current.lifecycle)) {

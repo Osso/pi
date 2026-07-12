@@ -2632,6 +2632,22 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("fenced-fails a child when runtime construction throws before running confirmation", async () => {
+		const harness = createMultiAgentHarness({
+			createChildSession: async () => {
+				throw new Error("factory unavailable");
+			},
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Broken child",
+			prompt: "run",
+		});
+		const terminal = await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(terminal).toMatchObject({ lifecycle: "failed", revision: 3 });
+	});
+
 	it("dispatches a real child AgentSession behind spawn_agent", async () => {
 		let childHarness: Harness | undefined;
 		const harness = createMultiAgentHarness({

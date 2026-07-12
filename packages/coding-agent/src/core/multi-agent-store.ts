@@ -336,7 +336,14 @@ export class MultiAgentStore {
 	}
 
 	publishLifecycleCoordinatorSnapshot(agent: AgentSnapshot): void {
-		this.agents.set(agent.id, copyAgent(agent));
+		const previous = this.agents.get(agent.id);
+		const current = copyAgent(agent);
+		this.agents.set(agent.id, current);
+		if (!previous || previous.lifecycle === current.lifecycle) return;
+		if (current.lifecycle === "completed") this.recordCompletionNotification(current);
+		if (current.lifecycle === "failed") this.recordFailureNotification(current);
+		if (current.lifecycle === "waiting_for_input") this.recordWaitingForInputNotification(current);
+		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {

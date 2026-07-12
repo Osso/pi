@@ -2179,6 +2179,7 @@ export interface CommitMultiAgentTerminalMutationInput {
 	terminalLifecycle: "completed" | "failed" | "aborted";
 	eventKind: string;
 	eventPayload: unknown;
+	agentDetails?: { error?: unknown; result?: unknown };
 	updatedAt: string;
 }
 
@@ -2483,6 +2484,7 @@ export function commitMultiAgentTerminalMutation(
 
 			const updatedAgent = {
 				...agent,
+				...input.agentDetails,
 				lifecycle: input.terminalLifecycle,
 				revision: terminalRevision,
 				updatedAt: input.updatedAt,

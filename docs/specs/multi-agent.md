@@ -157,8 +157,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   and either the committed dispatch reservation or an explicitly unreserved dispatchable state are
   created together. Main-runtime children use the synthetic `main` identity as the durable session
   root; nested children require an existing persisted parent. Runtime construction begins only after a
-  full-predicate coordinator transition to `starting`, and ownership is confirmed by another fenced
-  transition to `running`. Production `spawn_agent` requires a persisted supervisor session and
+  full-predicate coordinator transition to `starting`; `running` is confirmed only after construction
+  succeeds. Construction failure commits `failed`, error projection, terminal event, and outbox through
+  the current reservation before any `running` state is exposed. Production `spawn_agent` requires a persisted supervisor session and
   fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Terminal replay
   validates the current full lease predicate before idempotency, so an old owner cannot replay a
   finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links

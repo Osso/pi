@@ -72,6 +72,26 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(running).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 3 } });
 	});
 
+	it("terminalizes runtime construction failure from starting with one fenced event", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) return;
+
+		const failed = coordinator.finalizeChild({
+			agent: starting.agent,
+			eventPayload: { error: { code: "runtime_spawn_failed", message: "factory failed" } },
+			reservation: created.reservation,
+			terminalLifecycle: "failed",
+		});
+		expect(failed).toMatchObject({ ok: true, agent: { lifecycle: "failed", revision: 3 } });
+	});
+
 	it("rejects runtime confirmation after the reservation fencing epoch changes", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";

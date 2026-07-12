@@ -45,7 +45,7 @@
 
 ### Changed
 
-- Routed production `spawn_agent` child creation and runtime startup through `LifecycleCoordinator`: persisted sessions atomically create a queued revision-1 child plus its first fenced dispatch reservation, then fence `starting` and `running` by revision, lease, incarnation, owner, and epoch. Sessionless orchestration now fails closed instead of creating non-durable work. Terminal replay also revalidates the current lease before idempotency, rejecting stale finalizers and duplicate event/outbox writes after epoch takeover.
+- Routed production `spawn_agent` child creation and runtime startup through `LifecycleCoordinator`: persisted sessions atomically create a queued revision-1 child plus its first fenced dispatch reservation, fence `starting`, construct the runtime, and only then fence `running` by revision, lease, incarnation, owner, and epoch. Runtime-construction failures commit `failed` plus error details and their terminal event/outbox through the same fenced coordinator transaction. Sessionless orchestration now fails closed instead of creating non-durable work. Terminal replay also revalidates the current lease before idempotency, rejecting stale finalizers and duplicate event/outbox writes after epoch takeover.
 - Removed store-only `spawn_agent`: spawning now fails before persistence unless an executable child-session factory or dispatcher is configured; dormant session attachment remains explicit.
 - Added typed multi-agent runtime roles and constructor-entry capability validation: orchestrators require an issued execution capability, while child and non-orchestrator runtimes reject it.
 - Added a complete-predicate nonterminal lifecycle CAS with legal transition checks and single-winner SQLite contention semantics.
