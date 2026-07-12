@@ -92,8 +92,6 @@ export {
 	type SendSteeringInput,
 	type SpawnAgentInput,
 	type SteeringCheckpoint,
-	type SteeringCommandResult,
 	type TerminalAgentLifecycleState,
-	type TransitionAgentDetails,
 } from "./multi-agent-store.ts";
 export { createSyntheticSourceInfo } from "./source-info.ts";

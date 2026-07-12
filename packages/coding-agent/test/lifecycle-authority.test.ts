@@ -20,6 +20,13 @@ const forbiddenCalls = [
 ];
 
 describe("lifecycle authority", () => {
+	it("does not expose direct lifecycle mutation methods on MultiAgentStore", () => {
+		const source = readFileSync(join(packageRoot, "src/core/multi-agent-store.ts"), "utf8");
+		expect(source).not.toContain("\n\ttransitionAgent(");
+		expect(source).not.toContain("\n\tsendSteering(");
+		expect(source).not.toContain("\n\tackSteering(");
+	});
+
 	it("contains no production direct lifecycle writers outside authority modules", () => {
 		const violations: string[] = [];
 		for (const file of productionRoots.flatMap(listTypeScriptFiles)) {

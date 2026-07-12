@@ -160,12 +160,6 @@ export interface SendMailboxMessageInput {
 	fileRefs?: AgentFileReference[];
 }
 
-export interface TransitionAgentDetails {
-	error?: AgentNode["error"];
-	lastActivity?: AgentActivity;
-	result?: AgentResult;
-}
-
 type AgentLifecycleNotificationLifecycle = "completed" | "failed" | "waiting_for_input";
 
 interface AgentLifecycleNotificationInput {
@@ -184,13 +178,6 @@ export type SpawnChildAgentResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "parent_not_found"; parentId: string }
 	| { ok: false; error: "permission_broadened"; parent: AgentSnapshot; requested: AgentNode["permission"] };
-
-export type SteeringCommandResult =
-	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
-	| { ok: false; error: "not_found"; agentId: string }
-	| { ok: false; error: "stale_revision"; current: AgentSnapshot }
-	| { ok: false; error: "message_not_found"; agent: AgentSnapshot; messageId: string }
-	| { ok: false; error: "invalid_transition"; current: AgentSnapshot; requested: AgentLifecycleState };
 
 export type SupervisorContactResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
@@ -270,18 +257,6 @@ const WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX = "agent-waiting-for-input";
 const MAIN_THREAD_AGENT_ID = "main";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
-const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
-	["queued", new Set(["starting", "cancelling", "aborted"])],
-	["starting", new Set(["running", "cancelling", "failed", "aborted"])],
-	["running", new Set(["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"])],
-	["waiting_for_input", new Set(["running", "steering_pending", "cancelling", "completed", "aborted"])],
-	["steering_pending", new Set(["running", "waiting_for_input", "cancelling", "failed", "aborted"])],
-	["cancelling", new Set(["aborted", "failed", "completed"])],
-	["completed", new Set()],
-	["failed", new Set()],
-	["aborted", new Set()],
-]);
-
 export class MultiAgentStore {
 	private readonly agents = new Map<string, AgentNode>();
 	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
@@ -360,7 +335,9 @@ export class MultiAgentStore {
 		const current = copyAgent(agent);
 		this.mailboxMessages.set(message.id, copyMessage(message));
 		this.agents.set(agent.id, current);
-		if (previous) this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		if (!previous) return;
+		this.notifyAgentUpdateListeners(previous, current);
+		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
 
 	publishLifecycleCoordinatorSteeringDelivery(agent: AgentSnapshot, message: AgentMailboxMessage): void {
@@ -371,7 +348,9 @@ export class MultiAgentStore {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
-		if (!previous || previous.lifecycle === current.lifecycle) return;
+		if (!previous) return;
+		this.notifyAgentUpdateListeners(previous, current);
+		if (previous.lifecycle === current.lifecycle) return;
 		if (current.lifecycle === "waiting_for_input") this.recordWaitingForInputNotification(current);
 		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
@@ -384,7 +363,10 @@ export class MultiAgentStore {
 		if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
 			this.retryOrRecordTerminalNotification(current, "failed");
 		}
-		if (previous) this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		if (this.selectedAgentId === current.id) this.selectedAgentId = undefined;
+		if (!previous) return;
+		this.notifyAgentUpdateListeners(previous, current);
+		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
@@ -449,47 +431,6 @@ export class MultiAgentStore {
 			origin: "attached",
 			transcript: copyTranscript(input.transcript),
 		});
-	}
-
-	transitionAgent(
-		agentId: string,
-		expectedRevision: number,
-		requested: AgentLifecycleState,
-		details: TransitionAgentDetails = {},
-	): AgentCommandResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
-		}
-
-		if (!canTransition(current.lifecycle, requested)) {
-			return { ok: false, error: "invalid_transition", current: copyAgent(current), requested };
-		}
-
-		const shouldNotifyCompletion = requested === "completed" && current.lifecycle !== "completed";
-		const shouldNotifyFailure = requested === "failed" && current.lifecycle !== "failed";
-		const shouldNotifyWaitingForInput =
-			requested === "waiting_for_input" && current.lifecycle !== "waiting_for_input";
-		const updated = this.updateAgent(current, { ...details, lifecycle: requested });
-		if (shouldNotifyCompletion) {
-			this.recordCompletionNotification(updated);
-		}
-		if (shouldNotifyFailure) {
-			this.recordFailureNotification(updated);
-		}
-		if (shouldNotifyWaitingForInput) {
-			this.recordWaitingForInputNotification(updated);
-		}
-		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
-		if (this.selectedAgentId === current.id && !isActiveLifecycle(updated.lifecycle)) {
-			this.selectedAgentId = undefined;
-		}
-		return { ok: true, agent: copyAgent(updated) };
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {
@@ -895,82 +836,6 @@ export class MultiAgentStore {
 		return copyMessage(message);
 	}
 
-	sendSteering(agentId: string, expectedRevision: number, input: SendSteeringInput): SteeringCommandResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
-		}
-
-		if (!canTransition(current.lifecycle, "steering_pending") && current.lifecycle !== "steering_pending") {
-			return { ok: false, error: "invalid_transition", current: copyAgent(current), requested: "steering_pending" };
-		}
-
-		const timestamp = this.now();
-		const message: AgentMailboxMessage = {
-			id: this.createMessageId(),
-			threadId: input.threadId,
-			fromAgentId: input.fromAgentId,
-			toAgentId: agentId,
-			kind: "steer",
-			status: "pending",
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			body: input.body,
-			fileRefs: validateFileRefs(input.fileRefs, "steer_agent"),
-			targetCheckpoint: input.targetCheckpoint,
-		};
-		this.putMailboxMessage(message);
-
-		const updated = this.updateAgent(current, { lifecycle: "steering_pending" });
-		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
-
-		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
-	}
-
-	ackSteering(
-		agentId: string,
-		expectedRevision: number,
-		messageId: string,
-		status: Exclude<MailboxMessageStatus, "pending">,
-	): SteeringCommandResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
-		}
-
-		const message = this.mailboxMessages.get(messageId);
-		if (!message || message.toAgentId !== agentId || message.kind !== "steer") {
-			return { ok: false, error: "message_not_found", agent: copyAgent(current), messageId };
-		}
-
-		const updatedMessage = {
-			...message,
-			status,
-			updatedAt: this.now(),
-		};
-		this.putMailboxMessage(updatedMessage);
-
-		const nextLifecycle = status === "delivered" ? "running" : current.lifecycle;
-		if (nextLifecycle !== current.lifecycle && !canTransition(current.lifecycle, nextLifecycle)) {
-			return { ok: false, error: "invalid_transition", current: copyAgent(current), requested: nextLifecycle };
-		}
-
-		const updated = this.updateAgent(current, { lifecycle: nextLifecycle });
-		this.notifyTransitionListenersIfLifecycleChanged(current, updated);
-
-		return { ok: true, agent: copyAgent(updated), message: copyMessage(updatedMessage) };
-	}
-
 	getRestoreGeneration(): number {
 		return this.restoreGeneration;
 	}
@@ -1151,24 +1016,6 @@ export class MultiAgentStore {
 		}
 
 		return { ok: false, error: "stale_revision", current: copyAgent(current) };
-	}
-
-	private updateAgent(
-		current: AgentNode,
-		updates: TransitionAgentDetails & Partial<Pick<AgentNode, "lifecycle" | "slot">>,
-	): AgentNode {
-		const updated = {
-			...current,
-			...updates,
-			result: updates.result ? copyResult(updates.result) : current.result,
-			revision: current.revision + 1,
-			updatedAt: this.now(),
-		};
-		this.agents.set(updated.id, updated);
-		this.persistAgentRow(updated);
-		this.notifyAgentUpdateListeners(current, updated);
-
-		return updated;
 	}
 
 	private updateAgentMetadata(
@@ -1363,14 +1210,6 @@ export function isActiveLifecycle(lifecycle: AgentLifecycleState): boolean {
 
 export function formatInactiveAgentSelectionMessage(agent: Pick<AgentSnapshot, "displayName" | "lifecycle">): string {
 	return `Agent is not active: ${agent.displayName} (${agent.lifecycle})`;
-}
-
-function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): boolean {
-	if (from === to && !TERMINAL_STATES.has(from)) {
-		return true;
-	}
-
-	return ALLOWED_TRANSITIONS.get(from)?.has(to) ?? false;
 }
 
 function completionNotificationThreadId(agentId: string): string {
