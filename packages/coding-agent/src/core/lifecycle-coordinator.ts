@@ -1,5 +1,9 @@
 import type { AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
-import { createMultiAgentChildWithDispatchReservation, type MultiAgentDispatchLease } from "./session-control-db.ts";
+import {
+	commitMultiAgentLifecycleMutation,
+	createMultiAgentChildWithDispatchReservation,
+	type MultiAgentDispatchLease,
+} from "./session-control-db.ts";
 
 const MAIN_THREAD_AGENT_ID = "main";
 
@@ -21,11 +25,28 @@ export type CreateChildCommandResult =
 	| { ok: true; agent: AgentSnapshot; reservation: MultiAgentDispatchLease }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
 
+export interface ReservedLifecycleCommandInput {
+	agent: AgentSnapshot;
+	reservation: MultiAgentDispatchLease;
+}
+
+export type ReservedLifecycleCommandResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
 export class LifecycleCoordinator {
 	private readonly options: LifecycleCoordinatorOptions;
 
 	constructor(options: LifecycleCoordinatorOptions) {
 		this.options = options;
+	}
+
+	beginChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
+		return this.commitReservedLifecycle(input, "starting");
+	}
+
+	confirmChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
+		return this.commitReservedLifecycle(input, "running");
 	}
 
 	createChild(input: CreateChildCommandInput): CreateChildCommandResult {
@@ -64,5 +85,32 @@ export class LifecycleCoordinator {
 		});
 		if (!result.ok) return result;
 		return { ok: true, agent, reservation: result.lease };
+	}
+
+	private commitReservedLifecycle(
+		input: ReservedLifecycleCommandInput,
+		requestedLifecycle: "starting" | "running",
+	): ReservedLifecycleCommandResult {
+		const reservation = input.reservation;
+		if (!reservation.leaseId || !reservation.runtimeIncarnation || !reservation.owner.sessionId) {
+			return { ok: false, error: "mutation_mismatch" };
+		}
+		const updatedAt = this.options.now();
+		const result = commitMultiAgentLifecycleMutation(this.options.controlDbPath, {
+			agentId: input.agent.id,
+			expectedRevision: input.agent.revision,
+			fencingEpoch: reservation.fencingEpoch,
+			leaseId: reservation.leaseId,
+			owner: { agentId: reservation.owner.agentId, sessionId: reservation.owner.sessionId },
+			requestedLifecycle,
+			runtimeIncarnation: reservation.runtimeIncarnation,
+			sessionPath: this.options.sessionPath,
+			updatedAt,
+		});
+		if (!result.ok) return result;
+		return {
+			ok: true,
+			agent: { ...input.agent, lifecycle: requestedLifecycle, revision: input.agent.revision + 1, updatedAt },
+		};
 	}
 }

@@ -45,7 +45,7 @@
 
 ### Changed
 
-- Added the first `LifecycleCoordinator` command, which constructs queued revision-1 children and atomically persists their parent link plus initial fenced dispatch reservation; the synthetic `main` parent is treated as the durable session root.
+- Added initial `LifecycleCoordinator` commands that construct queued revision-1 children, atomically persist their parent link plus first fenced dispatch reservation, and fence the `starting` and `running` confirmations by revision, lease, incarnation, owner, and epoch; the synthetic `main` parent is treated as the durable session root.
 - Removed store-only `spawn_agent`: spawning now fails before persistence unless an executable child-session factory or dispatcher is configured; dormant session attachment remains explicit.
 - Added typed multi-agent runtime roles and constructor-entry capability validation: orchestrators require an issued execution capability, while child and non-orchestrator runtimes reject it.
 - Added a complete-predicate nonterminal lifecycle CAS with legal transition checks and single-winner SQLite contention semantics.

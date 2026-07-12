@@ -57,6 +57,39 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toEqual(result.reservation);
 	});
 
+	it("fences runtime start and running confirmation with the committed reservation", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		expect(starting).toMatchObject({ ok: true, agent: { lifecycle: "starting", revision: 2 } });
+		if (!starting.ok) return;
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		expect(running).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 3 } });
+	});
+
+	it("rejects runtime confirmation after the reservation fencing epoch changes", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+
+		const staleReservation = { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 };
+		expect(coordinator.beginChildRuntime({ agent: created.agent, reservation: staleReservation })).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: "agent-child", lifecycle: "queued", revision: 1 },
+		]);
+	});
+
 	it("rejects a missing persisted agent parent without committing a child or reservation", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
