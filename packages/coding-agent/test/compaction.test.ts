@@ -267,6 +267,17 @@ describe("shouldCompact", () => {
 		expect(shouldCompact(89000, 100000, settings)).toBe(false);
 	});
 
+	it("uses an explicit model compaction threshold exactly", () => {
+		const settings: CompactionSettings = {
+			enabled: true,
+			reserveTokens: 16384,
+			keepRecentTokens: 20000,
+		};
+
+		expect(shouldCompact(271999, 372000, settings, 272000)).toBe(false);
+		expect(shouldCompact(272000, 372000, settings, 272000)).toBe(true);
+	});
+
 	it("should return false when disabled", () => {
 		const settings: CompactionSettings = {
 			enabled: false,

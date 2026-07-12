@@ -110,6 +110,7 @@ export const OPENAI_CODEX_MODELS = {
 			cacheWrite: 0,
 		},
 		contextWindow: 372000,
+		autoCompactionThreshold: 272000,
 		maxTokens: 128000,
 	} satisfies Model<"openai-codex-responses">,
 	"gpt-5.6-terra": {

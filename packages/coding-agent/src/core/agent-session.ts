@@ -3456,14 +3456,14 @@ export class AgentSession {
 		// Skip if message was aborted (user cancelled) - unless this is the pre-prompt check
 		if (postRunCheck && assistantMessage.stopReason === "aborted") return false;
 
-		const contextWindow = this.model?.contextWindow ?? 0;
+		const model = this.model;
+		const contextWindow = model?.contextWindow ?? 0;
 
 		// Skip overflow check if the message came from a different model.
 		// This handles the case where user switched from a smaller-context model (e.g. opus)
 		// to a larger-context model (e.g. codex) - the overflow error from the old model
 		// shouldn't trigger compaction for the new model.
-		const sameModel =
-			this.model && assistantMessage.provider === this.model.provider && assistantMessage.model === this.model.id;
+		const sameModel = model && assistantMessage.provider === model.provider && assistantMessage.model === model.id;
 
 		// Skip compaction checks if this assistant message is older than the latest
 		// compaction boundary. This prevents a stale pre-compaction usage/error
@@ -3537,7 +3537,7 @@ export class AgentSession {
 		} else {
 			contextTokens = directContextTokens;
 		}
-		if (shouldCompact(contextTokens, contextWindow, { ...settings, enabled: true })) {
+		if (shouldCompact(contextTokens, contextWindow, { ...settings, enabled: true }, model?.autoCompactionThreshold)) {
 			// A "length"-stopped turn was truncated mid-work: compact and resume it once.
 			// Pre-prompt checks must not resume - the incoming user prompt supersedes the
 			// truncated turn.

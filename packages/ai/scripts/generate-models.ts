@@ -1885,6 +1885,7 @@ async function generateModels() {
 			input: ["text", "image"],
 			cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
 			contextWindow: CODEX_5_6_CONTEXT,
+			autoCompactionThreshold: 272000,
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 	];
@@ -2066,6 +2067,9 @@ async function generateModels() {
 		output += `${indent}\t\tcacheWrite: ${model.cost.cacheWrite},\n`;
 		output += `${indent}\t},\n`;
 		output += `${indent}\tcontextWindow: ${model.contextWindow},\n`;
+		if (model.autoCompactionThreshold !== undefined) {
+			output += `${indent}\tautoCompactionThreshold: ${model.autoCompactionThreshold},\n`;
+		}
 		output += `${indent}\tmaxTokens: ${model.maxTokens},\n`;
 		output += `${indent}} satisfies Model<"${model.api}">,\n`;
 		return output;

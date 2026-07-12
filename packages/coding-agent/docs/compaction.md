@@ -26,11 +26,13 @@ Both use the same structured summary format and track file operations cumulative
 
 ### When It Triggers
 
-Auto-compaction triggers when:
+Auto-compaction normally triggers when:
 
 ```
 contextTokens > contextWindow - reserveTokens
 ```
+
+Models may define an exact `autoCompactionThreshold`; Pi compacts when `contextTokens >= autoCompactionThreshold` instead. GPT-5.6 Sol uses 272,000 tokens to avoid crossing its higher long-context pricing tier.
 
 By default, `reserveTokens` is 16384 tokens (configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). This leaves room for the LLM's response.
 

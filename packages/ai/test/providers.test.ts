@@ -47,6 +47,7 @@ describe("builtin providers", () => {
 			reasoning: true,
 			contextWindow: 372000,
 			maxTokens: 128000,
+			autoCompactionThreshold: 272000,
 		});
 		expect(models.getModel("openai-codex", "gpt-5.6-terra")).toMatchObject({
 			name: "GPT-5.6 Terra",
