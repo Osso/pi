@@ -81,15 +81,15 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
       is derived at session start from active lifecycle plus the absence of a live dispatch — see
       [agent-lifecycle.md](agent-lifecycle.md).
-- [x] On supervisor session start, detached in-flight attached agents with transcript paths restart
-      through fenced attached-session lease reacquisition, preserving identity and metadata; attached
-      agents already waiting for input are not auto-prompted. After listener registration, one recovery
-      leader reconciles candidate orphan rows through coordinator/repository commands using session
-      health, exact path assertion, expected revision, lease, runtime incarnation, and fencing epoch.
-      Verified administrative restart may commit an explicit interruption, but generic owner loss or
-      lease expiry resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred abort.
-      Dispatch finalizers are fenced by reservation identity and store restore generation; shutdown
-      stops admissions, invalidates local dispatches, commits cancellation, then invokes abort.
+- [x] On supervisor session start, detached in-flight agents with transcript paths restart through
+      fenced session lease reacquisition, preserving identity and metadata regardless of how their
+      backing session was selected; agents already waiting for input are not auto-prompted. After
+      listener registration, the session's owning supervisor reconciles candidate orphan rows through
+      coordinator/repository commands using exact path assertion, expected revision, lease, runtime
+      incarnation, and fencing epoch. Generic owner loss or lease expiry resolves as
+      `failed/lost_runtime`, never direct JSON rewrite or inferred abort. Dispatch finalizers are fenced
+      by reservation identity and store restore generation; shutdown stops admissions, invalidates local
+      dispatches, stops renewal, and locally aborts session runtimes without inventing terminal state.
 - [x] `wait_agents({})` snapshots agents active at invocation, allocates an independent terminal-event
       cursor, checks committed events before and after subscription, and waits until any one reaches a
       terminal revision. It never consumes shared mailbox delivery, so simultaneous and late waiters
@@ -145,9 +145,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   mailbox payload, and runtime transport reference.
 
   Detached recovery ownership is explicit. A live runner exclusively owns envelope submission and
-  retries the exact fsynced envelope until commit. After runner loss, only the coordinator recovery
-  leader may inspect an orphan envelope, and it must submit that unchanged envelope before acquiring a
-  replacement epoch or resolving the lease as lost. A higher fencing epoch permanently rejects the old
+  retries the exact fsynced envelope until commit. After runner loss, only the agent's owning supervisor
+  may inspect an orphan envelope through the coordinator, and it must submit that unchanged envelope
+  before acquiring a replacement epoch or resolving the lease as lost. A higher fencing epoch permanently rejects the old
   envelope. If the runner disappears while its payload may still be alive, PID presence or lease expiry
   does not prove payload exit; recovery fences new effects and resolves the job as `failed/lost_runtime`
   with external outcome uncertainty rather than inventing completion or abort. Spawned detached jobs are

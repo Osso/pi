@@ -152,9 +152,9 @@ session. Runtime mailbox polling/heartbeat stops and listener ownership retires 
 dispatch completes, so no command is accepted under a listener that has already surrendered ownership.
 
 Detached runner recovery preserves evidence rather than inferring process outcomes. The live runner
-owns retries of its immutable terminal envelope. After runner loss, only the coordinator recovery
-leader may submit an orphan envelope, and only before acquiring a higher fencing epoch; the repository
-still validates the original full lease identity and terminal timestamp. A possibly live payload is not
+owns retries of its immutable terminal envelope. After runner loss, only the agent's owning supervisor
+may submit an orphan envelope through the coordinator, and only before acquiring a higher fencing epoch;
+the repository still validates the original full lease identity and terminal timestamp. A possibly live payload is not
 proof of completion, and an expired lease is not proof of exit. If exact envelope finalization is no
 longer authorized, recovery records `failed/lost_runtime` with outcome uncertainty. A cancellation that
 committed before a pending natural-result finalizer wins by revision; the stale natural envelope cannot

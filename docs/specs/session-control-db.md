@@ -26,17 +26,17 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
-      (`multi_agent_agents`, `multi_agent_dispatch_leases`, `multi_agent_recovery_leader`,
-      `multi_agent_terminal_events`, `multi_agent_terminal_outbox`, `multi_agent_terminal_cursors`,
+      (`multi_agent_agents`, `multi_agent_dispatch_leases`, `multi_agent_terminal_events`,
+      `multi_agent_terminal_outbox`, `multi_agent_terminal_cursors`,
       `multi_agent_mailbox_messages`,
       `multi_agent_counters_v2`): one row
       upsert per mutation, restore selects the session's rows. Dispatch lease acquisition is
       transactional; live leases reject competing owners, expired takeover increments the durable
       fencing epoch, renewal and release require the exact lease/runtime/owner/epoch identity, and
-      release preserves the epoch while clearing ownership. Recovery sweepers use a separate singleton
-      lease with the same live-owner rejection, expiry takeover, monotonic fencing, exact renewal, and
-      compare-release rules, preventing concurrent reconciliation leaders. Terminal lifecycle commits verify
-      the stored revision and full lease/runtime/owner/fencing identity, then update the agent row and insert
+      release preserves the epoch while clearing ownership. The one owning supervisor recovers expired
+      agents through the same per-agent revision/lease/incarnation/fencing transaction; unrelated sessions
+      never coordinate lifecycle recovery. Terminal lifecycle commits verify the stored revision and full
+      lease/runtime/owner/fencing identity, then update the agent row and insert
       its immutable terminal event and pending outbox row in one immediate SQLite transaction. Exact
       retries return the committed terminal revision without rewriting rows; conflicting payloads or stale
       predicates fail without creating another event or outbox record. Per-consumer cursor rows acknowledge
