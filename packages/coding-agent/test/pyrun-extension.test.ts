@@ -10,6 +10,8 @@ import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
@@ -157,6 +159,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		sessionManager: {
 			getBranch: () => [],
 			getCwd: () => "/repo/project",
+			getSessionId: () => "pyrun-test-session",
 			getSessionName: () => "pyrun work",
 		},
 		ui: {
@@ -1056,6 +1059,9 @@ describe("pyrun extension", () => {
 
 	it("returns null from Pyrun pi.agents.wait through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
 				createHostrunMultiAgentRequestHandler({

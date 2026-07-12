@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { DetachedJobLeaseIdentity } from "../../../src/core/detached-job-runner.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
+	readMultiAgentAgent,
+	readMultiAgentDispatchLease,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
 } from "../../../src/core/session-control-db.ts";
@@ -67,6 +69,30 @@ export function parseDetachedPyrunBridgeRequest(message: RuntimeMailboxMessage):
 	} catch {
 		return undefined;
 	}
+}
+
+export function validateDetachedPyrunBridgeRequest(input: {
+	controlDbPath: string;
+	message: RuntimeMailboxMessage;
+	nowIso: string;
+	request: DetachedPyrunBridgeRequest;
+	sessionPath: string;
+	supervisorSessionId: string;
+}): boolean {
+	const { identity } = input.request;
+	if (input.message.sender.agentId !== identity.jobId) return false;
+	const agent = readMultiAgentAgent(input.controlDbPath, input.sessionPath, identity.jobId);
+	const lease = readMultiAgentDispatchLease(input.controlDbPath, input.sessionPath, identity.jobId);
+	return (
+		agent?.lifecycle === "running" &&
+		agent.revision === identity.expectedRevision &&
+		lease?.leaseId === identity.leaseId &&
+		lease.runtimeIncarnation === identity.runtimeIncarnation &&
+		lease.fencingEpoch === identity.fencingEpoch &&
+		lease.owner.sessionId === input.supervisorSessionId &&
+		typeof lease.expiresAt === "string" &&
+		lease.expiresAt > input.nowIso
+	);
 }
 
 export function enqueueDetachedPyrunBridgeResponse(input: {

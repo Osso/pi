@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	enqueueDetachedPyrunBridgeResponse,
 	parseDetachedPyrunBridgeRequest,
+	validateDetachedPyrunBridgeRequest,
 } from "../extensions/pyrun/src/detached-bridge.ts";
 import {
 	launchDetachedPyrunRunner,
@@ -99,6 +100,29 @@ describe("detached Pyrun runner", () => {
 		if (!bridgeMessage) throw new Error("Expected detached Pyrun bridge request");
 		const bridgeRequest = parseDetachedPyrunBridgeRequest(bridgeMessage);
 		if (!bridgeRequest) throw new Error("Expected valid detached Pyrun bridge request");
+		expect(
+			validateDetachedPyrunBridgeRequest({
+				controlDbPath,
+				message: bridgeMessage,
+				nowIso: new Date().toISOString(),
+				request: bridgeRequest,
+				sessionPath,
+				supervisorSessionId: "main",
+			}),
+		).toBe(true);
+		expect(
+			validateDetachedPyrunBridgeRequest({
+				controlDbPath,
+				message: bridgeMessage,
+				nowIso: new Date().toISOString(),
+				request: {
+					...bridgeRequest,
+					identity: { ...bridgeRequest.identity, expectedRevision: bridgeRequest.identity.expectedRevision + 1 },
+				},
+				sessionPath,
+				supervisorSessionId: "main",
+			}),
+		).toBe(false);
 		enqueueDetachedPyrunBridgeResponse({
 			controlDbPath,
 			request: bridgeRequest,

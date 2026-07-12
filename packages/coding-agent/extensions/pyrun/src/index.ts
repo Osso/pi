@@ -3,7 +3,12 @@ import { existsSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	RuntimeMailboxEvent,
+	ToolDefinition,
+} from "../../../src/core/extensions/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
@@ -17,6 +22,11 @@ import {
 	resolveBwrapSandboxProfile,
 } from "../../bwrap/src/backend.ts";
 import { createPyrunEvalExecutor, type PyrunEvalParams, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
+import {
+	enqueueDetachedPyrunBridgeResponse,
+	parseDetachedPyrunBridgeRequest,
+	validateDetachedPyrunBridgeRequest,
+} from "./detached-bridge.ts";
 import {
 	PyrunRunnerClient,
 	type CanonicalPyrunEvalResult,
@@ -680,8 +690,66 @@ export function createPyrunToolDefinition(
 	};
 }
 
+async function handleDetachedPyrunBridgeRequest(
+	event: RuntimeMailboxEvent,
+	ctx: ExtensionContext,
+	dispatchPiRequest: PyrunPiRequestDispatcher,
+): Promise<{ handled: boolean }> {
+	const request = parseDetachedPyrunBridgeRequest(event.message);
+	if (!request) return { handled: false };
+	const controlDbPath = ctx.controlDbPath;
+	if (!controlDbPath) throw new Error("Detached Pyrun bridge requires the control database");
+	const sessionPath = event.message.storeRef.sessionPath;
+	const supervisorSessionId = ctx.sessionManager.getSessionId();
+	if (
+		!validateDetachedPyrunBridgeRequest({
+			controlDbPath,
+			message: event.message,
+			nowIso: new Date().toISOString(),
+			request,
+			sessionPath,
+			supervisorSessionId,
+		})
+	) {
+		throw new Error(`Detached Pyrun bridge request is stale or foreign: ${request.requestId}`);
+	}
+	await respondToDetachedPyrunBridgeRequest({
+		controlDbPath,
+		ctx,
+		dispatchPiRequest,
+		request,
+		sessionPath,
+		supervisorAddress: event.message.recipient,
+	});
+	return { handled: true };
+}
+
+async function respondToDetachedPyrunBridgeRequest(input: {
+	controlDbPath: string;
+	ctx: ExtensionContext;
+	dispatchPiRequest: PyrunPiRequestDispatcher;
+	request: NonNullable<ReturnType<typeof parseDetachedPyrunBridgeRequest>>;
+	sessionPath: string;
+	supervisorAddress: RuntimeMailboxEvent["message"]["recipient"];
+}): Promise<void> {
+	try {
+		const result = await input.dispatchPiRequest(
+			{ method: input.request.method, params: input.request.params },
+			input.ctx,
+			input.ctx.signal,
+		);
+		enqueueDetachedPyrunBridgeResponse({ ...input, result });
+	} catch (error) {
+		enqueueDetachedPyrunBridgeResponse({
+			...input,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
 	const dispatchPiRequest = createPyrunPiDispatcher(pi, options);
+	pi.on("runtime_mailbox", (event, ctx) => handleDetachedPyrunBridgeRequest(event, ctx, dispatchPiRequest));
 	const bwrapCommand = options.bwrapCommand ?? process.env.PI_BWRAP_COMMAND ?? "bwrap";
 	let executorState: PyrunExecutorState | undefined;
 	const executorFor = (ctx: ExtensionContext): PyrunExecutorState => {
