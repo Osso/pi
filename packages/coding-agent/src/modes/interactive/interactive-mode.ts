@@ -386,6 +386,8 @@ export interface InteractiveModeOptions {
 	controlDbPath?: string;
 	/** Shared first-party multi-agent store for agent slot selection. */
 	multiAgentStore?: MultiAgentStore;
+	/** Submit selected-agent cancellation through the lifecycle coordinator boundary. */
+	cancelMultiAgent?: (agentId: string) => Promise<{ ok: boolean; agent?: AgentSnapshot; error?: string }>;
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
 }
@@ -3266,16 +3268,24 @@ export class InteractiveMode {
 			return false;
 		}
 
-		const cancelled = store.transitionAgent(agent.id, agent.revision, "aborted");
-		if (!cancelled.ok) {
-			this.showStatus(`Could not cancel ${agent.displayName}: ${cancelled.error}`);
+		const cancel = this.options.cancelMultiAgent;
+		if (!cancel) {
+			this.showStatus(`Could not cancel ${agent.displayName}: lifecycle coordinator unavailable`);
 			this.ui.requestRender();
 			return true;
 		}
-
-		store.abortAgentHandle(agent.id);
-		this.updateSelectedAgentSelectionWidgets();
-		this.showStatus(`Cancelled ${agent.displayName}.`);
+		this.showStatus(`Requesting cancellation for ${agent.displayName}...`);
+		void cancel(agent.id).then((cancelled) => {
+			this.updateSelectedAgentSelectionWidgets();
+			if (!cancelled.ok) {
+				this.showStatus(`Could not cancel ${agent.displayName}: ${cancelled.error ?? "mutation rejected"}`);
+			} else if (cancelled.agent?.lifecycle === "aborted") {
+				this.showStatus(`Cancelled ${agent.displayName}.`);
+			} else {
+				this.showStatus(`Cancellation requested for ${agent.displayName}.`);
+			}
+			this.ui.requestRender();
+		});
 		return true;
 	}
 

@@ -2250,49 +2250,55 @@ function formatAgentStatus(agent: AgentSnapshot): string {
 	return `${agent.displayName} is ${agent.lifecycle}.`;
 }
 
-async function cancelAgent(
+export type CancelReservedAgentResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "agent_not_found" | "lifecycle_reservation_unavailable" | "mutation_rejected"; agent?: AgentSnapshot };
+
+export async function cancelReservedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
-	params: CancelAgentParams,
-): Promise<AgentToolResult<AgentToolDetails>> {
-	const current = store.getAgent(params.agentId);
-	if (!current) {
-		return errorResult(`Could not cancel ${params.agentId}: agent_not_found`, {
-			agent: emptyAgent(params.agentId),
-			reason: params.reason,
-		});
-	}
-
-	const reservedRuntime = runtimeHandles.reservations.get(params.agentId);
-	if (!reservedRuntime) {
-		return errorResult(`Could not cancel ${params.agentId}: lifecycle reservation unavailable`, {
-			agent: current,
-			reason: params.reason,
-		});
-	}
+	agentId: string,
+): Promise<CancelReservedAgentResult> {
+	const current = store.getAgent(agentId);
+	if (!current) return { ok: false, error: "agent_not_found" };
+	const reservedRuntime = runtimeHandles.reservations.get(agentId);
+	if (!reservedRuntime) return { ok: false, error: "lifecycle_reservation_unavailable", agent: current };
 	const cancelling = reservedRuntime.coordinator.requestCancellation({
 		agent: current,
 		reservation: reservedRuntime.ownership.reservation,
 	});
-	if (!cancelling.ok) {
-		return errorResult(`Could not cancel ${params.agentId}: ${cancelling.error}`, {
-			agent: current,
-			reason: params.reason,
-		});
-	}
+	if (!cancelling.ok) return { ok: false, error: "mutation_rejected", agent: current };
 	store.publishLifecycleCoordinatorSnapshot(cancelling.agent);
-	store.abortAgentHandle(params.agentId);
-	const dispatch = runtimeHandles.dispatches.get(params.agentId);
+	store.abortAgentHandle(agentId);
+	const dispatch = runtimeHandles.dispatches.get(agentId);
 	if (dispatch) {
 		await Promise.race([
 			dispatch,
 			new Promise<void>((resolve) => setTimeout(resolve, CANCELLATION_SETTLEMENT_TIMEOUT_MS)),
 		]);
 	}
-	const settled = store.getAgent(params.agentId) ?? cancelling.agent;
+	const settled = store.getAgent(agentId) ?? cancelling.agent;
+	return { ok: true, agent: settled };
+}
+
+async function cancelAgent(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+	params: CancelAgentParams,
+): Promise<AgentToolResult<AgentToolDetails>> {
+	const cancelled = await cancelReservedAgentRuntime(store, runtimeHandles, params.agentId);
+	if (!cancelled.ok) {
+		const error = cancelled.error === "lifecycle_reservation_unavailable" ? "lifecycle reservation unavailable" : cancelled.error;
+		return errorResult(`Could not cancel ${params.agentId}: ${error}`, {
+			agent: cancelled.agent ?? emptyAgent(params.agentId),
+			reason: params.reason,
+		});
+	}
 	return result(
-		settled.lifecycle === "aborted" ? `Cancelled ${settled.displayName}.` : `Cancellation requested for ${settled.displayName}.`,
-		{ agent: settled, reason: params.reason },
+		cancelled.agent.lifecycle === "aborted"
+			? `Cancelled ${cancelled.agent.displayName}.`
+			: `Cancellation requested for ${cancelled.agent.displayName}.`,
+		{ agent: cancelled.agent, reason: params.reason },
 	);
 }
 

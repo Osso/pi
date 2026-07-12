@@ -389,6 +389,38 @@ describe("InteractiveMode key handlers", () => {
 		initTheme("dark");
 	});
 
+	test("Escape submits selected-agent cancellation through the injected coordinator boundary", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const spawned = store.spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			lifecycle: "starting",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		if (!running.ok) throw new Error("expected running agent");
+		store.selectAgentView(running.agent.id);
+		const cancelMultiAgent = vi.fn(async () => ({
+			ok: true,
+			agent: { ...running.agent, lifecycle: "aborted" as const },
+		}));
+		const fakeThis = {
+			multiAgentStore: store,
+			options: { cancelMultiAgent },
+			showStatus: vi.fn(),
+			ui: { requestRender: vi.fn() },
+			updateSelectedAgentSelectionWidgets: vi.fn(),
+		};
+
+		expect(interactiveModeKeyHandlers.cancelSelectedAgentTurn.call(fakeThis)).toBe(true);
+		await Promise.resolve();
+
+		expect(cancelMultiAgent).toHaveBeenCalledWith(running.agent.id);
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Cancelled Worker.");
+		expect(store.getAgent(running.agent.id)).toMatchObject({ lifecycle: "running" });
+	});
+
 	test("/agents action opens selector when the multi-agent store has no child agents", () => {
 		let renderedSelector: Component | undefined;
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
@@ -497,7 +529,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.showStatus).toHaveBeenCalledWith(`Agent selected: ${spawned.agent.id}`);
 	});
 
-	test("escape while viewing an active child agent cancels that agent", () => {
+	test("escape while viewing an active child agent submits coordinator cancellation", async () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const spawned = store.spawnAgent({
@@ -513,8 +545,10 @@ describe("InteractiveMode key handlers", () => {
 			throw new Error("expected running transition");
 		}
 		store.selectAgentView(spawned.agent.id);
-		const abortChild = vi.fn();
-		store.registerAgentAbortHandler(spawned.agent.id, abortChild);
+		const cancelMultiAgent = vi.fn(async () => ({
+			ok: true,
+			agent: { ...running.agent, lifecycle: "aborted" as const },
+		}));
 		const fakeThis = {
 			defaultEditor: {
 				onEscape: undefined as (() => void) | undefined,
@@ -522,6 +556,7 @@ describe("InteractiveMode key handlers", () => {
 			},
 			editor: { getText: () => "", setText: vi.fn() },
 			multiAgentStore: store,
+			options: { cancelMultiAgent },
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
@@ -557,12 +592,13 @@ describe("InteractiveMode key handlers", () => {
 
 		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
 		fakeThis.defaultEditor.onEscape?.();
+		await Promise.resolve();
 
-		expect(abortChild).toHaveBeenCalledTimes(1);
-		expect(store.getAgent(spawned.agent.id)?.lifecycle).toBe("aborted");
-		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(cancelMultiAgent).toHaveBeenCalledWith(spawned.agent.id);
+		expect(store.getAgent(spawned.agent.id)?.lifecycle).toBe("running");
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
 		expect(fakeThis.cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
-		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
