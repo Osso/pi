@@ -2014,19 +2014,13 @@ describe("multi-agent extension tools", () => {
 			const parentSession = SessionManager.create("/repo", tempDir, { id: "parent-session" });
 			const childSession = SessionManager.create("/repo", tempDir, { id: "child-session" });
 			const harness = createMultiAgentHarness();
-			const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-				displayName: "Parent",
-				prompt: "Parent task",
-			});
-			const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
+			const child = spawnStoreFixture(harness.store, {
 				displayName: "Child",
 				parentId: parent.details.agent.id,
 				prompt: "Child task",
 			});
-			const sibling = await harness.call<SpawnAgentDetails>("spawn_agent", {
-				displayName: "Sibling",
-				prompt: "Sibling task",
-			});
+			const sibling = spawnStoreFixture(harness.store, { displayName: "Sibling", prompt: "Sibling task" });
 			const parentTranscript = harness.store.updateAgentTranscript(parent.details.agent.id, {
 				sessionId: parentSession.getSessionId(),
 			});
@@ -2089,7 +2083,7 @@ describe("multi-agent extension tools", () => {
 
 	it("derives the main thread as sender for top-level agent messages", async () => {
 		const harness = createMultiAgentHarness();
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const child = spawnStoreFixture(harness.store, {
 			displayName: "Top-level child",
 			prompt: "Child task",
 		});
@@ -2144,19 +2138,13 @@ describe("multi-agent extension tools", () => {
 
 	it("lets a child contact its supervisor without choosing a sibling target", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Parent",
-			prompt: "Parent task",
-		});
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
+		const child = spawnStoreFixture(harness.store, {
 			displayName: "Child",
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
 		});
-		await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Sibling",
-			prompt: "Sibling task",
-		});
+		spawnStoreFixture(harness.store, { displayName: "Sibling", prompt: "Sibling task" });
 
 		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
 			agentId: child.details.agent.id,
