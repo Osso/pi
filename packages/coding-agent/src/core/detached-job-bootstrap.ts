@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { closeSync, constants, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Writable } from "node:stream";
+import { readProcessIdentity } from "./runtime-process.ts";
 
 const PAYLOAD_GATE_SCRIPT = 'IFS= read -r _ <&3 || exit 125; exec "$@"';
 
@@ -68,11 +69,10 @@ function openSharedOutputFile(stdoutPath: string, stderrPath: string): number {
 }
 
 function persistPayloadIdentity(path: string, pid: number): void {
-	const stat = readLinuxProcessStat(pid);
+	const processIdentity = readProcessIdentity(pid);
 	const identity = {
-		pgid: stat.processGroupId,
-		pid,
-		startTimeTicks: stat.startTimeTicks,
+		pgid: readLinuxProcessGroupId(pid),
+		...processIdentity,
 	};
 	const temporaryPath = `${path}.tmp`;
 	writeFileSync(temporaryPath, `${JSON.stringify(identity)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -81,7 +81,7 @@ function persistPayloadIdentity(path: string, pid: number): void {
 	fsyncDirectory(dirname(path));
 }
 
-function readLinuxProcessStat(pid: number): { processGroupId: number; startTimeTicks: number } {
+function readLinuxProcessGroupId(pid: number): number {
 	const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
 	const commandEnd = stat.lastIndexOf(")");
 	if (commandEnd < 0) throw new Error(`Invalid /proc stat for detached payload ${pid}`);
@@ -90,11 +90,8 @@ function readLinuxProcessStat(pid: number): { processGroupId: number; startTimeT
 		.trim()
 		.split(/\s+/);
 	const processGroupId = Number(fields[2]);
-	const startTimeTicks = Number(fields[19]);
-	if (!Number.isSafeInteger(processGroupId) || !Number.isSafeInteger(startTimeTicks)) {
-		throw new Error(`Invalid process identity for detached payload ${pid}`);
-	}
-	return { processGroupId, startTimeTicks };
+	if (!Number.isSafeInteger(processGroupId)) throw new Error(`Invalid process group for detached payload ${pid}`);
+	return processGroupId;
 }
 
 function fsyncFile(path: string): void {

@@ -2,11 +2,40 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 
+export interface ProcessIdentity {
+	pid: number;
+	startTimeTicks: number;
+}
+
 const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [
 	"packages/coding-agent/src/cli.ts",
 	"packages/coding-agent/src/bun/cli.ts",
 	"packages/coding-agent/dist/cli.js",
 ];
+
+export function readProcessIdentity(pid: number): ProcessIdentity {
+	if (process.platform !== "linux") throw new Error("Exact process identity requires Linux /proc");
+	const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+	const commandEnd = stat.lastIndexOf(")");
+	if (commandEnd < 0) throw new Error(`Invalid /proc stat for process ${pid}`);
+	const fields = stat
+		.slice(commandEnd + 2)
+		.trim()
+		.split(/\s+/);
+	const startTimeTicks = Number(fields[19]);
+	if (!Number.isSafeInteger(startTimeTicks) || startTimeTicks <= 0) {
+		throw new Error(`Invalid start time for process ${pid}`);
+	}
+	return { pid, startTimeTicks };
+}
+
+export function isProcessIdentityAlive(identity: ProcessIdentity): boolean {
+	try {
+		return readProcessIdentity(identity.pid).startTimeTicks === identity.startTimeTicks;
+	} catch {
+		return false;
+	}
+}
 
 export function isPiRuntimeProcessAlive(pid: number): boolean {
 	if (pid === process.pid) return true;
