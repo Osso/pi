@@ -1174,10 +1174,6 @@ function recoverDetachedAgent(
 		scheduleSpawnedAgentRecovery(input, agent, recoveryTimers);
 		return;
 	}
-	if (agent.lifecycle === "cancelling") {
-		transitionActiveAgent(input.store, agent, "aborted");
-		return;
-	}
 	if (!isInFlightLifecycle(agent.lifecycle)) {
 		return;
 	}

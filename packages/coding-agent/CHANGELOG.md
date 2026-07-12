@@ -46,6 +46,7 @@
 ### Changed
 
 - Lifecycle and terminal mutations now reject expired dispatch leases even before fencing takeover, closing a lease-partition window. Added deterministic race coverage for completion-before-cancel, cancellation-before-completion, duplicate exit acknowledgement, and expired-owner mutations.
+- Removed attached-session recovery's direct `cancelling` to `aborted` rewrite; without fenced exit acknowledgement the row remains nonterminal for later ownership recovery.
 - Routed selected-agent Escape, descendant cascade, and reserved-runtime shutdown cancellation through the same coordinator operation as `cancel_agent`; InteractiveMode no longer directly terminalizes or aborts store state. SQLite now rejects parent terminalization while any persisted descendant remains nonterminal.
 - Routed `cancel_agent` for reserved `spawn_agent` and `/bg` children through fenced coordinator cancellation: commit `cancelling`, request runtime abort, wait up to five seconds, and commit `aborted` only after exit acknowledgement. Hung aborts remain cancelling for lease-expiry recovery, stale acknowledgements cannot terminalize after an epoch change, and unreserved attached/legacy rows fail closed.
 - Routed first-party `/bg` child-session job creation and startup through the same fenced coordinator reservation path as `spawn_agent`, removing its direct store spawn/ramp authority.

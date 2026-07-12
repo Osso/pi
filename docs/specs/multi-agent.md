@@ -174,7 +174,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   waits at most five seconds for tracked dispatch settlement; a runtime that does not exit remains
   `cancelling` until fenced lease-expiry recovery resolves it as lost rather than inventing an exit.
   Interactive Escape submits the same operation through an injected cancellation boundary and never
-  directly mutates lifecycle state or invokes a store abort path. Queued and
+  directly mutates lifecycle state or invokes a store abort path. Recovery also never converts an
+  attached `cancelling` row to `aborted` without fenced runtime exit acknowledgement; it remains
+  nonterminal until attached-session ownership is reacquired or resolved as lost. Queued and
   starting children use the same ordering. Cancelling a parent issues cancellation intents to active
   descendants deepest-first, while each descendant still terminalizes through its own fenced command.
   `cancel_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. SQLite
