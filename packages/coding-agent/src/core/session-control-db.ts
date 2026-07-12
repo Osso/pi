@@ -10,7 +10,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 3;
+const CONTROL_DB_SCHEMA_VERSION = 4;
 const LIFECYCLE_PROTOCOL_VERSION_FUNCTION = "pi_lifecycle_protocol_version";
 
 export interface IncomingControlMessage {
@@ -2771,6 +2771,23 @@ function initializeSchema(db: SqliteDatabase): void {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY (session_path, agent_id)
 		);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_dispatch_leases (
+			session_path TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			lease_id TEXT,
+			runtime_incarnation TEXT,
+			owner_session_id TEXT,
+			owner_agent_id TEXT,
+			fencing_epoch INTEGER NOT NULL DEFAULT 0,
+			renewed_at TEXT,
+			expires_at TEXT,
+			recovery_owner_id TEXT,
+			PRIMARY KEY (session_path, agent_id)
+		);
+
+		CREATE INDEX IF NOT EXISTS multi_agent_dispatch_leases_expiry_idx
+		ON multi_agent_dispatch_leases(expires_at);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_mailbox_messages (
 			session_path TEXT NOT NULL,

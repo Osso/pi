@@ -26,7 +26,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
-      (`multi_agent_agents`, `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row
+      (`multi_agent_agents`, `multi_agent_dispatch_leases`, `multi_agent_mailbox_messages`,
+      `multi_agent_counters_v2`): one row
       upsert per mutation, restore selects the session's rows. Legacy artifact tables/columns are
       not initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
       migrated into `multi_agent_counters_v2`.
