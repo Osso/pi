@@ -19,6 +19,7 @@ import {
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
+	commitMultiAgentTerminalMutation,
 	completeArchitectRequest,
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
@@ -568,6 +569,64 @@ describe("session control DB", () => {
 				"recovery_owner_id",
 			]);
 			expect(columns.find((column) => column.name === "fencing_epoch")?.notnull).toBe(1);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {
+		const sessionPath = "/sessions/terminal-commit.jsonl";
+		const agentId = "agent-1";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Terminal agent",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "running",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const lease = acquireMultiAgentDispatchLease(controlDbPath, {
+			agentId,
+			expiresAt: "2026-07-11T00:10:00.000Z",
+			leaseId: "lease-terminal",
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			runtimeIncarnation: "runtime-terminal",
+			sessionPath,
+		});
+		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
+
+		const committed = commitMultiAgentTerminalMutation(controlDbPath, {
+			agentId,
+			eventKind: "completed",
+			eventPayload: { result: { summary: "done" } },
+			expectedRevision: 4,
+			fencingEpoch: 1,
+			leaseId: "lease-terminal",
+			owner: { agentId: null, sessionId: "supervisor" },
+			runtimeIncarnation: "runtime-terminal",
+			sessionPath,
+			terminalLifecycle: "completed",
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		});
+		expect(committed).toMatchObject({ ok: true, terminalRevision: 5 });
+
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const agent = JSON.parse(
+				(
+					db
+						.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+						.get(sessionPath, agentId) as { data: string }
+				).data,
+			) as Record<string, unknown>;
+			expect(agent).toMatchObject({ lifecycle: "completed", revision: 5 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
 		} finally {
 			db.close();
 		}

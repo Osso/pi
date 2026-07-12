@@ -2126,6 +2126,24 @@ export interface ReleaseMultiAgentDispatchLeaseInput extends MultiAgentDispatchL
 	expectedFencingEpoch: number;
 }
 
+export interface CommitMultiAgentTerminalMutationInput {
+	sessionPath: string;
+	agentId: string;
+	expectedRevision: number;
+	leaseId: string;
+	runtimeIncarnation: string;
+	owner: { sessionId: string; agentId: string | null };
+	fencingEpoch: number;
+	terminalLifecycle: "completed" | "failed" | "aborted";
+	eventKind: string;
+	eventPayload: unknown;
+	updatedAt: string;
+}
+
+export type CommitMultiAgentTerminalMutationResult =
+	| { ok: true; terminalRevision: number }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
 export interface MultiAgentRecoveryLeaderLease {
 	leaseId?: string;
 	runtimeIncarnation?: string;
@@ -2182,6 +2200,84 @@ export interface MultiAgentPersistedState {
 	agents: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
+}
+
+export function commitMultiAgentTerminalMutation(
+	controlDbPath: string,
+	input: CommitMultiAgentTerminalMutationInput,
+): CommitMultiAgentTerminalMutationResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const agentRow = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+			if (!agentRow) return { ok: false, error: "agent_not_found" };
+			const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			if (agent.revision !== input.expectedRevision) return { ok: false, error: "mutation_mismatch" };
+			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
+				return { ok: false, error: "invalid_transition" };
+			}
+			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!dispatchLeaseMatchesTerminalMutation(lease, input)) return { ok: false, error: "mutation_mismatch" };
+
+			const terminalRevision = input.expectedRevision + 1;
+			const updatedAgent = {
+				...agent,
+				lifecycle: input.terminalLifecycle,
+				revision: terminalRevision,
+				updatedAt: input.updatedAt,
+			};
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updatedAgent), input.updatedAt, input.sessionPath, input.agentId);
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_events (
+					session_path, agent_id, terminal_revision, event_kind, payload, created_at
+				) VALUES (?, ?, ?, ?, ?, ?)`,
+			).run(
+				input.sessionPath,
+				input.agentId,
+				terminalRevision,
+				input.eventKind,
+				JSON.stringify(input.eventPayload),
+				input.updatedAt,
+			);
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_outbox (
+					session_path, agent_id, terminal_revision, event_kind, status,
+					claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+				) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+			).run(input.sessionPath, input.agentId, terminalRevision, input.eventKind, input.updatedAt);
+			return { ok: true, terminalRevision };
+		}),
+	);
+}
+
+function canPersistTerminalTransition(
+	current: unknown,
+	requested: CommitMultiAgentTerminalMutationInput["terminalLifecycle"],
+): boolean {
+	if (typeof current !== "string") return false;
+	const allowedFrom =
+		requested === "completed"
+			? new Set(["running", "waiting_for_input"])
+			: requested === "aborted"
+				? new Set(["queued", "starting", "running", "waiting_for_input", "steering_pending", "cancelling"])
+				: new Set(["starting", "running", "steering_pending", "cancelling"]);
+	return allowedFrom.has(current);
+}
+
+function dispatchLeaseMatchesTerminalMutation(
+	lease: MultiAgentDispatchLeaseRow | undefined,
+	input: CommitMultiAgentTerminalMutationInput,
+): boolean {
+	return (
+		lease?.lease_id === input.leaseId &&
+		lease.runtime_incarnation === input.runtimeIncarnation &&
+		lease.owner_session_id === input.owner.sessionId &&
+		lease.owner_agent_id === input.owner.agentId &&
+		lease.fencing_epoch === input.fencingEpoch
+	);
 }
 
 export function readMultiAgentRecoveryLeaderLease(controlDbPath: string): MultiAgentRecoveryLeaderLease | undefined {

@@ -34,7 +34,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       fencing epoch, renewal and release require the exact lease/runtime/owner/epoch identity, and
       release preserves the epoch while clearing ownership. Recovery sweepers use a separate singleton
       lease with the same live-owner rejection, expiry takeover, monotonic fencing, exact renewal, and
-      compare-release rules, preventing concurrent reconciliation leaders. Legacy artifact tables/columns are not
+      compare-release rules, preventing concurrent reconciliation leaders. Terminal lifecycle commits verify
+      the stored revision and full lease/runtime/owner/fencing identity, then update the agent row and insert
+      its immutable terminal event and pending outbox row in one immediate SQLite transaction. Legacy artifact tables/columns are not
       initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
       migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
