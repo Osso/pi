@@ -10,6 +10,7 @@ import {
 	readMultiAgentAgent,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
+	registerRuntimeMailboxListener,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
@@ -20,6 +21,13 @@ function createCoordinator(
 	now: () => string = () => "2026-07-11T20:00:00.000Z",
 	createAgentId: () => string = () => "agent-child",
 ): LifecycleCoordinator {
+	registerRuntimeMailboxListener(
+		controlDbPath,
+		{ agentId: null, sessionId: "supervisor-session" },
+		CURRENT_PROCESS_IDENTITY.pid,
+		sessionPath,
+		{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
+	);
 	return new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId,
@@ -92,7 +100,7 @@ describe("LifecycleCoordinator child creation", () => {
 			createCoordinator(controlDbPath, sessionPath).acquireAttachedRuntime(result.agent, "other-session"),
 		).toEqual({
 			ok: false,
-			error: "ownership_held",
+			error: "mutation_mismatch",
 		});
 	});
 

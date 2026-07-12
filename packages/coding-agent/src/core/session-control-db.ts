@@ -2224,8 +2224,14 @@ export type AcquireMultiAgentRuntimeOwnershipResult =
 	| { ok: true; ownership: MultiAgentRuntimeOwnership }
 	| { ok: false; error: "ownership_held"; current: MultiAgentRuntimeOwnership };
 
+export interface SupervisorRuntimeOwnership {
+	processIdentity: ProcessIdentity;
+	sessionId: string;
+}
+
 export interface AcquireAttachedRuntimeOwnershipInput extends MultiAgentRuntimeOwnershipIdentity {
 	nowIso: string;
+	supervisor: SupervisorRuntimeOwnership;
 }
 
 export type AcquireAttachedRuntimeOwnershipResult =
@@ -2319,6 +2325,7 @@ export type FinalizeDetachedJobResult =
 export interface RecoverDeadMultiAgentRuntimeInput {
 	expectedOwner: MultiAgentRuntimeOwnershipIdentity;
 	nowIso: string;
+	supervisor: SupervisorRuntimeOwnership;
 }
 
 export type RecoverDeadMultiAgentRuntimeResult =
@@ -3057,6 +3064,9 @@ export function recoverDeadMultiAgentRuntime(
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const { agentId, sessionPath } = input.expectedOwner;
+			if (!registeredSupervisorOwnsSession(db, sessionPath, input.supervisor)) {
+				return { ok: false, error: "mutation_mismatch" };
+			}
 			const row = db
 				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 				.get(sessionPath, agentId) as { data: string } | undefined;
@@ -3223,6 +3233,9 @@ export function acquireAttachedRuntimeOwnership(
 ): AcquireAttachedRuntimeOwnershipResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
+			if (!registeredSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
+				return { ok: false, error: "mutation_mismatch" };
+			}
 			const row = db
 				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
@@ -3257,6 +3270,29 @@ export function acquireAttachedRuntimeOwnership(
 				ownership: multiAgentRuntimeOwnershipFromRow(ownership),
 			};
 		}),
+	);
+}
+
+function registeredSupervisorOwnsSession(
+	db: SqliteDatabase,
+	sessionPath: string,
+	supervisor: SupervisorRuntimeOwnership,
+): boolean {
+	if (!isProcessIdentityAlive(supervisor.processIdentity)) return false;
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM runtime_mailbox_listeners
+				 WHERE recipient_session_id = ? AND recipient_agent_id_key = ''
+				 AND pid = ? AND runtime_instance_id = ?
+				 AND session_path = ? AND session_path_asserted_at IS NOT NULL`,
+			)
+			.get(
+				supervisor.sessionId,
+				supervisor.processIdentity.pid,
+				serializeProcessIdentity(supervisor.processIdentity),
+				sessionPath,
+			),
 	);
 }
 

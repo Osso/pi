@@ -42,6 +42,7 @@ import {
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
+	registerRuntimeMailboxListener,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
@@ -83,8 +84,11 @@ function completeAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnaps
 }
 
 const managedTempDirs: string[] = [];
+const ignoreRuntimeMailboxSignal = () => {};
+process.on("SIGUSR2", ignoreRuntimeMailboxSignal);
 
 afterAll(() => {
+	process.off("SIGUSR2", ignoreRuntimeMailboxSignal);
 	for (const dir of managedTempDirs) {
 		rmSync(dir, { force: true, recursive: true });
 	}
@@ -298,6 +302,17 @@ function createMultiAgentHarness(
 		mode: "print",
 		...options.ctx,
 	} as ExtensionContext;
+	const persistence = store.getPersistenceTarget();
+	if (persistence) {
+		const supervisorSessionId = ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
+		registerRuntimeMailboxListener(
+			persistence.controlDbPath,
+			{ agentId: null, sessionId: supervisorSessionId },
+			CURRENT_PROCESS_IDENTITY.pid,
+			persistence.sessionPath,
+			{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
+		);
+	}
 
 	return {
 		emit: async (eventName: string, event: unknown = {}) => {

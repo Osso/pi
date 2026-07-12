@@ -123,6 +123,7 @@ export class LifecycleCoordinator {
 			owner: { agentId: null, sessionId: ownerSessionId },
 			processIdentity: this.options.processIdentity,
 			sessionPath: this.options.sessionPath,
+			supervisor: { processIdentity: this.options.processIdentity, sessionId: ownerSessionId },
 		});
 		if (!result.ok) return result;
 		return { agent: result.agent, ok: true, ownership: result.ownership };
@@ -204,6 +205,7 @@ export class LifecycleCoordinator {
 		const recovered = recoverDeadMultiAgentRuntime(this.options.controlDbPath, {
 			expectedOwner: identity,
 			nowIso,
+			supervisor: { processIdentity: this.options.processIdentity, sessionId: input.ownerSessionId },
 		});
 		if (!recovered.ok) return recovered;
 		return { ok: true, agent: recovered.agent as unknown as AgentSnapshot };

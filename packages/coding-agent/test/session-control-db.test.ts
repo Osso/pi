@@ -1198,7 +1198,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath,
 		});
 		expect(created.ok).toBe(true);
-		const recovered = recoverDeadMultiAgentRuntime(controlDbPath, {
+		const recoveryInput = {
 			expectedOwner: {
 				agentId,
 				owner: { agentId: null, sessionId: "supervisor-a" },
@@ -1206,7 +1206,20 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				sessionPath,
 			},
 			nowIso: "2026-07-11T00:00:01.000Z",
+			supervisor: { processIdentity: CURRENT_PROCESS_IDENTITY, sessionId: "supervisor-a" },
+		};
+		expect(recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput)).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
 		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor-a" },
+			CURRENT_PROCESS_IDENTITY.pid,
+			sessionPath,
+			{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
+		);
+		const recovered = recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput);
 		expect(recovered).toMatchObject({ ok: true, agent: { lifecycle: "failed", revision: 2 } });
 	});
 
