@@ -363,15 +363,23 @@ export class LifecycleCoordinator {
 	private readReservationIdentity(reservation: MultiAgentDispatchLease):
 		| {
 				agentId: string;
+				expiresAt: string;
 				leaseId: string;
 				owner: { agentId: string | null; sessionId: string };
 				runtimeIncarnation: string;
 				sessionPath: string;
 		  }
 		| undefined {
-		if (!reservation.leaseId || !reservation.runtimeIncarnation || !reservation.owner.sessionId) return undefined;
+		if (
+			!reservation.expiresAt ||
+			!reservation.leaseId ||
+			!reservation.runtimeIncarnation ||
+			!reservation.owner.sessionId
+		)
+			return undefined;
 		return {
 			agentId: reservation.agentId,
+			expiresAt: reservation.expiresAt,
 			leaseId: reservation.leaseId,
 			owner: { agentId: reservation.owner.agentId, sessionId: reservation.owner.sessionId },
 			runtimeIncarnation: reservation.runtimeIncarnation,

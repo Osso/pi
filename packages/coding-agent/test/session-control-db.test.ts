@@ -1342,11 +1342,47 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath,
 		});
 		expect(created.ok).toBe(true);
+		expect(
+			renewMultiAgentDispatchLease(controlDbPath, {
+				agentId,
+				expectedFencingEpoch: 1,
+				expiresAt: "2026-07-11T00:03:00.000Z",
+				leaseId: "dispatch-a",
+				nowIso: "2026-07-11T00:00:30.000Z",
+				owner: { agentId: null, sessionId: "supervisor-a" },
+				runtimeIncarnation: "runtime-a",
+				sessionPath,
+			}),
+		).toMatchObject({ ok: true });
 
 		expect(
 			recoverExpiredMultiAgentRuntime(controlDbPath, {
 				expectedLease: {
 					agentId,
+					expiresAt: "2026-07-11T00:01:00.000Z",
+					fencingEpoch: 1,
+					leaseId: "dispatch-a",
+					owner: { agentId: null, sessionId: "supervisor-a" },
+					runtimeIncarnation: "runtime-a",
+					sessionPath,
+				},
+				expectedRevision: 1,
+				nowIso: "2026-07-11T00:04:00.000Z",
+				replacementLease: {
+					agentId,
+					leaseId: "stale-expiry-recovery",
+					owner: { agentId: null, sessionId: "supervisor-a" },
+					runtimeIncarnation: "recovery-runtime",
+					sessionPath,
+				},
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+
+		expect(
+			recoverExpiredMultiAgentRuntime(controlDbPath, {
+				expectedLease: {
+					agentId,
+					expiresAt: "2026-07-11T00:03:00.000Z",
 					fencingEpoch: 1,
 					leaseId: "dispatch-a",
 					owner: { agentId: null, sessionId: "supervisor-a" },
@@ -1354,7 +1390,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					sessionPath,
 				},
 				expectedRevision: 1,
-				nowIso: "2026-07-11T00:02:00.000Z",
+				nowIso: "2026-07-11T00:04:00.000Z",
 				replacementLease: {
 					agentId,
 					leaseId: "stale-recovery",
@@ -1368,6 +1404,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const recovered = recoverExpiredMultiAgentRuntime(controlDbPath, {
 			expectedLease: {
 				agentId,
+				expiresAt: "2026-07-11T00:03:00.000Z",
 				fencingEpoch: 1,
 				leaseId: "dispatch-a",
 				owner: { agentId: null, sessionId: "supervisor-a" },
@@ -1375,7 +1412,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				sessionPath,
 			},
 			expectedRevision: 1,
-			nowIso: "2026-07-11T00:02:00.000Z",
+			nowIso: "2026-07-11T00:04:00.000Z",
 			replacementLease: {
 				agentId,
 				leaseId: "recovery-dispatch",

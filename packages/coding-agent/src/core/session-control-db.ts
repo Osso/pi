@@ -2337,7 +2337,7 @@ export type FinalizeDetachedJobResult =
 
 export interface RecoverExpiredMultiAgentRuntimeInput {
 	expectedRevision: number;
-	expectedLease: MultiAgentDispatchLeaseIdentity & { fencingEpoch: number };
+	expectedLease: MultiAgentDispatchLeaseIdentity & { expiresAt: string; fencingEpoch: number };
 	nowIso: string;
 	replacementLease: MultiAgentDispatchLeaseIdentity;
 }
@@ -3102,7 +3102,8 @@ export function recoverExpiredMultiAgentRuntime(
 				previousLease.runtime_incarnation === input.expectedLease.runtimeIncarnation &&
 				previousLease.owner_session_id === input.expectedLease.owner.sessionId &&
 				previousLease.owner_agent_id === input.expectedLease.owner.agentId &&
-				previousLease.fencing_epoch === input.expectedLease.fencingEpoch;
+				previousLease.fencing_epoch === input.expectedLease.fencingEpoch &&
+				previousLease.expires_at === input.expectedLease.expiresAt;
 			if (!matchesExpectedLease) return { ok: false, error: "mutation_mismatch" };
 			if (!previousLease.expires_at || previousLease.expires_at > input.nowIso) {
 				return { ok: false, error: "lease_not_expired" };
@@ -3115,7 +3116,7 @@ export function recoverExpiredMultiAgentRuntime(
 					fencing_epoch = ?, renewed_at = ?, expires_at = ?, recovery_owner_id = ?
 				 WHERE session_path = ? AND agent_id = ? AND lease_id = ?
 				 AND runtime_incarnation = ? AND owner_session_id = ? AND owner_agent_id IS ?
-				 AND fencing_epoch = ? AND expires_at <= ?`,
+				 AND fencing_epoch = ? AND expires_at = ? AND expires_at <= ?`,
 				)
 				.run(
 					input.replacementLease.leaseId,
@@ -3133,6 +3134,7 @@ export function recoverExpiredMultiAgentRuntime(
 					input.expectedLease.owner.sessionId,
 					input.expectedLease.owner.agentId,
 					input.expectedLease.fencingEpoch,
+					input.expectedLease.expiresAt,
 					input.nowIso,
 				);
 			if (takeover.changes !== 1) return { ok: false, error: "mutation_mismatch" };
