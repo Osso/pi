@@ -798,6 +798,20 @@ describe("session control DB", () => {
 			sessionPath,
 		});
 		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
+		expect(() =>
+			upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+				createdAt: "2026-07-11T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Illegal rewrite",
+				agentType: "test",
+				id: agentId,
+				lifecycle: "completed",
+				parentId: undefined,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 99,
+				updatedAt: "2026-07-11T00:00:30.000Z",
+			}),
+		).toThrow("Generic agent upsert cannot mutate leased lifecycle row");
 
 		const mutation = {
 			agentId,

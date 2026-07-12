@@ -3652,27 +3652,6 @@ function multiAgentDispatchLeaseFromRow(row: MultiAgentDispatchLeaseRow): MultiA
 	};
 }
 
-function upsertMultiAgentRow(
-	controlDbPath: string,
-	table: "multi_agent_agents" | "multi_agent_mailbox_messages",
-	idColumn: "agent_id" | "message_id",
-	sessionPath: string,
-	id: string,
-	data: unknown,
-): void {
-	withControlDb(controlDbPath, (db) => {
-		db.prepare(
-			`
-			INSERT INTO ${table} (session_path, ${idColumn}, data, updated_at)
-			VALUES (?, ?, ?, ?)
-			ON CONFLICT(session_path, ${idColumn}) DO UPDATE SET
-				data = excluded.data,
-				updated_at = excluded.updated_at
-			`,
-		).run(sessionPath, id, JSON.stringify(data), new Date().toISOString());
-	});
-}
-
 export function updateMultiAgentAgentActivity(
 	controlDbPath: string,
 	sessionPath: string,
@@ -3732,7 +3711,19 @@ export function upsertMultiAgentAgent(controlDbPath: string, sessionPath: string
 		throw new Error(`Invalid persisted agent payload at multi_agent_agents:${sessionPath}#${id}`);
 	}
 	validatePersistedAgentPayload(data as Record<string, unknown>, `multi_agent_agents:${sessionPath}#${id}`);
-	upsertMultiAgentRow(controlDbPath, "multi_agent_agents", "agent_id", sessionPath, id, data);
+	withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			if (readMultiAgentDispatchLeaseRow(db, sessionPath, id)) {
+				throw new Error(`Generic agent upsert cannot mutate leased lifecycle row ${sessionPath}#${id}`);
+			}
+			db.prepare(
+				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)
+				 ON CONFLICT(session_path, agent_id) DO UPDATE SET
+				 data = excluded.data, updated_at = excluded.updated_at`,
+			).run(sessionPath, id, JSON.stringify(data), new Date().toISOString());
+		}),
+	);
 }
 
 interface PersistedAgentRow {
