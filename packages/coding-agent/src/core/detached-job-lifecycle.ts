@@ -7,7 +7,7 @@ import {
 } from "./detached-job-runner.ts";
 import type { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
-import { finalizeDetachedJob } from "./session-control-db.ts";
+import { finalizeDetachedJob, readMultiAgentAgent } from "./session-control-db.ts";
 
 export interface DetachedJobLifecycleControllerOptions {
 	artifactRoot: string;
@@ -31,6 +31,11 @@ export function createDetachedJobLifecycleController(
 			});
 			if (finalized.ok) options.store.publishLifecycleCoordinatorSnapshot(finalized.terminalAgent);
 			return finalized;
+		},
+		observe: (jobId) => {
+			const agent = readMultiAgentAgent(options.controlDbPath, options.sessionPath, jobId);
+			if (agent) options.store.publishLifecycleCoordinatorSnapshot(agent);
+			return agent;
 		},
 		reserve: (input) => reserveDetachedJob(options, input),
 	};

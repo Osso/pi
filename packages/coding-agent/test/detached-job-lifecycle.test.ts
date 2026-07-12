@@ -6,7 +6,7 @@ import { createDetachedJobLifecycleController } from "../src/core/detached-job-l
 import { writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { readMultiAgentState } from "../src/core/session-control-db.ts";
+import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
 
 function createFixture() {
 	const root = mkdtempSync(join(tmpdir(), "pi-detached-lifecycle-"));
@@ -67,5 +67,35 @@ describe("detached job lifecycle controller", () => {
 		expect(readMultiAgentState(fixture.controlDbPath, fixture.sessionPath)?.agents).toMatchObject([
 			{ id: jobId, lifecycle: "completed", revision: 4 },
 		]);
+	});
+
+	it("observes and publishes a terminal snapshot committed by an external runner", () => {
+		const fixture = createFixture();
+		const jobId = fixture.controller.allocateJobId();
+		const artifacts = fixture.controller.createArtifacts(jobId);
+		const reservation = fixture.controller.reserve({
+			agentType: "bash",
+			cwd: "/repo",
+			displayName: "Bash command",
+			jobId,
+			workerHandleId: "runner-1",
+		});
+		writeFileSync(artifacts.outputPath, "done", { mode: 0o600 });
+		writeDetachedJobTerminalEnvelope(
+			artifacts,
+			reservation.identity,
+			{ exitCode: 0, kind: "completed" },
+			"2026-07-11T22:00:30.000Z",
+		);
+		expect(
+			finalizeDetachedJob(fixture.controlDbPath, {
+				envelopePath: artifacts.terminalEnvelopePath,
+				sessionPath: fixture.sessionPath,
+			}),
+		).toMatchObject({ ok: true, terminalRevision: 4 });
+		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "running", revision: 3 });
+
+		expect(fixture.controller.observe(jobId)).toMatchObject({ id: jobId, lifecycle: "completed", revision: 4 });
+		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "completed", revision: 4 });
 	});
 });

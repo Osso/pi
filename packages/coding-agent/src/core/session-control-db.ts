@@ -3669,6 +3669,23 @@ export function allocateMultiAgentCounter(
 	});
 }
 
+export function readMultiAgentAgent(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+): AgentSnapshot | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+			.get(sessionPath, agentId) as { data: string } | undefined;
+		if (!row) return undefined;
+		const context = `multi_agent_agents:${sessionPath}#${agentId}`;
+		const agent = parseStoredJsonObject(row.data, context);
+		validatePersistedAgentPayload(agent, context);
+		return agent as unknown as AgentSnapshot;
+	});
+}
+
 export function readMultiAgentState(controlDbPath: string, sessionPath: string): MultiAgentPersistedState | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const readRows = (table: "multi_agent_agents" | "multi_agent_mailbox_messages"): unknown[] =>

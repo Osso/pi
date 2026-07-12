@@ -50,6 +50,7 @@ export interface ReserveDetachedJobInput {
 export interface DetachedJobLifecycleController {
 	allocateJobId(): string;
 	createArtifacts(jobId: string): DetachedJobArtifacts;
+	observe(jobId: string): AgentSnapshot | undefined;
 	reserve(input: ReserveDetachedJobInput): DetachedJobReservation;
 	finalize(envelopePath: string): { ok: boolean; terminalRevision?: number; error?: string };
 }
