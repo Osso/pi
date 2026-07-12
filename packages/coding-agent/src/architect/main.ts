@@ -170,6 +170,7 @@ export async function runArchitectService(): Promise<void> {
 		model,
 		modelRegistry,
 		excludeTools: ARCHITECT_EXCLUDED_TOOL_NAMES,
+		multiAgentRuntimeRole: "observer",
 		multiAgentStore,
 		sessionManager,
 		settingsManager,
