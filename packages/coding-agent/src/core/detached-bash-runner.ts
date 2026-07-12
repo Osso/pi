@@ -3,14 +3,15 @@ import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnGatedDetachedPayload } from "./detached-job-bootstrap.ts";
+import { type GatedDetachedPayloadExit, spawnGatedDetachedPayload } from "./detached-job-bootstrap.ts";
+import { claimDetachedJobControlCommands } from "./detached-job-control.ts";
 import {
 	type DetachedJobArtifacts,
 	type DetachedJobLeaseIdentity,
 	type DetachedJobOutcome,
 	writeDetachedJobTerminalEnvelope,
 } from "./detached-job-runner.ts";
-import { finalizeDetachedJob } from "./session-control-db.ts";
+import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
 
 const DETACHED_BASH_LAUNCH_VERSION = 1;
 
@@ -21,6 +22,7 @@ export interface DetachedBashLaunchManifestData {
 	controlDbPath: string;
 	cwd: string;
 	identity: DetachedJobLeaseIdentity;
+	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
 }
 
@@ -80,15 +82,47 @@ export async function runDetachedBashRunner(
 	});
 	payload.persistIdentity();
 	payload.release();
-	const exited = await payload.waitForExit();
-	const outcome = detachedBashOutcome(exited.exitCode, exited.signal);
+	const controlled = await waitForDetachedBashExit(payload, manifest);
+	const outcome = controlled.cancelReason
+		? ({ kind: "aborted", reason: controlled.cancelReason } as const)
+		: detachedBashOutcome(controlled.exit.exitCode, controlled.exit.signal);
 	const terminalAt = options?.now?.() ?? new Date().toISOString();
-	writeDetachedJobTerminalEnvelope(manifest.artifacts, manifest.identity, outcome, terminalAt);
+	writeDetachedJobTerminalEnvelope(manifest.artifacts, controlled.identity, outcome, terminalAt);
 	const finalized = await finalizeDetachedEnvelopeWithRetry(manifest.artifacts.terminalEnvelopePath, (envelopePath) =>
 		finalizeDetachedJob(manifest.controlDbPath, { envelopePath, sessionPath: manifest.sessionPath }),
 	);
 	if (!finalized.ok) throw new Error(`Could not finalize detached Bash job: ${finalized.error}`);
-	return { exitCode: exited.exitCode, terminalRevision: finalized.terminalRevision };
+	return { exitCode: controlled.exit.exitCode, terminalRevision: finalized.terminalRevision };
+}
+
+async function waitForDetachedBashExit(
+	payload: ReturnType<typeof spawnGatedDetachedPayload>,
+	manifest: DetachedBashLaunchManifest,
+): Promise<{ cancelReason?: string; exit: GatedDetachedPayloadExit; identity: DetachedJobLeaseIdentity }> {
+	let exit: GatedDetachedPayloadExit | undefined;
+	let cancelReason: string | undefined;
+	let identity = manifest.identity;
+	const exitPromise = payload.waitForExit().then((result) => {
+		exit = result;
+	});
+	while (!exit) {
+		const [cancel] = claimDetachedJobControlCommands(manifest.controlDbPath, manifest.runnerAddress, identity);
+		if (cancel) {
+			identity = cancel.identity;
+			cancelReason = cancel.reason ?? "cancelled";
+			signalPayloadGroup(payload.pid);
+		}
+		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
+	}
+	return { cancelReason, exit, identity };
+}
+
+function signalPayloadGroup(pid: number): void {
+	try {
+		process.kill(-pid, "SIGTERM");
+	} catch (error) {
+		if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error;
+	}
 }
 
 export async function finalizeDetachedEnvelopeWithRetry<T>(

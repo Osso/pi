@@ -61,6 +61,7 @@ describe("detached Bash runner", () => {
 			controlDbPath,
 			cwd: root,
 			identity: reservation.identity,
+			runnerAddress: { agentId: jobId, sessionId: "main" },
 			sessionPath,
 		});
 
@@ -118,6 +119,7 @@ describe("detached Bash runner", () => {
 			controlDbPath,
 			cwd: root,
 			identity: reservation.identity,
+			runnerAddress: { agentId: jobId, sessionId: "main" },
 			sessionPath,
 		});
 

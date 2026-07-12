@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
+import type { MultiAgentDispatchLease } from "./session-control-db.ts";
 
 const DETACHED_JOB_ENVELOPE_VERSION = 1;
 
@@ -36,6 +37,7 @@ export interface DetachedJobTerminalEnvelope extends DetachedJobLeaseIdentity {
 export interface DetachedJobReservation {
 	agent: AgentSnapshot;
 	artifacts: DetachedJobArtifacts;
+	controlReservation: MultiAgentDispatchLease;
 	identity: DetachedJobLeaseIdentity;
 }
 

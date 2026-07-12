@@ -66,6 +66,7 @@ function reserveDetachedJob(
 	return {
 		agent: running.agent,
 		artifacts: createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), input.jobId),
+		controlReservation: created.reservation,
 		identity: {
 			expectedRevision: running.agent.revision,
 			fencingEpoch: created.reservation.fencingEpoch,
