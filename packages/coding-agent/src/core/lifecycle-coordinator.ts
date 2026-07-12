@@ -72,8 +72,7 @@ export type RenewReservationCommandResult =
 	| { ok: true; reservation: MultiAgentDispatchLease }
 	| { ok: false; error: "mutation_mismatch" };
 
-export interface RecoverExpiredChildCommandInput {
-	agent: AgentSnapshot;
+export interface RecoverExpiredChildCommandInput extends ReservedLifecycleCommandInput {
 	ownerSessionId: string;
 }
 
@@ -223,9 +222,21 @@ export class LifecycleCoordinator {
 	}
 
 	recoverExpiredChild(input: RecoverExpiredChildCommandInput): RecoverExpiredChildCommandResult {
+		const identity = this.readReservationIdentity(input.reservation);
+		if (!identity || identity.owner.sessionId !== input.ownerSessionId) {
+			return { ok: false, error: "mutation_mismatch" };
+		}
 		const nowIso = this.options.now();
 		const recovered = recoverExpiredMultiAgentRuntime(this.options.controlDbPath, {
 			agentId: input.agent.id,
+			expectedLease: {
+				agentId: input.agent.id,
+				fencingEpoch: input.reservation.fencingEpoch,
+				leaseId: identity.leaseId,
+				owner: identity.owner,
+				runtimeIncarnation: identity.runtimeIncarnation,
+				sessionPath: this.options.sessionPath,
+			},
 			expectedRevision: input.agent.revision,
 			nowIso,
 			replacementLease: {

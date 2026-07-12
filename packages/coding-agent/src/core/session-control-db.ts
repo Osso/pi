@@ -2339,6 +2339,7 @@ export interface RecoverExpiredMultiAgentRuntimeInput {
 	sessionPath: string;
 	agentId: string;
 	expectedRevision: number;
+	expectedLease: MultiAgentDispatchLeaseIdentity & { fencingEpoch: number };
 	nowIso: string;
 	replacementLease: MultiAgentDispatchLeaseIdentity;
 }
@@ -3094,28 +3095,45 @@ export function recoverExpiredMultiAgentRuntime(
 				);
 			if (!recoverableLifecycle) return { ok: false, error: "invalid_transition" };
 			const previousLease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!previousLease?.expires_at || previousLease.expires_at > input.nowIso) {
+			const matchesExpectedLease =
+				previousLease?.lease_id === input.expectedLease.leaseId &&
+				previousLease.runtime_incarnation === input.expectedLease.runtimeIncarnation &&
+				previousLease.owner_session_id === input.expectedLease.owner.sessionId &&
+				previousLease.owner_agent_id === input.expectedLease.owner.agentId &&
+				previousLease.fencing_epoch === input.expectedLease.fencingEpoch;
+			if (!matchesExpectedLease) return { ok: false, error: "mutation_mismatch" };
+			if (!previousLease.expires_at || previousLease.expires_at > input.nowIso) {
 				return { ok: false, error: "lease_not_expired" };
 			}
-			const fencingEpoch = previousLease.fencing_epoch + 1;
-			db.prepare(
-				`UPDATE multi_agent_dispatch_leases SET
+			const fencingEpoch = input.expectedLease.fencingEpoch + 1;
+			const takeover = db
+				.prepare(
+					`UPDATE multi_agent_dispatch_leases SET
 					lease_id = ?, runtime_incarnation = ?, owner_session_id = ?, owner_agent_id = ?,
 					fencing_epoch = ?, renewed_at = ?, expires_at = ?, recovery_owner_id = ?
-				 WHERE session_path = ? AND agent_id = ? AND fencing_epoch = ?`,
-			).run(
-				input.replacementLease.leaseId,
-				input.replacementLease.runtimeIncarnation,
-				input.replacementLease.owner.sessionId,
-				input.replacementLease.owner.agentId,
-				fencingEpoch,
-				input.nowIso,
-				input.nowIso,
-				input.replacementLease.owner.sessionId,
-				input.sessionPath,
-				input.agentId,
-				previousLease.fencing_epoch,
-			);
+				 WHERE session_path = ? AND agent_id = ? AND lease_id = ?
+				 AND runtime_incarnation = ? AND owner_session_id = ? AND owner_agent_id IS ?
+				 AND fencing_epoch = ? AND expires_at <= ?`,
+				)
+				.run(
+					input.replacementLease.leaseId,
+					input.replacementLease.runtimeIncarnation,
+					input.replacementLease.owner.sessionId,
+					input.replacementLease.owner.agentId,
+					fencingEpoch,
+					input.nowIso,
+					input.nowIso,
+					input.replacementLease.owner.sessionId,
+					input.sessionPath,
+					input.agentId,
+					input.expectedLease.leaseId,
+					input.expectedLease.runtimeIncarnation,
+					input.expectedLease.owner.sessionId,
+					input.expectedLease.owner.agentId,
+					input.expectedLease.fencingEpoch,
+					input.nowIso,
+				);
+			if (takeover.changes !== 1) return { ok: false, error: "mutation_mismatch" };
 			const terminalRevision = input.expectedRevision + 1;
 			const error = {
 				code: "lost_runtime",

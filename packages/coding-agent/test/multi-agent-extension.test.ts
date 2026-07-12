@@ -209,7 +209,7 @@ function addExpiredDispatchLease(store: MultiAgentStore, agentId: string): void 
 		expiresAt: "2026-06-21T00:00:01.000Z",
 		leaseId: `expired-${agentId}`,
 		nowIso: "2026-06-21T00:00:00.000Z",
-		owner: { agentId: null, sessionId: "dead-supervisor" },
+		owner: { agentId: null, sessionId: persistence.sessionPath },
 		runtimeIncarnation: "dead-runtime",
 		sessionPath: persistence.sessionPath,
 	});

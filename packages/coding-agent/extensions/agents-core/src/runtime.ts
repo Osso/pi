@@ -1213,8 +1213,10 @@ function resolveExpiredAgentRuntime(
 	if (!persistence) return;
 	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
 	if (!coordinator) return;
+	const expiredReservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
+	if (!expiredReservation) return;
 	const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
-	const recovered = coordinator.recoverExpiredChild({ agent, ownerSessionId });
+	const recovered = coordinator.recoverExpiredChild({ agent, ownerSessionId, reservation: expiredReservation });
 	if (recovered.ok) publishCoordinatorSnapshot(input.store, recovered.agent);
 }
 

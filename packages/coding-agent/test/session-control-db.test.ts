@@ -1343,8 +1343,40 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		expect(created.ok).toBe(true);
 
+		expect(
+			recoverExpiredMultiAgentRuntime(controlDbPath, {
+				agentId,
+				expectedLease: {
+					agentId,
+					fencingEpoch: 1,
+					leaseId: "dispatch-a",
+					owner: { agentId: null, sessionId: "supervisor-a" },
+					runtimeIncarnation: "stale-runtime",
+					sessionPath,
+				},
+				expectedRevision: 1,
+				nowIso: "2026-07-11T00:02:00.000Z",
+				replacementLease: {
+					agentId,
+					leaseId: "stale-recovery",
+					owner: { agentId: null, sessionId: "supervisor-a" },
+					runtimeIncarnation: "recovery-runtime",
+					sessionPath,
+				},
+				sessionPath,
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+
 		const recovered = recoverExpiredMultiAgentRuntime(controlDbPath, {
 			agentId,
+			expectedLease: {
+				agentId,
+				fencingEpoch: 1,
+				leaseId: "dispatch-a",
+				owner: { agentId: null, sessionId: "supervisor-a" },
+				runtimeIncarnation: "runtime-a",
+				sessionPath,
+			},
 			expectedRevision: 1,
 			nowIso: "2026-07-11T00:02:00.000Z",
 			replacementLease: {
