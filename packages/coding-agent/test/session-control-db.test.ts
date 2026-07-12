@@ -809,7 +809,21 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		const firstConsumer = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a");
 		const secondConsumer = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b");
-		expect(firstConsumer).toMatchObject([{ agentId, eventKind: "completed", terminalRevision: 5 }]);
+		expect(firstConsumer).toMatchObject([
+			{
+				agentId,
+				eventKind: "completed",
+				payload: {
+					agent: { id: agentId, parentId: "main" },
+					authorization: {
+						owner: mutation.owner,
+						processIdentity: mutation.processIdentity,
+					},
+					outcome: { details: mutation.eventPayload, lifecycle: "completed" },
+				},
+				terminalRevision: 5,
+			},
+		]);
 		expect(secondConsumer).toEqual(firstConsumer);
 		expect(markMultiAgentTerminalEventSeen(controlDbPath, "waiter-a", firstConsumer[0]!, mutation.updatedAt)).toBe(
 			true,
@@ -1002,7 +1016,16 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			},
 		]);
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "detached-test")).toMatchObject([
-			{ agentId, eventKind: "detached_job_completed", payload: envelope, terminalRevision: 5 },
+			{
+				agentId,
+				eventKind: "detached_job_completed",
+				payload: {
+					agent: { id: agentId, parentId: "main" },
+					authorization: { owner: envelope.owner, processIdentity: envelope.processIdentity },
+					outcome: { details: envelope, lifecycle: "completed" },
+				},
+				terminalRevision: 5,
+			},
 		]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 			{
@@ -1099,7 +1122,16 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath }),
 			).toEqual(finalized);
 			expect(listUnseenMultiAgentTerminalEvents(controlDbPath, `cancel-race-test:${outputLabel}`)).toMatchObject([
-				{ agentId, eventKind: "detached_job_aborted", payload: envelope, terminalRevision: 6 },
+				{
+					agentId,
+					eventKind: "detached_job_aborted",
+					payload: {
+						agent: { id: agentId, parentId: "main" },
+						authorization: { owner: envelope.owner, processIdentity: envelope.processIdentity },
+						outcome: { details: envelope, lifecycle: "aborted" },
+					},
+					terminalRevision: 6,
+				},
 			]);
 		},
 	);

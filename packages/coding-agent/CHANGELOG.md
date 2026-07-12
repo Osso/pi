@@ -103,6 +103,7 @@
 
 ### Fixed
 
+- Fixed immutable terminal events omitting authorizing identity; normal and detached terminal payloads now include agent/parent identity, owner address, exact process identity, selected terminal lifecycle, and original result/error or envelope details.
 - Fixed dead-owner recovery and attached-runtime takeover trusting coordinator-supplied session identity alone; repository transactions now require a live registered main listener with the same supervisor session, exact process identity, and asserted session path.
 - Fixed `cancel_agent` rejecting persisted detached Pyrun evaluations; persisted Bash and Pyrun jobs now derive their exact runner-control identity from the runtime worker and durable output label, then use the same runtime-mailbox cancellation transaction.
 - Fixed detached Bash/Pyrun cancellation racing payload exit: when cancellation commits before the exact-owner terminal envelope, the repository treats that exit evidence as the required acknowledgement and atomically records `aborted`.

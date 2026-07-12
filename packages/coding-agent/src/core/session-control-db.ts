@@ -2784,8 +2784,15 @@ export function commitMultiAgentTerminalMutation(
 			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			if (!runtimeOwnershipMatchesTerminalMutation(ownership, input))
 				return { ok: false, error: "mutation_mismatch" };
+			const terminalEventPayload = buildTerminalEventPayload(
+				agent,
+				input.terminalLifecycle,
+				input.owner,
+				input.processIdentity,
+				input.eventPayload,
+			);
 			if (agent.lifecycle === input.terminalLifecycle) {
-				return terminalMutationReplayResult(db, input, Number(agent.revision));
+				return terminalMutationReplayResult(db, input, terminalEventPayload, Number(agent.revision));
 			}
 			const terminalRevision = Number(agent.revision) + 1;
 			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
@@ -2814,7 +2821,7 @@ export function commitMultiAgentTerminalMutation(
 				input.agentId,
 				terminalRevision,
 				input.eventKind,
-				JSON.stringify(input.eventPayload),
+				JSON.stringify(terminalEventPayload),
 				input.updatedAt,
 			);
 			db.prepare(
@@ -2859,6 +2866,7 @@ function isNonterminalLifecycle(lifecycle: unknown): boolean {
 function terminalMutationReplayResult(
 	db: SqliteDatabase,
 	input: CommitMultiAgentTerminalMutationInput,
+	terminalEventPayload: Record<string, unknown>,
 	terminalRevision: number,
 ): CommitMultiAgentTerminalMutationResult {
 	const row = db
@@ -2867,8 +2875,31 @@ function terminalMutationReplayResult(
 			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
 		)
 		.get(input.sessionPath, input.agentId, terminalRevision, input.eventKind) as { payload: string } | undefined;
-	if (row?.payload !== JSON.stringify(input.eventPayload)) return { ok: false, error: "mutation_mismatch" };
+	if (row?.payload !== JSON.stringify(terminalEventPayload)) return { ok: false, error: "mutation_mismatch" };
 	return { ok: true, terminalRevision };
+}
+
+function buildTerminalEventPayload(
+	agent: Record<string, unknown>,
+	lifecycle: "completed" | "failed" | "aborted",
+	owner: { sessionId: string; agentId: string | null },
+	processIdentity: ProcessIdentity,
+	details: unknown,
+): Record<string, unknown> {
+	return {
+		agent: {
+			id: agent.id,
+			parentId: typeof agent.parentId === "string" ? agent.parentId : "main",
+		},
+		authorization: {
+			owner,
+			processIdentity,
+		},
+		outcome: {
+			details,
+			lifecycle,
+		},
+	};
 }
 
 function canPersistTerminalTransition(
@@ -2917,6 +2948,13 @@ function finalizeDetachedJobTransaction(
 				? "aborted"
 				: envelope.outcome.kind;
 	const eventKind = `detached_job_${terminalLifecycle}`;
+	const terminalEventPayload = buildTerminalEventPayload(
+		agent,
+		terminalLifecycle,
+		envelope.owner,
+		envelope.processIdentity,
+		envelope,
+	);
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, envelope.jobId);
 	if (
 		!ownership ||
@@ -2930,7 +2968,14 @@ function finalizeDetachedJobTransaction(
 		return { ok: false, error: "mutation_mismatch" };
 	}
 	if (agent.lifecycle === terminalLifecycle) {
-		return detachedJobReplayResult(db, sessionPath, envelope, Number(agent.revision), eventKind);
+		return detachedJobReplayResult(
+			db,
+			sessionPath,
+			envelope,
+			terminalEventPayload,
+			Number(agent.revision),
+			eventKind,
+		);
 	}
 	const terminalRevision = Number(agent.revision) + 1;
 	const canFinalize = agent.lifecycle === "running" || agent.lifecycle === "cancelling";
@@ -2943,6 +2988,7 @@ function finalizeDetachedJobTransaction(
 		envelope,
 		agent,
 		ownership,
+		terminalEventPayload,
 		terminalLifecycle,
 		terminalRevision,
 		eventKind,
@@ -2954,6 +3000,7 @@ function detachedJobReplayResult(
 	db: SqliteDatabase,
 	sessionPath: string,
 	envelope: DetachedJobTerminalEnvelope,
+	terminalEventPayload: Record<string, unknown>,
 	terminalRevision: number,
 	eventKind: string,
 ): FinalizeDetachedJobResult {
@@ -2963,7 +3010,7 @@ function detachedJobReplayResult(
 			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
 		)
 		.get(sessionPath, envelope.jobId, terminalRevision, eventKind) as { payload: string } | undefined;
-	if (event?.payload !== JSON.stringify(envelope)) return { ok: false, error: "mutation_mismatch" };
+	if (event?.payload !== JSON.stringify(terminalEventPayload)) return { ok: false, error: "mutation_mismatch" };
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(sessionPath, envelope.jobId) as { data: string };
@@ -2978,6 +3025,7 @@ function persistDetachedJobTerminal(
 	envelope: DetachedJobTerminalEnvelope,
 	agent: Record<string, unknown>,
 	ownership: MultiAgentRuntimeOwnershipRow,
+	terminalEventPayload: Record<string, unknown>,
 	terminalLifecycle: "completed" | "failed" | "aborted",
 	terminalRevision: number,
 	eventKind: string,
@@ -3000,7 +3048,14 @@ function persistDetachedJobTerminal(
 		`INSERT INTO multi_agent_terminal_events
 			(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, JSON.stringify(envelope), envelope.terminalAt);
+	).run(
+		sessionPath,
+		envelope.jobId,
+		terminalRevision,
+		eventKind,
+		JSON.stringify(terminalEventPayload),
+		envelope.terminalAt,
+	);
 	db.prepare(
 		`INSERT INTO multi_agent_terminal_outbox
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
