@@ -16,6 +16,7 @@ import {
 	archiveSession,
 	archiveSessionsOlderThan,
 	claimLatestIncomingMessage,
+	claimMultiAgentTerminalOutbox,
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
@@ -24,9 +25,11 @@ import {
 	completeArchitectRequest,
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
+	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
 	enqueueRuntimeMailboxMessage,
+	failMultiAgentTerminalOutbox,
 	failRuntimeMailboxMessage,
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
@@ -707,6 +710,15 @@ describe("session control DB", () => {
 			true,
 		);
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a")).toEqual([]);
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b")).toEqual(secondConsumer);
+
+		const claimed = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-a", mutation.updatedAt);
+		expect(claimed).toMatchObject({ agentId, attemptCount: 1, eventKind: "completed", status: "claimed" });
+		expect(claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", mutation.updatedAt)).toBeUndefined();
+		expect(failMultiAgentTerminalOutbox(controlDbPath, claimed!, "temporary", "2026-07-11T00:02:00.000Z")).toBe(true);
+		const retried = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", "2026-07-11T00:03:00.000Z");
+		expect(retried).toMatchObject({ attemptCount: 2, claimId: "delivery-b", status: "claimed" });
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, retried!, "2026-07-11T00:04:00.000Z")).toBe(true);
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b")).toEqual(secondConsumer);
 		expect(
 			commitMultiAgentTerminalMutation(controlDbPath, {

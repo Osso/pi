@@ -2126,6 +2126,16 @@ export interface ReleaseMultiAgentDispatchLeaseInput extends MultiAgentDispatchL
 	expectedFencingEpoch: number;
 }
 
+export interface MultiAgentTerminalOutboxRecord {
+	sessionPath: string;
+	agentId: string;
+	terminalRevision: number;
+	eventKind: string;
+	status: string;
+	claimId?: string;
+	attemptCount: number;
+}
+
 export interface MultiAgentTerminalEvent {
 	sessionPath: string;
 	agentId: string;
@@ -2224,6 +2234,98 @@ export interface MultiAgentPersistedState {
 	agents: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
+}
+
+export function claimMultiAgentTerminalOutbox(
+	controlDbPath: string,
+	claimId: string,
+	nowIso: string,
+): MultiAgentTerminalOutboxRecord | undefined {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const row = db
+				.prepare(
+					`SELECT session_path, agent_id, terminal_revision, event_kind FROM multi_agent_terminal_outbox WHERE status = 'pending' ORDER BY updated_at LIMIT 1`,
+				)
+				.get() as
+				| { session_path: string; agent_id: string; terminal_revision: number; event_kind: string }
+				| undefined;
+			if (!row) return undefined;
+			const result = db
+				.prepare(
+					`UPDATE multi_agent_terminal_outbox SET status = 'claimed', claim_id = ?, claimed_at = ?, attempt_count = attempt_count + 1, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'pending'`,
+				)
+				.run(claimId, nowIso, nowIso, row.session_path, row.agent_id, row.terminal_revision, row.event_kind);
+			if (result.changes !== 1) return undefined;
+			return {
+				agentId: row.agent_id,
+				attemptCount: readTerminalOutboxAttempt(db, row),
+				claimId,
+				eventKind: row.event_kind,
+				sessionPath: row.session_path,
+				status: "claimed",
+				terminalRevision: row.terminal_revision,
+			};
+		}),
+	);
+}
+
+export function failMultiAgentTerminalOutbox(
+	controlDbPath: string,
+	record: MultiAgentTerminalOutboxRecord,
+	error: string,
+	nowIso: string,
+): boolean {
+	return updateClaimedTerminalOutbox(controlDbPath, record, "pending", nowIso, error);
+}
+
+export function deliverMultiAgentTerminalOutbox(
+	controlDbPath: string,
+	record: MultiAgentTerminalOutboxRecord,
+	nowIso: string,
+): boolean {
+	return updateClaimedTerminalOutbox(controlDbPath, record, "delivered", nowIso);
+}
+
+function updateClaimedTerminalOutbox(
+	controlDbPath: string,
+	record: MultiAgentTerminalOutboxRecord,
+	status: "pending" | "delivered",
+	nowIso: string,
+	error?: string,
+): boolean {
+	return withControlDb(
+		controlDbPath,
+		(db) =>
+			db
+				.prepare(
+					`UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, delivered_at = ?, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?`,
+				)
+				.run(
+					status,
+					status === "delivered" ? nowIso : null,
+					error ?? null,
+					nowIso,
+					record.sessionPath,
+					record.agentId,
+					record.terminalRevision,
+					record.eventKind,
+					record.claimId ?? null,
+				).changes === 1,
+	);
+}
+
+function readTerminalOutboxAttempt(
+	db: SqliteDatabase,
+	row: { session_path: string; agent_id: string; terminal_revision: number; event_kind: string },
+): number {
+	return (
+		db
+			.prepare(
+				`SELECT attempt_count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
+			)
+			.get(row.session_path, row.agent_id, row.terminal_revision, row.event_kind) as { attempt_count: number }
+	).attempt_count;
 }
 
 export function listUnseenMultiAgentTerminalEvents(
