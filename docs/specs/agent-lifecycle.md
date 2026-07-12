@@ -122,7 +122,9 @@ the same rule, including clear operations. Generic full-row agent upsert is limi
 bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
 every row after a dispatch lease identity exists. A SQLite trigger independently rejects every
 agent-data UPDATE that changes lifecycle or revision unless the connection is inside an explicitly
-authorized coordinator, detached-runner finalizer, recovery, or offline-migration write scope.
+authorized coordinator, detached-runner finalizer, recovery, or offline-migration write scope. A
+source-scan regression also fails if production modules call direct store lifecycle methods or the
+bootstrap writer outside authority modules.
 
 ## What it must do
 
