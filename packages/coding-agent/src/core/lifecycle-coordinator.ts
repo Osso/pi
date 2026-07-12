@@ -24,6 +24,7 @@ export interface LifecycleCoordinatorOptions {
 export interface CreateChildCommandInput extends SpawnAgentInput {
 	agentId?: string;
 	ownerSessionId: string;
+	result?: AgentSnapshot["result"];
 }
 
 export type CreateChildCommandResult =
@@ -206,6 +207,7 @@ export class LifecycleCoordinator {
 			origin: input.origin,
 			parentId,
 			permission: { ...input.permission },
+			result: input.result,
 			revision: 1,
 			slot: input.slot,
 			transcript: input.transcript,

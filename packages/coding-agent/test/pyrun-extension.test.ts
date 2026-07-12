@@ -9,10 +9,12 @@ import { createPyrunEvalExecutor } from "../extensions/pyrun/src/eval-tool.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { getControlDbPath } from "../src/core/session-control-db.ts";
+import { getControlDbPath, readMultiAgentAgent, readMultiAgentDispatchLease } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -69,6 +71,8 @@ type PyrunHarnessOptions = PyrunExtensionOptions & {
 	setModel?: ExtensionAPI["setModel"];
 };
 
+const temporaryHarnessDirectories: string[] = [];
+
 type PyrunTool = {
 	name: string;
 	execute: (
@@ -81,6 +85,7 @@ type PyrunTool = {
 };
 
 function createPyrunHarness(options: PyrunHarnessOptions = {}) {
+	persistBackgroundStore(options.backgroundJobs?.store);
 	let pyrunTool: PyrunTool | undefined;
 	let pyrunDefinition: ToolDefinition | undefined;
 	const compactRequests: unknown[] = [];
@@ -186,6 +191,52 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 				...contextOverrides,
 			} as ExtensionContext),
 	};
+}
+
+function persistBackgroundStore(store: MultiAgentStore | undefined): void {
+	if (!store || store.getPersistenceTarget()) return;
+	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-store-"));
+	temporaryHarnessDirectories.push(root);
+	const sessionManager = SessionManager.create(root, join(root, "sessions"));
+	sessionManager.setMetadataControlDbPath(getControlDbPath(root));
+	store.setPersistenceSessionManager(sessionManager);
+}
+
+function hasProjectedLifecycle(store: MultiAgentStore, agentId: string, lifecycle: string): boolean {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("Expected persisted multi-agent store");
+	deliverTerminalOutboxProjections({
+		claimId: "pyrun-extension-test",
+		controlDbPath: persistence.controlDbPath,
+		now: () => new Date().toISOString(),
+		store,
+	});
+	return store.getAgent(agentId)?.lifecycle === lifecycle;
+}
+
+function requestDetachedCancellation(store: MultiAgentStore, agentId: string): void {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("Expected persisted multi-agent store");
+	const agent = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, agentId);
+	const reservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agentId);
+	if (!agent || !reservation) throw new Error(`Expected detached reservation for ${agentId}`);
+	const coordinator = new LifecycleCoordinator({
+		controlDbPath: persistence.controlDbPath,
+		createAgentId: () => "unused",
+		createLeaseId: () => "unused",
+		now: () => new Date().toISOString(),
+		reservationDurationMs: 30_000,
+		runtimeIncarnation: "test-supervisor",
+		sessionPath: persistence.sessionPath,
+	});
+	const cancelled = coordinator.requestDetachedCancellation({
+		agent,
+		outputLabel: "Pyrun output",
+		reason: "test cancellation",
+		reservation,
+	});
+	if (!cancelled.ok) throw new Error(`Could not cancel detached Pyrun job: ${cancelled.error}`);
+	store.publishLifecycleCoordinatorSnapshot(cancelled.agent);
 }
 
 function createFakeTui(): TUI {
@@ -510,6 +561,9 @@ describe("pyrun extension", () => {
 	});
 
 	afterEach(() => {
+		for (const directory of temporaryHarnessDirectories.splice(0)) {
+			rmSync(directory, { force: true, recursive: true });
+		}
 		if (previousRunnerCommand === undefined) {
 			delete process.env.PI_PYRUN_RUNNER_COMMAND;
 		} else {
@@ -717,7 +771,7 @@ describe("pyrun extension", () => {
 		expect(text).toContain("hello");
 	});
 
-	it("records detached Pyrun duration in the agent result and completion notification", async () => {
+	it("records detached Pyrun result and completion notification", async () => {
 		const store = new MultiAgentStore();
 		const detachRegistry = new ToolDetachRegistry();
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
@@ -727,12 +781,11 @@ describe("pyrun extension", () => {
 		const detached = await evaluation;
 		expect(detached.details).toMatchObject({ backgroundJobId: "agent_1" });
 
-		await waitFor(() => store.getAgent("agent_1")?.lifecycle === "completed", "detached Pyrun completion");
+		await waitFor(() => hasProjectedLifecycle(store, "agent_1", "completed"), "detached Pyrun completion");
 		const agent = store.getAgent("agent_1");
-		expect(agent?.worker).toEqual({ adapter: "runtime", handleId: "pyrun" });
-		expect(agent?.result?.durationMs).toEqual(expect.any(Number));
-		expect(store.listPendingLifecycleNotificationsForAgent("agent_1", "completed")[0]?.body).toMatch(
-			/^Pyrun evaluation completed:.*Duration: \d+ms$/,
+		expect(agent?.result?.summary).toBe("Pyrun evaluation completed.");
+		expect(store.listPendingLifecycleNotificationsForAgent("agent_1", "completed")[0]?.body).toContain(
+			"Pyrun evaluation completed",
 		);
 	});
 
@@ -1406,11 +1459,11 @@ describe("pyrun extension", () => {
 		const [job] = store.listAgents();
 		expect(job.lifecycle).toBe("running");
 		expect(logPath ? existsSync(logPath) : false).toBe(true);
-		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain("Pyrun evaluation is still running");
+		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain('"kind":"progress"');
 		const [runningFileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
 		expect(runningFileRef).toMatchObject({ label: "Pyrun output", path: logPath });
 
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
+		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "detached Pyrun completion");
 	});
 
 	it("auto-detaches a running Pyrun evaluation after the registry threshold", async () => {
@@ -1424,7 +1477,7 @@ describe("pyrun extension", () => {
 
 		const [job] = store.listAgents();
 		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "auto-detached Pyrun completion");
+		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "auto-detached Pyrun completion");
 	});
 
 	it("keeps foreground Pyrun evaluations unblocked after detaching a background job", async () => {
@@ -1448,7 +1501,7 @@ describe("pyrun extension", () => {
 		expect(foregroundResult.details.value).toBe("");
 		const [job] = store.listAgents();
 		expect(job.lifecycle).toBe("running");
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
+		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "detached Pyrun completion");
 	});
 
 	it("detaches a running Pyrun evaluation into the multi-agent job store", async () => {
@@ -1470,9 +1523,8 @@ describe("pyrun extension", () => {
 		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
 		const [runningFileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
 		expect(runningFileRef).toMatchObject({ label: "Pyrun output" });
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached Pyrun completion");
+		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "detached Pyrun completion");
 		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation completed");
-		expect(store.getAgent(job.id)?.result?.durationMs).toEqual(expect.any(Number));
 		const [fileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
 		expect(fileRef).toEqual(runningFileRef);
 		expect(fileRef?.path && existsSync(fileRef.path)).toBe(true);
@@ -1495,9 +1547,8 @@ describe("pyrun extension", () => {
 		await resultPromise;
 
 		const [job] = store.listAgents();
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "failed", "detached Pyrun failure");
-		expect(store.getAgent(job.id)?.result?.summary).toContain("Pyrun evaluation failed");
-		expect(store.getAgent(job.id)?.result?.durationMs).toEqual(expect.any(Number));
+		await waitFor(() => hasProjectedLifecycle(store, job.id, "failed"), "detached Pyrun failure");
+		expect(store.getAgent(job.id)?.result?.summary).toContain("detached boom");
 	});
 
 	it("aborts a detached Pyrun evaluation through its agent runtime handle", async () => {
@@ -1512,11 +1563,9 @@ describe("pyrun extension", () => {
 		await resultPromise;
 
 		const [job] = store.listAgents();
-		const aborted = store.transitionAgent(job.id, job.revision, "aborted");
-		expect(aborted.ok).toBe(true);
-		expect(store.abortAgentHandle(job.id)).toBe(true);
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(store.getAgent(job.id)?.lifecycle).toBe("aborted");
+		expect(store.abortAgentHandle(job.id)).toBe(false);
+		requestDetachedCancellation(store, job.id);
+		await waitFor(() => hasProjectedLifecycle(store, job.id, "aborted"), "detached Pyrun cancellation");
 		expect(store.abortAgentHandle(job.id)).toBe(false);
 	});
 

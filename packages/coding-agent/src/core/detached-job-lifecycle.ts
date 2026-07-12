@@ -87,6 +87,8 @@ function reserveDetachedJob(
 	options: DetachedJobLifecycleControllerOptions,
 	input: ReserveDetachedJobInput,
 ): DetachedJobReservation {
+	const artifacts = createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), input.jobId);
+	const outputLabel = input.agentType === "bash" ? "Bash output" : "Pyrun output";
 	const created = options.coordinator.createChild({
 		agentId: input.jobId,
 		agentType: "background",
@@ -94,6 +96,7 @@ function reserveDetachedJob(
 		displayName: input.displayName,
 		ownerSessionId: options.ownerSessionId,
 		permission: { narrowed: true, policy: "on-request" },
+		result: { fileRefs: [{ label: outputLabel, path: artifacts.outputPath }] },
 		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId },
 	});
 	if (!created.ok) throw new Error(`Could not reserve detached ${input.agentType} job: ${created.error}`);
@@ -107,13 +110,13 @@ function reserveDetachedJob(
 	if (!leaseId || !runtimeIncarnation) throw new Error("Detached job reservation identity is incomplete");
 	return {
 		agent: running.agent,
-		artifacts: createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), input.jobId),
+		artifacts,
 		controlReservation: created.reservation,
 		identity: {
 			expectedRevision: running.agent.revision,
 			fencingEpoch: created.reservation.fencingEpoch,
 			jobId: input.jobId,
-			outputLabel: input.agentType === "bash" ? "Bash output" : "Pyrun output",
+			outputLabel,
 			leaseId,
 			runtimeIncarnation,
 		},
