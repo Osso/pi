@@ -8,8 +8,6 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
 import {
-	abortInactiveSessionSpawnedAgents,
-	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
 	acquireAttachedRuntimeLease,
 	acquireMultiAgentDispatchLease,
 	acquireMultiAgentRecoveryLeaderLease,
@@ -2436,7 +2434,7 @@ describe("session control DB", () => {
 		expect(() => listRuntimeMailboxMessages(controlDbPath)).toThrow(/storeRef/);
 	});
 
-	it("retires non-Pi listener ownership before startup reconciliation", async () => {
+	it("retires listener ownership without rewriting lifecycle rows", async () => {
 		const child = await spawnIdleNodeProcess();
 		const sessionPath = "/sessions/non-pi-owner.jsonl";
 		const sessionId = "non-pi-owner";
@@ -2459,11 +2457,11 @@ describe("session control DB", () => {
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
 
-			expect(abortInactiveSessionSpawnedAgents(controlDbPath)).toBe(1);
+			expect(retireRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, child.pid)).toBe(true);
 			expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([]);
 			expect(readSessionHealth(controlDbPath, sessionId)).toMatchObject({ pid: null, checkStatus: "dead" });
 			expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
-				{ id: "running", lifecycle: "aborted", revision: 2, error: { code: "supervisor_restarted" } },
+				{ id: "running", lifecycle: "running", revision: 1 },
 			]);
 			expect(child.exitCode).toBeNull();
 			expect(child.signalCode).toBeNull();
@@ -2472,7 +2470,7 @@ describe("session control DB", () => {
 		}
 	});
 
-	it("aborts only active spawned agents in inactive supervisor stores and is idempotent", () => {
+	it("does not reconcile inactive supervisor lifecycle rows through generic persistence APIs", () => {
 		const inactiveSessionPath = "/sessions/inactive.jsonl";
 		const liveSessionPath = "/sessions/live.jsonl";
 		const missingHealthSessionPath = "/sessions/missing-health.jsonl";
@@ -2555,32 +2553,18 @@ describe("session control DB", () => {
 			worker: { adapter: "runtime", handleId: "job" },
 		});
 
-		expect(abortPersistedSpawnedAgentsForInactiveSupervisorSession(controlDbPath, inactiveSessionPath)).toBe(
-			activeLifecycles.length,
-		);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { nowIso: "2026-01-02T00:00:00.000Z" })).toBe(0);
-
 		const inactiveAgents = readMultiAgentState(controlDbPath, inactiveSessionPath)?.agents as Array<
 			Record<string, unknown>
 		>;
 		for (const lifecycle of activeLifecycles) {
 			expect(inactiveAgents.find((agent) => agent.id === `active-${lifecycle}`)).toMatchObject({
-				lifecycle: "aborted",
-				revision: 5,
-				error: {
-					code: "supervisor_restarted",
-					message: "Spawned agent was interrupted because its supervisor session is no longer active.",
-				},
+				lifecycle,
+				revision: 4,
 				extra: { retained: true },
+				worker: { adapter: "runtime", handleId: "job" },
 			});
-			expect(inactiveAgents.find((agent) => agent.id === `active-${lifecycle}`)?.worker).toBeUndefined();
 		}
-		expect(
-			inactiveAgents
-				.filter((agent) => agent.lifecycle !== "aborted")
-				.map((agent) => agent.id)
-				.sort(),
-		).toEqual(["attached", "completed", "failed", "queued"]);
+		expect(inactiveAgents).toHaveLength(activeLifecycles.length + 5);
 		expect(readMultiAgentState(controlDbPath, liveSessionPath)?.agents).toMatchObject([
 			{ id: "live", lifecycle: "running" },
 		]);
@@ -2618,7 +2602,6 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ sessionId: "live-session", sessionPath: newSessionPath }),
 		]);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive: () => true })).toBe(0);
 		expect(readMultiAgentState(controlDbPath, newSessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
@@ -2656,7 +2639,6 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ sessionId: "live-session", sessionPath: undefined }),
 		]);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive: () => true })).toBe(0);
 		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
@@ -2701,7 +2683,6 @@ describe("session control DB", () => {
 		expect(listRuntimeMailboxListeners(controlDbPath)).toEqual([
 			expect.objectContaining({ sessionId: "live-session", sessionPath: undefined }),
 		]);
-		expect(abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive: () => true })).toBe(0);
 		expect(readMultiAgentState(controlDbPath, unknownSessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
