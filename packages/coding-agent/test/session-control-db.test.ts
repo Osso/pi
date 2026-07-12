@@ -38,7 +38,9 @@ import {
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
+	listUnseenMultiAgentTerminalEvents,
 	markMultiAgentMailboxMessageDelivered,
+	markMultiAgentTerminalEventSeen,
 	markRuntimeMailboxMessageDelivered,
 	postArchitectRequest,
 	postSharedChannelMessage,
@@ -696,6 +698,16 @@ describe("session control DB", () => {
 		const committed = commitMultiAgentTerminalMutation(controlDbPath, mutation);
 		expect(committed).toMatchObject({ ok: true, terminalRevision: 5 });
 		expect(commitMultiAgentTerminalMutation(controlDbPath, mutation)).toEqual(committed);
+
+		const firstConsumer = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a");
+		const secondConsumer = listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b");
+		expect(firstConsumer).toMatchObject([{ agentId, eventKind: "completed", terminalRevision: 5 }]);
+		expect(secondConsumer).toEqual(firstConsumer);
+		expect(markMultiAgentTerminalEventSeen(controlDbPath, "waiter-a", firstConsumer[0]!, mutation.updatedAt)).toBe(
+			true,
+		);
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a")).toEqual([]);
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b")).toEqual(secondConsumer);
 		expect(
 			commitMultiAgentTerminalMutation(controlDbPath, {
 				...mutation,

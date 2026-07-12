@@ -39,7 +39,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       the stored revision and full lease/runtime/owner/fencing identity, then update the agent row and insert
       its immutable terminal event and pending outbox row in one immediate SQLite transaction. Exact
       retries return the committed terminal revision without rewriting rows; conflicting payloads or stale
-      predicates fail without creating another event or outbox record. Nonterminal lifecycle CAS uses the
+      predicates fail without creating another event or outbox record. Per-consumer cursor rows acknowledge
+      immutable event identities without changing events or other consumers' visibility, so multiple waiters
+      can independently observe the same terminal revision. Nonterminal lifecycle CAS uses the
       same complete revision/lease/runtime/owner/fencing predicate; concurrent SQLite contenders serialize
       so exactly one increments the revision and every stale component rejects without side effects. Legacy artifact tables/columns are not
       initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only

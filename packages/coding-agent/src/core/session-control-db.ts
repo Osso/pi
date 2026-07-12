@@ -2126,6 +2126,15 @@ export interface ReleaseMultiAgentDispatchLeaseInput extends MultiAgentDispatchL
 	expectedFencingEpoch: number;
 }
 
+export interface MultiAgentTerminalEvent {
+	sessionPath: string;
+	agentId: string;
+	terminalRevision: number;
+	eventKind: string;
+	payload: unknown;
+	createdAt: string;
+}
+
 export interface CommitMultiAgentLifecycleMutationInput {
 	sessionPath: string;
 	agentId: string;
@@ -2215,6 +2224,75 @@ export interface MultiAgentPersistedState {
 	agents: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
+}
+
+export function listUnseenMultiAgentTerminalEvents(
+	controlDbPath: string,
+	consumerId: string,
+): MultiAgentTerminalEvent[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`SELECT events.session_path, events.agent_id, events.terminal_revision,
+			 events.event_kind, events.payload, events.created_at
+			 FROM multi_agent_terminal_events AS events
+			 LEFT JOIN multi_agent_terminal_cursors AS cursors
+			 ON cursors.consumer_id = ? AND cursors.session_path = events.session_path
+			 AND cursors.agent_id = events.agent_id AND cursors.terminal_revision = events.terminal_revision
+			 AND cursors.event_kind = events.event_kind
+			 WHERE cursors.consumer_id IS NULL
+			 ORDER BY events.created_at, events.session_path, events.agent_id, events.terminal_revision, events.event_kind`,
+			)
+			.all(consumerId) as Array<{
+			session_path: string;
+			agent_id: string;
+			terminal_revision: number;
+			event_kind: string;
+			payload: string;
+			created_at: string;
+		}>;
+		return rows.map((row) => ({
+			agentId: row.agent_id,
+			createdAt: row.created_at,
+			eventKind: row.event_kind,
+			payload: parseStoredJson(row.payload, `multi_agent_terminal_events:${row.session_path}#${row.agent_id}`),
+			sessionPath: row.session_path,
+			terminalRevision: row.terminal_revision,
+		}));
+	});
+}
+
+export function markMultiAgentTerminalEventSeen(
+	controlDbPath: string,
+	consumerId: string,
+	event: Pick<MultiAgentTerminalEvent, "sessionPath" | "agentId" | "terminalRevision" | "eventKind">,
+	seenAt: string,
+): boolean {
+	return withControlDb(controlDbPath, (db) => {
+		const result = db
+			.prepare(
+				`INSERT INTO multi_agent_terminal_cursors (
+			 consumer_id, session_path, agent_id, terminal_revision, event_kind, seen_at
+			 ) SELECT ?, ?, ?, ?, ?, ?
+			 WHERE EXISTS (
+			 SELECT 1 FROM multi_agent_terminal_events
+			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?
+			 ) ON CONFLICT DO NOTHING`,
+			)
+			.run(
+				consumerId,
+				event.sessionPath,
+				event.agentId,
+				event.terminalRevision,
+				event.eventKind,
+				seenAt,
+				event.sessionPath,
+				event.agentId,
+				event.terminalRevision,
+				event.eventKind,
+			);
+		return result.changes === 1;
+	});
 }
 
 export function commitMultiAgentLifecycleMutation(
@@ -3054,6 +3132,14 @@ function rejectLegacyArtifactFields(value: unknown, context: string): void {
 			throw new Error(`Legacy artifact fields are not supported at ${context}.${key}`);
 		}
 		rejectLegacyArtifactFields(nested, `${context}.${key}`);
+	}
+}
+
+function parseStoredJson(value: string, context: string): unknown {
+	try {
+		return JSON.parse(value) as unknown;
+	} catch {
+		throw new Error(`Invalid persisted JSON at ${context}`);
 	}
 }
 
