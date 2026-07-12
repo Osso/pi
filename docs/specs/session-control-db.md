@@ -27,7 +27,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_dispatch_leases`, `multi_agent_recovery_leader`,
-      `multi_agent_terminal_events`, `multi_agent_terminal_outbox`, `multi_agent_mailbox_messages`,
+      `multi_agent_terminal_events`, `multi_agent_terminal_outbox`, `multi_agent_terminal_cursors`,
+      `multi_agent_mailbox_messages`,
       `multi_agent_counters_v2`): one row
       upsert per mutation, restore selects the session's rows. Dispatch lease acquisition is
       transactional; live leases reject competing owners, expired takeover increments the durable

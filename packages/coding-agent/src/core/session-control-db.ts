@@ -10,7 +10,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 6;
+const CONTROL_DB_SCHEMA_VERSION = 7;
 const LIFECYCLE_PROTOCOL_VERSION_FUNCTION = "pi_lifecycle_protocol_version";
 
 export interface IncomingControlMessage {
@@ -3382,6 +3382,19 @@ function initializeSchema(db: SqliteDatabase): void {
 
 		CREATE INDEX IF NOT EXISTS multi_agent_terminal_outbox_status_idx
 		ON multi_agent_terminal_outbox(status, updated_at);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_terminal_cursors (
+			consumer_id TEXT NOT NULL,
+			session_path TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			terminal_revision INTEGER NOT NULL,
+			event_kind TEXT NOT NULL,
+			seen_at TEXT NOT NULL,
+			PRIMARY KEY (consumer_id, session_path, agent_id, terminal_revision, event_kind),
+			FOREIGN KEY (session_path, agent_id, terminal_revision, event_kind)
+				REFERENCES multi_agent_terminal_events(session_path, agent_id, terminal_revision, event_kind)
+				ON DELETE CASCADE
+		);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_mailbox_messages (
 			session_path TEXT NOT NULL,

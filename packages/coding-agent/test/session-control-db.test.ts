@@ -730,6 +730,9 @@ describe("session control DB", () => {
 			const outboxColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_outbox)").all() as Array<{
 				name: string;
 			}>;
+			const cursorColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_cursors)").all() as Array<{
+				name: string;
+			}>;
 			expect(eventColumns.map((column) => column.name)).toEqual([
 				"session_path",
 				"agent_id",
@@ -750,6 +753,14 @@ describe("session control DB", () => {
 				"attempt_count",
 				"last_error",
 				"updated_at",
+			]);
+			expect(cursorColumns.map((column) => column.name)).toEqual([
+				"consumer_id",
+				"session_path",
+				"agent_id",
+				"terminal_revision",
+				"event_kind",
+				"seen_at",
 			]);
 		} finally {
 			db.close();
@@ -1030,7 +1041,7 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(6);
+			expect(version.user_version).toBe(7);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1154,7 +1165,7 @@ describe("session control DB", () => {
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(6);
+			expect(version.user_version).toBe(7);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {

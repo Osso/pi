@@ -47,6 +47,7 @@
 
 - Added a complete-predicate nonterminal lifecycle CAS with legal transition checks and single-winner SQLite contention semantics.
 - Added an atomic fenced terminal lifecycle transaction that updates the agent and inserts its immutable terminal event and pending delivery outbox row together.
+- Added per-consumer terminal-event cursor storage keyed by immutable event identity for non-destructive fan-out.
 - Added immutable multi-agent terminal event and delivery outbox storage keyed by agent, terminal revision, and event kind.
 - Added a durable multi-agent recovery-leader lease with live-owner rejection, expiry takeover, monotonic fencing, exact renewal, and compare-release so competing sweepers cannot reconcile concurrently.
 - Added durable multi-agent dispatch leases with runtime/owner identity, monotonic fencing epochs, renewal/expiry takeover, recovery ownership, and exact-identity compare-and-release.
