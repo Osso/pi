@@ -31,6 +31,7 @@ import {
 	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
 	enqueueRuntimeMailboxMessage,
+	enqueueStoredRuntimeMailboxMessage,
 	failMultiAgentTerminalOutbox,
 	failRuntimeMailboxMessage,
 	finalizeDetachedJob,
@@ -2094,6 +2095,40 @@ describe("session control DB", () => {
 			expect(child.signalCode).toBeNull();
 		} finally {
 			await stopChildProcess(child);
+		}
+	});
+
+	it("rolls back the durable payload when atomic runtime transport insertion fails", () => {
+		listRuntimeMailboxMessages(controlDbPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(
+				`CREATE TRIGGER reject_atomic_runtime_transport
+				 BEFORE INSERT ON runtime_mailbox_messages
+				 BEGIN SELECT RAISE(ABORT, 'transport rejected'); END`,
+			);
+		} finally {
+			db.close();
+		}
+		const sessionPath = "/sessions/atomic.jsonl";
+		const messageId = "atomic-message";
+		expect(() =>
+			enqueueStoredRuntimeMailboxMessage(controlDbPath, {
+				kind: "system",
+				message: { body: "request", id: messageId, kind: "system", status: "pending" },
+				recipient: { agentId: null, sessionId: "parent-session" },
+				sender: { agentId: "agent_1", sessionId: "child-session" },
+				storeRef: { messageId, sessionPath },
+			}),
+		).toThrow("transport rejected");
+		const verify = createSqliteDatabase(controlDbPath);
+		try {
+			const stored = verify
+				.prepare("SELECT 1 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId);
+			expect(stored).toBeUndefined();
+		} finally {
+			verify.close();
 		}
 	});
 

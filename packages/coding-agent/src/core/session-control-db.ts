@@ -78,6 +78,11 @@ export interface PostArchitectRequestInput {
 	body: string;
 }
 
+export interface EnqueueStoredRuntimeMailboxMessageInput extends EnqueueRuntimeMailboxMessageInput {
+	message: unknown;
+	updatedAt?: string;
+}
+
 export interface EnqueueRuntimeMailboxMessageInput {
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
@@ -460,6 +465,96 @@ export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: Enque
 	});
 	notifyRuntimeMailboxListener(result.listener);
 	return result.id;
+}
+
+export function enqueueStoredRuntimeMailboxMessage(
+	controlDbPath: string,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+): number {
+	validateMailboxPayload(
+		input.message,
+		`multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+	);
+	const result = withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => persistStoredRuntimeMailboxMessage(db, input)),
+	);
+	notifyRuntimeMailboxListener(result.listener);
+	return result.id;
+}
+
+function persistStoredRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueStoredRuntimeMailboxMessageInput) {
+	const now = input.updatedAt ?? new Date().toISOString();
+	persistImmutableMailboxPayload(db, input, now);
+	const inserted = insertRuntimeMailboxTransport(db, input, now);
+	const row = db
+		.prepare(
+			`SELECT id, recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind
+			 FROM runtime_mailbox_messages WHERE store_session_path = ? AND store_message_id = ?`,
+		)
+		.get(input.storeRef.sessionPath, input.storeRef.messageId) as RuntimeMailboxRow | undefined;
+	if (!row) throw new Error("Stored runtime mailbox enqueue did not persist its transport row");
+	assertStoredRuntimeMailboxIdentity(row, input);
+	return {
+		id: row.id,
+		listener: inserted.changes > 0 ? readRuntimeMailboxListenerRow(db, input.recipient) : undefined,
+	};
+}
+
+function persistImmutableMailboxPayload(
+	db: SqliteDatabase,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+	now: string,
+): void {
+	const serialized = JSON.stringify(input.message);
+	const existing = db
+		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+		.get(input.storeRef.sessionPath, input.storeRef.messageId) as { data: string } | undefined;
+	if (existing && existing.data !== serialized) {
+		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
+	}
+	db.prepare(
+		`INSERT OR IGNORE INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ?, ?)`,
+	).run(input.storeRef.sessionPath, input.storeRef.messageId, serialized, now);
+}
+
+function insertRuntimeMailboxTransport(
+	db: SqliteDatabase,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+	now: string,
+) {
+	return db
+		.prepare(
+			`INSERT OR IGNORE INTO runtime_mailbox_messages (
+				recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id,
+				kind, body, store_session_path, store_message_id, status, created_at, updated_at
+			 ) VALUES (?, ?, ?, ?, ?, '', ?, ?, 'pending', ?, ?)`,
+		)
+		.run(
+			input.recipient.sessionId,
+			input.recipient.agentId,
+			input.sender.sessionId,
+			input.sender.agentId,
+			input.kind,
+			input.storeRef.sessionPath,
+			input.storeRef.messageId,
+			now,
+			now,
+		);
+}
+
+function assertStoredRuntimeMailboxIdentity(
+	row: RuntimeMailboxRow,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+): void {
+	const addressMatches =
+		row.recipient_session_id === input.recipient.sessionId && row.recipient_agent_id === input.recipient.agentId;
+	const senderMatches =
+		row.sender_session_id === input.sender.sessionId && row.sender_agent_id === input.sender.agentId;
+	if (addressMatches && senderMatches && row.kind === input.kind) return;
+	throw new Error(
+		`Runtime mailbox store reference conflicts with existing runtime mailbox row: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+	);
 }
 
 export interface RecoverStaleRuntimeMailboxClaimsOptions {
