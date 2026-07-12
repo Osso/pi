@@ -438,6 +438,22 @@ function estimateCompactedContextTokens(input: CompactedContextEstimateInput): C
 	};
 }
 
+function isMultiAgentTerminalTransport(body: string): boolean {
+	try {
+		const value = JSON.parse(body) as unknown;
+		if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+		const record = value as Record<string, unknown>;
+		return (
+			record.type === "multi_agent_terminal" &&
+			typeof record.agentId === "string" &&
+			typeof record.eventKind === "string" &&
+			typeof record.terminalRevision === "number"
+		);
+	} catch {
+		return false;
+	}
+}
+
 function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSessionId: string): string {
 	const senderSession = message.sender.sessionId || "unknown-session";
 	const senderAgent = message.sender.agentId || "main";
@@ -2450,6 +2466,7 @@ export class AgentSession {
 			failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
 			return false;
 		}
+		if (this._deliverTerminalProjectionMessage(controlDbPath, message, delivery.payloadData)) return false;
 		if (await this._interceptRuntimeMailboxMessage(controlDbPath, message, delivery.payloadData)) return false;
 		const triggerIfIdle = options.triggerIfIdle && !this.isStreaming;
 		try {
@@ -2468,6 +2485,19 @@ export class AgentSession {
 			}
 			return false;
 		}
+	}
+
+	private _deliverTerminalProjectionMessage(
+		controlDbPath: string,
+		message: RuntimeMailboxMessage,
+		payloadData: string | undefined,
+	): boolean {
+		if (message.kind !== "system" || !isMultiAgentTerminalTransport(message.body)) return false;
+		this._drainTerminalOutboxProjections();
+		if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, payloadData)) {
+			throw new Error(`Terminal runtime mailbox delivery failed for row ${message.id}`);
+		}
+		return true;
 	}
 
 	private async _deliverRuntimeMailboxPrompt(

@@ -2818,7 +2818,15 @@ function finalizeDetachedJobTransaction(
 	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, envelope.jobId)) {
 		return { ok: false, error: "invalid_transition" };
 	}
-	const terminalAgent = persistDetachedJobTerminal(db, sessionPath, envelope, agent, terminalRevision, eventKind);
+	const terminalAgent = persistDetachedJobTerminal(
+		db,
+		sessionPath,
+		envelope,
+		agent,
+		lease,
+		terminalRevision,
+		eventKind,
+	);
 	return { ok: true, terminalAgent, terminalRevision };
 }
 
@@ -2849,6 +2857,7 @@ function persistDetachedJobTerminal(
 	sessionPath: string,
 	envelope: DetachedJobTerminalEnvelope,
 	agent: Record<string, unknown>,
+	lease: MultiAgentDispatchLeaseRow,
 	terminalRevision: number,
 	eventKind: string,
 ): AgentSnapshot {
@@ -2876,8 +2885,40 @@ function persistDetachedJobTerminal(
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
 	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, envelope.terminalAt);
+	persistDetachedJobTerminalTransport(db, sessionPath, envelope, lease, terminalRevision, eventKind);
 	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
 	return updated as unknown as AgentSnapshot;
+}
+
+function persistDetachedJobTerminalTransport(
+	db: SqliteDatabase,
+	sessionPath: string,
+	envelope: DetachedJobTerminalEnvelope,
+	lease: MultiAgentDispatchLeaseRow,
+	terminalRevision: number,
+	eventKind: string,
+): void {
+	const ownerSessionId = lease.owner_session_id;
+	if (!ownerSessionId) throw new Error(`Detached job ${envelope.jobId} lease has no owner session`);
+	const messageId = `terminal:${envelope.jobId}:${terminalRevision}:${eventKind}`;
+	const body = JSON.stringify({ agentId: envelope.jobId, eventKind, terminalRevision, type: "multi_agent_terminal" });
+	persistStoredRuntimeMailboxMessage(db, {
+		kind: "system",
+		message: {
+			body,
+			createdAt: envelope.terminalAt,
+			fromAgentId: envelope.jobId,
+			id: messageId,
+			kind: "system",
+			status: "pending",
+			toAgentId: lease.owner_agent_id ?? "main",
+			updatedAt: envelope.terminalAt,
+		},
+		recipient: { agentId: lease.owner_agent_id, sessionId: ownerSessionId },
+		sender: { agentId: envelope.jobId, sessionId: ownerSessionId },
+		storeRef: { messageId, sessionPath },
+		updatedAt: envelope.terminalAt,
+	});
 }
 
 function detachedJobAgentDetails(envelope: DetachedJobTerminalEnvelope): Record<string, unknown> {

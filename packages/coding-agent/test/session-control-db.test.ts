@@ -867,6 +867,18 @@ describe("session control DB", () => {
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "detached-test")).toMatchObject([
 			{ agentId, eventKind: "detached_job_completed", payload: envelope, terminalRevision: 5 },
 		]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				kind: "system",
+				recipient: { agentId: null, sessionId: "runner" },
+				sender: { agentId, sessionId: "runner" },
+				status: "pending",
+				storeRef: {
+					messageId: `terminal:${agentId}:5:detached_job_completed`,
+					sessionPath,
+				},
+			},
+		]);
 		expect(
 			acquireMultiAgentDispatchLease(controlDbPath, {
 				agentId,
