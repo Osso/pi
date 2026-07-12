@@ -4,8 +4,9 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, w
 import { dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	claimDetachedJobControlCommands,
+	claimDetachedJobRuntimeCommands,
 	type DetachedJobCancelCommand,
+	type DetachedJobResponseCommand,
 } from "../../../src/core/detached-job-control.ts";
 import {
 	type DetachedJobArtifacts,
@@ -18,6 +19,7 @@ import {
 	type RuntimeMailboxAddress,
 } from "../../../src/core/session-control-db.ts";
 import { finalizeDetachedEnvelopeWithRetry } from "../../../src/core/detached-bash-runner.ts";
+import { enqueueDetachedPyrunBridgeRequest } from "./detached-bridge.ts";
 import {
 	type CanonicalPyrunEvalParams,
 	type CanonicalPyrunEvalResult,
@@ -59,6 +61,16 @@ export function writeDetachedPyrunLaunchManifest(path: string, data: DetachedPyr
 	fsyncDirectory(dirname(path));
 }
 
+interface DetachedPyrunControlState {
+	cancel?: DetachedJobCancelCommand;
+	identity: DetachedJobLeaseIdentity;
+}
+
+interface PendingBridgeRequest {
+	reject: (error: Error) => void;
+	resolve: (result: unknown) => void;
+}
+
 type PyrunSettlement =
 	| { cancel?: DetachedJobCancelCommand; identity: DetachedJobLeaseIdentity; result: CanonicalPyrunEvalResult }
 	| { cancel?: DetachedJobCancelCommand; error: unknown; identity: DetachedJobLeaseIdentity };
@@ -94,13 +106,16 @@ async function waitForDetachedPyrunSettlement(
 	runner: PyrunRunnerClient,
 ): Promise<PyrunSettlement> {
 	const abort = new AbortController();
-	let identity = manifest.identity;
-	let cancel: DetachedJobCancelCommand | undefined;
+	const control: DetachedPyrunControlState = { identity: manifest.identity };
+	const pendingRequests = new Map<string, PendingBridgeRequest>();
+	const dispatchPiRequest = (request: { method: string; params: unknown }) =>
+		dispatchDetachedPyrunBridgeRequest(manifest, control.identity, pendingRequests, request);
 	const settled = runner
 		.evaluate(
 			manifest.params,
 			(update) => appendArtifactRecord(manifest.artifacts.outputPath, { kind: "progress", update }),
 			abort.signal,
+			dispatchPiRequest,
 		)
 		.then(
 			(result) => ({ result }),
@@ -111,14 +126,59 @@ async function waitForDetachedPyrunSettlement(
 			settled,
 			new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), CONTROL_POLL_MS)),
 		]);
-		if (result) return { ...result, cancel, identity };
-		const [command] = claimDetachedJobControlCommands(manifest.controlDbPath, manifest.runnerAddress, identity);
-		if (command && !cancel) {
-			cancel = command;
-			identity = command.identity;
+		if (result) return { ...result, cancel: control.cancel, identity: control.identity };
+		applyDetachedPyrunRuntimeCommands(manifest, control, pendingRequests, abort);
+	}
+}
+
+function applyDetachedPyrunRuntimeCommands(
+	manifest: DetachedPyrunLaunchManifest,
+	control: DetachedPyrunControlState,
+	pendingRequests: Map<string, PendingBridgeRequest>,
+	abort: AbortController,
+): void {
+	const commands = claimDetachedJobRuntimeCommands(
+		manifest.controlDbPath,
+		manifest.runnerAddress,
+		control.identity,
+	);
+	for (const command of commands) {
+		if (command.command === "respond") settleBridgeResponse(pendingRequests, command);
+		else if (!control.cancel) {
+			control.cancel = command;
+			control.identity = command.identity;
 			abort.abort();
 		}
 	}
+}
+
+function dispatchDetachedPyrunBridgeRequest(
+	manifest: DetachedPyrunLaunchManifest,
+	identity: DetachedJobLeaseIdentity,
+	pendingRequests: Map<string, PendingBridgeRequest>,
+	request: { method: string; params: unknown },
+): Promise<unknown> {
+	const requestId = enqueueDetachedPyrunBridgeRequest({
+		controlDbPath: manifest.controlDbPath,
+		identity,
+		method: request.method,
+		params: request.params,
+		runnerAddress: manifest.runnerAddress,
+		sessionPath: manifest.sessionPath,
+		supervisorAddress: { agentId: null, sessionId: manifest.runnerAddress.sessionId },
+	});
+	return new Promise((resolve, reject) => pendingRequests.set(requestId, { reject, resolve }));
+}
+
+function settleBridgeResponse(
+	pendingRequests: Map<string, PendingBridgeRequest>,
+	response: DetachedJobResponseCommand,
+): void {
+	const pending = pendingRequests.get(response.requestId);
+	if (!pending) return;
+	pendingRequests.delete(response.requestId);
+	if (response.error) pending.reject(new Error(response.error));
+	else pending.resolve(response.result);
 }
 
 async function finalizeDetachedPyrunSettlement(

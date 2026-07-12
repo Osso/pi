@@ -3,13 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	enqueueDetachedPyrunBridgeResponse,
+	parseDetachedPyrunBridgeRequest,
+} from "../extensions/pyrun/src/detached-bridge.ts";
+import {
 	launchDetachedPyrunRunner,
 	writeDetachedPyrunLaunchManifest,
 } from "../extensions/pyrun/src/detached-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { readMultiAgentState } from "../src/core/session-control-db.ts";
+import {
+	claimRuntimeMailboxMessages,
+	listRuntimeMailboxMessages,
+	readMultiAgentState,
+} from "../src/core/session-control-db.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -27,12 +35,12 @@ describe("detached Pyrun runner", () => {
 			[
 				"#!/usr/bin/env node",
 				"import { createInterface } from 'node:readline';",
-				"const lines = createInterface({ input: process.stdin });",
-				"for await (const line of lines) {",
-				"  const request = JSON.parse(line);",
-				"  process.stdout.write(JSON.stringify({ type: 'progress', message: 'working' }) + '\\n');",
-				"  process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: 42 }) + '\\n');",
-				"}",
+				"const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
+				"const request = JSON.parse((await lines.next()).value);",
+				"process.stdout.write(JSON.stringify({ type: 'progress', message: 'working' }) + '\\n');",
+				"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'models.scoped', params: null }) + '\\n');",
+				"const response = JSON.parse((await lines.next()).value);",
+				"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: response.result }) + '\\n');",
 			].join("\n"),
 		);
 		chmodSync(runnerPath, 0o700);
@@ -71,6 +79,7 @@ describe("detached Pyrun runner", () => {
 			jobId,
 			workerHandleId: String(runnerPid),
 		});
+		const supervisorAddress = { agentId: null, sessionId: "main" };
 		writeDetachedPyrunLaunchManifest(manifestPath, {
 			artifacts,
 			controlDbPath,
@@ -81,6 +90,22 @@ describe("detached Pyrun runner", () => {
 			sessionPath,
 		});
 
+		await waitFor(() =>
+			listRuntimeMailboxMessages(controlDbPath).some(
+				(message) => message.recipient.agentId === null && message.status === "pending",
+			),
+		);
+		const [bridgeMessage] = claimRuntimeMailboxMessages(controlDbPath, supervisorAddress);
+		if (!bridgeMessage) throw new Error("Expected detached Pyrun bridge request");
+		const bridgeRequest = parseDetachedPyrunBridgeRequest(bridgeMessage);
+		if (!bridgeRequest) throw new Error("Expected valid detached Pyrun bridge request");
+		enqueueDetachedPyrunBridgeResponse({
+			controlDbPath,
+			request: bridgeRequest,
+			result: [{ id: "model-1" }],
+			sessionPath,
+			supervisorAddress,
+		});
 		await waitFor(() => {
 			const agent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as
 				| { lifecycle?: unknown }
@@ -89,7 +114,7 @@ describe("detached Pyrun runner", () => {
 		});
 		const output = readFileSync(artifacts.outputPath, "utf8");
 		expect(output).toContain('"kind":"progress"');
-		expect(output).toContain('"value":42');
+		expect(output).toContain('"value":[{"id":"model-1"}]');
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ id: jobId, lifecycle: "completed", revision: 4 },
 		]);
