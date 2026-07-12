@@ -47,6 +47,7 @@
 
 - Added a complete-predicate nonterminal lifecycle CAS with legal transition checks and single-winner SQLite contention semantics.
 - Added an atomic fenced terminal lifecycle transaction that updates the agent and inserts its immutable terminal event and pending delivery outbox row together.
+- Added deterministic offline lifecycle migration: legacy queued agents become explicit unreserved epoch-0 rows, while unfenced active agents become `failed/lost_runtime` with terminal event/outbox records.
 - Added atomic terminal-outbox claim, retry, failure, and delivery transitions independent from terminal-event observation.
 - Added per-consumer terminal-event cursor storage keyed by immutable event identity for non-destructive fan-out.
 - Added immutable multi-agent terminal event and delivery outbox storage keyed by agent, terminal revision, and event kind.

@@ -43,7 +43,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       immutable event identities without changing events or other consumers' visibility, so multiple waiters
       can independently observe the same terminal revision. Outbox rows use atomic single-claim delivery;
       failures return the same row to pending with an incremented attempt count and retained error, while
-      successful delivery finalizes only transport state and never consumes terminal-event visibility. Nonterminal lifecycle CAS uses the
+      successful delivery finalizes only transport state and never consumes terminal-event visibility.
+      Offline lifecycle migration creates explicit unreserved epoch-0 dispatch rows for legacy queued
+      agents and resolves unfenced active rows as `failed/lost_runtime` with atomic terminal event/outbox
+      records; it never guesses that an orphaned runtime was aborted. Nonterminal lifecycle CAS uses the
       same complete revision/lease/runtime/owner/fencing predicate; concurrent SQLite contenders serialize
       so exactly one increments the revision and every stale component rejects without side effects. Legacy artifact tables/columns are not
       initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only

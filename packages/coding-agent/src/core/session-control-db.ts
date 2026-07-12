@@ -10,7 +10,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 7;
+const CONTROL_DB_SCHEMA_VERSION = 8;
 const LIFECYCLE_PROTOCOL_VERSION_FUNCTION = "pi_lifecycle_protocol_version";
 
 export interface IncomingControlMessage {
@@ -3714,6 +3714,7 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 		}
 
 		const now = new Date().toISOString();
+		migrateLegacyLifecycleRows(db, now);
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", now);
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", now);
 		createLegacyArtifactFieldTriggers(db);
@@ -3736,6 +3737,60 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
 	throw new Error(
 		`Cannot activate lifecycle protocol version ${CONTROL_DB_SCHEMA_VERSION} while Pi runtimes are active (PIDs: ${liveRuntimePids.join(", ")}). Restart all Pi runtimes, then retry`,
 	);
+}
+
+function migrateLegacyLifecycleRows(db: SqliteDatabase, nowIso: string): void {
+	const rows = db
+		.prepare(`SELECT agents.session_path, agents.agent_id, agents.data
+		FROM multi_agent_agents AS agents LEFT JOIN multi_agent_dispatch_leases AS leases
+		ON leases.session_path = agents.session_path AND leases.agent_id = agents.agent_id
+		WHERE leases.agent_id IS NULL`)
+		.all() as PersistedAgentRow[];
+	for (const row of rows) {
+		const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${row.session_path}#${row.agent_id}`);
+		if (agent.lifecycle === "queued") {
+			db.prepare(
+				`INSERT INTO multi_agent_dispatch_leases (session_path, agent_id, fencing_epoch) VALUES (?, ?, 0)`,
+			).run(row.session_path, row.agent_id);
+			continue;
+		}
+		if (
+			typeof agent.lifecycle !== "string" ||
+			!["starting", "running", "waiting_for_input", "steering_pending", "cancelling"].includes(agent.lifecycle)
+		)
+			continue;
+		const terminalRevision = typeof agent.revision === "number" ? agent.revision + 1 : 1;
+		const error = {
+			code: "lost_runtime",
+			message: "Legacy active agent had no fenced runtime ownership during protocol migration.",
+		};
+		const updated = {
+			...agent,
+			error,
+			lifecycle: "failed",
+			revision: terminalRevision,
+			updatedAt: nowIso,
+			worker: undefined,
+		};
+		db.prepare(`UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?`).run(
+			JSON.stringify(updated),
+			nowIso,
+			row.session_path,
+			row.agent_id,
+		);
+		const payload = JSON.stringify({
+			agentId: row.agent_id,
+			error,
+			lifecycle: "failed",
+			parentId: agent.parentId ?? null,
+		});
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_events (session_path, agent_id, terminal_revision, event_kind, payload, created_at) VALUES (?, ?, ?, 'lost_runtime', ?, ?)`,
+		).run(row.session_path, row.agent_id, terminalRevision, payload, nowIso);
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox (session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at) VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
+		).run(row.session_path, row.agent_id, terminalRevision, nowIso);
+	}
 }
 
 function createLifecycleProtocolWriterTriggers(db: SqliteDatabase): void {

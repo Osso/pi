@@ -932,6 +932,57 @@ describe("session control DB", () => {
 		});
 	});
 
+	it("migrates legacy queued rows and terminalizes orphaned active rows as lost runtime", () => {
+		const sessionPath = "/sessions/legacy-lifecycle.jsonl";
+		for (const [id, lifecycle] of [
+			["queued", "queued"],
+			["running", "running"],
+		] as const) {
+			upsertMultiAgentAgent(controlDbPath, sessionPath, id, {
+				createdAt: "2026-07-11T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: id,
+				agentType: "test",
+				id,
+				lifecycle,
+				parentId: undefined,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 2,
+				updatedAt: "2026-07-11T00:00:00.000Z",
+			});
+		}
+		const legacyDb = createSqliteDatabase(controlDbPath);
+		try {
+			legacyDb.exec("PRAGMA user_version = 7");
+		} finally {
+			legacyDb.close();
+		}
+
+		const state = readMultiAgentState(controlDbPath, sessionPath);
+		expect(state?.agents).toMatchObject([
+			{ id: "queued", lifecycle: "queued", revision: 2 },
+			{ id: "running", lifecycle: "failed", revision: 3, error: { code: "lost_runtime" } },
+		]);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				db
+					.prepare(
+						"SELECT fencing_epoch, lease_id FROM multi_agent_dispatch_leases WHERE session_path = ? AND agent_id = ?",
+					)
+					.get(sessionPath, "queued"),
+			).toEqual({ fencing_epoch: 0, lease_id: null });
+			expect(
+				db.prepare("SELECT event_kind FROM multi_agent_terminal_events WHERE agent_id = 'running'").get(),
+			).toEqual({ event_kind: "lost_runtime" });
+			expect(db.prepare("SELECT status FROM multi_agent_terminal_outbox WHERE agent_id = 'running'").get()).toEqual({
+				status: "pending",
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("requires lifecycle writer quiescence before activating a newer protocol", () => {
 		const sessionPath = "/sessions/quiescence.jsonl";
 		readMultiAgentState(controlDbPath, sessionPath);
@@ -1065,7 +1116,7 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(7);
+			expect(version.user_version).toBe(8);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1189,7 +1240,7 @@ describe("session control DB", () => {
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(7);
+			expect(version.user_version).toBe(8);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
