@@ -573,6 +573,42 @@ describe("session control DB", () => {
 		}
 	});
 
+	it("creates immutable terminal event and outbox schema", () => {
+		readMultiAgentState(controlDbPath, "/sessions/terminal-schema.jsonl");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const eventColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_events)").all() as Array<{
+				name: string;
+			}>;
+			const outboxColumns = db.prepare("PRAGMA table_info(multi_agent_terminal_outbox)").all() as Array<{
+				name: string;
+			}>;
+			expect(eventColumns.map((column) => column.name)).toEqual([
+				"session_path",
+				"agent_id",
+				"terminal_revision",
+				"event_kind",
+				"payload",
+				"created_at",
+			]);
+			expect(outboxColumns.map((column) => column.name)).toEqual([
+				"session_path",
+				"agent_id",
+				"terminal_revision",
+				"event_kind",
+				"status",
+				"claim_id",
+				"claimed_at",
+				"delivered_at",
+				"attempt_count",
+				"last_error",
+				"updated_at",
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("creates the fenced recovery leader lease schema", () => {
 		readMultiAgentState(controlDbPath, "/sessions/recovery-leader-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);
@@ -847,7 +883,7 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(5);
+			expect(version.user_version).toBe(6);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -971,7 +1007,7 @@ describe("session control DB", () => {
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(5);
+			expect(version.user_version).toBe(6);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {

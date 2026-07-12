@@ -10,7 +10,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 5;
+const CONTROL_DB_SCHEMA_VERSION = 6;
 const LIFECYCLE_PROTOCOL_VERSION_FUNCTION = "pi_lifecycle_protocol_version";
 
 export interface IncomingControlMessage {
@@ -3168,6 +3168,37 @@ function initializeSchema(db: SqliteDatabase): void {
 			renewed_at TEXT,
 			expires_at TEXT
 		);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_terminal_events (
+			session_path TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			terminal_revision INTEGER NOT NULL,
+			event_kind TEXT NOT NULL,
+			payload TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind)
+		);
+
+		CREATE TABLE IF NOT EXISTS multi_agent_terminal_outbox (
+			session_path TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			terminal_revision INTEGER NOT NULL,
+			event_kind TEXT NOT NULL,
+			status TEXT NOT NULL,
+			claim_id TEXT,
+			claimed_at TEXT,
+			delivered_at TEXT,
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind),
+			FOREIGN KEY (session_path, agent_id, terminal_revision, event_kind)
+				REFERENCES multi_agent_terminal_events(session_path, agent_id, terminal_revision, event_kind)
+				ON DELETE CASCADE
+		);
+
+		CREATE INDEX IF NOT EXISTS multi_agent_terminal_outbox_status_idx
+		ON multi_agent_terminal_outbox(status, updated_at);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_mailbox_messages (
 			session_path TEXT NOT NULL,

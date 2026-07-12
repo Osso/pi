@@ -45,6 +45,7 @@
 
 ### Changed
 
+- Added immutable multi-agent terminal event and delivery outbox storage keyed by agent, terminal revision, and event kind.
 - Added a durable multi-agent recovery-leader lease with live-owner rejection, expiry takeover, monotonic fencing, exact renewal, and compare-release so competing sweepers cannot reconcile concurrently.
 - Added durable multi-agent dispatch leases with runtime/owner identity, monotonic fencing epochs, renewal/expiry takeover, recovery ownership, and exact-identity compare-and-release.
 - Fenced persisted multi-agent lifecycle writes by control-DB protocol version: newer schemas are rejected before initialization, upgrades require all Pi runtimes to be quiescent, and SQLite triggers reject agent-row writes from legacy or unregistered connections.
