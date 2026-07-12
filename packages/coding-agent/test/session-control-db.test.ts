@@ -10,6 +10,7 @@ import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "..
 import {
 	abortInactiveSessionSpawnedAgents,
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
+	acquireAttachedRuntimeLease,
 	acquireMultiAgentDispatchLease,
 	acquireMultiAgentRecoveryLeaderLease,
 	advanceSharedChannelCursor,
@@ -1196,6 +1197,50 @@ describe("session control DB", () => {
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "recovery-test")).toMatchObject([
 			{ agentId, eventKind: "lost_runtime", terminalRevision: 2 },
 		]);
+	});
+
+	it("acquires attached runtime ownership only for the exact attached revision", () => {
+		const sessionPath = "/sessions/attached-runtime.jsonl";
+		const agentId = "attached-1";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "resumed-session",
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Attached",
+			id: agentId,
+			lifecycle: "waiting_for_input",
+			origin: "attached",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const input = {
+			agentId,
+			expectedRevision: 4,
+			expiresAt: "2026-07-11T00:02:00.000Z",
+			leaseId: "attached-lease",
+			nowIso: "2026-07-11T00:01:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			runtimeIncarnation: "attached-runtime",
+			sessionPath,
+		};
+
+		expect(acquireAttachedRuntimeLease(controlDbPath, { ...input, expectedRevision: 3 })).toEqual({
+			error: "mutation_mismatch",
+			ok: false,
+		});
+		expect(acquireAttachedRuntimeLease(controlDbPath, input)).toMatchObject({
+			agent: { id: agentId, origin: "attached", revision: 4 },
+			lease: { fencingEpoch: 1, leaseId: "attached-lease" },
+			ok: true,
+		});
+		expect(
+			acquireAttachedRuntimeLease(controlDbPath, {
+				...input,
+				leaseId: "second-lease",
+				runtimeIncarnation: "second-runtime",
+			}),
+		).toEqual({ error: "lease_held", ok: false });
 	});
 
 	it("fences dispatch lease acquisition, renewal, takeover, and release", () => {
