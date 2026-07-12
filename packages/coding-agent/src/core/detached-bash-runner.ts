@@ -27,6 +27,7 @@ export interface DetachedBashLaunchManifestData {
 	identity: DetachedJobLeaseIdentity;
 	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
+	timeoutMs?: number;
 }
 
 interface DetachedBashLaunchManifest extends DetachedBashLaunchManifestData {
@@ -87,9 +88,11 @@ export async function runDetachedBashRunner(
 	payload.persistIdentity();
 	payload.release();
 	const controlled = await waitForDetachedBashExit(payload, manifest);
-	const outcome = controlled.cancelReason
-		? ({ kind: "aborted", reason: controlled.cancelReason } as const)
-		: detachedBashOutcome(controlled.exit.exitCode, controlled.exit.signal);
+	const outcome = controlled.timedOut
+		? ({ error: { message: "Detached Bash command timed out" }, kind: "failed" } as const)
+		: controlled.cancelReason
+			? ({ kind: "aborted", reason: controlled.cancelReason } as const)
+			: detachedBashOutcome(controlled.exit.exitCode, controlled.exit.signal);
 	const terminalAt = options?.now?.() ?? new Date().toISOString();
 	writeDetachedJobTerminalEnvelope(manifest.artifacts, controlled.identity, outcome, terminalAt);
 	const finalized = await finalizeDetachedEnvelopeWithRetry(manifest.artifacts.terminalEnvelopePath, (envelopePath) =>
@@ -102,14 +105,25 @@ export async function runDetachedBashRunner(
 async function waitForDetachedBashExit(
 	payload: ReturnType<typeof spawnGatedDetachedPayload>,
 	manifest: DetachedBashLaunchManifest,
-): Promise<{ cancelReason?: string; exit: GatedDetachedPayloadExit; identity: DetachedJobLeaseIdentity }> {
+): Promise<{
+	cancelReason?: string;
+	exit: GatedDetachedPayloadExit;
+	identity: DetachedJobLeaseIdentity;
+	timedOut: boolean;
+}> {
 	let exit: GatedDetachedPayloadExit | undefined;
 	let cancelReason: string | undefined;
 	let identity = manifest.identity;
+	let timedOut = false;
+	const timeoutAt = manifest.timeoutMs === undefined ? undefined : Date.now() + manifest.timeoutMs;
 	const exitPromise = payload.waitForExit().then((result) => {
 		exit = result;
 	});
 	while (!exit) {
+		if (!timedOut && timeoutAt !== undefined && Date.now() >= timeoutAt) {
+			timedOut = true;
+			signalPayloadGroup(payload.pid);
+		}
 		const [cancel] = claimDetachedJobControlCommands(manifest.controlDbPath, manifest.runnerAddress, identity);
 		if (cancel) {
 			identity = cancel.identity;
@@ -118,7 +132,7 @@ async function waitForDetachedBashExit(
 		}
 		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
 	}
-	return { cancelReason, exit, identity };
+	return { cancelReason, exit, identity, timedOut };
 }
 
 function signalPayloadGroup(pid: number): void {

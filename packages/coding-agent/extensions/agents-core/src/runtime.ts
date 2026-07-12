@@ -2254,24 +2254,28 @@ export async function cancelReservedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
+	ctx?: ExtensionContext,
+	reason?: string,
 ): Promise<CancelReservedAgentResult> {
 	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
 	for (const descendant of descendants) {
-		const cancelled = await cancelOneReservedAgentRuntime(store, runtimeHandles, descendant.id);
+		const cancelled = await cancelOneReservedAgentRuntime(store, runtimeHandles, descendant.id, ctx, reason);
 		if (!cancelled.ok) return cancelled;
 	}
-	return cancelOneReservedAgentRuntime(store, runtimeHandles, agentId);
+	return cancelOneReservedAgentRuntime(store, runtimeHandles, agentId, ctx, reason);
 }
 
 async function cancelOneReservedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
+	ctx?: ExtensionContext,
+	reason?: string,
 ): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
 	const reservedRuntime = runtimeHandles.reservations.get(agentId);
-	if (!reservedRuntime) return { ok: false, error: "lifecycle_reservation_unavailable", agent: current };
+	if (!reservedRuntime) return cancelPersistedDetachedRuntime(store, current, ctx, reason);
 	const cancelling = reservedRuntime.coordinator.requestCancellation({
 		agent: current,
 		reservation: reservedRuntime.ownership.reservation,
@@ -2290,12 +2294,39 @@ async function cancelOneReservedAgentRuntime(
 	return { ok: true, agent: settled };
 }
 
+function cancelPersistedDetachedRuntime(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	ctx?: ExtensionContext,
+	reason?: string,
+): CancelReservedAgentResult {
+	const persistence = store.getPersistenceTarget();
+	if (!ctx || !persistence || agent.agentType !== "background" || agent.displayName !== "Bash command") {
+		return { ok: false, error: "lifecycle_reservation_unavailable", agent };
+	}
+	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
+	const coordinator = createLifecycleCoordinator(store, ctx);
+	if (!lease?.leaseId || !lease.runtimeIncarnation || !lease.owner.sessionId || !coordinator) {
+		return { ok: false, error: "lifecycle_reservation_unavailable", agent };
+	}
+	const cancelled = coordinator.requestDetachedCancellation({
+		agent,
+		outputLabel: "Bash output",
+		reason,
+		reservation: lease,
+	});
+	if (!cancelled.ok) return { ok: false, error: "mutation_rejected", agent };
+	store.publishLifecycleCoordinatorSnapshot(cancelled.agent);
+	return { ok: true, agent: cancelled.agent };
+}
+
 async function cancelAgent(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	params: CancelAgentParams,
+	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<AgentToolDetails>> {
-	const cancelled = await cancelReservedAgentRuntime(store, runtimeHandles, params.agentId);
+	const cancelled = await cancelReservedAgentRuntime(store, runtimeHandles, params.agentId, ctx, params.reason);
 	if (!cancelled.ok) {
 		const error = cancelled.error === "lifecycle_reservation_unavailable" ? "lifecycle reservation unavailable" : cancelled.error;
 		return errorResult(`Could not cancel ${params.agentId}: ${error}`, {
@@ -2882,7 +2913,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Cancel an agent through the multi-agent store using the current store revision.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
-			execute: async (_toolCallId, params) => cancelAgent(store, runtimeHandles, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				cancelAgent(store, runtimeHandles, params, ctx),
 		}),
 	);
 

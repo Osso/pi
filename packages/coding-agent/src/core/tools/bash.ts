@@ -1,4 +1,4 @@
-import { closeSync, constants, openSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, constants, existsSync, openSync, readFileSync, rmSync } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -18,11 +18,10 @@ import {
 import {
 	type DetachedJobArtifacts,
 	type DetachedJobLifecycleController,
-	type DetachedJobReservation,
-	writeDetachedJobTerminalEnvelope,
+	readDetachedJobTerminalEnvelope,
 } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
-import type { MultiAgentStore } from "../multi-agent-store.ts";
+import { isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
 import { type ToolDetachHandle, ToolDetachRegistry } from "../tool-detach-registry.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
@@ -308,148 +307,77 @@ function formatBashCall(args: { command?: string; timeout?: number } | undefined
 	return theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix;
 }
 
-class DetachedBashOutputLog {
-	readonly path: string;
-
-	constructor(path: string) {
-		this.path = path;
-	}
-
-	async close(): Promise<void> {}
-}
-
 function createDetachOptions(
 	detachController: AbortController | undefined,
 	backgroundJobs: BashBackgroundJobsOptions | undefined,
 ): BashDetachOptions | undefined {
-	if (!detachController) {
-		return undefined;
-	}
-	const lifecycle = backgroundJobs?.lifecycle;
-	if (!backgroundJobs || !lifecycle) return undefined;
-	const jobId = lifecycle.allocateJobId();
-	const artifacts = lifecycle.createArtifacts(jobId);
-	return {
-		adopt: (process) =>
-			createDetachedBashJob(process, backgroundJobs, new DetachedBashOutputLog(artifacts.outputPath), jobId),
-		artifacts,
-		jobId,
-		signal: detachController.signal,
-	};
+	if (!detachController || !backgroundJobs?.lifecycle) return undefined;
+	return { signal: detachController.signal };
 }
 
-function createDetachedBashJob(
-	process: DetachedBashProcess,
-	backgroundJobs: BashBackgroundJobsOptions,
-	log: DetachedBashOutputLog,
-	jobId: string,
-): BashDetachedResult {
-	const reservation = reserveDetachedBashAgent(process, backgroundJobs, log.path, jobId);
-	const agent = reservation.agent;
-	const unregisterAbort = registerDetachedBashAbort(process, backgroundJobs, agent.id);
-	void trackDetachedBashExit(process, backgroundJobs, log, reservation, unregisterAbort);
-
-	return {
-		jobId: agent.id,
-		logPath: log.path,
-		message: `Detached bash command as background job ${agent.id}.`,
-	};
-}
-
-function reserveDetachedBashAgent(
-	process: DetachedBashProcess,
-	backgroundJobs: BashBackgroundJobsOptions,
-	_logPath: string,
-	jobId: string,
-): DetachedJobReservation {
-	const lifecycle = backgroundJobs.lifecycle;
-	if (!lifecycle) throw new Error("Detached Bash lifecycle controller is unavailable");
-	return lifecycle.reserve({
-		agentType: "bash",
-		cwd: process.cwd,
-		displayName: "Bash command",
-		jobId,
-		workerHandleId: String(process.pid ?? "unknown"),
+async function executeRunnerOwnedBash(
+	command: string,
+	cwd: string,
+	options: {
+		detach: BashDetachOptions;
+		env: NodeJS.ProcessEnv;
+		lifecycle: DetachedJobLifecycleController;
+		onData: (data: Buffer) => void;
+		shellPath?: string;
+		signal?: AbortSignal;
+		timeout?: number;
+	},
+): Promise<{ exitCode: number | null; detached?: BashDetachedResult }> {
+	const shell = getShellConfig(options.shellPath);
+	if (shell.commandTransport === "stdin")
+		throw new Error("Detached Bash runner does not support stdin shell transport");
+	const launched = options.lifecycle.launchBash({
+		args: [...shell.args, command],
+		command: shell.shell,
+		cwd,
+		env: options.env,
+		timeoutMs: resolveTimeoutMs(options.timeout),
 	});
-}
-
-function registerDetachedBashAbort(
-	process: DetachedBashProcess,
-	backgroundJobs: BashBackgroundJobsOptions,
-	agentId: string,
-): () => void {
-	return backgroundJobs.store.registerAgentAbortHandler(agentId, () => {
-		if (process.pid) {
-			killProcessTree(process.pid);
-			return;
-		}
-		process.child.kill();
-	});
-}
-
-async function trackDetachedBashExit(
-	process: DetachedBashProcess,
-	backgroundJobs: BashBackgroundJobsOptions,
-	log: DetachedBashOutputLog,
-	reservation: DetachedJobReservation,
-	unregisterAbort: () => void,
-): Promise<void> {
+	let outputOffset = 0;
+	let aborted = false;
+	const requestCancellation = () => {
+		aborted = true;
+		options.lifecycle.cancel(launched.reservation, "Bash tool call aborted");
+	};
+	if (options.signal?.aborted) requestCancellation();
+	else options.signal?.addEventListener("abort", requestCancellation, { once: true });
 	try {
-		const exitCode = await process.exit;
-		await finishDetachedBashJob(process, backgroundJobs, log, reservation, exitCode, unregisterAbort);
-	} catch (error) {
-		await failDetachedBashJob(process, backgroundJobs, log, reservation, error, unregisterAbort);
+		for (;;) {
+			const output = existsSync(launched.reservation.artifacts.outputPath)
+				? readFileSync(launched.reservation.artifacts.outputPath)
+				: Buffer.alloc(0);
+			if (output.length > outputOffset) {
+				options.onData(output.subarray(outputOffset));
+				outputOffset = output.length;
+			}
+			const agent = options.lifecycle.observe(launched.reservation.agent.id);
+			if (agent && !isActiveLifecycle(agent.lifecycle)) break;
+			if (options.detach.signal.aborted) {
+				return {
+					exitCode: null,
+					detached: {
+						jobId: launched.reservation.agent.id,
+						logPath: launched.reservation.artifacts.outputPath,
+						message: `Detached bash command as background job ${launched.reservation.agent.id}.`,
+					},
+				};
+			}
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		const envelope = readDetachedJobTerminalEnvelope(launched.reservation.artifacts.terminalEnvelopePath);
+		if (aborted || envelope.outcome.kind === "aborted") throw new Error("aborted");
+		if (envelope.outcome.kind === "failed" && envelope.outcome.error.message.includes("timed out")) {
+			throw new Error(`timeout:${options.timeout}`);
+		}
+		return { exitCode: envelope.outcome.kind === "completed" ? (envelope.outcome.exitCode ?? 0) : 1 };
+	} finally {
+		options.signal?.removeEventListener("abort", requestCancellation);
 	}
-}
-
-async function finishDetachedBashJob(
-	process: DetachedBashProcess,
-	backgroundJobs: BashBackgroundJobsOptions,
-	log: DetachedBashOutputLog,
-	reservation: DetachedJobReservation,
-	exitCode: number | null,
-	unregisterAbort: () => void,
-): Promise<void> {
-	unregisterAbort();
-	if (process.timeoutHandle) clearTimeout(process.timeoutHandle);
-	if (process.pid) untrackDetachedChildPid(process.pid);
-	await log.close();
-	const summary = `Process ${process.pid ?? "unknown"} exited with exit code ${exitCode ?? "null"}.`;
-	const outcome =
-		exitCode === 0
-			? ({ exitCode: 0, kind: "completed", summary } as const)
-			: ({ error: { message: summary }, exitCode: exitCode ?? undefined, kind: "failed" } as const);
-	finalizeDetachedBashJob(backgroundJobs, reservation, outcome);
-}
-
-async function failDetachedBashJob(
-	process: DetachedBashProcess,
-	backgroundJobs: BashBackgroundJobsOptions,
-	log: DetachedBashOutputLog,
-	reservation: DetachedJobReservation,
-	error: unknown,
-	unregisterAbort: () => void,
-): Promise<void> {
-	unregisterAbort();
-	if (process.timeoutHandle) clearTimeout(process.timeoutHandle);
-	if (process.pid) untrackDetachedChildPid(process.pid);
-	await log.close();
-	finalizeDetachedBashJob(backgroundJobs, reservation, {
-		error: { message: error instanceof Error ? error.message : String(error) },
-		kind: "failed",
-	});
-}
-
-function finalizeDetachedBashJob(
-	backgroundJobs: BashBackgroundJobsOptions,
-	reservation: DetachedJobReservation,
-	outcome: Parameters<typeof writeDetachedJobTerminalEnvelope>[2],
-): void {
-	const lifecycle = backgroundJobs.lifecycle;
-	if (!lifecycle) throw new Error("Detached Bash lifecycle controller is unavailable");
-	writeDetachedJobTerminalEnvelope(reservation.artifacts, reservation.identity, outcome, new Date().toISOString());
-	const finalized = lifecycle.finalize(reservation.artifacts.terminalEnvelopePath);
-	if (!finalized.ok) throw new Error(`Could not finalize detached Bash job: ${finalized.error ?? "unknown error"}`);
 }
 
 function rebuildBashResultRenderComponent(
@@ -683,13 +611,26 @@ export function createBashToolDefinition(
 			try {
 				let exitCode: number | null;
 				try {
-					const result = await ops.exec(spawnContext.command, spawnContext.cwd, {
-						onData: handleData,
-						signal,
-						timeout,
-						env: spawnContext.env,
-						detach,
-					});
+					const lifecycle = backgroundJobs?.lifecycle;
+					const useDetachedRunner =
+						options?.operations === undefined && lifecycle !== undefined && detach !== undefined;
+					const result = useDetachedRunner
+						? await executeRunnerOwnedBash(spawnContext.command, spawnContext.cwd, {
+								detach,
+								env: spawnContext.env,
+								lifecycle,
+								onData: handleData,
+								shellPath: options?.shellPath,
+								signal,
+								timeout,
+							})
+						: await ops.exec(spawnContext.command, spawnContext.cwd, {
+								onData: handleData,
+								signal,
+								timeout,
+								env: spawnContext.env,
+								detach,
+							});
 					if (result.detached) {
 						const snapshot = await finishOutput();
 						return formatDetachedOutput(snapshot, result.detached);

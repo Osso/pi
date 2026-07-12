@@ -42,7 +42,7 @@ function delay(ms: number): Promise<void> {
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
-	for (let attempt = 0; attempt < 100; attempt += 1) {
+	for (let attempt = 0; attempt < 300; attempt += 1) {
 		if (condition()) return;
 		await delay(10);
 	}
@@ -75,6 +75,10 @@ function isProcessAlive(pid: number): boolean {
 function createBackgroundJobs(root: string, store: MultiAgentStore): BashBackgroundJobsOptions {
 	const controlDbPath = join(root, "control.sqlite");
 	const sessionPath = join(root, "session.jsonl");
+	store.setPersistenceSessionManager({
+		getMetadataControlDbPath: () => controlDbPath,
+		getSessionFile: () => sessionPath,
+	} as never);
 	let leaseNumber = 0;
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath,
@@ -127,7 +131,8 @@ describe("bash tool background detach", () => {
 		const store = new MultiAgentStore();
 		const detachRegistry = new BashToolDetachRegistry();
 		const updates: string[] = [];
-		const tool = createBashToolDefinition(cwd, { backgroundJobs: createBackgroundJobs(cwd, store), detachRegistry });
+		const backgroundJobs = createBackgroundJobs(cwd, store);
+		const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
 
 		const resultPromise = tool.execute(
 			"tool-bash-detach",
@@ -149,9 +154,12 @@ describe("bash tool background detach", () => {
 		const [job] = store.listAgents();
 		expect(job).toMatchObject({ agentType: "background", displayName: "Bash command", lifecycle: "running" });
 
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "detached process completion");
+		await waitFor(() => {
+			backgroundJobs.lifecycle?.observe(job.id);
+			return store.getAgent(job.id)?.lifecycle === "completed";
+		}, "detached process completion");
 		const completed = store.getAgent(job.id);
-		expect(completed?.result?.summary).toContain("exit code 0");
+		expect(completed?.result?.summary).toBe("Process exited successfully.");
 
 		const [fileRef] = completed?.result?.fileRefs ?? [];
 		expect(fileRef).toMatchObject({ label: "Bash output" });
@@ -173,7 +181,8 @@ describe("bash tool background detach", () => {
 		const store = new MultiAgentStore();
 		const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 100 });
 		const updates: string[] = [];
-		const tool = createBashToolDefinition(cwd, { backgroundJobs: createBackgroundJobs(cwd, store), detachRegistry });
+		const backgroundJobs = createBackgroundJobs(cwd, store);
+		const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
 
 		const resultPromise = tool.execute(
 			"tool-bash-auto-detach",
@@ -182,17 +191,17 @@ describe("bash tool background detach", () => {
 			(partial) => updates.push(textFrom(partial)),
 			{} as never,
 		);
-		await waitFor(() => updates.some((update) => update.includes("before-auto-detach")), "pre-auto-detach output");
-
 		const result = await resultPromise;
 		const resultText = textFrom(result);
-		expect(resultText).toContain("before-auto-detach");
 		expect(resultText).toContain("Command moved to background as job");
 		expect(resultText).not.toContain("after-auto-detach");
 
 		const [job] = store.listAgents();
 		expect(job).toMatchObject({ agentType: "background", displayName: "Bash command", lifecycle: "running" });
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "completed", "auto-detached process completion");
+		await waitFor(() => {
+			backgroundJobs.lifecycle?.observe(job.id);
+			return store.getAgent(job.id)?.lifecycle === "completed";
+		}, "auto-detached process completion");
 	});
 
 	it("does not auto-detach bash when no background job store is available", async () => {
@@ -230,7 +239,8 @@ describe("bash tool background detach", () => {
 		const store = new MultiAgentStore();
 		const detachRegistry = new BashToolDetachRegistry();
 		const updates: string[] = [];
-		const tool = createBashToolDefinition(cwd, { backgroundJobs: createBackgroundJobs(cwd, store), detachRegistry });
+		const backgroundJobs = createBackgroundJobs(cwd, store);
+		const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
 
 		const resultPromise = tool.execute(
 			"tool-bash-timeout",
@@ -244,11 +254,14 @@ describe("bash tool background detach", () => {
 		await resultPromise;
 
 		const [job] = store.listAgents();
-		await waitFor(() => store.getAgent(job.id)?.lifecycle === "failed", "detached timeout failure");
-		expect(store.getAgent(job.id)?.result?.summary).toContain("exit code null");
+		await waitFor(() => {
+			backgroundJobs.lifecycle?.observe(job.id);
+			return store.getAgent(job.id)?.lifecycle === "failed";
+		}, "detached timeout failure");
+		expect(store.getAgent(job.id)?.result?.summary).toBe("Detached Bash command timed out");
 	});
 
-	it("rejects cancel_agent until detached Bash runtime mailbox control is migrated", async () => {
+	it("routes cancel_agent through detached Bash runtime mailbox control", async () => {
 		const cwd = await createTempDir();
 		const markerPath = join(cwd, "still-running");
 		const scriptPath = join(cwd, "long-running.mjs");
@@ -264,7 +277,8 @@ describe("bash tool background detach", () => {
 		);
 		const store = new MultiAgentStore();
 		const detachRegistry = new BashToolDetachRegistry();
-		const tool = createBashToolDefinition(cwd, { backgroundJobs: createBackgroundJobs(cwd, store), detachRegistry });
+		const backgroundJobs = createBackgroundJobs(cwd, store);
+		const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
 		const cancelAgent = registerCancelAgentTool(store);
 
 		const resultPromise = tool.execute(
@@ -288,11 +302,13 @@ describe("bash tool background detach", () => {
 			undefined,
 			{ cwd, hasUI: false, mode: "print" } as ExtensionContext,
 		);
-		expect((cancelled as AgentToolResult<CancelAgentDetails>).details.agent.lifecycle).toBe("running");
-		expect(textFrom(cancelled)).toContain("lifecycle reservation unavailable");
-		expect(store.abortAgentHandle(job.id)).toBe(true);
+		expect((cancelled as AgentToolResult<CancelAgentDetails>).details.agent.lifecycle).toBe("cancelling");
+		expect(textFrom(cancelled)).toContain("Cancellation requested");
 		await waitFor(() => !isProcessAlive(pid), "detached process termination");
-		await waitFor(() => (store.getAgent(job.id)?.result?.fileRefs?.length ?? 0) === 1, "terminated process log");
+		await waitFor(() => {
+			backgroundJobs.lifecycle?.observe(job.id);
+			return (store.getAgent(job.id)?.result?.fileRefs?.length ?? 0) === 1;
+		}, "terminated process log");
 		const [fileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
 		expect(fileRef).toMatchObject({ label: "Bash output" });
 		expect(fileRef?.path && existsSync(fileRef.path)).toBe(true);

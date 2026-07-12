@@ -58,6 +58,7 @@ export interface LaunchDetachedBashInput {
 	command: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
+	timeoutMs?: number;
 }
 
 export interface LaunchedDetachedBashJob {

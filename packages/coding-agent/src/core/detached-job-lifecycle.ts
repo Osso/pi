@@ -78,6 +78,7 @@ function launchDetachedBashJob(
 		identity: reservation.identity,
 		runnerAddress: { agentId: jobId, sessionId: options.ownerSessionId },
 		sessionPath: options.sessionPath,
+		timeoutMs: input.timeoutMs,
 	});
 	return { manifestPath, reservation, runnerPid };
 }
