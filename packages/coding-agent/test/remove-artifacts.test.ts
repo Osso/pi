@@ -13,6 +13,7 @@ import {
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 const tempDirs: string[] = [];
 
@@ -29,7 +30,7 @@ function createStore(): MultiAgentStore {
 }
 
 function spawnAgent(store: MultiAgentStore) {
-	return store.spawnAgent({
+	return legacyMultiAgentStore(store).spawnAgent({
 		agentType: "worker",
 		cwd: "/repo",
 		displayName: "Worker",
@@ -65,16 +66,21 @@ describe("artifact removal", () => {
 	it("carries absolute file references on completion notifications", () => {
 		const store = createStore();
 		const agent = spawnAgent(store);
-		const started = store.transitionAgent(agent.agent.id, agent.agent.revision, "starting");
+		const started = legacyMultiAgentStore(store).transitionAgent(agent.agent.id, agent.agent.revision, "starting");
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected starting transition");
-		const running = store.transitionAgent(started.agent.id, started.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(started.agent.id, started.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running transition");
 
-		const completed = store.transitionAgent(running.agent.id, running.agent.revision, "completed", {
-			result: { summary: "done", fileRefs: [{ path: "/tmp/output.log", label: "Output" }] } as never,
-		});
+		const completed = legacyMultiAgentStore(store).transitionAgent(
+			running.agent.id,
+			running.agent.revision,
+			"completed",
+			{
+				result: { summary: "done", fileRefs: [{ path: "/tmp/output.log", label: "Output" }] } as never,
+			},
+		);
 		expect(completed.ok).toBe(true);
 		if (!completed.ok) throw new Error("expected completion transition");
 		const [notification] = store.listPendingLifecycleNotificationsForAgent(agent.agent.id, "completed");

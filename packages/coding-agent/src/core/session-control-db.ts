@@ -3737,12 +3737,16 @@ export function bootstrapMultiAgentAgent(controlDbPath: string, sessionPath: str
 			if (readMultiAgentDispatchLeaseRow(db, sessionPath, id)) {
 				throw new Error(`Generic agent upsert cannot mutate leased lifecycle row ${sessionPath}#${id}`);
 			}
-			db.prepare(
-				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
-				 VALUES (?, ?, ?, ?)
-				 ON CONFLICT(session_path, agent_id) DO UPDATE SET
-				 data = excluded.data, updated_at = excluded.updated_at`,
-			).run(sessionPath, id, JSON.stringify(data), new Date().toISOString());
+			withAuthorizedLifecycleWrite(db, () =>
+				db
+					.prepare(
+						`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+						 VALUES (?, ?, ?, ?)
+						 ON CONFLICT(session_path, agent_id) DO UPDATE SET
+						 data = excluded.data, updated_at = excluded.updated_at`,
+					)
+					.run(sessionPath, id, JSON.stringify(data), new Date().toISOString()),
+			);
 		}),
 	);
 }

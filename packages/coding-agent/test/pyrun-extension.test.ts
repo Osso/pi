@@ -20,6 +20,7 @@ import { ToolExecutionComponent } from "../src/modes/interactive/components/tool
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
+import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 interface PyrunEvalParams {
 	code: string;
@@ -1148,7 +1149,7 @@ describe("pyrun extension", () => {
 
 	it("responds to Pyrun pi.agents.current requests through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
@@ -1167,19 +1168,21 @@ describe("pyrun extension", () => {
 
 	it("returns main thread from Pyrun pi.agents.current when selected view is inactive", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected run to succeed");
 		}
-		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok,
+		).toBe(true);
 		store.selectAgentView(spawned.agent.id);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
@@ -1208,7 +1211,7 @@ describe("pyrun extension", () => {
 
 	it("selects child and main thread from Pyrun pi.agents.select through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
@@ -1231,19 +1234,21 @@ describe("pyrun extension", () => {
 
 	it("rejects inactive agents from Pyrun pi.agents.select", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected run to succeed");
 		}
-		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok,
+		).toBe(true);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
 		});
@@ -1303,7 +1308,7 @@ describe("pyrun extension", () => {
 
 	it("accepts no-arg Pyrun pi.agents.list requests with null params", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",
@@ -1335,7 +1340,7 @@ describe("pyrun extension", () => {
 
 	it("sends agent messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
 			cwd: "/repo/project",
 			displayName: "Scout",

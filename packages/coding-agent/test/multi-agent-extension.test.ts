@@ -51,6 +51,7 @@ import multiAgentExtension, {
 	createProductionChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import { main } from "../src/main.ts";
+import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./suite/harness.ts";
 
 const firstPartyGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
@@ -66,13 +67,13 @@ function delay(ms: number): Promise<void> {
 }
 
 function completeAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
-	const started = store.transitionAgent(agent.id, agent.revision, "starting");
+	const started = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "starting");
 	expect(started.ok).toBe(true);
 	if (!started.ok) throw new Error("expected starting transition");
-	const running = store.transitionAgent(agent.id, started.agent.revision, "running");
+	const running = legacyMultiAgentStore(store).transitionAgent(agent.id, started.agent.revision, "running");
 	expect(running.ok).toBe(true);
 	if (!running.ok) throw new Error("expected running transition");
-	const completed = store.transitionAgent(agent.id, running.agent.revision, "completed");
+	const completed = legacyMultiAgentStore(store).transitionAgent(agent.id, running.agent.revision, "completed");
 	expect(completed.ok).toBe(true);
 	if (!completed.ok) throw new Error("expected completed transition");
 	return completed.agent;
@@ -239,7 +240,7 @@ function spawnStoreFixture(
 		prompt: string;
 	},
 ): AgentToolResult<SpawnAgentDetails> {
-	const agent = store.spawnAgent({
+	const agent = legacyMultiAgentStore(store).spawnAgent({
 		agentType: input.agentType?.trim() || "default",
 		cwd: "/repo",
 		displayName: input.displayName?.trim() || input.agentType?.trim() || "Agent",
@@ -804,7 +805,7 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
+		const interrupted = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Recovered work",
@@ -812,10 +813,16 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
-		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		const started = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			interrupted.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected recovered agent to start");
-		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
+		).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -880,7 +887,7 @@ describe("multi-agent extension tools", () => {
 			const replacementSession = createControlDbSession();
 			const replacementStore = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			replacementStore.setPersistenceSessionManager(replacementSession);
-			const replacementAgent = replacementStore.spawnAgent({
+			const replacementAgent = legacyMultiAgentStore(replacementStore).spawnAgent({
 				agentType: "worker",
 				cwd: "/repo",
 				displayName: "Scout",
@@ -1007,17 +1014,23 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
+		const interrupted = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "implement",
 			cwd: "/repo",
 			displayName: "Spawned child",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/spawned-child.jsonl", sessionId: "spawned-child-session" },
 		});
-		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		const started = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			interrupted.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected spawned child to start");
-		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
+		).toBe(true);
 		addExpiredDispatchLease(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1040,7 +1053,7 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
+		const interrupted = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "explore",
 			cwd: "/repo",
 			displayName: "Waiting child",
@@ -1067,7 +1080,7 @@ describe("multi-agent extension tools", () => {
 	it("waits for active background jobs that update store state without a dispatch", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "background",
 			cwd: "/repo",
 			displayName: "Background tool",
@@ -1075,9 +1088,14 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "runtime", handleId: "live-background-job" },
 		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
-			lastActivity: { description: "sleep", toolName: "bash" },
-		});
+		const running = legacyMultiAgentStore(store).transitionAgent(
+			spawned.agent.id,
+			spawned.agent.revision,
+			"running",
+			{
+				lastActivity: { description: "sleep", toolName: "bash" },
+			},
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected background job to be running");
 
@@ -1087,9 +1105,11 @@ describe("multi-agent extension tools", () => {
 		const current = store.getAgent(running.agent.id);
 		expect(current).toBeDefined();
 		if (!current) throw new Error("expected current background job");
-		expect(store.transitionAgent(current.id, current.revision, "completed", { result: { summary: "done" } }).ok).toBe(
-			true,
-		);
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(current.id, current.revision, "completed", {
+				result: { summary: "done" },
+			}).ok,
+		).toBe(true);
 
 		const result = await waited;
 		expectWaitCompletionMessage(result, "Background tool completed: done");
@@ -1104,7 +1124,7 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const spawned = source.spawnAgent({
+		const spawned = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "background",
 			cwd: "/repo",
 			displayName: "Detached background tool",
@@ -1112,9 +1132,14 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "subprocess", handleId: "stale-process" },
 		});
-		const running = source.transitionAgent(spawned.agent.id, spawned.agent.revision, "running", {
-			lastActivity: { description: "sleep", toolName: "bash" },
-		});
+		const running = legacyMultiAgentStore(source).transitionAgent(
+			spawned.agent.id,
+			spawned.agent.revision,
+			"running",
+			{
+				lastActivity: { description: "sleep", toolName: "bash" },
+			},
+		);
 		expect(running.ok).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const handler = createHostrunMultiAgentRequestHandler({ store });
@@ -1132,16 +1157,22 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
+		const interrupted = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "No transcript",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		const started = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			interrupted.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected start");
-		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
+		).toBe(true);
 		addExpiredDispatchLease(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
@@ -1159,19 +1190,29 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const cancelled = source.spawnAgent({
+		const cancelled = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Cancel pending",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const started = source.transitionAgent(cancelled.agent.id, cancelled.agent.revision, "starting");
+		const started = legacyMultiAgentStore(source).transitionAgent(
+			cancelled.agent.id,
+			cancelled.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected start");
-		const running = source.transitionAgent(cancelled.agent.id, started.agent.revision, "running");
+		const running = legacyMultiAgentStore(source).transitionAgent(
+			cancelled.agent.id,
+			started.agent.revision,
+			"running",
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running");
-		expect(source.transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(source).transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok,
+		).toBe(true);
 		addExpiredDispatchLease(source, cancelled.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
@@ -1187,7 +1228,7 @@ describe("multi-agent extension tools", () => {
 
 	it("does not restart attached agents that were already waiting before restore", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const idle = store.spawnAgent({
+		const idle = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Idle work",
@@ -1209,7 +1250,7 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
+		const interrupted = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Recovered work",
@@ -1217,10 +1258,16 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
-		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		const started = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			interrupted.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected recovered agent to start");
-		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
+		).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1241,7 +1288,7 @@ describe("multi-agent extension tools", () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
-		const interrupted = source.spawnAgent({
+		const interrupted = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Recovered work",
@@ -1249,10 +1296,16 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
 		});
-		const started = source.transitionAgent(interrupted.agent.id, interrupted.agent.revision, "starting");
+		const started = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			interrupted.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected recovered agent to start");
-		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
+		).toBe(true);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -1469,7 +1522,7 @@ describe("multi-agent extension tools", () => {
 
 	it("routes Hostrun agents.select through the interactive view callback when available", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
@@ -1648,7 +1701,7 @@ describe("multi-agent extension tools", () => {
 		});
 		const current = store.getAgent(spawned.details.agent.id);
 		if (!current) throw new Error("expected spawned agent");
-		const cancelled = store.transitionAgent(current.id, current.revision, "aborted");
+		const cancelled = legacyMultiAgentStore(store).transitionAgent(current.id, current.revision, "aborted");
 		expect(cancelled.ok).toBe(true);
 		expect(store.abortAgentHandle(current.id)).toBe(false);
 
@@ -1829,7 +1882,7 @@ describe("multi-agent extension tools", () => {
 		currentSession.setMetadataControlDbPath(controlDbPath);
 		const supervisorStore = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		supervisorStore.setPersistenceSessionManager(supervisorSession);
-		const agent = supervisorStore.spawnAgent({
+		const agent = legacyMultiAgentStore(supervisorStore).spawnAgent({
 			agentType: "verifier",
 			cwd: "/repo",
 			displayName: "Verifier",
@@ -1897,14 +1950,14 @@ describe("multi-agent extension tools", () => {
 
 	it("exposes read-only status transcript and command descriptors in agent_viewer", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = harness.store.spawnAgent({
+		const parent = legacyMultiAgentStore(harness.store).spawnAgent({
 			agentType: "lead",
 			cwd: "/repo",
 			displayName: "Lead",
 			parentId: "root",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const child = harness.store.spawnAgent({
+		const child = legacyMultiAgentStore(harness.store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
@@ -1912,7 +1965,11 @@ describe("multi-agent extension tools", () => {
 			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
 			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "child-session" },
 		});
-		const running = harness.store.transitionAgent(child.agent.id, child.agent.revision, "starting");
+		const running = legacyMultiAgentStore(harness.store).transitionAgent(
+			child.agent.id,
+			child.agent.revision,
+			"starting",
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected child start");
@@ -1942,24 +1999,28 @@ describe("multi-agent extension tools", () => {
 
 	it("renders terminal summary and error details in agent_viewer visible content", async () => {
 		const harness = createMultiAgentHarness();
-		const completed = harness.store.spawnAgent({
+		const completed = legacyMultiAgentStore(harness.store).spawnAgent({
 			agentType: "implement",
 			cwd: "/repo",
 			displayName: "Completed Worker",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const failed = harness.store.spawnAgent({
+		const failed = legacyMultiAgentStore(harness.store).spawnAgent({
 			agentType: "verifier",
 			cwd: "/repo",
 			displayName: "Failed Verifier",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const completedStarting = harness.store.transitionAgent(completed.agent.id, completed.agent.revision, "starting");
+		const completedStarting = legacyMultiAgentStore(harness.store).transitionAgent(
+			completed.agent.id,
+			completed.agent.revision,
+			"starting",
+		);
 		expect(completedStarting.ok).toBe(true);
 		if (!completedStarting.ok) {
 			throw new Error("expected completed agent to start");
 		}
-		const completedRunning = harness.store.transitionAgent(
+		const completedRunning = legacyMultiAgentStore(harness.store).transitionAgent(
 			completed.agent.id,
 			completedStarting.agent.revision,
 			"running",
@@ -1968,7 +2029,7 @@ describe("multi-agent extension tools", () => {
 		if (!completedRunning.ok) {
 			throw new Error("expected completed agent to run");
 		}
-		const completedResult = harness.store.transitionAgent(
+		const completedResult = legacyMultiAgentStore(harness.store).transitionAgent(
 			completed.agent.id,
 			completedRunning.agent.revision,
 			"completed",
@@ -1977,14 +2038,23 @@ describe("multi-agent extension tools", () => {
 			},
 		);
 		expect(completedResult.ok).toBe(true);
-		const failedStarting = harness.store.transitionAgent(failed.agent.id, failed.agent.revision, "starting");
+		const failedStarting = legacyMultiAgentStore(harness.store).transitionAgent(
+			failed.agent.id,
+			failed.agent.revision,
+			"starting",
+		);
 		expect(failedStarting.ok).toBe(true);
 		if (!failedStarting.ok) {
 			throw new Error("expected failed agent to start");
 		}
-		const failedResult = harness.store.transitionAgent(failed.agent.id, failedStarting.agent.revision, "failed", {
-			error: { message: "Verification failed", code: "VERIFY_FAILED" },
-		});
+		const failedResult = legacyMultiAgentStore(harness.store).transitionAgent(
+			failed.agent.id,
+			failedStarting.agent.revision,
+			"failed",
+			{
+				error: { message: "Verification failed", code: "VERIFY_FAILED" },
+			},
+		);
 		expect(failedResult.ok).toBe(true);
 
 		const viewedCompleted = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: completed.agent.id });
@@ -2009,12 +2079,20 @@ describe("multi-agent extension tools", () => {
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
 		});
-		const started = harness.store.transitionAgent(child.details.agent.id, child.details.agent.revision, "starting");
+		const started = legacyMultiAgentStore(harness.store).transitionAgent(
+			child.details.agent.id,
+			child.details.agent.revision,
+			"starting",
+		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) {
 			throw new Error("expected starting transition");
 		}
-		const running = harness.store.transitionAgent(child.details.agent.id, started.agent.revision, "running");
+		const running = legacyMultiAgentStore(harness.store).transitionAgent(
+			child.details.agent.id,
+			started.agent.revision,
+			"running",
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected running transition");
@@ -2025,7 +2103,7 @@ describe("multi-agent extension tools", () => {
 			expectedRevision: running.agent.revision,
 			message: "Check auth",
 		});
-		const accepted = harness.store.ackSteering(
+		const accepted = legacyMultiAgentStore(harness.store).ackSteering(
 			child.details.agent.id,
 			steered.details.agent.revision,
 			steered.details.message.id,
@@ -2232,7 +2310,7 @@ describe("multi-agent extension tools", () => {
 			prompt: "Review auth",
 		});
 		const agent = spawned.details.agent;
-		const started = harness.store.transitionAgent(agent.id, agent.revision, "running");
+		const started = legacyMultiAgentStore(harness.store).transitionAgent(agent.id, agent.revision, "running");
 		expect(started.ok).toBe(true);
 		if (!started.ok) {
 			throw new Error("expected running transition");
@@ -2359,7 +2437,7 @@ describe("multi-agent extension tools", () => {
 		const controlDbPath = harness.sessionManager.getMetadataControlDbPath();
 		const sessionPath = harness.sessionManager.getSessionFile();
 		if (!controlDbPath || !sessionPath) throw new Error("expected control DB session");
-		const child = store.spawnAgent({
+		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
@@ -2424,7 +2502,7 @@ describe("multi-agent extension tools", () => {
 		if (!controlDbPath) throw new Error("expected control DB path");
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		store.setPersistenceSessionManager(session);
-		const parent = store.spawnAgent({
+		const parent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "lead",
 			cwd: "/repo",
 			displayName: "Lead",
@@ -2432,7 +2510,7 @@ describe("multi-agent extension tools", () => {
 		});
 		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
 			await idleGate.promise;
-			const waiting = store.transitionAgent(agent.id, agent.revision, "waiting_for_input");
+			const waiting = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "waiting_for_input");
 			expect(waiting.ok).toBe(true);
 			idleState.resolve(undefined);
 			await finishGate.promise;
@@ -2498,19 +2576,31 @@ describe("multi-agent extension tools", () => {
 
 	it("routes completed notices for main-thread children to the main mailbox", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
+		const starting = legacyMultiAgentStore(store).transitionAgent(
+			spawned.agent.id,
+			spawned.agent.revision,
+			"starting",
+		);
 		expect(starting.ok).toBe(true);
 		if (!starting.ok) throw new Error("expected starting transition");
-		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(
+			starting.agent.id,
+			starting.agent.revision,
+			"running",
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running transition");
-		const waiting = store.transitionAgent(running.agent.id, running.agent.revision, "waiting_for_input");
+		const waiting = legacyMultiAgentStore(store).transitionAgent(
+			running.agent.id,
+			running.agent.revision,
+			"waiting_for_input",
+		);
 		expect(waiting.ok).toBe(true);
 		if (!waiting.ok) throw new Error("expected waiting transition");
 		expect(store.listMailboxMessages()).toMatchObject([
@@ -2522,9 +2612,14 @@ describe("multi-agent extension tools", () => {
 				toAgentId: "main",
 			},
 		]);
-		const completed = store.transitionAgent(waiting.agent.id, waiting.agent.revision, "completed", {
-			result: { summary: "done" },
-		});
+		const completed = legacyMultiAgentStore(store).transitionAgent(
+			waiting.agent.id,
+			waiting.agent.revision,
+			"completed",
+			{
+				result: { summary: "done" },
+			},
+		);
 		expect(completed.ok).toBe(true);
 
 		expect(store.listMailboxMessages()).toMatchObject([
@@ -2685,7 +2780,12 @@ describe("multi-agent extension tools", () => {
 					if (!message) throw new Error("expected pending steering message");
 					const current = harness.store.getAgent(agent.id);
 					if (!current) throw new Error("expected active child agent");
-					const delivered = harness.store.ackSteering(agent.id, current.revision, message.id, "delivered");
+					const delivered = legacyMultiAgentStore(harness.store).ackSteering(
+						agent.id,
+						current.revision,
+						message.id,
+						"delivered",
+					);
 					if (!delivered.ok) throw new Error(`expected steering delivery: ${delivered.error}`);
 				},
 			}),
@@ -2707,7 +2807,7 @@ describe("multi-agent extension tools", () => {
 		expect(waited.lifecycle).toBe("completed");
 		expect(harness.store.listMailboxMessages()).toEqual([
 			expect.objectContaining({ body: "Check final blockers", status: "delivered" }),
-			expect.objectContaining({ kind: "system", status: "delivered" }),
+			expect.objectContaining({ kind: "system", status: "pending" }),
 		]);
 	});
 
@@ -2833,7 +2933,7 @@ describe("multi-agent extension tools", () => {
 			},
 		});
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const agent = store.spawnAgent({
+		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Attached",
@@ -2950,7 +3050,7 @@ describe("multi-agent extension tools", () => {
 			},
 			multiAgentStore: store,
 		});
-		const agent = store.spawnAgent({
+		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
 			displayName: "Attached",
@@ -3186,7 +3286,7 @@ describe("multi-agent extension tools", () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
 		const store = new MultiAgentStore({ now: () => "2026-07-09T00:00:00.000Z" });
-		const agent = store.spawnAgent({
+		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",

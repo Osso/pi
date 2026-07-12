@@ -13,6 +13,7 @@ import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 function renderLastLine(container: Container, width = 120): string {
 	const last = container.children[container.children.length - 1];
@@ -289,7 +290,7 @@ function createTranscriptSwitchFixture(options: {
 		throw new Error("expected child transcript path");
 	}
 	const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-	const spawned = store.spawnAgent({
+	const spawned = legacyMultiAgentStore(store).spawnAgent({
 		agentType: "worker",
 		cwd: "/repo",
 		displayName: "Scout",
@@ -391,14 +392,14 @@ describe("InteractiveMode key handlers", () => {
 
 	test("Escape submits selected-agent cancellation through the injected coordinator boundary", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
 		if (!running.ok) throw new Error("expected running agent");
 		store.selectAgentView(running.agent.id);
 		const cancelMultiAgent = vi.fn(async () => ({
@@ -452,7 +453,7 @@ describe("InteractiveMode key handlers", () => {
 
 	test("selected-agent banner is hidden when agents exist without an active selection", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		store.spawnAgent({
+		legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
@@ -465,21 +466,23 @@ describe("InteractiveMode key handlers", () => {
 
 	test("selected-agent banner returns to main thread when selected view becomes inactive", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected run to succeed");
 		}
 		store.selectAgentView(spawned.agent.id);
 
-		expect(store.transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok,
+		).toBe(true);
 		const banner = new AgentSelectionBannerComponent(store);
 
 		expect(store.getSelectedAgentId()).toBeUndefined();
@@ -489,7 +492,7 @@ describe("InteractiveMode key handlers", () => {
 	test("/agents selection updates the visible selected-agent banner", () => {
 		let renderedSelector: (Component & { handleInput: (keyData: string) => void }) | undefined;
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
@@ -532,14 +535,14 @@ describe("InteractiveMode key handlers", () => {
 	test("escape while viewing an active child agent submits coordinator cancellation", async () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected running transition");
@@ -725,21 +728,21 @@ describe("InteractiveMode key handlers", () => {
 	test("switches selected agent when an agent slot action fires", () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const first = store.spawnAgent({
+		const first = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "First",
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 1, pinned: true },
 		});
-		const second = store.spawnAgent({
+		const second = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Second",
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 2, pinned: true },
 		});
-		const third = store.spawnAgent({
+		const third = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Third",
@@ -805,7 +808,7 @@ describe("InteractiveMode key handlers", () => {
 
 	test("selects an agent view without mutating lifecycle", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const spawned = store.spawnAgent({
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
@@ -935,7 +938,7 @@ describe("InteractiveMode key handlers", () => {
 		fixture.fakeThis.loadingAnimation = mainLoader;
 		fixture.fakeThis.statusContainer.addChild(mainLoader);
 		fixture.fakeThis.session.isStreaming = true;
-		const running = fixture.store.transitionAgent(
+		const running = legacyMultiAgentStore(fixture.store).transitionAgent(
 			fixture.childAgentId,
 			fixture.store.getAgent(fixture.childAgentId)!.revision,
 			"running",
@@ -976,7 +979,11 @@ describe("InteractiveMode key handlers", () => {
 			try {
 				interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
 				const child = fixture.store.getAgent(fixture.childAgentId)!;
-				const running = fixture.store.transitionAgent(fixture.childAgentId, child.revision, "running");
+				const running = legacyMultiAgentStore(fixture.store).transitionAgent(
+					fixture.childAgentId,
+					child.revision,
+					"running",
+				);
 				expect(running.ok).toBe(true);
 				if (!running.ok) {
 					throw new Error("expected running transition");
@@ -984,7 +991,7 @@ describe("InteractiveMode key handlers", () => {
 				expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
 				fixture.fakeThis.childViewTranscriptWatcher = childWatcher;
 
-				const terminal = fixture.store.transitionAgent(
+				const terminal = legacyMultiAgentStore(fixture.store).transitionAgent(
 					fixture.childAgentId,
 					running.agent.revision,
 					terminalLifecycle,
@@ -1038,7 +1045,11 @@ describe("InteractiveMode key handlers", () => {
 			if (!current) {
 				throw new Error("expected child agent");
 			}
-			const transitioned = fixture.store.transitionAgent(current.id, current.revision, "running");
+			const transitioned = legacyMultiAgentStore(fixture.store).transitionAgent(
+				current.id,
+				current.revision,
+				"running",
+			);
 			expect(transitioned.ok).toBe(true);
 			const assigned = fixture.store.updateAgentTranscript(fixture.childAgentId, {
 				sessionId,
@@ -1254,7 +1265,7 @@ describe("InteractiveMode key handlers", () => {
 			writeFileSync(logPath, "live log output", "utf8");
 			const current = fixture.store.getAgent(fixture.childAgentId);
 			if (!current) throw new Error("Expected child agent");
-			const running = fixture.store.transitionAgent(current.id, current.revision, "running", {
+			const running = legacyMultiAgentStore(fixture.store).transitionAgent(current.id, current.revision, "running", {
 				result: { fileRefs: [{ label: "Pyrun output", path: logPath }] },
 			});
 			expect(running.ok).toBe(true);
@@ -1281,7 +1292,7 @@ describe("InteractiveMode key handlers", () => {
 			const previousSession = SessionManager.create("/repo", tmp);
 			previousSession.appendMessage({ role: "user", content: "previous completed transcript", timestamp: 2 });
 			const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-			const previous = store.spawnAgent({
+			const previous = legacyMultiAgentStore(store).spawnAgent({
 				agentType: "worker",
 				cwd: "/repo",
 				displayName: "Previous",
@@ -1289,13 +1300,20 @@ describe("InteractiveMode key handlers", () => {
 				permission: { narrowed: true, policy: "on-request" },
 				transcript: { path: previousSession.getSessionFile(), sessionId: previousSession.getSessionId() },
 			});
-			const previousRunning = store.transitionAgent(previous.agent.id, previous.agent.revision, "running");
+			const previousRunning = legacyMultiAgentStore(store).transitionAgent(
+				previous.agent.id,
+				previous.agent.revision,
+				"running",
+			);
 			expect(previousRunning.ok).toBe(true);
 			if (!previousRunning.ok) {
 				throw new Error("expected previous running transition");
 			}
-			expect(store.transitionAgent(previous.agent.id, previousRunning.agent.revision, "completed").ok).toBe(true);
-			const next = store.spawnAgent({
+			expect(
+				legacyMultiAgentStore(store).transitionAgent(previous.agent.id, previousRunning.agent.revision, "completed")
+					.ok,
+			).toBe(true);
+			const next = legacyMultiAgentStore(store).spawnAgent({
 				agentType: "worker",
 				cwd: "/repo",
 				displayName: "Next",
@@ -1367,26 +1385,32 @@ describe("InteractiveMode key handlers", () => {
 
 	test("rejects inactive agent view selection without changing the current agent", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const active = store.spawnAgent({
+		const active = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Active",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const completed = store.spawnAgent({
+		const completed = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Done",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(completed.agent.id, completed.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(
+			completed.agent.id,
+			completed.agent.revision,
+			"running",
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected run to succeed");
 		}
-		expect(store.transitionAgent(completed.agent.id, running.agent.revision, "completed").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(completed.agent.id, running.agent.revision, "completed").ok,
+		).toBe(true);
 		store.selectActiveAgentTargetWithStatus(active.agent.id);
 		const fakeThis = {
 			multiAgentStore: store,
@@ -1411,7 +1435,7 @@ describe("InteractiveMode key handlers", () => {
 	test("switches to main thread from slot 1 before focused components receive input", () => {
 		const listeners: Array<(data: string) => { consume?: boolean } | undefined> = [];
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const first = store.spawnAgent({
+		const first = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "First",
@@ -1456,20 +1480,26 @@ describe("InteractiveMode key handlers", () => {
 	test("slot 2 skips terminal agents before the first active agent view", () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const completed = store.spawnAgent({
+		const completed = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Completed",
 			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = store.transitionAgent(completed.agent.id, completed.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(
+			completed.agent.id,
+			completed.agent.revision,
+			"running",
+		);
 		expect(running.ok).toBe(true);
 		if (!running.ok) {
 			throw new Error("expected run to succeed");
 		}
-		expect(store.transitionAgent(completed.agent.id, running.agent.revision, "completed").ok).toBe(true);
-		const active = store.spawnAgent({
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(completed.agent.id, running.agent.revision, "completed").ok,
+		).toBe(true);
+		const active = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Active",
@@ -1507,13 +1537,13 @@ describe("InteractiveMode key handlers", () => {
 	test("slot 2 switches to the first active agent view when agents are not pinned to slots", () => {
 		const actions = new Map<string, () => void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const first = store.spawnAgent({
+		const first = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "First",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const second = store.spawnAgent({
+		const second = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Second",

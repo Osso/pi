@@ -2110,10 +2110,18 @@ async function waitAgents(
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return errorResult("wait_agents requires a persisted supervisor session.", {});
 	const consumerId = `wait:${ctx?.sessionManager?.getSessionId() ?? persistence.sessionPath}:${randomUUID()}`;
-	const committed = readWaitTerminalEvent(store, persistence.controlDbPath, persistence.sessionPath, consumerId);
+	const activeAgents = store.listActiveAgents();
+	const trackedAgentIds = new Set(activeAgents.map((agent) => agent.id));
+	const committed = readWaitTerminalEvent(
+		store,
+		persistence.controlDbPath,
+		persistence.sessionPath,
+		consumerId,
+		trackedAgentIds.size > 0 ? trackedAgentIds : undefined,
+	);
 	if (committed) return committed;
 
-	const activeAgents = store.listActiveAgents();
+
 	if (activeAgents.length === 0) {
 		return emptyResult();
 	}
@@ -2121,7 +2129,7 @@ async function waitAgents(
 	const agent = await waitForAnyTerminalAgent(store, activeAgents, signal);
 	if (!agent) return errorResult("Wait cancelled.", {});
 	return (
-		readWaitTerminalEvent(store, persistence.controlDbPath, persistence.sessionPath, consumerId, agent.id) ??
+		readWaitTerminalEvent(store, persistence.controlDbPath, persistence.sessionPath, consumerId, new Set([agent.id])) ??
 		errorResult(`Terminal event unavailable for ${agent.id}.`, { agent })
 	);
 }
@@ -2131,11 +2139,12 @@ function readWaitTerminalEvent(
 	controlDbPath: string,
 	sessionPath: string,
 	consumerId: string,
-	agentId?: string,
+	agentIds?: ReadonlySet<string>,
 ): AgentToolResult<WaitAgentsToolDetails> | undefined {
-	const event = listUnseenMultiAgentTerminalEvents(controlDbPath, consumerId).find(
-		(candidate) => candidate.sessionPath === sessionPath && (!agentId || candidate.agentId === agentId),
+	const candidates = listUnseenMultiAgentTerminalEvents(controlDbPath, consumerId).filter(
+		(candidate) => candidate.sessionPath === sessionPath && (!agentIds || agentIds.has(candidate.agentId)),
 	);
+	const event = agentIds ? candidates[0] : candidates.at(-1);
 	if (!event) return undefined;
 	if (!markMultiAgentTerminalEventSeen(controlDbPath, consumerId, event, new Date().toISOString())) return undefined;
 	const agent = store.getAgent(event.agentId);
@@ -2505,7 +2514,7 @@ function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleM
 	return {
 		bind(ctx) {
 			const sessionManager = ctx.sessionManager;
-			if (!sessionManager) return;
+			if (!sessionManager || typeof sessionManager.getSessionId !== "function") return;
 			const sessionId = sessionManager.getSessionId();
 			if (boundSessionId === sessionId && unsubscribe) return;
 			unsubscribe?.();

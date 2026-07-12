@@ -9,6 +9,7 @@ import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../src/index.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 type AssistantUsage = {
 	input: number;
@@ -110,16 +111,18 @@ describe("default footer extension", () => {
 
 	it("counts only running waiting and steering agents", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const queued = store.spawnAgent({
+		const queued = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Queued",
 			permission: { narrowed: true, policy: "on-request" },
 		}).agent;
-		const running = store.transitionAgent(queued.id, queued.revision, "starting");
+		const running = legacyMultiAgentStore(store).transitionAgent(queued.id, queued.revision, "starting");
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected start");
-		expect(store.transitionAgent(running.agent.id, running.agent.revision, "running").ok).toBe(true);
+		expect(legacyMultiAgentStore(store).transitionAgent(running.agent.id, running.agent.revision, "running").ok).toBe(
+			true,
+		);
 
 		expect(countDefaultFooterAgents(store)).toEqual({ running: 1, steeringPending: 0, waitingForInput: 0 });
 	});
@@ -127,7 +130,7 @@ describe("default footer extension", () => {
 	it("shows the selected agent slot and state in the default footer", () => {
 		initTheme(undefined, false);
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		store.spawnAgent({
+		legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "First",
@@ -135,7 +138,7 @@ describe("default footer extension", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 1, pinned: true },
 		});
-		const second = store.spawnAgent({
+		const second = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Second",
@@ -143,10 +146,12 @@ describe("default footer extension", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 2, pinned: true },
 		}).agent;
-		const waiting = store.transitionAgent(second.id, second.revision, "running");
+		const waiting = legacyMultiAgentStore(store).transitionAgent(second.id, second.revision, "running");
 		expect(waiting.ok).toBe(true);
 		if (!waiting.ok) throw new Error("expected running transition");
-		expect(store.transitionAgent(waiting.agent.id, waiting.agent.revision, "waiting_for_input").ok).toBe(true);
+		expect(
+			legacyMultiAgentStore(store).transitionAgent(waiting.agent.id, waiting.agent.revision, "waiting_for_input").ok,
+		).toBe(true);
 		store.selectAgentSlot(2);
 
 		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;

@@ -25,6 +25,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
+import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 let storedMessageCounter = 0;
 
@@ -345,7 +346,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		childSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(childSession);
-		const child = store.spawnAgent({
+		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
@@ -391,14 +392,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(senderSession);
-		const parent = store.spawnAgent({
+		const parent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Parent",
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const child = store.spawnAgent({
+		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Child",
@@ -448,14 +449,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		const parent = store.spawnAgent({
+		const parent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Parent",
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const child = store.spawnAgent({
+		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Child",
@@ -570,14 +571,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(senderSession);
-		const parent = store.spawnAgent({
+		const parent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Parent",
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const child = store.spawnAgent({
+		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Child",
@@ -622,20 +623,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		childSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(childSession);
-		const child = store.spawnAgent({
+		const running = createReservedRuntimeAgent(store, childSession.getSessionId(), "/repo", {
 			agentType: "worker",
-			cwd: "/repo",
 			displayName: "Worker",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			transcript: { sessionId: childSession.getSessionId() },
 		});
-		const starting = store.transitionAgent(child.agent.id, child.agent.revision, "starting");
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) throw new Error("expected starting transition");
-		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected running transition");
+		const child = { agent: running.agent };
 		const tools = collectMultiAgentTools(store);
 		const steerAgent = tools.get("steer_agent");
 		if (!steerAgent) {
@@ -712,21 +704,25 @@ describe("runtime SQLite mailbox delivery", () => {
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		store.setPersistenceSessionManager(harness.sessionManager);
 		await harness.session.bindExtensions({ controlDbPath });
-		const child = store.spawnAgent({
+		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const starting = store.transitionAgent(child.agent.id, child.agent.revision, "starting");
+		const starting = legacyMultiAgentStore(store).transitionAgent(child.agent.id, child.agent.revision, "starting");
 		expect(starting.ok).toBe(true);
 		if (!starting.ok) throw new Error("expected starting transition");
-		const running = store.transitionAgent(child.agent.id, starting.agent.revision, "running");
+		const running = legacyMultiAgentStore(store).transitionAgent(child.agent.id, starting.agent.revision, "running");
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running transition");
 
-		const waiting = store.transitionAgent(child.agent.id, running.agent.revision, "waiting_for_input");
+		const waiting = legacyMultiAgentStore(store).transitionAgent(
+			child.agent.id,
+			running.agent.revision,
+			"waiting_for_input",
+		);
 
 		expect(waiting.ok).toBe(true);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
@@ -748,7 +744,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
 		const dispatcher: ChildAgentDispatcher = ({ agent }) => {
-			const waiting = store.transitionAgent(agent.id, agent.revision, "waiting_for_input");
+			const waiting = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "waiting_for_input");
 			expect(waiting.ok).toBe(true);
 			transitionedToWaiting = true;
 			return new Promise(() => undefined);
@@ -834,7 +830,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const dispatcher: ChildAgentDispatcher = ({ agent }) =>
 			new Promise<{ lifecycle: "completed" }>((resolve) => {
 				resolveDispatch = resolve;
-				const waiting = store.transitionAgent(agent.id, agent.revision, "waiting_for_input");
+				const waiting = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "waiting_for_input");
 				expect(waiting.ok).toBe(true);
 			});
 		const tools = collectMultiAgentTools(store, {
@@ -910,7 +906,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		if (!waitingAgent) {
 			throw new Error("expected waiting agent");
 		}
-		const steered = store.sendSteering(waitingAgent.id, waitingAgent.revision, {
+		const steered = legacyMultiAgentStore(store).sendSteering(waitingAgent.id, waitingAgent.revision, {
 			body: "continue",
 			fromAgentId: "main",
 		});
@@ -1585,7 +1581,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("steer done")]);
 		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const spawned = { agent: running };
-		const steered = store.sendSteering(running.id, running.revision, {
+		const steered = legacyMultiAgentStore(store).sendSteering(running.id, running.revision, {
 			body: "Continue verification",
 			fromAgentId: "supervisor",
 		});
@@ -1627,7 +1623,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harness.setResponses([fauxAssistantMessage("idle steer done")]);
 		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const spawned = { agent: running };
-		const steered = store.sendSteering(running.id, running.revision, {
+		const steered = legacyMultiAgentStore(store).sendSteering(running.id, running.revision, {
 			body: "Continue verification while idle",
 			fromAgentId: "supervisor",
 		});
@@ -1672,7 +1668,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.bindExtensions({ controlDbPath });
 		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const spawned = { agent: running };
-		const steered = store.sendSteering(running.id, running.revision, {
+		const steered = legacyMultiAgentStore(store).sendSteering(running.id, running.revision, {
 			body: "Continue verification without auth",
 			fromAgentId: "supervisor",
 		});
