@@ -539,6 +539,42 @@ describe("session control DB", () => {
 		);
 	});
 
+	it("requires lifecycle writer quiescence before activating a newer protocol", () => {
+		const sessionPath = "/sessions/quiescence.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 2");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_listeners (
+					recipient_session_id, recipient_agent_id_key, pid, runtime_instance_id,
+					session_path, session_path_asserted_at, updated_at
+				) VALUES (?, '', ?, ?, ?, ?, ?)`,
+			).run(
+				"live-supervisor",
+				process.pid,
+				"old-runtime",
+				sessionPath,
+				"2026-07-11T00:00:00.000Z",
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(/restart all pi runtimes/i);
+
+		const offlineDb = createSqliteDatabase(controlDbPath);
+		try {
+			offlineDb
+				.prepare("DELETE FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")
+				.run("live-supervisor");
+		} finally {
+			offlineDb.close();
+		}
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+	});
+
 	it("rejects lifecycle writes from connections without the current protocol", () => {
 		const sessionPath = "/sessions/protocol-writer.jsonl";
 		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {

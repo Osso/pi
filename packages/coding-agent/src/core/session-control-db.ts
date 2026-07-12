@@ -2897,6 +2897,9 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+		if (currentSchemaVersion.user_version > 0) {
+			assertLifecycleProtocolMigrationQuiescent(db);
+		}
 
 		const now = new Date().toISOString();
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", now);
@@ -2905,6 +2908,22 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 		createLifecycleProtocolWriterTriggers(db);
 		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
 	});
+}
+
+function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
+	const rows = db
+		.prepare(
+			`SELECT pid FROM runtime_mailbox_listeners
+			 UNION
+			 SELECT pid FROM session_health WHERE pid IS NOT NULL`,
+		)
+		.all() as Array<{ pid: number }>;
+	const liveRuntimePids = rows.map((row) => row.pid).filter(isPiRuntimeProcessAlive);
+	if (liveRuntimePids.length === 0) return;
+
+	throw new Error(
+		`Cannot activate lifecycle protocol version ${CONTROL_DB_SCHEMA_VERSION} while Pi runtimes are active (PIDs: ${liveRuntimePids.join(", ")}). Restart all Pi runtimes, then retry`,
+	);
 }
 
 function createLifecycleProtocolWriterTriggers(db: SqliteDatabase): void {

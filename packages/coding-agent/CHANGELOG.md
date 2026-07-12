@@ -45,7 +45,7 @@
 
 ### Changed
 
-- Fenced persisted multi-agent lifecycle writes by control-DB protocol version: newer schemas are rejected before initialization, and SQLite triggers now reject agent-row writes from legacy or unregistered connections.
+- Fenced persisted multi-agent lifecycle writes by control-DB protocol version: newer schemas are rejected before initialization, upgrades require all Pi runtimes to be quiescent, and SQLite triggers reject agent-row writes from legacy or unregistered connections.
 - Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references. A durable control-DB schema migration cleans legacy persisted `artifactIds` and `artifactRefs` fields once, then installs SQLite INSERT/UPDATE triggers so older binaries cannot reintroduce them.
 
 - Changed Codex remote compaction to always use `gpt-5.6-terra`, allowing Luna and other Codex models to retain native compaction history across long sessions.

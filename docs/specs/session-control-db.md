@@ -42,8 +42,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Fence lifecycle writers by control-DB protocol version. A runtime rejects databases with a newer
       schema before initialization, registers its supported lifecycle protocol as a connection-local
       SQLite function, and schema-versioned triggers reject `multi_agent_agents` inserts or updates from
-      connections that lack the current protocol registration. This makes legacy/mixed-version lifecycle
-      writes fail closed while leaving non-lifecycle control-DB operations independent.
+      connections that lack the current protocol registration. Protocol activation scans listener and
+      health ownership inside the migration transaction and refuses to upgrade while any verified Pi
+      runtime remains active; legacy rows convert only after full runtime quiescence. This makes
+      legacy/mixed-version lifecycle writes fail closed without a compatibility or fallback mutation path,
+      while leaving non-lifecycle control-DB operations independent.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
