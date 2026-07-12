@@ -69,6 +69,24 @@ describe("detached job lifecycle controller", () => {
 		]);
 	});
 
+	it("requests detached cancellation through the coordinator and publishes cancelling state", () => {
+		const fixture = createFixture();
+		const jobId = fixture.controller.allocateJobId();
+		const reservation = fixture.controller.reserve({
+			agentType: "bash",
+			cwd: "/repo",
+			displayName: "Bash command",
+			jobId,
+			workerHandleId: "runner-1",
+		});
+
+		expect(fixture.controller.cancel(reservation, "user requested")).toMatchObject({
+			agent: { id: jobId, lifecycle: "cancelling", revision: 4 },
+			ok: true,
+		});
+		expect(fixture.store.getAgent(jobId)).toMatchObject({ lifecycle: "cancelling", revision: 4 });
+	});
+
 	it("observes and publishes a terminal snapshot committed by an external runner", () => {
 		const fixture = createFixture();
 		const jobId = fixture.controller.allocateJobId();

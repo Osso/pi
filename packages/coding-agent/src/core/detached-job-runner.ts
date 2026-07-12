@@ -49,8 +49,13 @@ export interface ReserveDetachedJobInput {
 	workerHandleId: string;
 }
 
+export type DetachedJobLifecycleCommandResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
 export interface DetachedJobLifecycleController {
 	allocateJobId(): string;
+	cancel(reservation: DetachedJobReservation, reason?: string): DetachedJobLifecycleCommandResult;
 	createArtifacts(jobId: string): DetachedJobArtifacts;
 	observe(jobId: string): AgentSnapshot | undefined;
 	reserve(input: ReserveDetachedJobInput): DetachedJobReservation;

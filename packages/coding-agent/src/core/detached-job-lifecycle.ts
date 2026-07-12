@@ -23,6 +23,16 @@ export function createDetachedJobLifecycleController(
 ): DetachedJobLifecycleController {
 	return {
 		allocateJobId: () => options.store.allocateAgentIdForLifecycleCoordinator(),
+		cancel: (reservation, reason) => {
+			const cancelled = options.coordinator.requestDetachedCancellation({
+				agent: reservation.agent,
+				outputLabel: reservation.identity.outputLabel,
+				reason,
+				reservation: reservation.controlReservation,
+			});
+			if (cancelled.ok) options.store.publishLifecycleCoordinatorSnapshot(cancelled.agent);
+			return cancelled;
+		},
 		createArtifacts: (jobId) => createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), jobId),
 		finalize: (envelopePath) => {
 			const finalized = finalizeDetachedJob(options.controlDbPath, {
