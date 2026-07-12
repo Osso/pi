@@ -40,6 +40,19 @@ describe("detached job runtime mailbox control", () => {
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([{ id: 1, status: "delivered" }]);
 	});
 
+	it("rejects a skipped cancellation revision without returning a payload command", () => {
+		const fixture = createFixture();
+		enqueueControl(fixture, "message_1", {
+			command: "cancel",
+			identity: { ...identity, expectedRevision: identity.expectedRevision + 2 },
+		});
+
+		expect(claimDetachedJobControlCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([
+			{ error: "Detached job control identity mismatch", id: 1, status: "failed" },
+		]);
+	});
+
 	it("rejects a stale fencing epoch without returning a payload command", () => {
 		const fixture = createFixture();
 		enqueueControl(fixture, "message_1", {

@@ -73,7 +73,7 @@ function parseControlCommand(body: string): StoredDetachedJobControlCommand | un
 function sameLeaseIdentity(left: DetachedJobLeaseIdentity, right: DetachedJobLeaseIdentity): boolean {
 	return (
 		left.jobId === right.jobId &&
-		left.expectedRevision >= right.expectedRevision &&
+		left.expectedRevision === right.expectedRevision + 1 &&
 		left.leaseId === right.leaseId &&
 		left.runtimeIncarnation === right.runtimeIncarnation &&
 		left.fencingEpoch === right.fencingEpoch &&
