@@ -111,18 +111,12 @@ describe("default footer extension", () => {
 
 	it("counts only running waiting and steering agents", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
-		const queued = legacyMultiAgentStore(store).spawnAgent({
+		legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
-			displayName: "Queued",
+			displayName: "Running",
 			permission: { narrowed: true, policy: "on-request" },
-		}).agent;
-		const running = legacyMultiAgentStore(store).transitionAgent(queued.id, queued.revision, "starting");
-		expect(running.ok).toBe(true);
-		if (!running.ok) throw new Error("expected start");
-		expect(legacyMultiAgentStore(store).transitionAgent(running.agent.id, running.agent.revision, "running").ok).toBe(
-			true,
-		);
+		});
 
 		expect(countDefaultFooterAgents(store)).toEqual({ running: 1, steeringPending: 0, waitingForInput: 0 });
 	});
@@ -134,7 +128,6 @@ describe("default footer extension", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "First",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 1, pinned: true },
 		});
@@ -142,16 +135,11 @@ describe("default footer extension", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Second",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 			slot: { index: 2, pinned: true },
 		}).agent;
-		const waiting = legacyMultiAgentStore(store).transitionAgent(second.id, second.revision, "running");
+		const waiting = legacyMultiAgentStore(store).transitionAgent(second.id, second.revision, "waiting_for_input");
 		expect(waiting.ok).toBe(true);
-		if (!waiting.ok) throw new Error("expected running transition");
-		expect(
-			legacyMultiAgentStore(store).transitionAgent(waiting.agent.id, waiting.agent.revision, "waiting_for_input").ok,
-		).toBe(true);
 		store.selectAgentSlot(2);
 
 		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;

@@ -152,12 +152,7 @@ function isCompleteJsonlFile(filePath: string): boolean {
 	return buffer[0] === 0x0a;
 }
 const MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES = 3;
-const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>([
-	"starting",
-	"running",
-	"steering_pending",
-	"cancelling",
-]);
+const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>(["running", "steering_pending", "cancelling"]);
 
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
@@ -2099,7 +2094,8 @@ export class InteractiveMode {
 		}
 
 		const [toolCallId, toolName] = nextToolEntry;
-		const showElapsed = !this.pendingTools.has(toolCallId);
+		const componentOwnsElapsed = this.pendingTools.has(toolCallId) && !this.isViewingAgentSession();
+		const showElapsed = !componentOwnsElapsed;
 		this.setDefaultWorkingMessage(
 			this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId), showElapsed),
 		);
@@ -2910,6 +2906,7 @@ export class InteractiveMode {
 			return false;
 		}
 
+		this.loadedResourcesContainer.clear();
 		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();
 		return true;
@@ -2924,6 +2921,8 @@ export class InteractiveMode {
 		if (agentId === "main") {
 			this.multiAgentStore?.clearSelectedAgentView();
 			this.clearChildAgentView();
+			this.loadedResourcesContainer.clear();
+			this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
 			this.chatContainer.clear();
 			this.renderInitialMessages();
 			this.syncWorkingLoaderVisibility();
@@ -2944,6 +2943,7 @@ export class InteractiveMode {
 			return false;
 		}
 
+		this.loadedResourcesContainer.clear();
 		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();
 		return true;
@@ -3266,10 +3266,7 @@ export class InteractiveMode {
 		}
 
 		const isInterruptible =
-			agent.lifecycle === "starting" ||
-			agent.lifecycle === "running" ||
-			agent.lifecycle === "steering_pending" ||
-			agent.lifecycle === "cancelling";
+			agent.lifecycle === "running" || agent.lifecycle === "steering_pending" || agent.lifecycle === "cancelling";
 		if (!isInterruptible) {
 			return false;
 		}

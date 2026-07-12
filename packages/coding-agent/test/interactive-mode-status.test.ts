@@ -215,6 +215,7 @@ type TranscriptSwitchFixture = {
 		addMessageToChat: typeof interactiveModeKeyHandlers.addMessageToChat;
 		addRenderedMessageToEditorHistory: () => void;
 		chatContainer: Container;
+		loadedResourcesContainer: Container;
 		childViewAgentId?: string;
 		childViewSessionManager?: SessionManager;
 		childViewTranscriptPath?: string;
@@ -254,6 +255,7 @@ type TranscriptSwitchFixture = {
 		renderSessionItems: typeof interactiveModeKeyHandlers.renderSessionItems;
 		selectAgentView: typeof interactiveModeKeyHandlers.selectAgentView;
 		selectedAgentBanner: AgentSelectionBannerComponent;
+		showLoadedResources: ReturnType<typeof vi.fn>;
 		session: { isStreaming: boolean };
 		sessionManager: SessionManager;
 		setWorkingVisible: typeof interactiveModeKeyHandlers.setWorkingVisible;
@@ -294,7 +296,6 @@ function createTranscriptSwitchFixture(options: {
 		agentType: "worker",
 		cwd: "/repo",
 		displayName: "Scout",
-		lifecycle: "starting",
 		permission: { narrowed: true, policy: "on-request" },
 		transcript: {
 			path: options.withChildPath ? childTranscriptPath : undefined,
@@ -305,6 +306,7 @@ function createTranscriptSwitchFixture(options: {
 		addMessageToChat: interactiveModeKeyHandlers.addMessageToChat,
 		addRenderedMessageToEditorHistory: () => {},
 		chatContainer: new Container(),
+		loadedResourcesContainer: new Container(),
 		childViewAgentId: undefined,
 		childViewSessionManager: undefined,
 		childViewTranscriptPath: undefined,
@@ -350,6 +352,7 @@ function createTranscriptSwitchFixture(options: {
 		renderSessionItems: interactiveModeKeyHandlers.renderSessionItems,
 		selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 		selectedAgentBanner: new AgentSelectionBannerComponent(store),
+		showLoadedResources: vi.fn(),
 		session: {
 			isStreaming: false,
 			modelRegistry: {
@@ -396,10 +399,9 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
+		const running = { ok: true as const, agent: spawned.agent };
 		if (!running.ok) throw new Error("expected running agent");
 		store.selectAgentView(running.agent.id);
 		const cancelMultiAgent = vi.fn(async () => ({
@@ -470,18 +472,12 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected run to succeed");
-		}
 		store.selectAgentView(spawned.agent.id);
 
 		expect(
-			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, running.agent.revision, "completed").ok,
+			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
 		const banner = new AgentSelectionBannerComponent(store);
 
@@ -496,13 +492,14 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const banner = new AgentSelectionBannerComponent(store);
 		const fakeThis = {
 			multiAgentStore: store,
 			selectedAgentBanner: banner,
+			loadedResourcesContainer: new Container(),
+			showLoadedResources: vi.fn(),
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
 			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
@@ -528,7 +525,7 @@ describe("InteractiveMode key handlers", () => {
 		renderedSelector.handleInput("\r");
 
 		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
-		expect(normalizeRenderedOutput(banner)).toBe(`Agent ${spawned.agent.id}: Scout (starting)`);
+		expect(normalizeRenderedOutput(banner)).toBe(`Agent ${spawned.agent.id}: Scout (running)`);
 		expect(fakeThis.showStatus).toHaveBeenCalledWith(`Agent selected: ${spawned.agent.id}`);
 	});
 
@@ -539,14 +536,9 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Scout",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected running transition");
-		}
+		const running = { ok: true as const, agent: spawned.agent };
 		store.selectAgentView(spawned.agent.id);
 		const cancelMultiAgent = vi.fn(async () => ({
 			ok: true,
@@ -758,6 +750,8 @@ describe("InteractiveMode key handlers", () => {
 			editor: { getText: () => "", setText: vi.fn() },
 			multiAgentStore: store,
 			selectedAgentBanner: banner,
+			loadedResourcesContainer: new Container(),
+			showLoadedResources: vi.fn(),
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
 			syncWorkingLoaderVisibility: vi.fn(),
@@ -801,7 +795,7 @@ describe("InteractiveMode key handlers", () => {
 
 		actions.get("app.agent.slot4")?.();
 		expect(store.getSelectedAgentId()).toBe(third.agent.id);
-		expect(normalizeRenderedOutput(banner)).toBe(`Agent ${third.agent.id}: Third (queued)`);
+		expect(normalizeRenderedOutput(banner)).toBe(`Agent ${third.agent.id}: Third (running)`);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(3);
 	});
@@ -812,12 +806,13 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Worker",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const fakeThis = {
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			loadedResourcesContainer: new Container(),
+			showLoadedResources: vi.fn(),
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
 			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
@@ -833,11 +828,36 @@ describe("InteractiveMode key handlers", () => {
 		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({
 			id: spawned.agent.id,
-			lifecycle: "starting",
+			lifecycle: "running",
 			revision: spawned.agent.revision,
 		});
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+	});
+
+	test("child selection hides loaded resources and main selection restores them", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const resource = new Text("loaded resource", 0, 0);
+		fixture.fakeThis.loadedResourcesContainer.addChild(resource);
+		fixture.fakeThis.showLoadedResources.mockImplementation(() => {
+			fixture.fakeThis.loadedResourcesContainer.addChild(resource);
+		});
+		try {
+			expect(normalizeRenderedOutput(fixture.fakeThis.loadedResourcesContainer)).toContain("loaded resource");
+
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			expect(fixture.fakeThis.loadedResourcesContainer.children).toHaveLength(0);
+			expect(normalizeRenderedOutput(fixture.fakeThis.loadedResourcesContainer)).not.toContain("loaded resource");
+
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, "main")).toBe(true);
+			expect(fixture.fakeThis.showLoadedResources).toHaveBeenCalledWith({
+				force: false,
+				showDiagnosticsWhenQuiet: true,
+			});
+			expect(normalizeRenderedOutput(fixture.fakeThis.loadedResourcesContainer)).toContain("loaded resource");
+		} finally {
+			fixture.cleanup();
+		}
 	});
 
 	test("selecting an active child view renders the child transcript and updates the footer model", () => {
@@ -1296,7 +1316,6 @@ describe("InteractiveMode key handlers", () => {
 				agentType: "worker",
 				cwd: "/repo",
 				displayName: "Previous",
-				lifecycle: "starting",
 				permission: { narrowed: true, policy: "on-request" },
 				transcript: { path: previousSession.getSessionFile(), sessionId: previousSession.getSessionId() },
 			});
@@ -1317,7 +1336,6 @@ describe("InteractiveMode key handlers", () => {
 				agentType: "worker",
 				cwd: "/repo",
 				displayName: "Next",
-				lifecycle: "starting",
 				permission: { narrowed: true, policy: "on-request" },
 				transcript: { path: path.join(tmp, "missing.jsonl"), sessionId: "missing-session" },
 			});
@@ -1326,6 +1344,8 @@ describe("InteractiveMode key handlers", () => {
 				addMessageToChat: interactiveModeKeyHandlers.addMessageToChat,
 				addRenderedMessageToEditorHistory: () => {},
 				chatContainer: new Container(),
+				loadedResourcesContainer: new Container(),
+				showLoadedResources: vi.fn(),
 				childViewAgentId: previous.agent.id,
 				childViewSessionManager: previousSession,
 				childViewTranscriptPath: previousSession.getSessionFile(),
@@ -1389,27 +1409,16 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Active",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const completed = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Done",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const running = legacyMultiAgentStore(store).transitionAgent(
-			completed.agent.id,
-			completed.agent.revision,
-			"running",
-		);
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected run to succeed");
-		}
 		expect(
-			legacyMultiAgentStore(store).transitionAgent(completed.agent.id, running.agent.revision, "completed").ok,
+			legacyMultiAgentStore(store).transitionAgent(completed.agent.id, completed.agent.revision, "completed").ok,
 		).toBe(true);
 		store.selectActiveAgentTargetWithStatus(active.agent.id);
 		const fakeThis = {
@@ -1444,6 +1453,8 @@ describe("InteractiveMode key handlers", () => {
 		store.selectActiveAgentTargetWithStatus(first.agent.id);
 		const fakeThis = {
 			chatContainer: { clear: vi.fn() },
+			loadedResourcesContainer: new Container(),
+			showLoadedResources: vi.fn(),
 			clearChildAgentView: vi.fn(),
 			keybindings: { matches: (data: string, action: string) => action === "app.agent.slot1" && data === "\x1b1" },
 			multiAgentStore: store,
@@ -1484,7 +1495,6 @@ describe("InteractiveMode key handlers", () => {
 			agentType: "worker",
 			cwd: "/repo",
 			displayName: "Completed",
-			lifecycle: "starting",
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const running = legacyMultiAgentStore(store).transitionAgent(
@@ -1511,6 +1521,8 @@ describe("InteractiveMode key handlers", () => {
 			},
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			loadedResourcesContainer: new Container(),
+			showLoadedResources: vi.fn(),
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
@@ -1556,6 +1568,8 @@ describe("InteractiveMode key handlers", () => {
 			},
 			multiAgentStore: store,
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
+			loadedResourcesContainer: new Container(),
+			showLoadedResources: vi.fn(),
 			footer: { invalidate: vi.fn() },
 			openChildAgentView: vi.fn(() => true),
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,

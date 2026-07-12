@@ -14,7 +14,7 @@ function agent(overrides: Partial<AgentSnapshot> & Pick<AgentSnapshot, "id" | "d
 		cwd: "/repo",
 		displayName,
 		id,
-		lifecycle: "queued",
+		lifecycle: "running",
 		parentId: undefined,
 		permission: { narrowed: true, policy: "on-request" },
 		revision: 1,
