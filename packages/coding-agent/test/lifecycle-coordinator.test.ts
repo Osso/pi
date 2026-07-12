@@ -274,6 +274,32 @@ describe("LifecycleCoordinator child creation", () => {
 		]);
 	});
 
+	it("creates a child with a preallocated artifact identity without consuming another ID", () => {
+		let generatedIds = 0;
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => {
+				generatedIds += 1;
+				return `generated-${generatedIds}`;
+			},
+			createLeaseId: () => "lease-child",
+			now: () => "2026-07-11T20:00:00.000Z",
+			reservationDurationMs: 30_000,
+			runtimeIncarnation: "runtime-1",
+			sessionPath,
+		});
+
+		const created = coordinator.createChild({ ...childInput(), agentId: "preallocated-job" });
+		expect(created).toMatchObject({ ok: true, agent: { id: "preallocated-job" } });
+		expect(generatedIds).toBe(0);
+		expect(coordinator.createChild({ ...childInput(), agentId: "preallocated-job" })).toEqual({
+			ok: false,
+			error: "agent_exists",
+		});
+	});
+
 	it("rejects a missing persisted agent parent without committing a child or reservation", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";

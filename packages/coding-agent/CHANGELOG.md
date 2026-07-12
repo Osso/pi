@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added coordinator support for preallocated child IDs so detached runners can bind durable output artifacts before payload spawn without persisting lifecycle rows for foreground-only execution.
 - Added an exact detached-job `finalize` repository transaction that validates the immutable terminal envelope/output, enforces revision/lease/incarnation/fencing and terminal-time lease validity, restricts settlement to running/cancelling jobs, and atomically commits terminal state, event, and outbox with idempotent exact-envelope retry.
 - Added a shared detached-job runner artifact contract with identity-bound directories, direct durable output paths, and immutable fsynced terminal envelopes containing lease/revision/fencing identity, exact outcome, output size/hash, and envelope checksum validation.
 - Added persistent session archiving with an Archived resume-picker scope, Ctrl+A selected-session archiving, `pi sessions archive --older-than <days>`, and first-party `/archive` archiving of the current persisted session.

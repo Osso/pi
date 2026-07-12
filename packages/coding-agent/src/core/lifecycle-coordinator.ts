@@ -22,6 +22,7 @@ export interface LifecycleCoordinatorOptions {
 }
 
 export interface CreateChildCommandInput extends SpawnAgentInput {
+	agentId?: string;
 	ownerSessionId: string;
 }
 
@@ -178,7 +179,7 @@ export class LifecycleCoordinator {
 
 	createChild(input: CreateChildCommandInput): CreateChildCommandResult {
 		const nowIso = this.options.now();
-		const agentId = this.options.createAgentId();
+		const agentId = input.agentId ?? this.options.createAgentId();
 		const parentId = input.parentId ?? MAIN_THREAD_AGENT_ID;
 		const agent: AgentSnapshot = {
 			account: input.account,

@@ -136,7 +136,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   directly. Detached Bash/Pyrun runners are the only exception: they are execution-plane workers
   authorized to submit one exact, fenced terminal-finalize operation for their own lease and may
   not create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
-  Shared detached-job artifacts live under an identity-bound job directory with a direct durable
+  Detached runners preallocate the durable job/agent ID before payload spawn so the output path can
+  be identity-bound from the first byte; coordinator child creation accepts that exact ID only when
+  detachment occurs, while foreground-only execution consumes no lifecycle row. Shared detached-job
+  artifacts live under an identity-bound job directory with a direct durable
   output file and immutable terminal envelope. Envelope creation fsyncs output first, records its
   size and SHA-256, records the full lease/revision/fencing identity and exact outcome, checksums the
   envelope, atomically renames it into place, and fsyncs the containing directory. The envelope also
