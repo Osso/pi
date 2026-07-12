@@ -6,6 +6,7 @@ import {
 	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
+	createMultiAgentAttachment,
 	createMultiAgentChildWithDispatchReservation,
 	type MultiAgentDispatchLease,
 	recoverExpiredMultiAgentRuntime,
@@ -33,6 +34,10 @@ export interface CreateChildCommandInput extends SpawnAgentInput {
 export type CreateChildCommandResult =
 	| { ok: true; agent: AgentSnapshot; reservation: MultiAgentDispatchLease }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
+
+export type CreateAttachmentCommandResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "agent_exists" | "parent_not_found" | "permission_broadened" };
 
 export type AcquireAttachedRuntimeCommandResult =
 	| { ok: true; agent: AgentSnapshot; reservation: MultiAgentDispatchLease }
@@ -94,6 +99,28 @@ export class LifecycleCoordinator {
 
 	constructor(options: LifecycleCoordinatorOptions) {
 		this.options = options;
+	}
+
+	createAttachment(input: SpawnAgentInput): CreateAttachmentCommandResult {
+		const nowIso = this.options.now();
+		const agent: AgentSnapshot = {
+			...input,
+			account: input.account ? { ...input.account } : undefined,
+			createdAt: nowIso,
+			id: this.options.createAgentId(),
+			lifecycle: "waiting_for_input",
+			origin: "attached",
+			parentId: input.parentId,
+			permission: { ...input.permission },
+			revision: 1,
+			updatedAt: nowIso,
+		};
+		return createMultiAgentAttachment(this.options.controlDbPath, {
+			agent,
+			agentId: agent.id,
+			nowIso,
+			sessionPath: this.options.sessionPath,
+		});
 	}
 
 	acquireAttachedRuntime(agent: AgentSnapshot, ownerSessionId: string): AcquireAttachedRuntimeCommandResult {

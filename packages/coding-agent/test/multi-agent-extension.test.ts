@@ -586,8 +586,7 @@ describe("multi-agent extension tools", () => {
 			expect(steered.details.message).toMatchObject({
 				fromAgentId: "supervisor",
 				kind: "steer",
-				status: "pending",
-				targetCheckpoint: "when_waiting",
+				status: "failed",
 				toAgentId: attached.details.agent.id,
 			});
 			expect(sent.details.message).toMatchObject({
@@ -597,18 +596,13 @@ describe("multi-agent extension tools", () => {
 			});
 			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 				{
-					body: "Continue from saved work",
-					recipient: { agentId: attached.details.agent.id, sessionId: savedSessionId },
-				},
-				{
 					body: "Mailbox request",
 					recipient: { agentId: attached.details.agent.id, sessionId: savedSessionId },
 				},
 			]);
-			// Both messages honestly stay pending: the recipient session is not running
-			// in this test, so the transport never delivers them.
+			// Dormant attachments have no runtime lease, so lifecycle steering fails
+			// instead of claiming a pending turn. Plain mailbox delivery remains queued.
 			expect(harness.store.listMailboxMessages()).toMatchObject([
-				{ id: steered.details.message.id, status: "pending" },
 				{ id: sent.details.message.id, status: "pending" },
 			]);
 			expect(cancelled.content).toEqual([

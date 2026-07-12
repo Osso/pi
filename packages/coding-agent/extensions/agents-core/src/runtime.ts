@@ -1339,26 +1339,24 @@ function spawnAttachedSessionAgent(
 	const displayName = params.displayName?.trim() || resolved.name || `Session ${resolved.sessionId}`;
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);
 	const permission = buildAttachedSessionPermission(store, params.parentId);
-	const input = {
+	const parent = params.parentId ? store.getAgent(params.parentId) : undefined;
+	const coordinator = createLifecycleCoordinator(store, ctx);
+	if (!coordinator) return { ok: false, error: "lifecycle_coordinator_unavailable" };
+	const attached = coordinator.createAttachment({
+		account: parent?.account,
 		agentType,
 		cwd: resolved.cwd || ctx.cwd,
 		displayName,
-		lifecycle: "waiting_for_input" as const,
-		model: profile.modelMetadata,
-		origin: "attached" as const,
+		model: profile.modelMetadata ?? parent?.model,
+		parentId: params.parentId,
 		permission,
 		transcript: { path: resolved.path, sessionId: resolved.sessionId },
-	};
-	if (!params.parentId) {
-		return { ok: true, agent: store.spawnAgent(input).agent };
+	});
+	if (!attached.ok) {
+		return { ok: false, error: attached.error, parent };
 	}
-	const attached = store.attachSessionAgent(params.parentId, input);
-	if (attached.ok) {
-		return attached;
-	}
-	return "parent" in attached
-		? { ok: false, error: attached.error, parent: attached.parent }
-		: { ok: false, error: attached.error };
+	store.publishLifecycleCoordinatorSnapshot(attached.agent);
+	return attached;
 }
 
 function buildAttachedSessionPermission(store: MultiAgentStore, parentId: string | undefined): AgentSnapshot["permission"] {
