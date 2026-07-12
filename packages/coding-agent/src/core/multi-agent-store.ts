@@ -3,6 +3,7 @@ import {
 	allocateMultiAgentCounter,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
+	updateMultiAgentAgentTranscript,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 } from "./session-control-db.ts";
@@ -1017,9 +1018,6 @@ export class MultiAgentStore {
 		for (const agent of state.agents as AgentSnapshot[]) {
 			const restored = this.restoreAgentSnapshot(agent);
 			this.agents.set(agent.id, restored.agent);
-			if (restored.corrected) {
-				this.persistAgentRow(restored.agent);
-			}
 		}
 		for (const message of state.mailboxMessages as AgentMailboxMessage[]) {
 			this.mailboxMessages.set(message.id, copyMessage(message));
@@ -1172,13 +1170,21 @@ export class MultiAgentStore {
 	}
 
 	private updateAgentMetadata(current: AgentNode, updates: Partial<Pick<AgentNode, "transcript">>): AgentNode {
-		const updated = {
-			...current,
-			...updates,
-			updatedAt: this.now(),
-		};
+		const updatedAt = this.now();
+		const persisted = this.persistence
+			? updateMultiAgentAgentTranscript(
+					this.persistence.controlDbPath,
+					this.persistence.sessionPath,
+					current.id,
+					updates.transcript,
+					updatedAt,
+				)
+			: undefined;
+		if (this.persistence && !persisted) {
+			throw new Error(`Persisted agent ${current.id} disappeared during transcript update`);
+		}
+		const updated = persisted ?? { ...current, ...updates, updatedAt };
 		this.agents.set(updated.id, updated);
-		this.persistAgentRow(updated);
 		this.notifyAgentUpdateListeners(current, updated);
 
 		return updated;

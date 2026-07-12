@@ -76,6 +76,7 @@ import {
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
+	updateMultiAgentAgentTranscript,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 	writeLastMessage,
@@ -897,6 +898,36 @@ describe("session control DB", () => {
 		).toBe(true);
 		expect(claimMultiAgentTerminalOutbox(controlDbPath, "worker-c", "2026-07-11T00:04:00.000Z")).toBeUndefined();
 		expect(cleanupMultiAgentTerminalOutbox(controlDbPath, "2026-07-11T00:04:00.000Z")).toBe(1);
+	});
+
+	it("updates transcript metadata without overwriting a newer lifecycle revision", () => {
+		const sessionPath = "/sessions/transcript-merge.jsonl";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
+			agentType: "test",
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Transcript agent",
+			id: "agent-1",
+			lifecycle: "completed",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 5,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		});
+
+		const updated = updateMultiAgentAgentTranscript(
+			controlDbPath,
+			sessionPath,
+			"agent-1",
+			{ path: "/sessions/child.jsonl", sessionId: "child-session" },
+			"2026-07-11T00:02:00.000Z",
+		);
+
+		expect(updated).toMatchObject({
+			lifecycle: "completed",
+			revision: 5,
+			transcript: { path: "/sessions/child.jsonl", sessionId: "child-session" },
+		});
 	});
 
 	it("finalizes a detached job from its exact durable envelope", () => {

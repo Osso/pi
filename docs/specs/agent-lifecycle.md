@@ -113,7 +113,10 @@ mailbox record, exhausted attempts become poisoned, acknowledgements require the
 and delivered/poisoned rows are removed only after the retention window. `wait_agents` allocates an
 independent terminal-event cursor per invocation, reads committed terminal events before subscribing,
 rechecks state after subscription, and never consumes the shared mailbox transport row. Concurrent
-and late waiters therefore observe the same terminal revision independently.
+and late waiters therefore observe the same terminal revision independently. Runtime transcript
+metadata updates merge into the latest persisted agent snapshot inside an immediate transaction and
+cannot rewrite lifecycle or revision from a stale in-memory projection; restore never writes its
+runtime-only worker-handle cleanup back to lifecycle storage.
 
 ## What it must do
 

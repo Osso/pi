@@ -3673,6 +3673,30 @@ function upsertMultiAgentRow(
 	});
 }
 
+export function updateMultiAgentAgentTranscript(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	transcript: AgentSnapshot["transcript"],
+	updatedAt: string,
+): AgentSnapshot | undefined {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(sessionPath, agentId) as { data: string } | undefined;
+			if (!row) return undefined;
+			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
+			validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
+			const updated = { ...agent, transcript, updatedAt } as AgentSnapshot;
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updated), updatedAt, sessionPath, agentId);
+			return updated;
+		}),
+	);
+}
+
 export function upsertMultiAgentAgent(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
 	if (!data || typeof data !== "object" || Array.isArray(data)) {
 		throw new Error(`Invalid persisted agent payload at multi_agent_agents:${sessionPath}#${id}`);
