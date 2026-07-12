@@ -2442,7 +2442,9 @@ export function commitMultiAgentLifecycleMutation(
 				lease.runtime_incarnation === input.runtimeIncarnation &&
 				lease.owner_session_id === input.owner.sessionId &&
 				lease.owner_agent_id === input.owner.agentId &&
-				lease.fencing_epoch === input.fencingEpoch;
+				lease.fencing_epoch === input.fencingEpoch &&
+				lease.expires_at !== null &&
+				lease.expires_at > input.updatedAt;
 			if (!matches) return { ok: false, error: "mutation_mismatch" };
 			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle))
 				return { ok: false, error: "invalid_transition" };
@@ -2571,7 +2573,9 @@ function dispatchLeaseMatchesTerminalMutation(
 		lease.runtime_incarnation === input.runtimeIncarnation &&
 		lease.owner_session_id === input.owner.sessionId &&
 		lease.owner_agent_id === input.owner.agentId &&
-		lease.fencing_epoch === input.fencingEpoch
+		lease.fencing_epoch === input.fencingEpoch &&
+		lease.expires_at !== null &&
+		lease.expires_at > input.updatedAt
 	);
 }
 

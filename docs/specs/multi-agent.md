@@ -188,8 +188,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   PID, callback order, or notification delivery. A committed terminal result wins all later
   requests; an accepted cancellation wins over a later natural-completion attempt and moves the
   agent to `cancelling`; only a current fenced exit acknowledgement can then produce `aborted`.
-  Duplicate aborts return the existing outcome without a new revision or event. Owner loss or
-  lease expiry fences the old runtime, and late finalizers fail the mutation predicate rather than
+  Duplicate abort acknowledgements replay the same terminal outcome without a new revision or event.
+  Every state and terminal mutation also requires the lease expiry to be later than the command
+  timestamp; an expired owner is fenced even before another runtime takes over. Owner loss or lease
+  expiry fences the old runtime, and late finalizers fail the mutation predicate rather than
   rewriting state. Expired-runtime recovery requires the live recovery-leader lease, the expected
   agent revision, and an expired dispatch lease; one transaction acquires the next dispatch fencing
   epoch and commits `failed/lost_runtime` plus its terminal event/outbox. The expiry/owner-loss path

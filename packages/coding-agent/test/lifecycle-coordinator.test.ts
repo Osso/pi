@@ -9,12 +9,16 @@ import {
 	upsertMultiAgentAgent,
 } from "../src/core/session-control-db.ts";
 
-function createCoordinator(controlDbPath: string, sessionPath: string): LifecycleCoordinator {
+function createCoordinator(
+	controlDbPath: string,
+	sessionPath: string,
+	now: () => string = () => "2026-07-11T20:00:00.000Z",
+): LifecycleCoordinator {
 	return new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId: () => "agent-child",
 		createLeaseId: () => "lease-child",
-		now: () => "2026-07-11T20:00:00.000Z",
+		now,
 		reservationDurationMs: 30_000,
 		runtimeIncarnation: "runtime-1",
 		sessionPath,
@@ -100,6 +104,83 @@ describe("LifecycleCoordinator child creation", () => {
 				agent: cancelling.agent,
 				reason: "late duplicate",
 				reservation: { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 },
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+	});
+
+	it("orders natural completion before a later cancellation request", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		if (!starting.ok) return;
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		if (!running.ok) return;
+		const completed = coordinator.finalizeChild({
+			agent: running.agent,
+			eventPayload: { result: { summary: "done" } },
+			reservation: created.reservation,
+			result: { summary: "done" },
+			terminalLifecycle: "completed",
+		});
+		expect(completed).toMatchObject({ ok: true, agent: { lifecycle: "completed", revision: 4 } });
+		expect(coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation })).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
+		});
+	});
+
+	it("orders accepted cancellation before natural completion and deduplicates exit acknowledgement", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		if (!created.ok) return;
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		if (!starting.ok) return;
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		if (!running.ok) return;
+		const cancelling = coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation });
+		if (!cancelling.ok) return;
+		expect(
+			coordinator.finalizeChild({
+				agent: cancelling.agent,
+				eventPayload: { result: { summary: "late" } },
+				reservation: created.reservation,
+				terminalLifecycle: "completed",
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
+		const acknowledgement = {
+			agent: cancelling.agent,
+			reason: "user requested",
+			reservation: created.reservation,
+		};
+		const first = coordinator.acknowledgeCancellation(acknowledgement);
+		expect(first).toMatchObject({ ok: true, agent: { lifecycle: "aborted", revision: 5 } });
+		expect(coordinator.acknowledgeCancellation(acknowledgement)).toEqual(first);
+	});
+
+	it("rejects state mutation and finalization after lease expiry without takeover", () => {
+		let nowIso = "2026-07-11T20:00:00.000Z";
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath, () => nowIso);
+		const created = coordinator.createChild(childInput());
+		if (!created.ok) return;
+		nowIso = "2026-07-11T20:00:31.000Z";
+		expect(coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation })).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
+		});
+		expect(
+			coordinator.finalizeChild({
+				agent: created.agent,
+				eventPayload: { error: { code: "late" } },
+				reservation: created.reservation,
+				terminalLifecycle: "failed",
 			}),
 		).toEqual({ ok: false, error: "mutation_mismatch" });
 	});
