@@ -1714,28 +1714,49 @@ async function runAgentDispatcher(
 		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
+		if (reservedRuntime) {
+			const current = store.getAgent(running.agent.id) ?? running.agent;
+			if (dispatchResult.lifecycle === "waiting_for_input") {
+				const waiting = reservedRuntime.coordinator.markWaitingForInput({
+					agent: current,
+					reservation: reservedRuntime.ownership.reservation,
+				});
+				if (!waiting.ok) return current;
+				store.publishLifecycleCoordinatorSnapshot(waiting.agent);
+				return waiting.agent;
+			}
+			return finalizeReservedRuntime(
+				store,
+				current,
+				dispatchResult.lifecycle,
+				{ error: dispatchResult.error, result: dispatchResult.result },
+				reservedRuntime,
+				restoreGeneration,
+			);
+		}
 		return transitionRunningAgent(
 			store,
 			running.agent,
 			dispatchResult.lifecycle,
-			{
-				error: dispatchResult.error,
-				result: dispatchResult.result,
-			},
+			{ error: dispatchResult.error, result: dispatchResult.result },
 			restoreGeneration,
 		);
 	} catch (error) {
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
-		return transitionRunningAgent(
-			store,
-			running.agent,
-			"failed",
-			{
-				error: { message: error instanceof Error ? error.message : String(error) },
-			},
-			restoreGeneration,
-		);
+		const failure = { message: error instanceof Error ? error.message : String(error) };
+		if (reservedRuntime) {
+			const current = store.getAgent(running.agent.id) ?? running.agent;
+			return finalizeReservedRuntime(
+				store,
+				current,
+				"failed",
+				{ error: failure },
+				reservedRuntime,
+				restoreGeneration,
+			);
+		}
+		return transitionRunningAgent(store, running.agent, "failed", { error: failure }, restoreGeneration);
 	}
 }
 

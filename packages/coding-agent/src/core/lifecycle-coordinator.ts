@@ -106,6 +106,10 @@ export class LifecycleCoordinator {
 		return this.commitReservedLifecycle(input, "running");
 	}
 
+	markWaitingForInput(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
+		return this.commitReservedLifecycle(input, "waiting_for_input");
+	}
+
 	requestCancellation(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "cancelling");
 	}
@@ -252,7 +256,7 @@ export class LifecycleCoordinator {
 
 	private commitReservedLifecycle(
 		input: ReservedLifecycleCommandInput,
-		requestedLifecycle: "starting" | "running" | "cancelling",
+		requestedLifecycle: "starting" | "running" | "waiting_for_input" | "cancelling",
 		detachedCancellation?: { outputLabel: string; reason?: string },
 	): ReservedLifecycleCommandResult {
 		const reservation = input.reservation;
