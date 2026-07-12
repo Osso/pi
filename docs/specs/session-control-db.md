@@ -36,7 +36,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       lease with the same live-owner rejection, expiry takeover, monotonic fencing, exact renewal, and
       compare-release rules, preventing concurrent reconciliation leaders. Terminal lifecycle commits verify
       the stored revision and full lease/runtime/owner/fencing identity, then update the agent row and insert
-      its immutable terminal event and pending outbox row in one immediate SQLite transaction. Legacy artifact tables/columns are not
+      its immutable terminal event and pending outbox row in one immediate SQLite transaction. Exact
+      retries return the committed terminal revision without rewriting rows; conflicting payloads or stale
+      predicates fail without creating another event or outbox record. Legacy artifact tables/columns are not
       initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
       migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are

@@ -2213,6 +2213,10 @@ export function commitMultiAgentTerminalMutation(
 				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
 			if (!agentRow) return { ok: false, error: "agent_not_found" };
 			const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			const terminalRevision = input.expectedRevision + 1;
+			if (agent.revision === terminalRevision && agent.lifecycle === input.terminalLifecycle) {
+				return terminalMutationReplayResult(db, input, terminalRevision);
+			}
 			if (agent.revision !== input.expectedRevision) return { ok: false, error: "mutation_mismatch" };
 			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
 				return { ok: false, error: "invalid_transition" };
@@ -2220,7 +2224,6 @@ export function commitMultiAgentTerminalMutation(
 			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
 			if (!dispatchLeaseMatchesTerminalMutation(lease, input)) return { ok: false, error: "mutation_mismatch" };
 
-			const terminalRevision = input.expectedRevision + 1;
 			const updatedAgent = {
 				...agent,
 				lifecycle: input.terminalLifecycle,
@@ -2251,6 +2254,21 @@ export function commitMultiAgentTerminalMutation(
 			return { ok: true, terminalRevision };
 		}),
 	);
+}
+
+function terminalMutationReplayResult(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+	terminalRevision: number,
+): CommitMultiAgentTerminalMutationResult {
+	const row = db
+		.prepare(
+			`SELECT payload FROM multi_agent_terminal_events
+			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
+		)
+		.get(input.sessionPath, input.agentId, terminalRevision, input.eventKind) as { payload: string } | undefined;
+	if (row?.payload !== JSON.stringify(input.eventPayload)) return { ok: false, error: "mutation_mismatch" };
+	return { ok: true, terminalRevision };
 }
 
 function canPersistTerminalTransition(

@@ -600,7 +600,7 @@ describe("session control DB", () => {
 		});
 		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
 
-		const committed = commitMultiAgentTerminalMutation(controlDbPath, {
+		const mutation = {
 			agentId,
 			eventKind: "completed",
 			eventPayload: { result: { summary: "done" } },
@@ -610,10 +610,18 @@ describe("session control DB", () => {
 			owner: { agentId: null, sessionId: "supervisor" },
 			runtimeIncarnation: "runtime-terminal",
 			sessionPath,
-			terminalLifecycle: "completed",
+			terminalLifecycle: "completed" as const,
 			updatedAt: "2026-07-11T00:01:00.000Z",
-		});
+		};
+		const committed = commitMultiAgentTerminalMutation(controlDbPath, mutation);
 		expect(committed).toMatchObject({ ok: true, terminalRevision: 5 });
+		expect(commitMultiAgentTerminalMutation(controlDbPath, mutation)).toEqual(committed);
+		expect(
+			commitMultiAgentTerminalMutation(controlDbPath, {
+				...mutation,
+				eventPayload: { result: { summary: "conflicting" } },
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
 
 		const db = createSqliteDatabase(controlDbPath);
 		try {
