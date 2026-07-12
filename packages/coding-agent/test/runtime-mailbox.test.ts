@@ -16,6 +16,7 @@ import {
 	listRuntimeMailboxMessages,
 	markMultiAgentMailboxMessageDelivered,
 	postSharedChannelMessage,
+	type readMultiAgentDispatchLease,
 	readRuntimeMailboxMessage,
 	readSessionHealth,
 	readSharedChannelCursor,
@@ -23,6 +24,7 @@ import {
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 
 let storedMessageCounter = 0;
 
@@ -90,7 +92,16 @@ function sharedChannelPrompt(body: string, sessionId = "sender-session"): string
 	return ["From shared channel:", `- session: ${sessionId}`, "- agent: main", "", "Message:", body].join("\n");
 }
 
-function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: string, cwd: string): AgentSnapshot {
+function createReservedRuntimeAgent(
+	store: MultiAgentStore,
+	ownerSessionId: string,
+	cwd: string,
+	input: { agentType?: string; displayName?: string; worker?: AgentSnapshot["worker"] } = {},
+): {
+	agent: AgentSnapshot;
+	coordinator: LifecycleCoordinator;
+	reservation: NonNullable<ReturnType<typeof readMultiAgentDispatchLease>>;
+} {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected store persistence target");
 	const coordinator = new LifecycleCoordinator({
@@ -103,12 +114,13 @@ function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: strin
 		sessionPath: persistence.sessionPath,
 	});
 	const created = coordinator.createChild({
-		agentType: "verifier",
+		agentType: input.agentType ?? "verifier",
 		cwd,
-		displayName: "Verifier",
+		displayName: input.displayName ?? "Verifier",
 		ownerSessionId,
 		permission: { narrowed: true, policy: "on-request" },
 		transcript: { sessionId: ownerSessionId },
+		worker: input.worker,
 	});
 	if (!created.ok) throw new Error(`could not create reserved test agent: ${created.error}`);
 	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
@@ -116,7 +128,36 @@ function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: strin
 	const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
 	if (!running.ok) throw new Error(`could not run reserved test agent: ${running.error}`);
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
-	return running.agent;
+	return { agent: running.agent, coordinator, reservation: created.reservation };
+}
+
+function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: string, cwd: string): AgentSnapshot {
+	return createReservedRuntimeAgent(store, ownerSessionId, cwd).agent;
+}
+
+function finalizeReservedRuntimeAgent(
+	store: MultiAgentStore,
+	runtime: ReturnType<typeof createReservedRuntimeAgent>,
+	input: { error?: AgentSnapshot["error"]; result?: AgentSnapshot["result"] },
+): AgentSnapshot {
+	const finalized = runtime.coordinator.finalizeChild({
+		agent: runtime.agent,
+		error: input.error,
+		eventPayload: input,
+		reservation: runtime.reservation,
+		result: input.result,
+		terminalLifecycle: "failed",
+	});
+	if (!finalized.ok) throw new Error(`could not finalize reserved test agent: ${finalized.error}`);
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("expected store persistence target");
+	deliverTerminalOutboxProjections({
+		claimId: "runtime-mailbox-test",
+		controlDbPath: persistence.controlDbPath,
+		now: () => new Date().toISOString(),
+		store,
+	});
+	return finalized.agent;
 }
 
 function collectMultiAgentTools(
@@ -1034,31 +1075,15 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected wait_agents tool");
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
-		const spawned = store.spawnAgent({
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			agentType: "background",
-			cwd: "/repo",
 			displayName: "Pyrun evaluation",
-			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "runtime", handleId: "pyrun" },
 		});
-		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) {
-			throw new Error("expected Pyrun worker to enter starting state");
-		}
-		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected Pyrun worker to enter running state");
-		}
-		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+		finalizeReservedRuntimeAgent(store, runtime, {
 			result: { durationMs: 1234, summary: "Pyrun evaluation failed." },
 		});
-		expect(failed.ok).toBe(true);
-		if (!failed.ok) {
-			throw new Error("expected Pyrun worker to fail");
-		}
-		const [failureMessage] = store.listPendingLifecycleNotificationsForAgent(spawned.agent.id, "failed");
+		const [failureMessage] = store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed");
 		const persistence = store.getPersistenceTarget();
 		if (!failureMessage || !persistence) {
 			throw new Error("expected persisted Pyrun failure notification");
@@ -1066,7 +1091,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		enqueueRuntimeMailboxMessage(controlDbPath, {
 			kind: "system",
 			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
-			sender: { agentId: spawned.agent.id, sessionId: parentSession.getSessionId() },
+			sender: { agentId: runtime.agent.id, sessionId: parentSession.getSessionId() },
 			storeRef: { messageId: failureMessage.id, sessionPath: persistence.sessionPath },
 		});
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
@@ -1099,34 +1124,18 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected wait_agents tool");
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
-		const spawned = store.spawnAgent({
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			agentType: "background",
-			cwd: "/repo",
 			displayName: "Pyrun evaluation",
-			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "runtime", handleId: "pyrun" },
 		});
-		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) {
-			throw new Error("expected Pyrun worker to enter starting state");
-		}
-		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected Pyrun worker to enter running state");
-		}
 
 		const waitedPromise = waitAgents.execute("wait", {}, undefined, undefined, ctx);
 		await delay(1);
-		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+		finalizeReservedRuntimeAgent(store, runtime, {
 			result: { durationMs: 1234, summary: "Pyrun evaluation failed." },
 		});
-		expect(failed.ok).toBe(true);
-		if (!failed.ok) {
-			throw new Error("expected Pyrun worker to fail");
-		}
-		const [failureMessage] = store.listPendingLifecycleNotificationsForAgent(spawned.agent.id, "failed");
+		const [failureMessage] = store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed");
 		const persistence = store.getPersistenceTarget();
 		if (!failureMessage || !persistence) {
 			throw new Error("expected persisted Pyrun failure notification");
@@ -1134,7 +1143,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		enqueueRuntimeMailboxMessage(controlDbPath, {
 			kind: "system",
 			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
-			sender: { agentId: spawned.agent.id, sessionId: parentSession.getSessionId() },
+			sender: { agentId: runtime.agent.id, sessionId: parentSession.getSessionId() },
 			storeRef: { messageId: failureMessage.id, sessionPath: persistence.sessionPath },
 		});
 
@@ -1166,23 +1175,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected wait_agents tool");
 		}
 
-		const spawned = store.spawnAgent({
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			agentType: "worker",
-			cwd: "/repo",
 			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
 			worker: { adapter: "runtime", handleId: "other" },
 		});
-		const starting = store.transitionAgent(spawned.agent.id, spawned.agent.revision, "starting");
-		expect(starting.ok).toBe(true);
-		if (!starting.ok) {
-			throw new Error("expected worker to enter starting state");
-		}
-		const running = store.transitionAgent(starting.agent.id, starting.agent.revision, "running");
-		expect(running.ok).toBe(true);
-		if (!running.ok) {
-			throw new Error("expected worker to enter running state");
-		}
 
 		const waitedPromise = waitAgents.execute(
 			"wait",
@@ -1192,7 +1189,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		await delay(1);
-		const failed = store.transitionAgent(running.agent.id, running.agent.revision, "failed", {
+		finalizeReservedRuntimeAgent(store, runtime, {
 			error: { message: "tests failed" },
 			result: {
 				durationMs: 1234,
@@ -1200,7 +1197,6 @@ describe("runtime SQLite mailbox delivery", () => {
 				summary: "tests failed",
 			},
 		});
-		expect(failed.ok).toBe(true);
 
 		const waited = await waitedPromise;
 
@@ -1212,7 +1208,7 @@ describe("runtime SQLite mailbox delivery", () => {
 				status: "delivered",
 			},
 		});
-		expect(store.listPendingLifecycleNotificationsForAgent(spawned.agent.id, "failed")).toHaveLength(0);
+		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "failed")).toHaveLength(0);
 	});
 
 	it("wait-style store consumption delivers already claimed runtime completion notifications", async () => {
