@@ -21,6 +21,7 @@ import {
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
 	commitMultiAgentLifecycleMutation,
+	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
 	completeArchitectRequest,
 	completeIncomingMessage,
@@ -711,6 +712,61 @@ describe("session control DB", () => {
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ lifecycle: "starting", revision: 1 },
 		]);
+	});
+
+	it("commits steering lifecycle and durable mailbox payload atomically", () => {
+		const sessionPath = "/sessions/steering.jsonl";
+		const agentId = "agent-steer";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "running",
+			origin: "spawned",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 3,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const lease = acquireMultiAgentDispatchLease(controlDbPath, {
+			agentId,
+			expiresAt: "2026-07-11T00:10:00.000Z",
+			leaseId: "steer-lease",
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			runtimeIncarnation: "steer-runtime",
+			sessionPath,
+		});
+		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
+		const message = {
+			body: "Continue",
+			createdAt: "2026-07-11T00:01:00.000Z",
+			fromAgentId: "main",
+			id: "message_1",
+			kind: "steer" as const,
+			status: "pending" as const,
+			toAgentId: agentId,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const committed = commitMultiAgentSteeringMutation(controlDbPath, {
+			agentId,
+			expectedRevision: 3,
+			fencingEpoch: 1,
+			leaseId: "steer-lease",
+			message,
+			owner: { agentId: null, sessionId: "supervisor" },
+			requestedLifecycle: "steering_pending",
+			runtimeIncarnation: "steer-runtime",
+			sessionPath,
+			updatedAt: message.updatedAt,
+		});
+
+		expect(committed).toMatchObject({
+			agent: { lifecycle: "steering_pending", revision: 4 },
+			message: { id: "message_1" },
+			ok: true,
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ id: agentId, lifecycle: "steering_pending", revision: 4 }],
+			mailboxMessages: [{ id: "message_1", status: "pending" }],
+		});
 	});
 
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {

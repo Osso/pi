@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { type DetachedJobTerminalEnvelope, readDetachedJobTerminalEnvelope } from "./detached-job-runner.ts";
-import type { AgentFileReference, AgentSnapshot } from "./multi-agent-store.ts";
+import type { AgentFileReference, AgentMailboxMessage, AgentSnapshot } from "./multi-agent-store.ts";
 import { isPiRuntimeProcessAlive, isVerifiedPiRuntimeProcess } from "./runtime-process.ts";
 import {
 	emptySessionHealth,
@@ -2272,6 +2272,14 @@ export type CommitMultiAgentLifecycleMutationResult =
 	| { ok: true; agent: Record<string, unknown> }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface CommitMultiAgentSteeringMutationInput extends CommitMultiAgentLifecycleMutationInput {
+	message: AgentMailboxMessage;
+}
+
+export type CommitMultiAgentSteeringMutationResult =
+	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
 export interface CommitMultiAgentTerminalMutationInput {
 	sessionPath: string;
 	agentId: string;
@@ -2542,6 +2550,73 @@ export function markMultiAgentTerminalEventSeen(
 			);
 		return result.changes === 1;
 	});
+}
+
+export function commitMultiAgentSteeringMutation(
+	controlDbPath: string,
+	input: CommitMultiAgentSteeringMutationInput,
+): CommitMultiAgentSteeringMutationResult {
+	validateMailboxPayload(input.message, `multi_agent_mailbox_messages:${input.sessionPath}#${input.message.id}`);
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+			if (!row) return { ok: false, error: "agent_not_found" };
+			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
+			if (agent.revision !== input.expectedRevision) return { ok: false, error: "mutation_mismatch" };
+			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!dispatchLeaseMatchesLifecycleMutation(lease, input)) {
+				return { ok: false, error: "mutation_mismatch" };
+			}
+			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+				return { ok: false, error: "invalid_transition" };
+			}
+			const updated = {
+				...agent,
+				lifecycle: input.requestedLifecycle,
+				revision: input.expectedRevision + 1,
+				updatedAt: input.updatedAt,
+			};
+			persistImmutableMailboxPayload(
+				db,
+				{
+					kind: input.message.kind,
+					message: input.message,
+					recipient: { agentId: input.agentId, sessionId: input.owner.sessionId },
+					sender: input.owner,
+					storeRef: { messageId: input.message.id, sessionPath: input.sessionPath },
+					updatedAt: input.updatedAt,
+				},
+				input.updatedAt,
+			);
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
+			return {
+				agent: updated as unknown as AgentSnapshot,
+				message: input.message,
+				ok: true,
+			};
+		}),
+	);
+}
+
+function dispatchLeaseMatchesLifecycleMutation(
+	lease: MultiAgentDispatchLeaseRow | undefined,
+	input: CommitMultiAgentLifecycleMutationInput,
+): boolean {
+	return (
+		lease?.lease_id === input.leaseId &&
+		lease.runtime_incarnation === input.runtimeIncarnation &&
+		lease.owner_session_id === input.owner.sessionId &&
+		lease.owner_agent_id === input.owner.agentId &&
+		lease.fencing_epoch === input.fencingEpoch &&
+		lease.expires_at !== null &&
+		lease.expires_at > input.updatedAt
+	);
 }
 
 export function commitMultiAgentLifecycleMutation(
