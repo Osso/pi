@@ -3,6 +3,7 @@ import {
 	acquireAttachedRuntimeLease,
 	acquireMultiAgentRecoveryLeaderLease,
 	commitMultiAgentLifecycleMutation,
+	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
 	createMultiAgentChildWithDispatchReservation,
@@ -42,13 +43,17 @@ export interface ReservedLifecycleCommandInput {
 	reservation: MultiAgentDispatchLease;
 }
 
+export interface SteeringDeliveryCommandInput extends ReservedLifecycleCommandInput {
+	messageId: string;
+}
+
 export interface SteeringCommandInput extends ReservedLifecycleCommandInput {
 	message: AgentMailboxMessage;
 }
 
 export type SteeringCommandResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
-	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "message_not_found" | "mutation_mismatch" };
 
 export interface DetachedCancellationCommandInput extends ReservedLifecycleCommandInput {
 	outputLabel: string;
@@ -113,6 +118,24 @@ export class LifecycleCoordinator {
 
 	confirmChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "running");
+	}
+
+	acknowledgeSteeringDelivery(input: SteeringDeliveryCommandInput): SteeringCommandResult {
+		const identity = this.readReservationIdentity(input.reservation);
+		if (!identity) return { ok: false, error: "mutation_mismatch" };
+		const result = commitMultiAgentSteeringDelivery(this.options.controlDbPath, {
+			agentId: input.agent.id,
+			expectedRevision: input.agent.revision,
+			fencingEpoch: input.reservation.fencingEpoch,
+			leaseId: identity.leaseId,
+			messageId: input.messageId,
+			owner: identity.owner,
+			requestedLifecycle: "running",
+			runtimeIncarnation: identity.runtimeIncarnation,
+			sessionPath: this.options.sessionPath,
+			updatedAt: this.options.now(),
+		});
+		return result;
 	}
 
 	requestSteering(input: SteeringCommandInput): SteeringCommandResult {

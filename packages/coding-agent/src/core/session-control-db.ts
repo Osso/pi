@@ -2280,6 +2280,17 @@ export type CommitMultiAgentSteeringMutationResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface CommitMultiAgentSteeringDeliveryInput extends CommitMultiAgentLifecycleMutationInput {
+	messageId: string;
+}
+
+export type CommitMultiAgentSteeringDeliveryResult =
+	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
+	| {
+			ok: false;
+			error: "agent_not_found" | "invalid_transition" | "message_not_found" | "mutation_mismatch";
+	  };
+
 export interface CommitMultiAgentTerminalMutationInput {
 	sessionPath: string;
 	agentId: string;
@@ -2616,6 +2627,60 @@ function dispatchLeaseMatchesLifecycleMutation(
 		lease.fencing_epoch === input.fencingEpoch &&
 		lease.expires_at !== null &&
 		lease.expires_at > input.updatedAt
+	);
+}
+
+export function commitMultiAgentSteeringDelivery(
+	controlDbPath: string,
+	input: CommitMultiAgentSteeringDeliveryInput,
+): CommitMultiAgentSteeringDeliveryResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const agentRow = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+			if (!agentRow) return { ok: false, error: "agent_not_found" };
+			const agentContext = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+			const agent = parseStoredJsonObject(agentRow.data, agentContext);
+			validatePersistedAgentPayload(agent, agentContext);
+			if (agent.revision !== input.expectedRevision) return { ok: false, error: "mutation_mismatch" };
+			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!dispatchLeaseMatchesLifecycleMutation(lease, input)) {
+				return { ok: false, error: "mutation_mismatch" };
+			}
+			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+				return { ok: false, error: "invalid_transition" };
+			}
+			const messageRow = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(input.sessionPath, input.messageId) as { data: string } | undefined;
+			if (!messageRow) return { ok: false, error: "message_not_found" };
+			const messageContext = `multi_agent_mailbox_messages:${input.sessionPath}#${input.messageId}`;
+			const message = parseStoredJsonObject(messageRow.data, messageContext);
+			validateMailboxPayload(message, messageContext);
+			if (message.kind !== "steer" || message.toAgentId !== input.agentId) {
+				return { ok: false, error: "message_not_found" };
+			}
+			const updatedAt = input.updatedAt;
+			const updatedAgent = {
+				...agent,
+				lifecycle: input.requestedLifecycle,
+				revision: input.expectedRevision + 1,
+				updatedAt,
+			};
+			const updatedMessage = { ...message, status: "delivered", updatedAt };
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updatedAgent), updatedAt, input.sessionPath, input.agentId);
+			db.prepare(
+				"UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE session_path = ? AND message_id = ?",
+			).run(JSON.stringify(updatedMessage), updatedAt, input.sessionPath, input.messageId);
+			return {
+				agent: updatedAgent as unknown as AgentSnapshot,
+				message: updatedMessage as unknown as AgentMailboxMessage,
+				ok: true,
+			};
+		}),
 	);
 }
 

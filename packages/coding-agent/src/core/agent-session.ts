@@ -2680,10 +2680,22 @@ export class AgentSession {
 		if (!current) {
 			return undefined;
 		}
-		const delivered = this._multiAgentStore.ackSteering(agentId, current.revision, messageId, "delivered");
-		if (!delivered.ok) {
-			return undefined;
-		}
+		const persistence = this._multiAgentStore.getPersistenceTarget();
+		if (!persistence) return undefined;
+		const reservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agentId);
+		if (!reservation) return undefined;
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => this._multiAgentStore?.allocateAgentIdForLifecycleCoordinator() ?? "",
+			createLeaseId: randomUUID,
+			now: () => new Date().toISOString(),
+			reservationDurationMs: 30_000,
+			runtimeIncarnation: this._detachedJobRuntimeIncarnation,
+			sessionPath: persistence.sessionPath,
+		});
+		const delivered = coordinator.acknowledgeSteeringDelivery({ agent: current, messageId, reservation });
+		if (!delivered.ok) return undefined;
+		this._multiAgentStore.publishLifecycleCoordinatorSteeringDelivery(delivered.agent, delivered.message);
 		this._runtimeMailboxSteeringAgentIds.add(agentId);
 		return agentId;
 	}

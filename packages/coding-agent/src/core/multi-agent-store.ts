@@ -360,6 +360,10 @@ export class MultiAgentStore {
 		if (previous) this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
 
+	publishLifecycleCoordinatorSteeringDelivery(agent: AgentSnapshot, message: AgentMailboxMessage): void {
+		this.publishLifecycleCoordinatorSteering(agent, message);
+	}
+
 	publishLifecycleCoordinatorSnapshot(agent: AgentSnapshot): void {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
