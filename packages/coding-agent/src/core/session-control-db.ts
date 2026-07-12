@@ -2253,9 +2253,15 @@ export interface MultiAgentTerminalOutboxRecord {
 	agentId: string;
 	terminalRevision: number;
 	eventKind: string;
-	status: string;
+	status: "claimed" | "delivered" | "pending" | "poisoned";
 	claimId?: string;
 	attemptCount: number;
+}
+
+export interface ClaimMultiAgentTerminalOutboxOptions {
+	maxAttempts?: number;
+	sessionPath?: string;
+	staleClaimBefore?: string;
 }
 
 export interface MultiAgentTerminalEvent {
@@ -2413,18 +2419,33 @@ export function claimMultiAgentTerminalOutbox(
 	controlDbPath: string,
 	claimId: string,
 	nowIso: string,
-	options: { sessionPath?: string } = {},
+	options: ClaimMultiAgentTerminalOutboxOptions = {},
 ): MultiAgentTerminalOutboxRecord | undefined {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
+			const maxAttempts = options.maxAttempts ?? 5;
+			if (options.staleClaimBefore) {
+				db.prepare(
+					`UPDATE multi_agent_terminal_outbox
+					 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
+					 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
+					 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
+				).run(
+					maxAttempts,
+					nowIso,
+					options.staleClaimBefore,
+					options.sessionPath ?? null,
+					options.sessionPath ?? null,
+				);
+			}
 			const row = db
 				.prepare(
 					`SELECT session_path, agent_id, terminal_revision, event_kind
 					 FROM multi_agent_terminal_outbox
-					 WHERE status = 'pending' AND (? IS NULL OR session_path = ?)
+					 WHERE status = 'pending' AND attempt_count < ? AND (? IS NULL OR session_path = ?)
 					 ORDER BY updated_at LIMIT 1`,
 				)
-				.get(options.sessionPath ?? null, options.sessionPath ?? null) as
+				.get(maxAttempts, options.sessionPath ?? null, options.sessionPath ?? null) as
 				| { session_path: string; agent_id: string; terminal_revision: number; event_kind: string }
 				| undefined;
 			if (!row) return undefined;
@@ -2452,8 +2473,10 @@ export function failMultiAgentTerminalOutbox(
 	record: MultiAgentTerminalOutboxRecord,
 	error: string,
 	nowIso: string,
+	options: { maxAttempts?: number } = {},
 ): boolean {
-	return updateClaimedTerminalOutbox(controlDbPath, record, "pending", nowIso, error);
+	const status = record.attemptCount >= (options.maxAttempts ?? 5) ? "poisoned" : "pending";
+	return updateClaimedTerminalOutbox(controlDbPath, record, status, nowIso, error);
 }
 
 export function deliverMultiAgentTerminalOutbox(
@@ -2467,7 +2490,7 @@ export function deliverMultiAgentTerminalOutbox(
 function updateClaimedTerminalOutbox(
 	controlDbPath: string,
 	record: MultiAgentTerminalOutboxRecord,
-	status: "pending" | "delivered",
+	status: "pending" | "delivered" | "poisoned",
 	nowIso: string,
 	error?: string,
 ): boolean {
@@ -2489,6 +2512,19 @@ function updateClaimedTerminalOutbox(
 					record.eventKind,
 					record.claimId ?? null,
 				).changes === 1,
+	);
+}
+
+export function cleanupMultiAgentTerminalOutbox(controlDbPath: string, olderThan: string): number {
+	return withControlDb(
+		controlDbPath,
+		(db) =>
+			db
+				.prepare(
+					`DELETE FROM multi_agent_terminal_outbox
+					 WHERE status IN ('delivered', 'poisoned') AND updated_at < ?`,
+				)
+				.run(olderThan).changes,
 	);
 }
 

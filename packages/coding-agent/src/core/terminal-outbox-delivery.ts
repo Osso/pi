@@ -1,11 +1,16 @@
 import type { MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	claimMultiAgentTerminalOutbox,
+	cleanupMultiAgentTerminalOutbox,
 	deliverMultiAgentTerminalOutbox,
 	failMultiAgentTerminalOutbox,
 	type MultiAgentTerminalOutboxRecord,
 	readMultiAgentAgent,
 } from "./session-control-db.ts";
+
+const TERMINAL_OUTBOX_CLAIM_LEASE_MS = 30_000;
+const TERMINAL_OUTBOX_MAX_ATTEMPTS = 5;
+const TERMINAL_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DeliverTerminalOutboxOptions {
 	claimId: string;
@@ -19,10 +24,17 @@ export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxO
 	if (!persistence) return 0;
 
 	let delivered = 0;
+	const cleanupNow = options.now();
+	cleanupMultiAgentTerminalOutbox(
+		options.controlDbPath,
+		new Date(Date.parse(cleanupNow) - TERMINAL_OUTBOX_RETENTION_MS).toISOString(),
+	);
 	while (true) {
 		const nowIso = options.now();
 		const record = claimMultiAgentTerminalOutbox(options.controlDbPath, options.claimId, nowIso, {
+			maxAttempts: TERMINAL_OUTBOX_MAX_ATTEMPTS,
 			sessionPath: persistence.sessionPath,
+			staleClaimBefore: new Date(Date.parse(nowIso) - TERMINAL_OUTBOX_CLAIM_LEASE_MS).toISOString(),
 		});
 		if (!record) return delivered;
 
@@ -48,7 +60,9 @@ function deliverTerminalOutboxProjection(
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		failMultiAgentTerminalOutbox(options.controlDbPath, record, message, options.now());
+		failMultiAgentTerminalOutbox(options.controlDbPath, record, message, options.now(), {
+			maxAttempts: TERMINAL_OUTBOX_MAX_ATTEMPTS,
+		});
 		throw error;
 	}
 }

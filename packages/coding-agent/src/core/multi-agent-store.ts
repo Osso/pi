@@ -377,8 +377,10 @@ export class MultiAgentStore {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
-		if (current.lifecycle === "completed") this.recordCompletionNotification(current);
-		if (current.lifecycle === "failed" || current.lifecycle === "aborted") this.recordFailureNotification(current);
+		if (current.lifecycle === "completed") this.retryOrRecordTerminalNotification(current, "completed");
+		if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
+			this.retryOrRecordTerminalNotification(current, "failed");
+		}
 		if (previous) this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
 
@@ -1180,6 +1182,22 @@ export class MultiAgentStore {
 		this.notifyAgentUpdateListeners(current, updated);
 
 		return updated;
+	}
+
+	private retryOrRecordTerminalNotification(
+		agent: AgentNode,
+		lifecycle: Extract<AgentLifecycleNotificationLifecycle, "completed" | "failed">,
+	): void {
+		const existing = this.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
+		if (existing) {
+			this.notifyLifecycleNotificationListeners(existing);
+			return;
+		}
+		if (lifecycle === "completed") {
+			this.recordCompletionNotification(agent);
+			return;
+		}
+		this.recordFailureNotification(agent);
 	}
 
 	private recordCompletionNotification(agent: AgentNode): void {

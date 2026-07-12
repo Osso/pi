@@ -2579,11 +2579,7 @@ function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleM
 			unsubscribe?.();
 			boundSessionId = sessionId;
 			unsubscribe = store.subscribeLifecycleNotifications((message) => {
-				try {
-					mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
-				} catch (error) {
-					console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
-				}
+				mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
 			});
 			mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 		},

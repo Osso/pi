@@ -70,6 +70,23 @@ describe("durable detached Pyrun evaluation", () => {
 		});
 		expect(store.getAgent("agent_1")?.lifecycle).toBe("running");
 		expect(store.listMailboxMessages()).toHaveLength(0);
+		const unsubscribeFailure = store.subscribeLifecycleNotifications(() => {
+			throw new Error("transport unavailable");
+		});
+		expect(() =>
+			deliverTerminalOutboxProjections({
+				claimId: "failed-projection",
+				controlDbPath,
+				now: () => new Date().toISOString(),
+				store,
+			}),
+		).toThrow("transport unavailable");
+		unsubscribeFailure();
+		expect(store.listMailboxMessages()).toHaveLength(1);
+		const retriedNotifications: string[] = [];
+		const unsubscribeRetry = store.subscribeLifecycleNotifications((message) => {
+			retriedNotifications.push(message.id);
+		});
 		expect(
 			deliverTerminalOutboxProjections({
 				claimId: "test-projection",
@@ -78,6 +95,8 @@ describe("durable detached Pyrun evaluation", () => {
 				store,
 			}),
 		).toBe(1);
+		unsubscribeRetry();
+		expect(retriedNotifications).toHaveLength(1);
 		expect(store.getAgent("agent_1")?.lifecycle).toBe("completed");
 		expect(store.listMailboxMessages()).toMatchObject([
 			{ fromAgentId: "agent_1", status: "pending", threadId: "agent-completed:agent_1" },

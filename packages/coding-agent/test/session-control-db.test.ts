@@ -19,6 +19,7 @@ import {
 	claimMultiAgentTerminalOutbox,
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
+	cleanupMultiAgentTerminalOutbox,
 	cleanupRuntimeMailboxMessages,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentSteeringMutation,
@@ -857,6 +858,45 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("recovers stale terminal outbox claims, poisons exhausted retries, and cleans retained rows", () => {
+		const sessionPath = "/sessions/outbox-recovery.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_events
+				 (session_path, agent_id, terminal_revision, event_kind, payload, created_at)
+				 VALUES (?, 'agent-1', 2, 'failed', '{}', ?)`,
+			).run(sessionPath, "2026-07-11T00:00:00.000Z");
+			db.prepare(
+				`INSERT INTO multi_agent_terminal_outbox
+				 (session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+				 VALUES (?, 'agent-1', 2, 'failed', 'pending', 0, ?)`,
+			).run(sessionPath, "2026-07-11T00:00:00.000Z");
+		} finally {
+			db.close();
+		}
+
+		const first = claimMultiAgentTerminalOutbox(controlDbPath, "worker-a", "2026-07-11T00:01:00.000Z", {
+			maxAttempts: 2,
+			sessionPath,
+		});
+		expect(first).toMatchObject({ attemptCount: 1, claimId: "worker-a" });
+		const recovered = claimMultiAgentTerminalOutbox(controlDbPath, "worker-b", "2026-07-11T00:02:00.000Z", {
+			maxAttempts: 2,
+			sessionPath,
+			staleClaimBefore: "2026-07-11T00:01:30.000Z",
+		});
+		expect(recovered).toMatchObject({ attemptCount: 2, claimId: "worker-b" });
+		expect(
+			failMultiAgentTerminalOutbox(controlDbPath, recovered!, "permanent", "2026-07-11T00:03:00.000Z", {
+				maxAttempts: 2,
+			}),
+		).toBe(true);
+		expect(claimMultiAgentTerminalOutbox(controlDbPath, "worker-c", "2026-07-11T00:04:00.000Z")).toBeUndefined();
+		expect(cleanupMultiAgentTerminalOutbox(controlDbPath, "2026-07-11T00:04:00.000Z")).toBe(1);
 	});
 
 	it("finalizes a detached job from its exact durable envelope", () => {

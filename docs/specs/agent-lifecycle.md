@@ -107,7 +107,10 @@ identity and payload. Ordinary coordinator projection is notification-free for t
 only a claimed terminal outbox record may project the terminal snapshot and create its completion or
 failure mailbox notification. Runtime transport uses one session-bound lifecycle mirror that is
 rebound on session changes and shared by direct tools plus Hostrun/Pyrun handlers; dispatch-local
-listeners are limited to desktop-notification state and do not mirror transport.
+listeners are limited to desktop-notification state and do not mirror transport. Terminal outbox
+claims expire after a bounded lease, stale claims requeue, delivery failures retry the same pending
+mailbox record, exhausted attempts become poisoned, acknowledgements require the active claim ID,
+and delivered/poisoned rows are removed only after the retention window.
 
 ## What it must do
 
