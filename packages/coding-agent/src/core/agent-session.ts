@@ -1270,7 +1270,6 @@ export class AgentSession {
 			terminalLifecycle,
 		});
 		if (!finalized.ok) return false;
-		store.publishLifecycleCoordinatorSnapshot(finalized.agent);
 		this._drainTerminalOutboxProjections();
 		return true;
 	}
