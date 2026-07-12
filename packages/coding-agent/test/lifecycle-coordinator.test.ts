@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
+	listRuntimeMailboxMessages,
 	readMultiAgentDispatchLease,
 	readMultiAgentState,
 	upsertMultiAgentAgent,
 } from "../src/core/session-control-db.ts";
+import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
 function createCoordinator(
 	controlDbPath: string,
@@ -107,6 +109,78 @@ describe("LifecycleCoordinator child creation", () => {
 				reservation: { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 },
 			}),
 		).toEqual({ ok: false, error: "mutation_mismatch" });
+	});
+
+	it("atomically requests detached cancellation and enqueues its fenced runner command", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		if (!created.ok) return;
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		if (!starting.ok) return;
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		if (!running.ok) return;
+
+		const cancelling = coordinator.requestDetachedCancellation({
+			agent: running.agent,
+			outputLabel: "Bash output",
+			reason: "user requested",
+			reservation: created.reservation,
+		});
+		expect(cancelling).toMatchObject({ ok: true, agent: { lifecycle: "cancelling", revision: 4 } });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: running.agent.id, lifecycle: "cancelling", revision: 4 },
+		]);
+		const [message] = listRuntimeMailboxMessages(controlDbPath);
+		expect(message).toMatchObject({
+			kind: "system",
+			recipient: { agentId: running.agent.id, sessionId: "supervisor-session" },
+			status: "pending",
+		});
+		expect(JSON.parse(message?.body ?? "")).toMatchObject({
+			command: "cancel",
+			identity: {
+				expectedRevision: 4,
+				fencingEpoch: created.reservation.fencingEpoch,
+				jobId: running.agent.id,
+				leaseId: created.reservation.leaseId,
+				outputLabel: "Bash output",
+				runtimeIncarnation: created.reservation.runtimeIncarnation,
+			},
+			reason: "user requested",
+		});
+	});
+
+	it("rolls back detached cancellation when runtime-mailbox transport insertion fails", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		if (!created.ok) return;
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		if (!starting.ok) return;
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		if (!running.ok) return;
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`CREATE TRIGGER reject_detached_control BEFORE INSERT ON runtime_mailbox_messages
+				BEGIN SELECT RAISE(ABORT, 'blocked detached control'); END`);
+		} finally {
+			db.close();
+		}
+
+		expect(() =>
+			coordinator.requestDetachedCancellation({
+				agent: running.agent,
+				outputLabel: "Bash output",
+				reservation: created.reservation,
+			}),
+		).toThrow("blocked detached control");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: running.agent.id, lifecycle: "running", revision: 3 },
+		]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it("blocks parent terminalization until active descendants are terminal", () => {

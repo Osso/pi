@@ -35,6 +35,11 @@ export interface ReservedLifecycleCommandInput {
 	reservation: MultiAgentDispatchLease;
 }
 
+export interface DetachedCancellationCommandInput extends ReservedLifecycleCommandInput {
+	outputLabel: string;
+	reason?: string;
+}
+
 export type ReservedLifecycleCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
@@ -81,6 +86,13 @@ export class LifecycleCoordinator {
 
 	requestCancellation(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "cancelling");
+	}
+
+	requestDetachedCancellation(input: DetachedCancellationCommandInput): ReservedLifecycleCommandResult {
+		return this.commitReservedLifecycle(input, "cancelling", {
+			outputLabel: input.outputLabel,
+			reason: input.reason,
+		});
 	}
 
 	acknowledgeCancellation(input: ReservedLifecycleCommandInput & { reason?: string }): ReservedLifecycleCommandResult {
@@ -218,6 +230,7 @@ export class LifecycleCoordinator {
 	private commitReservedLifecycle(
 		input: ReservedLifecycleCommandInput,
 		requestedLifecycle: "starting" | "running" | "cancelling",
+		detachedCancellation?: { outputLabel: string; reason?: string },
 	): ReservedLifecycleCommandResult {
 		const reservation = input.reservation;
 		const identity = this.readReservationIdentity(reservation);
@@ -225,6 +238,7 @@ export class LifecycleCoordinator {
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentLifecycleMutation(this.options.controlDbPath, {
 			agentId: input.agent.id,
+			detachedCancellation,
 			expectedRevision: input.agent.revision,
 			fencingEpoch: reservation.fencingEpoch,
 			leaseId: identity.leaseId,

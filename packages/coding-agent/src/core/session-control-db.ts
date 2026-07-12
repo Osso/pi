@@ -2161,6 +2161,7 @@ export interface CommitMultiAgentLifecycleMutationInput {
 	fencingEpoch: number;
 	requestedLifecycle: string;
 	updatedAt: string;
+	detachedCancellation?: { outputLabel: string; reason?: string };
 }
 export type CommitMultiAgentLifecycleMutationResult =
 	| { ok: true; agent: Record<string, unknown> }
@@ -2467,9 +2468,69 @@ export function commitMultiAgentLifecycleMutation(
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
 			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
+			if (input.detachedCancellation) persistDetachedCancellationCommand(db, input, updated.revision);
 			return { ok: true, agent: updated };
 		}),
 	);
+}
+
+function persistDetachedCancellationCommand(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+	cancellingRevision: number,
+): void {
+	const cancellation = input.detachedCancellation;
+	if (!cancellation) return;
+	const { message, messageId } = buildDetachedCancellationMessage(input, cancellation, cancellingRevision);
+	db.prepare(
+		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ?, ?)`,
+	).run(input.sessionPath, messageId, message, input.updatedAt);
+	db.prepare(
+		`INSERT INTO runtime_mailbox_messages (
+			recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id,
+			kind, body, store_session_path, store_message_id, status, created_at, updated_at
+		 ) VALUES (?, ?, ?, NULL, 'system', '', ?, ?, 'pending', ?, ?)`,
+	).run(
+		input.owner.sessionId,
+		input.agentId,
+		input.owner.sessionId,
+		input.sessionPath,
+		messageId,
+		input.updatedAt,
+		input.updatedAt,
+	);
+}
+
+function buildDetachedCancellationMessage(
+	input: CommitMultiAgentLifecycleMutationInput,
+	cancellation: NonNullable<CommitMultiAgentLifecycleMutationInput["detachedCancellation"]>,
+	cancellingRevision: number,
+): { message: string; messageId: string } {
+	const messageId = `detached-cancel:${input.agentId}:${cancellingRevision}`;
+	const body = JSON.stringify({
+		command: "cancel",
+		identity: {
+			expectedRevision: cancellingRevision,
+			fencingEpoch: input.fencingEpoch,
+			jobId: input.agentId,
+			leaseId: input.leaseId,
+			outputLabel: cancellation.outputLabel,
+			runtimeIncarnation: input.runtimeIncarnation,
+		},
+		reason: cancellation.reason,
+	});
+	return {
+		message: JSON.stringify({
+			body,
+			fromAgentId: "main",
+			id: messageId,
+			kind: "system",
+			status: "pending",
+			toAgentId: input.agentId,
+		}),
+		messageId,
+	};
 }
 
 function canPersistLifecycleTransition(current: unknown, requested: string): boolean {
