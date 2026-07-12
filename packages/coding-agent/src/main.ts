@@ -51,6 +51,7 @@ import { selectSession } from "./cli/session-picker.ts";
 import { handleSessionsCommand } from "./cli/sessions-command.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
+import { createMultiAgentExecutionCapability } from "./core/agent-session.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
 	type AgentSessionRuntimeDiagnostic,
@@ -921,6 +922,8 @@ export async function main(args: string[], options?: MainOptions) {
 
 		const created = await createAgentSessionFromServices({
 			services,
+			multiAgentRuntimeRole: "orchestrator",
+			multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
 			sessionManager,
 			sessionStartEvent,
 			model: sessionOptions.model,

@@ -65,6 +65,8 @@ export interface CreateAgentSessionFromServicesOptions {
 	noTools?: CreateAgentSessionOptions["noTools"];
 	permissionPromptTool?: CreateAgentSessionOptions["permissionPromptTool"];
 	multiAgentStore?: MultiAgentStore;
+	multiAgentRuntimeRole?: CreateAgentSessionOptions["multiAgentRuntimeRole"];
+	multiAgentExecutionCapability?: CreateAgentSessionOptions["multiAgentExecutionCapability"];
 	customTools?: ToolDefinition[];
 }
 
@@ -206,6 +208,8 @@ export async function createAgentSessionFromServices(
 		noTools: options.noTools,
 		permissionPromptTool: options.permissionPromptTool,
 		multiAgentStore: options.multiAgentStore,
+		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
+		multiAgentExecutionCapability: options.multiAgentExecutionCapability,
 		customTools: options.customTools,
 		sessionStartEvent: options.sessionStartEvent,
 	});

@@ -3,7 +3,7 @@ import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
-import { AgentSession } from "./agent-session.ts";
+import { AgentSession, type MultiAgentExecutionCapability, type MultiAgentRuntimeRole } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
@@ -81,6 +81,8 @@ export interface CreateAgentSessionOptions {
 	permissionPromptTool?: string;
 	/** Shared multi-agent store used for detached tool background jobs. */
 	multiAgentStore?: MultiAgentStore;
+	multiAgentRuntimeRole?: MultiAgentRuntimeRole;
+	multiAgentExecutionCapability?: MultiAgentExecutionCapability;
 	/** Current multi-agent runtime agent identity, when resuming or running as a child agent. */
 	multiAgentAgentId?: string;
 	/** Parent runtime session ID for supervisor-directed messages from attached agents. */
@@ -424,6 +426,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
 		disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
 		multiAgentStore: options.multiAgentStore,
+		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
+		multiAgentExecutionCapability: options.multiAgentExecutionCapability,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});
