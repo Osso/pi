@@ -39,6 +39,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       restoring supported state. Already-migrated opens skip the writer transaction and full-table scan;
       the triggers prevent older binaries from reintroducing legacy keys. Malformed rows remain stored
       for contextual restore validation.
+- [x] Fence lifecycle writers by control-DB protocol version. A runtime rejects databases with a newer
+      schema before initialization, registers its supported lifecycle protocol as a connection-local
+      SQLite function, and schema-versioned triggers reject `multi_agent_agents` inserts or updates from
+      connections that lack the current protocol registration. This makes legacy/mixed-version lifecycle
+      writes fail closed while leaving non-lifecycle control-DB operations independent.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without

@@ -47,6 +47,7 @@ import {
 	readSessionMetadata,
 	readSharedChannelCursor,
 	recoverStaleRuntimeMailboxClaims,
+	registerLifecycleProtocolVersion,
 	registerRuntimeMailboxListener,
 	relocateSessionControlData,
 	removeNamedSession,
@@ -538,6 +539,33 @@ describe("session control DB", () => {
 		);
 	});
 
+	it("rejects lifecycle writes from connections without the current protocol", () => {
+		const sessionPath = "/sessions/protocol-writer.jsonl";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Protocol writer",
+			agentType: "test",
+			id: "agent-1",
+			lifecycle: "queued",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 0,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+
+		const legacyConnection = createSqliteDatabase(controlDbPath);
+		try {
+			expect(() =>
+				legacyConnection
+					.prepare("UPDATE multi_agent_agents SET updated_at = ? WHERE session_path = ? AND agent_id = ?")
+					.run("2026-07-11T00:01:00.000Z", sessionPath, "agent-1"),
+			).toThrow(/lifecycle.protocol/i);
+		} finally {
+			legacyConnection.close();
+		}
+	});
+
 	it("migrates legacy artifact fields from a pre-upgrade database", () => {
 		const sessionPath = "/sessions/legacy-agent.jsonl";
 		const db = createSqliteDatabase(controlDbPath);
@@ -608,7 +636,7 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(2);
+			expect(version.user_version).toBe(3);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -664,6 +692,7 @@ describe("session control DB", () => {
 
 		const alreadyMigratedDb = createSqliteDatabase(controlDbPath);
 		try {
+			registerLifecycleProtocolVersion(alreadyMigratedDb);
 			for (const [table, idColumn, id] of [
 				["multi_agent_agents", "agent_id", "agent-2"],
 				["multi_agent_mailbox_messages", "message_id", "message-2"],
@@ -704,6 +733,8 @@ describe("session control DB", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.exec(`
+				DROP TRIGGER multi_agent_agents_require_lifecycle_protocol_insert;
+				DROP TRIGGER multi_agent_agents_require_lifecycle_protocol_update;
 				DROP TRIGGER multi_agent_agents_reject_legacy_artifact_fields_insert;
 				DROP TRIGGER multi_agent_agents_reject_legacy_artifact_fields_update;
 				DROP TRIGGER multi_agent_mailbox_messages_reject_legacy_artifact_fields_insert;
@@ -729,7 +760,7 @@ describe("session control DB", () => {
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(2);
+			expect(version.user_version).toBe(3);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
@@ -742,6 +773,7 @@ describe("session control DB", () => {
 		}
 		const blockedDb = createSqliteDatabase(controlDbPath);
 		try {
+			registerLifecycleProtocolVersion(blockedDb);
 			expect(() =>
 				blockedDb
 					.prepare(
@@ -760,6 +792,7 @@ describe("session control DB", () => {
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
+			registerLifecycleProtocolVersion(db);
 			db.prepare(
 				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,

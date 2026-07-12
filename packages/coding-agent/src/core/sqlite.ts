@@ -16,6 +16,7 @@ export interface SqliteStatement {
 export interface SqliteDatabase {
 	close(): void;
 	exec(sql: string): void;
+	function(name: string, callback: (...args: SqliteValue[]) => SqliteValue): void;
 	prepare(sql: string): SqliteStatement;
 }
 

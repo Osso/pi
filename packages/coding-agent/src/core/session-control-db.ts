@@ -10,7 +10,8 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 2;
+const CONTROL_DB_SCHEMA_VERSION = 3;
+const LIFECYCLE_PROTOCOL_VERSION_FUNCTION = "pi_lifecycle_protocol_version";
 
 export interface IncomingControlMessage {
 	id: number;
@@ -2660,11 +2661,16 @@ function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) 
 		// Shared control.sqlite is multi-process (all Pi sessions on the machine).
 		// WAL + busy_timeout keeps list_sessions/broadcast and mailbox writes safe under contention.
 		configureSharedSqliteDatabase(db);
+		registerLifecycleProtocolVersion(db);
 		initializeSchema(db);
 		return callback(db);
 	} finally {
 		db.close();
 	}
+}
+
+export function registerLifecycleProtocolVersion(db: SqliteDatabase): void {
+	db.function(LIFECYCLE_PROTOCOL_VERSION_FUNCTION, () => CONTROL_DB_SCHEMA_VERSION);
 }
 
 function initializeSchema(db: SqliteDatabase): void {
@@ -2896,8 +2902,23 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", now);
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", now);
 		createLegacyArtifactFieldTriggers(db);
+		createLifecycleProtocolWriterTriggers(db);
 		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
 	});
+}
+
+function createLifecycleProtocolWriterTriggers(db: SqliteDatabase): void {
+	for (const operation of ["INSERT", "UPDATE"] as const) {
+		const suffix = operation.toLowerCase();
+		db.exec(`
+			CREATE TRIGGER IF NOT EXISTS multi_agent_agents_require_lifecycle_protocol_${suffix}
+			BEFORE ${operation} ON multi_agent_agents
+			WHEN ${LIFECYCLE_PROTOCOL_VERSION_FUNCTION}() != ${CONTROL_DB_SCHEMA_VERSION}
+			BEGIN
+				SELECT RAISE(ABORT, 'Lifecycle protocol version mismatch');
+			END;
+		`);
+	}
 }
 
 function migrateLegacyMultiAgentPayloadTable(
