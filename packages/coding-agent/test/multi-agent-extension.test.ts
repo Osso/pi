@@ -201,12 +201,19 @@ const commandSourceInfo = {
 
 function spawnStoreFixture(
 	store: MultiAgentStore,
-	input: { agentType?: string; displayName?: string; parentId?: string; prompt: string },
+	input: {
+		agentType?: string;
+		displayName?: string;
+		lifecycle?: "queued" | "starting" | "waiting_for_input";
+		parentId?: string;
+		prompt: string;
+	},
 ): AgentToolResult<SpawnAgentDetails> {
 	const agent = store.spawnAgent({
 		agentType: input.agentType?.trim() || "default",
 		cwd: "/repo",
 		displayName: input.displayName?.trim() || input.agentType?.trim() || "Agent",
+		lifecycle: input.lifecycle,
 		parentId: input.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	}).agent;
@@ -2168,7 +2175,7 @@ describe("multi-agent extension tools", () => {
 
 	it("waits and cancels through the core store", async () => {
 		const harness = createMultiAgentHarness();
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Worker",
 			prompt: "Implement tests",
 		});
@@ -2202,7 +2209,7 @@ describe("multi-agent extension tools", () => {
 
 	it("steers a running agent with mailbox acknowledgement state", async () => {
 		const harness = createMultiAgentHarness();
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Reviewer",
 			lifecycle: "starting",
 			prompt: "Review auth",
@@ -2366,7 +2373,7 @@ describe("multi-agent extension tools", () => {
 
 	it("wait_agents does not repeat an already delivered completion", async () => {
 		const harness = createMultiAgentHarness();
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Worker",
 			prompt: "Complete before wait",
 		});
