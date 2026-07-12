@@ -441,6 +441,8 @@ function startBackgroundDispatch(
 				ctx,
 				background.handles,
 			),
+			runtime,
+			background.handles,
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		void promise.finally(() => background.reservations.delete(agent.id));
@@ -460,6 +462,8 @@ function startBackgroundDispatch(
 				prompt,
 				ctx,
 			),
+			runtime,
+			background.handles,
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		void promise.finally(() => background.reservations.delete(agent.id));
@@ -977,6 +981,7 @@ async function spawnAgent(
 			desktopNotifier,
 			waitingDesktopNotifications,
 			handles,
+			{ coordinator, ownership },
 		);
 		releaseReservationAfterDispatch(dispatches, reservations, agent.id);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -996,6 +1001,8 @@ async function spawnAgent(
 			pi,
 			desktopNotifier,
 			waitingDesktopNotifications,
+			undefined,
+			{ coordinator, ownership },
 		);
 		releaseReservationAfterDispatch(dispatches, reservations, agent.id);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -1143,6 +1150,7 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 			input.desktopNotifier,
 			input.waitingDesktopNotifications,
 			input.handles,
+			reservedRuntime,
 		);
 		releaseReservationAfterDispatch(input.dispatches, input.reservations, target.id);
 		return dispatched;
@@ -1160,6 +1168,8 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 		input.pi,
 		input.desktopNotifier,
 		input.waitingDesktopNotifications,
+		undefined,
+		reservedRuntime,
 	);
 	releaseReservationAfterDispatch(input.dispatches, input.reservations, target.id);
 	return dispatched;
@@ -1454,7 +1464,8 @@ function startToolDispatch(
 	pi: ExtensionAPI | undefined,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-	handles?: BackgroundSessionHandles,
+	handles: BackgroundSessionHandles | undefined,
+	reservedRuntime: ReservedAgentRuntime,
 ): AgentSnapshot {
 	const unsubscribeLifecycleNotifications = store.subscribeLifecycleNotifications((message) => {
 		if (message.fromAgentId !== agent.id) {
@@ -1472,7 +1483,7 @@ function startToolDispatch(
 			console.error("Failed to mirror agent lifecycle notification into runtime mailbox:", error);
 		}
 	});
-	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch(), handles);
+	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch(), reservedRuntime, handles);
 	void trackedDispatch.then((agent) => {
 		try {
 			mirrorAgentLifecycleRuntimeMailbox(store, agent, ctx);
@@ -1493,20 +1504,21 @@ function trackAgentDispatch(
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: Promise<AgentSnapshot>,
+	reservedRuntime: ReservedAgentRuntime,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
-	const trackedDispatch = dispatch.catch((error: unknown) =>
-		transitionActiveAgent(
+	const trackedDispatch = dispatch.catch((error: unknown) => {
+		const current = store.getAgent(agent.id) ?? agent;
+		return finalizeReservedRuntime(
 			store,
-			agent,
+			current,
 			"failed",
-			{
-				error: { message: error instanceof Error ? error.message : String(error) },
-			},
+			{ error: { message: error instanceof Error ? error.message : String(error) } },
+			reservedRuntime,
 			restoreGeneration,
-		),
-	);
+		);
+	});
 	dispatches.set(agent.id, trackedDispatch);
 	void trackedDispatch.finally(() => {
 		if (dispatches.get(agent.id) === trackedDispatch) {
@@ -1516,19 +1528,6 @@ function trackAgentDispatch(
 	});
 
 	return trackedDispatch;
-}
-
-async function dispatchAgentSession(
-	store: MultiAgentStore,
-	createChildSession: ChildAgentSessionFactory,
-	initialAgent: AgentSnapshot,
-	prompt: string,
-	ctx: ExtensionContext,
-	handles?: BackgroundSessionHandles,
-): Promise<AgentSnapshot> {
-	const running = rampToRunning(store, initialAgent);
-	if (!running.ok) return running.agent;
-	return runAgentSession(store, createChildSession, running.agent, prompt, ctx, handles);
 }
 
 async function dispatchReservedAgentSession(
@@ -1594,9 +1593,9 @@ async function runAgentSession(
 	runningAgent: AgentSnapshot,
 	prompt: string,
 	ctx: ExtensionContext,
-	handles?: BackgroundSessionHandles,
-	createdSession?: ChildAgentSession,
-	reservedRuntime?: ReservedAgentRuntime,
+	handles: BackgroundSessionHandles | undefined,
+	createdSession: ChildAgentSession | undefined,
+	reservedRuntime: ReservedAgentRuntime,
 	expectedRestoreGeneration?: number,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = expectedRestoreGeneration ?? store.getRestoreGeneration();
@@ -1627,22 +1626,14 @@ async function runAgentSession(
 			const summary = lastAssistantText(activeSession.messages);
 			const result = summary ? { summary } : undefined;
 			const currentSnapshot = store.getAgent(running.agent.id);
-			const completed = reservedRuntime
-				? finalizeReservedRuntime(
-						store,
-						currentSnapshot ?? running.agent,
-						"completed",
-						{ result },
-						reservedRuntime,
-						restoreGeneration,
-					)
-				: transitionRunningAgent(
-						store,
-						running.agent,
-						"completed",
-						{ result },
-						restoreGeneration,
-					);
+			const completed = finalizeReservedRuntime(
+				store,
+				currentSnapshot ?? running.agent,
+				"completed",
+				{ result },
+				reservedRuntime,
+				restoreGeneration,
+			);
 			if (completed.lifecycle !== "steering_pending") {
 				return completed;
 			}
@@ -1661,26 +1652,12 @@ async function runAgentSession(
 		if (cancelled) return cancelled;
 		const failure = { message: error instanceof Error ? error.message : String(error) };
 		const current = store.getAgent(running.agent.id) ?? running.agent;
-		return reservedRuntime
-			? finalizeReservedRuntime(store, current, "failed", { error: failure }, reservedRuntime, restoreGeneration)
-			: transitionRunningAgent(store, running.agent, "failed", { error: failure }, restoreGeneration);
+		return finalizeReservedRuntime(store, current, "failed", { error: failure }, reservedRuntime, restoreGeneration);
 	} finally {
 		unregisterAbortHandler?.();
 		handles?.delete(running.agent.id);
 		childSession?.dispose?.();
 	}
-}
-
-async function dispatchAgent(
-	store: MultiAgentStore,
-	dispatcher: ChildAgentDispatcher,
-	initialAgent: AgentSnapshot,
-	prompt: string,
-	ctx: ExtensionContext,
-): Promise<AgentSnapshot> {
-	const running = rampToRunning(store, initialAgent);
-	if (!running.ok) return running.agent;
-	return runAgentDispatcher(store, dispatcher, running.agent, prompt, ctx);
 }
 
 async function dispatchReservedAgent(
@@ -1706,7 +1683,7 @@ async function runAgentDispatcher(
 	runningAgent: AgentSnapshot,
 	prompt: string,
 	ctx: ExtensionContext,
-	reservedRuntime?: ReservedAgentRuntime,
+	reservedRuntime: ReservedAgentRuntime,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
 	const running = { agent: runningAgent };
@@ -1714,49 +1691,37 @@ async function runAgentDispatcher(
 		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
-		if (reservedRuntime) {
-			const current = store.getAgent(running.agent.id) ?? running.agent;
-			if (dispatchResult.lifecycle === "waiting_for_input") {
-				const waiting = reservedRuntime.coordinator.markWaitingForInput({
-					agent: current,
-					reservation: reservedRuntime.ownership.reservation,
-				});
-				if (!waiting.ok) return current;
-				store.publishLifecycleCoordinatorSnapshot(waiting.agent);
-				return waiting.agent;
-			}
-			return finalizeReservedRuntime(
-				store,
-				current,
-				dispatchResult.lifecycle,
-				{ error: dispatchResult.error, result: dispatchResult.result },
-				reservedRuntime,
-				restoreGeneration,
-			);
+		const current = store.getAgent(running.agent.id) ?? running.agent;
+		if (dispatchResult.lifecycle === "waiting_for_input") {
+			const waiting = reservedRuntime.coordinator.markWaitingForInput({
+				agent: current,
+				reservation: reservedRuntime.ownership.reservation,
+			});
+			if (!waiting.ok) return current;
+			store.publishLifecycleCoordinatorSnapshot(waiting.agent);
+			return waiting.agent;
 		}
-		return transitionRunningAgent(
+		return finalizeReservedRuntime(
 			store,
-			running.agent,
+			current,
 			dispatchResult.lifecycle,
 			{ error: dispatchResult.error, result: dispatchResult.result },
+			reservedRuntime,
 			restoreGeneration,
 		);
 	} catch (error) {
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		const failure = { message: error instanceof Error ? error.message : String(error) };
-		if (reservedRuntime) {
-			const current = store.getAgent(running.agent.id) ?? running.agent;
-			return finalizeReservedRuntime(
-				store,
-				current,
-				"failed",
-				{ error: failure },
-				reservedRuntime,
-				restoreGeneration,
-			);
-		}
-		return transitionRunningAgent(store, running.agent, "failed", { error: failure }, restoreGeneration);
+		const current = store.getAgent(running.agent.id) ?? running.agent;
+		return finalizeReservedRuntime(
+			store,
+			current,
+			"failed",
+			{ error: failure },
+			reservedRuntime,
+			restoreGeneration,
+		);
 	}
 }
 
@@ -1800,56 +1765,6 @@ function acknowledgeCancelledRuntime(
 	if (!acknowledged.ok) return current;
 	store.publishLifecycleCoordinatorSnapshot(acknowledged.agent);
 	return acknowledged.agent;
-}
-
-function transitionRunningAgent(
-	store: MultiAgentStore,
-	running: AgentSnapshot,
-	lifecycle: ChildAgentDispatchResult["lifecycle"],
-	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
-	expectedRestoreGeneration?: number,
-): AgentSnapshot {
-	return transitionActiveAgent(store, running, lifecycle, metadata, expectedRestoreGeneration);
-}
-
-function transitionActiveAgent(
-	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	lifecycle: ChildAgentDispatchResult["lifecycle"],
-	metadata?: { error?: { message: string; code?: string }; result?: AgentResult },
-	expectedRestoreGeneration?: number,
-): AgentSnapshot {
-	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) {
-		return agent;
-	}
-	const current = store.getAgent(agent.id);
-	if (!current) {
-		return agent;
-	}
-	if (!isActiveLifecycle(current.lifecycle)) {
-		return current;
-	}
-	const transitioned = store.transitionAgent(current.id, current.revision, lifecycle, metadata);
-	return transitioned.ok ? transitioned.agent : (store.getAgent(agent.id) ?? agent);
-}
-
-function moveToStarting(store: MultiAgentStore, agent: AgentSnapshot): AgentSnapshot {
-	if (agent.lifecycle === "starting") {
-		return agent;
-	}
-
-	const starting = store.transitionAgent(agent.id, agent.revision, "starting");
-	return starting.ok ? starting.agent : agent;
-}
-
-function rampToRunning(store: MultiAgentStore, initialAgent: AgentSnapshot): { ok: boolean; agent: AgentSnapshot } {
-	if (initialAgent.lifecycle === "running") {
-		// Reattaching a runtime to a detached running agent is not a lifecycle transition.
-		return { ok: true, agent: initialAgent };
-	}
-	const starting = moveToStarting(store, initialAgent);
-	const running = store.transitionAgent(starting.id, starting.revision, "running");
-	return running.ok ? { ok: true, agent: running.agent } : { ok: false, agent: starting };
 }
 
 function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentToolResult<AgentListToolDetails> {
