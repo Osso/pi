@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
-	acquireMultiAgentDispatchLease,
+	acquireMultiAgentRuntimeOwnership,
 	bootstrapMultiAgentAgent,
 	listRuntimeMailboxMessages,
 	readMultiAgentAgent,
-	readMultiAgentDispatchLease,
+	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
@@ -41,7 +41,7 @@ function childInput(parentId?: string) {
 }
 
 describe("LifecycleCoordinator child creation", () => {
-	it("atomically creates a main-thread child with its first dispatch reservation", () => {
+	it("atomically creates a main-thread child with its first runtime ownership", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
 		const result = createCoordinator(controlDbPath, sessionPath).createChild(childInput());
@@ -54,13 +54,13 @@ describe("LifecycleCoordinator child creation", () => {
 			parentId: "main",
 			revision: 1,
 		});
-		expect(result.reservation).toMatchObject({
+		expect(result.ownership).toMatchObject({
 			agentId: "agent-child",
 			owner: { agentId: null, sessionId: "supervisor-session" },
 			processIdentity: CURRENT_PROCESS_IDENTITY,
 		});
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toEqual([result.agent]);
-		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toEqual(result.reservation);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, "agent-child")).toEqual(result.ownership);
 	});
 
 	it("acquires attached runtime ownership while advancing the repository revision", () => {
@@ -85,18 +85,18 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(result).toMatchObject({
 			agent: { id: "attached-1", lifecycle: "running", revision: 5 },
 			ok: true,
-			reservation: { processIdentity: CURRENT_PROCESS_IDENTITY },
+			ownership: { processIdentity: CURRENT_PROCESS_IDENTITY },
 		});
 		if (!result.ok) return;
 		expect(
 			createCoordinator(controlDbPath, sessionPath).acquireAttachedRuntime(result.agent, "other-session"),
 		).toEqual({
 			ok: false,
-			error: "lease_held",
+			error: "ownership_held",
 		});
 	});
 
-	it("fences runtime start and running confirmation with the committed reservation", () => {
+	it("validates runtime start and running confirmation with committed process ownership", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
 		const coordinator = createCoordinator(controlDbPath, sessionPath);
@@ -104,10 +104,10 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
 
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		expect(starting).toMatchObject({ ok: true, agent: { lifecycle: "starting", revision: 2 } });
 		if (!starting.ok) return;
-		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 		expect(running).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 3 } });
 	});
 
@@ -120,14 +120,14 @@ describe("LifecycleCoordinator child creation", () => {
 		if (!created.ok) return;
 
 		expect(
-			acquireMultiAgentDispatchLease(controlDbPath, {
+			acquireMultiAgentRuntimeOwnership(controlDbPath, {
 				agentId: created.agent.id,
 				nowIso: "2026-07-11T20:01:00.000Z",
 				owner: { agentId: null, sessionId: "supervisor-2" },
 				processIdentity: testProcessIdentity("runtime-2"),
 				sessionPath,
 			}),
-		).toMatchObject({ ok: false, error: "lease_held" });
+		).toMatchObject({ ok: false, error: "ownership_held" });
 	});
 
 	it("requires cancelling before a fenced abort acknowledgement", () => {
@@ -137,27 +137,27 @@ describe("LifecycleCoordinator child creation", () => {
 		const created = coordinator.createChild(childInput());
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		expect(starting.ok).toBe(true);
 		if (!starting.ok) return;
-		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 		expect(running.ok).toBe(true);
 		if (!running.ok) return;
 
-		const cancelling = coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation });
+		const cancelling = coordinator.requestCancellation({ agent: running.agent, ownership: created.ownership });
 		expect(cancelling).toMatchObject({ ok: true, agent: { lifecycle: "cancelling", revision: 4 } });
 		if (!cancelling.ok) return;
 		const aborted = coordinator.acknowledgeCancellation({
 			agent: cancelling.agent,
 			reason: "user requested",
-			reservation: created.reservation,
+			ownership: created.ownership,
 		});
 		expect(aborted).toMatchObject({ ok: true, agent: { lifecycle: "aborted", revision: 5 } });
 		expect(
 			coordinator.acknowledgeCancellation({
 				agent: cancelling.agent,
 				reason: "late duplicate",
-				reservation: { ...created.reservation, processIdentity: testProcessIdentity("wrong-owner") },
+				ownership: { ...created.ownership, processIdentity: testProcessIdentity("wrong-owner") },
 			}),
 		).toEqual({ ok: false, error: "mutation_mismatch" });
 	});
@@ -168,16 +168,16 @@ describe("LifecycleCoordinator child creation", () => {
 		const coordinator = createCoordinator(controlDbPath, sessionPath);
 		const created = coordinator.createChild(childInput());
 		if (!created.ok) return;
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		if (!starting.ok) return;
-		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 		if (!running.ok) return;
 
 		const cancelling = coordinator.requestDetachedCancellation({
 			agent: running.agent,
 			outputLabel: "Bash output",
 			reason: "user requested",
-			reservation: created.reservation,
+			ownership: created.ownership,
 		});
 		expect(cancelling).toMatchObject({ ok: true, agent: { lifecycle: "cancelling", revision: 4 } });
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
@@ -194,8 +194,8 @@ describe("LifecycleCoordinator child creation", () => {
 			identity: {
 				jobId: running.agent.id,
 				outputLabel: "Bash output",
-				owner: created.reservation.owner,
-				processIdentity: created.reservation.processIdentity,
+				owner: created.ownership.owner,
+				processIdentity: created.ownership.processIdentity,
 			},
 			reason: "user requested",
 		});
@@ -207,9 +207,9 @@ describe("LifecycleCoordinator child creation", () => {
 		const coordinator = createCoordinator(controlDbPath, sessionPath);
 		const created = coordinator.createChild(childInput());
 		if (!created.ok) return;
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		if (!starting.ok) return;
-		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 		if (!running.ok) return;
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -223,7 +223,7 @@ describe("LifecycleCoordinator child creation", () => {
 			coordinator.requestDetachedCancellation({
 				agent: running.agent,
 				outputLabel: "Bash output",
-				reservation: created.reservation,
+				ownership: created.ownership,
 			}),
 		).toThrow("blocked detached control");
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
@@ -239,20 +239,20 @@ describe("LifecycleCoordinator child creation", () => {
 		const coordinator = createCoordinator(controlDbPath, sessionPath, undefined, () => ids.shift() ?? "agent-extra");
 		const parent = coordinator.createChild(childInput());
 		if (!parent.ok) return;
-		const parentStarting = coordinator.beginChildRuntime({ agent: parent.agent, reservation: parent.reservation });
+		const parentStarting = coordinator.beginChildRuntime({ agent: parent.agent, ownership: parent.ownership });
 		if (!parentStarting.ok) return;
 		const parentRunning = coordinator.confirmChildRuntime({
 			agent: parentStarting.agent,
-			reservation: parent.reservation,
+			ownership: parent.ownership,
 		});
 		if (!parentRunning.ok) return;
 		const child = coordinator.createChild(childInput(parent.agent.id));
 		if (!child.ok) return;
-		const childStarting = coordinator.beginChildRuntime({ agent: child.agent, reservation: child.reservation });
+		const childStarting = coordinator.beginChildRuntime({ agent: child.agent, ownership: child.ownership });
 		if (!childStarting.ok) return;
 		const childRunning = coordinator.confirmChildRuntime({
 			agent: childStarting.agent,
-			reservation: child.reservation,
+			ownership: child.ownership,
 		});
 		if (!childRunning.ok) return;
 
@@ -260,7 +260,7 @@ describe("LifecycleCoordinator child creation", () => {
 			coordinator.finalizeChild({
 				agent: parentRunning.agent,
 				eventPayload: { result: { summary: "parent" } },
-				reservation: parent.reservation,
+				ownership: parent.ownership,
 				terminalLifecycle: "completed",
 			}),
 		).toEqual({ ok: false, error: "invalid_transition" });
@@ -268,7 +268,7 @@ describe("LifecycleCoordinator child creation", () => {
 			coordinator.finalizeChild({
 				agent: childRunning.agent,
 				eventPayload: { result: { summary: "child" } },
-				reservation: child.reservation,
+				ownership: child.ownership,
 				terminalLifecycle: "completed",
 			}).ok,
 		).toBe(true);
@@ -276,7 +276,7 @@ describe("LifecycleCoordinator child creation", () => {
 			coordinator.finalizeChild({
 				agent: parentRunning.agent,
 				eventPayload: { result: { summary: "parent" } },
-				reservation: parent.reservation,
+				ownership: parent.ownership,
 				terminalLifecycle: "completed",
 			}).ok,
 		).toBe(true);
@@ -289,19 +289,19 @@ describe("LifecycleCoordinator child creation", () => {
 		const created = coordinator.createChild(childInput());
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		if (!starting.ok) return;
-		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 		if (!running.ok) return;
 		const completed = coordinator.finalizeChild({
 			agent: running.agent,
 			eventPayload: { result: { summary: "done" } },
-			reservation: created.reservation,
+			ownership: created.ownership,
 			result: { summary: "done" },
 			terminalLifecycle: "completed",
 		});
 		expect(completed).toMatchObject({ ok: true, agent: { lifecycle: "completed", revision: 4 } });
-		expect(coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation })).toEqual({
+		expect(coordinator.requestCancellation({ agent: running.agent, ownership: created.ownership })).toEqual({
 			ok: false,
 			error: "invalid_transition",
 		});
@@ -313,24 +313,24 @@ describe("LifecycleCoordinator child creation", () => {
 		const coordinator = createCoordinator(controlDbPath, sessionPath);
 		const created = coordinator.createChild(childInput());
 		if (!created.ok) return;
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		if (!starting.ok) return;
-		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 		if (!running.ok) return;
-		const cancelling = coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation });
+		const cancelling = coordinator.requestCancellation({ agent: running.agent, ownership: created.ownership });
 		if (!cancelling.ok) return;
 		expect(
 			coordinator.finalizeChild({
 				agent: cancelling.agent,
 				eventPayload: { result: { summary: "late" } },
-				reservation: created.reservation,
+				ownership: created.ownership,
 				terminalLifecycle: "completed",
 			}),
 		).toEqual({ ok: false, error: "invalid_transition" });
 		const acknowledgement = {
 			agent: cancelling.agent,
 			reason: "user requested",
-			reservation: created.reservation,
+			ownership: created.ownership,
 		};
 		const first = coordinator.acknowledgeCancellation(acknowledgement);
 		expect(first).toMatchObject({ ok: true, agent: { lifecycle: "aborted", revision: 5 } });
@@ -344,14 +344,14 @@ describe("LifecycleCoordinator child creation", () => {
 		const created = coordinator.createChild(childInput());
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
-		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 		expect(starting.ok).toBe(true);
 		if (!starting.ok) return;
 
 		const failed = coordinator.finalizeChild({
 			agent: starting.agent,
 			eventPayload: { error: { code: "runtime_spawn_failed", message: "factory failed" } },
-			reservation: created.reservation,
+			ownership: created.ownership,
 			terminalLifecycle: "failed",
 		});
 		expect(failed).toMatchObject({ ok: true, agent: { lifecycle: "failed", revision: 3 } });
@@ -365,8 +365,8 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(created.ok).toBe(true);
 		if (!created.ok) return;
 
-		const staleReservation = { ...created.reservation, processIdentity: testProcessIdentity("stale-owner") };
-		expect(coordinator.beginChildRuntime({ agent: created.agent, reservation: staleReservation })).toEqual({
+		const staleOwnership = { ...created.ownership, processIdentity: testProcessIdentity("stale-owner") };
+		expect(coordinator.beginChildRuntime({ agent: created.agent, ownership: staleOwnership })).toEqual({
 			ok: false,
 			error: "mutation_mismatch",
 		});
@@ -399,14 +399,14 @@ describe("LifecycleCoordinator child creation", () => {
 		});
 	});
 
-	it("rejects a missing persisted agent parent without committing a child or reservation", () => {
+	it("rejects a missing persisted agent parent without committing a child or ownership", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
 		const result = createCoordinator(controlDbPath, sessionPath).createChild(childInput("missing-parent"));
 
 		expect(result).toEqual({ ok: false, error: "parent_not_found" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
-		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toBeUndefined();
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, "agent-child")).toBeUndefined();
 	});
 
 	it("links a nested child only after its parent exists", () => {

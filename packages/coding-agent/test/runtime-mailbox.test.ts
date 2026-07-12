@@ -16,7 +16,7 @@ import {
 	listRuntimeMailboxMessages,
 	markMultiAgentMailboxMessageDelivered,
 	postSharedChannelMessage,
-	type readMultiAgentDispatchLease,
+	type readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxMessage,
 	readSessionHealth,
 	readSharedChannelCursor,
@@ -102,7 +102,7 @@ function createReservedRuntimeAgent(
 ): {
 	agent: AgentSnapshot;
 	coordinator: LifecycleCoordinator;
-	reservation: NonNullable<ReturnType<typeof readMultiAgentDispatchLease>>;
+	ownership: NonNullable<ReturnType<typeof readMultiAgentRuntimeOwnership>>;
 } {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected store persistence target");
@@ -123,12 +123,12 @@ function createReservedRuntimeAgent(
 		worker: input.worker,
 	});
 	if (!created.ok) throw new Error(`could not create reserved test agent: ${created.error}`);
-	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 	if (!starting.ok) throw new Error(`could not start reserved test agent: ${starting.error}`);
-	const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+	const running = coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 	if (!running.ok) throw new Error(`could not run reserved test agent: ${running.error}`);
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
-	return { agent: running.agent, coordinator, reservation: created.reservation };
+	return { agent: running.agent, coordinator, ownership: created.ownership };
 }
 
 function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: string, cwd: string): AgentSnapshot {
@@ -144,7 +144,7 @@ function finalizeReservedRuntimeAgent(
 		agent: runtime.agent,
 		error: input.error,
 		eventPayload: input,
-		reservation: runtime.reservation,
+		ownership: runtime.ownership,
 		result: input.result,
 		terminalLifecycle: "failed",
 	});

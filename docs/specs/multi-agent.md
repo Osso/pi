@@ -156,7 +156,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   committed `cancelling` state. The exact owner runner must produce the cancellation/failed envelope;
   if it cannot, dead-process recovery records `lost_runtime`, not `aborted`.
   Original tool-call settlement is atomic at the lifecycle boundary: detachment returns a handle only
-  after the durable job identity, reservation, runner process identity, artifact paths, and launch
+  after the durable job identity, runtime ownership, runner process identity, artifact paths, and launch
   manifest exist. Before that point the call remains foreground and any setup failure is returned as a
   tool error; after the handle is returned, terminal observation comes only from durable state/events.
 
@@ -194,7 +194,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Ownership acquisition, lifecycle state, and repository revision are committed atomically. No
   transaction may expose a row executable by two process identities.
 - Child creation is one coordinator transaction: child row, single parent link, initial revision,
-  and either the committed dispatch reservation or an explicitly unreserved dispatchable state are
+  and either committed process ownership or an explicitly unowned dispatchable state are
   created together. Main-runtime children use the synthetic `main` identity as the durable session
   root; nested children require an existing persisted parent. Runtime construction begins only after a
   full-predicate coordinator transition to `starting`; `running` is confirmed only after construction

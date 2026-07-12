@@ -8,7 +8,7 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
 import {
-	acquireMultiAgentDispatchLease,
+	acquireMultiAgentRuntimeOwnership,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -26,7 +26,7 @@ import {
 	completeArchitectRequest,
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
-	createMultiAgentChildWithDispatchReservation,
+	createMultiAgentChildWithRuntimeOwnership,
 	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
@@ -53,7 +53,7 @@ import {
 	postSharedChannelMessage,
 	readIncomingMessageStatus,
 	readLastMessage,
-	readMultiAgentDispatchLease,
+	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
@@ -578,7 +578,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		readMultiAgentState(controlDbPath, "/sessions/dispatch-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			const columns = db.prepare("PRAGMA table_info(multi_agent_dispatch_leases)").all() as Array<{
+			const columns = db.prepare("PRAGMA table_info(multi_agent_runtime_owners)").all() as Array<{
 				name: string;
 				notnull: number;
 			}>;
@@ -594,8 +594,8 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
-	it("creates a child and its dispatch reservation atomically", () => {
-		const sessionPath = "/sessions/child-reservation.jsonl";
+	it("creates a child and its runtime ownership atomically", () => {
+		const sessionPath = "/sessions/child-ownership.jsonl";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-parent", {
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
@@ -608,7 +608,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 0,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		const created = createMultiAgentChildWithDispatchReservation(controlDbPath, {
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
 			agentId: "agent-child",
 			agent: {
 				createdAt: "2026-07-11T00:00:00.000Z",
@@ -635,7 +635,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			{ id: "agent-parent" },
 			{ id: "agent-child", parentId: "agent-parent" },
 		]);
-		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toMatchObject({});
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, "agent-child")).toMatchObject({});
 	});
 
 	it("serializes lifecycle mutation under the complete process ownership predicate", async () => {
@@ -653,7 +653,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 0,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		acquireMultiAgentDispatchLease(controlDbPath, {
+		acquireMultiAgentRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
@@ -719,7 +719,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 3,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		acquireMultiAgentDispatchLease(controlDbPath, {
+		acquireMultiAgentRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
@@ -772,7 +772,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 4,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		acquireMultiAgentDispatchLease(controlDbPath, {
+		acquireMultiAgentRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
@@ -792,7 +792,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				revision: 99,
 				updatedAt: "2026-07-11T00:00:30.000Z",
 			}),
-		).toThrow("Generic agent upsert cannot mutate leased lifecycle row");
+		).toThrow("Generic agent upsert cannot mutate process-owned lifecycle row");
 		const mutation = {
 			agentId,
 			eventKind: "completed",
@@ -960,7 +960,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 4,
 			updatedAt: "2026-07-11T21:00:00.000Z",
 		});
-		acquireMultiAgentDispatchLease(controlDbPath, {
+		acquireMultiAgentRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T21:00:00.000Z",
 			owner: { agentId: null, sessionId: "runner" },
@@ -1017,7 +1017,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			},
 		]);
 		expect(
-			acquireMultiAgentDispatchLease(controlDbPath, {
+			acquireMultiAgentRuntimeOwnership(controlDbPath, {
 				agentId,
 				nowIso: "2026-07-11T23:01:00.000Z",
 				owner: { agentId: null, sessionId: "runner-2" },
@@ -1090,7 +1090,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const sessionPath = "/sessions/process-owner.jsonl";
 		const agentId = "agent-owner";
 		const liveIdentity = CURRENT_PROCESS_IDENTITY;
-		const first = acquireMultiAgentDispatchLease(controlDbPath, {
+		const first = acquireMultiAgentRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor-a" },
@@ -1099,21 +1099,21 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		expect(first).toMatchObject({ ok: true });
 		expect(
-			acquireMultiAgentDispatchLease(controlDbPath, {
+			acquireMultiAgentRuntimeOwnership(controlDbPath, {
 				agentId,
 				nowIso: "2026-07-11T00:00:01.000Z",
 				owner: { agentId: null, sessionId: "supervisor-b" },
 				processIdentity: testProcessIdentity("replacement"),
 				sessionPath,
 			}),
-		).toMatchObject({ ok: false, error: "lease_held" });
+		).toMatchObject({ ok: false, error: "ownership_held" });
 	});
 
 	it("terminalizes an agent only after its exact owner process is dead", () => {
 		const sessionPath = "/sessions/dead-owner.jsonl";
 		const agentId = "agent-dead";
 		const processIdentity = testProcessIdentity("dead-owner");
-		const created = createMultiAgentChildWithDispatchReservation(controlDbPath, {
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
 			agent: {
 				agentType: "worker",
 				createdAt: "2026-07-11T00:00:00.000Z",
@@ -1163,16 +1163,16 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const legacyDb = createSqliteDatabase(controlDbPath);
 		try {
 			legacyDb.exec(`
-				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN lease_id TEXT;
-				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN fencing_epoch INTEGER NOT NULL DEFAULT 0;
-				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN renewed_at TEXT;
-				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN expires_at TEXT;
-				ALTER TABLE multi_agent_dispatch_leases ADD COLUMN recovery_owner_id TEXT;
+				ALTER TABLE multi_agent_runtime_owners ADD COLUMN lease_id TEXT;
+				ALTER TABLE multi_agent_runtime_owners ADD COLUMN fencing_epoch INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE multi_agent_runtime_owners ADD COLUMN renewed_at TEXT;
+				ALTER TABLE multi_agent_runtime_owners ADD COLUMN expires_at TEXT;
+				ALTER TABLE multi_agent_runtime_owners ADD COLUMN recovery_owner_id TEXT;
 				PRAGMA user_version = 10;
 			`);
 			legacyDb
 				.prepare(
-					`INSERT INTO multi_agent_dispatch_leases
+					`INSERT INTO multi_agent_runtime_owners
 					(session_path, agent_id, lease_id, process_identity, owner_session_id, fencing_epoch, expires_at)
 				 VALUES (?, ?, 'legacy-lease', 'legacy-runtime', 'supervisor', 4, '2099-01-01T00:00:00.000Z')`,
 				)
@@ -1187,7 +1187,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		]);
 		const migratedDb = createSqliteDatabase(controlDbPath);
 		try {
-			const columns = migratedDb.prepare("PRAGMA table_info(multi_agent_dispatch_leases)").all() as Array<{
+			const columns = migratedDb.prepare("PRAGMA table_info(multi_agent_runtime_owners)").all() as Array<{
 				name: string;
 			}>;
 			expect(columns.map((column) => column.name)).toEqual([
@@ -1197,7 +1197,62 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				"owner_session_id",
 				"owner_agent_id",
 			]);
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(11);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(12);
+		} finally {
+			migratedDb.close();
+		}
+	});
+
+	it("renames version eleven process ownership storage without losing exact identity", () => {
+		const sessionPath = "/sessions/version-eleven-owner.jsonl";
+		const agentId = "owned-active";
+		const processIdentity = testProcessIdentity("version-eleven-owner");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "worker",
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Owned active",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const legacyDb = createSqliteDatabase(controlDbPath);
+		try {
+			legacyDb
+				.prepare(
+					`INSERT INTO multi_agent_runtime_owners
+					 (session_path, agent_id, process_identity, owner_session_id, owner_agent_id)
+					 VALUES (?, ?, ?, 'supervisor', NULL)`,
+				)
+				.run(sessionPath, agentId, JSON.stringify(processIdentity));
+			legacyDb.exec(`
+				ALTER TABLE multi_agent_runtime_owners RENAME TO multi_agent_dispatch_leases;
+				PRAGMA user_version = 11;
+			`);
+		} finally {
+			legacyDb.close();
+		}
+
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: agentId, lifecycle: "running", revision: 2 },
+		]);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toMatchObject({
+			agentId,
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity,
+			sessionPath,
+		});
+		const migratedDb = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				migratedDb
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+					.get("multi_agent_dispatch_leases"),
+			).toBeUndefined();
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(12);
 		} finally {
 			migratedDb.close();
 		}
@@ -1239,7 +1294,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			expect(
 				db
 					.prepare(
-						"SELECT process_identity FROM multi_agent_dispatch_leases WHERE session_path = ? AND agent_id = ?",
+						"SELECT process_identity FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?",
 					)
 					.get(sessionPath, "queued"),
 			).toEqual({ process_identity: null });
@@ -1260,7 +1315,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.prepare(
-				`INSERT INTO multi_agent_dispatch_leases
+				`INSERT INTO multi_agent_runtime_owners
 					(session_path, agent_id, process_identity, owner_session_id, owner_agent_id)
 				 VALUES (?, 'agent-live', ?, 'supervisor', NULL)`,
 			).run(sessionPath, JSON.stringify(CURRENT_PROCESS_IDENTITY));
@@ -1380,7 +1435,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(11);
+			expect(version.user_version).toBe(12);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1501,7 +1556,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(11);
+			expect(version.user_version).toBe(12);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {

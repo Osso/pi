@@ -7,7 +7,7 @@ import {
 	claimDetachedJobRuntimeCommands,
 	enqueueDetachedJobStatusRequest,
 } from "../src/core/detached-job-control.ts";
-import type { DetachedJobLeaseIdentity } from "../src/core/detached-job-runner.ts";
+import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import {
 	enqueueRuntimeMailboxMessage,
 	listRuntimeMailboxMessages,
@@ -16,7 +16,7 @@ import {
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
-const identity: DetachedJobLeaseIdentity = {
+const identity: DetachedJobOwnershipIdentity = {
 	jobId: "agent_1",
 	owner: { agentId: null, sessionId: "supervisor-1" },
 	outputLabel: "Bash output",

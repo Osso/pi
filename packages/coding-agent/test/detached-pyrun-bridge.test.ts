@@ -8,7 +8,7 @@ import {
 	parseDetachedPyrunBridgeRequest,
 } from "../extensions/pyrun/src/detached-bridge.ts";
 import { claimDetachedJobRuntimeCommands } from "../src/core/detached-job-control.ts";
-import type { DetachedJobLeaseIdentity } from "../src/core/detached-job-runner.ts";
+import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import { claimRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
@@ -26,7 +26,7 @@ describe("detached Pyrun bridge", () => {
 		const sessionPath = join(root, "session.jsonl");
 		const runnerAddress = { agentId: "agent_1", sessionId: "supervisor-1" };
 		const supervisorAddress = { agentId: null, sessionId: "supervisor-1" };
-		const identity: DetachedJobLeaseIdentity = {
+		const identity: DetachedJobOwnershipIdentity = {
 			jobId: "agent_1",
 			owner: { agentId: null, sessionId: "supervisor-1" },
 			outputLabel: "Pyrun output",

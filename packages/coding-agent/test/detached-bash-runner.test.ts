@@ -43,7 +43,7 @@ describe("detached Bash runner", () => {
 		});
 		const jobId = lifecycle.allocateJobId();
 		const artifacts = lifecycle.createArtifacts(jobId);
-		const reservation = lifecycle.reserve({
+		const ownership = lifecycle.register({
 			agentType: "bash",
 			cwd: root,
 			displayName: "Bash command",
@@ -60,7 +60,7 @@ describe("detached Bash runner", () => {
 			controlDbPath,
 			cwd: root,
 			env: process.env,
-			identity: reservation.identity,
+			identity: ownership.identity,
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			sessionPath,
 		});
@@ -106,7 +106,7 @@ describe("detached Bash runner", () => {
 			cwd: root,
 			env: process.env,
 		});
-		const { artifacts } = launched.reservation;
+		const { artifacts } = launched.ownership;
 		const runnerPid = launched.runnerPid;
 		expect(existsSync(`${launched.manifestPath}.runner-error`)).toBe(false);
 		const identityPath = join(artifacts.directory, "payload.json");

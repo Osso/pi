@@ -16,7 +16,7 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 11;
+const CONTROL_DB_SCHEMA_VERSION = 12;
 
 export interface IncomingControlMessage {
 	id: number;
@@ -2175,7 +2175,7 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 	};
 }
 
-export interface CreateMultiAgentChildWithDispatchReservationInput extends AcquireMultiAgentDispatchLeaseInput {
+export interface CreateMultiAgentChildWithRuntimeOwnershipInput extends AcquireMultiAgentRuntimeOwnershipInput {
 	agent: object;
 }
 
@@ -2190,18 +2190,18 @@ export type CreateMultiAgentAttachmentResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_exists" | "parent_not_found" | "permission_broadened" };
 
-export type CreateMultiAgentChildWithDispatchReservationResult =
-	| { ok: true; agent: object; lease: MultiAgentDispatchLease }
+export type CreateMultiAgentChildWithRuntimeOwnershipResult =
+	| { ok: true; agent: object; ownership: MultiAgentRuntimeOwnership }
 	| { ok: false; error: "agent_exists" | "parent_not_found" };
 
-export interface MultiAgentDispatchLease {
+export interface MultiAgentRuntimeOwnership {
 	sessionPath: string;
 	agentId: string;
 	processIdentity?: ProcessIdentity;
 	owner: { sessionId?: string; agentId: string | null };
 }
 
-interface MultiAgentDispatchLeaseRow {
+interface MultiAgentRuntimeOwnershipRow {
 	session_path: string;
 	agent_id: string;
 	process_identity: string | null;
@@ -2209,30 +2209,30 @@ interface MultiAgentDispatchLeaseRow {
 	owner_agent_id: string | null;
 }
 
-export interface MultiAgentDispatchLeaseIdentity {
+export interface MultiAgentRuntimeOwnershipIdentity {
 	sessionPath: string;
 	agentId: string;
 	processIdentity: ProcessIdentity;
 	owner: { sessionId: string; agentId: string | null };
 }
 
-export interface AcquireMultiAgentDispatchLeaseInput extends MultiAgentDispatchLeaseIdentity {
+export interface AcquireMultiAgentRuntimeOwnershipInput extends MultiAgentRuntimeOwnershipIdentity {
 	nowIso: string;
 }
 
-export type AcquireMultiAgentDispatchLeaseResult =
-	| { ok: true; lease: MultiAgentDispatchLease }
-	| { ok: false; error: "lease_held"; current: MultiAgentDispatchLease };
+export type AcquireMultiAgentRuntimeOwnershipResult =
+	| { ok: true; ownership: MultiAgentRuntimeOwnership }
+	| { ok: false; error: "ownership_held"; current: MultiAgentRuntimeOwnership };
 
-export interface AcquireAttachedRuntimeLeaseInput extends MultiAgentDispatchLeaseIdentity {
+export interface AcquireAttachedRuntimeOwnershipInput extends MultiAgentRuntimeOwnershipIdentity {
 	nowIso: string;
 }
 
-export type AcquireAttachedRuntimeLeaseResult =
-	| { ok: true; agent: AgentSnapshot; lease: MultiAgentDispatchLease }
-	| { ok: false; error: "agent_not_found" | "invalid_agent" | "lease_held" | "mutation_mismatch" };
+export type AcquireAttachedRuntimeOwnershipResult =
+	| { ok: true; agent: AgentSnapshot; ownership: MultiAgentRuntimeOwnership }
+	| { ok: false; error: "agent_not_found" | "invalid_agent" | "ownership_held" | "mutation_mismatch" };
 
-export type ReleaseMultiAgentDispatchLeaseInput = MultiAgentDispatchLeaseIdentity;
+export type ReleaseMultiAgentRuntimeOwnershipInput = MultiAgentRuntimeOwnershipIdentity;
 
 export interface MultiAgentTerminalOutboxRecord {
 	sessionPath: string;
@@ -2317,7 +2317,7 @@ export type FinalizeDetachedJobResult =
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
 export interface RecoverDeadMultiAgentRuntimeInput {
-	expectedOwner: MultiAgentDispatchLeaseIdentity;
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity;
 	nowIso: string;
 }
 
@@ -2545,8 +2545,8 @@ export function commitMultiAgentSteeringMutation(
 			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
 			const agent = parseStoredJsonObject(row.data, context);
 			validatePersistedAgentPayload(agent, context);
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!dispatchLeaseMatchesLifecycleMutation(lease, input)) {
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) {
 				return { ok: false, error: "mutation_mismatch" };
 			}
 			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
@@ -2583,8 +2583,8 @@ export function commitMultiAgentSteeringMutation(
 }
 
 function runtimeOwnerMatches(
-	owner: MultiAgentDispatchLeaseRow | undefined,
-	identity: MultiAgentDispatchLeaseIdentity,
+	owner: MultiAgentRuntimeOwnershipRow | undefined,
+	identity: MultiAgentRuntimeOwnershipIdentity,
 ): boolean {
 	return (
 		owner?.process_identity === serializeProcessIdentity(identity.processIdentity) &&
@@ -2593,11 +2593,11 @@ function runtimeOwnerMatches(
 	);
 }
 
-function dispatchLeaseMatchesLifecycleMutation(
-	lease: MultiAgentDispatchLeaseRow | undefined,
+function runtimeOwnershipMatchesLifecycleMutation(
+	ownership: MultiAgentRuntimeOwnershipRow | undefined,
 	input: CommitMultiAgentLifecycleMutationInput,
 ): boolean {
-	return runtimeOwnerMatches(lease, input);
+	return runtimeOwnerMatches(ownership, input);
 }
 
 export function commitMultiAgentSteeringDelivery(
@@ -2613,8 +2613,8 @@ export function commitMultiAgentSteeringDelivery(
 			const agentContext = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
 			const agent = parseStoredJsonObject(agentRow.data, agentContext);
 			validatePersistedAgentPayload(agent, agentContext);
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!dispatchLeaseMatchesLifecycleMutation(lease, input)) {
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) {
 				return { ok: false, error: "mutation_mismatch" };
 			}
 			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
@@ -2664,11 +2664,11 @@ export function commitMultiAgentLifecycleMutation(
 				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
 			if (!row) return { ok: false, error: "agent_not_found" };
 			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			const matches =
-				lease?.process_identity === serializeProcessIdentity(input.processIdentity) &&
-				lease.owner_session_id === input.owner.sessionId &&
-				lease.owner_agent_id === input.owner.agentId;
+				ownership?.process_identity === serializeProcessIdentity(input.processIdentity) &&
+				ownership.owner_session_id === input.owner.sessionId &&
+				ownership.owner_agent_id === input.owner.agentId;
 			if (!matches) return { ok: false, error: "mutation_mismatch" };
 			if (agent.lifecycle === input.requestedLifecycle) return { ok: true, agent };
 			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle))
@@ -2774,8 +2774,9 @@ export function commitMultiAgentTerminalMutation(
 				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
 			if (!agentRow) return { ok: false, error: "agent_not_found" };
 			const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!dispatchLeaseMatchesTerminalMutation(lease, input)) return { ok: false, error: "mutation_mismatch" };
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!runtimeOwnershipMatchesTerminalMutation(ownership, input))
+				return { ok: false, error: "mutation_mismatch" };
 			if (agent.lifecycle === input.terminalLifecycle) {
 				return terminalMutationReplayResult(db, input, Number(agent.revision));
 			}
@@ -2877,11 +2878,11 @@ function canPersistTerminalTransition(
 	return allowedFrom.has(current);
 }
 
-function dispatchLeaseMatchesTerminalMutation(
-	lease: MultiAgentDispatchLeaseRow | undefined,
+function runtimeOwnershipMatchesTerminalMutation(
+	ownership: MultiAgentRuntimeOwnershipRow | undefined,
 	input: CommitMultiAgentTerminalMutationInput,
 ): boolean {
-	return runtimeOwnerMatches(lease, input);
+	return runtimeOwnerMatches(ownership, input);
 }
 
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
@@ -2903,10 +2904,10 @@ function finalizeDetachedJobTransaction(
 	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
 	const terminalLifecycle = envelope.outcome.kind;
 	const eventKind = `detached_job_${terminalLifecycle}`;
-	const lease = readMultiAgentDispatchLeaseRow(db, sessionPath, envelope.jobId);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, envelope.jobId);
 	if (
-		!lease ||
-		!runtimeOwnerMatches(lease, {
+		!ownership ||
+		!runtimeOwnerMatches(ownership, {
 			agentId: envelope.jobId,
 			owner: envelope.owner,
 			processIdentity: envelope.processIdentity,
@@ -2930,7 +2931,7 @@ function finalizeDetachedJobTransaction(
 		sessionPath,
 		envelope,
 		agent,
-		lease,
+		ownership,
 		terminalRevision,
 		eventKind,
 	);
@@ -2964,7 +2965,7 @@ function persistDetachedJobTerminal(
 	sessionPath: string,
 	envelope: DetachedJobTerminalEnvelope,
 	agent: Record<string, unknown>,
-	lease: MultiAgentDispatchLeaseRow,
+	ownership: MultiAgentRuntimeOwnershipRow,
 	terminalRevision: number,
 	eventKind: string,
 ): AgentSnapshot {
@@ -2992,7 +2993,7 @@ function persistDetachedJobTerminal(
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
 	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, envelope.terminalAt);
-	persistDetachedJobTerminalTransport(db, sessionPath, envelope, lease, terminalRevision, eventKind);
+	persistDetachedJobTerminalTransport(db, sessionPath, envelope, ownership, terminalRevision, eventKind);
 	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
 	return updated as unknown as AgentSnapshot;
 }
@@ -3001,12 +3002,12 @@ function persistDetachedJobTerminalTransport(
 	db: SqliteDatabase,
 	sessionPath: string,
 	envelope: DetachedJobTerminalEnvelope,
-	lease: MultiAgentDispatchLeaseRow,
+	ownership: MultiAgentRuntimeOwnershipRow,
 	terminalRevision: number,
 	eventKind: string,
 ): void {
-	const ownerSessionId = lease.owner_session_id;
-	if (!ownerSessionId) throw new Error(`Detached job ${envelope.jobId} lease has no owner session`);
+	const ownerSessionId = ownership.owner_session_id;
+	if (!ownerSessionId) throw new Error(`Detached job ${envelope.jobId} ownership has no owner session`);
 	const messageId = `terminal:${envelope.jobId}:${terminalRevision}:${eventKind}`;
 	const body = JSON.stringify({ agentId: envelope.jobId, eventKind, terminalRevision, type: "multi_agent_terminal" });
 	persistStoredRuntimeMailboxMessage(db, {
@@ -3018,10 +3019,10 @@ function persistDetachedJobTerminalTransport(
 			id: messageId,
 			kind: "system",
 			status: "pending",
-			toAgentId: lease.owner_agent_id ?? "main",
+			toAgentId: ownership.owner_agent_id ?? "main",
 			updatedAt: envelope.terminalAt,
 		},
-		recipient: { agentId: lease.owner_agent_id, sessionId: ownerSessionId },
+		recipient: { agentId: ownership.owner_agent_id, sessionId: ownerSessionId },
 		sender: { agentId: envelope.jobId, sessionId: ownerSessionId },
 		storeRef: { messageId, sessionPath },
 		updatedAt: envelope.terminalAt,
@@ -3054,14 +3055,14 @@ export function recoverDeadMultiAgentRuntime(
 			if (!isRecoverableRuntimeLifecycle(agent.lifecycle) && agent.lifecycle !== "queued") {
 				return { ok: false, error: "invalid_transition" };
 			}
-			const owner = readMultiAgentDispatchLeaseRow(db, sessionPath, agentId);
+			const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
 			if (!runtimeOwnerMatches(owner, input.expectedOwner)) {
 				return { ok: false, error: "mutation_mismatch" };
 			}
 			if (isProcessIdentityAlive(input.expectedOwner.processIdentity)) return { ok: false, error: "owner_alive" };
 			const released = db
 				.prepare(
-					`UPDATE multi_agent_dispatch_leases
+					`UPDATE multi_agent_runtime_owners
 					 SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
 					 WHERE session_path = ? AND agent_id = ? AND process_identity = ?
 					 AND owner_session_id = ? AND owner_agent_id IS ?`,
@@ -3103,17 +3104,18 @@ export function recoverDeadMultiAgentRuntime(
 	);
 }
 
-export function createMultiAgentChildWithDispatchReservation(
+export function createMultiAgentChildWithRuntimeOwnership(
 	controlDbPath: string,
-	input: CreateMultiAgentChildWithDispatchReservationInput,
-): CreateMultiAgentChildWithDispatchReservationResult {
+	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
+): CreateMultiAgentChildWithRuntimeOwnershipResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const agent = input.agent as Record<string, unknown>;
 			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			if (agent.id !== input.agentId) throw new Error("Child agent payload ID does not match reservation identity");
+			if (agent.id !== input.agentId)
+				throw new Error("Child agent payload ID does not match runtime ownership identity");
 			if (agent.lifecycle !== "queued" || agent.revision !== 1) {
-				throw new Error("Child dispatch reservation requires queued revision 1");
+				throw new Error("Child runtime ownership requires queued revision 1");
 			}
 			const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
 			if (
@@ -3135,7 +3137,7 @@ export function createMultiAgentChildWithDispatchReservation(
 			db.prepare(
 				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
 			).run(input.sessionPath, input.agentId, JSON.stringify(input.agent), input.nowIso);
-			db.prepare(`INSERT INTO multi_agent_dispatch_leases (
+			db.prepare(`INSERT INTO multi_agent_runtime_owners (
 			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
 		) VALUES (?, ?, ?, ?, ?)`).run(
 				input.sessionPath,
@@ -3144,10 +3146,10 @@ export function createMultiAgentChildWithDispatchReservation(
 				input.owner.sessionId,
 				input.owner.agentId,
 			);
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!lease)
-				throw new Error(`Child dispatch reservation did not persist ${input.sessionPath}#${input.agentId}`);
-			return { ok: true, agent: input.agent, lease: multiAgentDispatchLeaseFromRow(lease) };
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!ownership)
+				throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
+			return { ok: true, agent: input.agent, ownership: multiAgentRuntimeOwnershipFromRow(ownership) };
 		}),
 	);
 }
@@ -3194,21 +3196,21 @@ export function createMultiAgentAttachment(
 	);
 }
 
-export function readMultiAgentDispatchLease(
+export function readMultiAgentRuntimeOwnership(
 	controlDbPath: string,
 	sessionPath: string,
 	agentId: string,
-): MultiAgentDispatchLease | undefined {
+): MultiAgentRuntimeOwnership | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		const row = readMultiAgentDispatchLeaseRow(db, sessionPath, agentId);
-		return row ? multiAgentDispatchLeaseFromRow(row) : undefined;
+		const row = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
+		return row ? multiAgentRuntimeOwnershipFromRow(row) : undefined;
 	});
 }
 
-export function acquireAttachedRuntimeLease(
+export function acquireAttachedRuntimeOwnership(
 	controlDbPath: string,
-	input: AcquireAttachedRuntimeLeaseInput,
-): AcquireAttachedRuntimeLeaseResult {
+	input: AcquireAttachedRuntimeOwnershipInput,
+): AcquireAttachedRuntimeOwnershipResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const row = db
@@ -3219,29 +3221,30 @@ export function acquireAttachedRuntimeLease(
 			const agent = parseStoredJsonObject(row.data, context);
 			validatePersistedAgentPayload(agent, context);
 			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
-			const current = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			const current = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			if (current?.process_identity) {
 				const currentIdentity = parseProcessIdentity(current.process_identity);
 				if (isProcessIdentityAlive(currentIdentity)) {
-					if (!runtimeOwnerMatches(current, input)) return { ok: false, error: "lease_held" };
+					if (!runtimeOwnerMatches(current, input)) return { ok: false, error: "ownership_held" };
 					return {
 						agent: agent as unknown as AgentSnapshot,
-						lease: multiAgentDispatchLeaseFromRow(current),
 						ok: true,
+						ownership: multiAgentRuntimeOwnershipFromRow(current),
 					};
 				}
 			}
-			persistAcquiredDispatchLease(db, input);
+			persistAcquiredRuntimeOwnership(db, input);
 			const updatedAgent = { ...agent, revision: Number(agent.revision) + 1, updatedAt: input.nowIso };
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
 			).run(JSON.stringify(updatedAgent), input.nowIso, input.sessionPath, input.agentId);
-			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
-			if (!lease) throw new Error(`Attached runtime lease did not persist ${input.sessionPath}#${input.agentId}`);
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!ownership)
+				throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
 			return {
 				agent: updatedAgent as unknown as AgentSnapshot,
-				lease: multiAgentDispatchLeaseFromRow(lease),
 				ok: true,
+				ownership: multiAgentRuntimeOwnershipFromRow(ownership),
 			};
 		}),
 	);
@@ -3257,9 +3260,9 @@ function isRecoverableRuntimeLifecycle(value: unknown): boolean {
 	);
 }
 
-function persistAcquiredDispatchLease(db: SqliteDatabase, input: MultiAgentDispatchLeaseIdentity): void {
+function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRuntimeOwnershipIdentity): void {
 	db.prepare(
-		`INSERT INTO multi_agent_dispatch_leases (
+		`INSERT INTO multi_agent_runtime_owners (
 			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
 		) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(session_path, agent_id) DO UPDATE SET
@@ -3275,37 +3278,37 @@ function persistAcquiredDispatchLease(db: SqliteDatabase, input: MultiAgentDispa
 	);
 }
 
-export function acquireMultiAgentDispatchLease(
+export function acquireMultiAgentRuntimeOwnership(
 	controlDbPath: string,
-	input: AcquireMultiAgentDispatchLeaseInput,
-): AcquireMultiAgentDispatchLeaseResult {
+	input: AcquireMultiAgentRuntimeOwnershipInput,
+): AcquireMultiAgentRuntimeOwnershipResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const currentRow = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			const currentRow = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			if (currentRow?.process_identity) {
 				const currentIdentity = parseProcessIdentity(currentRow.process_identity);
 				if (isProcessIdentityAlive(currentIdentity)) {
-					return { ok: false, error: "lease_held", current: multiAgentDispatchLeaseFromRow(currentRow) };
+					return { ok: false, error: "ownership_held", current: multiAgentRuntimeOwnershipFromRow(currentRow) };
 				}
 			}
-			persistAcquiredDispatchLease(db, input);
-			const acquired = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			persistAcquiredRuntimeOwnership(db, input);
+			const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			if (!acquired)
-				throw new Error(`Dispatch lease acquisition did not persist ${input.sessionPath}#${input.agentId}`);
-			return { ok: true, lease: multiAgentDispatchLeaseFromRow(acquired) };
+				throw new Error(`Runtime ownership acquisition did not persist ${input.sessionPath}#${input.agentId}`);
+			return { ok: true, ownership: multiAgentRuntimeOwnershipFromRow(acquired) };
 		}),
 	);
 }
 
-export function releaseMultiAgentDispatchLease(
+export function releaseMultiAgentRuntimeOwnership(
 	controlDbPath: string,
-	input: ReleaseMultiAgentDispatchLeaseInput,
+	input: ReleaseMultiAgentRuntimeOwnershipInput,
 ): boolean {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const result = db
 				.prepare(
-					`UPDATE multi_agent_dispatch_leases
+					`UPDATE multi_agent_runtime_owners
 					 SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
 					 WHERE session_path = ? AND agent_id = ?
 					 AND process_identity = ? AND owner_session_id = ? AND owner_agent_id IS ?`,
@@ -3322,14 +3325,14 @@ export function releaseMultiAgentDispatchLease(
 	);
 }
 
-function readMultiAgentDispatchLeaseRow(
+function readMultiAgentRuntimeOwnershipRow(
 	db: SqliteDatabase,
 	sessionPath: string,
 	agentId: string,
-): MultiAgentDispatchLeaseRow | undefined {
+): MultiAgentRuntimeOwnershipRow | undefined {
 	return db
-		.prepare("SELECT * FROM multi_agent_dispatch_leases WHERE session_path = ? AND agent_id = ?")
-		.get(sessionPath, agentId) as MultiAgentDispatchLeaseRow | undefined;
+		.prepare("SELECT * FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as MultiAgentRuntimeOwnershipRow | undefined;
 }
 
 function serializeProcessIdentity(identity: ProcessIdentity): string {
@@ -3344,7 +3347,7 @@ function parseProcessIdentity(value: string): ProcessIdentity {
 	return { pid: parsed.pid, startTimeTicks: parsed.startTimeTicks } as ProcessIdentity;
 }
 
-function multiAgentDispatchLeaseFromRow(row: MultiAgentDispatchLeaseRow): MultiAgentDispatchLease {
+function multiAgentRuntimeOwnershipFromRow(row: MultiAgentRuntimeOwnershipRow): MultiAgentRuntimeOwnership {
 	return {
 		agentId: row.agent_id,
 		owner: { agentId: row.owner_agent_id, sessionId: row.owner_session_id ?? undefined },
@@ -3414,8 +3417,8 @@ export function bootstrapMultiAgentAgent(controlDbPath: string, sessionPath: str
 	validatePersistedAgentPayload(data as Record<string, unknown>, `multi_agent_agents:${sessionPath}#${id}`);
 	withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			if (readMultiAgentDispatchLeaseRow(db, sessionPath, id)) {
-				throw new Error(`Generic agent upsert cannot mutate leased lifecycle row ${sessionPath}#${id}`);
+			if (readMultiAgentRuntimeOwnershipRow(db, sessionPath, id)) {
+				throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${id}`);
 			}
 			db.prepare(
 				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
@@ -3911,7 +3914,7 @@ function initializeSchema(db: SqliteDatabase): void {
 			PRIMARY KEY (session_path, agent_id)
 		);
 
-		CREATE TABLE IF NOT EXISTS multi_agent_dispatch_leases (
+		CREATE TABLE IF NOT EXISTS multi_agent_runtime_owners (
 			session_path TEXT NOT NULL,
 			agent_id TEXT NOT NULL,
 			process_identity TEXT,
@@ -4114,10 +4117,13 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
 		)
 		.all() as Array<{ pid: number }>;
 	const liveRuntimePids = rows.map((row) => row.pid).filter(isPiRuntimeProcessAlive);
-	const ownerColumns = db.prepare("PRAGMA table_info(multi_agent_dispatch_leases)").all() as Array<{ name: string }>;
-	if (ownerColumns.some((column) => column.name === "process_identity")) {
+	for (const tableName of ["multi_agent_runtime_owners", "multi_agent_dispatch_leases"] as const) {
+		const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
+		if (!tableExists) continue;
+		const ownerColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+		if (!ownerColumns.some((column) => column.name === "process_identity")) continue;
 		const owners = db
-			.prepare("SELECT process_identity FROM multi_agent_dispatch_leases WHERE process_identity IS NOT NULL")
+			.prepare(`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL`)
 			.all() as Array<{ process_identity: string }>;
 		for (const owner of owners) {
 			try {
@@ -4137,11 +4143,28 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
 }
 
 function migrateRuntimeOwnerTable(db: SqliteDatabase): void {
-	const columns = db.prepare("PRAGMA table_info(multi_agent_dispatch_leases)").all() as Array<{ name: string }>;
+	const oldTableExists = db
+		.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'multi_agent_dispatch_leases'")
+		.get();
+	if (oldTableExists) {
+		const oldColumns = db.prepare("PRAGMA table_info(multi_agent_dispatch_leases)").all() as Array<{ name: string }>;
+		const hasExactProcessIdentity = oldColumns.some((column) => column.name === "process_identity");
+		const copyColumns = hasExactProcessIdentity
+			? `session_path, agent_id, process_identity, owner_session_id, owner_agent_id`
+			: `session_path, agent_id`;
+		db.exec(`
+			INSERT OR REPLACE INTO multi_agent_runtime_owners (${copyColumns})
+			SELECT ${copyColumns} FROM multi_agent_dispatch_leases;
+			DROP TABLE multi_agent_dispatch_leases;
+			DROP INDEX IF EXISTS multi_agent_dispatch_leases_expiry_idx;
+		`);
+	}
+
+	const columns = db.prepare("PRAGMA table_info(multi_agent_runtime_owners)").all() as Array<{ name: string }>;
 	if (!columns.some((column) => column.name === "lease_id")) return;
 	db.exec(`
-		ALTER TABLE multi_agent_dispatch_leases RENAME TO multi_agent_dispatch_leases_legacy;
-		CREATE TABLE multi_agent_dispatch_leases (
+		ALTER TABLE multi_agent_runtime_owners RENAME TO multi_agent_runtime_owners_legacy;
+		CREATE TABLE multi_agent_runtime_owners (
 			session_path TEXT NOT NULL,
 			agent_id TEXT NOT NULL,
 			process_identity TEXT,
@@ -4149,24 +4172,24 @@ function migrateRuntimeOwnerTable(db: SqliteDatabase): void {
 			owner_agent_id TEXT,
 			PRIMARY KEY (session_path, agent_id)
 		);
-		INSERT INTO multi_agent_dispatch_leases (session_path, agent_id)
-		SELECT session_path, agent_id FROM multi_agent_dispatch_leases_legacy;
-		DROP TABLE multi_agent_dispatch_leases_legacy;
-		DROP INDEX IF EXISTS multi_agent_dispatch_leases_expiry_idx;
+		INSERT INTO multi_agent_runtime_owners (session_path, agent_id)
+		SELECT session_path, agent_id FROM multi_agent_runtime_owners_legacy;
+		DROP TABLE multi_agent_runtime_owners_legacy;
+		DROP INDEX IF EXISTS multi_agent_runtime_owners_expiry_idx;
 	`);
 }
 
 function migrateLegacyLifecycleRows(db: SqliteDatabase, nowIso: string): void {
 	const rows = db
 		.prepare(`SELECT agents.session_path, agents.agent_id, agents.data
-		FROM multi_agent_agents AS agents LEFT JOIN multi_agent_dispatch_leases AS leases
-		ON leases.session_path = agents.session_path AND leases.agent_id = agents.agent_id
-		WHERE leases.agent_id IS NULL OR leases.process_identity IS NULL`)
+		FROM multi_agent_agents AS agents LEFT JOIN multi_agent_runtime_owners AS owners
+		ON owners.session_path = agents.session_path AND owners.agent_id = agents.agent_id
+		WHERE owners.agent_id IS NULL OR owners.process_identity IS NULL`)
 		.all() as PersistedAgentRow[];
 	for (const row of rows) {
 		const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${row.session_path}#${row.agent_id}`);
 		if (agent.lifecycle === "queued") {
-			db.prepare(`INSERT OR IGNORE INTO multi_agent_dispatch_leases (session_path, agent_id) VALUES (?, ?)`).run(
+			db.prepare(`INSERT OR IGNORE INTO multi_agent_runtime_owners (session_path, agent_id) VALUES (?, ?)`).run(
 				row.session_path,
 				row.agent_id,
 			);

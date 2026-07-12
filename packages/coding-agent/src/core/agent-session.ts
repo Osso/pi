@@ -131,7 +131,7 @@ import {
 	markMultiAgentMailboxMessageFailed,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
-	readMultiAgentDispatchLease,
+	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxMessageForDelivery,
 	readSharedChannelTail,
 	recordPromptHistoryEntry,
@@ -1237,9 +1237,7 @@ export class AgentSession {
 		const result = summary ? { summary } : undefined;
 		const error = lifecycle === "failed" ? { message: "Runtime mailbox steering turn failed" } : undefined;
 		if (!this._finalizeReservedMultiAgent(current, lifecycle, { error, result })) {
-			console.error(
-				`Failed to complete runtime mailbox steering for ${current.id}: lifecycle reservation unavailable`,
-			);
+			console.error(`Failed to complete runtime mailbox steering for ${current.id}: runtime ownership unavailable`);
 		}
 	}
 
@@ -1251,8 +1249,8 @@ export class AgentSession {
 		const store = this._multiAgentStore;
 		const persistence = store?.getPersistenceTarget();
 		if (!store || !persistence) return false;
-		const reservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
-		if (!reservation) return false;
+		const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
+		if (!ownership) return false;
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
@@ -1264,7 +1262,7 @@ export class AgentSession {
 			agent,
 			error: metadata.error,
 			eventPayload: metadata,
-			reservation,
+			ownership,
 			result: metadata.result,
 			terminalLifecycle,
 		});
@@ -2693,8 +2691,8 @@ export class AgentSession {
 		}
 		const persistence = this._multiAgentStore.getPersistenceTarget();
 		if (!persistence) return undefined;
-		const reservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agentId);
-		if (!reservation) return undefined;
+		const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agentId);
+		if (!ownership) return undefined;
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => this._multiAgentStore?.allocateAgentIdForLifecycleCoordinator() ?? "",
@@ -2702,7 +2700,7 @@ export class AgentSession {
 			processIdentity: this._detachedJobProcessIdentity,
 			sessionPath: persistence.sessionPath,
 		});
-		const delivered = coordinator.acknowledgeSteeringDelivery({ agent: current, messageId, reservation });
+		const delivered = coordinator.acknowledgeSteeringDelivery({ agent: current, messageId, ownership });
 		if (!delivered.ok) return undefined;
 		this._multiAgentStore.publishLifecycleCoordinatorSteeringDelivery(delivered.agent, delivered.message);
 		this._runtimeMailboxSteeringAgentIds.add(agentId);

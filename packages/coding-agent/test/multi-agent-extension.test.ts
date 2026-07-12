@@ -36,7 +36,7 @@ import {
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
 import {
-	acquireMultiAgentDispatchLease,
+	acquireMultiAgentRuntimeOwnership,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
@@ -204,7 +204,7 @@ const commandSourceInfo = {
 function addDeadProcessOwner(store: MultiAgentStore, agentId: string): void {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected persisted store fixture");
-	const acquired = acquireMultiAgentDispatchLease(persistence.controlDbPath, {
+	const acquired = acquireMultiAgentRuntimeOwnership(persistence.controlDbPath, {
 		agentId,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },
@@ -217,7 +217,7 @@ function addDeadProcessOwner(store: MultiAgentStore, agentId: string): void {
 function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected persisted store fixture");
-	const acquired = acquireMultiAgentDispatchLease(persistence.controlDbPath, {
+	const acquired = acquireMultiAgentRuntimeOwnership(persistence.controlDbPath, {
 		agentId,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },
@@ -606,7 +606,7 @@ describe("multi-agent extension tools", () => {
 			]);
 			expect(cancelled.content).toEqual([
 				{
-					text: `Could not cancel ${attached.details.agent.id}: lifecycle reservation unavailable`,
+					text: `Could not cancel ${attached.details.agent.id}: runtime ownership unavailable`,
 					type: "text",
 				},
 			]);
@@ -2323,7 +2323,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("rejects cancellation for rows without a lifecycle reservation", async () => {
+	it("rejects cancellation for rows without runtime ownership", async () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Worker",
@@ -2337,7 +2337,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(cancelled.content).toEqual([
-			{ text: `Could not cancel ${agent.id}: lifecycle reservation unavailable`, type: "text" },
+			{ text: `Could not cancel ${agent.id}: runtime ownership unavailable`, type: "text" },
 		]);
 		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "queued", revision: agent.revision });
 		expect(cancelled.details.reason).toBe("user stopped it");
@@ -2404,7 +2404,7 @@ describe("multi-agent extension tools", () => {
 		expect(spawned.details).toMatchObject({ dispatched: true });
 	});
 
-	it("renews a long-running child reservation until terminal settlement", async () => {
+	it("retains exact process ownership until terminal settlement", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-07-11T20:00:00.000Z"));
 		try {
@@ -2416,7 +2416,7 @@ describe("multi-agent extension tools", () => {
 			const harness = createMultiAgentHarness({ dispatcher });
 			const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 				displayName: "Long worker",
-				prompt: "Run longer than one reservation",
+				prompt: "Run until terminal settlement",
 			});
 
 			await vi.advanceTimersByTimeAsync(40_000);

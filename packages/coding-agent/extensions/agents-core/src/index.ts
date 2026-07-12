@@ -6,7 +6,7 @@ export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgen
 }
 
 export {
-	cancelReservedAgentRuntime,
+	cancelOwnedAgentRuntime,
 	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,

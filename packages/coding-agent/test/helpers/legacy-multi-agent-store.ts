@@ -11,9 +11,9 @@ import type {
 	SpawnChildAgentInput,
 } from "../../src/core/multi-agent-store.ts";
 import {
-	acquireMultiAgentDispatchLease,
-	type MultiAgentDispatchLease,
-	readMultiAgentDispatchLease,
+	acquireMultiAgentRuntimeOwnership,
+	type MultiAgentRuntimeOwnership,
+	readMultiAgentRuntimeOwnership,
 } from "../../src/core/session-control-db.ts";
 import { deliverTerminalOutboxProjections } from "../../src/core/terminal-outbox-delivery.ts";
 import { testProcessIdentity } from "./process-identity.ts";
@@ -79,7 +79,7 @@ function acknowledgeSteering(
 	const result = reserved.coordinator.acknowledgeSteeringDelivery({
 		agent: reserved.agent,
 		messageId,
-		reservation: reserved.reservation,
+		ownership: reserved.ownership,
 	});
 	if (result.ok) store.publishLifecycleCoordinatorSteeringDelivery(result.agent, result.message);
 	return result;
@@ -90,7 +90,7 @@ function requestSteering(store: MultiAgentStore, agentId: string, expectedRevisi
 	if (!reserved) return requestUnreservedSteering(store, agentId, expectedRevision, input);
 	const preparedMessage = store.prepareSteeringMessageForLifecycleCoordinator(agentId, input);
 	const message =
-		reserved.reservation.owner.sessionId === "legacy-test-session"
+		reserved.ownership.owner.sessionId === "legacy-test-session"
 			? {
 					...preparedMessage,
 					createdAt: shiftIso(reserved.agent.updatedAt, -1),
@@ -100,7 +100,7 @@ function requestSteering(store: MultiAgentStore, agentId: string, expectedRevisi
 	const result = reserved.coordinator.requestSteering({
 		agent: reserved.agent,
 		message,
-		reservation: reserved.reservation,
+		ownership: reserved.ownership,
 	});
 	if (result.ok) store.publishLifecycleCoordinatorSteering(result.agent, result.message);
 	return result;
@@ -129,7 +129,7 @@ function transitionReservedAgent(
 	if (reserved.agent.revision !== expectedRevision) {
 		return { current: reserved.agent, error: "stale_revision" as const, ok: false as const };
 	}
-	const command = { agent: reserved.agent, reservation: reserved.reservation };
+	const command = { agent: reserved.agent, ownership: reserved.ownership };
 	const result =
 		requested === "starting"
 			? reserved.coordinator.beginChildRuntime(command)
@@ -144,7 +144,7 @@ function transitionReservedAgent(
 									agent: reserved.agent,
 									error: details.error,
 									eventPayload: details,
-									reservation: reserved.reservation,
+									ownership: reserved.ownership,
 									result: details.result,
 									terminalLifecycle: requested,
 								})
@@ -249,43 +249,47 @@ function canTransition(from: AgentLifecycleState, to: AgentLifecycleState): bool
 interface ReservedAgent {
 	agent: AgentSnapshot;
 	coordinator: LifecycleCoordinator;
-	reservation: MultiAgentDispatchLease;
+	ownership: MultiAgentRuntimeOwnership;
 }
 
 function reservedAgent(store: MultiAgentStore, agentId: string): ReservedAgent | undefined {
 	const persistence = store.getPersistenceTarget();
 	const agent = store.getAgent(agentId);
 	if (!persistence || !agent) return undefined;
-	const existingReservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agentId);
-	const reservation =
-		existingReservation ?? acquireTestReservation(persistence.controlDbPath, persistence.sessionPath, agent);
+	const existingOwnership = readMultiAgentRuntimeOwnership(
+		persistence.controlDbPath,
+		persistence.sessionPath,
+		agentId,
+	);
+	const ownership =
+		existingOwnership ?? acquireTestOwnership(persistence.controlDbPath, persistence.sessionPath, agent);
 	return {
 		agent,
 		coordinator: new LifecycleCoordinator({
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
 			now: () => shiftIso(agent.updatedAt, -2),
-			processIdentity: reservation.processIdentity ?? testProcessIdentity("legacy-test-runtime"),
+			processIdentity: ownership.processIdentity ?? testProcessIdentity("legacy-test-runtime"),
 			sessionPath: persistence.sessionPath,
 		}),
-		reservation,
+		ownership,
 	};
 }
 
-function acquireTestReservation(
+function acquireTestOwnership(
 	controlDbPath: string,
 	sessionPath: string,
 	agent: AgentSnapshot,
-): MultiAgentDispatchLease {
-	const result = acquireMultiAgentDispatchLease(controlDbPath, {
+): MultiAgentRuntimeOwnership {
+	const result = acquireMultiAgentRuntimeOwnership(controlDbPath, {
 		agentId: agent.id,
 		nowIso: shiftIso(agent.updatedAt, -2),
 		owner: { agentId: agent.parentId ?? null, sessionId: "legacy-test-session" },
 		processIdentity: testProcessIdentity("legacy-test-runtime"),
 		sessionPath,
 	});
-	if (!result.ok) throw new Error(`Could not acquire test reservation for ${agent.id}: ${result.error}`);
-	return result.lease;
+	if (!result.ok) throw new Error(`Could not acquire test ownership for ${agent.id}: ${result.error}`);
+	return result.ownership;
 }
 
 function shiftIso(iso: string, milliseconds: number): string {

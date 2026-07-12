@@ -43,7 +43,7 @@ describe("detached Bash runner cancellation", () => {
 			store,
 		});
 		const artifacts = lifecycle.createArtifacts(runnerAddress.agentId);
-		const reservation = lifecycle.reserve({
+		const ownership = lifecycle.register({
 			agentType: "bash",
 			cwd: root,
 			displayName: "Bash command",
@@ -59,20 +59,20 @@ describe("detached Bash runner cancellation", () => {
 			controlDbPath,
 			cwd: root,
 			env: process.env,
-			identity: reservation.identity,
+			identity: ownership.identity,
 			runnerAddress,
 			sessionPath,
 		});
 		const running = runDetachedBashRunner(manifestPath);
 		await waitFor(() => existsSync(join(artifacts.directory, "payload.json")));
 		const cancelling = coordinator.requestCancellation({
-			agent: reservation.agent,
-			reservation: reservation.controlReservation,
+			agent: ownership.agent,
+			ownership: ownership.controlOwnership,
 		});
 		expect(cancelling.ok).toBe(true);
 		if (!cancelling.ok) return;
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {
-			body: JSON.stringify({ command: "cancel", identity: reservation.identity, reason: "test cancel" }),
+			body: JSON.stringify({ command: "cancel", identity: ownership.identity, reason: "test cancel" }),
 			fromAgentId: "main",
 			id: "message_1",
 			kind: "system",

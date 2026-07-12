@@ -3,8 +3,8 @@ import { launchDetachedBashRunner, writeDetachedBashLaunchManifest } from "./det
 import {
 	createDetachedJobArtifacts,
 	type DetachedJobLifecycleController,
-	type DetachedJobReservation,
-	type ReserveDetachedJobInput,
+	type DetachedJobOwnership,
+	type RegisterDetachedJobInput,
 } from "./detached-job-runner.ts";
 import type { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
@@ -25,12 +25,12 @@ export function createDetachedJobLifecycleController(
 ): DetachedJobLifecycleController {
 	return {
 		allocateJobId: () => options.store.allocateAgentIdForLifecycleCoordinator(),
-		cancel: (reservation, reason) => {
+		cancel: (ownership, reason) => {
 			const cancelled = options.coordinator.requestDetachedCancellation({
-				agent: reservation.agent,
-				outputLabel: reservation.identity.outputLabel,
+				agent: ownership.agent,
+				outputLabel: ownership.identity.outputLabel,
+				ownership: ownership.controlOwnership,
 				reason,
-				reservation: reservation.controlReservation,
 			});
 			if (cancelled.ok) options.store.publishLifecycleCoordinatorSnapshot(cancelled.agent);
 			return cancelled;
@@ -50,7 +50,7 @@ export function createDetachedJobLifecycleController(
 			if (agent) options.store.publishLifecycleCoordinatorSnapshot(agent);
 			return agent;
 		},
-		reserve: (input) => reserveDetachedJob(options, input),
+		register: (input) => registerDetachedJob(options, input),
 	};
 }
 
@@ -62,7 +62,7 @@ function launchDetachedBashJob(
 	const artifacts = createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), jobId);
 	const manifestPath = join(artifacts.directory, "launch.json");
 	const runnerPid = launchDetachedBashRunner(manifestPath);
-	const reservation = reserveDetachedJob(options, {
+	const ownership = registerDetachedJob(options, {
 		agentType: "bash",
 		cwd: input.cwd,
 		displayName: "Bash command",
@@ -77,18 +77,18 @@ function launchDetachedBashJob(
 		controlDbPath: options.controlDbPath,
 		cwd: input.cwd,
 		env: input.env,
-		identity: reservation.identity,
+		identity: ownership.identity,
 		runnerAddress: { agentId: jobId, sessionId: options.ownerSessionId },
 		sessionPath: options.sessionPath,
 		timeoutMs: input.timeoutMs,
 	});
-	return { manifestPath, reservation, runnerPid };
+	return { manifestPath, ownership, runnerPid };
 }
 
-function reserveDetachedJob(
+function registerDetachedJob(
 	options: DetachedJobLifecycleControllerOptions,
-	input: ReserveDetachedJobInput,
-): DetachedJobReservation {
+	input: RegisterDetachedJobInput,
+): DetachedJobOwnership {
 	const artifacts = createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), input.jobId);
 	const outputLabel = input.agentType === "bash" ? "Bash output" : "Pyrun output";
 	const created = options.coordinator.createChild({
@@ -102,23 +102,23 @@ function reserveDetachedJob(
 		result: { fileRefs: [{ label: outputLabel, path: artifacts.outputPath }] },
 		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId },
 	});
-	if (!created.ok) throw new Error(`Could not reserve detached ${input.agentType} job: ${created.error}`);
-	const starting = options.coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	if (!created.ok) throw new Error(`Could not own detached ${input.agentType} job: ${created.error}`);
+	const starting = options.coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 	if (!starting.ok) throw new Error(`Could not start detached ${input.agentType} job: ${starting.error}`);
-	const running = options.coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+	const running = options.coordinator.confirmChildRuntime({ agent: starting.agent, ownership: created.ownership });
 	if (!running.ok) throw new Error(`Could not confirm detached ${input.agentType} job: ${running.error}`);
 	options.store.publishLifecycleCoordinatorSnapshot(running.agent);
-	const processIdentity = created.reservation.processIdentity;
+	const processIdentity = created.ownership.processIdentity;
 	if (!processIdentity) throw new Error("Detached job ownership identity is incomplete");
 	return {
 		agent: running.agent,
 		artifacts,
-		controlReservation: created.reservation,
+		controlOwnership: created.ownership,
 		identity: {
 			jobId: input.jobId,
 			owner: {
-				agentId: created.reservation.owner.agentId,
-				sessionId: created.reservation.owner.sessionId ?? options.ownerSessionId,
+				agentId: created.ownership.owner.agentId,
+				sessionId: created.ownership.owner.sessionId ?? options.ownerSessionId,
 			},
 			outputLabel,
 			processIdentity,

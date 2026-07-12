@@ -7,8 +7,8 @@ import { type GatedDetachedPayloadExit, spawnGatedDetachedPayload } from "./deta
 import { claimDetachedJobRuntimeCommands, enqueueDetachedJobStatusResponse } from "./detached-job-control.ts";
 import {
 	type DetachedJobArtifacts,
-	type DetachedJobLeaseIdentity,
 	type DetachedJobOutcome,
+	type DetachedJobOwnershipIdentity,
 	writeDetachedJobTerminalEnvelope,
 } from "./detached-job-runner.ts";
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
@@ -24,7 +24,7 @@ export interface DetachedBashLaunchManifestData {
 	controlDbPath: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
 	timeoutMs?: number;
@@ -108,7 +108,7 @@ async function waitForDetachedBashExit(
 ): Promise<{
 	cancelReason?: string;
 	exit: GatedDetachedPayloadExit;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	timedOut: boolean;
 }> {
 	let exit: GatedDetachedPayloadExit | undefined;

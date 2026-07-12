@@ -12,7 +12,7 @@ import { isTerminalRawModeFailure } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, {
-	cancelReservedAgentRuntime,
+	cancelOwnedAgentRuntime,
 	createHostrunMultiAgentRequestHandler,
 	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
@@ -1054,7 +1054,7 @@ export async function main(args: string[], options?: MainOptions) {
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
 			cancelMultiAgent: (agentId) =>
-				cancelReservedAgentRuntime(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles, agentId),
+				cancelOwnedAgentRuntime(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles, agentId),
 			verbose: parsed.verbose,
 		});
 		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);

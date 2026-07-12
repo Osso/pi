@@ -11,7 +11,11 @@ import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyru
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { getControlDbPath, readMultiAgentAgent, readMultiAgentDispatchLease } from "../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	readMultiAgentAgent,
+	readMultiAgentRuntimeOwnership,
+} from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
@@ -220,8 +224,8 @@ function requestDetachedCancellation(store: MultiAgentStore, agentId: string): v
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("Expected persisted multi-agent store");
 	const agent = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, agentId);
-	const reservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agentId);
-	if (!agent || !reservation) throw new Error(`Expected detached reservation for ${agentId}`);
+	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agentId);
+	if (!agent || !ownership) throw new Error(`Expected detached ownership for ${agentId}`);
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath: persistence.controlDbPath,
 		createAgentId: () => "unused",
@@ -233,7 +237,7 @@ function requestDetachedCancellation(store: MultiAgentStore, agentId: string): v
 		agent,
 		outputLabel: "Pyrun output",
 		reason: "test cancellation",
-		reservation,
+		ownership,
 	});
 	if (!cancelled.ok) throw new Error(`Could not cancel detached Pyrun job: ${cancelled.error}`);
 	store.publishLifecycleCoordinatorSnapshot(cancelled.agent);

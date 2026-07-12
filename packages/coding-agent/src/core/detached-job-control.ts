@@ -1,4 +1,4 @@
-import type { DetachedJobLeaseIdentity } from "./detached-job-runner.ts";
+import type { DetachedJobOwnershipIdentity } from "./detached-job-runner.ts";
 import {
 	claimRuntimeMailboxMessages,
 	deliverRuntimeMailboxMessage,
@@ -9,14 +9,14 @@ import {
 
 export interface DetachedJobCancelCommand {
 	command: "cancel";
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	reason?: string;
 	transportId: number;
 }
 
 export interface DetachedJobStatusCommand {
 	command: "status";
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	replyTo: RuntimeMailboxAddress;
 	requestId: string;
 	transportId: number;
@@ -25,7 +25,7 @@ export interface DetachedJobStatusCommand {
 export interface DetachedJobResponseCommand {
 	command: "respond";
 	error?: string;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	requestId: string;
 	result?: unknown;
 	transportId: number;
@@ -44,7 +44,7 @@ type StoredDetachedJobRuntimeCommand =
 export function claimDetachedJobRuntimeCommands(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
-	identity: DetachedJobLeaseIdentity,
+	identity: DetachedJobOwnershipIdentity,
 ): DetachedJobRuntimeCommand[] {
 	const commands: DetachedJobRuntimeCommand[] = [];
 	for (const message of claimRuntimeMailboxMessages(controlDbPath, recipient)) {
@@ -64,7 +64,7 @@ export function claimDetachedJobRuntimeCommands(
 
 export function enqueueDetachedJobStatusRequest(input: {
 	controlDbPath: string;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	requesterAddress: RuntimeMailboxAddress;
 	requestId: string;
 	runnerAddress: RuntimeMailboxAddress;
@@ -94,7 +94,7 @@ export function enqueueDetachedJobStatusRequest(input: {
 
 export function enqueueDetachedJobStatusResponse(input: {
 	controlDbPath: string;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	replyTo: RuntimeMailboxAddress;
 	requestId: string;
 	runnerAddress: RuntimeMailboxAddress;
@@ -126,7 +126,7 @@ export function enqueueDetachedJobStatusResponse(input: {
 export function claimDetachedJobControlCommands(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
-	identity: DetachedJobLeaseIdentity,
+	identity: DetachedJobOwnershipIdentity,
 ): DetachedJobCancelCommand[] {
 	return claimDetachedJobRuntimeCommands(controlDbPath, recipient, identity).filter(
 		(command): command is DetachedJobCancelCommand => command.command === "cancel",
@@ -179,7 +179,7 @@ function isRuntimeMailboxAddress(value: unknown): value is RuntimeMailboxAddress
 	);
 }
 
-function isDetachedJobIdentity(value: unknown): value is DetachedJobLeaseIdentity {
+function isDetachedJobIdentity(value: unknown): value is DetachedJobOwnershipIdentity {
 	if (!isRecord(value)) return false;
 	return (
 		typeof value.jobId === "string" &&
@@ -193,7 +193,10 @@ function isDetachedJobIdentity(value: unknown): value is DetachedJobLeaseIdentit
 	);
 }
 
-function commandIdentityMatches(command: StoredDetachedJobRuntimeCommand, current: DetachedJobLeaseIdentity): boolean {
+function commandIdentityMatches(
+	command: StoredDetachedJobRuntimeCommand,
+	current: DetachedJobOwnershipIdentity,
+): boolean {
 	const candidate = command.identity;
 	return (
 		candidate.jobId === current.jobId &&

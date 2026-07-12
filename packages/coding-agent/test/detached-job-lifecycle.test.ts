@@ -33,11 +33,11 @@ function createFixture() {
 }
 
 describe("detached job lifecycle controller", () => {
-	it("binds preallocated artifacts, reservation, projection, and exact finalization", () => {
+	it("binds preallocated artifacts, ownership, projection, and exact finalization", () => {
 		const fixture = createFixture();
 		const jobId = fixture.controller.allocateJobId();
 		const artifacts = fixture.controller.createArtifacts(jobId);
-		const reservation = fixture.controller.reserve({
+		const ownership = fixture.controller.register({
 			agentType: "bash",
 			cwd: "/repo",
 			displayName: "Bash command",
@@ -45,7 +45,7 @@ describe("detached job lifecycle controller", () => {
 			processIdentity: testProcessIdentity("runner"),
 			workerHandleId: "123",
 		});
-		expect(reservation).toMatchObject({
+		expect(ownership).toMatchObject({
 			agent: { id: jobId, lifecycle: "running", revision: 3 },
 			artifacts,
 		});
@@ -54,7 +54,7 @@ describe("detached job lifecycle controller", () => {
 		writeFileSync(artifacts.outputPath, "done", { mode: 0o600 });
 		writeDetachedJobTerminalEnvelope(
 			artifacts,
-			reservation.identity,
+			ownership.identity,
 			{ exitCode: 0, kind: "completed", summary: "done" },
 			"2026-07-11T22:00:30.000Z",
 		);
@@ -71,7 +71,7 @@ describe("detached job lifecycle controller", () => {
 	it("requests detached cancellation through the coordinator and publishes cancelling state", () => {
 		const fixture = createFixture();
 		const jobId = fixture.controller.allocateJobId();
-		const reservation = fixture.controller.reserve({
+		const ownership = fixture.controller.register({
 			agentType: "bash",
 			cwd: "/repo",
 			displayName: "Bash command",
@@ -80,7 +80,7 @@ describe("detached job lifecycle controller", () => {
 			workerHandleId: "runner-1",
 		});
 
-		expect(fixture.controller.cancel(reservation, "user requested")).toMatchObject({
+		expect(fixture.controller.cancel(ownership, "user requested")).toMatchObject({
 			agent: { id: jobId, lifecycle: "cancelling", revision: 4 },
 			ok: true,
 		});
@@ -91,7 +91,7 @@ describe("detached job lifecycle controller", () => {
 		const fixture = createFixture();
 		const jobId = fixture.controller.allocateJobId();
 		const artifacts = fixture.controller.createArtifacts(jobId);
-		const reservation = fixture.controller.reserve({
+		const ownership = fixture.controller.register({
 			agentType: "bash",
 			cwd: "/repo",
 			displayName: "Bash command",
@@ -102,7 +102,7 @@ describe("detached job lifecycle controller", () => {
 		writeFileSync(artifacts.outputPath, "done", { mode: 0o600 });
 		writeDetachedJobTerminalEnvelope(
 			artifacts,
-			reservation.identity,
+			ownership.identity,
 			{ exitCode: 0, kind: "completed" },
 			"2026-07-11T22:00:30.000Z",
 		);

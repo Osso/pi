@@ -11,7 +11,7 @@ import {
 } from "../../../src/core/detached-job-control.ts";
 import {
 	type DetachedJobArtifacts,
-	type DetachedJobLeaseIdentity,
+	type DetachedJobOwnershipIdentity,
 	type DetachedJobOutcome,
 	writeDetachedJobTerminalEnvelope,
 } from "../../../src/core/detached-job-runner.ts";
@@ -37,7 +37,7 @@ const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 export interface DetachedPyrunLaunchManifestData {
 	artifacts: DetachedJobArtifacts;
 	controlDbPath: string;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	params: CanonicalPyrunEvalParams;
 	runnerAddress: RuntimeMailboxAddress;
 	runnerOptions: PyrunRunnerOptions;
@@ -64,7 +64,7 @@ export function writeDetachedPyrunLaunchManifest(path: string, data: DetachedPyr
 
 interface DetachedPyrunControlState {
 	cancel?: DetachedJobCancelCommand;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 }
 
 interface PendingBridgeRequest {
@@ -73,8 +73,8 @@ interface PendingBridgeRequest {
 }
 
 type PyrunSettlement =
-	| { cancel?: DetachedJobCancelCommand; identity: DetachedJobLeaseIdentity; result: CanonicalPyrunEvalResult }
-	| { cancel?: DetachedJobCancelCommand; error: unknown; identity: DetachedJobLeaseIdentity };
+	| { cancel?: DetachedJobCancelCommand; identity: DetachedJobOwnershipIdentity; result: CanonicalPyrunEvalResult }
+	| { cancel?: DetachedJobCancelCommand; error: unknown; identity: DetachedJobOwnershipIdentity };
 
 export function launchDetachedPyrunRunner(manifestPath: string, options?: { entryPath?: string }): number {
 	const entryPath = options?.entryPath ?? defaultRunnerEntryPath();
@@ -174,7 +174,7 @@ function applyDetachedPyrunRuntimeCommands(
 
 function dispatchDetachedPyrunBridgeRequest(
 	manifest: DetachedPyrunLaunchManifest,
-	identity: DetachedJobLeaseIdentity,
+	identity: DetachedJobOwnershipIdentity,
 	pendingRequests: Map<string, PendingBridgeRequest>,
 	request: { method: string; params: unknown },
 ): Promise<unknown> {

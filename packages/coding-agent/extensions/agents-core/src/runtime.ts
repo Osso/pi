@@ -19,7 +19,7 @@ import {
 } from "../../../src/core/desktop-notification.ts";
 import {
 	LifecycleCoordinator,
-	type ReservedLifecycleCommandInput,
+	type OwnedLifecycleCommandInput,
 } from "../../../src/core/lifecycle-coordinator.ts";
 import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
@@ -41,7 +41,7 @@ import {
 	listSessionMetadata,
 	listUnseenMultiAgentTerminalEvents,
 	markMultiAgentTerminalEventSeen,
-	readMultiAgentDispatchLease,
+	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSessionMetadata,
 	type RuntimeMailboxAddress,
@@ -314,20 +314,20 @@ interface SendAgentMessageToolDetails {
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
 type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
 
-interface ReservedAgentRuntime {
+interface OwnedAgentRuntime {
 	abortController: AbortController;
 	coordinator: LifecycleCoordinator;
-	ownership: ReservedLifecycleCommandInput;
+	lifecycle: OwnedLifecycleCommandInput;
 }
 
 export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
-	reservations: Map<string, ReservedAgentRuntime>;
+	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
-	return { dispatches: new Map(), reservations: new Map(), sessions: new Map() };
+	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map() };
 }
 
 interface WaitingDesktopNotificationRegistration {
@@ -342,7 +342,7 @@ interface BackgroundDispatchContext {
 	dispatcher: ChildAgentDispatcher | undefined;
 	dispatches: ActiveAgentDispatches;
 	handles: BackgroundSessionHandles;
-	reservations: Map<string, ReservedAgentRuntime>;
+	ownerships: Map<string, OwnedAgentRuntime>;
 	store: MultiAgentStore;
 }
 
@@ -410,11 +410,11 @@ function backgroundPromptValidationMessage(validation: Exclude<GoalObjectiveVali
 
 function startBackgroundDispatch(
 	background: BackgroundDispatchContext,
-	runtime: ReservedAgentRuntime,
+	runtime: OwnedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionCommandContext,
 ): AgentSnapshot {
-	const agent = runtime.ownership.agent;
+	const agent = runtime.lifecycle.agent;
 	if (background.createChildSession) {
 		const promise = trackAgentDispatch(
 			background.store,
@@ -432,7 +432,7 @@ function startBackgroundDispatch(
 			background.handles,
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
-		void promise.finally(() => background.reservations.delete(agent.id));
+		void promise.finally(() => background.ownerships.delete(agent.id));
 		return background.store.getAgent(agent.id) ?? agent;
 	}
 
@@ -446,7 +446,7 @@ function startBackgroundDispatch(
 			background.handles,
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
-		void promise.finally(() => background.reservations.delete(agent.id));
+		void promise.finally(() => background.ownerships.delete(agent.id));
 		return background.store.getAgent(agent.id) ?? agent;
 	}
 
@@ -483,7 +483,7 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 		ctx.ui.notify(`Could not create background job: ${created.error}`, "error");
 		return;
 	}
-	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 	if (!starting.ok) {
 		ctx.ui.notify(`Could not reserve background runtime: ${starting.error}`, "error");
 		return;
@@ -492,9 +492,9 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 	const runtime = {
 		abortController: new AbortController(),
 		coordinator,
-		ownership: { agent: starting.agent, reservation: created.reservation },
+		lifecycle: { agent: starting.agent, ownership: created.ownership },
 	};
-	background.reservations.set(starting.agent.id, runtime);
+	background.ownerships.set(starting.agent.id, runtime);
 	const agent = startBackgroundDispatch(background, runtime, prompt, ctx);
 	ctx.ui.setEditorText("");
 	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agents to wait for any completion.`, "info");
@@ -639,7 +639,7 @@ export function createHostrunMultiAgentRequestHandler(
 	const store = resolveMultiAgentStore(options);
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const activeDispatches = runtimeHandles.dispatches;
-	const reservations = runtimeHandles.reservations;
+	const ownerships = runtimeHandles.ownerships;
 	const backgroundSessions = runtimeHandles.sessions;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
@@ -656,7 +656,7 @@ export function createHostrunMultiAgentRequestHandler(
 				options.createChildSession,
 				options.dispatcher,
 				activeDispatches,
-				reservations,
+				ownerships,
 				request.params as SpawnAgentParams,
 				ctx,
 				desktopNotifier,
@@ -682,7 +682,7 @@ export function createHostrunMultiAgentRequestHandler(
 				dispatches: activeDispatches,
 				handles: backgroundSessions,
 				params: request.params as AttachSessionAgentParams,
-				reservations,
+				ownerships,
 				store,
 				waitingDesktopNotifications,
 			});
@@ -866,7 +866,7 @@ async function spawnAgent(
 	createChildSession: ChildAgentSessionFactory | undefined,
 	dispatcher: ChildAgentDispatcher | undefined,
 	dispatches: ActiveAgentDispatches,
-	reservations: Map<string, ReservedAgentRuntime>,
+	ownerships: Map<string, OwnedAgentRuntime>,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
@@ -925,7 +925,7 @@ async function spawnAgent(
 			prompt: params.prompt,
 		});
 	}
-	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	const starting = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
 	if (!starting.ok) {
 		return errorResult(`spawn_agent failed to reserve runtime start: ${starting.error}`, {
 			agent: created.agent,
@@ -934,12 +934,12 @@ async function spawnAgent(
 		});
 	}
 	store.publishLifecycleCoordinatorSnapshot(starting.agent);
-	const ownership: ReservedLifecycleCommandInput = {
+	const lifecycle: OwnedLifecycleCommandInput = {
 		agent: starting.agent,
-		reservation: created.reservation,
+		ownership: created.ownership,
 	};
-	const runtime = { abortController: new AbortController(), coordinator, ownership };
-	reservations.set(starting.agent.id, runtime);
+	const runtime = { abortController: new AbortController(), coordinator, lifecycle };
+	ownerships.set(starting.agent.id, runtime);
 
 	if (createChildSession) {
 		const agent = startToolDispatch(
@@ -952,7 +952,7 @@ async function spawnAgent(
 			handles,
 			runtime,
 		);
-		releaseReservationAfterDispatch(dispatches, reservations, agent.id);
+		releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
 			agent,
 			dispatched: true,
@@ -971,7 +971,7 @@ async function spawnAgent(
 			undefined,
 			runtime,
 		);
-		releaseReservationAfterDispatch(dispatches, reservations, agent.id);
+		releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
 			agent,
 			dispatched: true,
@@ -982,13 +982,13 @@ async function spawnAgent(
 	throw new Error("spawn_agent executable runtime invariant violated");
 }
 
-function releaseReservationAfterDispatch(
+function releaseOwnershipAfterDispatch(
 	dispatches: ActiveAgentDispatches,
-	reservations: Map<string, ReservedAgentRuntime>,
+	ownerships: Map<string, OwnedAgentRuntime>,
 	agentId: string,
 ): void {
 	const dispatch = dispatches.get(agentId);
-	if (dispatch) void dispatch.finally(() => reservations.delete(agentId));
+	if (dispatch) void dispatch.finally(() => ownerships.delete(agentId));
 }
 
 interface AttachSessionAgentRuntimeInput {
@@ -999,7 +999,7 @@ interface AttachSessionAgentRuntimeInput {
 	dispatches: ActiveAgentDispatches;
 	handles?: BackgroundSessionHandles;
 	params: AttachSessionAgentParams;
-	reservations: Map<string, ReservedAgentRuntime>;
+	ownerships: Map<string, OwnedAgentRuntime>;
 	pi?: ExtensionAPI;
 	store: MultiAgentStore;
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
@@ -1048,7 +1048,7 @@ async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promis
 				dispatches: input.dispatches,
 				handles: input.handles,
 				pi: input.pi,
-				reservations: input.reservations,
+				ownerships: input.ownerships,
 				prompt,
 				store,
 				target: attached.agent,
@@ -1088,7 +1088,7 @@ interface AttachSessionDispatchInput {
 	dispatches: ActiveAgentDispatches;
 	handles?: BackgroundSessionHandles;
 	pi?: ExtensionAPI;
-	reservations: Map<string, ReservedAgentRuntime>;
+	ownerships: Map<string, OwnedAgentRuntime>;
 	prompt: string;
 	store: MultiAgentStore;
 	target: AgentSnapshot;
@@ -1102,8 +1102,8 @@ type AttachSessionResult =
 function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentSnapshot | undefined {
 	const reservedRuntime = reserveAttachedRuntime(input);
 	if (!reservedRuntime) return undefined;
-	const target = reservedRuntime.ownership.agent;
-	input.reservations.set(target.id, reservedRuntime);
+	const target = reservedRuntime.lifecycle.agent;
+	input.ownerships.set(target.id, reservedRuntime);
 	input.store.publishLifecycleCoordinatorSnapshot(target);
 	const createAttachedSession = input.createAttachedSession;
 	if (createAttachedSession) {
@@ -1117,7 +1117,7 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 			input.handles,
 			reservedRuntime,
 		);
-		releaseReservationAfterDispatch(input.dispatches, input.reservations, target.id);
+		releaseOwnershipAfterDispatch(input.dispatches, input.ownerships, target.id);
 		return dispatched;
 	}
 	const dispatcher = input.dispatcher;
@@ -1134,11 +1134,11 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 		undefined,
 		reservedRuntime,
 	);
-	releaseReservationAfterDispatch(input.dispatches, input.reservations, target.id);
+	releaseOwnershipAfterDispatch(input.dispatches, input.ownerships, target.id);
 	return dispatched;
 }
 
-function reserveAttachedRuntime(input: AttachSessionDispatchInput): ReservedAgentRuntime | undefined {
+function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRuntime | undefined {
 	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
 	if (!coordinator) return undefined;
 	const persistence = input.store.getPersistenceTarget();
@@ -1149,7 +1149,7 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): ReservedAgen
 	return {
 		abortController: new AbortController(),
 		coordinator,
-		ownership: { agent: acquired.agent, reservation: acquired.reservation },
+		lifecycle: { agent: acquired.agent, ownership: acquired.ownership },
 	};
 }
 
@@ -1178,10 +1178,10 @@ function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target
 
 	const reservedRuntime = reserveAttachedRuntime({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
 	if (!reservedRuntime) return;
-	input.reservations.set(agent.id, reservedRuntime);
+	input.ownerships.set(agent.id, reservedRuntime);
 	finalizeReservedRuntime(
 		input.store,
-		reservedRuntime.ownership.agent,
+		reservedRuntime.lifecycle.agent,
 		"failed",
 		{
 			error: {
@@ -1191,7 +1191,7 @@ function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target
 		},
 		reservedRuntime,
 	);
-	input.reservations.delete(agent.id);
+	input.ownerships.delete(agent.id);
 }
 
 function resolveDeadAgentRuntime(
@@ -1202,10 +1202,10 @@ function resolveDeadAgentRuntime(
 	if (!persistence) return;
 	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
 	if (!coordinator) return;
-	const expiredReservation = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	if (!expiredReservation) return;
+	const deadOwnership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
+	if (!deadOwnership) return;
 	const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
-	const recovered = coordinator.recoverDeadChild({ agent, ownerSessionId, reservation: expiredReservation });
+	const recovered = coordinator.recoverDeadChild({ agent, ownerSessionId, ownership: deadOwnership });
 	if (recovered.ok) publishCoordinatorSnapshot(input.store, recovered.agent);
 }
 
@@ -1215,22 +1215,22 @@ function hasLiveAgentOwner(
 ): boolean {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return false;
-	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	return lease?.processIdentity ? isProcessIdentityAlive(lease.processIdentity) : false;
+	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
+	return ownership?.processIdentity ? isProcessIdentityAlive(ownership.processIdentity) : false;
 }
 
 function dispatchReservedAttachedChildSession(
 	input: AttachSessionDispatchInput,
 	createAttachedSession: AttachedSessionFactory,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 ): Promise<AgentSnapshot> {
 	const factory = (dispatchInput: ChildAgentDispatchInput) =>
 		createAttachedSession({ ...dispatchInput, sessionPath: input.target.transcript?.path ?? "" });
-	if (reservedRuntime.ownership.agent.lifecycle === "running") {
+	if (reservedRuntime.lifecycle.agent.lifecycle === "running") {
 		return runAgentSession(
 			input.store,
 			factory,
-			reservedRuntime.ownership.agent,
+			reservedRuntime.lifecycle.agent,
 			input.prompt,
 			input.ctx,
 			input.handles,
@@ -1244,13 +1244,13 @@ function dispatchReservedAttachedChildSession(
 function dispatchReservedAttachedAgent(
 	input: AttachSessionDispatchInput,
 	dispatcher: ChildAgentDispatcher,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 ): Promise<AgentSnapshot> {
-	if (reservedRuntime.ownership.agent.lifecycle === "running") {
+	if (reservedRuntime.lifecycle.agent.lifecycle === "running") {
 		return runAgentDispatcher(
 			input.store,
 			dispatcher,
-			reservedRuntime.ownership.agent,
+			reservedRuntime.lifecycle.agent,
 			input.prompt,
 			input.ctx,
 			reservedRuntime,
@@ -1391,7 +1391,7 @@ function startToolDispatch(
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	handles: BackgroundSessionHandles | undefined,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 ): AgentSnapshot {
 	const unsubscribeLifecycleNotifications = store.subscribeLifecycleNotifications((message) => {
 		if (message.fromAgentId !== agent.id) {
@@ -1418,7 +1418,7 @@ function trackAgentDispatch(
 	dispatches: ActiveAgentDispatches,
 	agent: AgentSnapshot,
 	dispatch: Promise<AgentSnapshot>,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
@@ -1447,17 +1447,17 @@ function trackAgentDispatch(
 async function dispatchReservedAgentSession(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionContext,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
-	const { coordinator, ownership } = reservedRuntime;
+	const { coordinator, lifecycle } = reservedRuntime;
 	const restoreGeneration = store.getRestoreGeneration();
 	let childSession: ChildAgentSession;
 	try {
 		childSession = await createChildSession({
-			agent: ownership.agent,
+			agent: lifecycle.agent,
 			ctx,
 			prompt,
 			signal: reservedRuntime.abortController.signal,
@@ -1468,26 +1468,26 @@ async function dispatchReservedAgentSession(
 			message: error instanceof Error ? error.message : String(error),
 		};
 		const failed = coordinator.finalizeChild({
-			agent: ownership.agent,
+			agent: lifecycle.agent,
 			error: runtimeError,
 			eventPayload: { error: runtimeError },
-			reservation: ownership.reservation,
+			ownership: lifecycle.ownership,
 			terminalLifecycle: "failed",
 		});
-		if (!failed.ok) return ownership.agent;
+		if (!failed.ok) return lifecycle.agent;
 		publishCoordinatorSnapshot(store, failed.agent);
 		return failed.agent;
 	}
 	if (store.getRestoreGeneration() !== restoreGeneration) {
 		childSession.abort?.();
 		childSession.dispose?.();
-		return store.getAgent(ownership.agent.id) ?? ownership.agent;
+		return store.getAgent(lifecycle.agent.id) ?? lifecycle.agent;
 	}
-	const running = coordinator.confirmChildRuntime(ownership);
+	const running = coordinator.confirmChildRuntime(lifecycle);
 	if (!running.ok) {
 		childSession.abort?.();
 		childSession.dispose?.();
-		return ownership.agent;
+		return lifecycle.agent;
 	}
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
 	return runAgentSession(
@@ -1500,7 +1500,7 @@ async function dispatchReservedAgentSession(
 		childSession,
 		{
 			...reservedRuntime,
-			ownership: { agent: running.agent, reservation: reservedRuntime.ownership.reservation },
+			lifecycle: { agent: running.agent, ownership: reservedRuntime.lifecycle.ownership },
 		},
 		restoreGeneration,
 	);
@@ -1514,7 +1514,7 @@ async function runAgentSession(
 	ctx: ExtensionContext,
 	handles: BackgroundSessionHandles | undefined,
 	createdSession: ChildAgentSession | undefined,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 	expectedRestoreGeneration?: number,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = expectedRestoreGeneration ?? store.getRestoreGeneration();
@@ -1596,16 +1596,16 @@ async function runAgentSession(
 async function dispatchReservedAgent(
 	store: MultiAgentStore,
 	dispatcher: ChildAgentDispatcher,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionContext,
 ): Promise<AgentSnapshot> {
-	const running = reservedRuntime.coordinator.confirmChildRuntime(reservedRuntime.ownership);
-	if (!running.ok) return reservedRuntime.ownership.agent;
+	const running = reservedRuntime.coordinator.confirmChildRuntime(reservedRuntime.lifecycle);
+	if (!running.ok) return reservedRuntime.lifecycle.agent;
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
 	return runAgentDispatcher(store, dispatcher, running.agent, prompt, ctx, {
 		...reservedRuntime,
-		ownership: { agent: running.agent, reservation: reservedRuntime.ownership.reservation },
+		lifecycle: { agent: running.agent, ownership: reservedRuntime.lifecycle.ownership },
 	});
 }
 
@@ -1615,7 +1615,7 @@ async function runAgentDispatcher(
 	runningAgent: AgentSnapshot,
 	prompt: string,
 	ctx: ExtensionContext,
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
 	const running = { agent: runningAgent };
@@ -1632,7 +1632,7 @@ async function runAgentDispatcher(
 		if (dispatchResult.lifecycle === "waiting_for_input") {
 			const waiting = reservedRuntime.coordinator.markWaitingForInput({
 				agent: current,
-				reservation: reservedRuntime.ownership.reservation,
+				ownership: reservedRuntime.lifecycle.ownership,
 			});
 			if (!waiting.ok) return current;
 			store.publishLifecycleCoordinatorSnapshot(waiting.agent);
@@ -1667,7 +1667,7 @@ function finalizeReservedRuntime(
 	agent: AgentSnapshot,
 	terminalLifecycle: "completed" | "failed" | "aborted",
 	metadata: { error?: AgentSnapshot["error"]; result?: AgentSnapshot["result"] },
-	reservedRuntime: ReservedAgentRuntime,
+	reservedRuntime: OwnedAgentRuntime,
 	expectedRestoreGeneration?: number,
 ): AgentSnapshot {
 	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) return agent;
@@ -1676,7 +1676,7 @@ function finalizeReservedRuntime(
 		agent,
 		error: metadata.error,
 		eventPayload: metadata,
-		reservation: reservedRuntime.ownership.reservation,
+		ownership: reservedRuntime.lifecycle.ownership,
 		result: metadata.result,
 		terminalLifecycle,
 	});
@@ -1701,7 +1701,7 @@ function publishCoordinatorSnapshot(store: MultiAgentStore, agent: AgentSnapshot
 function acknowledgeCancelledRuntime(
 	store: MultiAgentStore,
 	agentId: string,
-	reservedRuntime: ReservedAgentRuntime | undefined,
+	reservedRuntime: OwnedAgentRuntime | undefined,
 	expectedRestoreGeneration?: number,
 ): AgentSnapshot | undefined {
 	if (!reservedRuntime) return undefined;
@@ -1710,7 +1710,7 @@ function acknowledgeCancelledRuntime(
 	if (current?.lifecycle !== "cancelling") return undefined;
 	const acknowledged = reservedRuntime.coordinator.acknowledgeCancellation({
 		agent: current,
-		reservation: reservedRuntime.ownership.reservation,
+		ownership: reservedRuntime.lifecycle.ownership,
 	});
 	if (!acknowledged.ok) return current;
 	publishCoordinatorSnapshot(store, acknowledged.agent);
@@ -2200,9 +2200,9 @@ function formatAgentStatus(agent: AgentSnapshot): string {
 
 export type CancelReservedAgentResult =
 	| { ok: true; agent: AgentSnapshot }
-	| { ok: false; error: "agent_not_found" | "lifecycle_reservation_unavailable" | "mutation_rejected"; agent?: AgentSnapshot };
+	| { ok: false; error: "agent_not_found" | "runtime_ownership_unavailable" | "mutation_rejected"; agent?: AgentSnapshot };
 
-export async function cancelReservedAgentRuntime(
+export async function cancelOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
@@ -2211,10 +2211,10 @@ export async function cancelReservedAgentRuntime(
 ): Promise<CancelReservedAgentResult> {
 	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
 	for (const descendant of descendants) {
-		const cancelled = await cancelOneReservedAgentRuntime(store, runtimeHandles, descendant.id, ctx, reason);
+		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, ctx, reason);
 		if (!cancelled.ok) return cancelled;
 	}
-	return cancelOneReservedAgentRuntime(store, runtimeHandles, agentId, ctx, reason);
+	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, ctx, reason);
 }
 
 function abortAgentHandleSafely(store: MultiAgentStore, agentId: string): void {
@@ -2225,7 +2225,7 @@ function abortAgentHandleSafely(store: MultiAgentStore, agentId: string): void {
 	}
 }
 
-async function cancelOneReservedAgentRuntime(
+async function cancelOneOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
@@ -2234,11 +2234,11 @@ async function cancelOneReservedAgentRuntime(
 ): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
-	const reservedRuntime = runtimeHandles.reservations.get(agentId);
+	const reservedRuntime = runtimeHandles.ownerships.get(agentId);
 	if (!reservedRuntime) return cancelPersistedDetachedRuntime(store, current, ctx, reason);
 	const cancelling = reservedRuntime.coordinator.requestCancellation({
 		agent: current,
-		reservation: reservedRuntime.ownership.reservation,
+		ownership: reservedRuntime.lifecycle.ownership,
 	});
 	if (!cancelling.ok) return { ok: false, error: "mutation_rejected", agent: current };
 	store.publishLifecycleCoordinatorSnapshot(cancelling.agent);
@@ -2262,18 +2262,18 @@ function cancelPersistedDetachedRuntime(
 ): CancelReservedAgentResult {
 	const persistence = store.getPersistenceTarget();
 	if (!ctx || !persistence || agent.agentType !== "background" || agent.displayName !== "Bash command") {
-		return { ok: false, error: "lifecycle_reservation_unavailable", agent };
+		return { ok: false, error: "runtime_ownership_unavailable", agent };
 	}
-	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
+	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
 	const coordinator = createLifecycleCoordinator(store, ctx);
-	if (!lease?.processIdentity || !lease.owner.sessionId || !coordinator) {
-		return { ok: false, error: "lifecycle_reservation_unavailable", agent };
+	if (!ownership?.processIdentity || !ownership.owner.sessionId || !coordinator) {
+		return { ok: false, error: "runtime_ownership_unavailable", agent };
 	}
 	const cancelled = coordinator.requestDetachedCancellation({
 		agent,
 		outputLabel: "Bash output",
 		reason,
-		reservation: lease,
+		ownership: ownership,
 	});
 	if (!cancelled.ok) return { ok: false, error: "mutation_rejected", agent };
 	publishCoordinatorSnapshot(store, cancelled.agent);
@@ -2286,9 +2286,9 @@ async function cancelAgent(
 	params: CancelAgentParams,
 	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<AgentToolDetails>> {
-	const cancelled = await cancelReservedAgentRuntime(store, runtimeHandles, params.agentId, ctx, params.reason);
+	const cancelled = await cancelOwnedAgentRuntime(store, runtimeHandles, params.agentId, ctx, params.reason);
 	if (!cancelled.ok) {
-		const error = cancelled.error === "lifecycle_reservation_unavailable" ? "lifecycle reservation unavailable" : cancelled.error;
+		const error = cancelled.error === "runtime_ownership_unavailable" ? "runtime ownership unavailable" : cancelled.error;
 		return errorResult(`Could not cancel ${params.agentId}: ${error}`, {
 			agent: cancelled.agent ?? emptyAgent(params.agentId),
 			reason: params.reason,
@@ -2369,11 +2369,11 @@ function steerAgent(
 
 	const persistence = store.getPersistenceTarget();
 	const coordinator = ctx ? createLifecycleCoordinator(store, ctx) : undefined;
-	const reservation = persistence
-		? readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, current.id)
+	const ownership = persistence
+		? readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, current.id)
 		: undefined;
-	if (!coordinator || !reservation) {
-		return errorResult(`Could not steer ${params.agentId}: lifecycle reservation unavailable`, {
+	if (!coordinator || !ownership) {
+		return errorResult(`Could not steer ${params.agentId}: runtime ownership unavailable`, {
 			agent: current,
 			message: emptyMessage(params.agentId, params.message),
 		});
@@ -2384,7 +2384,7 @@ function steerAgent(
 		fromAgentId: senderId,
 		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
 	});
-	const steered = coordinator.requestSteering({ agent: current, message, reservation });
+	const steered = coordinator.requestSteering({ agent: current, message, ownership });
 	if (!steered.ok) {
 		return errorResult(`Could not steer ${params.agentId}: ${steered.error}`, {
 			agent: current,
@@ -2745,14 +2745,14 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const backgroundSessions = runtimeHandles.sessions;
 	const activeDispatches = runtimeHandles.dispatches;
-	const reservations = runtimeHandles.reservations;
+	const ownerships = runtimeHandles.ownerships;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = {
 		createChildSession,
 		dispatcher,
 		dispatches: activeDispatches,
 		handles: backgroundSessions,
-		reservations,
+		ownerships,
 		store,
 	};
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
@@ -2767,7 +2767,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			dispatches: activeDispatches,
 			handles: backgroundSessions,
 			pi,
-			reservations,
+			ownerships,
 			store,
 			waitingDesktopNotifications,
 		});
@@ -2778,9 +2778,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		}
 		runtimeLifecycleMirror.dispose();
 		store.invalidateInFlightDispatches();
-		for (const runtime of reservations.values()) runtime.abortController.abort();
+		for (const runtime of ownerships.values()) runtime.abortController.abort();
 		for (const agentId of backgroundSessions.keys()) {
-			if (!reservations.has(agentId)) abortAgentHandleSafely(store, agentId);
+			if (!ownerships.has(agentId)) abortAgentHandleSafely(store, agentId);
 		}
 		for (const agentId of waitingDesktopNotifications.keys()) {
 			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
@@ -2820,7 +2820,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					createChildSession,
 					dispatcher,
 					activeDispatches,
-					reservations,
+					ownerships,
 					params,
 					ctx,
 					desktopNotifier,
@@ -2861,7 +2861,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					handles: backgroundSessions,
 					params,
 					pi,
-					reservations,
+					ownerships,
 					store,
 					waitingDesktopNotifications,
 				});

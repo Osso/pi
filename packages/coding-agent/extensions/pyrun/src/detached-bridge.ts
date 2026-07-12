@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { DetachedJobLeaseIdentity } from "../../../src/core/detached-job-runner.ts";
+import type { DetachedJobOwnershipIdentity } from "../../../src/core/detached-job-runner.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
 	readMultiAgentAgent,
-	readMultiAgentDispatchLease,
+	readMultiAgentRuntimeOwnership,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
 } from "../../../src/core/session-control-db.ts";
@@ -12,7 +12,7 @@ const DETACHED_PYRUN_BRIDGE_PROTOCOL = "pyrun-bridge-v1";
 
 export interface DetachedPyrunBridgeRequest {
 	command: "request";
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	method: string;
 	params: unknown;
 	protocol: typeof DETACHED_PYRUN_BRIDGE_PROTOCOL;
@@ -22,7 +22,7 @@ export interface DetachedPyrunBridgeRequest {
 
 export function enqueueDetachedPyrunBridgeRequest(input: {
 	controlDbPath: string;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	method: string;
 	params: unknown;
 	runnerAddress: RuntimeMailboxAddress;
@@ -82,14 +82,14 @@ export function validateDetachedPyrunBridgeRequest(input: {
 	const { identity } = input.request;
 	if (input.message.sender.agentId !== identity.jobId) return false;
 	const agent = readMultiAgentAgent(input.controlDbPath, input.sessionPath, identity.jobId);
-	const lease = readMultiAgentDispatchLease(input.controlDbPath, input.sessionPath, identity.jobId);
+	const ownership = readMultiAgentRuntimeOwnership(input.controlDbPath, input.sessionPath, identity.jobId);
 	return (
 		agent?.lifecycle === "running" &&
 		identity.owner.sessionId === input.supervisorSessionId &&
-		lease?.owner.sessionId === identity.owner.sessionId &&
-		lease.owner.agentId === identity.owner.agentId &&
-		lease.processIdentity?.pid === identity.processIdentity.pid &&
-		lease.processIdentity.startTimeTicks === identity.processIdentity.startTimeTicks
+		ownership?.owner.sessionId === identity.owner.sessionId &&
+		ownership.owner.agentId === identity.owner.agentId &&
+		ownership.processIdentity?.pid === identity.processIdentity.pid &&
+		ownership.processIdentity.startTimeTicks === identity.processIdentity.startTimeTicks
 	);
 }
 

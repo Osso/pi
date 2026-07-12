@@ -342,34 +342,34 @@ async function executeRunnerOwnedBash(
 	let aborted = false;
 	const requestCancellation = () => {
 		aborted = true;
-		options.lifecycle.cancel(launched.reservation, "Bash tool call aborted");
+		options.lifecycle.cancel(launched.ownership, "Bash tool call aborted");
 	};
 	if (options.signal?.aborted) requestCancellation();
 	else options.signal?.addEventListener("abort", requestCancellation, { once: true });
 	try {
 		for (;;) {
-			const output = existsSync(launched.reservation.artifacts.outputPath)
-				? readFileSync(launched.reservation.artifacts.outputPath)
+			const output = existsSync(launched.ownership.artifacts.outputPath)
+				? readFileSync(launched.ownership.artifacts.outputPath)
 				: Buffer.alloc(0);
 			if (output.length > outputOffset) {
 				options.onData(output.subarray(outputOffset));
 				outputOffset = output.length;
 			}
-			const agent = options.lifecycle.observe(launched.reservation.agent.id);
+			const agent = options.lifecycle.observe(launched.ownership.agent.id);
 			if (agent && !isActiveLifecycle(agent.lifecycle)) break;
 			if (options.detach.signal.aborted) {
 				return {
 					exitCode: null,
 					detached: {
-						jobId: launched.reservation.agent.id,
-						logPath: launched.reservation.artifacts.outputPath,
-						message: `Detached bash command as background job ${launched.reservation.agent.id}.`,
+						jobId: launched.ownership.agent.id,
+						logPath: launched.ownership.artifacts.outputPath,
+						message: `Detached bash command as background job ${launched.ownership.agent.id}.`,
 					},
 				};
 			}
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
-		const envelope = readDetachedJobTerminalEnvelope(launched.reservation.artifacts.terminalEnvelopePath);
+		const envelope = readDetachedJobTerminalEnvelope(launched.ownership.artifacts.terminalEnvelopePath);
 		if (aborted || envelope.outcome.kind === "aborted") throw new Error("aborted");
 		if (envelope.outcome.kind === "failed" && envelope.outcome.error.message.includes("timed out")) {
 			throw new Error(`timeout:${options.timeout}`);

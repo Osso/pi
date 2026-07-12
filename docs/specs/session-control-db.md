@@ -26,7 +26,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
-      (`multi_agent_agents`, `multi_agent_dispatch_leases`, `multi_agent_terminal_events`,
+      (`multi_agent_agents`, `multi_agent_runtime_owners`, `multi_agent_terminal_events`,
       `multi_agent_terminal_outbox`, `multi_agent_terminal_cursors`,
       `multi_agent_mailbox_messages`,
       `multi_agent_counters_v2`): one row
@@ -62,13 +62,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       the triggers prevent older binaries from reintroducing legacy keys. Malformed rows remain stored
       for contextual restore validation.
 - [x] Fence lifecycle writers by control-DB protocol version. A runtime rejects databases with a newer
-      schema before initialization, registers its supported lifecycle protocol as a connection-local
-      SQLite function, and schema-versioned triggers reject `multi_agent_agents` inserts or updates from
-      connections that lack the current protocol registration. Protocol activation scans listener and
-      health ownership inside the migration transaction and refuses to upgrade while any verified Pi
-      runtime remains active; legacy rows convert only after full runtime quiescence. This makes
-      legacy/mixed-version lifecycle writes fail closed without a compatibility or fallback mutation path,
-      while leaving non-lifecycle control-DB operations independent.
+      schema before initialization. Protocol activation scans listener, health, and exact runtime-owner
+      process identities inside the migration transaction and refuses to upgrade while any verified Pi or
+      detached runner remains active; legacy rows convert only after full runtime quiescence. No
+      connection-local authorization UDF, trigger token, compatibility writer, or fallback mutation path
+      exists; construction/source-scan tests keep production lifecycle calls behind `LifecycleCoordinator`
+      plus the detached runner's narrow exact-owner finalizer.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
@@ -85,10 +84,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
-      rows ended, and confirms the registered binding `ok`;
-      listener retirement removes only the exact `(session_id, agent_id, pid)` binding being
-      disposed. A conflicting live owner fails with an actionable recovery message naming the PID
-      and verified session cwd when available; it never guesses cwd.
+      rows ended and confirms the registered binding `ok`. Listener retirement removes only the
+      `(session_id, agent_id, pid)` binding being disposed. A conflicting live owner fails with an
+      actionable recovery message naming the PID and verified session cwd when available; it never
+      guesses cwd.
 - [x] Session-path relocation updates the main-listener path assertion in the same SQLite transaction
       as metadata, multi-agent rows, counters, and mailbox references, so no live-store mismatch is
       externally observable.
@@ -116,7 +115,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) — coordinator-owned startup
   recovery and persisted agent lifecycle.
 - [docs/wiki/systems/session-directory-tools.md](../wiki/systems/session-directory-tools.md) —
-  liveness synchronization followed by global reconciliation.
+  liveness synchronization followed by owning-session recovery.
 
 ## Implementation inventory
 

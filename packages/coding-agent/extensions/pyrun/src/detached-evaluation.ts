@@ -34,8 +34,8 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) throw new Error("Detached Pyrun requires a persisted supervisor session");
 	const controller = createPyrunLifecycleController(input, persistence);
-	const reservation = launchReservedPyrunRunner(input, persistence, controller);
-	return observeDetachedPyrunEvaluation({ ...input, controller, reservation });
+	const ownership = launchOwnedPyrunRunner(input, persistence, controller);
+	return observeDetachedPyrunEvaluation({ ...input, controller, ownership });
 }
 
 function createPyrunLifecycleController(
@@ -58,7 +58,7 @@ function createPyrunLifecycleController(
 	});
 }
 
-function launchReservedPyrunRunner(
+function launchOwnedPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
@@ -67,7 +67,7 @@ function launchReservedPyrunRunner(
 	const artifacts = controller.createArtifacts(jobId);
 	const manifestPath = join(artifacts.directory, "launch.json");
 	const runnerPid = launchDetachedPyrunRunner(manifestPath);
-	const reservation = controller.reserve({
+	const ownership = controller.register({
 		agentType: "pyrun",
 		cwd: input.ctx.cwd,
 		displayName: "Pyrun evaluation",
@@ -78,37 +78,37 @@ function launchReservedPyrunRunner(
 	writeDetachedPyrunLaunchManifest(manifestPath, {
 		artifacts,
 		controlDbPath: persistence.controlDbPath,
-		identity: reservation.identity,
+		identity: ownership.identity,
 		params: createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled),
 		runnerAddress: { agentId: jobId, sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: input.runnerOptions,
 		sessionPath: persistence.sessionPath,
 	});
-	return reservation;
+	return ownership;
 }
 
 async function observeDetachedPyrunEvaluation(input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0] & {
 	controller: ReturnType<typeof createDetachedJobLifecycleController>;
-	reservation: ReturnType<ReturnType<typeof createDetachedJobLifecycleController>["reserve"]>;
+	ownership: ReturnType<ReturnType<typeof createDetachedJobLifecycleController>["register"]>;
 }): Promise<AgentToolResult<unknown>> {
 	let detached = false;
 	let outputOffset = 0;
 	let result: CanonicalPyrunEvalResult | undefined;
 	const unregister = input.detachRegistry.register({ detach: () => (detached ? false : (detached = true)) });
-	const cancel = () => input.controller.cancel(input.reservation, "Pyrun tool call aborted");
+	const cancel = () => input.controller.cancel(input.ownership, "Pyrun tool call aborted");
 	input.signal?.addEventListener("abort", cancel, { once: true });
 	try {
 		for (;;) {
-			const records = readNewArtifactRecords(input.reservation.artifacts.outputPath, outputOffset);
+			const records = readNewArtifactRecords(input.ownership.artifacts.outputPath, outputOffset);
 			outputOffset = records.offset;
 			result = consumeArtifactRecords(records.values, input.onUpdate) ?? result;
-			const agent = input.controller.observe(input.reservation.agent.id);
+			const agent = input.controller.observe(input.ownership.agent.id);
 			if (agent && !isActiveLifecycle(agent.lifecycle)) break;
-			if (detached) return detachedResult(input.params, input.reservation.agent.id, input.reservation.artifacts.outputPath);
+			if (detached) return detachedResult(input.params, input.ownership.agent.id, input.ownership.artifacts.outputPath);
 			await new Promise((resolve) => setTimeout(resolve, ARTIFACT_POLL_MS));
 		}
 		if (result) return formatCanonicalPyrunEvalResult(input.params, result);
-		return formatTerminalEnvelopeError(input.params, input.reservation.artifacts.terminalEnvelopePath);
+		return formatTerminalEnvelopeError(input.params, input.ownership.artifacts.terminalEnvelopePath);
 	} finally {
 		unregister();
 		input.signal?.removeEventListener("abort", cancel);

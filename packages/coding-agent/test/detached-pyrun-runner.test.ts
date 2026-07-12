@@ -72,7 +72,7 @@ describe("detached Pyrun runner", () => {
 		});
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(existsSync(`${manifestPath}.runner-error`)).toBe(false);
-		const reservation = lifecycle.reserve({
+		const ownership = lifecycle.register({
 			agentType: "pyrun",
 			cwd: root,
 			displayName: "Pyrun evaluation",
@@ -84,7 +84,7 @@ describe("detached Pyrun runner", () => {
 		writeDetachedPyrunLaunchManifest(manifestPath, {
 			artifacts,
 			controlDbPath,
-			identity: reservation.identity,
+			identity: ownership.identity,
 			params: { code: "6 * 7" },
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			runnerOptions: { command: runnerPath, inheritEnv: true },

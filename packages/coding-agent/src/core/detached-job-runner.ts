@@ -3,11 +3,11 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, st
 import { dirname, join } from "node:path";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
-import type { MultiAgentDispatchLease } from "./session-control-db.ts";
+import type { MultiAgentRuntimeOwnership } from "./session-control-db.ts";
 
 const DETACHED_JOB_ENVELOPE_VERSION = 1;
 
-export interface DetachedJobLeaseIdentity {
+export interface DetachedJobOwnershipIdentity {
 	jobId: string;
 	owner: { sessionId: string; agentId: string | null };
 	processIdentity: ProcessIdentity;
@@ -25,7 +25,7 @@ export interface DetachedJobArtifacts {
 	terminalEnvelopePath: string;
 }
 
-export interface DetachedJobTerminalEnvelope extends DetachedJobLeaseIdentity {
+export interface DetachedJobTerminalEnvelope extends DetachedJobOwnershipIdentity {
 	version: typeof DETACHED_JOB_ENVELOPE_VERSION;
 	terminalAt: string;
 	outcome: DetachedJobOutcome;
@@ -33,14 +33,14 @@ export interface DetachedJobTerminalEnvelope extends DetachedJobLeaseIdentity {
 	checksum: string;
 }
 
-export interface DetachedJobReservation {
+export interface DetachedJobOwnership {
 	agent: AgentSnapshot;
 	artifacts: DetachedJobArtifacts;
-	controlReservation: MultiAgentDispatchLease;
-	identity: DetachedJobLeaseIdentity;
+	controlOwnership: MultiAgentRuntimeOwnership;
+	identity: DetachedJobOwnershipIdentity;
 }
 
-export interface ReserveDetachedJobInput {
+export interface RegisterDetachedJobInput {
 	agentType: "bash" | "pyrun";
 	cwd: string;
 	displayName: string;
@@ -63,23 +63,23 @@ export interface LaunchDetachedBashInput {
 
 export interface LaunchedDetachedBashJob {
 	manifestPath: string;
-	reservation: DetachedJobReservation;
+	ownership: DetachedJobOwnership;
 	runnerPid: number;
 }
 
 export interface DetachedJobLifecycleController {
 	allocateJobId(): string;
-	cancel(reservation: DetachedJobReservation, reason?: string): DetachedJobLifecycleCommandResult;
+	cancel(ownership: DetachedJobOwnership, reason?: string): DetachedJobLifecycleCommandResult;
 	createArtifacts(jobId: string): DetachedJobArtifacts;
+	finalize(envelopePath: string): { ok: boolean; terminalRevision?: number; error?: string };
 	launchBash(input: LaunchDetachedBashInput): LaunchedDetachedBashJob;
 	observe(jobId: string): AgentSnapshot | undefined;
-	reserve(input: ReserveDetachedJobInput): DetachedJobReservation;
-	finalize(envelopePath: string): { ok: boolean; terminalRevision?: number; error?: string };
+	register(input: RegisterDetachedJobInput): DetachedJobOwnership;
 }
 
 export interface DetachedJobRunnerContract {
 	artifacts: DetachedJobArtifacts;
-	identity: DetachedJobLeaseIdentity;
+	identity: DetachedJobOwnershipIdentity;
 	cancel(reason?: string): void;
 }
 
@@ -97,7 +97,7 @@ export function createDetachedJobArtifacts(rootDirectory: string, jobId: string)
 
 export function writeDetachedJobTerminalEnvelope(
 	artifacts: DetachedJobArtifacts,
-	identity: DetachedJobLeaseIdentity,
+	identity: DetachedJobOwnershipIdentity,
 	outcome: DetachedJobOutcome,
 	terminalAt: string,
 ): DetachedJobTerminalEnvelope {
