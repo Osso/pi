@@ -2670,6 +2670,50 @@ describe("multi-agent extension tools", () => {
 		expect(waited).toMatchObject({ id: spawned.details.agent.id, lifecycle: "completed" });
 	});
 
+	it("drains steering queued as a spawned child turn finishes before completing the child", async () => {
+		let releasePrompt: (() => void) | undefined;
+		const promptBlocked = new Promise<void>((resolve) => {
+			releasePrompt = resolve;
+		});
+		let drainCalls = 0;
+		const harness = createMultiAgentHarness({
+			createChildSession: async ({ agent }) => ({
+				messages: [],
+				prompt: async () => promptBlocked,
+				drainRuntimeCoordination: async () => {
+					drainCalls += 1;
+					const message = harness.store
+						.listMailboxMessages()
+						.find((candidate) => candidate.kind === "steer" && candidate.toAgentId === agent.id);
+					if (!message) throw new Error("expected pending steering message");
+					const current = harness.store.getAgent(agent.id);
+					if (!current) throw new Error("expected active child agent");
+					const delivered = harness.store.ackSteering(agent.id, current.revision, message.id, "delivered");
+					if (!delivered.ok) throw new Error(`expected steering delivery: ${delivered.error}`);
+				},
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Steered Worker",
+			prompt: "Initial work",
+		});
+		await harness.call<SteerAgentDetails>("steer_agent", {
+			agentId: spawned.details.agent.id,
+			message: "Check final blockers",
+			targetCheckpoint: "next_model_call",
+		});
+		releasePrompt?.();
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(drainCalls).toBe(1);
+		expect(waited.lifecycle).toBe("completed");
+		expect(harness.store.listMailboxMessages()).toEqual([
+			expect.objectContaining({ body: "Check final blockers", status: "delivered" }),
+			expect.objectContaining({ kind: "system", status: "delivered" }),
+		]);
+	});
+
 	it("wires spawn_agent to a production child AgentSession factory with parent session metadata", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);

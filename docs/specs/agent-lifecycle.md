@@ -61,6 +61,9 @@ State meanings:
 - [x] Terminal states (`completed`, `failed`, `aborted`) admit no further transitions.
 - [x] Self-transitions are no-ops for non-terminal states and rejected for terminal states.
 - [x] Steering ack with status `delivered` moves the agent back to `running`.
+- [x] Spawned child dispatches drain runtime coordination before transitioning an end-of-turn child
+      to `completed`, so steering racing with turn completion is delivered before terminalization and
+      cannot remain pending on a terminal agent.
 - [x] Cancelling an agent aborts its live runtime handle and records terminal state through
       the normal lifecycle path. Detached Pyrun jobs register that handle and terminate the
       runner process group so spawned commands cannot survive cancellation as orphans.

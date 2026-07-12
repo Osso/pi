@@ -121,6 +121,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
       delivered state.
 - [x] Child agents can contact the supervisor without direct access to sibling internals.
+- [x] Spawned child dispatches perform a final runtime-coordination drain before end-of-turn completion;
+      steering that races with turn end is delivered before terminalization and cannot remain pending
+      after the child reaches `completed`.
 - [x] Mailbox messages and completion results carry validated absolute `fileRefs` entries so logs,
       diffs, summaries, and findings are referenced directly without registry indirection.
 - [x] Persisted mailbox message IDs are stable within a session store. Reuse is checked

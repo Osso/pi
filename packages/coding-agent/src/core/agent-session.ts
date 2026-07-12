@@ -2313,6 +2313,10 @@ export class AgentSession {
 		return this._multiAgentAgentId ?? null;
 	}
 
+	async drainRuntimeCoordination(): Promise<void> {
+		await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
+	}
+
 	private async _drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
 		if (this._disableRuntimeCoordinationInbound || this._disposed) {
 			return false;

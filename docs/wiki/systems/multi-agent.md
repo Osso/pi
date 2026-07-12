@@ -283,7 +283,10 @@ interface AgentMailboxMessage {
 ```
 
 `steer` is a mailbox kind with stricter routing. It is consumed by the child runtime at safe
-checkpoints. Delivery acknowledgement changes message status; it does not mutate message body.
+checkpoints. Spawned child dispatches perform a final runtime-coordination drain before end-of-turn
+completion, so steering that races with turn end is delivered before terminalization and cannot remain
+pending after the child reaches `completed`. Delivery acknowledgement changes message status; it does
+not mutate message body.
 
 Structured protocol messages such as cancellation, max-turn wrap-up, and permission clarifications
 must remain tagged as protocol/system messages until explicitly rendered for the model.

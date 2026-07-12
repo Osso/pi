@@ -171,6 +171,7 @@ export type ChildAgentDispatcher = (input: ChildAgentDispatchInput) => Promise<C
 
 export interface ChildAgentSession {
 	abort?(): void;
+	drainRuntimeCoordination?(): Promise<void>;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
 	transcript?: AgentSnapshot["transcript"];
@@ -1322,16 +1323,30 @@ async function dispatchAgentSession(
 			store.updateAgentTranscript(running.agent.id, childSession.transcript);
 		}
 		await childSession.prompt(prompt);
-		const summary = lastAssistantText(childSession.messages);
-		return transitionRunningAgent(
-			store,
-			running.agent,
-			"completed",
-			{
-				result: summary ? { summary } : undefined,
-			},
-			restoreGeneration,
-		);
+		while (true) {
+			const summary = lastAssistantText(childSession.messages);
+			const completed = transitionRunningAgent(
+				store,
+				running.agent,
+				"completed",
+				{
+					result: summary ? { summary } : undefined,
+				},
+				restoreGeneration,
+			);
+			if (completed.lifecycle !== "steering_pending") {
+				return completed;
+			}
+			if (!childSession.drainRuntimeCoordination) {
+				throw new Error("Child session cannot drain pending steering before completion");
+			}
+			await childSession.drainRuntimeCoordination();
+			const current = store.getAgent(running.agent.id);
+			if (current?.lifecycle === "steering_pending") {
+				throw new Error("Child session did not deliver pending steering before completion");
+			}
+		}
+
 	} catch (error) {
 		return transitionRunningAgent(
 			store,
