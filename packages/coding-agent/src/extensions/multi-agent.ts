@@ -4,6 +4,7 @@ export type {
 	AttachedSessionDispatchInput,
 	AttachedSessionFactory,
 	ChildAgentDispatcher,
+	ChildAgentDispatchInput,
 	ChildAgentSessionFactory,
 	MultiAgentExtensionOptions,
 	MultiAgentRuntimeHandles,

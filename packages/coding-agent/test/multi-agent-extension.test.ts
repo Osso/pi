@@ -46,6 +46,7 @@ import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
 	type ChildAgentDispatcher,
+	type ChildAgentDispatchInput,
 	type ChildAgentSessionFactory,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
@@ -2353,6 +2354,83 @@ describe("multi-agent extension tools", () => {
 
 		expect(didResolveBeforeDispatch).toBe(true);
 		expect(spawned.details).toMatchObject({ dispatched: true });
+	});
+
+	it("renews a long-running child reservation until terminal settlement", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-11T20:00:00.000Z"));
+		try {
+			const finishGate = deferred<void>();
+			const dispatcher: ChildAgentDispatcher = async () => {
+				await finishGate.promise;
+				return { lifecycle: "completed", result: { summary: "renewed" } };
+			};
+			const harness = createMultiAgentHarness({ dispatcher });
+			const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Long worker",
+				prompt: "Run longer than one reservation",
+			});
+
+			await vi.advanceTimersByTimeAsync(40_000);
+			finishGate.resolve(undefined);
+			for (let attempt = 0; attempt < 20; attempt += 1) await Promise.resolve();
+
+			expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({
+				lifecycle: "completed",
+				result: { summary: "renewed" },
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("aborts dispatcher work after reservation ownership is lost", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-11T20:00:00.000Z"));
+		try {
+			const continueGate = deferred<void>();
+			const externalWork = vi.fn();
+			const dispatcher: ChildAgentDispatcher = async (input) => {
+				await continueGate.promise;
+				const signal = (input as ChildAgentDispatchInput & { signal?: AbortSignal }).signal;
+				if (!signal?.aborted) externalWork();
+				return { lifecycle: "completed" };
+			};
+			const harness = createMultiAgentHarness({ dispatcher });
+			const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				displayName: "Partitioned worker",
+				prompt: "Do guarded work",
+			});
+			const persistence = harness.store.getPersistenceTarget();
+			if (!persistence) throw new Error("Expected persisted store");
+			const db = createSqliteDatabase(persistence.controlDbPath);
+			try {
+				db.prepare(
+					"UPDATE multi_agent_dispatch_leases SET expires_at = ? WHERE session_path = ? AND agent_id = ?",
+				).run("2026-07-11T19:59:59.000Z", persistence.sessionPath, spawned.details.agent.id);
+			} finally {
+				db.close();
+			}
+			expect(
+				acquireMultiAgentDispatchLease(persistence.controlDbPath, {
+					agentId: spawned.details.agent.id,
+					expiresAt: "2026-07-11T21:00:00.000Z",
+					leaseId: "replacement-lease",
+					nowIso: "2026-07-11T20:00:01.000Z",
+					owner: { agentId: null, sessionId: "replacement-session" },
+					runtimeIncarnation: "replacement-runtime",
+					sessionPath: persistence.sessionPath,
+				}),
+			).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
+
+			await vi.advanceTimersByTimeAsync(10_000);
+			continueGate.resolve(undefined);
+			for (let attempt = 0; attempt < 20; attempt += 1) await Promise.resolve();
+
+			expect(externalWork).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("wait_agents returns when any active agent reaches a terminal state", async () => {

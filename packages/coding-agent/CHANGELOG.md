@@ -58,6 +58,7 @@
 
 ### Changed
 
+- Child and attached agent dispatches now renew their fenced lifecycle reservation while running; lease takeover aborts cooperative dispatcher/session work and prevents stale terminal settlement.
 - Added SQLite lifecycle-authority enforcement that rejects lifecycle/revision updates outside explicit coordinator, detached-runner finalizer, recovery, and offline-migration write scopes, plus a source-scan regression forbidding production direct store/bootstrap lifecycle calls.
 - Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
 - Transcript, mailbox/contact activity, and pinned-slot metadata now merge transactionally into the latest persisted agent snapshot without rewriting lifecycle/revision from stale store state; metadata updates no longer advance the lifecycle revision token, and restore no longer persists runtime worker-handle cleanup.

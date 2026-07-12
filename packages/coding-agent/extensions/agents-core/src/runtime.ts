@@ -144,6 +144,7 @@ type ResolvedAgentProfile = {
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const MAIN_THREAD_AGENT_ID = "main";
 const CHILD_DISPATCH_RESERVATION_MS = 30_000;
+const CHILD_DISPATCH_RENEWAL_MS = 10_000;
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
 const RUNTIME_INCARNATION = randomUUID();
 const CRASH_RECOVERY_PROMPT =
@@ -170,6 +171,7 @@ export interface ChildAgentDispatchInput {
 	agent: AgentSnapshot;
 	ctx: ExtensionContext;
 	prompt: string;
+	signal?: AbortSignal;
 }
 
 export interface ChildAgentDispatchResult {
@@ -315,6 +317,7 @@ type BackgroundSessionHandles = Map<string, ChildAgentSession>;
 type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
 
 interface ReservedAgentRuntime {
+	abortController: AbortController;
 	coordinator: LifecycleCoordinator;
 	ownership: ReservedLifecycleCommandInput;
 }
@@ -422,8 +425,7 @@ function startBackgroundDispatch(
 			dispatchReservedAgentSession(
 				background.store,
 				background.createChildSession,
-				runtime.ownership,
-				runtime.coordinator,
+				runtime,
 				prompt,
 				ctx,
 				background.handles,
@@ -441,14 +443,7 @@ function startBackgroundDispatch(
 			background.store,
 			background.dispatches,
 			agent,
-			dispatchReservedAgent(
-				background.store,
-				background.dispatcher,
-				runtime.ownership,
-				runtime.coordinator,
-				prompt,
-				ctx,
-			),
+			dispatchReservedAgent(background.store, background.dispatcher, runtime, prompt, ctx),
 			runtime,
 			background.handles,
 		);
@@ -497,6 +492,7 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 	}
 	background.store.publishLifecycleCoordinatorSnapshot(starting.agent);
 	const runtime = {
+		abortController: new AbortController(),
 		coordinator,
 		ownership: { agent: starting.agent, reservation: created.reservation },
 	};
@@ -946,18 +942,19 @@ async function spawnAgent(
 		agent: starting.agent,
 		reservation: created.reservation,
 	};
-	reservations.set(starting.agent.id, { coordinator, ownership });
+	const runtime = { abortController: new AbortController(), coordinator, ownership };
+	reservations.set(starting.agent.id, runtime);
 
 	if (createChildSession) {
 		const agent = startToolDispatch(
 			store,
 			dispatches,
 			starting.agent,
-			() => dispatchReservedAgentSession(store, createChildSession, ownership, coordinator, params.prompt, ctx, handles),
+			() => dispatchReservedAgentSession(store, createChildSession, runtime, params.prompt, ctx, handles),
 			desktopNotifier,
 			waitingDesktopNotifications,
 			handles,
-			{ coordinator, ownership },
+			runtime,
 		);
 		releaseReservationAfterDispatch(dispatches, reservations, agent.id);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -972,11 +969,11 @@ async function spawnAgent(
 			store,
 			dispatches,
 			starting.agent,
-			() => dispatchReservedAgent(store, dispatcher, ownership, coordinator, params.prompt, ctx),
+			() => dispatchReservedAgent(store, dispatcher, runtime, params.prompt, ctx),
 			desktopNotifier,
 			waitingDesktopNotifications,
 			undefined,
-			{ coordinator, ownership },
+			runtime,
 		);
 		releaseReservationAfterDispatch(dispatches, reservations, agent.id);
 		return result(`Spawned ${agent.displayName} (${agent.id})`, {
@@ -1154,6 +1151,7 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): ReservedAgen
 	const acquired = coordinator.acquireAttachedRuntime(input.target, ownerSessionId);
 	if (!acquired.ok) return undefined;
 	return {
+		abortController: new AbortController(),
 		coordinator,
 		ownership: { agent: acquired.agent, reservation: acquired.reservation },
 	};
@@ -1263,15 +1261,7 @@ function dispatchReservedAttachedChildSession(
 			reservedRuntime,
 		);
 	}
-	return dispatchReservedAgentSession(
-		input.store,
-		factory,
-		reservedRuntime.ownership,
-		reservedRuntime.coordinator,
-		input.prompt,
-		input.ctx,
-		input.handles,
-	);
+	return dispatchReservedAgentSession(input.store, factory, reservedRuntime, input.prompt, input.ctx, input.handles);
 }
 
 function dispatchReservedAttachedAgent(
@@ -1289,14 +1279,7 @@ function dispatchReservedAttachedAgent(
 			reservedRuntime,
 		);
 	}
-	return dispatchReservedAgent(
-		input.store,
-		dispatcher,
-		reservedRuntime.ownership,
-		reservedRuntime.coordinator,
-		input.prompt,
-		input.ctx,
-	);
+	return dispatchReservedAgent(input.store, dispatcher, reservedRuntime, input.prompt, input.ctx);
 }
 
 function spawnAttachedSessionAgent(
@@ -1461,6 +1444,7 @@ function trackAgentDispatch(
 	reservedRuntime: ReservedAgentRuntime,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
+	const stopReservationRenewal = startReservationRenewal(reservedRuntime);
 	const restoreGeneration = store.getRestoreGeneration();
 	const trackedDispatch = dispatch.catch((error: unknown) => {
 		const current = store.getAgent(agent.id) ?? agent;
@@ -1475,6 +1459,7 @@ function trackAgentDispatch(
 	});
 	dispatches.set(agent.id, trackedDispatch);
 	void trackedDispatch.finally(() => {
+		stopReservationRenewal();
 		if (dispatches.get(agent.id) === trackedDispatch) {
 			handles?.delete(agent.id);
 			dispatches.delete(agent.id);
@@ -1484,19 +1469,37 @@ function trackAgentDispatch(
 	return trackedDispatch;
 }
 
+function startReservationRenewal(runtime: ReservedAgentRuntime): () => void {
+	const timer = setInterval(() => {
+		const renewed = runtime.coordinator.renewReservation(runtime.ownership);
+		if (!renewed.ok) {
+			clearInterval(timer);
+			runtime.abortController.abort();
+			return;
+		}
+		runtime.ownership = { ...runtime.ownership, reservation: renewed.reservation };
+	}, CHILD_DISPATCH_RENEWAL_MS);
+	return () => clearInterval(timer);
+}
+
 async function dispatchReservedAgentSession(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory,
-	ownership: ReservedLifecycleCommandInput,
-	coordinator: LifecycleCoordinator,
+	reservedRuntime: ReservedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionContext,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
+	const { coordinator, ownership } = reservedRuntime;
 	const restoreGeneration = store.getRestoreGeneration();
 	let childSession: ChildAgentSession;
 	try {
-		childSession = await createChildSession({ agent: ownership.agent, ctx, prompt });
+		childSession = await createChildSession({
+			agent: ownership.agent,
+			ctx,
+			prompt,
+			signal: reservedRuntime.abortController.signal,
+		});
 	} catch (error) {
 		const runtimeError = {
 			code: "runtime_spawn_failed",
@@ -1534,8 +1537,8 @@ async function dispatchReservedAgentSession(
 		handles,
 		childSession,
 		{
-			coordinator,
-			ownership: { agent: running.agent, reservation: ownership.reservation },
+			...reservedRuntime,
+			ownership: { agent: running.agent, reservation: reservedRuntime.ownership.reservation },
 		},
 		restoreGeneration,
 	);
@@ -1556,9 +1559,22 @@ async function runAgentSession(
 	const running = { agent: runningAgent };
 	let childSession: ChildAgentSession | undefined;
 	let unregisterAbortHandler: (() => void) | undefined;
+	let unregisterLeaseAbort: (() => void) | undefined;
 	try {
-		const activeSession = createdSession ?? (await createChildSession({ agent: running.agent, ctx, prompt }));
+		const activeSession =
+			createdSession ??
+			(await createChildSession({
+				agent: running.agent,
+				ctx,
+				prompt,
+				signal: reservedRuntime.abortController.signal,
+			}));
 		childSession = activeSession;
+		const leaseSignal = reservedRuntime.abortController.signal;
+		const abortForLeaseLoss = () => activeSession.abort?.();
+		leaseSignal.addEventListener("abort", abortForLeaseLoss, { once: true });
+		unregisterLeaseAbort = () => leaseSignal.removeEventListener("abort", abortForLeaseLoss);
+		if (leaseSignal.aborted) activeSession.abort?.();
 		const current = store.getAgent(running.agent.id);
 		if (store.getRestoreGeneration() !== restoreGeneration || !current || !isActiveLifecycle(current.lifecycle)) {
 			activeSession.abort?.();
@@ -1608,6 +1624,7 @@ async function runAgentSession(
 		const current = store.getAgent(running.agent.id) ?? running.agent;
 		return finalizeReservedRuntime(store, current, "failed", { error: failure }, reservedRuntime, restoreGeneration);
 	} finally {
+		unregisterLeaseAbort?.();
 		unregisterAbortHandler?.();
 		handles?.delete(running.agent.id);
 		childSession?.dispose?.();
@@ -1617,17 +1634,16 @@ async function runAgentSession(
 async function dispatchReservedAgent(
 	store: MultiAgentStore,
 	dispatcher: ChildAgentDispatcher,
-	ownership: ReservedLifecycleCommandInput,
-	coordinator: LifecycleCoordinator,
+	reservedRuntime: ReservedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionContext,
 ): Promise<AgentSnapshot> {
-	const running = coordinator.confirmChildRuntime(ownership);
-	if (!running.ok) return ownership.agent;
+	const running = reservedRuntime.coordinator.confirmChildRuntime(reservedRuntime.ownership);
+	if (!running.ok) return reservedRuntime.ownership.agent;
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
 	return runAgentDispatcher(store, dispatcher, running.agent, prompt, ctx, {
-		coordinator,
-		ownership: { agent: running.agent, reservation: ownership.reservation },
+		...reservedRuntime,
+		ownership: { agent: running.agent, reservation: reservedRuntime.ownership.reservation },
 	});
 }
 
@@ -1642,7 +1658,12 @@ async function runAgentDispatcher(
 	const restoreGeneration = store.getRestoreGeneration();
 	const running = { agent: runningAgent };
 	try {
-		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
+		const dispatchResult = await dispatcher({
+			agent: running.agent,
+			ctx,
+			prompt,
+			signal: reservedRuntime.abortController.signal,
+		});
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		const current = store.getAgent(running.agent.id) ?? running.agent;
