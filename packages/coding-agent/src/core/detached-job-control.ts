@@ -13,21 +13,30 @@ export interface DetachedJobCancelCommand {
 	transportId: number;
 }
 
-interface StoredDetachedJobControlCommand {
-	command: "cancel";
+export interface DetachedJobResponseCommand {
+	command: "respond";
+	error?: string;
 	identity: DetachedJobLeaseIdentity;
-	reason?: string;
+	requestId: string;
+	result?: unknown;
+	transportId: number;
 }
 
-export function claimDetachedJobControlCommands(
+export type DetachedJobRuntimeCommand = DetachedJobCancelCommand | DetachedJobResponseCommand;
+
+type StoredDetachedJobRuntimeCommand =
+	| Omit<DetachedJobCancelCommand, "transportId">
+	| Omit<DetachedJobResponseCommand, "transportId">;
+
+export function claimDetachedJobRuntimeCommands(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
 	identity: DetachedJobLeaseIdentity,
-): DetachedJobCancelCommand[] {
-	const commands: DetachedJobCancelCommand[] = [];
+): DetachedJobRuntimeCommand[] {
+	const commands: DetachedJobRuntimeCommand[] = [];
 	for (const message of claimRuntimeMailboxMessages(controlDbPath, recipient)) {
-		const command = parseControlCommand(message.body);
-		if (!command || !sameLeaseIdentity(command.identity, identity)) {
+		const command = parseRuntimeCommand(message.body);
+		if (!command || !commandIdentityMatches(command, identity)) {
 			failRuntimeMailboxMessage(controlDbPath, message.id, "Detached job control identity mismatch");
 			continue;
 		}
@@ -35,49 +44,76 @@ export function claimDetachedJobControlCommands(
 			failRuntimeMailboxMessage(controlDbPath, message.id, "Detached job control delivery failed");
 			continue;
 		}
-		commands.push({
-			command: command.command,
-			identity: command.identity,
-			reason: command.reason,
-			transportId: message.id,
-		});
+		commands.push({ ...command, transportId: message.id });
 	}
 	return commands;
 }
 
-function parseControlCommand(body: string): StoredDetachedJobControlCommand | undefined {
+export function claimDetachedJobControlCommands(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	identity: DetachedJobLeaseIdentity,
+): DetachedJobCancelCommand[] {
+	return claimDetachedJobRuntimeCommands(controlDbPath, recipient, identity).filter(
+		(command): command is DetachedJobCancelCommand => command.command === "cancel",
+	);
+}
+
+function parseRuntimeCommand(body: string): StoredDetachedJobRuntimeCommand | undefined {
 	try {
 		const parsed = JSON.parse(body) as unknown;
-		if (!isRecord(parsed) || parsed.command !== "cancel" || !isRecord(parsed.identity)) return undefined;
-		const identity = parsed.identity;
-		if (
-			typeof identity.jobId !== "string" ||
-			typeof identity.expectedRevision !== "number" ||
-			typeof identity.leaseId !== "string" ||
-			typeof identity.runtimeIncarnation !== "string" ||
-			typeof identity.fencingEpoch !== "number" ||
-			typeof identity.outputLabel !== "string"
-		) {
-			return undefined;
+		if (!isRecord(parsed) || !isDetachedJobIdentity(parsed.identity)) return undefined;
+		if (parsed.command === "cancel") {
+			return {
+				command: "cancel",
+				identity: parsed.identity,
+				reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+			};
 		}
-		return {
-			command: "cancel",
-			identity: identity as unknown as DetachedJobLeaseIdentity,
-			reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
-		};
+		if (parsed.command === "respond" && typeof parsed.requestId === "string") {
+			return {
+				command: "respond",
+				error: typeof parsed.error === "string" ? parsed.error : undefined,
+				identity: parsed.identity,
+				requestId: parsed.requestId,
+				result: parsed.result,
+			};
+		}
+		return undefined;
 	} catch {
 		return undefined;
 	}
 }
 
-function sameLeaseIdentity(left: DetachedJobLeaseIdentity, right: DetachedJobLeaseIdentity): boolean {
+function isDetachedJobIdentity(value: unknown): value is DetachedJobLeaseIdentity {
+	if (!isRecord(value)) return false;
 	return (
-		left.jobId === right.jobId &&
-		left.expectedRevision === right.expectedRevision + 1 &&
-		left.leaseId === right.leaseId &&
-		left.runtimeIncarnation === right.runtimeIncarnation &&
-		left.fencingEpoch === right.fencingEpoch &&
-		left.outputLabel === right.outputLabel
+		typeof value.jobId === "string" &&
+		typeof value.expectedRevision === "number" &&
+		typeof value.leaseId === "string" &&
+		typeof value.runtimeIncarnation === "string" &&
+		typeof value.fencingEpoch === "number" &&
+		typeof value.outputLabel === "string"
+	);
+}
+
+function commandIdentityMatches(command: StoredDetachedJobRuntimeCommand, current: DetachedJobLeaseIdentity): boolean {
+	const expectedRevision = command.command === "cancel" ? current.expectedRevision + 1 : current.expectedRevision;
+	return sameLeaseIdentity(command.identity, current, expectedRevision);
+}
+
+function sameLeaseIdentity(
+	candidate: DetachedJobLeaseIdentity,
+	current: DetachedJobLeaseIdentity,
+	expectedRevision: number,
+): boolean {
+	return (
+		candidate.jobId === current.jobId &&
+		candidate.expectedRevision === expectedRevision &&
+		candidate.leaseId === current.leaseId &&
+		candidate.runtimeIncarnation === current.runtimeIncarnation &&
+		candidate.fencingEpoch === current.fencingEpoch &&
+		candidate.outputLabel === current.outputLabel
 	);
 }
 

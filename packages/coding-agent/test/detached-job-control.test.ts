@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claimDetachedJobControlCommands } from "../src/core/detached-job-control.ts";
+import { claimDetachedJobControlCommands, claimDetachedJobRuntimeCommands } from "../src/core/detached-job-control.ts";
 import type { DetachedJobLeaseIdentity } from "../src/core/detached-job-runner.ts";
 import {
 	enqueueRuntimeMailboxMessage,
@@ -38,6 +38,40 @@ describe("detached job runtime mailbox control", () => {
 			{ command: "cancel", identity: cancellingIdentity, reason: "user requested", transportId: 1 },
 		]);
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([{ id: 1, status: "delivered" }]);
+	});
+
+	it("accepts a bridge response only at the exact current revision", () => {
+		const fixture = createFixture();
+		enqueueControl(fixture, "message_1", {
+			command: "respond",
+			identity,
+			requestId: "request-1",
+			result: { value: 42 },
+		});
+
+		expect(claimDetachedJobRuntimeCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([
+			{
+				command: "respond",
+				identity,
+				requestId: "request-1",
+				result: { value: 42 },
+				transportId: 1,
+			},
+		]);
+	});
+
+	it("rejects a bridge response from a different revision", () => {
+		const fixture = createFixture();
+		enqueueControl(fixture, "message_1", {
+			command: "respond",
+			identity: { ...identity, expectedRevision: identity.expectedRevision + 1 },
+			requestId: "request-1",
+		});
+
+		expect(claimDetachedJobRuntimeCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([
+			{ error: "Detached job control identity mismatch", id: 1, status: "failed" },
+		]);
 	});
 
 	it("rejects a skipped cancellation revision without returning a payload command", () => {
