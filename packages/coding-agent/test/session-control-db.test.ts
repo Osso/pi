@@ -25,6 +25,7 @@ import {
 	completeArchitectRequest,
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
+	createMultiAgentChildWithDispatchReservation,
 	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
@@ -578,6 +579,56 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("creates a child and its dispatch reservation atomically", () => {
+		const sessionPath = "/sessions/child-reservation.jsonl";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-parent", {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Parent",
+			agentType: "main",
+			id: "agent-parent",
+			lifecycle: "queued",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 0,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const created = createMultiAgentChildWithDispatchReservation(controlDbPath, {
+			agentId: "agent-child",
+			agent: {
+				createdAt: "2026-07-11T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Child",
+				agentType: "implement",
+				id: "agent-child",
+				lifecycle: "queued",
+				parentId: "agent-parent",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 0,
+				updatedAt: "2026-07-11T00:00:00.000Z",
+			},
+			expiresAt: "2026-07-11T00:10:00.000Z",
+			leaseId: "lease-child",
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			runtimeIncarnation: "runtime-child",
+			sessionPath,
+		});
+		expect(created).toMatchObject({
+			agent: { id: "agent-child", lifecycle: "queued", parentId: "agent-parent", revision: 0 },
+			lease: { fencingEpoch: 1, leaseId: "lease-child" },
+			ok: true,
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ id: "agent-parent" },
+			{ id: "agent-child", parentId: "agent-parent" },
+		]);
+		expect(readMultiAgentDispatchLease(controlDbPath, sessionPath, "agent-child")).toMatchObject({
+			fencingEpoch: 1,
+			leaseId: "lease-child",
+		});
 	});
 
 	it("applies lifecycle CAS only for the complete ownership predicate", async () => {

@@ -2069,6 +2069,14 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 	};
 }
 
+export interface CreateMultiAgentChildWithDispatchReservationInput extends AcquireMultiAgentDispatchLeaseInput {
+	agent: Record<string, unknown>;
+}
+
+export type CreateMultiAgentChildWithDispatchReservationResult =
+	| { ok: true; agent: Record<string, unknown>; lease: MultiAgentDispatchLease }
+	| { ok: false; error: "agent_exists" | "parent_not_found" };
+
 export interface MultiAgentDispatchLease {
 	sessionPath: string;
 	agentId: string;
@@ -2662,6 +2670,56 @@ function multiAgentRecoveryLeaderLeaseFromRow(row: MultiAgentRecoveryLeaderLease
 		renewedAt: row.renewed_at ?? undefined,
 		runtimeIncarnation: row.runtime_incarnation ?? undefined,
 	};
+}
+
+export function createMultiAgentChildWithDispatchReservation(
+	controlDbPath: string,
+	input: CreateMultiAgentChildWithDispatchReservationInput,
+): CreateMultiAgentChildWithDispatchReservationResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			validatePersistedAgentPayload(input.agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			if (input.agent.id !== input.agentId)
+				throw new Error("Child agent payload ID does not match reservation identity");
+			const parentId = typeof input.agent.parentId === "string" ? input.agent.parentId : undefined;
+			if (
+				!parentId ||
+				!db
+					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+					.get(input.sessionPath, parentId)
+			) {
+				return { ok: false, error: "parent_not_found" };
+			}
+			if (
+				db
+					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+					.get(input.sessionPath, input.agentId)
+			) {
+				return { ok: false, error: "agent_exists" };
+			}
+			db.prepare(
+				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+			).run(input.sessionPath, input.agentId, JSON.stringify(input.agent), input.nowIso);
+			db.prepare(`INSERT INTO multi_agent_dispatch_leases (
+			session_path, agent_id, lease_id, runtime_incarnation, owner_session_id,
+			owner_agent_id, fencing_epoch, renewed_at, expires_at, recovery_owner_id
+		) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`).run(
+				input.sessionPath,
+				input.agentId,
+				input.leaseId,
+				input.runtimeIncarnation,
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.nowIso,
+				input.expiresAt,
+				input.recoveryOwnerId ?? null,
+			);
+			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!lease)
+				throw new Error(`Child dispatch reservation did not persist ${input.sessionPath}#${input.agentId}`);
+			return { ok: true, agent: input.agent, lease: multiAgentDispatchLeaseFromRow(lease) };
+		}),
+	);
 }
 
 export function readMultiAgentDispatchLease(

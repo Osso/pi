@@ -44,7 +44,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       can independently observe the same terminal revision. Outbox rows use atomic single-claim delivery;
       failures return the same row to pending with an incremented attempt count and retained error, while
       successful delivery finalizes only transport state and never consumes terminal-event visibility.
-      Offline lifecycle migration creates explicit unreserved epoch-0 dispatch rows for legacy queued
+      Child creation can atomically validate its parent, insert the queued child row, and acquire its
+      first live dispatch reservation at fencing epoch 1; duplicate child IDs or missing parents commit
+      neither row. Offline lifecycle migration creates explicit unreserved epoch-0 dispatch rows for legacy queued
       agents and resolves unfenced active rows as `failed/lost_runtime` with atomic terminal event/outbox
       records; it never guesses that an orphaned runtime was aborted. Nonterminal lifecycle CAS uses the
       same complete revision/lease/runtime/owner/fencing predicate; concurrent SQLite contenders serialize
