@@ -1802,11 +1802,8 @@ describe("multi-agent extension tools", () => {
 
 	it("views one agent without lifecycle mutation", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Parent",
-			prompt: "Parent task",
-		});
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
+		const child = spawnStoreFixture(harness.store, {
 			displayName: "Child",
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
@@ -1947,11 +1944,8 @@ describe("multi-agent extension tools", () => {
 
 	it("projects mailbox inbox, outbox, and acknowledgements without mutating state", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Parent",
-			prompt: "Parent task",
-		});
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
+		const child = spawnStoreFixture(harness.store, {
 			displayName: "Child",
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
