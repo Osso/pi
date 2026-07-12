@@ -217,16 +217,7 @@ describe("AgentSession concurrent prompt guard", () => {
 				queueMicrotask(() => {
 					const userTexts = context.messages
 						.filter((message) => message.role === "user")
-						.map((message) => {
-							if (typeof message.content === "string") {
-								return message.content;
-							}
-							return message.content
-								.filter((part): part is TextContent | ImageContent => typeof part === "object" && part !== null)
-								.filter((part): part is TextContent => part.type === "text")
-								.map((part) => part.text)
-								.join("\n");
-						});
+						.map((message) => getUserMessageText(message.content));
 
 					if (userTexts.includes("Steer from extension")) {
 						stream.push({ type: "start", partial: createAssistantMessage("") });
