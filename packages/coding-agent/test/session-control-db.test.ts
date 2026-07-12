@@ -77,6 +77,7 @@ import {
 	setNamedSession,
 	unarchiveSession,
 	updateMultiAgentAgentActivity,
+	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
@@ -942,6 +943,15 @@ describe("session control DB", () => {
 			lifecycle: "completed",
 			revision: 5,
 		});
+		expect(
+			updateMultiAgentAgentSlot(
+				controlDbPath,
+				sessionPath,
+				"agent-1",
+				{ index: 3, pinned: true },
+				"2026-07-11T00:04:00.000Z",
+			),
+		).toMatchObject({ lifecycle: "completed", revision: 5, slot: { index: 3, pinned: true } });
 	});
 
 	it("finalizes a detached job from its exact durable envelope", () => {

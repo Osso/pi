@@ -3683,6 +3683,16 @@ export function updateMultiAgentAgentActivity(
 	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { lastActivity }, updatedAt);
 }
 
+export function updateMultiAgentAgentSlot(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	slot: AgentSnapshot["slot"],
+	updatedAt: string,
+): AgentSnapshot | undefined {
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { slot }, updatedAt);
+}
+
 export function updateMultiAgentAgentTranscript(
 	controlDbPath: string,
 	sessionPath: string,
@@ -3697,7 +3707,7 @@ function updateMultiAgentAgentMetadata(
 	controlDbPath: string,
 	sessionPath: string,
 	agentId: string,
-	metadata: Pick<AgentSnapshot, "lastActivity"> | Pick<AgentSnapshot, "transcript">,
+	metadata: Pick<AgentSnapshot, "lastActivity"> | Pick<AgentSnapshot, "slot"> | Pick<AgentSnapshot, "transcript">,
 	updatedAt: string,
 ): AgentSnapshot | undefined {
 	return withControlDb(controlDbPath, (db) =>

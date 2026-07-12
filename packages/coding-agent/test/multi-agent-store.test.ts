@@ -342,7 +342,7 @@ describe("MultiAgentStore", () => {
 			model: { modelId: "gpt-test", providerId: "faux", thinkingLevel: "medium" },
 			parentId: "root",
 			permission: { inheritedFrom: "root", narrowed: true, policy: "on-request" },
-			revision: spawned.agent.revision + 1,
+			revision: spawned.agent.revision,
 			slot: { index: 7, pinned: true },
 			transcript: { path: "/tmp/sessions/child.jsonl", sessionId: "session-1" },
 			worktree: { base: "main", branch: "agent/worker", path: "/repo-worktrees/worker" },
@@ -356,7 +356,7 @@ describe("MultiAgentStore", () => {
 		expect(cleared.agent).toMatchObject({
 			id: spawned.agent.id,
 			lifecycle: "queued",
-			revision: pinned.agent.revision + 1,
+			revision: pinned.agent.revision,
 		});
 		expect(cleared.agent.slot).toBeUndefined();
 	});

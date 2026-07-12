@@ -4,6 +4,7 @@ import {
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
+	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
@@ -713,7 +714,7 @@ export class MultiAgentStore {
 			};
 		}
 
-		const updated = this.updateAgent(current, {
+		const updated = this.updateAgentMetadata(current, {
 			slot: { index: slotIndex, pinned: true },
 		});
 		return { ok: true, agent: copyAgent(updated) };
@@ -747,7 +748,7 @@ export class MultiAgentStore {
 			};
 		}
 
-		const updated = this.updateAgent(current, {
+		const updated = this.updateAgentMetadata(current, {
 			slot: undefined,
 		});
 		return { ok: true, agent: copyAgent(updated) };
@@ -1172,11 +1173,11 @@ export class MultiAgentStore {
 
 	private updateAgentMetadata(
 		current: AgentNode,
-		updates: Partial<Pick<AgentNode, "lastActivity" | "transcript">>,
+		updates: Partial<Pick<AgentNode, "lastActivity" | "slot" | "transcript">>,
 	): AgentNode {
 		const updatedAt = this.now();
 		const persisted = this.persistence
-			? updates.transcript
+			? "transcript" in updates
 				? updateMultiAgentAgentTranscript(
 						this.persistence.controlDbPath,
 						this.persistence.sessionPath,
@@ -1184,13 +1185,21 @@ export class MultiAgentStore {
 						updates.transcript,
 						updatedAt,
 					)
-				: updateMultiAgentAgentActivity(
-						this.persistence.controlDbPath,
-						this.persistence.sessionPath,
-						current.id,
-						updates.lastActivity,
-						updatedAt,
-					)
+				: "slot" in updates
+					? updateMultiAgentAgentSlot(
+							this.persistence.controlDbPath,
+							this.persistence.sessionPath,
+							current.id,
+							updates.slot,
+							updatedAt,
+						)
+					: updateMultiAgentAgentActivity(
+							this.persistence.controlDbPath,
+							this.persistence.sessionPath,
+							current.id,
+							updates.lastActivity,
+							updatedAt,
+						)
 			: undefined;
 		if (this.persistence && !persisted) {
 			throw new Error(`Persisted agent ${current.id} disappeared during metadata update`);

@@ -117,7 +117,8 @@ and late waiters therefore observe the same terminal revision independently. Run
 metadata updates merge into the latest persisted agent snapshot inside an immediate transaction and
 cannot rewrite lifecycle or revision from a stale in-memory projection; restore never writes its
 runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata uses
-the same merge rule and no longer advances the lifecycle revision token.
+the same merge rule and no longer advances the lifecycle revision token. Pinned-slot metadata follows
+the same rule, including clear operations.
 
 ## What it must do
 
