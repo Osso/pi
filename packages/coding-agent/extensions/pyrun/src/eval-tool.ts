@@ -139,6 +139,30 @@ function createPiCapabilitySnapshot(ctx: PyrunEvalContext): PyrunPiCapabilitySna
 	};
 }
 
+export function createCanonicalPyrunEvalParams(
+	params: PyrunEvalParams,
+	ctx: PyrunEvalContext,
+	piBridgeEnabled: boolean,
+) {
+	return {
+		...params,
+		pi: piBridgeEnabled ? createPiCapabilitySnapshot(ctx) : undefined,
+		pi_bridge: piBridgeEnabled,
+		stream_console: true,
+	};
+}
+
+export function formatCanonicalPyrunEvalResult(
+	params: PyrunEvalParams,
+	result: CanonicalPyrunEvalResult,
+): AgentToolResult<CanonicalPyrunEvalResult> {
+	return {
+		content: [{ type: "text", text: formatToolText(params, result) }],
+		details: result,
+		isError: result.error !== undefined,
+	};
+}
+
 export interface PyrunEvalExecutorOptions {
 	enablePiBridge?: boolean;
 }
@@ -165,12 +189,7 @@ export function createPyrunEvalExecutor(
 			: undefined;
 		let streamedConsoleText = "";
 		const result = await runner.evaluate(
-			{
-				...params,
-				pi: piBridgeEnabled ? createPiCapabilitySnapshot(ctx) : undefined,
-				pi_bridge: piBridgeEnabled,
-				stream_console: true,
-			},
+			createCanonicalPyrunEvalParams(params, ctx, piBridgeEnabled),
 			(update) => {
 				const formattedProgressText = formatProgressText(update);
 				const progressText =
@@ -188,10 +207,6 @@ export function createPyrunEvalExecutor(
 			signal,
 			onPiRequest,
 		);
-		return {
-			content: [{ type: "text", text: formatToolText(params, result) }],
-			details: result,
-			isError: result.error !== undefined,
-		};
+		return formatCanonicalPyrunEvalResult(params, result);
 	};
 }
