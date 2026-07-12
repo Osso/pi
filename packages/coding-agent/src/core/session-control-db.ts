@@ -3475,7 +3475,13 @@ export function acquireAttachedRuntimeLease(
 }
 
 function isRecoverableRuntimeLifecycle(value: unknown): boolean {
-	return value === "waiting_for_input" || value === "starting" || value === "running" || value === "cancelling";
+	return (
+		value === "waiting_for_input" ||
+		value === "starting" ||
+		value === "running" ||
+		value === "steering_pending" ||
+		value === "cancelling"
+	);
 }
 
 function persistAcquiredDispatchLease(

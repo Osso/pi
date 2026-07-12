@@ -1013,7 +1013,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("resumes recovered agents from persisted transcripts regardless of origin", async () => {
+	it("resumes steering-pending agents from persisted transcripts regardless of origin", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1031,9 +1031,19 @@ describe("multi-agent extension tools", () => {
 		);
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected spawned child to start");
-		expect(
-			legacyMultiAgentStore(source).transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok,
-		).toBe(true);
+		const running = legacyMultiAgentStore(source).transitionAgent(
+			interrupted.agent.id,
+			started.agent.revision,
+			"running",
+		);
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected spawned child to run");
+		const steering = legacyMultiAgentStore(source).sendSteering(interrupted.agent.id, running.agent.revision, {
+			body: "Continue after recovery",
+			fromAgentId: "main",
+			targetCheckpoint: "next_model_call",
+		});
+		expect(steering.ok).toBe(true);
 		addExpiredDispatchLease(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -1210,6 +1220,7 @@ describe("multi-agent extension tools", () => {
 			cwd: "/repo",
 			displayName: "Cancel pending",
 			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/cancelling.jsonl", sessionId: "cancelling-session" },
 		});
 		const started = legacyMultiAgentStore(source).transitionAgent(
 			cancelled.agent.id,
@@ -1230,11 +1241,13 @@ describe("multi-agent extension tools", () => {
 		).toBe(true);
 		addExpiredDispatchLease(source, cancelled.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
-		const harness = createMultiAgentHarness({ store });
+		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
 		await delay(20);
 
+		expect(createAttachedSession).not.toHaveBeenCalled();
 		expect(store.getAgent(cancelled.agent.id)).toMatchObject({
 			lifecycle: "failed",
 			error: { code: "lost_runtime" },

@@ -1177,6 +1177,10 @@ function recoverAgent(
 	if (input.dispatches.has(agent.id) || agent.lifecycle === "queued") return;
 	if (!isInFlightLifecycle(agent.lifecycle)) return;
 	if (scheduleAgentRecoveryAfterLiveLease(input, agent, recoveryTimers)) return;
+	if (agent.lifecycle === "cancelling") {
+		resolveExpiredAgentRuntime(input, agent);
+		return;
+	}
 	if (input.createAttachedSession && agent.transcript?.path) {
 		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
 		return;
@@ -1199,6 +1203,19 @@ function recoverAgent(
 		reservedRuntime,
 	);
 	input.reservations.delete(agent.id);
+}
+
+function resolveExpiredAgentRuntime(
+	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
+	agent: AgentSnapshot,
+): void {
+	const persistence = input.store.getPersistenceTarget();
+	if (!persistence) return;
+	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
+	if (!coordinator) return;
+	const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
+	const recovered = coordinator.recoverExpiredChild({ agent, ownerSessionId });
+	if (recovered.ok) publishCoordinatorSnapshot(input.store, recovered.agent);
 }
 
 function scheduleAgentRecoveryAfterLiveLease(

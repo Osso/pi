@@ -171,10 +171,11 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
       work through the coordinator, but generic owner loss or lease expiry resolves as
       `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Queued, terminal,
       current-live, and uncertain process-backed rows follow their explicit recovery policy.
-- [x] Agents already `waiting_for_input` are not auto-prompted after restore unless an executable
-      session runtime is configured to continue their persisted transcript.
-- [x] Any detached in-flight agent with a transcript is resumed through the same session dispatch path;
-      the `origin` field records construction provenance and does not select runtime behavior.
+- [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
+      only when a new prompt or mailbox message arrives.
+- [x] Any detached `starting`, `running`, or `steering_pending` agent with a transcript is resumed through
+      the same session dispatch path; the `origin` field records construction provenance and does not
+      select runtime behavior. `cancelling` agents resolve through fenced recovery without restarting a prompt.
 - [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
       `running` while the dispatch and handle are re-established.
 - [x] A detached in-flight agent with no transcript is marked `failed/lost_runtime` with an explicit
