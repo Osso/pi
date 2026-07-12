@@ -2501,6 +2501,9 @@ export function commitMultiAgentTerminalMutation(
 			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
 				return { ok: false, error: "invalid_transition" };
 			}
+			if (hasActivePersistedDescendant(db, input.sessionPath, input.agentId)) {
+				return { ok: false, error: "invalid_transition" };
+			}
 
 			const updatedAgent = {
 				...agent,
@@ -2533,6 +2536,34 @@ export function commitMultiAgentTerminalMutation(
 			return { ok: true, terminalRevision };
 		}),
 	);
+}
+
+function hasActivePersistedDescendant(db: SqliteDatabase, sessionPath: string, ancestorId: string): boolean {
+	const rows = db
+		.prepare("SELECT agent_id, data FROM multi_agent_agents WHERE session_path = ?")
+		.all(sessionPath) as Array<{ agent_id: string; data: string }>;
+	const agents = new Map(
+		rows.map((row) => [
+			row.agent_id,
+			parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${row.agent_id}`),
+		]),
+	);
+	for (const [agentId, agent] of agents) {
+		if (!isNonterminalLifecycle(agent.lifecycle)) continue;
+		let parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
+		const visited = new Set<string>([agentId]);
+		while (parentId && !visited.has(parentId)) {
+			if (parentId === ancestorId) return true;
+			visited.add(parentId);
+			const parent = agents.get(parentId);
+			parentId = typeof parent?.parentId === "string" ? parent.parentId : undefined;
+		}
+	}
+	return false;
+}
+
+function isNonterminalLifecycle(lifecycle: unknown): boolean {
+	return typeof lifecycle === "string" && !["completed", "failed", "aborted"].includes(lifecycle);
 }
 
 function terminalMutationReplayResult(

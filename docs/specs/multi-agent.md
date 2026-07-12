@@ -176,8 +176,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Interactive Escape submits the same operation through an injected cancellation boundary and never
   directly mutates lifecycle state or invokes a store abort path. Queued and
   starting children use the same ordering. Cancelling a parent issues cancellation intents to active
-  descendants, while each descendant still terminalizes through its own fenced command. A parent cannot become terminal while any
-  descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry
+  descendants deepest-first, while each descendant still terminalizes through its own fenced command.
+  `cancel_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. SQLite
+  rejects any parent terminal mutation while a persisted descendant remains nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry
   for descendants before terminalizing the parent.
 - Externally visible child effects use a deterministic operation identity derived from the durable
   agent identity and command/tool-call revision when the target adapter supports idempotency keys.

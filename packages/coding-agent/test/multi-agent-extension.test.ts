@@ -1417,6 +1417,43 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.getAgent(current.id)).toMatchObject({ lifecycle: "cancelling" });
 	});
 
+	it("cascades cancellation through active descendants before terminalizing the parent", async () => {
+		const rejectPromptByAgent = new Map<string, (error: Error) => void>();
+		const abortOrder: string[] = [];
+		const harness = createMultiAgentHarness({
+			createChildSession: async ({ agent }) => {
+				const prompt = new Promise<void>((_resolve, reject) => rejectPromptByAgent.set(agent.id, reject));
+				return {
+					abort: () => {
+						abortOrder.push(agent.id);
+						rejectPromptByAgent.get(agent.id)?.(new Error("aborted"));
+					},
+					messages: [],
+					prompt: async () => prompt,
+				};
+			},
+		});
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "parent",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "child",
+		});
+		await Promise.resolve();
+
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: parent.details.agent.id,
+			reason: "cascade",
+		});
+
+		expect(abortOrder).toEqual([child.details.agent.id, parent.details.agent.id]);
+		expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
+		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
+	});
+
 	it("terminalizes cancellation only after the child runtime exits", async () => {
 		let rejectPrompt: (error: Error) => void = () => {};
 		const prompt = new Promise<void>((_resolve, reject) => {

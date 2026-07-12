@@ -13,10 +13,11 @@ function createCoordinator(
 	controlDbPath: string,
 	sessionPath: string,
 	now: () => string = () => "2026-07-11T20:00:00.000Z",
+	createAgentId: () => string = () => "agent-child",
 ): LifecycleCoordinator {
 	return new LifecycleCoordinator({
 		controlDbPath,
-		createAgentId: () => "agent-child",
+		createAgentId,
 		createLeaseId: () => "lease-child",
 		now,
 		reservationDurationMs: 30_000,
@@ -106,6 +107,56 @@ describe("LifecycleCoordinator child creation", () => {
 				reservation: { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 },
 			}),
 		).toEqual({ ok: false, error: "mutation_mismatch" });
+	});
+
+	it("blocks parent terminalization until active descendants are terminal", () => {
+		const ids = ["agent-parent", "agent-child"];
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath, undefined, () => ids.shift() ?? "agent-extra");
+		const parent = coordinator.createChild(childInput());
+		if (!parent.ok) return;
+		const parentStarting = coordinator.beginChildRuntime({ agent: parent.agent, reservation: parent.reservation });
+		if (!parentStarting.ok) return;
+		const parentRunning = coordinator.confirmChildRuntime({
+			agent: parentStarting.agent,
+			reservation: parent.reservation,
+		});
+		if (!parentRunning.ok) return;
+		const child = coordinator.createChild(childInput(parent.agent.id));
+		if (!child.ok) return;
+		const childStarting = coordinator.beginChildRuntime({ agent: child.agent, reservation: child.reservation });
+		if (!childStarting.ok) return;
+		const childRunning = coordinator.confirmChildRuntime({
+			agent: childStarting.agent,
+			reservation: child.reservation,
+		});
+		if (!childRunning.ok) return;
+
+		expect(
+			coordinator.finalizeChild({
+				agent: parentRunning.agent,
+				eventPayload: { result: { summary: "parent" } },
+				reservation: parent.reservation,
+				terminalLifecycle: "completed",
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
+		expect(
+			coordinator.finalizeChild({
+				agent: childRunning.agent,
+				eventPayload: { result: { summary: "child" } },
+				reservation: child.reservation,
+				terminalLifecycle: "completed",
+			}).ok,
+		).toBe(true);
+		expect(
+			coordinator.finalizeChild({
+				agent: parentRunning.agent,
+				eventPayload: { result: { summary: "parent" } },
+				reservation: parent.reservation,
+				terminalLifecycle: "completed",
+			}).ok,
+		).toBe(true);
 	});
 
 	it("orders natural completion before a later cancellation request", () => {

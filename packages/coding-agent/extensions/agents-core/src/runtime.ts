@@ -2259,6 +2259,19 @@ export async function cancelReservedAgentRuntime(
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
 ): Promise<CancelReservedAgentResult> {
+	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
+	for (const descendant of descendants) {
+		const cancelled = await cancelOneReservedAgentRuntime(store, runtimeHandles, descendant.id);
+		if (!cancelled.ok) return cancelled;
+	}
+	return cancelOneReservedAgentRuntime(store, runtimeHandles, agentId);
+}
+
+async function cancelOneReservedAgentRuntime(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+	agentId: string,
+): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
 	const reservedRuntime = runtimeHandles.reservations.get(agentId);
@@ -2761,11 +2774,17 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		unsubscribeRuntimeLifecycleMirror = undefined;
 		for (const timer of recoveryTimers.values()) clearTimeout(timer);
 		recoveryTimers.clear();
-		// Abort-induced dispatch rejections must not persist agents as failed;
-		// the last snapshot keeps them active so a later resume can recover them.
+		const reservedAgentIds = new Set(reservations.keys());
+		const cancellationRoots = [...reservedAgentIds].filter((agentId) => {
+			const parentId = store.getAgent(agentId)?.parentId;
+			return !parentId || !reservedAgentIds.has(parentId);
+		});
+		for (const agentId of cancellationRoots) {
+			await cancelReservedAgentRuntime(store, runtimeHandles, agentId);
+		}
 		store.invalidateInFlightDispatches();
 		for (const agentId of backgroundSessions.keys()) {
-			store.abortAgentHandle(agentId);
+			if (!reservedAgentIds.has(agentId)) store.abortAgentHandle(agentId);
 		}
 		for (const agentId of waitingDesktopNotifications.keys()) {
 			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
