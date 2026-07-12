@@ -199,6 +199,23 @@ const commandSourceInfo = {
 	source: "extension",
 } as const;
 
+function spawnStoreFixture(
+	store: MultiAgentStore,
+	input: { agentType?: string; displayName?: string; parentId?: string; prompt: string },
+): AgentToolResult<SpawnAgentDetails> {
+	const agent = store.spawnAgent({
+		agentType: input.agentType?.trim() || "default",
+		cwd: "/repo",
+		displayName: input.displayName?.trim() || input.agentType?.trim() || "Agent",
+		parentId: input.parentId,
+		permission: { narrowed: true, policy: "on-request" },
+	}).agent;
+	return {
+		content: [{ type: "text", text: `Fixture ${agent.displayName} (${agent.id})` }],
+		details: { agent, dispatched: false, prompt: input.prompt },
+	};
+}
+
 function createMultiAgentHarness(
 	options: {
 		createAttachedSession?: AttachedSessionFactory;
@@ -1674,12 +1691,12 @@ describe("multi-agent extension tools", () => {
 
 	it("renders each listed agent identity and active or terminal status in visible content", async () => {
 		const harness = createMultiAgentHarness();
-		const active = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const active = spawnStoreFixture(harness.store, {
 			displayName: "Active Scout",
 			agentType: "explore",
 			prompt: "Inspect active work",
 		});
-		const completed = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const completed = spawnStoreFixture(harness.store, {
 			displayName: "Finished Worker",
 			agentType: "implement",
 			prompt: "Inspect finished work",
@@ -1702,11 +1719,11 @@ describe("multi-agent extension tools", () => {
 
 	it("lists only active agents by default while allowing inactive agents when requested", async () => {
 		const harness = createMultiAgentHarness();
-		const active = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const active = spawnStoreFixture(harness.store, {
 			displayName: "Active",
 			prompt: "Active task",
 		});
-		const completed = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const completed = spawnStoreFixture(harness.store, {
 			displayName: "Completed",
 			prompt: "Completed task",
 		});
@@ -1725,19 +1742,13 @@ describe("multi-agent extension tools", () => {
 
 	it("lists descendants for a parent without TUI state", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Parent",
-			prompt: "Parent task",
-		});
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
+		const child = spawnStoreFixture(harness.store, {
 			displayName: "Child",
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
 		});
-		await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Sibling",
-			prompt: "Sibling task",
-		});
+		spawnStoreFixture(harness.store, { displayName: "Sibling", prompt: "Sibling task" });
 
 		const listed = await harness.call<ListAgentsDetails>("list_agents", {
 			parentId: parent.details.agent.id,
