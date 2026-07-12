@@ -47,6 +47,7 @@ import {
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
+import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
@@ -1231,7 +1232,7 @@ function scheduleSpawnedAgentRecovery(
 		const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
 		const recovered = coordinator.recoverExpiredChild({ agent: current, ownerSessionId });
 		if (recovered.ok) {
-			input.store.publishLifecycleCoordinatorSnapshot(recovered.agent);
+			publishCoordinatorSnapshot(input.store, recovered.agent);
 			return;
 		}
 		if (recovered.error === "lease_held") {
@@ -1528,7 +1529,7 @@ async function dispatchReservedAgentSession(
 			terminalLifecycle: "failed",
 		});
 		if (!failed.ok) return ownership.agent;
-		store.publishLifecycleCoordinatorSnapshot(failed.agent);
+		publishCoordinatorSnapshot(store, failed.agent);
 		return failed.agent;
 	}
 	if (store.getRestoreGeneration() !== restoreGeneration) {
@@ -1716,8 +1717,21 @@ function finalizeReservedRuntime(
 		terminalLifecycle,
 	});
 	if (!finalized.ok) return store.getAgent(agent.id) ?? agent;
-	store.publishLifecycleCoordinatorSnapshot(finalized.agent);
+	publishCoordinatorSnapshot(store, finalized.agent);
 	return finalized.agent;
+}
+
+function publishCoordinatorSnapshot(store: MultiAgentStore, agent: AgentSnapshot): void {
+	store.publishLifecycleCoordinatorSnapshot(agent);
+	if (isActiveLifecycle(agent.lifecycle)) return;
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) return;
+	deliverTerminalOutboxProjections({
+		claimId: randomUUID(),
+		controlDbPath: persistence.controlDbPath,
+		now: () => new Date().toISOString(),
+		store,
+	});
 }
 
 function acknowledgeCancelledRuntime(
@@ -1735,7 +1749,7 @@ function acknowledgeCancelledRuntime(
 		reservation: reservedRuntime.ownership.reservation,
 	});
 	if (!acknowledged.ok) return current;
-	store.publishLifecycleCoordinatorSnapshot(acknowledged.agent);
+	publishCoordinatorSnapshot(store, acknowledged.agent);
 	return acknowledged.agent;
 }
 
@@ -2350,7 +2364,7 @@ function cancelPersistedDetachedRuntime(
 		reservation: lease,
 	});
 	if (!cancelled.ok) return { ok: false, error: "mutation_rejected", agent };
-	store.publishLifecycleCoordinatorSnapshot(cancelled.agent);
+	publishCoordinatorSnapshot(store, cancelled.agent);
 	return { ok: true, agent: cancelled.agent };
 }
 

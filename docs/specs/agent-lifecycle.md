@@ -103,7 +103,9 @@ Every terminal transition commits its state/revision mutation and exactly one im
 event/outbox record in the same SQLite transaction. Event identity is unique
 `(agent_id, terminal_revision, event_kind)`; the payload includes the terminal outcome, cause/error or
 result reference, agent/parent identity, and authorizing fencing identity. Redelivery reuses the same
-identity and payload.
+identity and payload. Ordinary coordinator projection is notification-free for terminal states;
+only a claimed terminal outbox record may project the terminal snapshot and create its completion or
+failure mailbox notification.
 
 ## What it must do
 

@@ -1271,6 +1271,7 @@ export class AgentSession {
 		});
 		if (!finalized.ok) return false;
 		store.publishLifecycleCoordinatorSnapshot(finalized.agent);
+		this._drainTerminalOutboxProjections();
 		return true;
 	}
 

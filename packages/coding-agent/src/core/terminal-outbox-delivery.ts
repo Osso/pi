@@ -42,7 +42,7 @@ function deliverTerminalOutboxProjection(
 				`Terminal outbox projection does not match agent ${record.agentId} revision ${record.terminalRevision}`,
 			);
 		}
-		options.store.publishLifecycleCoordinatorSnapshot(agent);
+		options.store.publishTerminalOutboxSnapshot(agent);
 		if (!deliverMultiAgentTerminalOutbox(options.controlDbPath, record, options.now())) {
 			throw new Error(`Could not acknowledge terminal outbox projection for ${record.agentId}`);
 		}

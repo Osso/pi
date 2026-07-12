@@ -69,6 +69,7 @@ describe("durable detached Pyrun evaluation", () => {
 			return agent?.lifecycle === "completed";
 		});
 		expect(store.getAgent("agent_1")?.lifecycle).toBe("running");
+		expect(store.listMailboxMessages()).toHaveLength(0);
 		expect(
 			deliverTerminalOutboxProjections({
 				claimId: "test-projection",
@@ -78,6 +79,9 @@ describe("durable detached Pyrun evaluation", () => {
 			}),
 		).toBe(1);
 		expect(store.getAgent("agent_1")?.lifecycle).toBe("completed");
+		expect(store.listMailboxMessages()).toMatchObject([
+			{ fromAgentId: "agent_1", status: "pending", threadId: "agent-completed:agent_1" },
+		]);
 		expect(
 			deliverTerminalOutboxProjections({
 				claimId: "test-projection",
@@ -86,6 +90,7 @@ describe("durable detached Pyrun evaluation", () => {
 				store,
 			}),
 		).toBe(0);
+		expect(store.listMailboxMessages()).toHaveLength(1);
 	});
 });
 

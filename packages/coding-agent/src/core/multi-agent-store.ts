@@ -369,10 +369,17 @@ export class MultiAgentStore {
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
 		if (!previous || previous.lifecycle === current.lifecycle) return;
-		if (current.lifecycle === "completed") this.recordCompletionNotification(current);
-		if (current.lifecycle === "failed") this.recordFailureNotification(current);
 		if (current.lifecycle === "waiting_for_input") this.recordWaitingForInputNotification(current);
 		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+	}
+
+	publishTerminalOutboxSnapshot(agent: AgentSnapshot): void {
+		const previous = this.agents.get(agent.id);
+		const current = copyAgent(agent);
+		this.agents.set(agent.id, current);
+		if (current.lifecycle === "completed") this.recordCompletionNotification(current);
+		if (current.lifecycle === "failed" || current.lifecycle === "aborted") this.recordFailureNotification(current);
+		if (previous) this.notifyTransitionListenersIfLifecycleChanged(previous, current);
 	}
 
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
