@@ -54,6 +54,8 @@ import type {
 	ResolvedCommand,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
+	RuntimeMailboxEvent,
+	RuntimeMailboxEventResult,
 	SessionBeforeCompactResult,
 	SessionBeforeForkResult,
 	SessionBeforeSwitchResult,
@@ -154,6 +156,7 @@ type RunnerEmitEvent = Exclude<
 	| MessageEndEvent
 	| ResourcesDiscoverEvent
 	| InputEvent
+	| RuntimeMailboxEvent
 >;
 
 type SessionBeforeEvent = Extract<
@@ -923,6 +926,33 @@ export class ExtensionRunner {
 		}
 
 		return result as RunnerEmitResult<TEvent>;
+	}
+
+	async emitRuntimeMailbox(event: RuntimeMailboxEvent): Promise<RuntimeMailboxEventResult> {
+		const ctx = this.createContext();
+		const registrations = this.extensions.flatMap((extension) =>
+			(extension.handlers.get("runtime_mailbox") ?? []).map((handler) => ({ extension, handler })),
+		);
+		for (const registration of registrations) {
+			try {
+				const result = (await registration.handler(event, ctx)) as RuntimeMailboxEventResult | undefined;
+				if (result?.handled) return result;
+			} catch (error) {
+				this.reportRuntimeMailboxHandlerError(registration.extension.path, event, error);
+				throw error;
+			}
+		}
+		return { handled: false };
+	}
+
+	private reportRuntimeMailboxHandlerError(extensionPath: string, event: RuntimeMailboxEvent, error: unknown): void {
+		const message = error instanceof Error ? error.message : String(error);
+		this.emitError({
+			extensionPath,
+			event: event.type,
+			error: message,
+			stack: error instanceof Error ? error.stack : undefined,
+		});
 	}
 
 	async emitMessageEnd(event: MessageEndEvent): Promise<AgentMessage | undefined> {

@@ -50,6 +50,7 @@ import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
+import type { RuntimeMailboxMessage } from "../session-control-db.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -676,6 +677,12 @@ export interface SessionShutdownEvent {
 	targetSessionFile?: string;
 }
 
+/** Fired for a claimed durable runtime-mailbox message before prompt conversion. */
+export interface RuntimeMailboxEvent {
+	type: "runtime_mailbox";
+	message: RuntimeMailboxMessage;
+}
+
 /** Preparation data for tree navigation */
 export interface TreePreparation {
 	targetId: string;
@@ -1160,11 +1167,16 @@ export type ExtensionEvent =
 	| UserBashEvent
 	| InputEvent
 	| ToolCallEvent
-	| ToolResultEvent;
+	| ToolResultEvent
+	| RuntimeMailboxEvent;
 
 // ============================================================================
 // Event Results
 // ============================================================================
+
+export interface RuntimeMailboxEventResult {
+	handled: boolean;
+}
 
 export interface ContextEventResult {
 	messages?: AgentMessage[];
@@ -1315,6 +1327,7 @@ export interface ExtensionAPI {
 	): void;
 	on(event: "session_compact", handler: ExtensionHandler<SessionCompactEvent>): void;
 	on(event: "session_shutdown", handler: ExtensionHandler<SessionShutdownEvent>): void;
+	on(event: "runtime_mailbox", handler: ExtensionHandler<RuntimeMailboxEvent, RuntimeMailboxEventResult>): void;
 	on(event: "session_before_tree", handler: ExtensionHandler<SessionBeforeTreeEvent, SessionBeforeTreeResult>): void;
 	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): void;
 	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): void;

@@ -144,6 +144,70 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
+	it("lets extensions consume durable runtime mailbox messages before prompt conversion", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const handled = vi.fn();
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("runtime_mailbox", (event) => {
+						handled(event.message.body);
+						return { handled: true };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "protocol request",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.session.sessionId },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainable = harness.session as unknown as {
+			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: false })).resolves.toBe(false);
+		expect(handled).toHaveBeenCalledWith("protocol request");
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(getUserTexts(harness)).toEqual([]);
+	});
+
+	it("fails intercepted runtime mailbox messages when the extension handler throws", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("runtime_mailbox", () => {
+						throw new Error("protocol rejected");
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "bad protocol request",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.session.sessionId },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainable = harness.session as unknown as {
+			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: false })).resolves.toBe(false);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({
+			error: "protocol rejected",
+			status: "failed",
+		});
+		expect(getUserTexts(harness)).toEqual([]);
+	});
+
 	it("does not drain runtime coordination after the session is disposed", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

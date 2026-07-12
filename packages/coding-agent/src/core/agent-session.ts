@@ -2399,60 +2399,97 @@ export class AgentSession {
 		}
 		this._runtimeMailboxDrainInProgress = true;
 		try {
-			const recipient = {
-				agentId: this._getRuntimeMailboxAgentId(),
-				sessionId: this.sessionId,
-			};
-			recoverStaleRuntimeMailboxClaims(controlDbPath, recipient);
-			const claimed = claimRuntimeMailboxMessages(controlDbPath, recipient);
-			if (claimed.length === 0) {
-				return false;
-			}
-
-			let queued = false;
-			for (const claimedMessage of claimed) {
-				const delivery = readRuntimeMailboxMessageForDelivery(controlDbPath, claimedMessage.id);
-				const message = delivery?.message ?? claimedMessage;
-				if (this._consumeResolvedStoreMailboxMessage(controlDbPath, message)) {
-					continue;
-				}
-				if (!delivery?.payloadValid) {
-					this._failStoreMailboxDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
-					failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
-					continue;
-				}
-				const prompt = formatRuntimeMailboxPrompt(message, recipient.sessionId);
-				try {
-					const triggerIfIdle = options.triggerIfIdle && !this.isStreaming;
-					if (triggerIfIdle) {
-						await this.prompt(prompt, {
-							expandPromptTemplates: false,
-							source: "extension",
-							streamingBehavior: "followUp",
-						});
-					} else {
-						await this._queueFollowUp(prompt);
-						queued = true;
-					}
-					if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, delivery?.payloadData)) {
-						throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
-					}
-					this._markStoreMailboxMessageDelivered(message);
-					if (triggerIfIdle && !this.isStreaming) {
-						this._completeRuntimeMailboxSteeringTurn(this.messages);
-					}
-				} catch (error) {
-					if (isSessionBusyPromptError(error)) {
-						releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
-						continue;
-					}
-					this._failStoreMailboxDelivery(message, error);
-					failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
-				}
-			}
-			return queued;
+			return await this._drainClaimedRuntimeMailboxMessages(controlDbPath, options);
 		} finally {
 			this._runtimeMailboxDrainInProgress = false;
+		}
+	}
+
+	private async _drainClaimedRuntimeMailboxMessages(
+		controlDbPath: string,
+		options: { triggerIfIdle: boolean },
+	): Promise<boolean> {
+		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
+		recoverStaleRuntimeMailboxClaims(controlDbPath, recipient);
+		const claimed = claimRuntimeMailboxMessages(controlDbPath, recipient);
+		let queued = false;
+		for (const claimedMessage of claimed) {
+			queued =
+				(await this._processRuntimeMailboxMessage(controlDbPath, recipient.sessionId, claimedMessage, options)) ||
+				queued;
+		}
+		return queued;
+	}
+
+	private async _processRuntimeMailboxMessage(
+		controlDbPath: string,
+		recipientSessionId: string,
+		claimedMessage: RuntimeMailboxMessage,
+		options: { triggerIfIdle: boolean },
+	): Promise<boolean> {
+		const delivery = readRuntimeMailboxMessageForDelivery(controlDbPath, claimedMessage.id);
+		const message = delivery?.message ?? claimedMessage;
+		if (this._consumeResolvedStoreMailboxMessage(controlDbPath, message)) return false;
+		if (!delivery?.payloadValid) {
+			this._failStoreMailboxDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
+			failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
+			return false;
+		}
+		if (await this._interceptRuntimeMailboxMessage(controlDbPath, message, delivery.payloadData)) return false;
+		const triggerIfIdle = options.triggerIfIdle && !this.isStreaming;
+		try {
+			await this._deliverRuntimeMailboxPrompt(message, recipientSessionId, triggerIfIdle);
+			if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, delivery.payloadData)) {
+				throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
+			}
+			this._markStoreMailboxMessageDelivered(message);
+			if (triggerIfIdle && !this.isStreaming) this._completeRuntimeMailboxSteeringTurn(this.messages);
+			return !triggerIfIdle;
+		} catch (error) {
+			if (isSessionBusyPromptError(error)) releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
+			else {
+				this._failStoreMailboxDelivery(message, error);
+				failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
+			}
+			return false;
+		}
+	}
+
+	private async _deliverRuntimeMailboxPrompt(
+		message: RuntimeMailboxMessage,
+		recipientSessionId: string,
+		triggerIfIdle: boolean,
+	): Promise<void> {
+		const prompt = formatRuntimeMailboxPrompt(message, recipientSessionId);
+		if (triggerIfIdle) {
+			await this.prompt(prompt, {
+				expandPromptTemplates: false,
+				source: "extension",
+				streamingBehavior: "followUp",
+			});
+			return;
+		}
+		await this._queueFollowUp(prompt);
+	}
+
+	private async _interceptRuntimeMailboxMessage(
+		controlDbPath: string,
+		message: RuntimeMailboxMessage,
+		payloadData: string | undefined,
+	): Promise<boolean> {
+		if (!this._extensionRunner.hasHandlers("runtime_mailbox")) return false;
+		try {
+			const result = await this._extensionRunner.emitRuntimeMailbox({ type: "runtime_mailbox", message });
+			if (!result.handled) return false;
+			if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, payloadData)) {
+				throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
+			}
+			this._markStoreMailboxMessageDelivered(message);
+			return true;
+		} catch (error) {
+			this._failStoreMailboxDelivery(message, error);
+			failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
+			return true;
 		}
 	}
 

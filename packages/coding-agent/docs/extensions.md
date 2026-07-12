@@ -506,6 +506,24 @@ pi.on("session_shutdown", async (event, ctx) => {
 });
 ```
 
+#### runtime_mailbox
+
+Fired after Pi atomically claims and validates a durable runtime-mailbox message, before the default conversion into a model prompt. This low-level hook is intended for extension protocols that use the control database as transport.
+
+Return `{ handled: true }` only after the protocol message has been processed successfully. Pi then marks both the durable store row and transport row delivered. Returning `{ handled: false }` or `undefined` preserves normal prompt delivery. If a handler throws, Pi marks the message failed and never exposes its body to the model.
+
+```typescript
+pi.on("runtime_mailbox", async (event, ctx) => {
+  const payload = JSON.parse(event.message.body);
+  if (payload.protocol !== "my-extension-v1") return { handled: false };
+
+  await handleProtocolMessage(payload);
+  return { handled: true };
+});
+```
+
+Messages remain durable while Pi is stopped. After restart and extension binding, pending messages are claimed and offered to this hook again.
+
 ### Agent Events
 
 #### before_agent_start
