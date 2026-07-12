@@ -23,10 +23,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       methods.
 - [x] Every agent has a stable ID, parent ID, optional pinned display slot, worktree/cwd metadata,
       model/account metadata, permission policy, and monotonic revision.
-- [x] Agent lifecycle transitions are explicit: `queued`, `starting`, `running`,
-      `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, and
-      `aborted`. The state graph, state meanings, and restore-time rewrite rules live in
-      [agent-lifecycle.md](agent-lifecycle.md).
+- [x] Agent lifecycle transitions are explicit: `running`, `waiting_for_input`, `steering_pending`,
+      `cancelling`, `completed`, `failed`, and `aborted`. Child construction happens before persistence:
+      success persists `running` revision 1, while construction interruption or failure persists `failed`
+      revision 1. The state graph and restore-time rules live in [agent-lifecycle.md](agent-lifecycle.md).
 - [x] Lifecycle commands identify the agent and exact owner process `(pid, startTimeTicks)`.
       Repository transactions read and increment revision internally; model-facing tools never supply
       revision, lease IDs, expiration timestamps, or fencing counters.
@@ -47,9 +47,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       content includes the inspected agent's status and terminal result summary or error when present.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
-- [x] `spawn_agent` requires the issued execution capability and atomically reserves executable child
-      work before runtime construction; it has no optional dispatcher or store-only queued fallback.
-      Dormant promptless session attachment remains the explicit non-executable operation.
+- [x] `spawn_agent` requires the issued execution capability and constructs the executable child session
+      before persisting the agent row. Successful construction persists `running` revision 1; interruption or
+      failure persists `failed` revision 1. Dormant promptless session attachment remains the explicit
+      non-executable operation.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
 - [x] Agent-type profiles can select a child model/thinking level; built-in `explore`, `verifier`,
@@ -90,13 +91,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       listener registration, the session's owning supervisor reconciles candidate orphan rows through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks)` identity.
       Confirmed owner-process exit resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred
-      abort. Dispatch finalizers use exact process ownership and store restore generation; shutdown stops
+      abort. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
-- [x] `wait_agents({})` snapshots agents active at invocation, allocates an independent terminal-event
-      cursor, checks committed events before and after subscription, and waits until any one reaches a
-      terminal revision. It never consumes shared mailbox delivery, so simultaneous and late waiters
-      observe the same terminal fact. Restore clears transient `runtime` worker metadata without
-      rewriting durable lifecycle.
+- [x] `wait_agents({})` snapshots agents active at invocation, consumes one pending completion notification,
+      and queries current agent rows until any snapshot member is terminal. Notifications only wake the query;
+      the agent row is terminal truth. It does not consume shared mailbox delivery. Restore clears transient
+      `runtime` worker metadata without rewriting
+      durable lifecycle.
 
 ### Runtime construction inventory
 
@@ -116,73 +117,38 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - `LifecycleCoordinator` is the sole control-plane and runtime-command authority. Spawn, attach,
   dispatch, process-ownership release, steering, cancellation, recovery, parent/child graph changes,
   and terminalization are submitted as coordinator commands; callers do not write lifecycle rows
-  directly. Detached Bash/Pyrun runners are the only exception: they are execution-plane workers
-  authorized to submit one exact terminal-finalize operation for their own process identity and may
-  not create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
-  Detached runners preallocate the durable job/agent ID before payload spawn so the output path can
-  be identity-bound from the first byte; coordinator child creation accepts that exact ID only when
-  detachment occurs, while foreground-only execution consumes no lifecycle row. Shared detached-job
-  artifacts live under an identity-bound job directory with a direct durable
-  output file and immutable terminal envelope. Envelope creation fsyncs output first, records its
-  size and SHA-256, records the exact runner process identity and outcome, checksums the
-  envelope, atomically renames it into place, and fsyncs the containing directory. The envelope also
-  fixes the original terminal timestamp so DB-outage retries never substitute retry time. The runner
-  lifecycle controller adapter gives Bash and Pyrun one shared boundary to allocate the job identity,
-  create deterministic artifacts, reserve/confirm that exact ID through `LifecycleCoordinator`,
-  publish committed projections, and submit the envelope finalizer. The landed runner foundation
-  launches an unref'd independent runner process, gates payload execution until PID/process-group
-  identity is fsynced, keeps payload stdout/stderr on direct durable file descriptors, owns exit status,
-  retries the same immutable envelope across transient DB failures, and consumes exact process-owned cancel
-  and status commands through the runtime mailbox. Bash and Pyrun both use this independent runner path;
-  neither retains Pi-owned payload pipes, status settlement, or an in-memory detached evaluator. Status
-  attachment, cancellation, bridge responses, and lifecycle completion all use durable runtime-mailbox
-  store references rather than a runner socket or reconnection protocol. Coordinator cancellation and
-  its durable store/transport rows commit in one SQLite transaction; transport insertion failure rolls
-  the lifecycle mutation back. AgentSession constructs detached controllers lazily from the current
-  store/session/control-DB binding, so session switches cannot retain an old session path; one runtime
-  process identity remains stable for the AgentSession lifetime. The finalize repository operation accepts
-  only session path plus envelope path, revalidates output and checksum, requires the exact runner
-  `(pid, startTimeTicks)` identity, permits only
-  `running|cancelling` terminal settlement, and atomically commits state, event, outbox, immutable
-  mailbox payload, and runtime transport reference.
+  directly. Detached Bash/Pyrun runners are execution-plane workers authorized to submit one exact
+  terminal-finalize operation from their in-memory identity, outcome, and output metadata; they may not
+  create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
+  Detached runners allocate a durable job/agent ID before payload spawn so the output path is identity-bound
+  from the first byte; foreground-only execution consumes no lifecycle row. Detached Bash and Pyrun runners
+  directly finalize through the coordinator using their in-memory identity, outcome, and output metadata.
+  The output file is a diagnostic artifact, not terminal lifecycle proof. Status attachment, cancellation,
+  bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a runner dies
+  before its terminal commit, the owning supervisor marks the agent `failed/lost_runtime` from the exact
+  persisted process identity; it does not replay output or reconstruct a terminal result. Coordinator
+  cancellation and its durable store/transport rows commit in one SQLite transaction; transport insertion
+  failure rolls the lifecycle mutation back. AgentSession constructs detached controllers lazily from the
+  current store/session/control-DB binding, so session switches cannot retain an old session path.
 
-  Detached runner ownership is explicit. A live runner exclusively owns envelope submission and
-  retries the exact fsynced envelope until commit. After runner loss, only the agent's owning supervisor
-  may inspect an orphan envelope through the coordinator and must submit that unchanged envelope under
-  the persisted runner process identity. If the exact runner process disappears while its payload may
-  still be alive, recovery resolves the job as `failed/lost_runtime`
-  with external outcome uncertainty rather than inventing completion or abort. Spawned detached jobs are
-  never reassigned or replayed.
+  Detached runner ownership is direct and in-memory. A live runner submits its terminal outcome once
+  from the exact identity it holds; a duplicate exact submission is idempotent. If the runner dies before
+  commit, the owning supervisor records `failed/lost_runtime` and never reassigns or replays the job.
+  Cancellation commit order remains authoritative when payload exit races finalization: a committed
+  `cancelling` state cannot be replaced by a late natural result, and `aborted` still requires exact-owner
+  exit acknowledgement. Detachment returns a handle only after the durable job identity, runtime ownership,
+  artifact paths, and launch manifest exist. The output artifact is retained for diagnostics and may be
+  inspected after completion or failure, but it never substitutes for the agent row.
 
-  Cancellation commit order remains authoritative when the payload has already exited but finalization
-  is pending. A pre-cancellation natural-result envelope with the old revision cannot override the
-  committed `cancelling` state. The exact owner runner must produce the cancellation/failed envelope;
-  if it cannot, dead-process recovery records `lost_runtime`, not `aborted`.
-  Original tool-call settlement is atomic at the lifecycle boundary: detachment returns a handle only
-  after the durable job identity, runtime ownership, runner process identity, artifact paths, and launch
-  manifest exist. Before that point the call remains foreground and any setup failure is returned as a
-  tool error; after the handle is returned, terminal observation comes only from durable state/events.
-
-  Artifact failure is fail-closed. A short write, `ENOSPC`, output close failure, checksum failure,
-  envelope rename failure, or file/directory `fsync` failure means no trustworthy terminal evidence
-  exists. The runner must not commit a terminal lifecycle result from partial or unflushed output. It
-  keeps the job nonterminal and retries only operations whose exact bytes and identity are already
-  durable; if it cannot create a valid immutable envelope, coordinator recovery eventually records
-  `failed/lost_runtime` with an artifact-persistence cause. Cleanup must never manufacture a replacement
-  envelope, truncate output to make space, or report successful completion without the verified hash.
-
-  Retention and garbage collection follow reference order. While an agent row or terminal event is
-  retained, its output and terminal envelope remain retained. A terminal runtime transport row may be
-  deleted only after delivery acknowledgement; its referenced immutable mailbox payload may be deleted
-  only after no runtime transport row references it and the terminal outbox is delivered. Terminal events
-  and fan-out cursors outlive transport/storeRef cleanup and are removed only by their separate retention
-  policy after every retained consumer cursor can no longer address them. Agent-result artifacts are
-  deleted last, after the agent row and every retained terminal event/store reference have expired.
-  Interrupted garbage collection is idempotent and resumes in this same order; missing referenced bytes
-  are corruption, not permission to cascade-delete the remaining evidence.
+  Retention and garbage collection follow agent-row and delivery references. A terminal runtime transport
+  row may be deleted only after delivery acknowledgement; its referenced mailbox payload may be deleted only
+  after no transport row references it and the terminal outbox is delivered. Diagnostic output artifacts are
+  retained according to the detached-job retention policy and are not lifecycle records. Interrupted garbage
+  collection is idempotent; missing referenced bytes are corruption, not permission to cascade-delete the
+  remaining evidence.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through
   path. They re-check transition legality, authorization, and the complete mutation predicate
-  before committing any lifecycle or terminal-event change. A coordinator response is successful
+  before committing any lifecycle or terminal-row change. A coordinator response is successful
   only after the durable mutation commits.
 - Runtime roles are typed and exclusive. An orchestration-capable main runtime must receive a
   non-null execution capability and validate it before orchestration tools or the main runtime
@@ -192,26 +158,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - Every lifecycle mutation validates the persisted owner session/agent and exact Linux process
   identity `(pid, /proc/<pid>/stat startTimeTicks)`. Missing, dead, foreign, or partially matching
   ownership fails the mutation; terminal retries are accepted only as an idempotent replay of the
-  same committed terminal event. Repository transactions own revision reads and increments.
-- A queued agent is either unowned and dispatchable or owns exactly one live process identity.
-  Ownership acquisition, lifecycle state, and repository revision are committed atomically. No
-  transaction may expose a row executable by two process identities.
-- Child creation is one coordinator transaction: child row, single parent link, initial revision,
-  and either committed process ownership or an explicitly unowned dispatchable state are
-  created together. Main-runtime children use the synthetic `main` identity as the durable session
-  root; nested children require an existing persisted parent. Runtime construction begins only after a
-  full-predicate coordinator transition to `starting`; `running` is confirmed only after construction
-  succeeds. Construction failure commits `failed`, error projection, terminal event, and outbox through
-  the current process ownership before any `running` state is exposed. If the supervisor dies after
-  ownership commit, the resumed owning supervisor observes that the exact persisted process identity is
-  gone and commits `failed/lost_runtime`. Unrelated supervisor sessions do not coordinate or contend for
-  global recovery leadership. Runtime-listener registration never mutates lifecycle rows. Production `spawn_agent` requires a persisted supervisor session and
-  fails closed otherwise; it has no direct store creation or lifecycle-ramp path. First-party `/bg`
-  child-session jobs use the same coordinator ownership/start/confirmation path and retain their
-  process identity for cancellation and terminal settlement. Terminal replay validates exact process
-  ownership before idempotency, so a foreign owner cannot replay a finalizer or create another
-  event/outbox row. Parent links
-  cannot self-reference or form cycles. Cancellation is cascading:
+  same committed terminal row and notification. Repository transactions own revision reads and increments.
+- Child session construction occurs before persistence. On success, one coordinator transaction commits
+  the child row, single parent link, exact process ownership, `running` lifecycle, and revision 1. A
+  construction interruption or failure commits `failed` revision 1 with the error; no persisted `queued`
+  or `starting` startup row exists. If the supervisor dies after ownership commit, the resumed owning
+  supervisor observes that the exact persisted process identity is gone and commits `failed/lost_runtime`.
+  Unrelated supervisor sessions do not coordinate or contend for global recovery leadership. Runtime-listener
+  registration never mutates lifecycle rows. Production `spawn_agent` requires a persisted supervisor
+  session and fails closed otherwise; it has no direct store creation or lifecycle-ramp path. First-party
+  `/bg` child-session jobs use the same construction-before-persistence path. Parent links cannot
+  self-reference or form cycles. Cancellation is cascading:
   cancellation first commits `cancelling` through current process ownership; runtime abort is requested
   only after that commit, and `aborted` requires a separate exit acknowledgement from that exact process.
   The caller waits at most five seconds for tracked dispatch settlement; a runtime that does not exit
@@ -219,8 +176,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Interactive Escape submits the same operation through an injected cancellation boundary and never
   directly mutates lifecycle state or invokes a store abort path. Recovery also never converts an
   attached `cancelling` row to `aborted` without exact-owner runtime exit acknowledgement; it remains
-  nonterminal until attached-session ownership is reacquired or resolved as lost. Queued and
-  starting children use the same ordering. Cancelling a parent issues cancellation intents to active
+  nonterminal until attached-session ownership is reacquired or resolved as lost. Cancelling a parent
+  issues cancellation intents to active
   descendants deepest-first, while each descendant still terminalizes through its own owned command.
   `cancel_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. SQLite
   rejects any parent terminal mutation while a persisted descendant remains nonterminal; the coordinator resolves cancellation or exact owner-process loss
@@ -237,14 +194,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   requests; an accepted cancellation wins over a later natural-completion attempt and moves the
   agent to `cancelling`; only an exit acknowledgement from the exact owner process can then produce
   `aborted`. Duplicate abort acknowledgements replay the same terminal outcome without a new revision or
-  event. Exact owner-process loss rejects late finalizers and authorizes one transaction to commit
-  `failed/lost_runtime` plus its terminal event/outbox. Owner loss is never reported as a confirmed abort.
-- Each terminal transition inserts exactly one immutable terminal event/outbox record in the same
-  SQLite transaction as the state and revision change. Its identity is unique
-  `(agent_id, terminal_revision, event_kind)`, and its payload is complete and immutable: terminal
-  outcome, cause/error or result reference, parent/agent identity, and the process identity that
-  authorized the commit are retained for every consumer. Redelivery and retries reuse that identity
-  and payload; they never create a second terminal fact.
+  notification. Exact owner-process loss rejects late finalizers and authorizes one transaction to commit
+  `failed/lost_runtime` plus its pending completion notification. Owner loss is never reported as a
+  confirmed abort.
+- Each terminal transition updates the agent row and enqueues exactly one pending completion or failure
+  notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
+  delivery queue. Redelivery and retries affect notification delivery only. `wait_agents` consumes one
+  pending completion notification and queries the current agent rows for agents active at invocation;
+  notifications only wake that query; the agent row remains the sole terminal source of truth.
 
 ### Mailbox and steering
 
@@ -285,8 +242,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       main-session health ended.
 - [x] Registering a main-session listener retires other main-session bindings on the same PID, so a
       process has one current main-session identity even if historical listener rows remain. Listener
-      rows persist a per-process runtime incarnation so same-PID process replacement advances session
-      health generation and reconciles stale spawned rows without disturbing attached agents.
+      rows persist the exact `(pid, startTimeTicks)` process identity; same-PID replacement advances the
+      inventory-only session health generation and reconciles stale spawned rows without disturbing attached agents.
       `list_sessions` and `broadcast` never create listeners or write caller PID health; ownership is
       maintained only by the runtime listener lifecycle. Fresh
       heartbeats are not accepted as PID ownership proof: inventory and signal delivery verify the PID
@@ -310,10 +267,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agents({})` observes terminal events through an independent cursor, checks before and
-      after subscription, and otherwise waits until any agent active at invocation reaches a terminal
-      revision. It does not consume or acknowledge runtime-mailbox transport rows; Hostrun/Pyrun uses
-      the same operation.
+- [x] `wait_agents({})` consumes one pending completion notification and queries agent rows for agents
+      active at invocation until one reaches a terminal state. Notifications only wake the query; the agent
+      row is terminal truth. It does not consume runtime-mailbox transport rows; Hostrun/Pyrun uses the same
+      operation.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
 - [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so all
@@ -407,7 +364,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
 - [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
   owns SQLite schema, exact-owner lifecycle/steering/terminal transactions and runtime ownership,
-  immutable terminal events/outbox/cursors, runtime mailbox transport, session health, and path relocation.
+  terminal agent rows and completion outbox delivery, runtime mailbox transport, session health, and path
+  relocation.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -438,7 +396,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the production child factory and configured agent profiles select child model/thinking settings for
   `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
-  supports simultaneous and late terminal-event observers without consuming mailbox delivery. Failed
+  supports simultaneous and late completion waiters without consuming mailbox delivery. Failed
   agents expose their failure message and `fileRefs`. `list_agents` returns
   active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with validated absolute
   file references. It verifies `agent_viewer` requires an agent ID, can read an
@@ -474,7 +432,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add failing extension-tool tests for spawn/list/wait/cancel/steer boundaries without provider calls.
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over coordinator commands and store
       projections, update `docs/specs/multi-agent.md`, run targeted tests and `npm run check`.
-- [x] Add coordinator-backed executable child-dispatch tests behind `spawn_agent` plus terminal-event
+- [x] Add coordinator-backed executable child-dispatch tests behind `spawn_agent` plus agent-row
       `wait_agents({})` behavior without TUI coupling.
 - [x] Add and implement real child `AgentSession` factory tests behind `spawn_agent` and
       terminal-state `wait_agents({})` behavior without TUI coupling.
@@ -484,8 +442,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       trees without TUI state.
 - [x] Add and implement child-to-supervisor mailbox contact without sibling access.
 - [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
-- [x] Add and implement `wait_agents({})` fan-out behavior using independent terminal-event cursors;
-      simultaneous and late waiters observe the same terminal revision without consuming mailbox delivery.
+- [x] Add and implement `wait_agents({})` behavior using one pending completion notification to wake
+      agent-row queries; simultaneous and late waiters observe current terminal rows without consuming
+      mailbox delivery.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID

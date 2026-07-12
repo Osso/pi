@@ -26,32 +26,25 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all.
 - [x] Store multi-agent state as per-entity rows keyed by session path
-      (`multi_agent_agents`, `multi_agent_runtime_owners`, `multi_agent_terminal_events`,
-      `multi_agent_terminal_outbox`, `multi_agent_terminal_cursors`,
-      `multi_agent_mailbox_messages`,
-      `multi_agent_counters_v2`): one row
-      upsert per mutation, restore selects the session's rows. Runtime ownership acquisition is
-      transactional and stores the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`;
-      a live exact owner rejects replacement, while a dead identity permits takeover without timers,
-      heartbeats, expiry, renewal, lease IDs, or fencing counters. The one owning supervisor recovers its
-      dead-process agents; unrelated sessions never coordinate lifecycle recovery. Lifecycle transactions
-      read revision internally, verify session/agent/process ownership, then update the agent row and insert
-      its immutable terminal event and pending outbox row in one immediate SQLite transaction. Exact
-      retries return the committed terminal revision without rewriting rows; conflicting payloads or stale
-      predicates fail without creating another event or outbox record. Per-consumer cursor rows acknowledge
-      immutable event identities without changing events or other consumers' visibility, so multiple waiters
-      can independently observe the same terminal revision. Outbox rows use atomic single-claim delivery;
-      failures return the same row to pending with an incremented attempt count and retained error, while
-      successful delivery finalizes only transport state and never consumes terminal-event visibility.
-      Child creation can atomically validate its parent, insert the queued child row, and assign its exact
-      owner process; duplicate child IDs or missing parents commit neither row. Offline lifecycle migration
-      creates explicit unowned rows for legacy queued agents and resolves legacy active rows as
-      `failed/lost_runtime` with atomic terminal event/outbox records; it never guesses that an orphaned
-      runtime was aborted. Concurrent SQLite contenders serialize, repository code reads/increments revision
-      internally, repeated identical transitions are idempotent, and mismatched process ownership rejects
-      without side effects. Legacy artifact tables/columns are not
-      initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
-      migrated into `multi_agent_counters_v2`.
+      (`multi_agent_agents`, `multi_agent_runtime_owners`, `multi_agent_terminal_outbox`,
+      `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row upsert per mutation, restore
+      selects the session's rows. Runtime ownership acquisition is transactional and stores the exact Linux
+      process identity `(pid, /proc/<pid>/stat startTimeTicks)`; a live exact owner rejects replacement,
+      while a dead identity permits takeover without timers, heartbeats, expiry, renewal, lease IDs, or
+      fencing counters. The one owning supervisor recovers its dead-process agents; unrelated sessions never
+      coordinate lifecycle recovery. Lifecycle transactions read revision internally, verify session/agent/
+      process ownership, update the agent row, and enqueue one pending completion notification in the same
+      immediate SQLite transaction. The agent row is terminal truth; the outbox is only a delivery queue.
+      Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
+      without creating another notification. Outbox rows use atomic single-claim delivery; failures return
+      the same row to pending with an incremented attempt count and retained error, while successful delivery
+      finalizes only notification transport. Child construction occurs before persistence: success commits
+      the child row as `running` revision 1 with ownership, while construction interruption or failure
+      commits `failed` revision 1. No persisted `queued` or `starting` startup row exists. Concurrent
+      SQLite contenders serialize, repository code reads/increments revision internally, repeated identical
+      transitions are idempotent, and mismatched process ownership rejects without side effects. Legacy
+      artifact tables/columns are not initialized, read, written, or relocated; the legacy
+      `multi_agent_counters` table is only migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
       merged by maximum value during migration, then the legacy counter and artifact tables are
       dropped so relocated state cannot be resurrected or reuse IDs.
@@ -67,7 +60,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       detached runner remains active; legacy rows convert only after full runtime quiescence. No
       connection-local authorization UDF, trigger token, compatibility writer, or fallback mutation path
       exists; construction/source-scan tests keep production lifecycle calls behind `LifecycleCoordinator`
-      plus the detached runner's narrow exact-owner finalizer.
+      plus the detached runner's narrow exact-owner finalizer from in-memory identity, outcome, and output
+      metadata; output artifacts remain diagnostic only.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
@@ -80,8 +74,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       elect or share a recovery leader. Mutations use the persisted owner session/agent plus exact process
       identity; revision is repository-managed and never supplied by tools. Verified administrative restart
       may commit an explicit interruption; confirmed exact owner-process exit commits
-      `failed/lost_runtime`, never a direct JSON rewrite or inferred abort. Attached, queued, terminal,
-      current-live, and uncertain process-backed rows follow their explicit recovery policy.
+      `failed/lost_runtime`, never a direct JSON rewrite or inferred abort. Attached, terminal, current-live,
+      and uncertain process-backed rows follow their explicit recovery policy.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended and confirms the registered binding `ok`. Listener retirement removes only the

@@ -12,19 +12,20 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Detached bash commands create a background job, write later output to an absolute log file reference, and support cancellation through `cancel_agent`.
 - [x] Detached Pyrun evaluations create a background job, complete independently, expose final output through an absolute log file reference, and record elapsed time in the agent result's `durationMs` field.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
-- [x] `wait_agents({})` observes immutable terminal events through an independent per-wait cursor
-      before waiting for any detached tool job active at invocation to reach a terminal state. It does
-      not consume shared mailbox delivery; failed jobs expose their failure message and direct `fileRefs`.
+- [x] `wait_agents({})` consumes one pending completion notification before querying detached tool jobs
+      active at invocation for a terminal agent row. Notifications only wake the query; the agent row is
+      terminal truth. It does not consume shared mailbox delivery; failed jobs expose their failure message
+      and direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 
 ## How it works
 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
-- `wait_agents({})` snapshots active background jobs, checks committed terminal events before and
-  after subscription, and waits for the first terminal job when none is already visible. Independent
-  cursors let simultaneous and late waiters observe the same terminal revision without changing
-  runtime-mailbox delivery state. Hostrun/Pyrun uses the same wait operation.
+- `wait_agents({})` snapshots active background jobs, consumes one pending completion notification, and
+  queries current agent rows until the first snapshot member is terminal. Notifications only wake the
+  query, so simultaneous and late waiters read current agent-row truth without changing runtime-mailbox
+  delivery state. Hostrun/Pyrun uses the same wait operation.
 
 ## Implementation inventory
 
@@ -40,7 +41,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/test/pyrun-extension.test.ts` — detached Pyrun completion/failure regressions,
   elapsed `durationMs`, and duration-bearing lifecycle notifications.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery plus
-  independent terminal-event wait observation and simultaneous/late waiter fan-out.
+  completion-notification wakeups and simultaneous/late waiter queries.
 - `packages/coding-agent/test/multi-agent-extension.test.ts`
 
 ## Known gaps (current cycle)

@@ -15,9 +15,10 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
       lastCheckedAt, checkStatus, checkLatencyMs, agentGeneration, checkedGeneration, and
       eligibleToReceive.
 - [x] Session purpose prefers `/name` and active `/goal` objective text when present.
-- [x] Live main-thread pids come only from current runtime mailbox listener bindings addressed
-      `(session_id, null)` and are tracked per session with an agent generation token; an unbound
-      historical session is never revived merely because another current session uses the same PID.
+- [x] Live main-thread pids come only from the one registered supervisor listener binding addressed
+      `(session_id, null)` for each session and are tracked per session with an inventory-only health
+      generation token; an unbound historical session is never revived merely because another current
+      session uses the same PID.
       Subagent `(session_id, agent_id)` listener bindings are not main-thread inventory candidates.
 - [x] `list_sessions` retains at most one current main-session binding per PID, retires older
       same-PID listener rows, and marks their matching health rows ended.
@@ -39,8 +40,9 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
       health.
 - [x] Session switch and disposal retire only the exact `(session_id, agent_id, pid)` binding, so
       an overlapping replacement process cannot be removed by stale teardown.
-- [x] Registering a different PID for a session advances its agent generation; registration from a
-      confirmed live runtime clears stale death for the bound generation.
+- [x] Registering a different PID for a session advances its inventory-only health generation;
+      registration from a confirmed live runtime clears stale death for the bound generation. This
+      generation is not lifecycle ownership, a lease, or a fencing token.
 - [x] Ended sessions are not eligible to receive messages.
 - [x] After listener retirement and health synchronization, `list_sessions` invokes session-owned
       reconciliation for candidate persisted stores. Health/path metadata selects candidates only;

@@ -1,13 +1,15 @@
 # Session directory and runtime liveness
 
 `list_sessions`, `broadcast`, and Resident Architect snapshots share the runtime listener and
-`session_health` state in `control.sqlite`. A live main session is identified by a fresh runtime
-heartbeat, not by OS PID existence.
+`session_health` state in `control.sqlite`. Inventory identifies a live main session by a fresh runtime
+heartbeat, not by OS PID existence; lifecycle ownership remains the exact `(pid, startTimeTicks)`
+identity checked by the coordinator/repository.
 
 ## Binding lifecycle
 
 Each `AgentSession` registers only its own runtime mailbox listener address at startup and refreshes
-it every 60 seconds: a main runtime uses `(session_id, NULL)` and a subagent uses
+it every 60 seconds: the one supervisor binding for a session path uses `(session_id, NULL)`, while a
+subagent uses
 `(session_id, agent_id)`. Registration writes `ok` health for the same session/PID generation. A
 PID change advances `agent_generation`; a heartbeat from the confirmed runtime sets
 `checked_generation` to that current generation. Registration and teardown use the same exact
@@ -40,8 +42,8 @@ owned by a replacement process.
    stores. Health and exact path assertions select candidates but do not authorize lifecycle writes.
    The session's sole supervisor commits through coordinator/repository transactions using the exact
    persisted `(pid, startTimeTicks)` owner identity. Confirmed owner-process exit resolves as
-   `failed/lost_runtime`; uncertain process-backed,
-   attached, queued, terminal, and current-live rows follow their explicit recovery policy.
+   `failed/lost_runtime`; uncertain process-backed, attached, terminal, and current-live rows follow
+   their explicit recovery policy.
 7. Exclude every ended row when `includeEnded` is `false`.
 
 `broadcast` selects recipients from the same reconciled current-binding inventory. Resident

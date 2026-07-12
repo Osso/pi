@@ -7,24 +7,26 @@ contract lives in [`docs/specs/multi-agent.md`](../../specs/multi-agent.md).
 
 Pi now uses `LifecycleCoordinator` as the sole control-plane lifecycle authority. Coordinator
 commands commit through exact process-owner control-DB transactions, while `MultiAgentStore` projects
-committed agent/mailbox state for tools and UI. Detached Bash and Pyrun runners may submit only their
-own exact process-owned terminal envelope. Child-session dispatch, attached-session recovery, cancellation, steering,
-and waits use the same repository authority.
+committed agent/mailbox state for tools and UI. Detached Bash and Pyrun runners directly finalize from
+in-memory identity, outcome, and output metadata; output artifacts are diagnostic only. Child-session
+dispatch, attached-session recovery, cancellation, steering, and waits use the same repository authority.
 
 The first-party agent extensions expose `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`,
 `cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent`. Orchestration-capable
 main runtimes must receive an issued execution capability before these tools or main-runtime listeners
-are exposed. `spawn_agent` always reserves and launches executable child work; promptless saved-session
-attachment is a separate operation. Production has no optional dispatcher or dormant-row fallback. `list_agents` returns active agents by default and
+are exposed. `spawn_agent` constructs executable child work before persistence: success stores `running`
+revision 1, while construction interruption or failure stores `failed` revision 1. Promptless saved-session
+attachment is a separate operation. Production has no optional dispatcher or dormant-row fallback.
+`list_agents` returns active agents by default and
 can include inactive agents or scope results to descendants below a parent ID, using core store state
 rather than rendered TUI rows. `contact_supervisor` lets a child
 send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
 arbitrary sibling target. Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
-`wait_agents({})` allocates an independent terminal-event cursor, checks committed events before and
-after subscribing, and returns when any active agent reaches a terminal revision. It never consumes
-the shared runtime-mailbox delivery row, so simultaneous and late waiters can observe the same result.
-Hostrun/Pyrun `pi.agents.wait()` uses the same fan-out semantics.
+`wait_agents({})` consumes one pending completion notification, then queries current agent rows for
+agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
+terminal truth. It never consumes the shared runtime-mailbox delivery row as its source of truth.
+Hostrun/Pyrun `pi.agents.wait()` uses the same query semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -50,14 +52,16 @@ reconciliation. They also reject direct `spawn_agent`, `attach_session_agent`, a
 calls, the equivalent Hostrun/Pyrun bridge methods, and `/bg`; production child sessions exclude
 those tools as a second boundary.
 
-At supervisor start, queued rows remain queued. After the current runtime mailbox listener registers,
-the session's sole supervisor reconciles its orphaned active rows through coordinator recovery commands.
+At supervisor start, there are no persisted `queued` or `starting` startup rows. Child construction
+happens first; successful construction persists `running` revision 1, while interruption or failure
+persists `failed` revision 1. After the one registered supervisor binding for the session path registers,
+that supervisor reconciles detached active rows through coordinator recovery commands.
 Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`; recovery
 occurs only after that exact identity is gone and never rewrites lifecycle JSON directly.
-The listener also persists a per-process runtime incarnation. If a new Pi runtime reuses the same PID,
-registration advances the session health generation and aborts active spawned rows in that exact
-store; attached rows remain recoverable. A different PID cannot replace the listener while its
-predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or
+The one registered supervisor binding persists that exact process identity for its asserted session path.
+If a new Pi runtime reuses the same PID, registration advances the inventory-only session health generation
+and aborts active spawned rows in that exact store; attached rows remain recoverable. A different PID cannot
+replace the binding while its predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or
 write caller PID health; only the runtime listener lifecycle owns those rows. Heartbeat freshness
 alone is not PID ownership: inventory preserves uncertain live processes to avoid unsafe mutation,
 while mailbox wakeups require verified Pi command ownership before signalling.
@@ -66,18 +70,18 @@ timestamp matches the listener heartbeat; pathless or legacy timestamp-only hear
 Session-path relocation moves the assertion in the same transaction as the store. Verified
 administrative shutdown/restart may terminalize owned work through an exact-owner coordinator command.
 Confirmed exact owner-process exit records `failed/lost_runtime`, while
-attached, queued, terminal, current-live, and uncertain process-backed rows follow their explicit
-recovery policies. Runtime-process verification recognizes
+attached, terminal, current-live, and uncertain process-backed rows follow their explicit recovery
+policies. Runtime-process verification recognizes
 Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
 `list_sessions` invokes the same reconciliation immediately after listener/health
 synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. Each invocation snapshots active agents and owns a distinct
-terminal-event cursor. It reads committed terminal events before subscription, subscribes, then
-rechecks to close the completion race. Mailbox transport delivery and acknowledgement are independent
-of wait observation. The store removes transient worker metadata on restore, but durable lifecycle
-state remains unchanged until an exact-owner command commits.
+`wait_agents({})` takes no agent ID. Each invocation snapshots active agents, consumes one pending
+completion notification, and queries current agent rows until one snapshot member is terminal. A
+notification only wakes the query; mailbox delivery and acknowledgement are independent. The store
+removes transient worker metadata on restore, but durable lifecycle state remains unchanged until an
+exact-owner command commits.
 
 Existing primitives worth reusing:
 
@@ -96,7 +100,6 @@ Existing primitives worth reusing:
 
 Still missing first-party pieces:
 
-- Incremental event replay beyond latest snapshot reload.
 - Read-only interactive TUI agent viewer that never advances child lifecycle on focus or tab switch.
 
 ## Architecture decision
@@ -105,8 +108,8 @@ Native multi-agent is a durable control-DB lifecycle service, not a terminal-pan
 in-memory store authority.
 
 `LifecycleCoordinator` owns control-plane commands; repository/SQLite transactions own durable graph,
-runtime ownership, event, and outbox truth. `MultiAgentStore`, TUI, terminal panes, extension widgets, and workflow
-commands are projections or clients. Mutating commands carry exact owner process identity and fail on
+runtime ownership, agent-row, and outbox truth. `MultiAgentStore`, TUI, terminal panes, extension widgets,
+and workflow commands are projections or clients. Mutating commands carry exact owner process identity and fail on
 foreign ownership; repository transactions manage revision internally. Viewing an agent is
 read-only: switching tabs, opening a transcript, or pressing `Alt+1` through `Alt+9` must not wake,
 resume, close, interrupt, or otherwise advance a child.
@@ -129,15 +132,13 @@ They do not own lifecycle state.
 `MultiAgentStore` is the in-process projection boundary. It owns copied projections, UI selection,
 mailbox/direct-file-reference validation, listeners, and metadata helpers. It does not expose lifecycle
 or steering mutation methods. Child-session dispatch, detached jobs, cancellation, steering, recovery,
-and terminalization enter through `LifecycleCoordinator` or the runner's exact terminal-finalize
-transaction; runtime handles remain outside durable store state.
+and terminalization enter through `LifecycleCoordinator`; detached runners directly submit their in-memory
+identity, outcome, and output metadata. Runtime handles remain outside durable store state.
 
 ### State
 
 ```ts
 type AgentLifecycleState =
-	| "queued"
-	| "starting"
 	| "running"
 	| "waiting_for_input"
 	| "steering_pending"
@@ -174,8 +175,8 @@ Runtime-only handles live outside `AgentNode` in an internal `AgentRuntimeHandle
 agent ID. Handles can contain abort controllers, child `AgentSession` instances, timers, process
 handles, terminal pane clients, or cleanup callbacks. They are never persisted and never sent to the
 TUI. Persisted worker adapter metadata is only a core-owned pointer; terminal and subprocess workers
-still mutate lifecycle through revision-checked commands and coordinate through the same mailbox and
-permission contracts as model-backed child agents.
+still mutate lifecycle through exact-owner coordinator commands and coordinate through the same mailbox
+and permission contracts as model-backed child agents.
 
 Transcript and event stream fields are durable metadata only. They point to child session/event-log
 files and carry bounded counters such as `eventCount`, `truncated`, and optional `byteLimit`;
@@ -205,8 +206,6 @@ Allowed lifecycle transitions:
 
 | From | To |
 |---|---|
-| `queued` | `starting`, `cancelling`, `aborted` |
-| `starting` | `running`, `cancelling`, `failed`, `aborted` |
 | `running` | `waiting_for_input`, `steering_pending`, `cancelling`, `completed`, `failed`, `aborted` |
 | `waiting_for_input` | `running`, `steering_pending`, `cancelling`, `completed`, `aborted` |
 | `steering_pending` | `running`, `waiting_for_input`, `cancelling`, `failed`, `aborted` |
@@ -221,12 +220,12 @@ Active counts are derived from non-terminal states only. They are not cached by 
 
 | Boundary | Mutation | Notes |
 |---|---|---|
-| `LifecycleCoordinator.createChild` | child row, parent link, queued state, process owner | Atomic executable spawn admission. |
-| `beginChildRuntime` / `confirmChildRuntime` | `starting` / `running` | Requires the committed exact process owner. |
+| child construction + `LifecycleCoordinator.commitRunningChild` | child row, parent link, `running` revision 1, process owner | Construction precedes persistence. |
+| construction interruption/failure | `failed` revision 1 | Persists the construction error; no startup row is left behind. |
 | `requestSteering` / `acknowledgeSteeringDelivery` | steering message and lifecycle | Atomic mailbox transport reference plus exact-owner state update. |
 | `requestCancellation` / exit acknowledgement | `cancelling` / terminal | Abort follows committed cancellation; terminal state requires exact-owner acknowledgement. |
-| `finalizeChild` | terminal state, event, outbox | One transaction; duplicate exact result is idempotent. |
-| detached runner `finalize` | own terminal state, event, outbox | Exact immutable envelope and current lease only. |
+| `finalizeChild` | terminal agent row, outbox notification | One transaction; duplicate exact result is idempotent. |
+| detached runner `finalize` | own terminal agent row, outbox notification | In-memory identity, outcome, and output metadata only. |
 | `selectAgentView`, slot and metadata helpers | projection/metadata only | Cannot mutate lifecycle or revision. |
 | `listAgents`, `getAgent` | none | Snapshot projections. |
 
@@ -452,7 +451,7 @@ Pitfalls:
 
 - Control-DB repository transactions enforce lifecycle transition legality and exact process ownership.
 - Orchestration-capable runtimes require issued execution capability before agent tools/listeners load.
-- Spawn, cancellation, attached recovery, steering, detached Bash/Pyrun finalization, terminal events,
-  outbox delivery, and fan-out waits use the durable lifecycle protocol.
+- Spawn, cancellation, attached recovery, steering, detached Bash/Pyrun finalization, agent-row terminal
+  truth, outbox delivery, and agent-row waits use the durable lifecycle protocol.
 - `MultiAgentStore` remains a projection and metadata surface; direct lifecycle methods are deleted.
 - TUI/view selection and pinned slots remain read-only with respect to lifecycle.
