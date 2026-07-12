@@ -477,9 +477,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
   store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of
   accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
-  while rejecting sibling targets. It verifies
-  `createMultiAgentWorkflowOperations()` composes spawn/message/wait operations through
-  `MultiAgentStore` without owning separate runtime state. It also asserts `/bg` registers a
+  while rejecting sibling targets. Higher-level integrations must use registered agent tools or the
+  Hostrun/Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
   aborts a running background child session when the job is cancelled.
 - [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)

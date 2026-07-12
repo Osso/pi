@@ -218,21 +218,6 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	sessionDir?: string;
 }
 
-export interface MultiAgentWorkflowOperations {
-	contactSupervisor(
-		agentId: string,
-		expectedRevision: number,
-		input: ContactSupervisorInput,
-	): ReturnType<MultiAgentStore["contactSupervisor"]>;
-	sendAgentMessage(
-		agentId: string,
-		expectedRevision: number,
-		input: SendMailboxMessageInput,
-	): MailboxMessageCommandResult;
-	spawnAgent(input: Parameters<MultiAgentStore["spawnAgent"]>[0]): ReturnType<MultiAgentStore["spawnAgent"]>;
-	waitAgents(): void;
-}
-
 export type HostrunMultiAgentRequestHandler = (
 	request: { method: string; params: unknown },
 	ctx: ExtensionContext,
@@ -650,17 +635,6 @@ function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext)
 
 function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
 	return value && THINKING_LEVELS.has(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
-}
-
-export function createMultiAgentWorkflowOperations(store: MultiAgentStore): MultiAgentWorkflowOperations {
-	return {
-		contactSupervisor: (agentId, expectedRevision, input) =>
-			store.contactSupervisor(agentId, expectedRevision, input),
-		sendAgentMessage: (agentId, expectedRevision, input) =>
-			store.sendMailboxMessage(agentId, expectedRevision, input),
-		spawnAgent: (input) => store.spawnAgent(input),
-		waitAgents: () => {},
-	};
 }
 
 export function createHostrunMultiAgentRequestHandler(

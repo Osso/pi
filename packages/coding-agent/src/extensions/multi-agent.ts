@@ -7,11 +7,9 @@ export type {
 	ChildAgentSessionFactory,
 	MultiAgentExtensionOptions,
 	MultiAgentRuntimeHandles,
-	MultiAgentWorkflowOperations,
 } from "../../extensions/agents-core/src/runtime.ts";
 export {
 	createMultiAgentRuntimeHandles,
-	createMultiAgentWorkflowOperations,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	default,

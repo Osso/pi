@@ -43,8 +43,8 @@ siblings cannot target each other directly.
 `agent_viewer` is read-only, requires an agent ID, and returns one agent's snapshot, status,
 transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
 tools and do not mutate agent lifecycle by themselves.
-`createMultiAgentWorkflowOperations()` exposes store-backed spawn/message/wait operations for
-higher-level workflow extensions without giving them a separate runtime state store.
+Higher-level workflow extensions must invoke the registered agent tools or Hostrun/Pyrun request handler;
+they cannot create dormant agent rows through a store-backed spawn helper.
 `spawnChildAgent()` inherits parent model/account budget metadata and rejects permission broadening.
 Production child sessions also resolve agent-type profiles from settings. The built-in profiles are
 `explore` (`openai/gpt-5-mini`, low thinking), `verifier` (`openai/gpt-5-mini`, low thinking),

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
+
 ### Added
 
 - Added durable detached Bash and Pyrun runner foundations with independent payload ownership, direct artifact output, immutable terminal envelopes, runtime-mailbox cancellation, and fenced terminal transactions. Detach-eligible Bash now launches through the durable runner and no longer uses Pi-owned exit, abort, or finalization paths; Pyrun extension cutover remains pending.

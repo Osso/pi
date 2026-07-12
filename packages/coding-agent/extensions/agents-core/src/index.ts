@@ -8,7 +8,6 @@ export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgen
 export {
 	cancelReservedAgentRuntime,
 	createMultiAgentRuntimeHandles,
-	createMultiAgentWorkflowOperations,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 } from "./runtime.ts";
