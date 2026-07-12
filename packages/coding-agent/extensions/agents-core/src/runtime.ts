@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -16,6 +17,10 @@ import {
 	type DesktopNotificationHandle,
 	type DesktopNotifier,
 } from "../../../src/core/desktop-notification.ts";
+import {
+	LifecycleCoordinator,
+	type ReservedLifecycleCommandInput,
+} from "../../../src/core/lifecycle-coordinator.ts";
 import {
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
@@ -135,6 +140,8 @@ type ResolvedAgentProfile = {
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const MAIN_THREAD_AGENT_ID = "main";
+const CHILD_DISPATCH_RESERVATION_MS = 30_000;
+const RUNTIME_INCARNATION = randomUUID();
 const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
@@ -171,6 +178,7 @@ export type ChildAgentDispatcher = (input: ChildAgentDispatchInput) => Promise<C
 
 export interface ChildAgentSession {
 	abort?(): void;
+	dispose?(): void;
 	drainRuntimeCoordination?(): Promise<void>;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
@@ -814,6 +822,20 @@ function truncateText(text: string): { truncated: boolean; value: string } {
 	return { truncated: true, value: text.slice(0, MESSAGE_CONTENT_LIMIT) };
 }
 
+function createLifecycleCoordinator(store: MultiAgentStore, ctx: ExtensionContext): LifecycleCoordinator | undefined {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) return undefined;
+	return new LifecycleCoordinator({
+		controlDbPath: persistence.controlDbPath,
+		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+		createLeaseId: randomUUID,
+		now: () => new Date().toISOString(),
+		reservationDurationMs: CHILD_DISPATCH_RESERVATION_MS,
+		runtimeIncarnation: RUNTIME_INCARNATION,
+		sessionPath: persistence.sessionPath,
+	});
+}
+
 async function spawnAgent(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory | undefined,
@@ -853,22 +875,50 @@ async function spawnAgent(
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);
-	const spawned = store.spawnAgent({
+	const coordinator = createLifecycleCoordinator(store, ctx);
+	if (!coordinator) {
+		return errorResult("spawn_agent requires a persisted supervisor session.", {
+			agent: emptyAgent("spawn_agent"),
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
+	const created = coordinator.createChild({
 		agentType,
 		cwd: ctx.cwd,
 		displayName,
-		lifecycle: params.lifecycle,
 		model: profile.modelMetadata,
+		ownerSessionId: ctx.sessionManager?.getSessionId() ?? store.getPersistenceTarget()?.sessionPath ?? "",
 		parentId: params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
+	if (!created.ok) {
+		return errorResult(`spawn_agent failed: ${created.error}`, {
+			agent: emptyAgent("spawn_agent"),
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
+	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	if (!starting.ok) {
+		return errorResult(`spawn_agent failed to reserve runtime start: ${starting.error}`, {
+			agent: created.agent,
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
+	store.publishLifecycleCoordinatorSnapshot(starting.agent);
+	const ownership: ReservedLifecycleCommandInput = {
+		agent: starting.agent,
+		reservation: created.reservation,
+	};
 
 	if (createChildSession) {
 		const agent = startToolDispatch(
 			store,
 			dispatches,
-			spawned.agent,
-			() => dispatchAgentSession(store, createChildSession, spawned.agent, params.prompt, ctx, handles),
+			starting.agent,
+			() => dispatchReservedAgentSession(store, createChildSession, ownership, coordinator, params.prompt, ctx, handles),
 			ctx,
 			pi,
 			desktopNotifier,
@@ -886,8 +936,8 @@ async function spawnAgent(
 		const agent = startToolDispatch(
 			store,
 			dispatches,
-			spawned.agent,
-			() => dispatchAgent(store, dispatcher, spawned.agent, params.prompt, ctx),
+			starting.agent,
+			() => dispatchReservedAgent(store, dispatcher, ownership, coordinator, params.prompt, ctx),
 			ctx,
 			pi,
 			desktopNotifier,
@@ -1304,32 +1354,58 @@ async function dispatchAgentSession(
 	ctx: ExtensionContext,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentSnapshot> {
-	const restoreGeneration = store.getRestoreGeneration();
 	const running = rampToRunning(store, initialAgent);
-	if (!running.ok) {
-		return running.agent;
-	}
+	if (!running.ok) return running.agent;
+	return runAgentSession(store, createChildSession, running.agent, prompt, ctx, handles);
+}
 
+async function dispatchReservedAgentSession(
+	store: MultiAgentStore,
+	createChildSession: ChildAgentSessionFactory,
+	ownership: ReservedLifecycleCommandInput,
+	coordinator: LifecycleCoordinator,
+	prompt: string,
+	ctx: ExtensionContext,
+	handles?: BackgroundSessionHandles,
+): Promise<AgentSnapshot> {
+	const running = coordinator.confirmChildRuntime(ownership);
+	if (!running.ok) return ownership.agent;
+	store.publishLifecycleCoordinatorSnapshot(running.agent);
+	return runAgentSession(store, createChildSession, running.agent, prompt, ctx, handles);
+}
+
+async function runAgentSession(
+	store: MultiAgentStore,
+	createChildSession: ChildAgentSessionFactory,
+	runningAgent: AgentSnapshot,
+	prompt: string,
+	ctx: ExtensionContext,
+	handles?: BackgroundSessionHandles,
+): Promise<AgentSnapshot> {
+	const restoreGeneration = store.getRestoreGeneration();
+	const running = { agent: runningAgent };
+	let childSession: ChildAgentSession | undefined;
 	let unregisterAbortHandler: (() => void) | undefined;
 	try {
-		const childSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		const activeSession = await createChildSession({ agent: running.agent, ctx, prompt });
+		childSession = activeSession;
 		const current = store.getAgent(running.agent.id);
 		if (store.getRestoreGeneration() !== restoreGeneration || !current || !isActiveLifecycle(current.lifecycle)) {
-			childSession.abort?.();
+			activeSession.abort?.();
 			return current ?? running.agent;
 		}
 
 		unregisterAbortHandler = store.registerAgentAbortHandler(running.agent.id, () => {
-			childSession.abort?.();
+			activeSession.abort?.();
 			handles?.delete(running.agent.id);
 		});
-		handles?.set(running.agent.id, childSession);
-		if (childSession.transcript) {
-			store.updateAgentTranscript(running.agent.id, childSession.transcript);
+		handles?.set(running.agent.id, activeSession);
+		if (activeSession.transcript) {
+			store.updateAgentTranscript(running.agent.id, activeSession.transcript);
 		}
-		await childSession.prompt(prompt);
+		await activeSession.prompt(prompt);
 		while (true) {
-			const summary = lastAssistantText(childSession.messages);
+			const summary = lastAssistantText(activeSession.messages);
 			const completed = transitionRunningAgent(
 				store,
 				running.agent,
@@ -1342,10 +1418,10 @@ async function dispatchAgentSession(
 			if (completed.lifecycle !== "steering_pending") {
 				return completed;
 			}
-			if (!childSession.drainRuntimeCoordination) {
+			if (!activeSession.drainRuntimeCoordination) {
 				throw new Error("Child session cannot drain pending steering before completion");
 			}
-			await childSession.drainRuntimeCoordination();
+			await activeSession.drainRuntimeCoordination();
 			const current = store.getAgent(running.agent.id);
 			if (current?.lifecycle === "steering_pending") {
 				throw new Error("Child session did not deliver pending steering before completion");
@@ -1364,6 +1440,8 @@ async function dispatchAgentSession(
 		);
 	} finally {
 		unregisterAbortHandler?.();
+		handles?.delete(running.agent.id);
+		childSession?.dispose?.();
 	}
 }
 
@@ -1374,12 +1452,34 @@ async function dispatchAgent(
 	prompt: string,
 	ctx: ExtensionContext,
 ): Promise<AgentSnapshot> {
-	const restoreGeneration = store.getRestoreGeneration();
 	const running = rampToRunning(store, initialAgent);
-	if (!running.ok) {
-		return running.agent;
-	}
+	if (!running.ok) return running.agent;
+	return runAgentDispatcher(store, dispatcher, running.agent, prompt, ctx);
+}
 
+async function dispatchReservedAgent(
+	store: MultiAgentStore,
+	dispatcher: ChildAgentDispatcher,
+	ownership: ReservedLifecycleCommandInput,
+	coordinator: LifecycleCoordinator,
+	prompt: string,
+	ctx: ExtensionContext,
+): Promise<AgentSnapshot> {
+	const running = coordinator.confirmChildRuntime(ownership);
+	if (!running.ok) return ownership.agent;
+	store.publishLifecycleCoordinatorSnapshot(running.agent);
+	return runAgentDispatcher(store, dispatcher, running.agent, prompt, ctx);
+}
+
+async function runAgentDispatcher(
+	store: MultiAgentStore,
+	dispatcher: ChildAgentDispatcher,
+	runningAgent: AgentSnapshot,
+	prompt: string,
+	ctx: ExtensionContext,
+): Promise<AgentSnapshot> {
+	const restoreGeneration = store.getRestoreGeneration();
+	const running = { agent: runningAgent };
 	try {
 		const dispatchResult = await dispatcher({ agent: running.agent, ctx, prompt });
 		return transitionRunningAgent(

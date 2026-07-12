@@ -158,7 +158,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   created together. Main-runtime children use the synthetic `main` identity as the durable session
   root; nested children require an existing persisted parent. Runtime construction begins only after a
   full-predicate coordinator transition to `starting`, and ownership is confirmed by another fenced
-  transition to `running`. Parent links cannot self-reference or form cycles. Cancellation is cascading:
+  transition to `running`. Production `spawn_agent` requires a persisted supervisor session and
+  fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Parent links cannot
+  self-reference or form cycles. Cancellation is cascading:
   cancelling a parent issues cancellation intents to active descendants, while each descendant
   still terminalizes through its own fenced command. A parent cannot become terminal while any
   descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry

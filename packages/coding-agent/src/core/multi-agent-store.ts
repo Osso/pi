@@ -331,6 +331,14 @@ export class MultiAgentStore {
 		return true;
 	}
 
+	allocateAgentIdForLifecycleCoordinator(): string {
+		return this.createAgentId();
+	}
+
+	publishLifecycleCoordinatorSnapshot(agent: AgentSnapshot): void {
+		this.agents.set(agent.id, copyAgent(agent));
+	}
+
 	spawnAgent(input: SpawnAgentInput): { agent: AgentSnapshot } {
 		validateAbsolutePath(input.cwd, "spawn_agent.cwd");
 		validateOptionalPath(input.worktree?.path, "spawn_agent.worktree.path");

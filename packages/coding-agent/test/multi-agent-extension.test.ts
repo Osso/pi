@@ -236,9 +236,10 @@ function createMultiAgentHarness(
 	const commands = new Map<string, RegisteredCommand>();
 	const eventHandlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void | Promise<void>>>();
 	const tools = new Map<string, RegisteredTool>();
-	const store =
-		options.store ??
-		MultiAgentStore.fromSessionManager(createControlDbSession(), { now: () => "2026-06-21T00:00:00.000Z" });
+	const store = options.store ?? new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+	if (!store.getPersistenceTarget()) {
+		store.setPersistenceSessionManager(createControlDbSession());
+	}
 	const pi = {
 		on(eventName: string, handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>) {
 			eventHandlers.set(eventName, [...(eventHandlers.get(eventName) ?? []), handler]);
@@ -398,10 +399,11 @@ function restoreOptionalEnv(name: string, value: string | undefined): void {
 describe("multi-agent extension tools", () => {
 	const childHarnesses: Harness[] = [];
 
-	afterEach(() => {
-		while (childHarnesses.length > 0) {
-			childHarnesses.pop()?.cleanup();
-		}
+	afterEach(async () => {
+		const completedHarnesses = childHarnesses.splice(0);
+		for (const harness of completedHarnesses) harness.session.dispose();
+		await delay(100);
+		for (const harness of completedHarnesses) harness.cleanup();
 	});
 
 	it("registers spawn/list/cancel/steer/contact/viewer tools", () => {
@@ -2901,7 +2903,7 @@ describe("multi-agent extension tools", () => {
 			delete process.env[ENV_SELF_RESTART_PROMPT];
 			delete process.env[ENV_SELF_RESTART_OLD_PID];
 			process.chdir(projectDir);
-			await main(["-p", "spawn a child", "--model", `${model.provider}/${model.id}`, "--no-session"], {
+			await main(["-p", "spawn a child", "--model", `${model.provider}/${model.id}`], {
 				extensionFactories: [customExtension],
 			});
 			for (let attempt = 0; attempt < 50 && customExtensionLoads < 2; attempt += 1) {
@@ -2910,6 +2912,7 @@ describe("multi-agent extension tools", () => {
 
 			expect(customExtensionLoads).toBe(2);
 		} finally {
+			await delay(100);
 			faux.unregister();
 			restoreIsTty(process.stdin, originalStdinIsTty);
 			restoreIsTty(process.stdout, originalStdoutIsTty);
