@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { type DetachedJobTerminalEnvelope, readDetachedJobTerminalEnvelope } from "./detached-job-runner.ts";
-import type { AgentFileReference } from "./multi-agent-store.ts";
+import type { AgentFileReference, AgentSnapshot } from "./multi-agent-store.ts";
 import { isPiRuntimeProcessAlive, isVerifiedPiRuntimeProcess } from "./runtime-process.ts";
 import {
 	emptySessionHealth,
@@ -2191,7 +2191,7 @@ export interface FinalizeDetachedJobInput {
 }
 
 export type FinalizeDetachedJobResult =
-	| { ok: true; terminalRevision: number }
+	| { ok: true; terminalAgent: AgentSnapshot; terminalRevision: number }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
 export interface RecoverExpiredMultiAgentRuntimeInput {
@@ -2658,8 +2658,8 @@ function finalizeDetachedJobTransaction(
 	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, envelope.jobId)) {
 		return { ok: false, error: "invalid_transition" };
 	}
-	persistDetachedJobTerminal(db, sessionPath, envelope, agent, terminalRevision, eventKind);
-	return { ok: true, terminalRevision };
+	const terminalAgent = persistDetachedJobTerminal(db, sessionPath, envelope, agent, terminalRevision, eventKind);
+	return { ok: true, terminalAgent, terminalRevision };
 }
 
 function detachedJobReplayResult(
@@ -2675,9 +2675,13 @@ function detachedJobReplayResult(
 			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
 		)
 		.get(sessionPath, envelope.jobId, terminalRevision, eventKind) as { payload: string } | undefined;
-	return event?.payload === JSON.stringify(envelope)
-		? { ok: true, terminalRevision }
-		: { ok: false, error: "mutation_mismatch" };
+	if (event?.payload !== JSON.stringify(envelope)) return { ok: false, error: "mutation_mismatch" };
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, envelope.jobId) as { data: string };
+	const terminalAgent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+	validatePersistedAgentPayload(terminalAgent, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+	return { ok: true, terminalAgent: terminalAgent as unknown as AgentSnapshot, terminalRevision };
 }
 
 function persistDetachedJobTerminal(
@@ -2687,7 +2691,7 @@ function persistDetachedJobTerminal(
 	agent: Record<string, unknown>,
 	terminalRevision: number,
 	eventKind: string,
-): void {
+): AgentSnapshot {
 	const updated = {
 		...agent,
 		...detachedJobAgentDetails(envelope),
@@ -2712,15 +2716,17 @@ function persistDetachedJobTerminal(
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
 	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, envelope.terminalAt);
+	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+	return updated as unknown as AgentSnapshot;
 }
 
 function detachedJobAgentDetails(envelope: DetachedJobTerminalEnvelope): Record<string, unknown> {
-	const fileRefs = [{ label: "Detached job output", path: envelope.output.path }];
+	const fileRefs = [{ label: envelope.output.label, path: envelope.output.path }];
 	if (envelope.outcome.kind === "completed") {
 		return { result: { fileRefs, summary: envelope.outcome.summary } };
 	}
 	if (envelope.outcome.kind === "failed") {
-		return { error: envelope.outcome.error, result: { fileRefs } };
+		return { error: envelope.outcome.error, result: { fileRefs, summary: envelope.outcome.error.message } };
 	}
 	return { result: { fileRefs } };
 }

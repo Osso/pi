@@ -11,6 +11,7 @@ export interface DetachedJobLeaseIdentity {
 	leaseId: string;
 	runtimeIncarnation: string;
 	fencingEpoch: number;
+	outputLabel: string;
 }
 
 export type DetachedJobOutcome =
@@ -28,7 +29,7 @@ export interface DetachedJobTerminalEnvelope extends DetachedJobLeaseIdentity {
 	version: typeof DETACHED_JOB_ENVELOPE_VERSION;
 	terminalAt: string;
 	outcome: DetachedJobOutcome;
-	output: { path: string; size: number; sha256: string };
+	output: { label: string; path: string; size: number; sha256: string };
 	checksum: string;
 }
 
@@ -50,7 +51,6 @@ export interface DetachedJobLifecycleController {
 	allocateJobId(): string;
 	createArtifacts(jobId: string): DetachedJobArtifacts;
 	reserve(input: ReserveDetachedJobInput): DetachedJobReservation;
-	publish(agent: AgentSnapshot): void;
 	finalize(envelopePath: string): { ok: boolean; terminalRevision?: number; error?: string };
 }
 
@@ -83,7 +83,7 @@ export function writeDetachedJobTerminalEnvelope(
 	const unsigned: Omit<DetachedJobTerminalEnvelope, "checksum"> = {
 		...identity,
 		outcome,
-		output,
+		output: { ...output, label: identity.outputLabel },
 		terminalAt,
 		version: DETACHED_JOB_ENVELOPE_VERSION,
 	};
@@ -109,7 +109,7 @@ export function readDetachedJobTerminalEnvelope(path: string): DetachedJobTermin
 	return parsed;
 }
 
-function readOutputIntegrity(path: string): DetachedJobTerminalEnvelope["output"] {
+function readOutputIntegrity(path: string): Omit<DetachedJobTerminalEnvelope["output"], "label"> {
 	const data = readFileSync(path);
 	return { path, size: statSync(path).size, sha256: createHash("sha256").update(data).digest("hex") };
 }

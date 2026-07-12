@@ -59,7 +59,11 @@ describe("detached job lifecycle controller", () => {
 			{ exitCode: 0, kind: "completed", summary: "done" },
 			"2026-07-11T22:00:30.000Z",
 		);
-		expect(fixture.controller.finalize(artifacts.terminalEnvelopePath)).toEqual({ ok: true, terminalRevision: 4 });
+		expect(fixture.controller.finalize(artifacts.terminalEnvelopePath)).toMatchObject({
+			ok: true,
+			terminalAgent: { id: jobId, lifecycle: "completed", revision: 4 },
+			terminalRevision: 4,
+		});
 		expect(readMultiAgentState(fixture.controlDbPath, fixture.sessionPath)?.agents).toMatchObject([
 			{ id: jobId, lifecycle: "completed", revision: 4 },
 		]);

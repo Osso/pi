@@ -24,9 +24,14 @@ export function createDetachedJobLifecycleController(
 	return {
 		allocateJobId: () => options.store.allocateAgentIdForLifecycleCoordinator(),
 		createArtifacts: (jobId) => createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), jobId),
-		finalize: (envelopePath) =>
-			finalizeDetachedJob(options.controlDbPath, { envelopePath, sessionPath: options.sessionPath }),
-		publish: (agent) => options.store.publishLifecycleCoordinatorSnapshot(agent),
+		finalize: (envelopePath) => {
+			const finalized = finalizeDetachedJob(options.controlDbPath, {
+				envelopePath,
+				sessionPath: options.sessionPath,
+			});
+			if (finalized.ok) options.store.publishLifecycleCoordinatorSnapshot(finalized.terminalAgent);
+			return finalized;
+		},
 		reserve: (input) => reserveDetachedJob(options, input),
 	};
 }
@@ -60,6 +65,7 @@ function reserveDetachedJob(
 			expectedRevision: running.agent.revision,
 			fencingEpoch: created.reservation.fencingEpoch,
 			jobId: input.jobId,
+			outputLabel: input.agentType === "bash" ? "Bash output" : "Pyrun output",
 			leaseId,
 			runtimeIncarnation,
 		},

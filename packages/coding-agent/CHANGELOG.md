@@ -4,6 +4,7 @@
 
 ### Added
 
+- Migrated local detached Bash output and lifecycle creation to preallocated identity-bound artifacts: child stdout/stderr write directly to the durable file from spawn, foreground UI tails that file only until detach, and coordinator reservation/envelope finalization replace direct store spawn/transitions. Independent post-restart finalization remains pending runner-process migration.
 - AgentSession now injects a lazily constructed, session-current detached-job lifecycle controller into first-party Bash background-job options, preserving one runtime incarnation while avoiding stale session paths after switches.
 - Added a shared detached-job lifecycle controller adapter covering identity allocation, deterministic artifacts, coordinator reservation/running confirmation, projection publication, and exact envelope finalization for Bash/Pyrun callers.
 - Added coordinator support for preallocated child IDs so detached runners can bind durable output artifacts before payload spawn without persisting lifecycle rows for foreground-only execution.

@@ -13,6 +13,7 @@ const identity = {
 	fencingEpoch: 7,
 	jobId: "job-1",
 	leaseId: "lease-1",
+	outputLabel: "Bash output",
 	runtimeIncarnation: "runtime-1",
 };
 

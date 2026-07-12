@@ -831,6 +831,7 @@ describe("session control DB", () => {
 				fencingEpoch: 1,
 				jobId: agentId,
 				leaseId: "lease-1",
+				outputLabel: "Bash output",
 				runtimeIncarnation: "runtime-1",
 			},
 			{ exitCode: 0, kind: "completed", summary: "done" },
@@ -841,7 +842,11 @@ describe("session control DB", () => {
 			envelopePath: artifacts.terminalEnvelopePath,
 			sessionPath,
 		});
-		expect(finalized).toEqual({ ok: true, terminalRevision: 5 });
+		expect(finalized).toMatchObject({
+			ok: true,
+			terminalAgent: { id: agentId, lifecycle: "completed", revision: 5 },
+			terminalRevision: 5,
+		});
 		expect(finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath })).toEqual(
 			finalized,
 		);
