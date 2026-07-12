@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	abortInactiveSessionSpawnedAgents,
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
+	acquireMultiAgentDispatchLease,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -40,6 +41,7 @@ import {
 	postSharedChannelMessage,
 	readIncomingMessageStatus,
 	readLastMessage,
+	readMultiAgentDispatchLease,
 	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
@@ -49,9 +51,11 @@ import {
 	recoverStaleRuntimeMailboxClaims,
 	registerLifecycleProtocolVersion,
 	registerRuntimeMailboxListener,
+	releaseMultiAgentDispatchLease,
 	relocateSessionControlData,
 	removeNamedSession,
 	renewArchitectRequestClaims,
+	renewMultiAgentDispatchLease,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
@@ -563,6 +567,70 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("fences dispatch lease acquisition, renewal, takeover, and release", () => {
+		const identity = {
+			agentId: "agent-1",
+			leaseId: "lease-a",
+			owner: { agentId: null, sessionId: "supervisor-a" },
+			runtimeIncarnation: "runtime-a",
+			sessionPath: "/sessions/leases.jsonl",
+		};
+		const acquired = acquireMultiAgentDispatchLease(controlDbPath, {
+			...identity,
+			expiresAt: "2026-07-11T00:01:00.000Z",
+			nowIso: "2026-07-11T00:00:00.000Z",
+		});
+		expect(acquired).toMatchObject({ ok: true, lease: { fencingEpoch: 1, leaseId: "lease-a" } });
+
+		const held = acquireMultiAgentDispatchLease(controlDbPath, {
+			...identity,
+			leaseId: "lease-b",
+			owner: { agentId: "agent-parent", sessionId: "supervisor-b" },
+			runtimeIncarnation: "runtime-b",
+			expiresAt: "2026-07-11T00:02:00.000Z",
+			nowIso: "2026-07-11T00:00:30.000Z",
+		});
+		expect(held).toMatchObject({ ok: false, error: "lease_held", current: { leaseId: "lease-a" } });
+
+		expect(
+			renewMultiAgentDispatchLease(controlDbPath, {
+				...identity,
+				expectedFencingEpoch: 1,
+				expiresAt: "2026-07-11T00:03:00.000Z",
+				nowIso: "2026-07-11T00:00:45.000Z",
+			}),
+		).toMatchObject({ ok: true, lease: { expiresAt: "2026-07-11T00:03:00.000Z" } });
+
+		const takeover = acquireMultiAgentDispatchLease(controlDbPath, {
+			...identity,
+			leaseId: "lease-b",
+			owner: { agentId: "agent-parent", sessionId: "supervisor-b" },
+			recoveryOwnerId: "recovery-1",
+			runtimeIncarnation: "runtime-b",
+			expiresAt: "2026-07-11T00:05:00.000Z",
+			nowIso: "2026-07-11T00:04:00.000Z",
+		});
+		expect(takeover).toMatchObject({
+			ok: true,
+			lease: { fencingEpoch: 2, leaseId: "lease-b", recoveryOwnerId: "recovery-1" },
+		});
+
+		expect(releaseMultiAgentDispatchLease(controlDbPath, { ...identity, expectedFencingEpoch: 1 })).toBe(false);
+		expect(
+			releaseMultiAgentDispatchLease(controlDbPath, {
+				...identity,
+				expectedFencingEpoch: 2,
+				leaseId: "lease-b",
+				owner: { agentId: "agent-parent", sessionId: "supervisor-b" },
+				runtimeIncarnation: "runtime-b",
+			}),
+		).toBe(true);
+		expect(readMultiAgentDispatchLease(controlDbPath, identity.sessionPath, identity.agentId)).toMatchObject({
+			fencingEpoch: 2,
+			leaseId: undefined,
+		});
 	});
 
 	it("requires lifecycle writer quiescence before activating a newer protocol", () => {

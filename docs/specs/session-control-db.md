@@ -28,8 +28,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_dispatch_leases`, `multi_agent_mailbox_messages`,
       `multi_agent_counters_v2`): one row
-      upsert per mutation, restore selects the session's rows. Legacy artifact tables/columns are
-      not initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
+      upsert per mutation, restore selects the session's rows. Dispatch lease acquisition is
+      transactional; live leases reject competing owners, expired takeover increments the durable
+      fencing epoch, renewal and release require the exact lease/runtime/owner/epoch identity, and
+      release preserves the epoch while clearing ownership. Legacy artifact tables/columns are not
+      initialized, read, written, or relocated; the legacy `multi_agent_counters` table is only
       migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
       merged by maximum value during migration, then the legacy counter and artifact tables are

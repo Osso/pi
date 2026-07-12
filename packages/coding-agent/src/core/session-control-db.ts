@@ -2069,6 +2069,63 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 	};
 }
 
+export interface MultiAgentDispatchLease {
+	sessionPath: string;
+	agentId: string;
+	leaseId?: string;
+	runtimeIncarnation?: string;
+	owner: { sessionId?: string; agentId: string | null };
+	fencingEpoch: number;
+	renewedAt?: string;
+	expiresAt?: string;
+	recoveryOwnerId?: string;
+}
+
+interface MultiAgentDispatchLeaseRow {
+	session_path: string;
+	agent_id: string;
+	lease_id: string | null;
+	runtime_incarnation: string | null;
+	owner_session_id: string | null;
+	owner_agent_id: string | null;
+	fencing_epoch: number;
+	renewed_at: string | null;
+	expires_at: string | null;
+	recovery_owner_id: string | null;
+}
+
+export interface MultiAgentDispatchLeaseIdentity {
+	sessionPath: string;
+	agentId: string;
+	leaseId: string;
+	runtimeIncarnation: string;
+	owner: { sessionId: string; agentId: string | null };
+}
+
+export interface AcquireMultiAgentDispatchLeaseInput extends MultiAgentDispatchLeaseIdentity {
+	nowIso: string;
+	expiresAt: string;
+	recoveryOwnerId?: string;
+}
+
+export type AcquireMultiAgentDispatchLeaseResult =
+	| { ok: true; lease: MultiAgentDispatchLease }
+	| { ok: false; error: "lease_held"; current: MultiAgentDispatchLease };
+
+export interface RenewMultiAgentDispatchLeaseInput extends MultiAgentDispatchLeaseIdentity {
+	expectedFencingEpoch: number;
+	nowIso: string;
+	expiresAt: string;
+}
+
+export type RenewMultiAgentDispatchLeaseResult =
+	| { ok: true; lease: MultiAgentDispatchLease }
+	| { ok: false; error: "lease_mismatch"; current: MultiAgentDispatchLease | undefined };
+
+export interface ReleaseMultiAgentDispatchLeaseInput extends MultiAgentDispatchLeaseIdentity {
+	expectedFencingEpoch: number;
+}
+
 export interface MultiAgentCounters {
 	nextAgentNumber: number;
 	nextMessageNumber: number;
@@ -2078,6 +2135,155 @@ export interface MultiAgentPersistedState {
 	agents: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
+}
+
+export function readMultiAgentDispatchLease(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+): MultiAgentDispatchLease | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = readMultiAgentDispatchLeaseRow(db, sessionPath, agentId);
+		return row ? multiAgentDispatchLeaseFromRow(row) : undefined;
+	});
+}
+
+export function acquireMultiAgentDispatchLease(
+	controlDbPath: string,
+	input: AcquireMultiAgentDispatchLeaseInput,
+): AcquireMultiAgentDispatchLeaseResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const currentRow = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (currentRow?.lease_id && currentRow.expires_at && currentRow.expires_at > input.nowIso) {
+				return { ok: false, error: "lease_held", current: multiAgentDispatchLeaseFromRow(currentRow) };
+			}
+
+			const fencingEpoch = (currentRow?.fencing_epoch ?? 0) + 1;
+			db.prepare(
+				`INSERT INTO multi_agent_dispatch_leases (
+					session_path, agent_id, lease_id, runtime_incarnation, owner_session_id,
+					owner_agent_id, fencing_epoch, renewed_at, expires_at, recovery_owner_id
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(session_path, agent_id) DO UPDATE SET
+					lease_id = excluded.lease_id,
+					runtime_incarnation = excluded.runtime_incarnation,
+					owner_session_id = excluded.owner_session_id,
+					owner_agent_id = excluded.owner_agent_id,
+					fencing_epoch = excluded.fencing_epoch,
+					renewed_at = excluded.renewed_at,
+					expires_at = excluded.expires_at,
+					recovery_owner_id = excluded.recovery_owner_id`,
+			).run(
+				input.sessionPath,
+				input.agentId,
+				input.leaseId,
+				input.runtimeIncarnation,
+				input.owner.sessionId,
+				input.owner.agentId,
+				fencingEpoch,
+				input.nowIso,
+				input.expiresAt,
+				input.recoveryOwnerId ?? null,
+			);
+			const acquired = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (!acquired)
+				throw new Error(`Dispatch lease acquisition did not persist ${input.sessionPath}#${input.agentId}`);
+			return { ok: true, lease: multiAgentDispatchLeaseFromRow(acquired) };
+		}),
+	);
+}
+
+export function renewMultiAgentDispatchLease(
+	controlDbPath: string,
+	input: RenewMultiAgentDispatchLeaseInput,
+): RenewMultiAgentDispatchLeaseResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const result = db
+				.prepare(
+					`UPDATE multi_agent_dispatch_leases
+					 SET renewed_at = ?, expires_at = ?
+					 WHERE session_path = ? AND agent_id = ? AND lease_id = ?
+					 AND runtime_incarnation = ? AND owner_session_id = ?
+					 AND owner_agent_id IS ? AND fencing_epoch = ?`,
+				)
+				.run(
+					input.nowIso,
+					input.expiresAt,
+					input.sessionPath,
+					input.agentId,
+					input.leaseId,
+					input.runtimeIncarnation,
+					input.owner.sessionId,
+					input.owner.agentId,
+					input.expectedFencingEpoch,
+				);
+			const currentRow = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			if (result.changes !== 1) {
+				return {
+					ok: false,
+					error: "lease_mismatch",
+					current: currentRow ? multiAgentDispatchLeaseFromRow(currentRow) : undefined,
+				};
+			}
+			if (!currentRow) throw new Error(`Dispatch lease renewal lost ${input.sessionPath}#${input.agentId}`);
+			return { ok: true, lease: multiAgentDispatchLeaseFromRow(currentRow) };
+		}),
+	);
+}
+
+export function releaseMultiAgentDispatchLease(
+	controlDbPath: string,
+	input: ReleaseMultiAgentDispatchLeaseInput,
+): boolean {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const result = db
+				.prepare(
+					`UPDATE multi_agent_dispatch_leases
+					 SET lease_id = NULL, runtime_incarnation = NULL, owner_session_id = NULL,
+					 owner_agent_id = NULL, renewed_at = NULL, expires_at = NULL, recovery_owner_id = NULL
+					 WHERE session_path = ? AND agent_id = ? AND lease_id = ?
+					 AND runtime_incarnation = ? AND owner_session_id = ?
+					 AND owner_agent_id IS ? AND fencing_epoch = ?`,
+				)
+				.run(
+					input.sessionPath,
+					input.agentId,
+					input.leaseId,
+					input.runtimeIncarnation,
+					input.owner.sessionId,
+					input.owner.agentId,
+					input.expectedFencingEpoch,
+				);
+			return result.changes === 1;
+		}),
+	);
+}
+
+function readMultiAgentDispatchLeaseRow(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+): MultiAgentDispatchLeaseRow | undefined {
+	return db
+		.prepare("SELECT * FROM multi_agent_dispatch_leases WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as MultiAgentDispatchLeaseRow | undefined;
+}
+
+function multiAgentDispatchLeaseFromRow(row: MultiAgentDispatchLeaseRow): MultiAgentDispatchLease {
+	return {
+		agentId: row.agent_id,
+		expiresAt: row.expires_at ?? undefined,
+		fencingEpoch: row.fencing_epoch,
+		leaseId: row.lease_id ?? undefined,
+		owner: { agentId: row.owner_agent_id, sessionId: row.owner_session_id ?? undefined },
+		recoveryOwnerId: row.recovery_owner_id ?? undefined,
+		renewedAt: row.renewed_at ?? undefined,
+		runtimeIncarnation: row.runtime_incarnation ?? undefined,
+		sessionPath: row.session_path,
+	};
 }
 
 function upsertMultiAgentRow(
