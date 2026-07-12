@@ -150,8 +150,10 @@ session. Runtime mailbox polling/heartbeat stops and listener ownership retires 
 dispatch completes, so no command is accepted under a listener that has already surrendered ownership.
 
 Detached runner recovery preserves evidence rather than inferring process outcomes. The live runner
-owns retries of its immutable terminal envelope. After runner loss, only the agent's owning supervisor may submit an orphan envelope through the
-coordinator. The repository validates the exact runner process identity. A possibly live payload is not
+owns retries of its immutable terminal envelope. After runner loss, only the agent's owning supervisor may
+submit an orphan envelope through the runner's narrow terminal-finalize repository transaction before any
+lost-runtime resolution. The repository validates the exact runner process identity, and recovery never
+reassigns detached ownership to the supervisor process. A possibly live payload is not
 proof of completion. If exact envelope finalization is no longer authorized, recovery records
 `failed/lost_runtime` with outcome uncertainty. A cancellation committed before a pending natural-result
 finalizer wins by transaction order; `aborted` still requires the exact runner's exit acknowledgement.
@@ -174,8 +176,8 @@ finalizer wins by transaction order; `aborted` still requires the exact runner's
       select runtime behavior. `cancelling` agents resolve through dead-owner recovery without restarting a prompt.
 - [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
       `running` while the dispatch and handle are re-established under the new process identity.
-- [x] A detached in-flight agent with no transcript is marked `failed/lost_runtime` with an explicit
-      recovery error at recovery time.
+- [x] A detached in-flight agent with no transcript first submits any valid durable terminal envelope;
+      only when no envelope can commit is it marked `failed/lost_runtime` with an explicit recovery error.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a

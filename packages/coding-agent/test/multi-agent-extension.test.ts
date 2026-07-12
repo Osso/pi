@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -13,6 +13,7 @@ import {
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
+import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -23,6 +24,7 @@ import type {
 	RegisteredCommand,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
 	type AgentMailboxMessage,
 	type AgentSnapshot,
@@ -201,17 +203,19 @@ const commandSourceInfo = {
 	source: "extension",
 } as const;
 
-function addDeadProcessOwner(store: MultiAgentStore, agentId: string): void {
+function addDeadProcessOwner(store: MultiAgentStore, agentId: string) {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected persisted store fixture");
+	const processIdentity = testProcessIdentity("dead-runtime");
 	const acquired = acquireMultiAgentRuntimeOwnership(persistence.controlDbPath, {
 		agentId,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },
-		processIdentity: testProcessIdentity("dead-runtime"),
+		processIdentity,
 		sessionPath: persistence.sessionPath,
 	});
-	if (!acquired.ok) throw new Error(`failed to add expired dispatch lease: ${acquired.error}`);
+	if (!acquired.ok) throw new Error(`failed to add dead process ownership: ${acquired.error}`);
+	return { owner: { agentId: null, sessionId: persistence.sessionPath }, processIdentity };
 }
 
 function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
@@ -224,7 +228,7 @@ function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
 		processIdentity: CURRENT_PROCESS_IDENTITY,
 		sessionPath: persistence.sessionPath,
 	});
-	if (!acquired.ok) throw new Error(`failed to add active dispatch lease: ${acquired.error}`);
+	if (!acquired.ok) throw new Error(`failed to add active process ownership: ${acquired.error}`);
 }
 
 function spawnStoreFixture(
@@ -1205,6 +1209,70 @@ describe("multi-agent extension tools", () => {
 			error: { code: "lost_runtime" },
 			lifecycle: "failed",
 		});
+	});
+
+	it("commits a dead detached runner's durable terminal envelope before lost-runtime recovery", async () => {
+		const artifactRoot = mkdtempSync(join(tmpdir(), "pi-detached-recovery-"));
+		try {
+			const session = createControlDbSession();
+			const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			source.setPersistenceSessionManager(session);
+			const persistence = source.getPersistenceTarget();
+			if (!persistence) throw new Error("expected persisted store fixture");
+			const agentId = source.allocateAgentIdForLifecycleCoordinator();
+			const artifacts = createDetachedJobArtifacts(artifactRoot, agentId);
+			writeFileSync(artifacts.outputPath, "completed output\n");
+			const processIdentity = testProcessIdentity("dead-detached-runner");
+			const owner = { agentId: null, sessionId: persistence.sessionPath };
+			const coordinator = new LifecycleCoordinator({
+				controlDbPath: persistence.controlDbPath,
+				createAgentId: () => source.allocateAgentIdForLifecycleCoordinator(),
+				now: () => "2026-06-21T00:00:00.000Z",
+				processIdentity,
+				sessionPath: persistence.sessionPath,
+			});
+			const created = coordinator.createChild({
+				agentId,
+				agentType: "background",
+				cwd: "/repo",
+				displayName: "Pyrun evaluation",
+				ownerSessionId: owner.sessionId,
+				permission: { narrowed: true, policy: "on-request" },
+				result: { fileRefs: [{ label: "Pyrun output", path: artifacts.outputPath }] },
+			});
+			expect(created.ok).toBe(true);
+			if (!created.ok) throw new Error("expected child ownership");
+			const started = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
+			expect(started.ok).toBe(true);
+			if (!started.ok) throw new Error("expected start");
+			const running = coordinator.confirmChildRuntime({ agent: started.agent, ownership: created.ownership });
+			expect(running.ok).toBe(true);
+			if (!running.ok) throw new Error("expected running");
+			source.publishLifecycleCoordinatorSnapshot(running.agent);
+			writeDetachedJobTerminalEnvelope(
+				artifacts,
+				{
+					jobId: agentId,
+					outputLabel: "Pyrun output",
+					owner,
+					processIdentity,
+				},
+				{ kind: "completed", summary: "detached completion survived" },
+				"2026-06-21T00:00:01.000Z",
+			);
+			const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:02.000Z" });
+			const harness = createMultiAgentHarness({ store });
+
+			await harness.emit("session_start", { reason: "resume", type: "session_start" });
+			await delay(20);
+
+			expect(store.getAgent(agentId)).toMatchObject({
+				lifecycle: "completed",
+				result: { summary: "detached completion survived" },
+			});
+		} finally {
+			rmSync(artifactRoot, { force: true, recursive: true });
+		}
 	});
 
 	it("fails cancelling spawned agents as lost runtimes after their owner process exits", async () => {

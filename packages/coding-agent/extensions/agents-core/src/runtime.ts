@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -41,6 +43,7 @@ import {
 	listSessionMetadata,
 	listUnseenMultiAgentTerminalEvents,
 	markMultiAgentTerminalEventSeen,
+	finalizeDetachedJob,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSessionMetadata,
@@ -1166,6 +1169,7 @@ function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target
 	if (input.dispatches.has(agent.id) || agent.lifecycle === "queued") return;
 	if (!isInFlightLifecycle(agent.lifecycle)) return;
 	if (hasLiveAgentOwner(input, agent)) return;
+	if (finalizeDeadDetachedEnvelope(input, agent)) return;
 	if (agent.lifecycle === "cancelling") {
 		resolveDeadAgentRuntime(input, agent);
 		return;
@@ -1175,23 +1179,30 @@ function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target
 		return;
 	}
 	if (agent.transcript?.path) return;
+	resolveDeadAgentRuntime(input, agent);
+}
 
-	const reservedRuntime = reserveAttachedRuntime({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
-	if (!reservedRuntime) return;
-	input.ownerships.set(agent.id, reservedRuntime);
-	finalizeReservedRuntime(
-		input.store,
-		reservedRuntime.lifecycle.agent,
-		"failed",
-		{
-			error: {
-				code: "lost_runtime",
-				message: "Agent was active when the supervisor session ended and has no recoverable transcript.",
-			},
-		},
-		reservedRuntime,
-	);
-	input.ownerships.delete(agent.id);
+function finalizeDeadDetachedEnvelope(
+	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
+	agent: AgentSnapshot,
+): boolean {
+	const persistence = input.store.getPersistenceTarget();
+	const outputPath = agent.result?.fileRefs?.[0]?.path;
+	if (!persistence || !outputPath) return false;
+	const envelopePath = join(dirname(outputPath), "terminal.json");
+	if (!existsSync(envelopePath)) return false;
+	try {
+		const finalized = finalizeDetachedJob(persistence.controlDbPath, {
+			envelopePath,
+			sessionPath: persistence.sessionPath,
+		});
+		if (!finalized.ok) return false;
+		publishCoordinatorSnapshot(input.store, finalized.terminalAgent);
+		return true;
+	} catch (error) {
+		console.error(`Could not recover detached terminal envelope for ${agent.id}: ${String(error)}`);
+		return false;
+	}
 }
 
 function resolveDeadAgentRuntime(
