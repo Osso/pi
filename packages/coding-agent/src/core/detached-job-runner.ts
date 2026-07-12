@@ -25,6 +25,7 @@ export interface DetachedJobArtifacts {
 
 export interface DetachedJobTerminalEnvelope extends DetachedJobLeaseIdentity {
 	version: typeof DETACHED_JOB_ENVELOPE_VERSION;
+	terminalAt: string;
 	outcome: DetachedJobOutcome;
 	output: { path: string; size: number; sha256: string };
 	checksum: string;
@@ -52,6 +53,7 @@ export function writeDetachedJobTerminalEnvelope(
 	artifacts: DetachedJobArtifacts,
 	identity: DetachedJobLeaseIdentity,
 	outcome: DetachedJobOutcome,
+	terminalAt: string,
 ): DetachedJobTerminalEnvelope {
 	fsyncPath(artifacts.outputPath);
 	const output = readOutputIntegrity(artifacts.outputPath);
@@ -59,6 +61,7 @@ export function writeDetachedJobTerminalEnvelope(
 		...identity,
 		outcome,
 		output,
+		terminalAt,
 		version: DETACHED_JOB_ENVELOPE_VERSION,
 	};
 	const envelope: DetachedJobTerminalEnvelope = { ...unsigned, checksum: hashCanonicalJson(unsigned) };

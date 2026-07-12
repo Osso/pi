@@ -1,11 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createDetachedJobArtifacts, writeDetachedJobTerminalEnvelope } from "../src/core/detached-job-runner.ts";
 import {
 	abortInactiveSessionSpawnedAgents,
 	abortPersistedSpawnedAgentsForInactiveSupervisorSession,
@@ -32,6 +33,7 @@ import {
 	enqueueRuntimeMailboxMessage,
 	failMultiAgentTerminalOutbox,
 	failRuntimeMailboxMessage,
+	finalizeDetachedJob,
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
 	listActiveSessionMetadata,
@@ -790,6 +792,72 @@ describe("session control DB", () => {
 			) as Record<string, unknown>;
 			expect(agent).toMatchObject({ lifecycle: "completed", revision: 5 });
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_events").get()).toEqual({ count: 1 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
+		} finally {
+			db.close();
+		}
+	});
+
+	it("finalizes a detached job from its exact durable envelope", () => {
+		const sessionPath = "/sessions/detached-finalize.jsonl";
+		const agentId = "job-1";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "background",
+			createdAt: "2026-07-11T21:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Detached job",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T21:00:00.000Z",
+		});
+		acquireMultiAgentDispatchLease(controlDbPath, {
+			agentId,
+			expiresAt: "2026-07-11T23:00:00.000Z",
+			leaseId: "lease-1",
+			nowIso: "2026-07-11T21:00:00.000Z",
+			owner: { agentId: null, sessionId: "runner" },
+			runtimeIncarnation: "runtime-1",
+			sessionPath,
+		});
+		const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detached-finalize-")), agentId);
+		writeFileSync(artifacts.outputPath, "runner output", { mode: 0o600 });
+		const envelope = writeDetachedJobTerminalEnvelope(
+			artifacts,
+			{
+				expectedRevision: 4,
+				fencingEpoch: 1,
+				jobId: agentId,
+				leaseId: "lease-1",
+				runtimeIncarnation: "runtime-1",
+			},
+			{ exitCode: 0, kind: "completed", summary: "done" },
+			"2026-07-11T22:00:00.000Z",
+		);
+
+		const finalized = finalizeDetachedJob(controlDbPath, {
+			envelopePath: artifacts.terminalEnvelopePath,
+			sessionPath,
+		});
+		expect(finalized).toEqual({ ok: true, terminalRevision: 5 });
+		expect(finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath })).toEqual(
+			finalized,
+		);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{
+				id: agentId,
+				lifecycle: "completed",
+				result: { fileRefs: [{ path: envelope.output.path }], summary: "done" },
+				revision: 5,
+			},
+		]);
+		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "detached-test")).toMatchObject([
+			{ agentId, eventKind: "detached_job_completed", payload: envelope, terminalRevision: 5 },
+		]);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
 		} finally {
 			db.close();

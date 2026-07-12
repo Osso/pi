@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
+import { type DetachedJobTerminalEnvelope, readDetachedJobTerminalEnvelope } from "./detached-job-runner.ts";
 import type { AgentFileReference } from "./multi-agent-store.ts";
 import { isPiRuntimeProcessAlive, isVerifiedPiRuntimeProcess } from "./runtime-process.ts";
 import {
@@ -2184,6 +2185,15 @@ export type CommitMultiAgentTerminalMutationResult =
 	| { ok: true; terminalRevision: number }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface FinalizeDetachedJobInput {
+	sessionPath: string;
+	envelopePath: string;
+}
+
+export type FinalizeDetachedJobResult =
+	| { ok: true; terminalRevision: number }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
 export interface RecoverExpiredMultiAgentRuntimeInput {
 	sessionPath: string;
 	agentId: string;
@@ -2608,6 +2618,111 @@ function dispatchLeaseMatchesTerminalMutation(
 		lease.expires_at !== null &&
 		lease.expires_at > input.updatedAt
 	);
+}
+
+export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
+	const envelope = readDetachedJobTerminalEnvelope(input.envelopePath);
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => finalizeDetachedJobTransaction(db, input.sessionPath, envelope)),
+	);
+}
+
+function finalizeDetachedJobTransaction(
+	db: SqliteDatabase,
+	sessionPath: string,
+	envelope: DetachedJobTerminalEnvelope,
+): FinalizeDetachedJobResult {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, envelope.jobId) as { data: string } | undefined;
+	if (!row) return { ok: false, error: "agent_not_found" };
+	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${envelope.jobId}`);
+	const terminalRevision = envelope.expectedRevision + 1;
+	const terminalLifecycle = envelope.outcome.kind;
+	const eventKind = `detached_job_${terminalLifecycle}`;
+	const lease = readMultiAgentDispatchLeaseRow(db, sessionPath, envelope.jobId);
+	const matches =
+		lease?.lease_id === envelope.leaseId &&
+		lease.runtime_incarnation === envelope.runtimeIncarnation &&
+		lease.fencing_epoch === envelope.fencingEpoch &&
+		lease.expires_at !== null &&
+		lease.expires_at > envelope.terminalAt;
+	if (!matches) return { ok: false, error: "mutation_mismatch" };
+	if (agent.revision === terminalRevision && agent.lifecycle === terminalLifecycle) {
+		return detachedJobReplayResult(db, sessionPath, envelope, terminalRevision, eventKind);
+	}
+	if (agent.revision !== envelope.expectedRevision) return { ok: false, error: "mutation_mismatch" };
+	const canFinalize =
+		agent.lifecycle === "running" ||
+		(agent.lifecycle === "cancelling" && (terminalLifecycle === "aborted" || terminalLifecycle === "failed"));
+	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, envelope.jobId)) {
+		return { ok: false, error: "invalid_transition" };
+	}
+	persistDetachedJobTerminal(db, sessionPath, envelope, agent, terminalRevision, eventKind);
+	return { ok: true, terminalRevision };
+}
+
+function detachedJobReplayResult(
+	db: SqliteDatabase,
+	sessionPath: string,
+	envelope: DetachedJobTerminalEnvelope,
+	terminalRevision: number,
+	eventKind: string,
+): FinalizeDetachedJobResult {
+	const event = db
+		.prepare(
+			`SELECT payload FROM multi_agent_terminal_events
+			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
+		)
+		.get(sessionPath, envelope.jobId, terminalRevision, eventKind) as { payload: string } | undefined;
+	return event?.payload === JSON.stringify(envelope)
+		? { ok: true, terminalRevision }
+		: { ok: false, error: "mutation_mismatch" };
+}
+
+function persistDetachedJobTerminal(
+	db: SqliteDatabase,
+	sessionPath: string,
+	envelope: DetachedJobTerminalEnvelope,
+	agent: Record<string, unknown>,
+	terminalRevision: number,
+	eventKind: string,
+): void {
+	const updated = {
+		...agent,
+		...detachedJobAgentDetails(envelope),
+		lifecycle: envelope.outcome.kind,
+		revision: terminalRevision,
+		updatedAt: envelope.terminalAt,
+		worker: undefined,
+	};
+	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
+		JSON.stringify(updated),
+		envelope.terminalAt,
+		sessionPath,
+		envelope.jobId,
+	);
+	db.prepare(
+		`INSERT INTO multi_agent_terminal_events
+			(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, JSON.stringify(envelope), envelope.terminalAt);
+	db.prepare(
+		`INSERT INTO multi_agent_terminal_outbox
+			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
+	).run(sessionPath, envelope.jobId, terminalRevision, eventKind, envelope.terminalAt);
+}
+
+function detachedJobAgentDetails(envelope: DetachedJobTerminalEnvelope): Record<string, unknown> {
+	const fileRefs = [{ label: "Detached job output", path: envelope.output.path }];
+	if (envelope.outcome.kind === "completed") {
+		return { result: { fileRefs, summary: envelope.outcome.summary } };
+	}
+	if (envelope.outcome.kind === "failed") {
+		return { error: envelope.outcome.error, result: { fileRefs } };
+	}
+	return { result: { fileRefs } };
 }
 
 export function recoverExpiredMultiAgentRuntime(

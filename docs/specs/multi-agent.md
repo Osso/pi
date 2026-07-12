@@ -139,7 +139,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Shared detached-job artifacts live under an identity-bound job directory with a direct durable
   output file and immutable terminal envelope. Envelope creation fsyncs output first, records its
   size and SHA-256, records the full lease/revision/fencing identity and exact outcome, checksums the
-  envelope, atomically renames it into place, and fsyncs the containing directory.
+  envelope, atomically renames it into place, and fsyncs the containing directory. The envelope also
+  fixes the original terminal timestamp so DB-outage retries never substitute retry time. The runner
+  finalize repository operation accepts only session path plus envelope path, revalidates output and
+  checksum, requires exact revision/lease/incarnation/epoch and a lease live at that terminal time,
+  permits only `running|cancelling` terminal settlement, and commits state/event/outbox atomically.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through
   path. They re-check transition legality, authorization, and the complete mutation predicate
   before committing any lifecycle or terminal-event change. A coordinator response is successful

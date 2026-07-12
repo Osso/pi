@@ -22,11 +22,12 @@ describe("detached job runner artifacts", () => {
 		const artifacts = createDetachedJobArtifacts(root, identity.jobId);
 		writeFileSync(artifacts.outputPath, "stdout\nstderr\n", { mode: 0o600 });
 
-		const written = writeDetachedJobTerminalEnvelope(artifacts, identity, {
-			exitCode: 0,
-			kind: "completed",
-			summary: "done",
-		});
+		const written = writeDetachedJobTerminalEnvelope(
+			artifacts,
+			identity,
+			{ exitCode: 0, kind: "completed", summary: "done" },
+			"2026-07-11T22:00:00.000Z",
+		);
 		const restored = readDetachedJobTerminalEnvelope(artifacts.terminalEnvelopePath);
 
 		expect(restored).toEqual(written);
@@ -34,6 +35,7 @@ describe("detached job runner artifacts", () => {
 			...identity,
 			outcome: { exitCode: 0, kind: "completed", summary: "done" },
 			output: { path: artifacts.outputPath, size: 14 },
+			terminalAt: "2026-07-11T22:00:00.000Z",
 			version: 1,
 		});
 		expect(readFileSync(artifacts.terminalEnvelopePath, "utf8")).toBe(`${JSON.stringify(written)}\n`);
@@ -43,7 +45,12 @@ describe("detached job runner artifacts", () => {
 		const root = mkdtempSync(join(tmpdir(), "pi-detached-job-"));
 		const artifacts = createDetachedJobArtifacts(root, identity.jobId);
 		writeFileSync(artifacts.outputPath, "original", { mode: 0o600 });
-		writeDetachedJobTerminalEnvelope(artifacts, identity, { kind: "aborted", reason: "cancelled" });
+		writeDetachedJobTerminalEnvelope(
+			artifacts,
+			identity,
+			{ kind: "aborted", reason: "cancelled" },
+			"2026-07-11T22:00:00.000Z",
+		);
 		writeFileSync(artifacts.outputPath, "changed", { mode: 0o600 });
 
 		expect(() => readDetachedJobTerminalEnvelope(artifacts.terminalEnvelopePath)).toThrow(
@@ -55,7 +62,12 @@ describe("detached job runner artifacts", () => {
 		const root = mkdtempSync(join(tmpdir(), "pi-detached-job-"));
 		const artifacts = createDetachedJobArtifacts(root, identity.jobId);
 		writeFileSync(artifacts.outputPath, "output", { mode: 0o600 });
-		writeDetachedJobTerminalEnvelope(artifacts, identity, { error: { message: "failed" }, kind: "failed" });
+		writeDetachedJobTerminalEnvelope(
+			artifacts,
+			identity,
+			{ error: { message: "failed" }, kind: "failed" },
+			"2026-07-11T22:00:00.000Z",
+		);
 		const envelope = JSON.parse(readFileSync(artifacts.terminalEnvelopePath, "utf8")) as Record<string, unknown>;
 		envelope.fencingEpoch = 8;
 		writeFileSync(artifacts.terminalEnvelopePath, JSON.stringify(envelope));
