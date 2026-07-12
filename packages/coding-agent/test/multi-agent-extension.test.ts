@@ -215,6 +215,21 @@ function addExpiredDispatchLease(store: MultiAgentStore, agentId: string): void 
 	if (!acquired.ok) throw new Error(`failed to add expired dispatch lease: ${acquired.error}`);
 }
 
+function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("expected persisted store fixture");
+	const acquired = acquireMultiAgentDispatchLease(persistence.controlDbPath, {
+		agentId,
+		expiresAt: "2099-01-01T00:00:00.000Z",
+		leaseId: `active-${agentId}`,
+		nowIso: "2026-06-21T00:00:00.000Z",
+		owner: { agentId: null, sessionId: persistence.sessionPath },
+		runtimeIncarnation: "active-runtime",
+		sessionPath: persistence.sessionPath,
+	});
+	if (!acquired.ok) throw new Error(`failed to add active dispatch lease: ${acquired.error}`);
+}
+
 function spawnStoreFixture(
 	store: MultiAgentStore,
 	input: {
@@ -2287,6 +2302,7 @@ describe("multi-agent extension tools", () => {
 		if (!started.ok) {
 			throw new Error("expected running transition");
 		}
+		addActiveDispatchLease(harness.store, agent.id);
 
 		const steered = await harness.call<SteerAgentDetails>("steer_agent", {
 			agentId: agent.id,

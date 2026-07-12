@@ -2554,18 +2554,31 @@ function steerAgent(
 		});
 	}
 
-	const steered = store.sendSteering(params.agentId, current.revision, {
-		fileRefs: params.fileRefs,
-		body: params.message,
-		fromAgentId: senderId,
-		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
-	});
-	if (!steered.ok) {
-		return errorResult(`Could not steer ${params.agentId}: ${steered.error}`, {
-			agent: "current" in steered ? steered.current : emptyAgent(params.agentId),
+	const persistence = store.getPersistenceTarget();
+	const coordinator = ctx ? createLifecycleCoordinator(store, ctx) : undefined;
+	const reservation = persistence
+		? readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, current.id)
+		: undefined;
+	if (!coordinator || !reservation) {
+		return errorResult(`Could not steer ${params.agentId}: lifecycle reservation unavailable`, {
+			agent: current,
 			message: emptyMessage(params.agentId, params.message),
 		});
 	}
+	const message = store.prepareSteeringMessageForLifecycleCoordinator(params.agentId, {
+		body: params.message,
+		fileRefs: params.fileRefs,
+		fromAgentId: senderId,
+		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
+	});
+	const steered = coordinator.requestSteering({ agent: current, message, reservation });
+	if (!steered.ok) {
+		return errorResult(`Could not steer ${params.agentId}: ${steered.error}`, {
+			agent: current,
+			message: emptyMessage(params.agentId, params.message),
+		});
+	}
+	store.publishLifecycleCoordinatorSteering(steered.agent, steered.message);
 
 	if (!mirrorRuntimeMailboxMessage(store, steered.message, ctx)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, steered.message);

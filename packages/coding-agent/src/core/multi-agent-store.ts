@@ -335,6 +335,31 @@ export class MultiAgentStore {
 		return this.createAgentId();
 	}
 
+	prepareSteeringMessageForLifecycleCoordinator(agentId: string, input: SendSteeringInput): AgentMailboxMessage {
+		const timestamp = this.now();
+		return {
+			body: input.body,
+			createdAt: timestamp,
+			fileRefs: validateFileRefs(input.fileRefs, "steer_agent"),
+			fromAgentId: input.fromAgentId,
+			id: this.createMessageId(),
+			kind: "steer",
+			status: "pending",
+			targetCheckpoint: input.targetCheckpoint,
+			threadId: input.threadId,
+			toAgentId: agentId,
+			updatedAt: timestamp,
+		};
+	}
+
+	publishLifecycleCoordinatorSteering(agent: AgentSnapshot, message: AgentMailboxMessage): void {
+		const previous = this.agents.get(agent.id);
+		const current = copyAgent(agent);
+		this.mailboxMessages.set(message.id, copyMessage(message));
+		this.agents.set(agent.id, current);
+		if (previous) this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+	}
+
 	publishLifecycleCoordinatorSnapshot(agent: AgentSnapshot): void {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);

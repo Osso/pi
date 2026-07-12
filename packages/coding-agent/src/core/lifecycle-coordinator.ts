@@ -1,8 +1,9 @@
-import type { AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
+import type { AgentMailboxMessage, AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
 import {
 	acquireAttachedRuntimeLease,
 	acquireMultiAgentRecoveryLeaderLease,
 	commitMultiAgentLifecycleMutation,
+	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
 	createMultiAgentChildWithDispatchReservation,
 	type MultiAgentDispatchLease,
@@ -40,6 +41,14 @@ export interface ReservedLifecycleCommandInput {
 	agent: AgentSnapshot;
 	reservation: MultiAgentDispatchLease;
 }
+
+export interface SteeringCommandInput extends ReservedLifecycleCommandInput {
+	message: AgentMailboxMessage;
+}
+
+export type SteeringCommandResult =
+	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
 export interface DetachedCancellationCommandInput extends ReservedLifecycleCommandInput {
 	outputLabel: string;
@@ -104,6 +113,24 @@ export class LifecycleCoordinator {
 
 	confirmChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "running");
+	}
+
+	requestSteering(input: SteeringCommandInput): SteeringCommandResult {
+		const identity = this.readReservationIdentity(input.reservation);
+		if (!identity) return { ok: false, error: "mutation_mismatch" };
+		const result = commitMultiAgentSteeringMutation(this.options.controlDbPath, {
+			agentId: input.agent.id,
+			expectedRevision: input.agent.revision,
+			fencingEpoch: input.reservation.fencingEpoch,
+			leaseId: identity.leaseId,
+			message: input.message,
+			owner: identity.owner,
+			requestedLifecycle: "steering_pending",
+			runtimeIncarnation: identity.runtimeIncarnation,
+			sessionPath: this.options.sessionPath,
+			updatedAt: input.message.updatedAt,
+		});
+		return result;
 	}
 
 	markWaitingForInput(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
