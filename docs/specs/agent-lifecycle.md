@@ -120,11 +120,11 @@ runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact ac
 the same merge rule and no longer advances the lifecycle revision token. Pinned-slot metadata follows
 the same rule, including clear operations. Generic full-row agent upsert is limited to unleased
 bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
-every row after a dispatch lease identity exists. A SQLite trigger independently rejects every
-agent-data UPDATE that changes lifecycle or revision unless the connection is inside an explicitly
-authorized coordinator, detached-runner finalizer, recovery, or offline-migration write scope. A
-source-scan regression also fails if production modules call direct store lifecycle methods or the
-bootstrap writer outside authority modules.
+every row after a dispatch lease identity exists. Repository transactions re-check complete fenced
+mutation predicates before lifecycle writes, while schema-version startup checks reject incompatible
+runtimes. A source-scan regression also fails if production modules call direct store lifecycle
+methods or the bootstrap writer outside authority modules. SQLite connection access control and
+arbitrary same-UID raw SQL are outside this authority model.
 
 ## What it must do
 
@@ -144,14 +144,12 @@ bootstrap writer outside authority modules.
 
 ### Restore and recovery (derived liveness)
 
-Shutdown ordering is strict. The runtime first stops accepting orchestration admissions, then
-invalidates the local dispatch generation so late callbacks cannot publish into a rebound store. It
-commits fenced cancellation requests for owned spawned runtimes, invokes abort only after those
-commits, and waits only for the bounded settlement window; unacknowledged exits remain `cancelling`
-until lease-expiry recovery. Attached sessions intended for resume are locally aborted after generation
-invalidation without inventing a terminal result. Runtime mailbox polling/heartbeat stops and listener
-ownership retires only after lifecycle requests and local abort dispatch complete, so no command is
-accepted under a listener that has already surrendered ownership.
+Shutdown ordering is strict. The runtime first stops accepting orchestration work, then invalidates
+the local dispatch generation so late callbacks cannot publish into a rebound store. It stops lease
+renewal and locally aborts session runtimes without inventing a terminal result; persisted agents remain
+recoverable regardless of whether their backing session was newly created or selected from an existing
+session. Runtime mailbox polling/heartbeat stops and listener ownership retires only after local abort
+dispatch completes, so no command is accepted under a listener that has already surrendered ownership.
 
 Detached runner recovery preserves evidence rather than inferring process outcomes. The live runner
 owns retries of its immutable terminal envelope. After runner loss, only the coordinator recovery
@@ -171,18 +169,16 @@ replace it, and `aborted` still requires the current runner's fenced exit acknow
       verified live Pi PID already owning the session rejects replacement. Session relocation moves the
       assertion transactionally with the store. Verified administrative restart may terminalize owned
       work through the coordinator, but generic owner loss or lease expiry resolves as
-      `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Attached, queued,
-      terminal, current-live, and uncertain process-backed rows follow their explicit recovery policy.
-- [x] Attached agents already `waiting_for_input` are not auto-prompted after restore.
-- [x] Only detached in-flight agents with persisted `origin: "attached"` and a transcript are
-      auto-restarted through the attached-session dispatch path.
-- [x] Reattaching a runtime to a detached `running` attached agent is not a lifecycle transition:
-      the agent stays `running` while the dispatch and handle are re-established.
-- [x] A detached in-flight attached agent with no transcript is marked `failed` with an explicit
+      `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Queued, terminal,
+      current-live, and uncertain process-backed rows follow their explicit recovery policy.
+- [x] Agents already `waiting_for_input` are not auto-prompted after restore unless an executable
+      session runtime is configured to continue their persisted transcript.
+- [x] Any detached in-flight agent with a transcript is resumed through the same session dispatch path;
+      the `origin` field records construction provenance and does not select runtime behavior.
+- [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
+      `running` while the dispatch and handle are re-established.
+- [x] A detached in-flight agent with no transcript is marked `failed/lost_runtime` with an explicit
       recovery error at recovery time.
-- [x] A detached attached `cancelling` agent is resolved by the coordinator at recovery time:
-      `aborted` requires a verified exit acknowledgement; owner loss or lease expiry resolves it
-      as `failed` with `lost_runtime`.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a

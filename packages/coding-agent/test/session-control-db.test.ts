@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +65,6 @@ import {
 	readSharedChannelCursor,
 	recoverExpiredMultiAgentRuntime,
 	recoverStaleRuntimeMailboxClaims,
-	registerLifecycleProtocolVersion,
 	registerRuntimeMailboxListener,
 	releaseMultiAgentDispatchLease,
 	releaseMultiAgentRecoveryLeaderLease,
@@ -550,6 +549,24 @@ describe("session control DB", () => {
 		expect(() => readMultiAgentState(controlDbPath, "/sessions/invalid-label.jsonl")).toThrow(/label.*string/i);
 	});
 
+	it("initializes the lifecycle repository under standalone Bun", () => {
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const scriptPath = join(tempDir, "bun-lifecycle-repository.ts");
+		writeFileSync(
+			scriptPath,
+			`import { bootstrapMultiAgentAgent, readMultiAgentState } from ${JSON.stringify(moduleUrl)};
+const controlDbPath = process.argv[2];
+const sessionPath = "/sessions/bun-runtime.jsonl";
+bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", { id: "agent-1", lifecycle: "queued", revision: 1 });
+const state = readMultiAgentState(controlDbPath, sessionPath);
+if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did not persist the agent");
+`,
+		);
+
+		const result = spawnSync("bun", [scriptPath, controlDbPath], { encoding: "utf8" });
+		expect(result.status, result.stderr || result.stdout).toBe(0);
+	});
+
 	it("rejects a control database created by a newer lifecycle protocol", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -812,19 +829,6 @@ describe("session control DB", () => {
 				updatedAt: "2026-07-11T00:00:30.000Z",
 			}),
 		).toThrow("Generic agent upsert cannot mutate leased lifecycle row");
-		const unauthorized = createSqliteDatabase(controlDbPath);
-		try {
-			registerLifecycleProtocolVersion(unauthorized);
-			const current = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as Record<string, unknown>;
-			expect(() =>
-				unauthorized
-					.prepare("UPDATE multi_agent_agents SET data = ? WHERE session_path = ? AND agent_id = ?")
-					.run(JSON.stringify({ ...current, lifecycle: "failed", revision: 99 }), sessionPath, agentId),
-			).toThrow("Unauthorized lifecycle writer");
-		} finally {
-			unauthorized.close();
-		}
-
 		const mutation = {
 			agentId,
 			eventKind: "completed",
@@ -1484,17 +1488,17 @@ describe("session control DB", () => {
 		]);
 	});
 
-	it("acquires attached runtime ownership only for the exact attached revision", () => {
-		const sessionPath = "/sessions/attached-runtime.jsonl";
-		const agentId = "attached-1";
+	it("acquires resumed runtime ownership from the exact agent revision regardless of origin", () => {
+		const sessionPath = "/sessions/resumed-runtime.jsonl";
+		const agentId = "resumed-1";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			agentType: "resumed-session",
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
-			displayName: "Attached",
+			displayName: "Resumed",
 			id: agentId,
 			lifecycle: "waiting_for_input",
-			origin: "attached",
+			origin: "spawned",
 			permission: { narrowed: true, policy: "on-request" },
 			revision: 4,
 			updatedAt: "2026-07-11T00:00:00.000Z",
@@ -1503,10 +1507,10 @@ describe("session control DB", () => {
 			agentId,
 			expectedRevision: 4,
 			expiresAt: "2026-07-11T00:02:00.000Z",
-			leaseId: "attached-lease",
+			leaseId: "resumed-lease",
 			nowIso: "2026-07-11T00:01:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
-			runtimeIncarnation: "attached-runtime",
+			runtimeIncarnation: "resumed-runtime",
 			sessionPath,
 		};
 
@@ -1515,8 +1519,8 @@ describe("session control DB", () => {
 			ok: false,
 		});
 		expect(acquireAttachedRuntimeLease(controlDbPath, input)).toMatchObject({
-			agent: { id: agentId, origin: "attached", revision: 4 },
-			lease: { fencingEpoch: 1, leaseId: "attached-lease" },
+			agent: { id: agentId, origin: "spawned", revision: 4 },
+			lease: { fencingEpoch: 1, leaseId: "resumed-lease" },
 			ok: true,
 		});
 		expect(
@@ -1679,33 +1683,6 @@ describe("session control DB", () => {
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
 	});
 
-	it("rejects lifecycle writes from connections without the current protocol", () => {
-		const sessionPath = "/sessions/protocol-writer.jsonl";
-		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
-			createdAt: "2026-07-11T00:00:00.000Z",
-			cwd: "/repo",
-			displayName: "Protocol writer",
-			agentType: "test",
-			id: "agent-1",
-			lifecycle: "queued",
-			parentId: undefined,
-			permission: { narrowed: true, policy: "on-request" },
-			revision: 0,
-			updatedAt: "2026-07-11T00:00:00.000Z",
-		});
-
-		const legacyConnection = createSqliteDatabase(controlDbPath);
-		try {
-			expect(() =>
-				legacyConnection
-					.prepare("UPDATE multi_agent_agents SET updated_at = ? WHERE session_path = ? AND agent_id = ?")
-					.run("2026-07-11T00:01:00.000Z", sessionPath, "agent-1"),
-			).toThrow(/lifecycle.protocol/i);
-		} finally {
-			legacyConnection.close();
-		}
-	});
-
 	it("migrates legacy artifact fields from a pre-upgrade database", () => {
 		const sessionPath = "/sessions/legacy-agent.jsonl";
 		const db = createSqliteDatabase(controlDbPath);
@@ -1776,7 +1753,7 @@ describe("session control DB", () => {
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(8);
+			expect(version.user_version).toBe(9);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1832,7 +1809,6 @@ describe("session control DB", () => {
 
 		const alreadyMigratedDb = createSqliteDatabase(controlDbPath);
 		try {
-			registerLifecycleProtocolVersion(alreadyMigratedDb);
 			for (const [table, idColumn, id] of [
 				["multi_agent_agents", "agent_id", "agent-2"],
 				["multi_agent_mailbox_messages", "message_id", "message-2"],
@@ -1873,8 +1849,6 @@ describe("session control DB", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.exec(`
-				DROP TRIGGER multi_agent_agents_require_lifecycle_protocol_insert;
-				DROP TRIGGER multi_agent_agents_require_lifecycle_protocol_update;
 				DROP TRIGGER multi_agent_agents_reject_legacy_artifact_fields_insert;
 				DROP TRIGGER multi_agent_agents_reject_legacy_artifact_fields_update;
 				DROP TRIGGER multi_agent_mailbox_messages_reject_legacy_artifact_fields_insert;
@@ -1900,7 +1874,7 @@ describe("session control DB", () => {
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(8);
+			expect(version.user_version).toBe(9);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
@@ -1913,7 +1887,6 @@ describe("session control DB", () => {
 		}
 		const blockedDb = createSqliteDatabase(controlDbPath);
 		try {
-			registerLifecycleProtocolVersion(blockedDb);
 			expect(() =>
 				blockedDb
 					.prepare(
@@ -1932,7 +1905,6 @@ describe("session control DB", () => {
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			registerLifecycleProtocolVersion(db);
 			db.prepare(
 				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,

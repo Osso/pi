@@ -1011,7 +1011,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("fails recovered spawned children after their dispatch lease expires", async () => {
+	it("resumes recovered agents from persisted transcripts regardless of origin", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1036,21 +1036,33 @@ describe("multi-agent extension tools", () => {
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
-		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const prompts: string[] = [];
+		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
+			expect(agent.id).toBe(interrupted.agent.id);
+			expect(sessionPath).toBe("/sessions/spawned-child.jsonl");
+			return {
+				messages: [fauxAssistantMessage("spawned recovery complete")],
+				prompt: async (prompt) => {
+					prompts.push(prompt);
+				},
+				transcript: agent.transcript,
+			};
+		};
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
-		await delay(20);
+		const recovered = await waitForTerminalAgent(harness, interrupted.agent.id);
 
-		expect(createAttachedSession).not.toHaveBeenCalled();
-		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
-			error: { code: "lost_runtime" },
-			lifecycle: "failed",
+		expect(prompts).toHaveLength(1);
+		expect(prompts[0]).toContain("Continue the conversation from where it left off");
+		expect(recovered).toMatchObject({
+			lifecycle: "completed",
+			result: { summary: "spawned recovery complete" },
+			transcript: { path: "/sessions/spawned-child.jsonl", sessionId: "spawned-child-session" },
 		});
-		expect(store.getActiveAgentCount()).toBe(0);
 	});
 
-	it("fails recovered waiting children after their dispatch lease expires", async () => {
+	it("keeps recovered agents waiting when no session runtime is configured", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1072,10 +1084,10 @@ describe("multi-agent extension tools", () => {
 		await delay(20);
 
 		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
-			error: { code: "lost_runtime" },
-			lifecycle: "failed",
+			error: undefined,
+			lifecycle: "waiting_for_input",
 		});
-		expect(store.getActiveAgentCount()).toBe(0);
+		expect(store.getActiveAgentCount()).toBe(1);
 	});
 
 	it("waits for active background jobs that update store state without a dispatch", async () => {

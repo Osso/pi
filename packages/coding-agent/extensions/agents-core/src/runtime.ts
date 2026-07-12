@@ -1157,7 +1157,7 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): ReservedAgen
 	};
 }
 
-function recoverDetachedAgents(
+function recoverAgents(
 	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
 	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
 ): void {
@@ -1165,81 +1165,61 @@ function recoverDetachedAgents(
 		return;
 	}
 	for (const agent of input.store.listActiveAgents()) {
-		recoverDetachedAgent(input, agent, recoveryTimers);
+		recoverAgent(input, agent, recoveryTimers);
 	}
 }
 
-function recoverDetachedAgent(
+function recoverAgent(
 	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
 	agent: AgentSnapshot,
 	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
 ): void {
-	if (input.dispatches.has(agent.id) || (agent.lifecycle === "queued" && agent.origin === "attached")) return;
-	if (agent.origin !== "attached") {
-		scheduleSpawnedAgentRecovery(input, agent, recoveryTimers);
-		return;
-	}
-	if (!isInFlightLifecycle(agent.lifecycle)) {
-		return;
-	}
+	if (input.dispatches.has(agent.id) || agent.lifecycle === "queued") return;
+	if (!isInFlightLifecycle(agent.lifecycle)) return;
+	if (scheduleAgentRecoveryAfterLiveLease(input, agent, recoveryTimers)) return;
 	if (input.createAttachedSession && agent.transcript?.path) {
 		dispatchAttachedSessionAgent({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
 		return;
 	}
-	if (!agent.transcript?.path) {
-		const reservedRuntime = reserveAttachedRuntime({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
-		if (!reservedRuntime) return;
-		input.reservations.set(agent.id, reservedRuntime);
-		finalizeReservedRuntime(
-			input.store,
-			reservedRuntime.ownership.agent,
-			"failed",
-			{
-				error: {
-					message: "Agent was active when the supervisor session ended and has no recoverable transcript.",
-				},
+	if (agent.transcript?.path) return;
+
+	const reservedRuntime = reserveAttachedRuntime({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+	if (!reservedRuntime) return;
+	input.reservations.set(agent.id, reservedRuntime);
+	finalizeReservedRuntime(
+		input.store,
+		reservedRuntime.ownership.agent,
+		"failed",
+		{
+			error: {
+				code: "lost_runtime",
+				message: "Agent was active when the supervisor session ended and has no recoverable transcript.",
 			},
-			reservedRuntime,
-		);
-		input.reservations.delete(agent.id);
-	}
+		},
+		reservedRuntime,
+	);
+	input.reservations.delete(agent.id);
 }
 
-function scheduleSpawnedAgentRecovery(
+function scheduleAgentRecoveryAfterLiveLease(
 	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
 	agent: AgentSnapshot,
 	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
-): void {
-	if (recoveryTimers.has(agent.id)) return;
+): boolean {
+	if (recoveryTimers.has(agent.id)) return true;
 	const persistence = input.store.getPersistenceTarget();
-	if (!persistence) return;
+	if (!persistence) return false;
 	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	if (!lease?.expiresAt) return;
+	if (!lease?.expiresAt || Date.parse(lease.expiresAt) <= Date.now()) return false;
 	const delayMs = Math.max(0, Date.parse(lease.expiresAt) - Date.now() + 1);
 	const timer = setTimeout(() => {
 		recoveryTimers.delete(agent.id);
 		const current = input.store.getAgent(agent.id);
 		if (!current || !isActiveLifecycle(current.lifecycle)) return;
-		const coordinator = createLifecycleCoordinator(input.store, input.ctx);
-		if (!coordinator) return;
-		const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
-		const recovered = coordinator.recoverExpiredChild({ agent: current, ownerSessionId });
-		if (recovered.ok) {
-			publishCoordinatorSnapshot(input.store, recovered.agent);
-			return;
-		}
-		if (recovered.error === "lease_held") {
-			const retry = setTimeout(
-				() => {
-					recoveryTimers.delete(agent.id);
-					scheduleSpawnedAgentRecovery(input, agent, recoveryTimers);
-				},
-				CHILD_DISPATCH_RESERVATION_MS + 1,
-			);
-			recoveryTimers.set(agent.id, retry);
-		}
+		recoverAgent(input, current, recoveryTimers);
 	}, delayMs);
 	recoveryTimers.set(agent.id, timer);
+	return true;
 }
 
 function dispatchReservedAttachedChildSession(
@@ -1470,16 +1450,21 @@ function trackAgentDispatch(
 }
 
 function startReservationRenewal(runtime: ReservedAgentRuntime): () => void {
+	const stop = (): void => clearInterval(timer);
 	const timer = setInterval(() => {
 		const renewed = runtime.coordinator.renewReservation(runtime.ownership);
 		if (!renewed.ok) {
-			clearInterval(timer);
+			stop();
 			runtime.abortController.abort();
 			return;
 		}
 		runtime.ownership = { ...runtime.ownership, reservation: renewed.reservation };
 	}, CHILD_DISPATCH_RENEWAL_MS);
-	return () => clearInterval(timer);
+	runtime.abortController.signal.addEventListener("abort", stop, { once: true });
+	return () => {
+		runtime.abortController.signal.removeEventListener("abort", stop);
+		stop();
+	};
 }
 
 async function dispatchReservedAgentSession(
@@ -2602,7 +2587,7 @@ function mirrorLifecycleRuntimeMailboxMessage(
 	}
 	const agent = store.getAgent(notification.fromAgentId);
 	const currentSessionId = ctx.sessionManager.getSessionId();
-	const senderSessionId = agent?.origin === "attached" ? (agent.transcript?.sessionId ?? currentSessionId) : currentSessionId;
+	const senderSessionId = agent?.transcript?.sessionId ?? currentSessionId;
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
 		kind: notification.kind,
 		recipient: { agentId: null, sessionId: currentSessionId },
@@ -2798,7 +2783,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 
 	pi.on?.("session_start", async (_event, ctx) => {
 		runtimeLifecycleMirror.bind(ctx);
-		recoverDetachedAgents({
+		recoverAgents({
 			createAttachedSession,
 			ctx,
 			desktopNotifier,
@@ -2818,20 +2803,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		runtimeLifecycleMirror.dispose();
 		for (const timer of recoveryTimers.values()) clearTimeout(timer);
 		recoveryTimers.clear();
-		const reservedAgentIds = new Set(reservations.keys());
 		store.invalidateInFlightDispatches();
-		const cancellationRoots = [...reservedAgentIds].filter((agentId) => {
-			const agent = store.getAgent(agentId);
-			if (agent?.origin === "attached") return false;
-			const parentId = agent?.parentId;
-			return !parentId || !reservedAgentIds.has(parentId);
-		});
-		for (const agentId of cancellationRoots) {
-			await cancelReservedAgentRuntime(store, runtimeHandles, agentId);
-		}
+		for (const runtime of reservations.values()) runtime.abortController.abort();
 		for (const agentId of backgroundSessions.keys()) {
-			const attached = store.getAgent(agentId)?.origin === "attached";
-			if (attached || !reservedAgentIds.has(agentId)) abortAgentHandleSafely(store, agentId);
+			if (!reservations.has(agentId)) abortAgentHandleSafely(store, agentId);
 		}
 		for (const agentId of waitingDesktopNotifications.keys()) {
 			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);

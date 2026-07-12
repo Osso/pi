@@ -58,9 +58,8 @@
 
 ### Changed
 
-- Lifecycle authority now uses a durable control-database protocol version and per-write authorization token, so older or direct SQLite writers fail closed across Node and Bun runtimes instead of bypassing process-local guards.
+- Persisted session agents now use the same recovery and shutdown behavior regardless of whether `spawn_agent` created a new session or `attach_session_agent` selected an existing session; origin remains construction provenance only.
 - Child and attached agent dispatches now renew their fenced lifecycle reservation while running; lease takeover aborts cooperative dispatcher/session work and prevents stale terminal settlement.
-- Added SQLite lifecycle-authority enforcement that rejects lifecycle/revision updates outside explicit coordinator, detached-runner finalizer, recovery, and offline-migration write scopes, plus a source-scan regression forbidding production direct store/bootstrap lifecycle calls.
 - Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
 - Transcript, mailbox/contact activity, and pinned-slot metadata now merge transactionally into the latest persisted agent snapshot without rewriting lifecycle/revision from stale store state; metadata updates no longer advance the lifecycle revision token, and restore no longer persists runtime worker-handle cleanup.
 - Terminal completion and failure mailbox notifications now originate only from claimed terminal outbox records; ordinary coordinator snapshot projection no longer creates parallel terminal notifications. Runtime transport now uses one session-bound lifecycle mirror shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` now uses independent terminal-event cursors, closes the pre-subscription completion race, supports simultaneous and late waiter fan-out, and no longer consumes runtime transport rows.
@@ -103,6 +102,7 @@
 
 ### Fixed
 
+- Removed Node-only SQLite lifecycle-authorization UDFs and triggers that crashed standalone Bun startup; lifecycle authority remains enforced by coordinator/repository construction, complete fenced transaction predicates, schema-version startup checks, and production source-scan guards.
 - Fixed uncaught CLI startup failures printing Node.js stack traces instead of a concise error message.
 - Fixed extension-origin goal start and continuation messages appearing in the editor's typed prompt history after transcript rendering.
 - Cancellation remains durably `cancelling` when a runtime abort callback throws; the failure is reported without bypassing bounded settlement or fenced recovery.
