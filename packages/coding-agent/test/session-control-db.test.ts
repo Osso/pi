@@ -856,6 +856,23 @@ describe("session control DB", () => {
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "detached-test")).toMatchObject([
 			{ agentId, eventKind: "detached_job_completed", payload: envelope, terminalRevision: 5 },
 		]);
+		expect(
+			acquireMultiAgentDispatchLease(controlDbPath, {
+				agentId,
+				expiresAt: "2026-07-12T00:00:00.000Z",
+				leaseId: "lease-2",
+				nowIso: "2026-07-11T23:01:00.000Z",
+				owner: { agentId: null, sessionId: "runner-2" },
+				runtimeIncarnation: "runtime-2",
+				sessionPath,
+			}),
+		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
+		expect(finalizeDetachedJob(controlDbPath, { envelopePath: artifacts.terminalEnvelopePath, sessionPath })).toEqual(
+			{
+				ok: false,
+				error: "mutation_mismatch",
+			},
+		);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
