@@ -180,6 +180,24 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   after the durable job identity, reservation, runner process identity, artifact paths, and launch
   manifest exist. Before that point the call remains foreground and any setup failure is returned as a
   tool error; after the handle is returned, terminal observation comes only from durable state/events.
+
+  Artifact failure is fail-closed. A short write, `ENOSPC`, output close failure, checksum failure,
+  envelope rename failure, or file/directory `fsync` failure means no trustworthy terminal evidence
+  exists. The runner must not commit a terminal lifecycle result from partial or unflushed output. It
+  keeps the job nonterminal and retries only operations whose exact bytes and identity are already
+  durable; if it cannot create a valid immutable envelope, coordinator recovery eventually records
+  `failed/lost_runtime` with an artifact-persistence cause. Cleanup must never manufacture a replacement
+  envelope, truncate output to make space, or report successful completion without the verified hash.
+
+  Retention and garbage collection follow reference order. While an agent row or terminal event is
+  retained, its output and terminal envelope remain retained. A terminal runtime transport row may be
+  deleted only after delivery acknowledgement; its referenced immutable mailbox payload may be deleted
+  only after no runtime transport row references it and the terminal outbox is delivered. Terminal events
+  and fan-out cursors outlive transport/storeRef cleanup and are removed only by their separate retention
+  policy after every retained consumer cursor can no longer address them. Agent-result artifacts are
+  deleted last, after the agent row and every retained terminal event/store reference have expired.
+  Interrupted garbage collection is idempotent and resumes in this same order; missing referenced bytes
+  are corruption, not permission to cascade-delete the remaining evidence.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through
   path. They re-check transition legality, authorization, and the complete mutation predicate
   before committing any lifecycle or terminal-event change. A coordinator response is successful
