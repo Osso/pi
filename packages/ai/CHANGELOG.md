@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Added optional `UserMessage.inputSource` metadata so clients can distinguish interactive, RPC, and extension-origin prompts.
 - Removed `azure-openai-responses` from the built-in provider/catalog entries. Its API implementation remains available to explicitly configured custom providers via `api: "azure-openai-responses"`.
 
 ### Fixed

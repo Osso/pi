@@ -4225,7 +4225,7 @@ export class InteractiveMode {
 						const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings());
 						this.chatContainer.addChild(userComponent);
 					}
-					if (options?.populateHistory) {
+					if (options?.populateHistory && message.inputSource !== "extension") {
 						this.addRenderedMessageToEditorHistory(textContent);
 					}
 				}

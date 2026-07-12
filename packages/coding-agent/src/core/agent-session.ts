@@ -1925,6 +1925,7 @@ export class AgentSession {
 		text: string,
 		images: ImageContent[] | undefined,
 		streamingBehavior: PromptOptions["streamingBehavior"],
+		inputSource?: InputSource,
 	): Promise<void> {
 		if (!streamingBehavior) {
 			throw new Error(
@@ -1932,9 +1933,9 @@ export class AgentSession {
 			);
 		}
 		if (streamingBehavior === "followUp") {
-			await this._queueFollowUp(text, images);
+			await this._queueFollowUp(text, images, inputSource);
 		} else {
-			await this._queueSteer(text, images);
+			await this._queueSteer(text, images, inputSource);
 		}
 	}
 
@@ -2135,7 +2136,12 @@ export class AgentSession {
 
 			// If streaming, queue via steer() or followUp() based on option
 			if (this.isStreaming) {
-				await this._queuePromptForStreaming(expandedText, currentImages, options?.streamingBehavior);
+				await this._queuePromptForStreaming(
+					expandedText,
+					currentImages,
+					options?.streamingBehavior,
+					options?.source,
+				);
 				preflightResult?.(true);
 				return;
 			}
@@ -2156,7 +2162,12 @@ export class AgentSession {
 			// Compaction and other preflight work can yield to a new agent run. Re-check
 			// under the turn-start lock before crossing into Agent core.
 			if (this.isStreaming) {
-				await this._queuePromptForStreaming(expandedText, currentImages, options?.streamingBehavior);
+				await this._queuePromptForStreaming(
+					expandedText,
+					currentImages,
+					options?.streamingBehavior,
+					options?.source,
+				);
 				preflightResult?.(true);
 				return;
 			}
@@ -2172,6 +2183,7 @@ export class AgentSession {
 			messages.push({
 				role: "user",
 				content: userContent,
+				inputSource: options?.source,
 				timestamp: Date.now(),
 			});
 
@@ -2359,7 +2371,7 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueSteer(text: string, images?: ImageContent[], inputSource?: InputSource): Promise<void> {
 		this._steeringMessages.push(text);
 		this._emitQueueUpdate();
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
@@ -2369,6 +2381,7 @@ export class AgentSession {
 		this.agent.steer({
 			role: "user",
 			content,
+			inputSource,
 			timestamp: Date.now(),
 		});
 	}
@@ -2376,7 +2389,7 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	private async _queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueFollowUp(text: string, images?: ImageContent[], inputSource?: InputSource): Promise<void> {
 		this._followUpMessages.push(text);
 		this._emitQueueUpdate();
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
@@ -2386,6 +2399,7 @@ export class AgentSession {
 		this.agent.followUp({
 			role: "user",
 			content,
+			inputSource,
 			timestamp: Date.now(),
 		});
 	}

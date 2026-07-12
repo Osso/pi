@@ -384,6 +384,8 @@ export interface ProviderNativeContext {
 export interface UserMessage {
 	role: "user";
 	content: string | (TextContent | ImageContent)[];
+	/** Origin of the prompt when known. Used by clients to distinguish typed prompts from programmatic messages. */
+	inputSource?: "interactive" | "rpc" | "extension";
 	/** Provider-native context items emitted by a compaction provider. Providers that do not understand this ignore it. */
 	providerNative?: ProviderNativeContext;
 	timestamp: number; // Unix timestamp in milliseconds

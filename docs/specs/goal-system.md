@@ -49,6 +49,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] The `manage_goal` completion action marks the active goal complete and stops further continuation.
 - [x] Autonomous continuation has no numeric turn cap; it may run for long-lived goals until completion, pending queued work, or a non-error empty final assistant response stops it.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
+- [x] Goal start/resume/continuation messages remain in model context and transcript rendering, but do not appear in the editor's typed prompt history.
 
 ## How it works
 
@@ -67,6 +68,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
 - `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, `manage_goal`, set/view/pause/resume/clear, per-session goal isolation, default replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
+- `packages/coding-agent/test/suite/regressions/goal-messages-prompt-history.test.ts` — extension-origin goal messages remain excluded from editor prompt-history population.
 - `.gitignore` — ignores legacy `.pi/goals/` local goal state files during migration.
 
 ## Tests asserting this spec

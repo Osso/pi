@@ -58,6 +58,7 @@
 
 ### Changed
 
+- Lifecycle authority now uses a durable control-database protocol version and per-write authorization token, so older or direct SQLite writers fail closed across Node and Bun runtimes instead of bypassing process-local guards.
 - Child and attached agent dispatches now renew their fenced lifecycle reservation while running; lease takeover aborts cooperative dispatcher/session work and prevents stale terminal settlement.
 - Added SQLite lifecycle-authority enforcement that rejects lifecycle/revision updates outside explicit coordinator, detached-runner finalizer, recovery, and offline-migration write scopes, plus a source-scan regression forbidding production direct store/bootstrap lifecycle calls.
 - Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
@@ -102,6 +103,7 @@
 
 ### Fixed
 
+- Fixed extension-origin goal start and continuation messages appearing in the editor's typed prompt history after transcript rendering.
 - Cancellation remains durably `cancelling` when a runtime abort callback throws; the failure is reported without bypassing bounded settlement or fenced recovery.
 - Fixed GPT-5.6 Sol automatic compaction to trigger at exactly 272,000 context tokens, before requests enter the higher long-context pricing tier.
 - Fixed non-supervisor agent runtimes to deny the `manage_goal` capability even when an external extension re-registers the tool; spawned, attached, `/bg`, and Architect runtimes now exclude it while supervisors retain it.
