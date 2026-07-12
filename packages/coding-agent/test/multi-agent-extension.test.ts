@@ -581,13 +581,22 @@ describe("multi-agent extension tools", () => {
 				{ id: steered.details.message.id, status: "pending" },
 				{ id: sent.details.message.id, status: "pending" },
 			]);
-			expect(cancelled.details.agent).toMatchObject({ id: attached.details.agent.id, lifecycle: "aborted" });
+			expect(cancelled.content).toEqual([
+				{
+					text: `Could not cancel ${attached.details.agent.id}: lifecycle reservation unavailable`,
+					type: "text",
+				},
+			]);
+			expect(cancelled.details.agent).toMatchObject({
+				id: attached.details.agent.id,
+				lifecycle: agentBeforeCancel.lifecycle,
+			});
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
 	});
 
-	it("dispatches and aborts a prompted attached session through the normal agent lifecycle", async () => {
+	it("rejects cancellation for prompted attached sessions until attached dispatch is migrated", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-dispatch-attached-session-"));
 		try {
 			const savedSessionId = "019f29f4-0000-7000-8000-000000000003";
@@ -624,8 +633,11 @@ describe("multi-agent extension tools", () => {
 
 			expect(attached.details).toMatchObject({ dispatched: true, prompt: "Continue saved work" });
 			expect(running).toMatchObject({ lifecycle: "running", transcript: { sessionId: savedSessionId } });
-			expect(abort).toHaveBeenCalledTimes(1);
-			expect(cancelled.details.agent).toMatchObject({ id: running.id, lifecycle: "aborted" });
+			expect(abort).not.toHaveBeenCalled();
+			expect(cancelled.content).toEqual([
+				{ text: `Could not cancel ${running.id}: lifecycle reservation unavailable`, type: "text" },
+			]);
+			expect(cancelled.details.agent).toMatchObject({ id: running.id, lifecycle: "running" });
 			childPrompt.resolve(undefined);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
@@ -1355,7 +1367,7 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "completed" });
 	});
 
-	it("aborts a running /bg child session when the job is cancelled", async () => {
+	it("keeps a /bg child cancelling when abort does not acknowledge exit", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
@@ -1374,10 +1386,10 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(abort).toHaveBeenCalledTimes(1);
-		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "cancelling" });
 	});
 
-	it("aborts a running spawn_agent child session when the agent is cancelled", async () => {
+	it("keeps a spawn_agent child cancelling when abort does not acknowledge exit", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
@@ -1402,7 +1414,33 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(abort).toHaveBeenCalledTimes(1);
-		expect(harness.store.getAgent(current.id)).toMatchObject({ lifecycle: "aborted" });
+		expect(harness.store.getAgent(current.id)).toMatchObject({ lifecycle: "cancelling" });
+	});
+
+	it("terminalizes cancellation only after the child runtime exits", async () => {
+		let rejectPrompt: (error: Error) => void = () => {};
+		const prompt = new Promise<void>((_resolve, reject) => {
+			rejectPrompt = reject;
+		});
+		const harness = createMultiAgentHarness({
+			createChildSession: async () => ({
+				abort: () => rejectPrompt(new Error("aborted")),
+				messages: [],
+				prompt: async () => prompt,
+			}),
+		});
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "sleep",
+		});
+		await Promise.resolve();
+
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: spawned.details.agent.id,
+			reason: "user requested",
+		});
+
+		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	});
 
 	it("routes Hostrun agents.select through the interactive view callback when available", async () => {
@@ -1535,7 +1573,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("lets tool cancel_agent abort Hostrun-spawned child sessions through shared runtime handles", async () => {
+	it("keeps Hostrun-spawned child sessions cancelling until exit acknowledgement", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -1565,7 +1603,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(abort).toHaveBeenCalledOnce();
-		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "aborted" });
+		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "cancelling" });
 	});
 
 	it("lets Escape's store abort path stop a production child session", async () => {
@@ -1657,7 +1695,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(cancelled.details.agent).toMatchObject({
 			id: spawned.details.agent.id,
-			lifecycle: "aborted",
+			lifecycle: "cancelling",
 		});
 	});
 
@@ -1679,9 +1717,9 @@ describe("multi-agent extension tools", () => {
 			reason: "user requested",
 		});
 
-		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "aborted" });
+		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "cancelling" });
 		expect(abort).toHaveBeenCalledTimes(1);
-		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "cancelling" });
 	});
 
 	it("lists only background jobs in /jobs", async () => {
@@ -2192,7 +2230,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("waits and cancels through the core store", async () => {
+	it("rejects cancellation for rows without a lifecycle reservation", async () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Worker",
@@ -2200,22 +2238,16 @@ describe("multi-agent extension tools", () => {
 		});
 		const agent = spawned.details.agent;
 
-		const waiting = harness.call<WaitAgentsDetails>("wait_agents", {});
-		expect(await resolvesWithin(waiting, 20)).toBe(false);
-		expect(harness.store.getAgent(agent.id)).toMatchObject({ id: agent.id, lifecycle: "queued" });
-
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: agent.id,
 			reason: "user stopped it",
 		});
-		expect(cancelled.details.agent).toMatchObject({
-			id: agent.id,
-			lifecycle: "aborted",
-			revision: agent.revision + 1,
-		});
+
+		expect(cancelled.content).toEqual([
+			{ text: `Could not cancel ${agent.id}: lifecycle reservation unavailable`, type: "text" },
+		]);
+		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "queued", revision: agent.revision });
 		expect(cancelled.details.reason).toBe("user stopped it");
-		expect(await waiting).toEqual({ content: [{ text: "Worker is aborted.", type: "text" }], details: {} });
-		expect(harness.store.getActiveAgentCount()).toBe(0);
 	});
 
 	it("wait_agents returns immediately when no agents are active", async () => {

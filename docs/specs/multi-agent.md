@@ -170,7 +170,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links
   cannot self-reference or form cycles. Cancellation is cascading:
   cancellation first commits `cancelling` through the current reservation; runtime abort is requested
-  only after that commit, and `aborted` requires a separate fenced exit acknowledgement. Queued and
+  only after that commit, and `aborted` requires a separate fenced exit acknowledgement. The caller
+  waits at most five seconds for tracked dispatch settlement; a runtime that does not exit remains
+  `cancelling` until fenced lease-expiry recovery resolves it as lost rather than inventing an exit. Queued and
   starting children use the same ordering. Cancelling a parent issues cancellation intents to active
   descendants, while each descendant still terminalizes through its own fenced command. A parent cannot become terminal while any
   descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry

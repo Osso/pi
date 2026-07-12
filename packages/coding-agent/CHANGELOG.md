@@ -45,7 +45,7 @@
 
 ### Changed
 
-- Added fenced coordinator cancellation commands: active children first commit `cancelling`, while `aborted` requires a separate current-lease exit acknowledgement; stale acknowledgements cannot terminalize after an epoch change.
+- Routed `cancel_agent` for reserved `spawn_agent` and `/bg` children through fenced coordinator cancellation: commit `cancelling`, request runtime abort, wait up to five seconds, and commit `aborted` only after exit acknowledgement. Hung aborts remain cancelling for lease-expiry recovery, stale acknowledgements cannot terminalize after an epoch change, and unreserved attached/legacy rows fail closed.
 - Routed first-party `/bg` child-session job creation and startup through the same fenced coordinator reservation path as `spawn_agent`, removing its direct store spawn/ramp authority.
 - Routed production `spawn_agent` child creation and runtime startup through `LifecycleCoordinator`: persisted sessions atomically create a queued revision-1 child plus its first fenced dispatch reservation, fence `starting`, construct the runtime, and only then fence `running` by revision, lease, incarnation, owner, and epoch. Runtime-construction failures commit `failed` plus error details and their terminal event/outbox through the same fenced coordinator transaction. Sessionless orchestration now fails closed instead of creating non-durable work. Terminal replay also revalidates the current lease before idempotency, rejecting stale finalizers and duplicate event/outbox writes after epoch takeover.
 - Removed store-only `spawn_agent`: spawning now fails before persistence unless an executable child-session factory or dispatcher is configured; dormant session attachment remains explicit.
