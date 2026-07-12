@@ -2336,8 +2336,6 @@ export type FinalizeDetachedJobResult =
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
 export interface RecoverExpiredMultiAgentRuntimeInput {
-	sessionPath: string;
-	agentId: string;
 	expectedRevision: number;
 	expectedLease: MultiAgentDispatchLeaseIdentity & { fencingEpoch: number };
 	nowIso: string;
@@ -3082,11 +3080,15 @@ export function recoverExpiredMultiAgentRuntime(
 ): RecoverExpiredMultiAgentRuntimeResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
+			const { agentId, sessionPath } = input.expectedLease;
+			if (input.replacementLease.agentId !== agentId || input.replacementLease.sessionPath !== sessionPath) {
+				return { ok: false, error: "mutation_mismatch" };
+			}
 			const row = db
 				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+				.get(sessionPath, agentId) as { data: string } | undefined;
 			if (!row) return { ok: false, error: "agent_not_found" };
-			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
 			if (agent.revision !== input.expectedRevision) return { ok: false, error: "mutation_mismatch" };
 			const recoverableLifecycle =
 				typeof agent.lifecycle === "string" &&
@@ -3094,7 +3096,7 @@ export function recoverExpiredMultiAgentRuntime(
 					agent.lifecycle,
 				);
 			if (!recoverableLifecycle) return { ok: false, error: "invalid_transition" };
-			const previousLease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			const previousLease = readMultiAgentDispatchLeaseRow(db, sessionPath, agentId);
 			const matchesExpectedLease =
 				previousLease?.lease_id === input.expectedLease.leaseId &&
 				previousLease.runtime_incarnation === input.expectedLease.runtimeIncarnation &&
@@ -3124,8 +3126,8 @@ export function recoverExpiredMultiAgentRuntime(
 					input.nowIso,
 					input.nowIso,
 					input.replacementLease.owner.sessionId,
-					input.sessionPath,
-					input.agentId,
+					sessionPath,
+					agentId,
 					input.expectedLease.leaseId,
 					input.expectedLease.runtimeIncarnation,
 					input.expectedLease.owner.sessionId,
@@ -3148,7 +3150,7 @@ export function recoverExpiredMultiAgentRuntime(
 				worker: undefined,
 			};
 			const payload = {
-				agentId: input.agentId,
+				agentId,
 				error,
 				fencingEpoch,
 				parentId: agent.parentId ?? null,
@@ -3156,17 +3158,17 @@ export function recoverExpiredMultiAgentRuntime(
 			};
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.nowIso, input.sessionPath, input.agentId);
+			).run(JSON.stringify(updated), input.nowIso, sessionPath, agentId);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_events
 					(session_path, agent_id, terminal_revision, event_kind, payload, created_at)
 				 VALUES (?, ?, ?, 'lost_runtime', ?, ?)`,
-			).run(input.sessionPath, input.agentId, terminalRevision, JSON.stringify(payload), input.nowIso);
+			).run(sessionPath, agentId, terminalRevision, JSON.stringify(payload), input.nowIso);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_outbox
 					(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 				 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
-			).run(input.sessionPath, input.agentId, terminalRevision, input.nowIso);
+			).run(sessionPath, agentId, terminalRevision, input.nowIso);
 			return { ok: true, agent: updated, fencingEpoch, terminalRevision };
 		}),
 	);

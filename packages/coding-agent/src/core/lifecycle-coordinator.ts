@@ -223,20 +223,17 @@ export class LifecycleCoordinator {
 
 	recoverExpiredChild(input: RecoverExpiredChildCommandInput): RecoverExpiredChildCommandResult {
 		const identity = this.readReservationIdentity(input.reservation);
-		if (!identity || identity.owner.sessionId !== input.ownerSessionId) {
+		if (
+			!identity ||
+			identity.agentId !== input.agent.id ||
+			identity.sessionPath !== this.options.sessionPath ||
+			identity.owner.sessionId !== input.ownerSessionId
+		) {
 			return { ok: false, error: "mutation_mismatch" };
 		}
 		const nowIso = this.options.now();
 		const recovered = recoverExpiredMultiAgentRuntime(this.options.controlDbPath, {
-			agentId: input.agent.id,
-			expectedLease: {
-				agentId: input.agent.id,
-				fencingEpoch: input.reservation.fencingEpoch,
-				leaseId: identity.leaseId,
-				owner: identity.owner,
-				runtimeIncarnation: identity.runtimeIncarnation,
-				sessionPath: this.options.sessionPath,
-			},
+			expectedLease: { ...identity, fencingEpoch: input.reservation.fencingEpoch },
 			expectedRevision: input.agent.revision,
 			nowIso,
 			replacementLease: {
@@ -246,7 +243,6 @@ export class LifecycleCoordinator {
 				runtimeIncarnation: this.options.runtimeIncarnation,
 				sessionPath: this.options.sessionPath,
 			},
-			sessionPath: this.options.sessionPath,
 		});
 		if (!recovered.ok) return recovered;
 		return {
@@ -366,16 +362,20 @@ export class LifecycleCoordinator {
 
 	private readReservationIdentity(reservation: MultiAgentDispatchLease):
 		| {
+				agentId: string;
 				leaseId: string;
 				owner: { agentId: string | null; sessionId: string };
 				runtimeIncarnation: string;
+				sessionPath: string;
 		  }
 		| undefined {
 		if (!reservation.leaseId || !reservation.runtimeIncarnation || !reservation.owner.sessionId) return undefined;
 		return {
+			agentId: reservation.agentId,
 			leaseId: reservation.leaseId,
 			owner: { agentId: reservation.owner.agentId, sessionId: reservation.owner.sessionId },
 			runtimeIncarnation: reservation.runtimeIncarnation,
+			sessionPath: reservation.sessionPath,
 		};
 	}
 }

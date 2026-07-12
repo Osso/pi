@@ -1345,7 +1345,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(
 			recoverExpiredMultiAgentRuntime(controlDbPath, {
-				agentId,
 				expectedLease: {
 					agentId,
 					fencingEpoch: 1,
@@ -1363,12 +1362,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					runtimeIncarnation: "recovery-runtime",
 					sessionPath,
 				},
-				sessionPath,
 			}),
 		).toEqual({ ok: false, error: "mutation_mismatch" });
 
 		const recovered = recoverExpiredMultiAgentRuntime(controlDbPath, {
-			agentId,
 			expectedLease: {
 				agentId,
 				fencingEpoch: 1,
@@ -1386,7 +1383,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				runtimeIncarnation: "recovery-runtime",
 				sessionPath,
 			},
-			sessionPath,
 		});
 		expect(recovered).toMatchObject({
 			agent: { error: { code: "lost_runtime" }, lifecycle: "failed", revision: 2 },
