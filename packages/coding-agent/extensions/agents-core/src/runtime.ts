@@ -326,13 +326,19 @@ interface SendAgentMessageToolDetails {
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
 type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
 
+interface ReservedAgentRuntime {
+	coordinator: LifecycleCoordinator;
+	ownership: ReservedLifecycleCommandInput;
+}
+
 export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
+	reservations: Map<string, ReservedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
-	return { dispatches: new Map(), sessions: new Map() };
+	return { dispatches: new Map(), reservations: new Map(), sessions: new Map() };
 }
 
 interface WaitingDesktopNotificationRegistration {
@@ -347,6 +353,7 @@ interface BackgroundDispatchContext {
 	dispatcher: ChildAgentDispatcher | undefined;
 	dispatches: ActiveAgentDispatches;
 	handles: BackgroundSessionHandles;
+	reservations: Map<string, ReservedAgentRuntime>;
 	store: MultiAgentStore;
 }
 
@@ -414,16 +421,25 @@ function backgroundPromptValidationMessage(validation: Exclude<GoalObjectiveVali
 
 function startBackgroundDispatch(
 	background: BackgroundDispatchContext,
-	agent: AgentSnapshot,
+	runtime: ReservedAgentRuntime,
 	prompt: string,
 	ctx: ExtensionCommandContext,
 ): AgentSnapshot {
+	const agent = runtime.ownership.agent;
 	if (background.createChildSession) {
 		const promise = trackAgentDispatch(
 			background.store,
 			background.dispatches,
 			agent,
-			dispatchAgentSession(background.store, background.createChildSession, agent, prompt, ctx, background.handles),
+			dispatchReservedAgentSession(
+				background.store,
+				background.createChildSession,
+				runtime.ownership,
+				runtime.coordinator,
+				prompt,
+				ctx,
+				background.handles,
+			),
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		return background.store.getAgent(agent.id) ?? agent;
@@ -434,7 +450,14 @@ function startBackgroundDispatch(
 			background.store,
 			background.dispatches,
 			agent,
-			dispatchAgent(background.store, background.dispatcher, agent, prompt, ctx),
+			dispatchReservedAgent(
+				background.store,
+				background.dispatcher,
+				runtime.ownership,
+				runtime.coordinator,
+				prompt,
+				ctx,
+			),
 		);
 		notifyBackgroundDispatch(promise, background.handles, ctx);
 		return background.store.getAgent(agent.id) ?? agent;
@@ -457,13 +480,34 @@ function backgroundCommand(background: BackgroundDispatchContext, args: string, 
 		}
 	}
 
-	const spawned = background.store.spawnAgent({
+	const coordinator = createLifecycleCoordinator(background.store, ctx);
+	if (!coordinator) {
+		ctx.ui.notify("Background jobs require a persisted supervisor session.", "error");
+		return;
+	}
+	const created = coordinator.createChild({
 		agentType: "background",
 		cwd: ctx.cwd,
 		displayName: "Background Job",
+		ownerSessionId: ctx.sessionManager?.getSessionId() ?? background.store.getPersistenceTarget()?.sessionPath ?? "",
 		permission: { narrowed: true, policy: "on-request" },
 	});
-	const agent = startBackgroundDispatch(background, spawned.agent, prompt, ctx);
+	if (!created.ok) {
+		ctx.ui.notify(`Could not create background job: ${created.error}`, "error");
+		return;
+	}
+	const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+	if (!starting.ok) {
+		ctx.ui.notify(`Could not reserve background runtime: ${starting.error}`, "error");
+		return;
+	}
+	background.store.publishLifecycleCoordinatorSnapshot(starting.agent);
+	const runtime = {
+		coordinator,
+		ownership: { agent: starting.agent, reservation: created.reservation },
+	};
+	background.reservations.set(starting.agent.id, runtime);
+	const agent = startBackgroundDispatch(background, runtime, prompt, ctx);
 	ctx.ui.setEditorText("");
 	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agents to wait for any completion.`, "info");
 }
@@ -2596,9 +2640,17 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const backgroundSessions = runtimeHandles.sessions;
 	const activeDispatches = runtimeHandles.dispatches;
+	const reservations = runtimeHandles.reservations;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
+	const backgroundDispatch = {
+		createChildSession,
+		dispatcher,
+		dispatches: activeDispatches,
+		handles: backgroundSessions,
+		reservations,
+		store,
+	};
 	let unsubscribeRuntimeLifecycleMirror: (() => void) | undefined;
 
 	pi.on?.("session_start", async (_event, ctx) => {

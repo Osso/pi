@@ -163,7 +163,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   reservation commit, resumed production sessions schedule recovery at lease expiry; the coordinator
   acquires recovery leadership, takes the next dispatch epoch, commits `failed/lost_runtime`, and
   retries after leader contention. Runtime-listener registration never mutates lifecycle rows. Production `spawn_agent` requires a persisted supervisor session and
-  fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Terminal replay
+  fails closed otherwise; it has no direct store creation or lifecycle-ramp path. First-party `/bg`
+  child-session jobs use the same coordinator reservation/start/confirmation path and retain their
+  reservation identity for cancellation and terminal settlement. Terminal replay
   validates the current full lease predicate before idempotency, so an old owner cannot replay a
   finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links
   cannot self-reference or form cycles. Cancellation is cascading:
