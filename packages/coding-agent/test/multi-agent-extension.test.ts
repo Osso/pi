@@ -460,7 +460,7 @@ describe("multi-agent extension tools", () => {
 			"wait_agents",
 		]);
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Split Worker",
 			prompt: "Use shared store",
 		});
@@ -1672,28 +1672,16 @@ describe("multi-agent extension tools", () => {
 		expect(notifications).toEqual(["No background jobs."]);
 	});
 
-	it("spawns and lists store-backed agents without starting child model sessions", async () => {
+	it("rejects spawn before persistence when no executable runtime is configured", async () => {
 		const harness = createMultiAgentHarness();
-
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			agentType: "scout",
 			displayName: "Scout",
 			prompt: "Inspect auth",
 		});
-		const listed = await harness.call<ListAgentsDetails>("list_agents", {});
-
-		expect(spawned.details.agent).toMatchObject({
-			agentType: "scout",
-			cwd: "/repo",
-			displayName: "Scout",
-			lifecycle: "queued",
-			parentId: undefined,
-			revision: 1,
-		});
-		expect(spawned.details.prompt).toBe("Inspect auth");
-		expect(harness.store.getActiveAgentCount()).toBe(1);
-		expect(listed.details).toMatchObject({ activeCount: 1 });
-		expect(listed.details.agents).toEqual([spawned.details.agent]);
+		expect(spawned.content[0]).toMatchObject({ type: "text", text: expect.stringMatching(/no executable runtime/i) });
+		expect(spawned.details.dispatched).toBe(false);
+		expect(harness.store.listAgents()).toEqual([]);
 	});
 
 	it("renders each listed agent identity and active or terminal status in visible content", async () => {
@@ -3153,14 +3141,12 @@ describe("multi-agent extension tools", () => {
 		expect(dispatchedPrompt).toBe("  Preserve spacing  ");
 	});
 
-	it("preserves oversized prompts for store-only agents", async () => {
+	it("rejects oversized prompts without persisting when no executable runtime exists", async () => {
 		const harness = createMultiAgentHarness();
 		const prompt = "x".repeat(4001);
-
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt });
-
 		expect(spawned.details).toMatchObject({ dispatched: false, prompt });
-		expect(harness.store.listAgents()).toHaveLength(1);
+		expect(harness.store.listAgents()).toEqual([]);
 	});
 
 	it("rejects oversized prompts before creating production child agents", async () => {

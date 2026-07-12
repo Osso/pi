@@ -45,6 +45,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       content includes the inspected agent's status and terminal result summary or error when present.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
+- [x] `spawn_agent` requires an executable child-session factory or dispatcher before persisting any row;
+      it has no store-only queued fallback. Dormant promptless session attachment remains the explicit
+      non-executable operation.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
 - [x] Agent-type profiles can select a child model/thinking level; built-in `explore`, `verifier`,

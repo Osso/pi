@@ -843,6 +843,13 @@ async function spawnAgent(
 			});
 		}
 	}
+	if (!createChildSession && !dispatcher) {
+		return errorResult("spawn_agent is unavailable: no executable runtime is configured.", {
+			agent: emptyAgent("spawn_agent"),
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);
@@ -893,11 +900,7 @@ async function spawnAgent(
 		});
 	}
 
-	return result(`Spawned ${spawned.agent.displayName} (${spawned.agent.id})`, {
-		agent: spawned.agent,
-		dispatched: false,
-		prompt: params.prompt,
-	});
+	throw new Error("spawn_agent executable runtime invariant violated");
 }
 
 interface AttachSessionAgentRuntimeInput {

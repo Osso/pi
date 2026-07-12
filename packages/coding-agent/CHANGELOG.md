@@ -45,6 +45,7 @@
 
 ### Changed
 
+- Removed store-only `spawn_agent`: spawning now fails before persistence unless an executable child-session factory or dispatcher is configured; dormant session attachment remains explicit.
 - Added typed multi-agent runtime roles and constructor-entry capability validation: orchestrators require an issued execution capability, while child and non-orchestrator runtimes reject it.
 - Added a complete-predicate nonterminal lifecycle CAS with legal transition checks and single-winner SQLite contention semantics.
 - Added an atomic fenced terminal lifecycle transaction that updates the agent and inserts its immutable terminal event and pending delivery outbox row together.
