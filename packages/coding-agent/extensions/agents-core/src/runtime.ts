@@ -2929,6 +2929,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		for (const timer of recoveryTimers.values()) clearTimeout(timer);
 		recoveryTimers.clear();
 		const reservedAgentIds = new Set(reservations.keys());
+		store.invalidateInFlightDispatches();
 		const cancellationRoots = [...reservedAgentIds].filter((agentId) => {
 			const agent = store.getAgent(agentId);
 			if (agent?.origin === "attached") return false;
@@ -2938,7 +2939,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		for (const agentId of cancellationRoots) {
 			await cancelReservedAgentRuntime(store, runtimeHandles, agentId);
 		}
-		store.invalidateInFlightDispatches();
 		for (const agentId of backgroundSessions.keys()) {
 			const attached = store.getAgent(agentId)?.origin === "attached";
 			if (attached || !reservedAgentIds.has(agentId)) store.abortAgentHandle(agentId);

@@ -123,6 +123,15 @@ identity and payload.
 
 ### Restore and recovery (derived liveness)
 
+Shutdown ordering is strict. The runtime first stops accepting orchestration admissions, then
+invalidates the local dispatch generation so late callbacks cannot publish into a rebound store. It
+commits fenced cancellation requests for owned spawned runtimes, invokes abort only after those
+commits, and waits only for the bounded settlement window; unacknowledged exits remain `cancelling`
+until lease-expiry recovery. Attached sessions intended for resume are locally aborted after generation
+invalidation without inventing a terminal result. Runtime mailbox polling/heartbeat stops and listener
+ownership retires only after lifecycle requests and local abort dispatch complete, so no command is
+accepted under a listener that has already surrendered ownership.
+
 Detached runner recovery preserves evidence rather than inferring process outcomes. The live runner
 owns retries of its immutable terminal envelope. After runner loss, only the coordinator recovery
 leader may submit an orphan envelope, and only before acquiring a higher fencing epoch; the repository
