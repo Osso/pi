@@ -123,6 +123,15 @@ identity and payload.
 
 ### Restore and recovery (derived liveness)
 
+Detached runner recovery preserves evidence rather than inferring process outcomes. The live runner
+owns retries of its immutable terminal envelope. After runner loss, only the coordinator recovery
+leader may submit an orphan envelope, and only before acquiring a higher fencing epoch; the repository
+still validates the original full lease identity and terminal timestamp. A possibly live payload is not
+proof of completion, and an expired lease is not proof of exit. If exact envelope finalization is no
+longer authorized, recovery records `failed/lost_runtime` with outcome uncertainty. A cancellation that
+committed before a pending natural-result finalizer wins by revision; the stale natural envelope cannot
+replace it, and `aborted` still requires the current runner's fenced exit acknowledgement.
+
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] `queued` agents survive restore unchanged and are not recovered.

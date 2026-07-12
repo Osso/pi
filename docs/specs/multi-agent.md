@@ -150,14 +150,36 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   launches an unref'd independent runner process, gates payload execution until PID/process-group
   identity is fsynced, keeps payload stdout/stderr on direct durable file descriptors, owns exit status,
   retries the same immutable envelope across transient DB failures, and consumes exact fenced cancel
-  commands through the runtime mailbox. Coordinator cancellation and its durable store/transport rows
-  commit in one SQLite transaction; transport insertion failure rolls the lifecycle mutation back.
-  Production Bash still uses its transitional Pi-owned payload/status path until the atomic tool cutover
-  deletes that path; detached Pyrun has not migrated. AgentSession constructs the Bash controller lazily from the current store/session/control-DB binding, so session switches cannot
-  retain an old session path; one runtime incarnation remains stable for the AgentSession lifetime. The finalize repository operation
-  accepts only session path plus envelope path, revalidates output and
-  checksum, requires exact revision/lease/incarnation/epoch and a lease live at that terminal time,
-  permits only `running|cancelling` terminal settlement, and commits state/event/outbox atomically.
+  and status commands through the runtime mailbox. Bash and Pyrun both use this independent runner path;
+  neither retains Pi-owned payload pipes, status settlement, or an in-memory detached evaluator. Status
+  attachment, cancellation, bridge responses, and lifecycle completion all use durable runtime-mailbox
+  store references rather than a runner socket or reconnection protocol. Coordinator cancellation and
+  its durable store/transport rows commit in one SQLite transaction; transport insertion failure rolls
+  the lifecycle mutation back. AgentSession constructs detached controllers lazily from the current
+  store/session/control-DB binding, so session switches cannot retain an old session path; one runtime
+  incarnation remains stable for the AgentSession lifetime. The finalize repository operation accepts
+  only session path plus envelope path, revalidates output and checksum, requires exact
+  revision/lease/incarnation/epoch and a lease live at that terminal time, permits only
+  `running|cancelling` terminal settlement, and atomically commits state, event, outbox, immutable
+  mailbox payload, and runtime transport reference.
+
+  Detached recovery ownership is explicit. A live runner exclusively owns envelope submission and
+  retries the exact fsynced envelope until commit. After runner loss, only the coordinator recovery
+  leader may inspect an orphan envelope, and it must submit that unchanged envelope before acquiring a
+  replacement epoch or resolving the lease as lost. A higher fencing epoch permanently rejects the old
+  envelope. If the runner disappears while its payload may still be alive, PID presence or lease expiry
+  does not prove payload exit; recovery fences new effects and resolves the job as `failed/lost_runtime`
+  with external outcome uncertainty rather than inventing completion or abort. Spawned detached jobs are
+  never reassigned or replayed.
+
+  Cancellation commit order remains authoritative when the payload has already exited but finalization
+  is pending. A pre-cancellation natural-result envelope with the old revision cannot override the
+  committed `cancelling` revision. The current runner must produce the cancellation/failed envelope under
+  the updated identity; if it cannot, lease-expiry recovery records `lost_runtime`, not `aborted`.
+  Original tool-call settlement is atomic at the lifecycle boundary: detachment returns a handle only
+  after the durable job identity, reservation, runner process identity, artifact paths, and launch
+  manifest exist. Before that point the call remains foreground and any setup failure is returned as a
+  tool error; after the handle is returned, terminal observation comes only from durable state/events.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through
   path. They re-check transition legality, authorization, and the complete mutation predicate
   before committing any lifecycle or terminal-event change. A coordinator response is successful
