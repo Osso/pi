@@ -2391,6 +2391,52 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("routes persisted detached Pyrun cancellation through exact-owner runtime mailbox control", async () => {
+		const harness = createMultiAgentHarness();
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted store fixture");
+		const agentId = harness.store.allocateAgentIdForLifecycleCoordinator();
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => harness.store.allocateAgentIdForLifecycleCoordinator(),
+			now: () => "2026-07-12T00:00:00.000Z",
+			processIdentity: testProcessIdentity("detached-pyrun-cancel"),
+			sessionPath: persistence.sessionPath,
+		});
+		const created = coordinator.createChild({
+			agentId,
+			agentType: "background",
+			cwd: "/repo",
+			displayName: "Pyrun evaluation",
+			ownerSessionId: persistence.sessionPath,
+			permission: { narrowed: true, policy: "on-request" },
+			result: { fileRefs: [{ label: "Pyrun output", path: "/tmp/pyrun-output.log" }] },
+			worker: { adapter: "runtime", cwd: "/repo", handleId: "123" },
+		});
+		expect(created.ok).toBe(true);
+		if (!created.ok) throw new Error("expected child ownership");
+		const started = coordinator.beginChildRuntime({ agent: created.agent, ownership: created.ownership });
+		expect(started.ok).toBe(true);
+		if (!started.ok) throw new Error("expected start");
+		const running = coordinator.confirmChildRuntime({ agent: started.agent, ownership: created.ownership });
+		expect(running.ok).toBe(true);
+		if (!running.ok) throw new Error("expected running");
+		harness.store.publishLifecycleCoordinatorSnapshot(running.agent);
+
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId,
+			reason: "stop evaluation",
+		});
+
+		expect(cancelled.details.agent).toMatchObject({ id: agentId, lifecycle: "cancelling" });
+		const [message] = listRuntimeMailboxMessages(persistence.controlDbPath);
+		expect(JSON.parse(message?.body ?? "")).toMatchObject({
+			command: "cancel",
+			identity: { jobId: agentId, outputLabel: "Pyrun output" },
+			reason: "stop evaluation",
+		});
+	});
+
 	it("rejects cancellation for rows without runtime ownership", async () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {

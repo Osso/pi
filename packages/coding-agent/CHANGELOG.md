@@ -102,6 +102,7 @@
 
 ### Fixed
 
+- Fixed `cancel_agent` rejecting persisted detached Pyrun evaluations; persisted Bash and Pyrun jobs now derive their exact runner-control identity from the runtime worker and durable output label, then use the same runtime-mailbox cancellation transaction.
 - Fixed detached Bash/Pyrun cancellation racing payload exit: when cancellation commits before the exact-owner terminal envelope, the repository treats that exit evidence as the required acknowledgement and atomically records `aborted`.
 - Fixed dead detached runners being reassigned to the supervisor before recovery; the owning session now commits a valid durable terminal envelope first and otherwise resolves the dead exact owner as `failed/lost_runtime` without supervisor takeover.
 - Fixed the interactive thinking elapsed timer to restart after each completed tool call instead of accumulating across the entire assistant turn.

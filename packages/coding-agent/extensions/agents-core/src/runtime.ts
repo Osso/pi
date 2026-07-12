@@ -2272,7 +2272,8 @@ function cancelPersistedDetachedRuntime(
 	reason?: string,
 ): CancelReservedAgentResult {
 	const persistence = store.getPersistenceTarget();
-	if (!ctx || !persistence || agent.agentType !== "background" || agent.displayName !== "Bash command") {
+	const outputLabel = detachedRuntimeOutputLabel(agent);
+	if (!ctx || !persistence || !outputLabel) {
 		return { ok: false, error: "runtime_ownership_unavailable", agent };
 	}
 	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
@@ -2282,13 +2283,21 @@ function cancelPersistedDetachedRuntime(
 	}
 	const cancelled = coordinator.requestDetachedCancellation({
 		agent,
-		outputLabel: "Bash output",
+		outputLabel,
 		reason,
 		ownership: ownership,
 	});
 	if (!cancelled.ok) return { ok: false, error: "mutation_rejected", agent };
 	publishCoordinatorSnapshot(store, cancelled.agent);
 	return { ok: true, agent: cancelled.agent };
+}
+
+function detachedRuntimeOutputLabel(agent: AgentSnapshot): "Bash output" | "Pyrun output" | undefined {
+	if (agent.agentType !== "background" || agent.worker?.adapter !== "runtime") return undefined;
+	const label = agent.result?.fileRefs?.find(
+		(fileRef) => fileRef.label === "Bash output" || fileRef.label === "Pyrun output",
+	)?.label;
+	return label === "Bash output" || label === "Pyrun output" ? label : undefined;
 }
 
 async function cancelAgent(
