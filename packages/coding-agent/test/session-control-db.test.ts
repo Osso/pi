@@ -767,7 +767,12 @@ describe("session control DB", () => {
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-a")).toEqual([]);
 		expect(listUnseenMultiAgentTerminalEvents(controlDbPath, "waiter-b")).toEqual(secondConsumer);
 
-		const claimed = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-a", mutation.updatedAt);
+		expect(
+			claimMultiAgentTerminalOutbox(controlDbPath, "wrong-session", mutation.updatedAt, {
+				sessionPath: `${sessionPath}.other`,
+			}),
+		).toBeUndefined();
+		const claimed = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-a", mutation.updatedAt, { sessionPath });
 		expect(claimed).toMatchObject({ agentId, attemptCount: 1, eventKind: "completed", status: "claimed" });
 		expect(claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", mutation.updatedAt)).toBeUndefined();
 		expect(failMultiAgentTerminalOutbox(controlDbPath, claimed!, "temporary", "2026-07-11T00:02:00.000Z")).toBe(true);

@@ -2373,14 +2373,18 @@ export function claimMultiAgentTerminalOutbox(
 	controlDbPath: string,
 	claimId: string,
 	nowIso: string,
+	options: { sessionPath?: string } = {},
 ): MultiAgentTerminalOutboxRecord | undefined {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const row = db
 				.prepare(
-					`SELECT session_path, agent_id, terminal_revision, event_kind FROM multi_agent_terminal_outbox WHERE status = 'pending' ORDER BY updated_at LIMIT 1`,
+					`SELECT session_path, agent_id, terminal_revision, event_kind
+					 FROM multi_agent_terminal_outbox
+					 WHERE status = 'pending' AND (? IS NULL OR session_path = ?)
+					 ORDER BY updated_at LIMIT 1`,
 				)
-				.get() as
+				.get(options.sessionPath ?? null, options.sessionPath ?? null) as
 				| { session_path: string; agent_id: string; terminal_revision: number; event_kind: string }
 				| undefined;
 			if (!row) return undefined;
