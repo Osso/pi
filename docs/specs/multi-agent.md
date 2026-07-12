@@ -167,8 +167,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   validates the current full lease predicate before idempotency, so an old owner cannot replay a
   finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links
   cannot self-reference or form cycles. Cancellation is cascading:
-  cancelling a parent issues cancellation intents to active descendants, while each descendant
-  still terminalizes through its own fenced command. A parent cannot become terminal while any
+  cancellation first commits `cancelling` through the current reservation; runtime abort is requested
+  only after that commit, and `aborted` requires a separate fenced exit acknowledgement. Queued and
+  starting children use the same ordering. Cancelling a parent issues cancellation intents to active
+  descendants, while each descendant still terminalizes through its own fenced command. A parent cannot become terminal while any
   descendant is nonterminal; the coordinator resolves cancellation, owner loss, or lease expiry
   for descendants before terminalizing the parent.
 - Externally visible child effects use a deterministic operation identity derived from the durable

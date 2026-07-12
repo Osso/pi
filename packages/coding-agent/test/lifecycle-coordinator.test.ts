@@ -72,6 +72,38 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(running).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 3 } });
 	});
 
+	it("requires cancelling before a fenced abort acknowledgement", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = coordinator.createChild(childInput());
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+		const starting = coordinator.beginChildRuntime({ agent: created.agent, reservation: created.reservation });
+		expect(starting.ok).toBe(true);
+		if (!starting.ok) return;
+		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
+		expect(running.ok).toBe(true);
+		if (!running.ok) return;
+
+		const cancelling = coordinator.requestCancellation({ agent: running.agent, reservation: created.reservation });
+		expect(cancelling).toMatchObject({ ok: true, agent: { lifecycle: "cancelling", revision: 4 } });
+		if (!cancelling.ok) return;
+		const aborted = coordinator.acknowledgeCancellation({
+			agent: cancelling.agent,
+			reason: "user requested",
+			reservation: created.reservation,
+		});
+		expect(aborted).toMatchObject({ ok: true, agent: { lifecycle: "aborted", revision: 5 } });
+		expect(
+			coordinator.acknowledgeCancellation({
+				agent: cancelling.agent,
+				reason: "late duplicate",
+				reservation: { ...created.reservation, fencingEpoch: created.reservation.fencingEpoch + 1 },
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+	});
+
 	it("terminalizes runtime construction failure from starting with one fenced event", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";

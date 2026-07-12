@@ -78,6 +78,19 @@ export class LifecycleCoordinator {
 		return this.commitReservedLifecycle(input, "running");
 	}
 
+	requestCancellation(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
+		return this.commitReservedLifecycle(input, "cancelling");
+	}
+
+	acknowledgeCancellation(input: ReservedLifecycleCommandInput & { reason?: string }): ReservedLifecycleCommandResult {
+		return this.finalizeChild({
+			agent: input.agent,
+			eventPayload: { reason: input.reason },
+			reservation: input.reservation,
+			terminalLifecycle: "aborted",
+		});
+	}
+
 	recoverExpiredChild(input: RecoverExpiredChildCommandInput): RecoverExpiredChildCommandResult {
 		const nowIso = this.options.now();
 		const leaderLeaseId = this.options.createLeaseId();
@@ -203,7 +216,7 @@ export class LifecycleCoordinator {
 
 	private commitReservedLifecycle(
 		input: ReservedLifecycleCommandInput,
-		requestedLifecycle: "starting" | "running",
+		requestedLifecycle: "starting" | "running" | "cancelling",
 	): ReservedLifecycleCommandResult {
 		const reservation = input.reservation;
 		const identity = this.readReservationIdentity(reservation);

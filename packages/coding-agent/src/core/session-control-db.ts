@@ -2463,8 +2463,8 @@ export function commitMultiAgentLifecycleMutation(
 function canPersistLifecycleTransition(current: unknown, requested: string): boolean {
 	if (typeof current !== "string") return false;
 	const transitions: Record<string, readonly string[]> = {
-		queued: ["starting", "aborted"],
-		starting: ["running", "failed", "aborted"],
+		queued: ["starting", "cancelling", "aborted"],
+		starting: ["running", "cancelling", "failed", "aborted"],
 		running: ["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"],
 		waiting_for_input: ["running", "steering_pending", "cancelling", "completed", "aborted"],
 		steering_pending: ["running", "waiting_for_input", "cancelling", "failed", "aborted"],

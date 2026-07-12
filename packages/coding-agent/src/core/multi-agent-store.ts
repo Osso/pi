@@ -268,8 +268,8 @@ const MAIN_THREAD_AGENT_ID = "main";
 const TERMINAL_STATES = new Set<AgentLifecycleState>(["completed", "failed", "aborted"]);
 
 const ALLOWED_TRANSITIONS: ReadonlyMap<AgentLifecycleState, ReadonlySet<AgentLifecycleState>> = new Map([
-	["queued", new Set(["starting", "aborted"])],
-	["starting", new Set(["running", "failed", "aborted"])],
+	["queued", new Set(["starting", "cancelling", "aborted"])],
+	["starting", new Set(["running", "cancelling", "failed", "aborted"])],
 	["running", new Set(["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"])],
 	["waiting_for_input", new Set(["running", "steering_pending", "cancelling", "completed", "aborted"])],
 	["steering_pending", new Set(["running", "waiting_for_input", "cancelling", "failed", "aborted"])],
