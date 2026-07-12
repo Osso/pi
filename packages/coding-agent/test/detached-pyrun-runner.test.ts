@@ -1,8 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runDetachedPyrunRunner, writeDetachedPyrunLaunchManifest } from "../extensions/pyrun/src/detached-runner.ts";
+import {
+	launchDetachedPyrunRunner,
+	writeDetachedPyrunLaunchManifest,
+} from "../extensions/pyrun/src/detached-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -55,14 +58,19 @@ describe("detached Pyrun runner", () => {
 		});
 		const jobId = lifecycle.allocateJobId();
 		const artifacts = lifecycle.createArtifacts(jobId);
+		const manifestPath = join(artifacts.directory, "launch.json");
+		const runnerPid = launchDetachedPyrunRunner(manifestPath, {
+			entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(existsSync(`${manifestPath}.runner-error`)).toBe(false);
 		const reservation = lifecycle.reserve({
 			agentType: "pyrun",
 			cwd: root,
 			displayName: "Pyrun evaluation",
 			jobId,
-			workerHandleId: "runner-test",
+			workerHandleId: String(runnerPid),
 		});
-		const manifestPath = join(artifacts.directory, "launch.json");
 		writeDetachedPyrunLaunchManifest(manifestPath, {
 			artifacts,
 			controlDbPath,
@@ -73,7 +81,12 @@ describe("detached Pyrun runner", () => {
 			sessionPath,
 		});
 
-		expect(await runDetachedPyrunRunner(manifestPath)).toEqual({ terminalRevision: 4 });
+		await waitFor(() => {
+			const agent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as
+				| { lifecycle?: unknown }
+				| undefined;
+			return agent?.lifecycle === "completed";
+		});
 		const output = readFileSync(artifacts.outputPath, "utf8");
 		expect(output).toContain('"kind":"progress"');
 		expect(output).toContain('"value":42');
@@ -82,3 +95,11 @@ describe("detached Pyrun runner", () => {
 		]);
 	});
 });
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	while (!predicate()) {
+		if (Date.now() >= deadline) throw new Error("Timed out waiting for detached Pyrun runner state");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}

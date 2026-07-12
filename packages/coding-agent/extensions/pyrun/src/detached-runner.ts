@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, extname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	claimDetachedJobControlCommands,
 	type DetachedJobCancelCommand,
@@ -26,6 +28,8 @@ import {
 
 const DETACHED_PYRUN_LAUNCH_VERSION = 1;
 const CONTROL_POLL_MS = 25;
+const LAUNCH_MANIFEST_POLL_MS = 10;
+const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
 export interface DetachedPyrunLaunchManifestData {
 	artifacts: DetachedJobArtifacts;
@@ -59,8 +63,23 @@ type PyrunSettlement =
 	| { cancel?: DetachedJobCancelCommand; identity: DetachedJobLeaseIdentity; result: CanonicalPyrunEvalResult }
 	| { cancel?: DetachedJobCancelCommand; error: unknown; identity: DetachedJobLeaseIdentity };
 
+export function launchDetachedPyrunRunner(manifestPath: string, options?: { entryPath?: string }): number {
+	const entryPath = options?.entryPath ?? defaultRunnerEntryPath();
+	const nodeArgs = extname(entryPath) === ".ts" ? ["--experimental-strip-types", entryPath, manifestPath] : [entryPath, manifestPath];
+	const child = spawn(process.execPath, nodeArgs, {
+		cwd: dirname(manifestPath),
+		detached: true,
+		env: { HOME: process.env.HOME, PATH: process.env.PATH },
+		stdio: "ignore",
+	});
+	if (!child.pid) throw new Error("Could not launch detached Pyrun runner");
+	child.once("error", () => undefined);
+	child.unref();
+	return child.pid;
+}
+
 export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ terminalRevision: number }> {
-	const manifest = readDetachedPyrunLaunchManifest(manifestPath);
+	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
 	const runner = new PyrunRunnerClient(manifest.runnerOptions);
 	try {
 		const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
@@ -124,6 +143,20 @@ function pyrunSettlementOutcome(settlement: PyrunSettlement): DetachedJobOutcome
 	if ("result" in settlement) return pyrunOutcome(settlement.result);
 	if (settlement.cancel) return { kind: "aborted", reason: settlement.cancel.reason ?? "cancelled" };
 	return { error: { message: errorMessage(settlement.error) }, kind: "failed" };
+}
+
+function defaultRunnerEntryPath(): string {
+	const sourceExtension = extname(fileURLToPath(import.meta.url));
+	return fileURLToPath(new URL(`./detached-runner-entry${sourceExtension}`, import.meta.url));
+}
+
+async function waitForDetachedPyrunLaunchManifest(path: string): Promise<DetachedPyrunLaunchManifest> {
+	const deadline = Date.now() + LAUNCH_MANIFEST_TIMEOUT_MS;
+	while (!existsSync(path)) {
+		if (Date.now() >= deadline) throw new Error(`Timed out waiting for detached Pyrun launch manifest: ${path}`);
+		await new Promise((resolve) => setTimeout(resolve, LAUNCH_MANIFEST_POLL_MS));
+	}
+	return readDetachedPyrunLaunchManifest(path);
 }
 
 function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaunchManifest {
