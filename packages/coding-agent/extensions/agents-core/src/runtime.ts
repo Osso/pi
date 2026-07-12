@@ -1209,9 +1209,21 @@ function recoverDetachedAgent(
 		return;
 	}
 	if (!agent.transcript?.path) {
-		transitionActiveAgent(input.store, agent, "failed", {
-			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
-		});
+		const reservedRuntime = reserveAttachedRuntime({ ...input, prompt: CRASH_RECOVERY_PROMPT, target: agent });
+		if (!reservedRuntime) return;
+		input.reservations.set(agent.id, reservedRuntime);
+		finalizeReservedRuntime(
+			input.store,
+			reservedRuntime.ownership.agent,
+			"failed",
+			{
+				error: {
+					message: "Agent was active when the supervisor session ended and has no recoverable transcript.",
+				},
+			},
+			reservedRuntime,
+		);
+		input.reservations.delete(agent.id);
 	}
 }
 
