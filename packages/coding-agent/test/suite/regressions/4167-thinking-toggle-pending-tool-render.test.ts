@@ -54,6 +54,7 @@ type RenderSessionContextThis = {
 	isViewingAgentSession(): boolean;
 	startToolWaitingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
+	restartThinkingTimer(): void;
 	setWorkingMessageForActiveTools(): void;
 	ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent;
 	syncToolExecutionTrackingForHiddenMainEvent(event: AgentSessionEvent): void;
@@ -99,6 +100,7 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		},
 		startToolWaitingTimer: vi.fn(),
 		stopToolWaitingTimerIfIdle: vi.fn(),
+		restartThinkingTimer: vi.fn(),
 		setWorkingMessageForActiveTools: vi.fn(),
 		ensureToolExecutionComponent(_toolName: string, toolCallId: string) {
 			const component = this.pendingTools.get(toolCallId);

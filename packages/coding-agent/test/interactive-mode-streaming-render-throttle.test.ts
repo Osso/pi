@@ -381,7 +381,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			startedAt: 1_000,
 			finishedAt: 2_000,
 		});
-		expect(setMessage).toHaveBeenLastCalledWith("Thinking...");
+		expect(setMessage).toHaveBeenLastCalledWith("Thinking... 0s");
 	});
 
 	test("keeps elapsed time out of waiting labels when a rendered tool row exists", async () => {
