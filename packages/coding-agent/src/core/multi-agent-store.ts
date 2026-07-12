@@ -1,12 +1,12 @@
 import { isAbsolute } from "node:path";
 import {
 	allocateMultiAgentCounter,
+	bootstrapMultiAgentAgent,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
-	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
@@ -1040,7 +1040,7 @@ export class MultiAgentStore {
 		if (!this.persistence) {
 			return;
 		}
-		upsertMultiAgentAgent(this.persistence.controlDbPath, this.persistence.sessionPath, agent.id, agent);
+		bootstrapMultiAgentAgent(this.persistence.controlDbPath, this.persistence.sessionPath, agent.id, agent);
 	}
 
 	private putMailboxMessage(message: AgentMailboxMessage): void {

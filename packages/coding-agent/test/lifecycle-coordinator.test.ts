@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
+	bootstrapMultiAgentAgent,
 	listRuntimeMailboxMessages,
 	readMultiAgentAgent,
 	readMultiAgentDispatchLease,
 	readMultiAgentState,
-	upsertMultiAgentAgent,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
@@ -68,7 +68,7 @@ describe("LifecycleCoordinator child creation", () => {
 	it("acquires attached runtime ownership without changing lifecycle revision", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
 			agentType: "resumed-session",
 			createdAt: "2026-07-11T19:00:00.000Z",
 			cwd: "/tmp/worktree",
@@ -414,7 +414,7 @@ describe("LifecycleCoordinator child creation", () => {
 	it("links a nested child only after its parent exists", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-parent", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-parent", {
 			agentType: "explore",
 			createdAt: "2026-07-11T19:00:00.000Z",
 			cwd: "/tmp/worktree",

@@ -7,9 +7,9 @@ import type { ExtensionAPI, ToolDefinition } from "../src/core/extensions/types.
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	allocateMultiAgentCounter,
+	bootstrapMultiAgentAgent,
 	getControlDbPath,
 	readMultiAgentState,
-	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
@@ -89,7 +89,7 @@ describe("artifact removal", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 
 		expect(() =>
-			upsertMultiAgentAgent(controlDbPath, "/sessions/invalid-agent.jsonl", "agent-1", {
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/invalid-agent.jsonl", "agent-1", {
 				result: { fileRefs: [{ path: "/tmp/output.log", label: 42 }] },
 			}),
 		).toThrow(/label.*string/i);
@@ -101,7 +101,7 @@ describe("artifact removal", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const sessionPath = "/sessions/invalid-state.jsonl";
 
-		expect(() => upsertMultiAgentAgent(controlDbPath, sessionPath, "agent_1", {})).toThrow(/persisted agent/i);
+		expect(() => bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent_1", {})).toThrow(/persisted agent/i);
 		expect(() => upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {})).toThrow(
 			/persisted mailbox/i,
 		);
@@ -114,7 +114,7 @@ describe("artifact removal", () => {
 		const sessionPath = "/sessions/fresh-invalid.jsonl";
 
 		expect(() =>
-			upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
+			bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
 				result: { artifactIds: ["artifact-1"] },
 			} as never),
 		).toThrow(/Legacy artifact fields/);

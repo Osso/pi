@@ -3706,7 +3706,7 @@ function updateMultiAgentAgentMetadata(
 	);
 }
 
-export function upsertMultiAgentAgent(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
+export function bootstrapMultiAgentAgent(controlDbPath: string, sessionPath: string, id: string, data: unknown): void {
 	if (!data || typeof data !== "object" || Array.isArray(data)) {
 		throw new Error(`Invalid persisted agent payload at multi_agent_agents:${sessionPath}#${id}`);
 	}

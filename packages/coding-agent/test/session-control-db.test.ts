@@ -15,6 +15,7 @@ import {
 	allocateMultiAgentCounter,
 	archiveSession,
 	archiveSessionsOlderThan,
+	bootstrapMultiAgentAgent,
 	claimLatestIncomingMessage,
 	claimMultiAgentTerminalOutbox,
 	claimPendingArchitectRequests,
@@ -79,7 +80,6 @@ import {
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
-	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 	writeLastMessage,
 	writeSessionGoal,
@@ -591,7 +591,7 @@ describe("session control DB", () => {
 
 	it("creates a child and its dispatch reservation atomically", () => {
 		const sessionPath = "/sessions/child-reservation.jsonl";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-parent", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-parent", {
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
 			displayName: "Parent",
@@ -642,7 +642,7 @@ describe("session control DB", () => {
 	it("applies lifecycle CAS only for the complete ownership predicate", async () => {
 		const sessionPath = "/sessions/lifecycle-cas.jsonl";
 		const agentId = "agent-cas";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
 			displayName: "CAS agent",
@@ -721,7 +721,7 @@ describe("session control DB", () => {
 	it("commits steering lifecycle and durable mailbox payload atomically", () => {
 		const sessionPath = "/sessions/steering.jsonl";
 		const agentId = "agent-steer";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			id: agentId,
 			lifecycle: "running",
 			origin: "spawned",
@@ -776,7 +776,7 @@ describe("session control DB", () => {
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {
 		const sessionPath = "/sessions/terminal-commit.jsonl";
 		const agentId = "agent-1";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
 			displayName: "Terminal agent",
@@ -799,7 +799,7 @@ describe("session control DB", () => {
 		});
 		expect(lease).toMatchObject({ ok: true, lease: { fencingEpoch: 1 } });
 		expect(() =>
-			upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 				createdAt: "2026-07-11T00:00:00.000Z",
 				cwd: "/repo",
 				displayName: "Illegal rewrite",
@@ -918,7 +918,7 @@ describe("session control DB", () => {
 
 	it("updates transcript metadata without overwriting a newer lifecycle revision", () => {
 		const sessionPath = "/sessions/transcript-merge.jsonl";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
 			agentType: "test",
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
@@ -971,7 +971,7 @@ describe("session control DB", () => {
 	it("finalizes a detached job from its exact durable envelope", () => {
 		const sessionPath = "/sessions/detached-finalize.jsonl";
 		const agentId = "job-1";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			agentType: "background",
 			createdAt: "2026-07-11T21:00:00.000Z",
 			cwd: "/repo",
@@ -1071,7 +1071,7 @@ describe("session control DB", () => {
 	it("rejects every stale writer after a higher dispatch fencing epoch is acquired", () => {
 		const sessionPath = "/sessions/stale-writers.jsonl";
 		const agentId = "agent-stale";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			agentType: "test",
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
@@ -1365,7 +1365,7 @@ describe("session control DB", () => {
 	it("acquires attached runtime ownership only for the exact attached revision", () => {
 		const sessionPath = "/sessions/attached-runtime.jsonl";
 		const agentId = "attached-1";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			agentType: "resumed-session",
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
@@ -1476,7 +1476,7 @@ describe("session control DB", () => {
 			["queued", "queued"],
 			["running", "running"],
 		] as const) {
-			upsertMultiAgentAgent(controlDbPath, sessionPath, id, {
+			bootstrapMultiAgentAgent(controlDbPath, sessionPath, id, {
 				createdAt: "2026-07-11T00:00:00.000Z",
 				cwd: "/repo",
 				displayName: id,
@@ -1559,7 +1559,7 @@ describe("session control DB", () => {
 
 	it("rejects lifecycle writes from connections without the current protocol", () => {
 		const sessionPath = "/sessions/protocol-writer.jsonl";
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
 			createdAt: "2026-07-11T00:00:00.000Z",
 			cwd: "/repo",
 			displayName: "Protocol writer",
@@ -2615,7 +2615,7 @@ describe("session control DB", () => {
 				allMessagesText: "first",
 			});
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, child.pid, sessionPath);
-			upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+			bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 				id: "running",
 				lifecycle: "running",
 				revision: 1,
@@ -2670,7 +2670,7 @@ describe("session control DB", () => {
 		});
 
 		for (const lifecycle of activeLifecycles) {
-			upsertMultiAgentAgent(controlDbPath, inactiveSessionPath, `active-${lifecycle}`, {
+			bootstrapMultiAgentAgent(controlDbPath, inactiveSessionPath, `active-${lifecycle}`, {
 				id: `active-${lifecycle}`,
 				lifecycle,
 				origin: lifecycle === "running" ? undefined : "spawned",
@@ -2687,7 +2687,7 @@ describe("session control DB", () => {
 			["aborted", "aborted", "spawned"],
 			["attached", "running", "attached"],
 		] as const) {
-			upsertMultiAgentAgent(controlDbPath, inactiveSessionPath, id, {
+			bootstrapMultiAgentAgent(controlDbPath, inactiveSessionPath, id, {
 				id,
 				lifecycle,
 				origin,
@@ -2696,21 +2696,21 @@ describe("session control DB", () => {
 				worker: { adapter: "runtime", handleId: "job" },
 			});
 		}
-		upsertMultiAgentAgent(controlDbPath, liveSessionPath, "live", {
+		bootstrapMultiAgentAgent(controlDbPath, liveSessionPath, "live", {
 			id: "live",
 			lifecycle: "running",
 			revision: 4,
 			updatedAt: "2026-01-01T00:00:00.000Z",
 			worker: { adapter: "runtime", handleId: "job" },
 		});
-		upsertMultiAgentAgent(controlDbPath, missingHealthSessionPath, "missing-health", {
+		bootstrapMultiAgentAgent(controlDbPath, missingHealthSessionPath, "missing-health", {
 			id: "missing-health",
 			lifecycle: "running",
 			revision: 4,
 			updatedAt: "2026-01-01T00:00:00.000Z",
 			worker: { adapter: "runtime", handleId: "job" },
 		});
-		upsertMultiAgentAgent(controlDbPath, missingMetadataSessionPath, "missing-metadata", {
+		bootstrapMultiAgentAgent(controlDbPath, missingMetadataSessionPath, "missing-metadata", {
 			id: "missing-metadata",
 			lifecycle: "running",
 			revision: 4,
@@ -2755,7 +2755,7 @@ describe("session control DB", () => {
 			allMessagesText: "first",
 		});
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "live-session" }, 123, oldSessionPath);
-		upsertMultiAgentAgent(controlDbPath, oldSessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, oldSessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,
@@ -2794,7 +2794,7 @@ describe("session control DB", () => {
 			assertedSessionPath,
 		);
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "live-session" }, 123);
-		upsertMultiAgentAgent(controlDbPath, unknownSessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, unknownSessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,
@@ -2838,7 +2838,7 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
-		upsertMultiAgentAgent(controlDbPath, unknownSessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, unknownSessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,
@@ -2869,7 +2869,7 @@ describe("session control DB", () => {
 		registerRuntimeMailboxListener(controlDbPath, recipient, 111, sessionPath, {
 			runtimeInstanceId: "runtime-a",
 		});
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,
@@ -2916,13 +2916,13 @@ describe("session control DB", () => {
 			sessionPath,
 			{ runtimeInstanceId: "runtime-a" },
 		);
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,
 			updatedAt: "2026-01-01T00:00:00.000Z",
 		});
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "attached", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "attached", {
 			id: "attached",
 			lifecycle: "running",
 			origin: "attached",
@@ -2955,7 +2955,7 @@ describe("session control DB", () => {
 		const sessionPath = "/sessions/touched-runtime.jsonl";
 		const recipient = { agentId: null, sessionId: "touched-runtime-session" };
 		registerRuntimeMailboxListener(controlDbPath, recipient, 123, sessionPath, { runtimeInstanceId: "runtime-a" });
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,
@@ -2987,7 +2987,7 @@ describe("session control DB", () => {
 		const sessionPath = "/sessions/same-runtime.jsonl";
 		const recipient = { agentId: null, sessionId: "same-runtime-session" };
 		registerRuntimeMailboxListener(controlDbPath, recipient, 123, sessionPath, { runtimeInstanceId: "runtime-a" });
-		upsertMultiAgentAgent(controlDbPath, sessionPath, "running", {
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
 			id: "running",
 			lifecycle: "running",
 			revision: 1,

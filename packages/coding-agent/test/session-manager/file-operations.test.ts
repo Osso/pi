@@ -14,6 +14,7 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	bootstrapMultiAgentAgent,
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
@@ -22,7 +23,6 @@ import {
 	readSessionGoal,
 	readSessionMetadata,
 	setNamedSession,
-	upsertMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 	writeMultiAgentCounters,
 	writeSessionMetadata,
@@ -256,7 +256,7 @@ describe("SessionManager relocate", () => {
 
 		session.setSessionGoalJson(JSON.stringify({ objective: "keep goal" }));
 		setNamedSession(controlDbPath, sourceFile!, "Keep name");
-		upsertMultiAgentAgent(controlDbPath, sourceFile!, "agent_1", { id: "agent_1" });
+		bootstrapMultiAgentAgent(controlDbPath, sourceFile!, "agent_1", { id: "agent_1" });
 		upsertMultiAgentMailboxMessage(controlDbPath, sourceFile!, "message_1", {
 			messageId: "message_1",
 			status: "pending",

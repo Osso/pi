@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readArchitectSnapshot } from "../src/architect/observer.ts";
 import { commandLineIsPiRuntime } from "../src/core/runtime-process.ts";
 import {
+	bootstrapMultiAgentAgent,
 	getControlDbPath,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	readMultiAgentState,
 	readSessionHealth,
 	registerRuntimeMailboxListener,
-	upsertMultiAgentAgent,
 	writeSessionGoal,
 	writeSessionHealth,
 	writeSessionMetadata,
@@ -229,7 +229,7 @@ describe("session directory", () => {
 			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 			writeSession("session-stale-live");
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-stale-live" }, process.pid);
-			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale-live.jsonl", "spawned", {
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-stale-live.jsonl", "spawned", {
 				id: "spawned",
 				lifecycle: "running",
 				revision: 1,
@@ -264,21 +264,21 @@ describe("session directory", () => {
 			writeSession("session-stale");
 			writeSession("session-live");
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-stale" }, process.pid);
-			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "spawned", {
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "spawned", {
 				id: "spawned",
 				lifecycle: "running",
 				revision: 1,
 				updatedAt: "2026-01-01T00:00:00.000Z",
 				worker: { adapter: "runtime", handleId: "old-job" },
 			});
-			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "attached", {
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "attached", {
 				id: "attached",
 				origin: "attached",
 				lifecycle: "waiting_for_input",
 				revision: 1,
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			});
-			upsertMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "queued", {
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-stale.jsonl", "queued", {
 				id: "queued",
 				origin: "spawned",
 				lifecycle: "queued",
@@ -287,7 +287,7 @@ describe("session directory", () => {
 			});
 			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid + 1);
-			upsertMultiAgentAgent(controlDbPath, "/sessions/session-live.jsonl", "live", {
+			bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-live.jsonl", "live", {
 				id: "live",
 				lifecycle: "running",
 				revision: 1,
@@ -389,13 +389,13 @@ describe("session directory", () => {
 			process.pid,
 			"/sessions/session-live-current.jsonl",
 		);
-		upsertMultiAgentAgent(controlDbPath, "/sessions/session-live-old.jsonl", "historical", {
+		bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-live-old.jsonl", "historical", {
 			id: "historical",
 			lifecycle: "running",
 			revision: 1,
 			updatedAt: "2026-01-01T00:10:00.000Z",
 		});
-		upsertMultiAgentAgent(controlDbPath, "/sessions/session-live-current.jsonl", "current", {
+		bootstrapMultiAgentAgent(controlDbPath, "/sessions/session-live-current.jsonl", "current", {
 			id: "current",
 			lifecycle: "running",
 			revision: 1,
@@ -429,13 +429,13 @@ describe("session directory", () => {
 			process.pid,
 			liveSessionPath,
 		);
-		upsertMultiAgentAgent(controlDbPath, liveSessionPath, "current", {
+		bootstrapMultiAgentAgent(controlDbPath, liveSessionPath, "current", {
 			id: "current",
 			lifecycle: "running",
 			revision: 1,
 			updatedAt: "2026-01-01T00:10:00.000Z",
 		});
-		upsertMultiAgentAgent(controlDbPath, historicalSessionPath, "historical", {
+		bootstrapMultiAgentAgent(controlDbPath, historicalSessionPath, "historical", {
 			id: "historical",
 			lifecycle: "running",
 			revision: 1,

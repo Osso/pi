@@ -5,6 +5,7 @@
 ### Breaking Changes
 
 - Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
+- Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unleased bootstrap/migration rows.
 
 ### Added
 
@@ -56,7 +57,7 @@
 
 ### Changed
 
-- Generic full-row agent upsert now rejects leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
+- Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject leased lifecycle rows, restricting it to unleased bootstrap/migration data after production command families acquire lease identities.
 - Transcript, mailbox/contact activity, and pinned-slot metadata now merge transactionally into the latest persisted agent snapshot without rewriting lifecycle/revision from stale store state; metadata updates no longer advance the lifecycle revision token, and restore no longer persists runtime worker-handle cleanup.
 - Terminal completion and failure mailbox notifications now originate only from claimed terminal outbox records; ordinary coordinator snapshot projection no longer creates parallel terminal notifications. Runtime transport now uses one session-bound lifecycle mirror shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` now uses independent terminal-event cursors, closes the pre-subscription completion race, supports simultaneous and late waiter fan-out, and no longer consumes runtime transport rows.
 - Lifecycle and terminal mutations now reject expired dispatch leases even before fencing takeover, closing a lease-partition window. Added deterministic race coverage for completion-before-cancel, cancellation-before-completion, duplicate exit acknowledgement, and expired-owner mutations.
