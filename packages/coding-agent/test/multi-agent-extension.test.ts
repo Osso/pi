@@ -1245,10 +1245,10 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
-		await delay(20);
+		const failed = await waitForAgentLifecycle(harness, cancelled.agent.id, "failed");
 
 		expect(createAttachedSession).not.toHaveBeenCalled();
-		expect(store.getAgent(cancelled.agent.id)).toMatchObject({
+		expect(failed).toMatchObject({
 			lifecycle: "failed",
 			error: { code: "lost_runtime" },
 		});
