@@ -112,6 +112,19 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       terminal failure waits retain their existing status-only behavior. Restore clears transient
       `runtime` worker metadata; persisted metadata never makes a wait poll indefinitely.
 
+### Runtime construction inventory
+
+- Main CLI interactive, print, JSON, and RPC modes share `createAgentSessionServices()` plus
+  `createAgentSessionFromServices()` and are orchestration-capable when multi-agent tools/listeners are enabled.
+- Public SDK `createAgentSession()` constructs a main runtime and may be orchestration-capable according to its
+  configured extensions/tools; it must obey the same capability requirement when orchestration is enabled.
+- Production spawned-child and attached-session factories call the SDK factory with an address-scoped agent
+  identity. These are execution runtimes and must never receive orchestration execution capability.
+- Resident Architect construction is an observer runtime with inbound coordination disabled and is not an
+  orchestration-capable main runtime.
+- Help, version, model/package listing, and other metadata actions that return before AgentSession construction
+  are outside the execution-capability invariant.
+
 ### Phase 1 authority and invariants
 
 - `LifecycleCoordinator` is the sole control-plane and runtime-command authority. Spawn, attach,
