@@ -36,6 +36,7 @@ import {
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
 import {
+	acquireMultiAgentDispatchLease,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
@@ -198,6 +199,21 @@ const commandSourceInfo = {
 	scope: "temporary",
 	source: "extension",
 } as const;
+
+function addExpiredDispatchLease(store: MultiAgentStore, agentId: string): void {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("expected persisted store fixture");
+	const acquired = acquireMultiAgentDispatchLease(persistence.controlDbPath, {
+		agentId,
+		expiresAt: "2026-06-21T00:00:01.000Z",
+		leaseId: `expired-${agentId}`,
+		nowIso: "2026-06-21T00:00:00.000Z",
+		owner: { agentId: null, sessionId: "dead-supervisor" },
+		runtimeIncarnation: "dead-runtime",
+		sessionPath: persistence.sessionPath,
+	});
+	if (!acquired.ok) throw new Error(`failed to add expired dispatch lease: ${acquired.error}`);
+}
 
 function spawnStoreFixture(
 	store: MultiAgentStore,
@@ -959,7 +975,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("aborts recovered spawned children instead of leaving detached active ghosts", async () => {
+	it("fails recovered spawned children after their dispatch lease expires", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -974,6 +990,7 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected spawned child to start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		addExpiredDispatchLease(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
@@ -981,16 +998,17 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		await delay(20);
 
 		expect(createAttachedSession).not.toHaveBeenCalled();
 		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
-			error: { message: "Spawned agent was interrupted by supervisor restart and cannot be resumed." },
-			lifecycle: "aborted",
+			error: { code: "lost_runtime" },
+			lifecycle: "failed",
 		});
 		expect(store.getActiveAgentCount()).toBe(0);
 	});
 
-	it("aborts recovered spawned children that were waiting for input", async () => {
+	it("fails recovered waiting children after their dispatch lease expires", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1002,16 +1020,18 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/waiting-child.jsonl", sessionId: "waiting-child-session" },
 		});
+		addExpiredDispatchLease(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
 		});
 		const harness = createMultiAgentHarness({ store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		await delay(20);
 
 		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
-			error: { message: "Spawned agent was interrupted by supervisor restart and cannot be resumed." },
-			lifecycle: "aborted",
+			error: { code: "lost_runtime" },
+			lifecycle: "failed",
 		});
 		expect(store.getActiveAgentCount()).toBe(0);
 	});
@@ -1109,7 +1129,7 @@ describe("multi-agent extension tools", () => {
 		expect(waited).toBeNull();
 	});
 
-	it("fails detached agents without a transcript at recovery time", async () => {
+	it("fails spawned agents without a transcript after lease expiry", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1123,18 +1143,20 @@ describe("multi-agent extension tools", () => {
 		expect(started.ok).toBe(true);
 		if (!started.ok) throw new Error("expected start");
 		expect(source.transitionAgent(interrupted.agent.id, started.agent.revision, "running").ok).toBe(true);
+		addExpiredDispatchLease(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		await delay(20);
 
 		expect(store.getAgent(interrupted.agent.id)).toMatchObject({
-			error: { message: "Spawned agent was interrupted by supervisor restart and cannot be resumed." },
-			lifecycle: "aborted",
+			error: { code: "lost_runtime" },
+			lifecycle: "failed",
 		});
 	});
 
-	it("completes pending cancels for detached cancelling agents at recovery time", async () => {
+	it("fails cancelling spawned agents as lost runtimes after lease expiry", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1151,12 +1173,17 @@ describe("multi-agent extension tools", () => {
 		expect(running.ok).toBe(true);
 		if (!running.ok) throw new Error("expected running");
 		expect(source.transitionAgent(cancelled.agent.id, running.agent.revision, "cancelling").ok).toBe(true);
+		addExpiredDispatchLease(source, cancelled.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
 		const harness = createMultiAgentHarness({ store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		await delay(20);
 
-		expect(store.getAgent(cancelled.agent.id)).toMatchObject({ lifecycle: "aborted" });
+		expect(store.getAgent(cancelled.agent.id)).toMatchObject({
+			lifecycle: "failed",
+			error: { code: "lost_runtime" },
+		});
 	});
 
 	it("does not restart attached agents that were already waiting before restore", async () => {

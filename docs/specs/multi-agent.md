@@ -159,7 +159,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   root; nested children require an existing persisted parent. Runtime construction begins only after a
   full-predicate coordinator transition to `starting`; `running` is confirmed only after construction
   succeeds. Construction failure commits `failed`, error projection, terminal event, and outbox through
-  the current reservation before any `running` state is exposed. Production `spawn_agent` requires a persisted supervisor session and
+  the current reservation before any `running` state is exposed. If the supervisor dies after
+  reservation commit, resumed production sessions schedule recovery at lease expiry; the coordinator
+  acquires recovery leadership, takes the next dispatch epoch, commits `failed/lost_runtime`, and
+  retries after leader contention. Runtime-listener registration never mutates lifecycle rows. Production `spawn_agent` requires a persisted supervisor session and
   fails closed otherwise; it has no direct store creation or lifecycle-ramp path. Terminal replay
   validates the current full lease predicate before idempotency, so an old owner cannot replay a
   finalizer or create another event/outbox row after a higher fencing epoch is acquired. Parent links

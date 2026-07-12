@@ -2564,7 +2564,7 @@ describe("session control DB", () => {
 		]);
 	});
 
-	it("advances generation and aborts stale spawned rows when a new runtime reuses the same pid", () => {
+	it("advances generation without mutating lifecycle rows when a new runtime reuses the same pid", () => {
 		const sessionPath = "/sessions/reused-pid.jsonl";
 		writeSessionMetadata(controlDbPath, {
 			sessionPath,
@@ -2613,12 +2613,7 @@ describe("session control DB", () => {
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ id: "attached", lifecycle: "running", revision: 1 }),
-				expect.objectContaining({
-					id: "running",
-					lifecycle: "aborted",
-					revision: 2,
-					error: expect.objectContaining({ code: "supervisor_restarted" }),
-				}),
+				expect.objectContaining({ id: "running", lifecycle: "running", revision: 1 }),
 			]),
 		);
 	});

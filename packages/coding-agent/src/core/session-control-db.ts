@@ -759,9 +759,6 @@ function registerRuntimeMailboxListenerInTransaction(
 	}
 	if (recipient.agentId === null) {
 		retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, nowIso);
-		if (shouldReconcileReplacement && sessionPath) {
-			abortActiveSpawnedAgentsForExactSessionPath(db, sessionPath, nowIso);
-		}
 	}
 	upsertRuntimeMailboxListenerRow(db, recipient, pid, sessionPath, runtimeInstanceId, nowIso);
 	if (recipient.agentId === null) {
@@ -3122,20 +3119,6 @@ function retireUnavailableMainRuntimeMailboxListeners(
 		if (isRuntimeProcessAlive(row.pid)) continue;
 		retireRuntimeMailboxListenerRow(db, { agentId: null, sessionId: row.recipient_session_id }, row.pid, nowIso);
 	}
-}
-
-function abortActiveSpawnedAgentsForExactSessionPath(db: SqliteDatabase, sessionPath: string, nowIso: string): number {
-	const rows = db
-		.prepare("SELECT session_path, agent_id, data FROM multi_agent_agents WHERE session_path = ?")
-		.all(sessionPath) as PersistedAgentRow[];
-	let changed = 0;
-	for (const row of rows) {
-		const agent = parseJsonObject(row.data);
-		if (!agent || !isActiveSpawnedAgent(agent)) continue;
-		writeAbortedPersistedSpawnedAgent(db, row, agent, nowIso);
-		changed += 1;
-	}
-	return changed;
 }
 
 function readLiveSessionPathById(db: SqliteDatabase): Map<string, string> {

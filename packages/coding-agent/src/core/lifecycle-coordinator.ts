@@ -1,9 +1,12 @@
 import type { AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
 import {
+	acquireMultiAgentRecoveryLeaderLease,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentTerminalMutation,
 	createMultiAgentChildWithDispatchReservation,
 	type MultiAgentDispatchLease,
+	recoverExpiredMultiAgentRuntime,
+	releaseMultiAgentRecoveryLeaderLease,
 } from "./session-control-db.ts";
 
 const MAIN_THREAD_AGENT_ID = "main";
@@ -35,6 +38,24 @@ export type ReservedLifecycleCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+export interface RecoverExpiredChildCommandInput {
+	agent: AgentSnapshot;
+	ownerSessionId: string;
+}
+
+export type RecoverExpiredChildCommandResult =
+	| { ok: true; agent: AgentSnapshot }
+	| {
+			ok: false;
+			error:
+				| "agent_not_found"
+				| "invalid_transition"
+				| "lease_held"
+				| "lease_not_expired"
+				| "mutation_mismatch"
+				| "not_recovery_leader";
+	  };
+
 export interface FinalizeChildCommandInput extends ReservedLifecycleCommandInput {
 	error?: AgentSnapshot["error"];
 	eventPayload: unknown;
@@ -55,6 +76,59 @@ export class LifecycleCoordinator {
 
 	confirmChildRuntime(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "running");
+	}
+
+	recoverExpiredChild(input: RecoverExpiredChildCommandInput): RecoverExpiredChildCommandResult {
+		const nowIso = this.options.now();
+		const leaderLeaseId = this.options.createLeaseId();
+		const leader = acquireMultiAgentRecoveryLeaderLease(this.options.controlDbPath, {
+			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
+			leaseId: leaderLeaseId,
+			nowIso,
+			ownerSessionId: input.ownerSessionId,
+			runtimeIncarnation: this.options.runtimeIncarnation,
+		});
+		if (!leader.ok) return { ok: false, error: "lease_held" };
+		const recovered = recoverExpiredMultiAgentRuntime(this.options.controlDbPath, {
+			agentId: input.agent.id,
+			expectedRevision: input.agent.revision,
+			nowIso,
+			recoveryLeader: {
+				fencingEpoch: leader.lease.fencingEpoch,
+				leaseId: leaderLeaseId,
+				ownerSessionId: input.ownerSessionId,
+				runtimeIncarnation: this.options.runtimeIncarnation,
+			},
+			replacementLease: {
+				agentId: input.agent.id,
+				leaseId: this.options.createLeaseId(),
+				owner: { agentId: null, sessionId: input.ownerSessionId },
+				runtimeIncarnation: this.options.runtimeIncarnation,
+				sessionPath: this.options.sessionPath,
+			},
+			sessionPath: this.options.sessionPath,
+		});
+		releaseMultiAgentRecoveryLeaderLease(this.options.controlDbPath, {
+			expectedFencingEpoch: leader.lease.fencingEpoch,
+			leaseId: leaderLeaseId,
+			ownerSessionId: input.ownerSessionId,
+			runtimeIncarnation: this.options.runtimeIncarnation,
+		});
+		if (!recovered.ok) return recovered;
+		return {
+			ok: true,
+			agent: {
+				...input.agent,
+				error: {
+					code: "lost_runtime",
+					message: "Agent runtime ownership expired before terminal confirmation.",
+				},
+				lifecycle: "failed",
+				revision: recovered.terminalRevision,
+				updatedAt: nowIso,
+				worker: undefined,
+			},
+		};
 	}
 
 	finalizeChild(input: FinalizeChildCommandInput): ReservedLifecycleCommandResult {

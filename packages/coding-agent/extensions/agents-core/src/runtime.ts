@@ -39,6 +39,7 @@ import {
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	listSessionMetadata,
+	readMultiAgentDispatchLease,
 	readMultiAgentState,
 	readSessionMetadata,
 	type RuntimeMailboxAddress,
@@ -1089,29 +1090,26 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 	);
 }
 
-function recoverDetachedAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
+function recoverDetachedAgents(
+	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
+	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
+): void {
 	if (input.ctx.multiAgentAgentId) {
 		return;
 	}
 	for (const agent of input.store.listActiveAgents()) {
-		recoverDetachedAgent(input, agent);
+		recoverDetachedAgent(input, agent, recoveryTimers);
 	}
 }
 
 function recoverDetachedAgent(
 	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
 	agent: AgentSnapshot,
+	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
 ): void {
-	if (agent.lifecycle === "queued" || input.dispatches.has(agent.id)) {
-		return;
-	}
+	if (input.dispatches.has(agent.id) || (agent.lifecycle === "queued" && agent.origin === "attached")) return;
 	if (agent.origin !== "attached") {
-		transitionActiveAgent(input.store, agent, "aborted", {
-			error: {
-				code: "supervisor_restarted",
-				message: "Spawned agent was interrupted by supervisor restart and cannot be resumed.",
-			},
-		});
+		scheduleSpawnedAgentRecovery(input, agent, recoveryTimers);
 		return;
 	}
 	if (agent.lifecycle === "cancelling") {
@@ -1130,6 +1128,43 @@ function recoverDetachedAgent(
 			error: { message: "Agent was active when the supervisor session ended and has no recoverable transcript." },
 		});
 	}
+}
+
+function scheduleSpawnedAgentRecovery(
+	input: Omit<AttachSessionDispatchInput, "prompt" | "target">,
+	agent: AgentSnapshot,
+	recoveryTimers: Map<string, ReturnType<typeof setTimeout>>,
+): void {
+	if (recoveryTimers.has(agent.id)) return;
+	const persistence = input.store.getPersistenceTarget();
+	if (!persistence) return;
+	const lease = readMultiAgentDispatchLease(persistence.controlDbPath, persistence.sessionPath, agent.id);
+	if (!lease?.expiresAt) return;
+	const delayMs = Math.max(0, Date.parse(lease.expiresAt) - Date.now() + 1);
+	const timer = setTimeout(() => {
+		recoveryTimers.delete(agent.id);
+		const current = input.store.getAgent(agent.id);
+		if (!current || !isActiveLifecycle(current.lifecycle)) return;
+		const coordinator = createLifecycleCoordinator(input.store, input.ctx);
+		if (!coordinator) return;
+		const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
+		const recovered = coordinator.recoverExpiredChild({ agent: current, ownerSessionId });
+		if (recovered.ok) {
+			input.store.publishLifecycleCoordinatorSnapshot(recovered.agent);
+			return;
+		}
+		if (recovered.error === "lease_held") {
+			const retry = setTimeout(
+				() => {
+					recoveryTimers.delete(agent.id);
+					scheduleSpawnedAgentRecovery(input, agent, recoveryTimers);
+				},
+				CHILD_DISPATCH_RESERVATION_MS + 1,
+			);
+			recoveryTimers.set(agent.id, retry);
+		}
+	}, delayMs);
+	recoveryTimers.set(agent.id, timer);
 }
 
 function dispatchAttachedChildSession(
@@ -2562,6 +2597,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const backgroundSessions = runtimeHandles.sessions;
 	const activeDispatches = runtimeHandles.dispatches;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
+	const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	const backgroundDispatch = { createChildSession, dispatcher, dispatches: activeDispatches, handles: backgroundSessions, store };
 	let unsubscribeRuntimeLifecycleMirror: (() => void) | undefined;
 
@@ -2589,7 +2625,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			pi,
 			store,
 			waitingDesktopNotifications,
-		});
+		}, recoveryTimers);
 	});
 	pi.on?.("session_shutdown", async (event) => {
 		if (event.reason === "reload") {
@@ -2597,6 +2633,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		}
 		unsubscribeRuntimeLifecycleMirror?.();
 		unsubscribeRuntimeLifecycleMirror = undefined;
+		for (const timer of recoveryTimers.values()) clearTimeout(timer);
+		recoveryTimers.clear();
 		// Abort-induced dispatch rejections must not persist agents as failed;
 		// the last snapshot keeps them active so a later resume can recover them.
 		store.invalidateInFlightDispatches();
