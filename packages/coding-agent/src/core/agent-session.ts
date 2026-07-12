@@ -117,7 +117,6 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
 
 import {
-	abortInactiveSessionSpawnedAgents,
 	advanceSharedChannelCursor,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
@@ -2710,9 +2709,6 @@ export class AgentSession {
 		installRuntimeMailboxSignalKeepalive();
 		const agentId = this._getRuntimeMailboxAgentId();
 		this._registerRuntimeMailboxListeners(controlDbPath, agentId);
-		if (agentId === null) {
-			abortInactiveSessionSpawnedAgents(controlDbPath);
-		}
 		const recipient = { agentId, sessionId: this.sessionId };
 		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		this._startRuntimeMailboxHeartbeat();

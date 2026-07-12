@@ -257,7 +257,7 @@ describe("session directory", () => {
 		}
 	});
 
-	it("aborts spawned ghosts after retiring stale supervisor listeners without touching live, attached, or queued rows", () => {
+	it("retires stale supervisor listeners without rewriting lifecycle rows during listing", () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
@@ -300,9 +300,8 @@ describe("session directory", () => {
 			expect(readMultiAgentState(controlDbPath, "/sessions/session-stale.jsonl")?.agents).toMatchObject([
 				{
 					id: "spawned",
-					lifecycle: "aborted",
-					revision: 2,
-					error: { code: "supervisor_restarted" },
+					lifecycle: "running",
+					revision: 1,
 				},
 				{ id: "attached", lifecycle: "waiting_for_input", revision: 1 },
 				{ id: "queued", lifecycle: "queued", revision: 1 },
@@ -375,7 +374,7 @@ describe("session directory", () => {
 		}
 	});
 
-	it("aborts spawned ghosts in historical duplicate paths without touching the current path", () => {
+	it("does not rewrite historical duplicate lifecycle rows while listing sessions", () => {
 		writeSession("session-live", {
 			sessionPath: "/sessions/session-live-old.jsonl",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
@@ -406,14 +405,14 @@ describe("session directory", () => {
 		listSessions(controlDbPath);
 
 		expect(readMultiAgentState(controlDbPath, "/sessions/session-live-old.jsonl")?.agents).toMatchObject([
-			{ id: "historical", lifecycle: "aborted", revision: 2, error: { code: "supervisor_restarted" } },
+			{ id: "historical", lifecycle: "running", revision: 1 },
 		]);
 		expect(readMultiAgentState(controlDbPath, "/sessions/session-live-current.jsonl")?.agents).toMatchObject([
 			{ id: "current", lifecycle: "running", revision: 1 },
 		]);
 	});
 
-	it("uses another live listener's exact path instead of duplicate metadata ordering", () => {
+	it("uses another live listener's exact path without rewriting duplicate lifecycle rows", () => {
 		const liveSessionPath = "/sessions/session-live-actual.jsonl";
 		const historicalSessionPath = "/sessions/session-live-newer-metadata.jsonl";
 		writeSession("session-live", {
@@ -449,7 +448,7 @@ describe("session directory", () => {
 			{ id: "current", lifecycle: "running", revision: 1 },
 		]);
 		expect(readMultiAgentState(controlDbPath, historicalSessionPath)?.agents).toMatchObject([
-			{ id: "historical", lifecycle: "aborted", revision: 2, error: { code: "supervisor_restarted" } },
+			{ id: "historical", lifecycle: "running", revision: 1 },
 		]);
 	});
 

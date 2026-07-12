@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 import {
-	abortInactiveSessionSpawnedAgents,
 	enqueueRuntimeMailboxMessage,
 	listRuntimeMailboxListeners,
 	listSessionHealth,
@@ -216,7 +215,6 @@ export function listSessions(controlDbPath: string, options: SessionDirectoryOpt
 	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive);
 	ensureHealthSyncedFromListeners(controlDbPath, metadata, healthMap, bindings, now);
-	abortInactiveSessionSpawnedAgents(controlDbPath, { isRuntimeProcessAlive });
 	return metadata
 		.map((row) => toDirectoryEntry(row, healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso), now))
 		.filter((entry) => options.includeEnded !== false || entry.status !== "ended");
