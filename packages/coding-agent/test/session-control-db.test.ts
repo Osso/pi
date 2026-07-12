@@ -19,6 +19,7 @@ import {
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupRuntimeMailboxMessages,
+	commitMultiAgentLifecycleMutation,
 	commitMultiAgentTerminalMutation,
 	completeArchitectRequest,
 	completeIncomingMessage,
@@ -572,6 +573,85 @@ describe("session control DB", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("applies lifecycle CAS only for the complete ownership predicate", async () => {
+		const sessionPath = "/sessions/lifecycle-cas.jsonl";
+		const agentId = "agent-cas";
+		upsertMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "CAS agent",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "queued",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 0,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		acquireMultiAgentDispatchLease(controlDbPath, {
+			agentId,
+			expiresAt: "2026-07-11T00:10:00.000Z",
+			leaseId: "lease-cas",
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			runtimeIncarnation: "runtime-cas",
+			sessionPath,
+		});
+		const command = {
+			agentId,
+			expectedRevision: 0,
+			fencingEpoch: 1,
+			leaseId: "lease-cas",
+			owner: { agentId: null, sessionId: "supervisor" },
+			requestedLifecycle: "starting" as const,
+			runtimeIncarnation: "runtime-cas",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const mismatchedCommands = [
+			{ ...command, expectedRevision: 1 },
+			{ ...command, leaseId: "wrong-lease" },
+			{ ...command, runtimeIncarnation: "wrong-runtime" },
+			{ ...command, owner: { agentId: null, sessionId: "wrong-owner" } },
+			{ ...command, fencingEpoch: 0 },
+		];
+		for (const mismatched of mismatchedCommands) {
+			expect(commitMultiAgentLifecycleMutation(controlDbPath, mismatched)).toEqual({
+				error: "mutation_mismatch",
+				ok: false,
+			});
+			expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+				{ lifecycle: "queued", revision: 0 },
+			]);
+		}
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import { commitMultiAgentLifecycleMutation } from ${JSON.stringify(moduleUrl)};
+			parentPort?.postMessage(commitMultiAgentLifecycleMutation(workerData.controlDbPath, workerData.command));
+		`;
+		const results = await Promise.all(
+			Array.from(
+				{ length: 2 },
+				() =>
+					new Promise<unknown>((resolve, reject) => {
+						const worker = new Worker(workerSource, {
+							eval: true,
+							execArgv: ["--experimental-strip-types"],
+							workerData: { command, controlDbPath },
+						});
+						worker.on("message", resolve);
+						worker.on("error", reject);
+					}),
+			),
+		);
+		expect(results.filter((result) => (result as { ok: boolean }).ok)).toHaveLength(1);
+		expect(results).toContainEqual({ ok: false, error: "mutation_mismatch" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ lifecycle: "starting", revision: 1 },
+		]);
 	});
 
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {

@@ -2126,6 +2126,21 @@ export interface ReleaseMultiAgentDispatchLeaseInput extends MultiAgentDispatchL
 	expectedFencingEpoch: number;
 }
 
+export interface CommitMultiAgentLifecycleMutationInput {
+	sessionPath: string;
+	agentId: string;
+	expectedRevision: number;
+	leaseId: string;
+	runtimeIncarnation: string;
+	owner: { sessionId: string; agentId: string | null };
+	fencingEpoch: number;
+	requestedLifecycle: string;
+	updatedAt: string;
+}
+export type CommitMultiAgentLifecycleMutationResult =
+	| { ok: true; agent: Record<string, unknown> }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
 export interface CommitMultiAgentTerminalMutationInput {
 	sessionPath: string;
 	agentId: string;
@@ -2200,6 +2215,60 @@ export interface MultiAgentPersistedState {
 	agents: unknown[];
 	mailboxMessages: unknown[];
 	counters: MultiAgentCounters;
+}
+
+export function commitMultiAgentLifecycleMutation(
+	controlDbPath: string,
+	input: CommitMultiAgentLifecycleMutationInput,
+): CommitMultiAgentLifecycleMutationResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+			if (!row) return { ok: false, error: "agent_not_found" };
+			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+			const lease = readMultiAgentDispatchLeaseRow(db, input.sessionPath, input.agentId);
+			const matches =
+				agent.revision === input.expectedRevision &&
+				lease?.lease_id === input.leaseId &&
+				lease.runtime_incarnation === input.runtimeIncarnation &&
+				lease.owner_session_id === input.owner.sessionId &&
+				lease.owner_agent_id === input.owner.agentId &&
+				lease.fencing_epoch === input.fencingEpoch;
+			if (!matches) return { ok: false, error: "mutation_mismatch" };
+			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle))
+				return { ok: false, error: "invalid_transition" };
+			const updated = {
+				...agent,
+				lifecycle: input.requestedLifecycle,
+				revision: input.expectedRevision + 1,
+				updatedAt: input.updatedAt,
+			};
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
+			return { ok: true, agent: updated };
+		}),
+	);
+}
+
+function canPersistLifecycleTransition(current: unknown, requested: string): boolean {
+	if (typeof current !== "string") return false;
+	const transitions: Record<string, readonly string[]> = {
+		queued: ["starting", "aborted"],
+		starting: ["running", "failed", "aborted"],
+		running: ["waiting_for_input", "steering_pending", "cancelling", "completed", "failed", "aborted"],
+		waiting_for_input: ["running", "steering_pending", "cancelling", "completed", "aborted"],
+		steering_pending: ["running", "waiting_for_input", "cancelling", "failed", "aborted"],
+		cancelling: ["aborted", "failed"],
+		completed: [],
+		failed: [],
+		aborted: [],
+	};
+	return current === requested
+		? !["completed", "failed", "aborted"].includes(current)
+		: transitions[current]?.includes(requested) === true;
 }
 
 export function commitMultiAgentTerminalMutation(
