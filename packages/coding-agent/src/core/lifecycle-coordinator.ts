@@ -11,6 +11,7 @@ import {
 	type MultiAgentDispatchLease,
 	recoverExpiredMultiAgentRuntime,
 	releaseMultiAgentRecoveryLeaderLease,
+	renewMultiAgentDispatchLease,
 } from "./session-control-db.ts";
 
 const MAIN_THREAD_AGENT_ID = "main";
@@ -68,6 +69,10 @@ export interface DetachedCancellationCommandInput extends ReservedLifecycleComma
 export type ReservedLifecycleCommandResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
+export type RenewReservationCommandResult =
+	| { ok: true; reservation: MultiAgentDispatchLease }
+	| { ok: false; error: "mutation_mismatch" };
 
 export interface RecoverExpiredChildCommandInput {
 	agent: AgentSnapshot;
@@ -189,6 +194,24 @@ export class LifecycleCoordinator {
 
 	requestCancellation(input: ReservedLifecycleCommandInput): ReservedLifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "cancelling");
+	}
+
+	renewReservation(input: ReservedLifecycleCommandInput): RenewReservationCommandResult {
+		const identity = this.readReservationIdentity(input.reservation);
+		if (!identity) return { ok: false, error: "mutation_mismatch" };
+		const nowIso = this.options.now();
+		const result = renewMultiAgentDispatchLease(this.options.controlDbPath, {
+			agentId: input.agent.id,
+			expectedFencingEpoch: input.reservation.fencingEpoch,
+			expiresAt: new Date(Date.parse(nowIso) + this.options.reservationDurationMs).toISOString(),
+			leaseId: identity.leaseId,
+			nowIso,
+			owner: identity.owner,
+			runtimeIncarnation: identity.runtimeIncarnation,
+			sessionPath: this.options.sessionPath,
+		});
+		if (!result.ok) return { ok: false, error: "mutation_mismatch" };
+		return { ok: true, reservation: result.lease };
 	}
 
 	requestDetachedCancellation(input: DetachedCancellationCommandInput): ReservedLifecycleCommandResult {

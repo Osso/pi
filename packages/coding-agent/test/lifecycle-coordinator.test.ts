@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
+	acquireMultiAgentDispatchLease,
 	bootstrapMultiAgentAgent,
 	listRuntimeMailboxMessages,
 	readMultiAgentAgent,
@@ -104,6 +105,41 @@ describe("LifecycleCoordinator child creation", () => {
 		if (!starting.ok) return;
 		const running = coordinator.confirmChildRuntime({ agent: starting.agent, reservation: created.reservation });
 		expect(running).toMatchObject({ ok: true, agent: { lifecycle: "running", revision: 3 } });
+	});
+
+	it("renews the current reservation and rejects renewal after a partition takeover", () => {
+		let nowIso = "2026-07-11T20:00:00.000Z";
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath, () => nowIso);
+		const created = coordinator.createChild(childInput());
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+
+		nowIso = "2026-07-11T20:00:20.000Z";
+		const renewed = coordinator.renewReservation({ agent: created.agent, reservation: created.reservation });
+		expect(renewed).toMatchObject({
+			ok: true,
+			reservation: { expiresAt: "2026-07-11T20:00:50.000Z", fencingEpoch: 1 },
+		});
+		if (!renewed.ok) return;
+
+		expect(
+			acquireMultiAgentDispatchLease(controlDbPath, {
+				agentId: created.agent.id,
+				expiresAt: "2026-07-11T20:02:00.000Z",
+				leaseId: "lease-takeover",
+				nowIso: "2026-07-11T20:01:00.000Z",
+				owner: { agentId: null, sessionId: "supervisor-2" },
+				runtimeIncarnation: "runtime-2",
+				sessionPath,
+			}),
+		).toMatchObject({ ok: true, lease: { fencingEpoch: 2 } });
+		nowIso = "2026-07-11T20:01:01.000Z";
+		expect(coordinator.renewReservation({ agent: created.agent, reservation: renewed.reservation })).toEqual({
+			error: "mutation_mismatch",
+			ok: false,
+		});
 	});
 
 	it("requires cancelling before a fenced abort acknowledgement", () => {
