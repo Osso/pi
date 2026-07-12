@@ -136,6 +136,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   directly. Detached Bash/Pyrun runners are the only exception: they are execution-plane workers
   authorized to submit one exact, fenced terminal-finalize operation for their own lease and may
   not create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
+  Shared detached-job artifacts live under an identity-bound job directory with a direct durable
+  output file and immutable terminal envelope. Envelope creation fsyncs output first, records its
+  size and SHA-256, records the full lease/revision/fencing identity and exact outcome, checksums the
+  envelope, atomically renames it into place, and fsyncs the containing directory.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through
   path. They re-check transition legality, authorization, and the complete mutation predicate
   before committing any lifecycle or terminal-event change. A coordinator response is successful

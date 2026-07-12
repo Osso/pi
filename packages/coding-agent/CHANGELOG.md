@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a shared detached-job runner artifact contract with identity-bound directories, direct durable output paths, and immutable fsynced terminal envelopes containing lease/revision/fencing identity, exact outcome, output size/hash, and envelope checksum validation.
 - Added persistent session archiving with an Archived resume-picker scope, Ctrl+A selected-session archiving, `pi sessions archive --older-than <days>`, and first-party `/archive` archiving of the current persisted session.
 - Added the resident Architect transcript to the global non-subagent archive metadata with `archived_at` set at startup; it remains outside Current Folder and All scopes while staying resumable from Archived.
 - Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
