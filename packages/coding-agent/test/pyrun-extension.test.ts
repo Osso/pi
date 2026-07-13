@@ -61,7 +61,7 @@ interface PyrunEvalDetails {
 	console?: Array<string | { level: string; message: string }>;
 	error?: string;
 	executed?: string;
-	type: "completed" | "error" | "needs_approval";
+	type: "completed" | "detached" | "error" | "needs_approval";
 	value?: unknown;
 }
 
@@ -179,6 +179,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		},
 	} as unknown as ExtensionContext;
 
+	let toolCallIndex = 0;
 	return {
 		compactRequests,
 		evaluateContext: ctx,
@@ -193,7 +194,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 			signal?: AbortSignal,
 			contextOverrides: Record<string, unknown> = {},
 		) =>
-			registeredPyrunTool.execute("pyrun-test-call", params, signal, onUpdate, {
+			registeredPyrunTool.execute(`pyrun-test-call-${++toolCallIndex}`, params, signal, onUpdate, {
 				...ctx,
 				...contextOverrides,
 			} as ExtensionContext),
@@ -1744,6 +1745,7 @@ describe("pyrun extension", () => {
 		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
 		expect(resultText).toContain("Pyrun evaluation moved to background as job");
 		expect(result.details?.backgroundJobId).toBeDefined();
+		expect(result.details?.type).toBe("detached");
 
 		const jobs = store.listAgents();
 		expect(jobs).toHaveLength(1);
@@ -1790,6 +1792,7 @@ describe("pyrun extension", () => {
 		const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
 		expect(resultText).toContain("Pyrun evaluation moved to background as job");
 		expect(result.details?.backgroundJobId).toBeDefined();
+		expect(result.details?.type).toBe("detached");
 
 		const jobs = store.listAgents();
 		expect(jobs).toHaveLength(1);

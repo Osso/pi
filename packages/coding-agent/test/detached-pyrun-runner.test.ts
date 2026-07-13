@@ -96,9 +96,11 @@ describe("detached Pyrun runner", () => {
 			params: { code: "6 * 7" },
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			runnerOptions: { command: runnerPath, inheritEnv: true },
+			runnerProcessIdentity: readProcessIdentity(runnerPid),
 			sessionPath,
 			startedAt: Date.now() - 1_000,
 			supervisorProcessIdentity: readProcessIdentity(process.pid),
+			toolCallId: "test-pyrun-tool-call",
 		});
 		writeDetachedPyrunActivation(activationPath, ownership.identity);
 

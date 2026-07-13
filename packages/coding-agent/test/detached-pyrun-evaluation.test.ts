@@ -63,6 +63,7 @@ describe("durable detached Pyrun evaluation", () => {
 				getContextUsage: () => undefined,
 				model: undefined,
 				sessionManager,
+				toolExecutionStartedAt: Date.now(),
 			} as unknown as ExtensionContext,
 			detachRegistry,
 			dispatchPiRequest: () => {
@@ -72,6 +73,7 @@ describe("durable detached Pyrun evaluation", () => {
 			piBridgeEnabled: false,
 			runnerOptions: { command: runnerPath },
 			store,
+			toolCallId: "activation-failure-call",
 			writeActivation: () => {
 				throw new Error("activation disk failure");
 			},
@@ -119,6 +121,7 @@ describe("durable detached Pyrun evaluation", () => {
 				getContextUsage: () => undefined,
 				model: undefined,
 				sessionManager,
+				toolExecutionStartedAt: Date.now(),
 			} as unknown as ExtensionContext,
 			detachRegistry,
 			dispatchPiRequest: () => {
@@ -128,6 +131,7 @@ describe("durable detached Pyrun evaluation", () => {
 			piBridgeEnabled: false,
 			runnerOptions: { command: runnerPath },
 			store,
+			toolCallId: "detached-completion-call",
 		});
 		await waitFor(() => detachRegistry.detachRunning());
 		const result = await evaluation;

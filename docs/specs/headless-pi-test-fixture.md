@@ -47,15 +47,19 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 
 ## Tests asserting this spec
 
+- `packages/agent-core/test/agent-loop.test.ts`
+- `packages/coding-agent/test/interactive-mode-resume-continuation.test.ts`
 - `packages/coding-agent/test/suite/headless-pi.test.ts`
 - `packages/coding-agent/test/rpc-client-process-exit.test.ts`
 
-## Known gaps (current cycle)
+## Session restoration (current cycle)
 
-- [ ] Prove a gracefully terminated post-tool thinking turn automatically issues a replacement LLM request after session restore and completes.
-- [ ] Prove running Bash and Pyrun durable runners reattach after restore with the same ownership, one row/process, final output, and transcript result.
-- [ ] Prove a dead Bash or Pyrun runner triggers exactly one exact-payload replay under a linked new runner identity.
-- [ ] Prove death of the replayed runner settles failed without a second replay.
+Recovery is reconstructed from the existing session JSONL. It does not add recovery records, replay markers, execution rows, attempt rows, or a replay limit.
+
+- [x] Prove a gracefully terminated post-tool thinking turn automatically issues a replacement LLM request after session restore and completes (`headless-pi.test.ts`: `continues post-tool model thinking after restoring the session JSONL`).
+- [x] Prove restoring JSONL that ends with an unfinished Bash or Pyrun tool call reattaches its still-running durable runner without executing the command again (`headless-pi.test.ts`: `reattaches a live Bash runner when restoring its unfinished JSONL tool call`; `reattaches a live Pyrun runner when restoring its unfinished JSONL tool call`).
+- [x] Prove restoring the same unfinished JSONL tool call reruns the Bash or Pyrun command when its original runner cannot be reattached (`headless-pi.test.ts`: `reruns an unfinished Bash JSONL tool call when its original runner is dead`; `reruns an unfinished Pyrun JSONL tool call when its original runner is dead`).
+- Restoring later repeats the same reattach-or-rerun rule; no recovery-specific retry state is persisted.
 
 ## Out of scope
 

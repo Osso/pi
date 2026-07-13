@@ -109,6 +109,10 @@
 
 ### Fixed
 
+- Fixed interactive Escape cancellation of a detached Bash/Pyrun agent always failing with `runtime_ownership_unavailable`; the persisted-detached cancel path no longer requires an `ExtensionContext` (which the lifecycle coordinator never used), so cancellation reaches the durable runner and settles.
+- Fixed restored RPC and interactive sessions leaving interrupted post-tool model turns idle; session startup now continues from existing JSONL, and agent-loop continuation resumes a trailing unfinished tool call before requesting the model.
+- Fixed restored Bash and Pyrun tool calls starting duplicate work: live durable runners are reattached, while dead runners cause the unfinished JSONL tool call to run again without recovery-specific persisted state.
+- Fixed the bwrap full-access Bash override bypassing durable runner ownership and detachment support.
 - Fixed terminal-outbox projection failures aborting unrelated canonical mailbox delivery.
 - Fixed selected child-agent views showing a static thinking indicator without exact-runtime-owner-scoped thinking/tool phase timing.
 - Fixed idle shared-channel delivery racing a newly started agent turn and logging an `Agent is already processing` coordination-drain error.

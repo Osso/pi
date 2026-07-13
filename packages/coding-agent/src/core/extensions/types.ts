@@ -43,6 +43,7 @@ import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { BashResult } from "../bash-executor.ts";
 import type { CompactionPreparation, CompactionResult, CompactionSourceInfo } from "../compaction/index.ts";
+import type { DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { EventBus } from "../event-bus.ts";
 import type { ExecOptions, ExecResult } from "../exec.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
@@ -340,6 +341,8 @@ export interface ExtensionContext {
 	multiAgentParentSessionId?: string;
 	/** Whether this runtime must have an explicit multi-agent identity to send agent messages. */
 	multiAgentRequiresAgentId?: boolean;
+	/** Session-current detached-job lifecycle for durable Bash/Pyrun runners, when available. */
+	detachedJobLifecycle?: DetachedJobLifecycleController;
 	/** Shared multi-agent store for background tool jobs, when available. */
 	multiAgentStore?: MultiAgentStore;
 	/** Shared detach registry for in-flight tools that can move to background. */
@@ -1769,6 +1772,7 @@ export interface ExtensionContextActions {
 	getMultiAgentAgentId?: () => string | undefined;
 	getMultiAgentParentSessionId?: () => string | undefined;
 	getMultiAgentRequiresAgentId?: () => boolean;
+	getDetachedJobLifecycle?: () => DetachedJobLifecycleController | undefined;
 	getMultiAgentStore?: () => MultiAgentStore | undefined;
 	getToolDetachRegistry?: () => ToolDetachRegistry | undefined;
 	compact: (options?: CompactOptions) => void;

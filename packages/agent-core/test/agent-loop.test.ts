@@ -1313,6 +1313,113 @@ describe("agentLoopContinue with AgentMessage", () => {
 		expect(() => agentLoopContinue(context, config)).toThrow("Cannot continue: no messages in context");
 	});
 
+	it("restarts an unfinished tool call from the restored transcript before requesting the model", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const executed: string[] = [];
+		const tool: AgentTool<typeof toolSchema, undefined> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executed.push(params.value);
+				return { content: [{ type: "text", text: `echoed: ${params.value}` }], details: undefined };
+			},
+		};
+		const unfinishedToolCall = createAssistantMessage(
+			[{ type: "toolCall", id: "tool-restored", name: "echo", arguments: { value: "restored" } }],
+			"toolUse",
+		);
+		const context: AgentContext = {
+			systemPrompt: "You are helpful.",
+			messages: [createUserMessage("Echo this"), unfinishedToolCall],
+			tools: [tool],
+		};
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		let executedBeforeModel: string[] = [];
+		const streamFn = () => {
+			executedBeforeModel = [...executed];
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message = createAssistantMessage([{ type: "text", text: "Done" }]);
+				stream.push({ type: "done", reason: "stop", message });
+			});
+			return stream;
+		};
+
+		const stream = agentLoopContinue(context, config, undefined, streamFn);
+		const events: AgentEvent[] = [];
+		for await (const event of stream) events.push(event);
+		const messages = await stream.result();
+
+		expect(executedBeforeModel).toEqual(["restored"]);
+		expect(executed).toEqual(["restored"]);
+		expect(messages.map((message) => message.role)).toEqual(["toolResult", "assistant"]);
+		expect(events.filter((event) => event.type === "tool_execution_start")).toHaveLength(1);
+	});
+
+	it("restarts only unfinished tool calls when restored JSONL contains an earlier result", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const executed: string[] = [];
+		const tool: AgentTool<typeof toolSchema, undefined> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executed.push(params.value);
+				return { content: [{ type: "text", text: params.value }], details: undefined };
+			},
+		};
+		const interruptedAssistant = createAssistantMessage(
+			[
+				{ type: "toolCall", id: "tool-complete", name: "echo", arguments: { value: "complete" } },
+				{ type: "toolCall", id: "tool-pending", name: "echo", arguments: { value: "pending" } },
+			],
+			"toolUse",
+		);
+		const context: AgentContext = {
+			systemPrompt: "",
+			messages: [
+				createUserMessage("Echo twice"),
+				interruptedAssistant,
+				{
+					role: "toolResult",
+					toolCallId: "tool-complete",
+					toolName: "echo",
+					content: [{ type: "text", text: "complete" }],
+					isError: false,
+					timestamp: Date.now(),
+				},
+			],
+			tools: [tool],
+		};
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		const streamFn = () => {
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: createAssistantMessage([{ type: "text", text: "Done" }]),
+				});
+			});
+			return stream;
+		};
+
+		const stream = agentLoopContinue(context, config, undefined, streamFn);
+		for await (const _event of stream) {
+			// Consume restored execution events.
+		}
+		const messages = await stream.result();
+
+		expect(executed).toEqual(["pending"]);
+		expect(messages.filter((message) => message.role === "toolResult")).toHaveLength(1);
+		expect(messages.find((message) => message.role === "toolResult")).toMatchObject({
+			toolCallId: "tool-pending",
+		});
+	});
+
 	it("should continue from existing context without emitting user message events", async () => {
 		const userMessage: AgentMessage = createUserMessage("Hello");
 

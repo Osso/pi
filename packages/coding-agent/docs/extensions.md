@@ -959,6 +959,12 @@ Optional Unix-epoch millisecond timestamp captured by the shared agent tool life
 
 Use it when agent-loop work can outlive the foreground tool promise and needs to retain the original invocation duration, such as durable background-job metadata. Do not start a second tool timer inside streamed, buffered, success, or failure output paths.
 
+### ctx.detachedJobLifecycle / ctx.multiAgentStore / ctx.toolDetachRegistry
+
+Optional advanced hooks for tools that hand work to Pi's durable Bash/Pyrun runner infrastructure. `detachedJobLifecycle` is session-current and owns runner launch, observation, cancellation, and terminalization; `multiAgentStore` projects the persisted job rows; `toolDetachRegistry` connects foreground work to manual or automatic detachment.
+
+Resolve these values from the current tool-call context. Do not retain them, or the `ctx` object, across session replacement or reload.
+
 ### ctx.isProjectTrusted()
 
 Returns whether project-local trust is active for the current session context. This includes temporary trust decisions and CLI trust overrides, not just saved decisions in the global trust store.

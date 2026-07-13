@@ -62,7 +62,11 @@ import {
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
-import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
+import {
+	type AgentSession,
+	type AgentSessionEvent,
+	shouldContinueInterruptedSession,
+} from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import { type CompactionSourceInfo, estimateContextTokens } from "../../core/compaction/index.ts";
 import {
@@ -5925,9 +5929,7 @@ export class InteractiveMode {
 	}
 
 	private async continueInterruptedResumedSession(): Promise<void> {
-		const lastMessage = this.session.messages[this.session.messages.length - 1];
-		if (lastMessage?.role !== "toolResult") return;
-
+		if (!shouldContinueInterruptedSession(this.session.messages)) return;
 		await this.session.continue();
 	}
 

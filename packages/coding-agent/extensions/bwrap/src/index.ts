@@ -317,7 +317,13 @@ export default function bwrapExtension(pi: ExtensionAPI, options: BwrapExtension
 		...localBash,
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = sandboxParams(ctx);
-			if (!sandbox) return localBash.execute(id, params, signal, onUpdate, ctx);
+			if (!sandbox) {
+				const store = ctx.multiAgentStore;
+				return createBashToolDefinition(ctx.cwd, {
+					backgroundJobs: store ? { lifecycle: ctx.detachedJobLifecycle, store } : undefined,
+					detachRegistry: ctx.toolDetachRegistry,
+				}).execute(id, params, signal, onUpdate, ctx);
+			}
 			return createBashToolDefinition(ctx.cwd, {
 				operations: createSandboxedBashOperations({ bwrapCommand, profile: sandbox.profile }),
 			}).execute(id, params, signal, onUpdate, ctx);

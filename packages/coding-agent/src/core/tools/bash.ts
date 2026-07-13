@@ -78,6 +78,7 @@ export interface BashDetachOptions {
 }
 
 export interface BashBackgroundJobsOptions {
+	getLifecycle?: () => DetachedJobLifecycleController | undefined;
 	lifecycle?: DetachedJobLifecycleController;
 	store: MultiAgentStore;
 }
@@ -305,9 +306,9 @@ function formatBashCall(args: { command?: string; timeout?: number } | undefined
 
 function createDetachOptions(
 	detachController: AbortController | undefined,
-	backgroundJobs: BashBackgroundJobsOptions | undefined,
+	lifecycle: DetachedJobLifecycleController | undefined,
 ): BashDetachOptions | undefined {
-	if (!detachController || !backgroundJobs?.lifecycle) return undefined;
+	if (!detachController || !lifecycle) return undefined;
 	return { signal: detachController.signal };
 }
 
@@ -485,11 +486,10 @@ export function createBashToolDefinition(
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
 			const output = new OutputAccumulator({ tempFilePrefix: "pi-bash" });
-			const canCreateBackgroundJob = backgroundJobs !== undefined;
-			const detachController =
-				configuredDetach || !canCreateBackgroundJob || !detachRegistry ? undefined : new AbortController();
+			const lifecycle = backgroundJobs?.getLifecycle?.() ?? backgroundJobs?.lifecycle;
+			const detachController = configuredDetach || !lifecycle || !detachRegistry ? undefined : new AbortController();
 			let unregisterDetach: (() => void) | undefined;
-			const detach = configuredDetach ?? createDetachOptions(detachController, backgroundJobs);
+			const detach = configuredDetach ?? createDetachOptions(detachController, lifecycle);
 			let acceptingOutput = true;
 			let updateTimer: NodeJS.Timeout | undefined;
 			let updateDirty = false;
@@ -608,7 +608,6 @@ export function createBashToolDefinition(
 			try {
 				let exitCode: number | null;
 				try {
-					const lifecycle = backgroundJobs?.lifecycle;
 					const useDetachedRunner =
 						options?.operations === undefined && lifecycle !== undefined && detach !== undefined;
 					const result = useDetachedRunner

@@ -32,7 +32,7 @@ import {
 } from "./runner.ts";
 
 export const DETACHED_PYRUN_RUNNER_MODE = "--internal-detached-pyrun-runner";
-const DETACHED_PYRUN_LAUNCH_VERSION = 2;
+const DETACHED_PYRUN_LAUNCH_VERSION = 3;
 const CONTROL_POLL_MS = 25;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
@@ -47,12 +47,14 @@ export interface DetachedPyrunLaunchManifestData {
 	params: CanonicalPyrunEvalParams;
 	runnerAddress: RuntimeMailboxAddress;
 	runnerOptions: PyrunRunnerOptions;
+	runnerProcessIdentity: ProcessIdentity;
 	sessionPath: string;
 	startedAt: number;
 	supervisorProcessIdentity: ProcessIdentity;
+	toolCallId: string;
 }
 
-interface DetachedPyrunLaunchManifest extends DetachedPyrunLaunchManifestData {
+export interface DetachedPyrunLaunchManifest extends DetachedPyrunLaunchManifestData {
 	checksum: string;
 	version: typeof DETACHED_PYRUN_LAUNCH_VERSION;
 }
@@ -350,7 +352,7 @@ function readDetachedPyrunActivation(path: string): DetachedJobOwnershipIdentity
 	return JSON.parse(readFileSync(path, "utf8")) as DetachedJobOwnershipIdentity;
 }
 
-function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaunchManifest {
+export function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaunchManifest {
 	const parsed = JSON.parse(readFileSync(path, "utf8")) as DetachedPyrunLaunchManifest;
 	const { checksum, ...unsigned } = parsed;
 	if (

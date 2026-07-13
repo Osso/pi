@@ -464,6 +464,7 @@ function normalizeMessageParams(params: unknown): { deliverAs?: "steer" | "follo
 }
 
 export type PyrunToolEvaluator = (
+	toolCallId: string,
 	params: PyrunEvalParams,
 	ctx: ExtensionContext,
 	onUpdate: ((partialResult: AgentToolResult<unknown>) => void) | undefined,
@@ -504,13 +505,13 @@ export function createPyrunToolDefinition(
 			text.setText(formatPyrunDisplay(output, executed, context.isError, theme));
 			return text;
 		},
-		execute: async (_toolCallId, params, signal, onUpdate, ctx) => {
+		execute: async (toolCallId, params, signal, onUpdate, ctx) => {
 			const pyrunParams = params as PyrunEvalParams;
 			onUpdate?.({
 				content: [{ type: "text", text: pyrunParams.code }],
 				details: { executed: pyrunParams.code, type: "running" },
 			});
-			return evaluate(pyrunParams, ctx, onUpdate, signal);
+			return evaluate(toolCallId, pyrunParams, ctx, onUpdate, signal);
 		},
 	};
 }
@@ -591,7 +592,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 	});
 
 	pi.registerTool(
-		createPyrunToolDefinition(async (params, ctx, onUpdate, signal) => {
+		createPyrunToolDefinition(async (toolCallId, params, ctx, onUpdate, signal) => {
 			const store = options.backgroundJobs?.store ?? ctx.multiAgentStore;
 			const detachRegistry = options.detachRegistry ?? ctx.toolDetachRegistry;
 			const activeExecutor = executorFor(ctx);
@@ -603,6 +604,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			}
 			return runDurableDetachablePyrunEvaluation({
 				ctx,
+				toolCallId,
 				detachRegistry,
 				dispatchPiRequest,
 				onUpdate: typedOnUpdate,

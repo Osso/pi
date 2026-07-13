@@ -317,6 +317,7 @@ export class ExtensionRunner {
 	private getMultiAgentAgentIdFn: () => string | undefined = () => undefined;
 	private getMultiAgentParentSessionIdFn: () => string | undefined = () => undefined;
 	private getMultiAgentRequiresAgentIdFn: () => boolean = () => false;
+	private getDetachedJobLifecycleFn: ExtensionContextActions["getDetachedJobLifecycle"] = () => undefined;
 	private getMultiAgentStoreFn: ExtensionContextActions["getMultiAgentStore"] = () => undefined;
 	private getToolDetachRegistryFn: ExtensionContextActions["getToolDetachRegistry"] = () => undefined;
 	private compactFn: (options?: CompactOptions) => void = () => {};
@@ -397,6 +398,7 @@ export class ExtensionRunner {
 		this.getMultiAgentAgentIdFn = contextActions.getMultiAgentAgentId ?? (() => undefined);
 		this.getMultiAgentParentSessionIdFn = contextActions.getMultiAgentParentSessionId ?? (() => undefined);
 		this.getMultiAgentRequiresAgentIdFn = contextActions.getMultiAgentRequiresAgentId ?? (() => false);
+		this.getDetachedJobLifecycleFn = contextActions.getDetachedJobLifecycle ?? (() => undefined);
 		this.getMultiAgentStoreFn = contextActions.getMultiAgentStore ?? (() => undefined);
 		this.getToolDetachRegistryFn = contextActions.getToolDetachRegistry ?? (() => undefined);
 		this.compactFn = contextActions.compact;
@@ -753,6 +755,10 @@ export class ExtensionRunner {
 			get multiAgentRequiresAgentId() {
 				runner.assertActive();
 				return runner.getMultiAgentRequiresAgentIdFn();
+			},
+			get detachedJobLifecycle() {
+				runner.assertActive();
+				return runner.getDetachedJobLifecycleFn?.();
 			},
 			get multiAgentStore() {
 				runner.assertActive();

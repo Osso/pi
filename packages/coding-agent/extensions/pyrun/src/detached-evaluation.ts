@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { createDetachedJobLifecycleController } from "../../../src/core/detached-job-lifecycle.ts";
 import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts";
@@ -16,6 +15,7 @@ import {
 } from "./eval-tool.ts";
 import {
 	launchDetachedPyrunRunner,
+	readDetachedPyrunLaunchManifest,
 	writeDetachedPyrunActivation,
 	writeDetachedPyrunLaunchManifest,
 } from "./detached-runner.ts";
@@ -30,6 +30,7 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	onUpdate?: (partial: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void;
 	params: PyrunEvalParams;
 	piBridgeEnabled: boolean;
+	toolCallId: string;
 	runnerOptions: PyrunRunnerOptions;
 	signal?: AbortSignal;
 	store: MultiAgentStore;
@@ -42,7 +43,9 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) throw new Error("Detached Pyrun requires a persisted supervisor session");
 	const controller = createPyrunLifecycleController(input, persistence);
-	const runner = launchForegroundPyrunRunner(input, persistence, controller, startedAt);
+	const runner =
+		restoreForegroundPyrunRunner(input, persistence) ??
+		launchForegroundPyrunRunner(input, persistence, controller, startedAt);
 	return observeDetachablePyrunEvaluation({ ...input, controller, runner });
 }
 
@@ -64,6 +67,56 @@ function createPyrunLifecycleController(
 		sessionPath: persistence.sessionPath,
 		store: input.store,
 	});
+}
+
+function pyrunArtifactRoot(sessionPath: string): string {
+	const sessionFileName = basename(sessionPath);
+	const sessionName = sessionFileName.slice(0, sessionFileName.length - extname(sessionFileName).length);
+	if (!sessionName) throw new Error("Pyrun session path must have a file name");
+	return join(dirname(sessionPath), "detached-jobs", sessionName);
+}
+
+function restoreForegroundPyrunRunner(
+	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
+	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
+) {
+	const artifactRoot = pyrunArtifactRoot(persistence.sessionPath);
+	if (!existsSync(artifactRoot)) return undefined;
+	const expectedParams = createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled);
+	for (const entry of readdirSync(artifactRoot, { withFileTypes: true })) {
+		if (!entry.isDirectory()) continue;
+		const directory = join(artifactRoot, entry.name);
+		const manifestPath = join(directory, "launch.json");
+		if (!existsSync(manifestPath)) continue;
+		let manifest: ReturnType<typeof readDetachedPyrunLaunchManifest>;
+		try {
+			manifest = readDetachedPyrunLaunchManifest(manifestPath);
+		} catch {
+			continue;
+		}
+		if (manifest.toolCallId !== input.toolCallId) continue;
+		if (JSON.stringify(manifest.params) !== JSON.stringify(expectedParams)) {
+			throw new Error(`Pyrun tool-call artifact collision for ${input.toolCallId}`);
+		}
+		if (!isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
+			rmSync(directory, { recursive: true, force: true });
+			return undefined;
+		}
+		const jobId = manifest.runnerAddress.agentId;
+		if (!jobId) throw new Error(`Pyrun launch manifest has no job ID: ${manifestPath}`);
+		return {
+			activationPath: manifest.activationPath,
+			artifacts: manifest.artifacts,
+			bridgeRequestPath: manifest.bridgeRequestPath,
+			bridgeResponsePath: manifest.bridgeResponsePath,
+			foregroundCompletionPath: manifest.foregroundCompletionPath,
+			jobId,
+			manifestPath,
+			processIdentity: manifest.runnerProcessIdentity,
+			runnerPid: manifest.runnerProcessIdentity.pid,
+		};
+	}
+	return undefined;
 }
 
 function launchForegroundPyrunRunner(
@@ -91,9 +144,11 @@ function launchForegroundPyrunRunner(
 		params: createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled),
 		runnerAddress: { agentId: jobId, sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: input.runnerOptions,
+		runnerProcessIdentity: processIdentity,
 		sessionPath: persistence.sessionPath,
 		startedAt,
 		supervisorProcessIdentity: readProcessIdentity(process.pid),
+		toolCallId: input.toolCallId,
 	});
 	return {
 		activationPath,
@@ -313,6 +368,6 @@ function readNewArtifactRecords(path: string, offset: number): {
 function detachedResult(params: PyrunEvalParams, jobId: string, logPath: string): AgentToolResult<unknown> {
 	return {
 		content: [{ type: "text", text: `${params.code}\n\nPyrun evaluation moved to background as job ${jobId}. Output will be written to ${logPath}.` }],
-		details: { backgroundJobId: jobId, executed: params.code, type: "completed" },
+		details: { backgroundJobId: jobId, executed: params.code, type: "detached" },
 	};
 }

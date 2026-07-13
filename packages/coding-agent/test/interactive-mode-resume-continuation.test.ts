@@ -46,11 +46,13 @@ type InteractiveModePrivate = {
 const interactiveModePrototype = InteractiveMode.prototype as unknown as InteractiveModePrivate;
 
 function createResumeContext(lastRole: string): ResumeContext {
+	const lastMessage =
+		lastRole === "assistant" ? { role: lastRole, stopReason: "stop", content: [] } : { role: lastRole };
 	return Object.assign(Object.create(interactiveModePrototype), {
 		statusContainer: { clear: vi.fn() },
 		runtimeHost: {
 			session: {
-				messages: [{ role: lastRole }],
+				messages: [lastMessage],
 				continue: vi.fn(async () => {}),
 				modelRegistry: { getError: () => undefined },
 				prompt: vi.fn(async () => {}),

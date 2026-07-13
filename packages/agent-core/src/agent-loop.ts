@@ -108,6 +108,32 @@ export async function runAgentLoop(
 	return newMessages;
 }
 
+function restoredPendingToolMessage(messages: readonly AgentMessage[]): AssistantMessage | undefined {
+	const completedToolCallIds = new Set<string>();
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message.role === "toolResult") {
+			completedToolCallIds.add(message.toolCallId);
+			continue;
+		}
+		if (message.role !== "assistant") return undefined;
+		const pendingToolCallIds = new Set<string>();
+		for (const content of message.content) {
+			if (content.type === "toolCall" && !completedToolCallIds.has(content.id)) {
+				pendingToolCallIds.add(content.id);
+			}
+		}
+		if (pendingToolCallIds.size === 0) return undefined;
+		return {
+			...message,
+			content: message.content.filter(
+				(content) => content.type !== "toolCall" || pendingToolCallIds.has(content.id),
+			),
+		};
+	}
+	return undefined;
+}
+
 export async function runAgentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
@@ -120,12 +146,59 @@ export async function runAgentLoopContinue(
 	}
 
 	const newMessages: AgentMessage[] = [];
-	const currentContext: AgentContext = { ...context };
+	let currentContext: AgentContext = { ...context, messages: context.messages.slice() };
+	let continuationConfig = config;
 
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	const pendingToolMessage = restoredPendingToolMessage(currentContext.messages);
+	if (pendingToolMessage) {
+		const executedToolBatch = await executeToolCalls(currentContext, pendingToolMessage, config, signal, emit);
+		for (const result of executedToolBatch.messages) {
+			currentContext.messages.push(result);
+			newMessages.push(result);
+		}
+		await emit({ type: "turn_end", message: pendingToolMessage, toolResults: executedToolBatch.messages });
+		throwIfAborted(signal);
+		if (executedToolBatch.terminate) {
+			await emit({ type: "agent_end", messages: newMessages });
+			return newMessages;
+		}
+		const nextTurnContext = {
+			message: pendingToolMessage,
+			toolResults: executedToolBatch.messages,
+			context: currentContext,
+			newMessages,
+		};
+		const nextTurnSnapshot = await continuationConfig.prepareNextTurn?.(nextTurnContext);
+		if (nextTurnSnapshot) {
+			currentContext = nextTurnSnapshot.context ?? currentContext;
+			continuationConfig = {
+				...continuationConfig,
+				model: nextTurnSnapshot.model ?? continuationConfig.model,
+				reasoning:
+					nextTurnSnapshot.thinkingLevel === undefined
+						? continuationConfig.reasoning
+						: nextTurnSnapshot.thinkingLevel === "off"
+							? undefined
+							: nextTurnSnapshot.thinkingLevel,
+			};
+		}
+		if (
+			await continuationConfig.shouldStopAfterTurn?.({
+				message: pendingToolMessage,
+				toolResults: executedToolBatch.messages,
+				context: currentContext,
+				newMessages,
+			})
+		) {
+			await emit({ type: "agent_end", messages: newMessages });
+			return newMessages;
+		}
+	}
+
+	await runLoop(currentContext, newMessages, continuationConfig, signal, emit, streamFn);
 	return newMessages;
 }
 

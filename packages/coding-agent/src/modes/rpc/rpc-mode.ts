@@ -12,6 +12,7 @@
  */
 
 import * as crypto from "node:crypto";
+import { shouldContinueInterruptedSession } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type {
 	ExtensionUIContext,
@@ -798,6 +799,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			process.stdin.off("end", onInputEnd);
 		};
 	})();
+
+	if (shouldContinueInterruptedSession(session.messages)) {
+		void session.continue().catch((continuationError: unknown) => {
+			process.stderr.write(
+				`Failed to continue restored session: ${continuationError instanceof Error ? continuationError.message : String(continuationError)}\n`,
+			);
+		});
+	}
 
 	// Keep process alive forever
 	return new Promise(() => {});

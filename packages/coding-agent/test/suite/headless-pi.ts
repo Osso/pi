@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai/compat";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
-import { getControlDbPath } from "../../src/core/session-control-db.ts";
+import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../src/core/session-control-db.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
@@ -25,6 +25,7 @@ export interface HeadlessLlmRequest {
 	id: string;
 	sessionId?: string;
 	agentId: string | null;
+	messages: Message[];
 	userMessages: string[];
 }
 
@@ -41,7 +42,12 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 
 export interface HeadlessPi {
 	paths: HeadlessPiPaths;
+	crash(): Promise<void>;
+	restart(): Promise<void>;
 	send(command: RpcCommandBody): Promise<RpcResponse>;
+	getPyrunRunnerPids(): number[];
+	getRunnerPid(agentId: string): number | undefined;
+	listAgents(): AgentSnapshot[];
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
 	waitForLlmRequest(predicate?: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest>;
 	respondToLlmRequest(requestId: string, message: AssistantMessage): void;
@@ -174,9 +180,11 @@ async function createProviderServer(
 	return { server, getSocket: () => providerSocket };
 }
 
-function createHeadlessRpcClient(paths: HeadlessRuntimePaths): RpcClient {
+function createHeadlessRpcClient(paths: HeadlessRuntimePaths, sessionFile?: string): RpcClient {
 	const preloadPath = join(import.meta.dirname, "fixtures", "headless-pi-provider-preload.ts");
 	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
+	const args = ["--approve", "--no-context-files", "--no-skills", "--no-themes"];
+	if (sessionFile) args.push("--session", sessionFile);
 	return new RpcClient({
 		cliPath,
 		cwd: paths.workspaceDir,
@@ -188,12 +196,13 @@ function createHeadlessRpcClient(paths: HeadlessRuntimePaths): RpcClient {
 		provider: "headless-faux",
 		model: "headless-faux-1",
 		nodeArgs: ["--import", import.meta.resolve("tsx"), "--import", pathToFileURL(preloadPath).href],
-		args: ["--approve", "--no-context-files", "--no-skills", "--no-themes"],
+		args,
 	});
 }
 
 interface HeadlessPiCleanupOperations {
 	stopClient: () => Promise<void>;
+	terminateDetachedRunners?: () => void;
 	destroyProviderSocket: () => void;
 	closeProviderServer: () => Promise<void>;
 	removeTempDir: () => void;
@@ -203,6 +212,7 @@ export async function cleanupHeadlessPiResources(operations: HeadlessPiCleanupOp
 	const errors: unknown[] = [];
 	for (const cleanup of [
 		operations.stopClient,
+		async () => operations.terminateDetachedRunners?.(),
 		async () => operations.destroyProviderSocket(),
 		operations.closeProviderServer,
 		async () => operations.removeTempDir(),
@@ -313,6 +323,42 @@ function createStorePoller(options: {
 	};
 }
 
+function killHeadlessProcessGroup(pid: number): void {
+	try {
+		process.kill(-pid, "SIGKILL");
+		return;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+	try {
+		process.kill(pid, "SIGKILL");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+}
+
+function terminateHeadlessDetachedRunners(paths: HeadlessRuntimePaths, sessionFile: string): void {
+	const pids = new Set<number>();
+	for (const agent of readHeadlessStore(paths.agentDir, sessionFile).listAgents()) {
+		const pid = readMultiAgentRuntimeOwnership(getControlDbPath(paths.agentDir), sessionFile, agent.id)
+			?.processIdentity?.pid;
+		if (pid) pids.add(pid);
+	}
+	for (const root of [paths.agentDir, paths.sessionDir]) {
+		for (const path of readdirSync(root, { recursive: true })) {
+			if (typeof path !== "string" || !path.endsWith("launch.json")) continue;
+			try {
+				const manifest = JSON.parse(readFileSync(join(root, path), "utf8")) as Record<string, unknown>;
+				const pid = (manifest.runnerProcessIdentity as { pid?: number } | undefined)?.pid;
+				if (pid) pids.add(pid);
+			} catch {
+				// A partial launch manifest has no reliable process identity to terminate.
+			}
+		}
+	}
+	for (const pid of pids) killHeadlessProcessGroup(pid);
+}
+
 function cleanupHeadlessStartup(
 	paths: HeadlessRuntimePaths,
 	client: RpcClient | undefined,
@@ -341,6 +387,7 @@ function createRequestRecorder(options: {
 			id: wireRequest.id,
 			sessionId: wireRequest.sessionId,
 			agentId: options.resolveAgentId(wireRequest.sessionId),
+			messages: wireRequest.messages,
 			userMessages: wireRequest.messages.map(userMessageText).filter((text): text is string => text !== undefined),
 		});
 		for (const listener of options.listeners) listener();
@@ -355,9 +402,24 @@ async function startRpcClientSession(client: RpcClient, context: HeadlessSession
 	if (!context.sessionFile) throw new Error("Headless Pi did not create a persistent session");
 }
 
+interface RpcClientProcess {
+	exitCode: number | null;
+	kill(signal: NodeJS.Signals): boolean;
+	once(event: "exit", listener: () => void): unknown;
+}
+
+interface RpcClientInternals {
+	process: RpcClientProcess | null;
+}
+
+interface HeadlessClientControl {
+	client: RpcClient;
+	unsubscribeEvents: () => void;
+}
+
 function createHeadlessRuntime(options: {
 	paths: HeadlessRuntimePaths;
-	client: RpcClient;
+	clientControl: HeadlessClientControl;
 	provider: ProviderServerControl;
 	disposeController: AbortController;
 	events: AgentEvent[];
@@ -365,7 +427,6 @@ function createHeadlessRuntime(options: {
 	requests: HeadlessLlmRequest[];
 	requestListeners: Set<() => void>;
 	context: HeadlessSessionContext;
-	unsubscribeEvents: () => void;
 }): HeadlessPiRuntime {
 	const waitForEvent = (predicate: (event: AgentEvent) => boolean): Promise<AgentEvent> =>
 		waitForBufferedItem({
@@ -373,7 +434,8 @@ function createHeadlessRuntime(options: {
 			listeners: options.eventListeners,
 			predicate,
 			disposeSignal: options.disposeController.signal,
-			timeoutError: () => new Error(`Timed out waiting for RPC event. Stderr: ${options.client.getStderr()}`),
+			timeoutError: () =>
+				new Error(`Timed out waiting for RPC event. Stderr: ${options.clientControl.client.getStderr()}`),
 		});
 	const waitForRequest = (predicate: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest> =>
 		waitForBufferedItem({
@@ -381,13 +443,14 @@ function createHeadlessRuntime(options: {
 			listeners: options.requestListeners,
 			predicate,
 			disposeSignal: options.disposeController.signal,
-			timeoutError: () => new Error(`Timed out waiting for LLM request. Stderr: ${options.client.getStderr()}`),
+			timeoutError: () =>
+				new Error(`Timed out waiting for LLM request. Stderr: ${options.clientControl.client.getStderr()}`),
 		});
 	const pollStore = createStorePoller({
 		agentDir: options.paths.agentDir,
 		getSessionFile: () => options.context.sessionFile,
 		disposeSignal: options.disposeController.signal,
-		getStderr: () => options.client.getStderr(),
+		getStderr: () => options.clientControl.client.getStderr(),
 	});
 
 	return {
@@ -397,7 +460,47 @@ function createHeadlessRuntime(options: {
 			sessionDir: options.paths.sessionDir,
 			workspaceDir: options.paths.workspaceDir,
 		},
-		send: (command) => options.client.send(command),
+		async restart() {
+			options.clientControl.unsubscribeEvents();
+			await options.clientControl.client.stop();
+			options.events.length = 0;
+			options.requests.length = 0;
+			const client = createHeadlessRpcClient(options.paths, options.context.sessionFile);
+			options.clientControl.client = client;
+			options.clientControl.unsubscribeEvents = client.onEvent((event) => {
+				options.events.push(event);
+				for (const listener of options.eventListeners) listener();
+			});
+			await startRpcClientSession(client, options.context);
+		},
+		async crash() {
+			options.clientControl.unsubscribeEvents();
+			const process = (options.clientControl.client as unknown as RpcClientInternals).process;
+			if (!process) throw new Error("Headless Pi RPC process is not running");
+			const exited =
+				process.exitCode === null
+					? new Promise<void>((resolve) => {
+							process.once("exit", resolve);
+						})
+					: Promise.resolve();
+			process.kill("SIGKILL");
+			await exited;
+			await options.clientControl.client.stop();
+		},
+		send: (command) => options.clientControl.client.send(command),
+		getPyrunRunnerPids: () =>
+			readdirSync(options.paths.sessionDir, { recursive: true })
+				.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+				.map(
+					(path) =>
+						JSON.parse(readFileSync(join(options.paths.sessionDir, path), "utf8")) as Record<string, unknown>,
+				)
+				.map((manifest) => (manifest.runnerProcessIdentity as { pid?: number } | undefined)?.pid)
+				.filter((pid): pid is number => typeof pid === "number"),
+		getRunnerPid: (agentId) =>
+			readMultiAgentRuntimeOwnership(getControlDbPath(options.paths.agentDir), options.context.sessionFile, agentId)
+				?.processIdentity?.pid,
+		listAgents: () => readHeadlessStore(options.paths.agentDir, options.context.sessionFile).listAgents(),
 		waitForEvent,
 		waitForLlmRequest: (predicate = () => true) => waitForRequest(predicate),
 		respondToLlmRequest(requestId, message) {
@@ -410,9 +513,11 @@ function createHeadlessRuntime(options: {
 			pollStore((store) => store.listMailboxMessages().find(predicate), "mailbox message"),
 		async dispose() {
 			options.disposeController.abort();
-			options.unsubscribeEvents();
+			options.clientControl.unsubscribeEvents();
 			await cleanupHeadlessPiResources({
-				stopClient: () => options.client.stop(),
+				stopClient: () => options.clientControl.client.stop(),
+				terminateDetachedRunners: () =>
+					terminateHeadlessDetachedRunners(options.paths, options.context.sessionFile),
 				destroyProviderSocket: () => options.provider.getSocket()?.destroy(),
 				closeProviderServer: () => closeServer(options.provider.server),
 				removeTempDir: () => rmSync(options.paths.tempDir, { recursive: true, force: true }),
@@ -459,9 +564,10 @@ async function startHeadlessPi(): Promise<HeadlessPiRuntime> {
 		);
 	}
 
+	const clientControl = { client, unsubscribeEvents };
 	return createHeadlessRuntime({
 		paths,
-		client,
+		clientControl,
 		provider,
 		disposeController,
 		events,
@@ -469,7 +575,6 @@ async function startHeadlessPi(): Promise<HeadlessPiRuntime> {
 		requests,
 		requestListeners,
 		context,
-		unsubscribeEvents,
 	});
 }
 

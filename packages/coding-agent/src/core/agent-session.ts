@@ -400,6 +400,13 @@ interface ToolDefinitionEntry {
 	sourceInfo: SourceInfo;
 }
 
+export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
+	const lastMessage = messages[messages.length - 1];
+	if (lastMessage?.role === "toolResult") return true;
+	if (lastMessage?.role !== "assistant") return false;
+	return lastMessage.stopReason === "aborted" || lastMessage.content.some((content) => content.type === "toolCall");
+}
+
 function estimateMessagesTokens(messages: AgentMessage[]): number {
 	let tokens = 0;
 	for (const message of messages) {
@@ -4150,6 +4157,7 @@ export class AgentSession {
 				getMultiAgentAgentId: () => this._multiAgentAgentId,
 				getMultiAgentParentSessionId: () => this._multiAgentParentSessionId,
 				getMultiAgentRequiresAgentId: () => this._multiAgentRequiresAgentId,
+				getDetachedJobLifecycle: () => this._getDetachedJobLifecycleController(),
 				getMultiAgentStore: () => this._multiAgentStore,
 				getToolDetachRegistry: () => this._toolDetachRegistry,
 				compact: (options) => {
@@ -4291,7 +4299,7 @@ export class AgentSession {
 					read: { autoResizeImages },
 					bash: {
 						backgroundJobs: this._multiAgentStore
-							? { lifecycle: this._getDetachedJobLifecycleController(), store: this._multiAgentStore }
+							? { getLifecycle: () => this._getDetachedJobLifecycleController(), store: this._multiAgentStore }
 							: undefined,
 						commandPrefix: shellCommandPrefix,
 						detachRegistry: this._toolDetachRegistry,

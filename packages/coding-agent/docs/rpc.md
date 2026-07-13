@@ -17,6 +17,12 @@ Common options:
 - `--no-session`: Disable session persistence
 - `--session-dir <path>`: Custom session storage directory
 
+### Restoring interrupted sessions
+
+When RPC mode opens a persisted session whose JSONL ends during model thinking or with unfinished assistant tool calls, startup automatically continues that turn without requiring a new `prompt` command. RPC emits the normal agent, tool, and LLM-request events for the continued work.
+
+A live durable Bash or Pyrun runner is reattached without executing its command again. If the recorded runner is dead or cannot be reattached, the unfinished command is executed again. Later restorations apply the same rule without a retry limit. The existing session JSONL remains the recovery authority; RPC does not persist recovery records, replay markers, execution attempts, or other recovery-specific state.
+
 ## Protocol Overview
 
 - **Commands**: JSON objects sent to stdin, one per line
