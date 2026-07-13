@@ -110,6 +110,7 @@
 
 ### Fixed
 
+- Fixed a resumed session re-running a detached Pyrun job whose lifecycle was `cancelling`: on reload the job is now settled to `aborted` (killing any surviving runner) instead of being reattached or relaunched. The refusal also covers legacy manifests with no recorded `toolCallId`, which cannot be correlated to the replayed tool call.
 - Fixed detached tool completion correlation by preserving the originating `toolCallId` in terminal job results and appending the matching completion entry after the immutable detached tool result in the caller JSONL.
 - Fixed detached tools started by subagents so terminal notifications route only to their direct parent agent rather than the main thread.
 - Fixed supervisor restarts leaving spawned agents stuck `running` by authorizing recovery against the process identity embedded in the registered mailbox listener.

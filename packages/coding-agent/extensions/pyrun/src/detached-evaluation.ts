@@ -1,10 +1,13 @@
 import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
+import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import { createDetachedJobLifecycleController } from "../../../src/core/detached-job-lifecycle.ts";
+import { createDetachedJobTerminalInput } from "../../../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts";
 import { isActiveLifecycle, type AgentSnapshot, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
+import { finalizeDetachedJob, readMultiAgentAgent } from "../../../src/core/session-control-db.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import {
 	createCanonicalPyrunEvalParams,
@@ -15,6 +18,7 @@ import {
 } from "./eval-tool.ts";
 import {
 	launchDetachedPyrunRunner,
+	readDetachedPyrunActivation,
 	readDetachedPyrunLaunchManifest,
 	writeDetachedPyrunActivation,
 	writeDetachedPyrunLaunchManifest,
@@ -43,9 +47,9 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) throw new Error("Detached Pyrun requires a persisted supervisor session");
 	const controller = createPyrunLifecycleController(input, persistence);
-	const runner =
-		restoreForegroundPyrunRunner(input, persistence) ??
-		launchForegroundPyrunRunner(input, persistence, controller, startedAt);
+	const restored = await restoreForegroundPyrunRunner(input, persistence);
+	if (restored?.kind === "aborted") return formatTerminalAgentError(input.params, restored.agent);
+	const runner = restored?.runner ?? launchForegroundPyrunRunner(input, persistence, controller, startedAt);
 	return observeDetachablePyrunEvaluation({ ...input, controller, runner });
 }
 
@@ -77,10 +81,16 @@ function pyrunArtifactRoot(sessionPath: string): string {
 	return join(dirname(sessionPath), "detached-jobs", sessionName);
 }
 
-function restoreForegroundPyrunRunner(
+type RestoredPyrunRunner = ReturnType<typeof launchForegroundPyrunRunner>;
+
+type PyrunResumeDecision =
+	| { kind: "resume"; runner: RestoredPyrunRunner }
+	| { kind: "aborted"; agent: AgentSnapshot };
+
+async function restoreForegroundPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
-) {
+): Promise<PyrunResumeDecision | undefined> {
 	const artifactRoot = pyrunArtifactRoot(persistence.sessionPath);
 	if (!existsSync(artifactRoot)) return undefined;
 	const expectedParams = createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled);
@@ -95,7 +105,22 @@ function restoreForegroundPyrunRunner(
 		} catch {
 			continue;
 		}
-		if (manifest.toolCallId !== input.toolCallId) continue;
+		const jobId = manifest.runnerAddress.agentId;
+		if (!jobId) throw new Error(`Pyrun launch manifest has no job ID: ${manifestPath}`);
+		// Manifests written before tool-call correlation existed carry no toolCallId and
+		// cannot be matched to the replayed call. A job whose cancellation was requested
+		// but never settled (e.g. its runtime died mid-cancel) must not be resumed on
+		// session reload, whether we can correlate it or not. For both cases, honor the
+		// cancellation: kill any surviving runner and settle the job to aborted.
+		const missingToolCallId = manifest.toolCallId == null;
+		const matchesCall = !missingToolCallId && manifest.toolCallId === input.toolCallId;
+		if (missingToolCallId || matchesCall) {
+			const persisted = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, jobId);
+			if (persisted?.lifecycle === "cancelling") {
+				return { kind: "aborted", agent: await settleCancellingPyrunJob(persistence, manifest, persisted) };
+			}
+		}
+		if (!matchesCall) continue;
 		if (JSON.stringify(manifest.params) !== JSON.stringify(expectedParams)) {
 			throw new Error(`Pyrun tool-call artifact collision for ${input.toolCallId}`);
 		}
@@ -103,21 +128,60 @@ function restoreForegroundPyrunRunner(
 			rmSync(directory, { recursive: true, force: true });
 			return undefined;
 		}
-		const jobId = manifest.runnerAddress.agentId;
-		if (!jobId) throw new Error(`Pyrun launch manifest has no job ID: ${manifestPath}`);
 		return {
-			activationPath: manifest.activationPath,
-			artifacts: manifest.artifacts,
-			bridgeRequestPath: manifest.bridgeRequestPath,
-			bridgeResponsePath: manifest.bridgeResponsePath,
-			foregroundCompletionPath: manifest.foregroundCompletionPath,
-			jobId,
-			manifestPath,
-			processIdentity: manifest.runnerProcessIdentity,
-			runnerPid: manifest.runnerProcessIdentity.pid,
+			kind: "resume",
+			runner: {
+				activationPath: manifest.activationPath,
+				artifacts: manifest.artifacts,
+				bridgeRequestPath: manifest.bridgeRequestPath,
+				bridgeResponsePath: manifest.bridgeResponsePath,
+				foregroundCompletionPath: manifest.foregroundCompletionPath,
+				jobId,
+				processIdentity: manifest.runnerProcessIdentity,
+				runnerPid: manifest.runnerProcessIdentity.pid,
+			},
 		};
 	}
 	return undefined;
+}
+
+/**
+ * Settles a detached Pyrun job whose persisted lifecycle is `cancelling` to
+ * `aborted` without re-running it. Kills any surviving runner to enforce the
+ * cancellation, then commits the terminal transition through the same finalize
+ * path the detached runner would have used. Returns the terminal agent snapshot;
+ * falls back to the persisted `cancelling` snapshot if the job's ownership can no
+ * longer be matched (already released/recovered elsewhere).
+ */
+async function settleCancellingPyrunJob(
+	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
+	manifest: ReturnType<typeof readDetachedPyrunLaunchManifest>,
+	persisted: AgentSnapshot,
+): Promise<AgentSnapshot> {
+	if (isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
+		terminateForegroundRunner(manifest.runnerProcessIdentity.pid, "SIGKILL");
+	}
+	const identity = readDetachedPyrunActivation(manifest.activationPath);
+	if (!identity) return persisted;
+	// The runner may have died before writing any output; the terminal input hashes
+	// the output file, so ensure it exists before building the aborted transition.
+	if (!existsSync(manifest.artifacts.outputPath)) {
+		closeSync(openSync(manifest.artifacts.outputPath, "a", 0o600));
+	}
+	const terminalAt = Date.now();
+	const terminal = createDetachedJobTerminalInput(
+		manifest.artifacts,
+		identity,
+		{ kind: "aborted", reason: "Cancelled before session resume" },
+		new Date(terminalAt).toISOString(),
+		Math.max(0, terminalAt - manifest.startedAt),
+		manifest.toolCallId,
+	);
+	const finalized = await finalizeDetachedJobWithRetry(terminal, (terminalInput) =>
+		finalizeDetachedJob(persistence.controlDbPath, { sessionPath: persistence.sessionPath, terminal: terminalInput }),
+	);
+	if (finalized.ok) return finalized.terminalAgent;
+	return readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, persisted.id) ?? persisted;
 }
 
 function launchForegroundPyrunRunner(

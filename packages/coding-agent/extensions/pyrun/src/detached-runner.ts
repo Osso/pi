@@ -348,7 +348,7 @@ function readJsonLines<T>(path: string, offset: number): { offset: number; value
 	return { offset: data.length, values };
 }
 
-function readDetachedPyrunActivation(path: string): DetachedJobOwnershipIdentity | undefined {
+export function readDetachedPyrunActivation(path: string): DetachedJobOwnershipIdentity | undefined {
 	if (!existsSync(path)) return undefined;
 	return JSON.parse(readFileSync(path, "utf8")) as DetachedJobOwnershipIdentity;
 }
