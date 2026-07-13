@@ -100,7 +100,7 @@ function createReservedRuntimeAgent(
 	store: MultiAgentStore,
 	ownerSessionId: string,
 	cwd: string,
-	input: { agentType?: string; displayName?: string; worker?: AgentSnapshot["worker"] } = {},
+	input: { agentType?: string; displayName?: string; parentId?: string; worker?: AgentSnapshot["worker"] } = {},
 ): {
 	agent: AgentSnapshot;
 	coordinator: LifecycleCoordinator;
@@ -119,6 +119,7 @@ function createReservedRuntimeAgent(
 		agentType: input.agentType ?? "verifier",
 		cwd,
 		displayName: input.displayName ?? "Verifier",
+		parentId: input.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 		transcript: { sessionId: ownerSessionId },
 		worker: input.worker,
@@ -1814,6 +1815,50 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
 		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
 			status: "delivered",
+		});
+	});
+
+	it("retries a steered parent terminal result after its active child completes", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		const harness = await createHarness({
+			multiAgentAgentId: "agent_1",
+			multiAgentStore: store,
+			persistedSession: true,
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("preserved parent result")]);
+		const parent = createReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
+		const child = createReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir, {
+			parentId: parent.agent.id,
+		});
+		const steered = legacyMultiAgentStore(store).sendSteering(parent.agent.id, parent.agent.revision, {
+			body: "Complete after child",
+			fromAgentId: "supervisor",
+		});
+		expect(steered.ok).toBe(true);
+		if (!steered.ok) throw new Error("expected steering to succeed");
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected store persistence target");
+		enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "steer",
+			recipient: { agentId: parent.agent.id, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			storeRef: { messageId: steered.message.id, sessionPath: persistence.sessionPath },
+		});
+
+		await harness.session.prompt("hello");
+		await harness.session.agent.waitForIdle();
+		expect(store.getAgent(parent.agent.id)).toMatchObject({ lifecycle: "running" });
+
+		finalizeReservedRuntimeAgent(store, child, { result: { summary: "child done" } });
+		expect(store.getAgent(parent.agent.id)).toMatchObject({
+			lifecycle: "completed",
+			result: { summary: "preserved parent result" },
 		});
 	});
 
