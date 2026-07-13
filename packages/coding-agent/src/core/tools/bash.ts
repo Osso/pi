@@ -323,6 +323,7 @@ async function executeRunnerOwnedBash(
 		shellPath?: string;
 		signal?: AbortSignal;
 		timeout?: number;
+		toolCallId?: string;
 	},
 ): Promise<{ exitCode: number | null; detached?: BashDetachedResult }> {
 	const shell = getShellConfig(options.shellPath);
@@ -334,6 +335,7 @@ async function executeRunnerOwnedBash(
 		cwd,
 		env: options.env,
 		timeoutMs: resolveTimeoutMs(options.timeout),
+		toolCallId: options.toolCallId,
 	});
 	let outputOffset = 0;
 	let aborted = false;
@@ -477,7 +479,7 @@ export function createBashToolDefinition(
 		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
 		parameters: bashSchema,
 		async execute(
-			_toolCallId,
+			toolCallId,
 			{ command, timeout }: { command: string; timeout?: number },
 			signal?: AbortSignal,
 			onUpdate?,
@@ -619,6 +621,7 @@ export function createBashToolDefinition(
 								shellPath: options?.shellPath,
 								signal,
 								timeout,
+								toolCallId,
 							})
 						: await ops.exec(spawnContext.command, spawnContext.cwd, {
 								onData: handleData,

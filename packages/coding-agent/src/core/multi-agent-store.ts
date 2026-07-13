@@ -58,6 +58,8 @@ export interface AgentWorkerAdapter {
 	adapter: "runtime" | "terminal" | "subprocess";
 	handleId: string;
 	cwd?: string;
+	/** Tool call in the owning agent that spawned this detached runtime worker, if any. */
+	toolCallId?: string;
 }
 
 export interface AgentTranscriptMetadata {
@@ -1284,6 +1286,7 @@ function copyWorker(worker: AgentWorkerAdapter | undefined): AgentWorkerAdapter 
 		adapter: worker.adapter,
 		cwd: worker.cwd,
 		handleId: worker.handleId,
+		toolCallId: worker.toolCallId,
 	};
 }
 

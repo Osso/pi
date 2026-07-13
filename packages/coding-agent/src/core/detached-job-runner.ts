@@ -43,6 +43,8 @@ export interface RegisterDetachedJobInput {
 	jobId: string;
 	processIdentity: ProcessIdentity;
 	workerHandleId: string;
+	/** Originating tool call in the owning agent, recorded on the detached job's worker. */
+	toolCallId?: string;
 }
 
 export type DetachedJobLifecycleCommandResult =
@@ -55,6 +57,7 @@ export interface LaunchDetachedBashInput {
 	cwd: string;
 	env: NodeJS.ProcessEnv;
 	timeoutMs?: number;
+	toolCallId?: string;
 }
 
 export interface LaunchedDetachedBashJob {

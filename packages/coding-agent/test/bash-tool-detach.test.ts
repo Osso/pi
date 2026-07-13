@@ -151,6 +151,7 @@ describe("bash tool background detach", () => {
 
 		const [job] = store.listAgents();
 		expect(job).toMatchObject({ agentType: "background", displayName: "Bash command", lifecycle: "running" });
+		expect(job.worker?.toolCallId).toBe("tool-bash-detach");
 
 		await waitFor(() => {
 			backgroundJobs.lifecycle?.observe(job.id);

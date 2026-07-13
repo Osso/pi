@@ -82,6 +82,7 @@ function launchDetachedBashJob(
 		jobId,
 		processIdentity: readProcessIdentity(runnerPid),
 		workerHandleId: String(runnerPid),
+		toolCallId: input.toolCallId,
 	});
 	try {
 		(options.writeBashLaunchManifest ?? writeDetachedBashLaunchManifest)(manifestPath, {
@@ -144,7 +145,7 @@ function registerDetachedJob(
 		displayName: input.displayName,
 		permission: { narrowed: true, policy: "on-request" },
 		result: { fileRefs: [{ label: outputLabel, path: artifacts.outputPath }] },
-		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId },
+		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId, toolCallId: input.toolCallId },
 	});
 	const created = options.coordinator.commitRunningChild(prepared, options.ownerSessionId, input.processIdentity);
 	if (!created.ok) throw new Error(`Could not own detached ${input.agentType} job: ${created.error}`);
