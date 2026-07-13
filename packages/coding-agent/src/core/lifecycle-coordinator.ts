@@ -136,7 +136,7 @@ export class LifecycleCoordinator {
 	}
 
 	acknowledgeSteeringDelivery(input: SteeringDeliveryCommandInput): SteeringCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership);
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const result = commitMultiAgentSteeringDelivery(this.options.controlDbPath, {
 			agentId: input.agent.id,
@@ -151,7 +151,7 @@ export class LifecycleCoordinator {
 	}
 
 	requestSteering(input: SteeringCommandInput): SteeringCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership);
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const result = commitMultiAgentSteeringMutation(this.options.controlDbPath, {
 			agentId: input.agent.id,
@@ -189,7 +189,7 @@ export class LifecycleCoordinator {
 	}
 
 	recoverDeadChild(input: RecoverDeadChildCommandInput): RecoverDeadChildCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership);
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
 		if (
 			!identity ||
 			identity.agentId !== input.agent.id ||
@@ -209,7 +209,7 @@ export class LifecycleCoordinator {
 	}
 
 	finalizeChild(input: FinalizeChildCommandInput): LifecycleCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership);
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentTerminalMutation(this.options.controlDbPath, {
@@ -307,7 +307,7 @@ export class LifecycleCoordinator {
 		detachedCancellation?: { outputLabel: string; reason?: string },
 	): LifecycleCommandResult {
 		const ownership = input.ownership;
-		const identity = this.readOwnershipIdentity(ownership);
+		const identity = this.readOwnershipIdentity(ownership, input.agent.id);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentLifecycleMutation(this.options.controlDbPath, {
@@ -323,7 +323,7 @@ export class LifecycleCoordinator {
 		return { ok: true, agent: result.agent as unknown as AgentSnapshot };
 	}
 
-	private readOwnershipIdentity(ownership: MultiAgentRuntimeOwnership):
+	private readOwnershipIdentity(ownership: MultiAgentRuntimeOwnership, expectedAgentId: string):
 		| {
 				agentId: string;
 				owner: { agentId: string | null; sessionId: string };
@@ -331,7 +331,14 @@ export class LifecycleCoordinator {
 				sessionPath: string;
 		  }
 		| undefined {
-		if (!ownership.processIdentity || !ownership.owner.sessionId) return undefined;
+		if (
+			ownership.agentId !== expectedAgentId ||
+			ownership.sessionPath !== this.options.sessionPath ||
+			!ownership.processIdentity ||
+			!ownership.owner.sessionId
+		) {
+			return undefined;
+		}
 		return {
 			agentId: ownership.agentId,
 			owner: { agentId: ownership.owner.agentId, sessionId: ownership.owner.sessionId },

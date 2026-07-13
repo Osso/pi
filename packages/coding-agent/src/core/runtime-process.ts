@@ -13,7 +13,7 @@ const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [
 	"packages/coding-agent/dist/cli.js",
 ];
 
-export function readProcessIdentity(pid: number): ProcessIdentity {
+function readProcessStat(pid: number): { identity: ProcessIdentity; state: string } {
 	if (process.platform !== "linux") throw new Error("Exact process identity requires Linux /proc");
 	const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
 	const commandEnd = stat.lastIndexOf(")");
@@ -22,16 +22,26 @@ export function readProcessIdentity(pid: number): ProcessIdentity {
 		.slice(commandEnd + 2)
 		.trim()
 		.split(/\s+/);
+	const state = fields[0];
 	const startTimeTicks = Number(fields[19]);
-	if (!Number.isSafeInteger(startTimeTicks) || startTimeTicks <= 0) {
-		throw new Error(`Invalid start time for process ${pid}`);
+	if (!state || !Number.isSafeInteger(startTimeTicks) || startTimeTicks <= 0) {
+		throw new Error(`Invalid process stat for process ${pid}`);
 	}
-	return { pid, startTimeTicks };
+	return { identity: { pid, startTimeTicks }, state };
+}
+
+export function readProcessIdentity(pid: number): ProcessIdentity {
+	return readProcessStat(pid).identity;
 }
 
 export function isProcessIdentityAlive(identity: ProcessIdentity): boolean {
 	try {
-		return readProcessIdentity(identity.pid).startTimeTicks === identity.startTimeTicks;
+		const processStat = readProcessStat(identity.pid);
+		return (
+			processStat.identity.startTimeTicks === identity.startTimeTicks &&
+			processStat.state !== "Z" &&
+			processStat.state !== "X"
+		);
 	} catch {
 		return false;
 	}

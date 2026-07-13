@@ -125,6 +125,24 @@ describe("LifecycleCoordinator child creation", () => {
 		).toMatchObject({ ok: false, error: "ownership_held" });
 	});
 
+	it("rejects another agent's ownership token even under the same supervisor process", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		let nextId = 0;
+		const coordinator = createCoordinator(controlDbPath, sessionPath, undefined, () => `agent-${++nextId}`);
+		const first = createRunningChild(coordinator);
+		const second = createRunningChild(coordinator);
+		if (!first.ok || !second.ok) throw new Error("Expected running child fixtures");
+
+		expect(
+			coordinator.requestCancellation({ agent: second.agent, ownership: first.ownership }),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(readMultiAgentAgent(controlDbPath, sessionPath, second.agent.id)).toMatchObject({
+			lifecycle: "running",
+			revision: 1,
+		});
+	});
+
 	it("requires cancelling before abort acknowledgement", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const coordinator = createCoordinator(controlDbPath, "/tmp/supervisor.jsonl");
@@ -205,6 +223,30 @@ describe("LifecycleCoordinator child creation", () => {
 			{ id: created.agent.id, lifecycle: "running", revision: 1 },
 		]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+	});
+
+	it("blocks dead-owner parent recovery until active descendants are terminal", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		let nextId = 0;
+		const coordinator = createCoordinator(controlDbPath, sessionPath, undefined, () => `agent-${++nextId}`);
+		const deadIdentity = testProcessIdentity("dead-parent-runtime");
+		const parent = createRunningChild(coordinator, childInput(), deadIdentity);
+		if (!parent.ok) throw new Error("Expected parent fixture");
+		const child = createRunningChild(coordinator, childInput(parent.agent.id), deadIdentity);
+		if (!child.ok) throw new Error("Expected child fixture");
+
+		expect(
+			coordinator.recoverDeadChild({
+				agent: parent.agent,
+				ownerSessionId: "supervisor-session",
+				ownership: parent.ownership,
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
+		expect(readMultiAgentAgent(controlDbPath, sessionPath, parent.agent.id)).toMatchObject({
+			lifecycle: "running",
+			revision: 1,
+		});
 	});
 
 	it("blocks parent terminalization until active descendants are terminal", () => {
