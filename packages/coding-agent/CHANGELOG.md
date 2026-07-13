@@ -106,6 +106,7 @@
 
 ### Fixed
 
+- Fixed Hostrun lifecycle mirroring retaining a stale extension context after `/reload` replaces the session runtime.
 - Fixed `deploy.sh` failing outside login shells when `USER`, `XDG_RUNTIME_DIR`, or `DBUS_SESSION_BUS_ADDRESS` are absent.
 - Fixed interactive session resume stopping after a persisted tool result instead of continuing the interrupted assistant turn.
 - Fixed detached Bash and Pyrun jobs from different supervisor sessions sharing stale artifact directories when their per-session agent IDs matched; artifacts are now session-namespaced and exclusively reserved before runner launch.

@@ -2687,6 +2687,7 @@ interface RuntimeLifecycleMirror {
 }
 
 function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleMirror {
+	let boundCtx: ExtensionContext | undefined;
 	let boundSessionId: string | undefined;
 	let unsubscribe: (() => void) | undefined;
 	return {
@@ -2694,16 +2695,19 @@ function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleM
 			const sessionManager = ctx.sessionManager;
 			if (!sessionManager || typeof sessionManager.getSessionId !== "function") return;
 			const sessionId = sessionManager.getSessionId();
+			boundCtx = ctx;
 			if (boundSessionId === sessionId && unsubscribe) return;
 			unsubscribe?.();
 			boundSessionId = sessionId;
 			unsubscribe = store.subscribeLifecycleNotifications((message) => {
-				mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
+				if (!boundCtx) return;
+				mirrorLifecycleRuntimeMailboxMessage(store, message, boundCtx);
 			});
 			mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 		},
 		dispose() {
 			unsubscribe?.();
+			boundCtx = undefined;
 			unsubscribe = undefined;
 			boundSessionId = undefined;
 		},
