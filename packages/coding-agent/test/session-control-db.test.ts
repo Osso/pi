@@ -64,6 +64,7 @@ import {
 	relocateSessionControlData,
 	removeNamedSession,
 	renewArchitectRequestClaims,
+	resolveOwnMainRuntimeCoordinationRecipient,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
@@ -2878,6 +2879,48 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ id: "running", lifecycle: "running", revision: 1 },
 		]);
+	});
+
+	it("resolves this process's own main coordination recipient from the asserted listener row", () => {
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "main-session" },
+			process.pid,
+			"/sessions/main-session.jsonl",
+		);
+		// A child listener under the same process must never be selected.
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: "agent_child", sessionId: "child-session" },
+			process.pid,
+		);
+
+		expect(resolveOwnMainRuntimeCoordinationRecipient(controlDbPath)).toEqual({
+			agentId: null,
+			sessionId: "main-session",
+		});
+	});
+
+	it("does not resolve a main recipient owned by a different process identity", () => {
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "foreign-session" },
+			CURRENT_PROCESS_IDENTITY.pid + 1,
+			"/sessions/foreign-session.jsonl",
+			{ reconcileRuntimeReplacement: false, runtimeInstanceId: JSON.stringify(testProcessIdentity("foreign")) },
+		);
+
+		expect(resolveOwnMainRuntimeCoordinationRecipient(controlDbPath)).toBeUndefined();
+	});
+
+	it("does not resolve a main recipient whose session path is not asserted", () => {
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "unasserted-session" }, process.pid);
+
+		expect(resolveOwnMainRuntimeCoordinationRecipient(controlDbPath)).toBeUndefined();
+	});
+
+	it("returns undefined when no listener is registered for this process", () => {
+		expect(resolveOwnMainRuntimeCoordinationRecipient(controlDbPath)).toBeUndefined();
 	});
 
 	it("stores and removes named sessions", () => {

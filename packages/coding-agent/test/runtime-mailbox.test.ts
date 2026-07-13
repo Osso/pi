@@ -1164,6 +1164,7 @@ describe("runtime SQLite mailbox delivery", () => {
 				controlDbPath,
 				{ agentId: null, sessionId: parentSession.getSessionId() },
 				process.pid,
+				parentSession.getSessionFile(),
 			);
 
 			const waiting = waitAgents.execute(
@@ -1202,13 +1203,30 @@ describe("runtime SQLite mailbox delivery", () => {
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		childSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		// The UI has selected the child, so the store persistence and the incoming
+		// context both point at the child rather than the main supervisor session.
+		store.setPersistenceSessionManager(childSession);
 		const runtime = createReservedRuntimeAgent(store, childSession.getSessionId(), "/repo");
 		const tools = collectMultiAgentTools(store);
 		const steerAgent = tools.get("steer_agent");
 		const waitAgents = tools.get("wait_agents");
 		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
 		const supervisorContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		// Main and child mailbox listeners are registered under the same process.
+		// Only the main listener is registered with agentId null; the resolver must
+		// pick it by exact process identity regardless of mutable persistence.
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+			process.pid,
+		);
 
 		await steerAgent.execute(
 			"steer",
@@ -1217,13 +1235,15 @@ describe("runtime SQLite mailbox delivery", () => {
 			undefined,
 			supervisorContext,
 		);
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+		const steeringMessages = listRuntimeMailboxMessages(controlDbPath);
+		expect(steeringMessages).toMatchObject([
 			{
 				recipient: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
 				sender: { agentId: "supervisor", sessionId: parentSession.getSessionId() },
 				status: "pending",
 			},
 		]);
+		const steerMessageId = steeringMessages[0].id;
 
 		let selectedChildIdentityRead = false;
 		const selectedChildSessionManager = {
@@ -1251,6 +1271,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 		await Promise.resolve();
 		await vi.advanceTimersByTimeAsync(3_000);
+		// Pending outbound steering targets the child, not the main listener.
 		expect(settled).toBe(false);
 
 		const inboundMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
@@ -1263,7 +1284,9 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		const waited = await waiting;
 		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
+		// Neither transport row is consumed by the wake.
 		expect(readRuntimeMailboxMessage(controlDbPath, inboundMessageId)).toMatchObject({ status: "pending" });
+		expect(readRuntimeMailboxMessage(controlDbPath, steerMessageId)).toMatchObject({ status: "pending" });
 	});
 
 	it("wait_agents ignores pending terminal transport rows until actionable coordination arrives", async () => {
@@ -1277,6 +1300,12 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
 		if (!waitAgents) throw new Error("expected wait_agents tool");
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let settled = false;
 		const waiting = waitAgents.execute("wait", {}, undefined, undefined, context).then((result) => {
@@ -1318,6 +1347,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
 		if (!waitAgents) throw new Error("expected wait_agents tool");
 		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
+		registerRuntimeMailboxListener(controlDbPath, recipient, process.pid, parentSession.getSessionFile());
 		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
 		const waiting = waitAgents.execute(
 			"wait",

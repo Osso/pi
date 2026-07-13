@@ -43,6 +43,7 @@ import {
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSessionMetadata,
+	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
@@ -2259,7 +2260,7 @@ async function waitAgents(
 		persistence.controlDbPath,
 		persistence.sessionPath,
 		signal,
-		runtimeCoordinationRecipient(ctx, persistence),
+		runtimeCoordinationRecipient(ctx),
 	);
 	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
 	if (wake.kind === "coordination") return result("Mailbox or shared-channel message received.", {});
@@ -2274,17 +2275,11 @@ async function waitAgents(
 	);
 }
 
-function runtimeCoordinationRecipient(
-	ctx: ExtensionContext | undefined,
-	persistence: { controlDbPath: string; sessionPath: string },
-): RuntimeCoordinationRecipient | undefined {
+function runtimeCoordinationRecipient(ctx: ExtensionContext | undefined): RuntimeCoordinationRecipient | undefined {
 	if (!ctx?.controlDbPath) return undefined;
-	const supervisorSessionId = readSessionMetadata(persistence.controlDbPath, persistence.sessionPath)?.id;
-	if (!supervisorSessionId) return undefined;
-	return {
-		address: { agentId: null, sessionId: supervisorSessionId },
-		controlDbPath: persistence.controlDbPath,
-	};
+	const address = resolveOwnMainRuntimeCoordinationRecipient(ctx.controlDbPath);
+	if (!address) return undefined;
+	return { address, controlDbPath: ctx.controlDbPath };
 }
 
 function takePendingTerminalNotification(
