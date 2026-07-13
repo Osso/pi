@@ -123,8 +123,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Detached runners allocate a durable job/agent ID before payload spawn so the output path is identity-bound
   from the first byte; foreground-only execution consumes no lifecycle row. Pyrun begins as a foreground
   runner with diagnostic output and direct foreground bridge control only. Manual or automatic detachment
-  atomically creates exactly one running agent under the runner's exact process identity, then activates its
-  runtime-mailbox control and terminal-finalize authority. Detached Bash and Pyrun runners directly finalize
+  creates exactly one running agent under the runner's exact process identity, then activates its runtime-mailbox
+  control and terminal-finalize authority. Activation persistence failure kills the runner and resolves the row
+  through dead-owner recovery; a runner waiting for activation also exits when the exact supervisor process dies.
+  Detached Bash and Pyrun runners directly finalize
   through the coordinator using their in-memory identity, outcome, and output metadata.
   The output file is a diagnostic artifact, not terminal lifecycle proof. Status attachment, cancellation,
   bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a runner dies
@@ -132,8 +134,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   persisted process identity; it does not replay output or reconstruct a terminal result. Coordinator
   cancellation and its durable store/transport rows commit in one SQLite transaction; transport insertion
   failure rolls the lifecycle mutation back. A live runner retries the same terminal input only for SQLite
-  busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly. AgentSession
-  constructs detached controllers lazily from the current store/session/control-DB binding, so session switches
+  busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
+  Dispatcher runtimes register their abort controller as the single store abort handle, so cancellation aborts
+  their signal once and waits for normal exit acknowledgement. AgentSession constructs detached controllers
+  lazily from the current store/session/control-DB binding, so session switches
   cannot retain an old session path.
 
   Detached runner ownership is direct and in-memory. A live runner submits its terminal outcome once

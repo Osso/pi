@@ -104,6 +104,11 @@
 
 ### Fixed
 
+- Fixed lifecycle ownership for one agent authorizing mutations on another agent owned by the same supervisor process; coordinator commands now bind ownership to agent ID and session path.
+- Fixed dead-owner recovery terminalizing a parent while descendants remained active, and fixed zombie processes blocking exact-owner recovery before parent reaping.
+- Fixed dispatcher cancellation leaving the dispatcher signal live; dispatcher runtimes now register one abort handle and acknowledge exit through the normal lifecycle path.
+- Fixed Pyrun activation persistence failures and supervisor crashes leaving a live runner permanently waiting after its running row was committed.
+- Expanded lifecycle authority tests to reject direct production repository-writer calls outside coordinator and detached-runner authority modules.
 - Fixed pending steering being overwritten when a child dispatcher attempted to become `waiting_for_input`; SQLite now rejects idle/natural-completion commits from `steering_pending`, so delivery must return the agent to `running` before it can become idle or terminal.
 - Fixed terminal completion delivery to use the committed agent row and exact owner identity; detached finalization now passes in-memory outcome and output metadata, while output artifacts remain diagnostic.
 - Fixed dead-owner recovery and attached-runtime takeover trusting coordinator-supplied session identity alone; repository transactions now require a live registered main listener with the same supervisor session, exact process identity, and asserted session path.

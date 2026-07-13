@@ -77,8 +77,8 @@ Dispatch and graph invariants:
   startup row exists. Parent links cannot self-reference or form cycles.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. A parent remains nonterminal until every
-  descendant is terminal or has been resolved as `failed` with `lost_runtime`; no terminal parent may
-  coexist with a nonterminal descendant.
+  descendant is terminal or has been resolved as `failed` with `lost_runtime`; normal completion and
+  dead-owner recovery both reject a terminal parent while any descendant remains nonterminal.
 
 Race precedence is deterministic and based on coordinator commit order, not callback order, PID,
 wall-clock time, or mailbox delivery:
@@ -88,8 +88,10 @@ wall-clock time, or mailbox delivery:
 2. An accepted cancellation request wins over a later natural-completion attempt and moves the agent
    to `cancelling`. Only an exit acknowledgement from the exact owner process identity may then
    produce `aborted`.
-3. Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
-   Recovery is authorized only after that exact process identity is gone; PID reuse does not match.
+3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
+   Ownership for one agent cannot authorize another agent even under the same supervisor process. Recovery is
+   authorized only after that exact process identity is gone; PID reuse does not match, and zombie/exited states
+   are dead before parent reaping.
 4. Any late finalizer, exit acknowledgement, or outbox write from a different process identity fails
    the ownership predicate and cannot rewrite the agent row or notification identity.
 
