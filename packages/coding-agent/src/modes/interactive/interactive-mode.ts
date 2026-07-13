@@ -4157,6 +4157,21 @@ export class InteractiveMode {
 				break;
 			}
 
+			case "provider_stream_retry": {
+				const retry = event.retry;
+				const attempts =
+					retry.maxAttempts !== undefined
+						? ` (${retry.attempt}/${retry.maxAttempts})`
+						: ` (attempt ${retry.attempt})`;
+				const delay = retry.delayMs !== undefined ? ` in ${Math.ceil(retry.delayMs / 1000)}s` : "";
+				const action = retry.fallbackTransport
+					? `falling back to ${retry.fallbackTransport.toUpperCase()}`
+					: `provider retry${attempts}${delay}`;
+				this.chatContainer.addChild(new Text(theme.fg("warning", `${action}: ${retry.reason}`), 1, 0));
+				this.ui.requestRender();
+				break;
+			}
+
 			case "auto_retry_end": {
 				// Restore escape handler
 				if (this.retryEscapeHandler) {

@@ -28,7 +28,14 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@earendil-works/pi-ai/compat";
+import type {
+	AssistantMessage,
+	ImageContent,
+	Message,
+	Model,
+	ProviderRetryEvent,
+	TextContent,
+} from "@earendil-works/pi-ai/compat";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -271,7 +278,9 @@ export type AgentSessionEvent =
 			errorMessage?: string;
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
+	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	/** Provider-internal retry or transport fallback inside a single stream request. */
+	| { type: "provider_stream_retry"; retry: ProviderRetryEvent };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -4482,6 +4491,11 @@ export class AgentSession {
 	 */
 	abortRetry(): void {
 		this._retryAbortController?.abort();
+	}
+
+	/** Surface a provider-internal retry or transport fallback as a session event. */
+	notifyProviderRetry(retry: ProviderRetryEvent): void {
+		this._emit({ type: "provider_stream_retry", retry });
 	}
 
 	/** Whether auto-retry is currently in progress */

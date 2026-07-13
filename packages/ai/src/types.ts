@@ -106,6 +106,23 @@ export interface ProviderResponse {
 	headers: Record<string, string>;
 }
 
+/**
+ * Details for a provider-internal retry or transport fallback that is about
+ * to run inside a single logical stream request.
+ */
+export interface ProviderRetryEvent {
+	/** Retry attempt number that is about to run (1-based). */
+	attempt: number;
+	/** Total attempts including the initial one, when known. */
+	maxAttempts?: number;
+	/** Delay before the retry starts, in milliseconds. */
+	delayMs?: number;
+	/** Human-readable cause of the retry. */
+	reason: string;
+	/** Transport the retry will use when it differs from the failed transport. */
+	fallbackTransport?: Transport;
+}
+
 export interface StreamOptions {
 	temperature?: number;
 	maxTokens?: number;
@@ -137,6 +154,11 @@ export interface StreamOptions {
 	 * its body stream is consumed.
 	 */
 	onResponse?: (response: ProviderResponse, model: Model<Api>) => void | Promise<void>;
+	/**
+	 * Optional callback invoked when the provider retries a request internally
+	 * or falls back to another transport, before the retry attempt starts.
+	 */
+	onRetry?: (event: ProviderRetryEvent, model: Model<Api>) => void;
 	/**
 	 * Optional custom HTTP headers to include in API requests.
 	 * Merged with provider defaults; caller values override default headers.

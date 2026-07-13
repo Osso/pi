@@ -311,6 +311,10 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						const connectionLimitBeforeStart = !websocketStarted && isWebSocketConnectionLimitReachedError(error);
 						if (!aborted && connectionLimitBeforeStart && !retriedWebSocketConnectionLimit) {
 							retriedWebSocketConnectionLimit = true;
+							options?.onRetry?.(
+								{ attempt: 1, reason: "WebSocket connection limit reached, reconnecting" },
+								model,
+							);
 							continue;
 						}
 						if (aborted || (isCodexNonTransportError(error) && !connectionLimitBeforeStart)) {
@@ -331,6 +335,14 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							throw error;
 						}
 						recordWebSocketSseFallback(options?.sessionId);
+						options?.onRetry?.(
+							{
+								attempt: 1,
+								reason: error instanceof Error ? error.message : String(error),
+								fallbackTransport: "sse",
+							},
+							model,
+						);
 						break;
 					}
 				}
@@ -393,6 +405,15 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 									? capRetryDelayMs(retryAfterDelayMs, options)
 									: retryAfterDelayMs;
 
+						options?.onRetry?.(
+							{
+								attempt: attempt + 1,
+								maxAttempts: maxRetries + 1,
+								delayMs,
+								reason: `HTTP ${response.status}`,
+							},
+							model,
+						);
 						await sleep(delayMs, options?.signal);
 						continue;
 					}
@@ -414,6 +435,10 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					// Network errors are retryable
 					if (attempt < maxRetries && !lastError.message.includes("usage limit")) {
 						const delayMs = BASE_DELAY_MS * 2 ** attempt;
+						options?.onRetry?.(
+							{ attempt: attempt + 1, maxAttempts: maxRetries + 1, delayMs, reason: lastError.message },
+							model,
+						);
 						await sleep(delayMs, options?.signal);
 						continue;
 					}

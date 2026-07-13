@@ -52,6 +52,21 @@ describe("AgentSession retry and event characterization", () => {
 		expect(harness.session.isRetrying).toBe(false);
 	});
 
+	it("emits provider_stream_retry when the provider reports an internal retry", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const events: Array<{ attempt: number; reason: string }> = [];
+		harness.session.subscribe((event) => {
+			if (event.type === "provider_stream_retry") {
+				events.push({ attempt: event.retry.attempt, reason: event.retry.reason });
+			}
+		});
+
+		harness.session.notifyProviderRetry({ attempt: 2, maxAttempts: 3, delayMs: 1000, reason: "HTTP 429" });
+
+		expect(events).toEqual([{ attempt: 2, reason: "HTTP 429" }]);
+	});
+
 	it("retries multiple transient failures and succeeds on the final attempt", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
 		harnesses.push(harness);

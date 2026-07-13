@@ -322,6 +322,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	};
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
+	const sessionRef: { current?: AgentSession } = {};
 
 	agent = new Agent({
 		initialState: {
@@ -380,6 +381,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				headers: response.headers,
 			});
 		},
+		onRetry: (event, _model) => {
+			sessionRef.current?.notifyProviderRetry(event);
+		},
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages) => {
 			const runner = extensionRunnerRef.current;
@@ -431,6 +435,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});
+	sessionRef.current = session;
 	const extensionsResult = resourceLoader.getExtensions();
 
 	return {

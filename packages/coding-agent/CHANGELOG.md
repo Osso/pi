@@ -11,6 +11,7 @@
 
 ### Added
 
+- Added visible provider-internal retry and transport-fallback notices: a new `provider_stream_retry` session event is emitted when the provider retries a request or falls back to another transport, and interactive mode renders the attempt count, delay, and reason instead of an unchanged `Thinking...` spinner.
 - Added a disposable real-process headless Pi test fixture built on RPC mode, with isolated state, typed raw commands, private faux-provider response control, persisted agent/mailbox waiters, and automatic cleanup; `RpcClient.send()`, `RpcCommandBody`, and `RpcClientOptions.nodeArgs` are now public for raw commands and preload instrumentation.
 - Added completed `Thought for <duration>` rows between consecutive tool calls so model-turn latency remains visible after the next tool starts.
 - Added `ctx.toolExecutionStartedAt` for extension tools that need the shared agent lifecycle start timestamp when work continues outside the foreground promise.

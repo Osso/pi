@@ -8,6 +8,7 @@
 
 ### Added
 
+- Added an `onRetry` agent option forwarded to the stream function, mirroring `onPayload`/`onResponse`, so hosts can observe provider-internal retries.
 - Added optional tool execution context carrying the same `startedAt` timestamp emitted by tool lifecycle events.
 
 ### Fixed
