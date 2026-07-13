@@ -131,8 +131,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   before its terminal commit, the owning supervisor marks the agent `failed/lost_runtime` from the exact
   persisted process identity; it does not replay output or reconstruct a terminal result. Coordinator
   cancellation and its durable store/transport rows commit in one SQLite transaction; transport insertion
-  failure rolls the lifecycle mutation back. AgentSession constructs detached controllers lazily from the
-  current store/session/control-DB binding, so session switches cannot retain an old session path.
+  failure rolls the lifecycle mutation back. A live runner retries the same terminal input only for SQLite
+  busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly. AgentSession
+  constructs detached controllers lazily from the current store/session/control-DB binding, so session switches
+  cannot retain an old session path.
 
   Detached runner ownership is direct and in-memory. A live runner submits its terminal outcome once
   from the exact identity it holds; a duplicate exact submission is idempotent. If the runner dies before

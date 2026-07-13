@@ -125,6 +125,40 @@ describe("detached Bash runner", () => {
 		expect(readFileSync(artifacts.outputPath, "utf8")).toContain("independent");
 	});
 
+	it("does not retry non-database terminal finalization failures", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-non-db-failure-"));
+		temporaryDirectories.push(root);
+		const outputPath = join(root, "output.log");
+		writeFileSync(outputPath, "done", { mode: 0o600 });
+		const terminal = createDetachedJobTerminalInput(
+			{ directory: root, outputPath },
+			{
+				jobId: "job-1",
+				owner: { agentId: null, sessionId: "runner" },
+				outputLabel: "Bash output",
+				processIdentity: testProcessIdentity("retry"),
+			},
+			{ kind: "completed", summary: "done" },
+			"2026-07-11T22:00:00.000Z",
+		);
+		let attempts = 0;
+
+		await expect(
+			Promise.race([
+				finalizeDetachedJobWithRetry(
+					terminal,
+					() => {
+						attempts += 1;
+						throw new Error("invalid terminal payload");
+					},
+					{ retryDelayMs: 1 },
+				),
+				new Promise((_, reject) => setTimeout(() => reject(new Error("finalizer kept retrying")), 20)),
+			]),
+		).rejects.toThrow("invalid terminal payload");
+		expect(attempts).toBe(1);
+	});
+
 	it("retries the same terminal input after transient database failures", async () => {
 		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-retry-"));
 		temporaryDirectories.push(root);
@@ -141,19 +175,25 @@ describe("detached Bash runner", () => {
 			{ kind: "completed", summary: "done" },
 			"2026-07-11T22:00:00.000Z",
 		);
-		const attempts: (typeof terminal)[] = [];
-		const result = await finalizeDetachedJobWithRetry(
-			terminal,
-			(terminalInput) => {
-				attempts.push(terminalInput);
-				if (attempts.length < 3) throw new Error("database unavailable");
-				return { ok: true, terminalRevision: 8 };
-			},
-			{ retryDelayMs: 0, sleep: async () => undefined },
-		);
+		const transientErrors = [
+			Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY", errno: 5 }),
+			Object.assign(new Error("database is locked"), { code: "ERR_SQLITE_ERROR", errcode: 5 }),
+		];
+		for (const transientError of transientErrors) {
+			const attempts: (typeof terminal)[] = [];
+			const result = await finalizeDetachedJobWithRetry(
+				terminal,
+				(terminalInput) => {
+					attempts.push(terminalInput);
+					if (attempts.length < 3) throw transientError;
+					return { ok: true, terminalRevision: 8 };
+				},
+				{ retryDelayMs: 0, sleep: async () => undefined },
+			);
 
-		expect(result).toEqual({ ok: true, terminalRevision: 8 });
-		expect(attempts).toEqual([terminal, terminal, terminal]);
+			expect(result).toEqual({ ok: true, terminalRevision: 8 });
+			expect(attempts).toEqual([terminal, terminal, terminal]);
+		}
 	});
 });
 

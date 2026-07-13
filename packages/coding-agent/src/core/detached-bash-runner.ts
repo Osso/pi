@@ -188,10 +188,19 @@ export async function finalizeDetachedJobWithRetry<T>(
 	for (;;) {
 		try {
 			return finalize(terminal);
-		} catch {
+		} catch (error) {
+			if (!isRetryableSqliteError(error)) throw error;
 			await sleep(retryDelayMs);
 		}
 	}
+}
+
+function isRetryableSqliteError(error: unknown): boolean {
+	if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") return false;
+	if (error.code === "SQLITE_BUSY" || error.code.startsWith("SQLITE_BUSY_")) return true;
+	if (error.code === "SQLITE_LOCKED" || error.code.startsWith("SQLITE_LOCKED_")) return true;
+	if (error.code !== "ERR_SQLITE_ERROR" || !("errcode" in error)) return false;
+	return error.errcode === 5 || error.errcode === 6;
 }
 
 function defaultRunnerEntryPath(): string {

@@ -59,6 +59,7 @@
 
 ### Changed
 
+- Detached runner terminal commits now retry only SQLite busy/locked contention across Node and Bun; disk-full, readonly, I/O, path, programming, and validation failures surface immediately.
 - Pyrun evaluations now remain foreground executions without multi-agent rows until manual or automatic detachment; detachment creates exactly one durable runner-owned agent while preserving foreground progress and Pi bridge requests.
 - Removed global multi-agent recovery leadership; each session has one supervisor owner, and dead-process recovery uses the exact persisted `(pid, startTimeTicks)` identity without cross-session contention.
 - Persisted session agents now use the same recovery and shutdown behavior regardless of whether `spawn_agent` created a new session or `attach_session_agent` selected an existing session; origin remains construction provenance only.
