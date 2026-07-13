@@ -559,6 +559,44 @@ function validateMultiAgentRuntimeRole(config: AgentSessionConfig): void {
 // AgentSession Class
 // ============================================================================
 
+/**
+ * Custom session-entry type recording the terminal outcome of a detached tool
+ * call (e.g. a Pyrun/Bash job that was moved to the background). The original
+ * tool_result is immutable at "detached", so this entry carries the eventual
+ * outcome keyed by the originating toolCallId for correlation in the transcript.
+ */
+export const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE = "detached_tool_call_completion";
+
+export interface DetachedToolCallCompletionEntryData {
+	toolCallId: string;
+	agentId: string;
+	lifecycle: "completed" | "failed" | "aborted";
+	summary?: string;
+	error?: string;
+}
+
+/**
+ * Builds the transcript entry data for a detached tool call's terminal outcome,
+ * or undefined when the agent is not a terminal detached tool-call job (no
+ * originating toolCallId on its worker, or still active).
+ */
+export function buildDetachedToolCallCompletionEntry(
+	agent: AgentSnapshot | undefined,
+): DetachedToolCallCompletionEntryData | undefined {
+	const toolCallId = agent?.worker?.toolCallId;
+	if (!agent || !toolCallId) return undefined;
+	if (agent.lifecycle !== "completed" && agent.lifecycle !== "failed" && agent.lifecycle !== "aborted") {
+		return undefined;
+	}
+	return {
+		agentId: agent.id,
+		lifecycle: agent.lifecycle,
+		toolCallId,
+		...(agent.result?.summary === undefined ? {} : { summary: agent.result.summary }),
+		...(agent.error?.message === undefined ? {} : { error: agent.error.message }),
+	};
+}
+
 export class AgentSession {
 	readonly agent: Agent;
 	readonly sessionManager: SessionManager;
@@ -654,6 +692,10 @@ export class AgentSession {
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
 	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
+	private readonly _runtimeInstanceId = JSON.stringify({
+		...this._detachedJobProcessIdentity,
+		incarnation: randomUUID(),
+	});
 	private readonly _terminalOutboxClaimId = randomUUID();
 	private _multiAgentAgentId: string | undefined;
 	private readonly _multiAgentActiveTools = new Map<
@@ -1921,6 +1963,11 @@ export class AgentSession {
 		return this.sessionManager.getSessionId();
 	}
 
+	/** Exact runtime incarnation registered for this session's mailbox listener. */
+	get runtimeInstanceId(): string {
+		return this._runtimeInstanceId;
+	}
+
 	/** Current session display name, if set */
 	get sessionName(): string | undefined {
 		return this.sessionManager.getSessionName();
@@ -2643,6 +2690,7 @@ export class AgentSession {
 				throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
 			}
 			this._markStoreMailboxMessageDelivered(message);
+			this._recordDetachedToolCallCompletion(message);
 			if (triggerIfIdle && !this.isStreaming) this._completeRuntimeMailboxSteeringTurn(this.messages);
 			return !triggerIfIdle;
 		} catch (error) {
@@ -2682,6 +2730,18 @@ export class AgentSession {
 			return;
 		}
 		await this._queueFollowUp(prompt);
+	}
+
+	/**
+	 * Records a durable transcript entry when a detached tool call's job agent
+	 * reaches a terminal state, correlating the outcome back to the originating
+	 * toolCallId (the immutable tool_result only ever says "detached").
+	 */
+	private _recordDetachedToolCallCompletion(message: RuntimeMailboxMessage): void {
+		const senderId = message.sender.agentId;
+		if (!this._multiAgentStore || !senderId) return;
+		const data = buildDetachedToolCallCompletionEntry(this._multiAgentStore.getAgent(senderId));
+		if (data) this.sessionManager.appendCustomEntry(DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE, data);
 	}
 
 	private async _interceptRuntimeMailboxMessage(
@@ -2903,7 +2963,9 @@ export class AgentSession {
 
 	private _registerRuntimeMailboxListeners(controlDbPath: string, agentId: string | null): void {
 		if (agentId) {
-			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
+			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid, undefined, {
+				runtimeInstanceId: this._runtimeInstanceId,
+			});
 			return;
 		}
 		registerRuntimeMailboxListener(
@@ -2911,6 +2973,7 @@ export class AgentSession {
 			{ agentId: null, sessionId: this.sessionId },
 			process.pid,
 			this.sessionFile,
+			{ runtimeInstanceId: this._runtimeInstanceId },
 		);
 	}
 
@@ -4162,6 +4225,7 @@ export class AgentSession {
 					return this._extensionCommandContextActions.restart(options);
 				},
 				getControlDbPath: () => this._getRuntimeMailboxControlDbPath(),
+				getRuntimeInstanceId: () => this._runtimeInstanceId,
 				getContextUsage: () => this.getContextUsage(),
 				getMultiAgentAgentId: () => this._multiAgentAgentId,
 				getMultiAgentParentSessionId: () => this._multiAgentParentSessionId,

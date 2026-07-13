@@ -140,6 +140,37 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("resumes a spawned agent that was thinking when its supervisor process died", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Delegate work, then wait" });
+			const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				mainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("spawn_agent", {
+						displayName: "Interrupted reviewer",
+						prompt: "Review until the supervisor restarts",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Interrupted reviewer");
+			const interruptedRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
+
+			await agent.crash();
+			await agent.restart();
+
+			const restoredRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === spawned.id && request.id !== interruptedRequest.id,
+			);
+			expect(restoredRequest.userMessages).toContainEqual(expect.stringContaining("Continue the conversation"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Recovered review complete"));
+			await expect(
+				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
+			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
+		});
+	});
+
 	it("continues post-tool model thinking after restoring the session JSONL", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Run the command, then summarize it" });

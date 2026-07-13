@@ -333,6 +333,7 @@ export class ExtensionRunner {
 	private reloadHandler: ReloadHandler = async () => {};
 	private shutdownHandler: ShutdownHandler = () => {};
 	private getControlDbPathFn: () => string | undefined = () => undefined;
+	private getRuntimeInstanceIdFn: () => string = () => "";
 	private shortcutDiagnostics: ResourceDiagnostic[] = [];
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
@@ -393,6 +394,7 @@ export class ExtensionRunner {
 		this.shutdownHandler = contextActions.shutdown;
 		this.restartFn = contextActions.restart;
 		this.getControlDbPathFn = contextActions.getControlDbPath ?? (() => undefined);
+		this.getRuntimeInstanceIdFn = contextActions.getRuntimeInstanceId;
 		this.getContextUsageFn = contextActions.getContextUsage;
 		this.getScopedModelsFn = contextActions.getScopedModels ?? (() => []);
 		this.getMultiAgentAgentIdFn = contextActions.getMultiAgentAgentId ?? (() => undefined);
@@ -743,6 +745,10 @@ export class ExtensionRunner {
 			get controlDbPath() {
 				runner.assertActive();
 				return runner.getControlDbPathFn();
+			},
+			get runtimeInstanceId() {
+				runner.assertActive();
+				return runner.getRuntimeInstanceIdFn();
 			},
 			get multiAgentAgentId() {
 				runner.assertActive();

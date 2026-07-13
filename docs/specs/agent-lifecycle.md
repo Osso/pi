@@ -160,7 +160,7 @@ folder from reading stale manifests or output belonging to another supervisor.
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] After a runtime registers its current mailbox listener, the one registered supervisor binding for that
-      session path reconciles its orphaned active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot strand an earlier parent row. Runtime ownership
+      session path reconciles its orphaned active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot strand an earlier parent row. Supervisor authorization requires the exact registered runtime incarnation; a stale same-PID generation fails closed. Agent runtime ownership
       stores the exact `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no
       global recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session
       relocation moves the assertion, runtime ownership, pending terminal outbox, and runtime transport references transactionally with the store; detached finalization resolves the relocated row by exact agent/process ownership rather than a stale runner path. Verified administrative restart may
@@ -206,12 +206,13 @@ folder from reading stale manifests or output belonging to another supervisor.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/lifecycle-coordinator.test.ts` and repository tests — transition rules,
-  exact process ownership, terminal-row immutability, recovery, and race precedence.
+- `packages/coding-agent/test/lifecycle-coordinator.test.ts` and
+  `packages/coding-agent/test/session-control-db.test.ts` — transition rules, exact process/runtime-incarnation ownership, terminal-row immutability, recovery, and race precedence.
 - `packages/coding-agent/test/multi-agent-store.test.ts` — projection, metadata, and restore behavior.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — dispatch transitions, recovery
   gating, shutdown behavior, cancel/steer tool paths.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — steering/mailbox-driven transitions.
+- `packages/coding-agent/test/suite/headless-pi.test.ts` — real-process supervisor death and exact-session spawned-agent recovery.
 
 ## Known gaps (current cycle)
 

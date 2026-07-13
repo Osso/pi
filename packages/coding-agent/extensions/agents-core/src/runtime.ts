@@ -879,7 +879,10 @@ function truncateText(text: string): { truncated: boolean; value: string } {
 	return { truncated: true, value: text.slice(0, MESSAGE_CONTENT_LIMIT) };
 }
 
-function createLifecycleCoordinator(store: MultiAgentStore): LifecycleCoordinator | undefined {
+function createLifecycleCoordinator(
+	store: MultiAgentStore,
+	supervisorRuntimeInstanceId?: string,
+): LifecycleCoordinator | undefined {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return undefined;
 	return new LifecycleCoordinator({
@@ -888,6 +891,7 @@ function createLifecycleCoordinator(store: MultiAgentStore): LifecycleCoordinato
 		now: () => new Date().toISOString(),
 		processIdentity: RUNTIME_PROCESS_IDENTITY,
 		sessionPath: persistence.sessionPath,
+		supervisorRuntimeInstanceId,
 	});
 }
 
@@ -1199,7 +1203,7 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 }
 
 function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRuntime | undefined {
-	const coordinator = createLifecycleCoordinator(input.store);
+	const coordinator = createLifecycleCoordinator(input.store, input.ctx.runtimeInstanceId);
 	if (!coordinator) return undefined;
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return undefined;
@@ -1258,7 +1262,7 @@ function resolveDeadAgentRuntime(
 ): void {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return;
-	const coordinator = createLifecycleCoordinator(input.store);
+	const coordinator = createLifecycleCoordinator(input.store, input.ctx.runtimeInstanceId);
 	if (!coordinator) return;
 	const deadOwnership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
 	if (!deadOwnership) return;

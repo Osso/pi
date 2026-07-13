@@ -10,6 +10,7 @@ import {
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	registerRuntimeMailboxListener,
+	retireRuntimeMailboxListener,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
@@ -20,13 +21,14 @@ function createCoordinator(
 	sessionPath: string,
 	now: () => string = () => "2026-07-11T20:00:00.000Z",
 	createAgentId: () => string = () => "agent-child",
+	runtimeInstanceId = JSON.stringify({ ...CURRENT_PROCESS_IDENTITY, incarnation: "test-runtime" }),
 ): LifecycleCoordinator {
 	registerRuntimeMailboxListener(
 		controlDbPath,
 		{ agentId: null, sessionId: "supervisor-session" },
 		CURRENT_PROCESS_IDENTITY.pid,
 		sessionPath,
-		{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
+		{ runtimeInstanceId },
 	);
 	return new LifecycleCoordinator({
 		controlDbPath,
@@ -34,6 +36,7 @@ function createCoordinator(
 		now,
 		processIdentity: CURRENT_PROCESS_IDENTITY,
 		sessionPath,
+		supervisorRuntimeInstanceId: runtimeInstanceId,
 	});
 }
 
@@ -105,6 +108,142 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(coordinator.acquireAttachedRuntime(result.agent, "other-session")).toEqual({
 			ok: false,
 			error: "mutation_mismatch",
+		});
+	});
+
+	it("rejects attached recovery when the registered runtime identity has no incarnation", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const missingIncarnationId = JSON.stringify(CURRENT_PROCESS_IDENTITY);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor-session" },
+			CURRENT_PROCESS_IDENTITY.pid,
+			sessionPath,
+			{ runtimeInstanceId: missingIncarnationId },
+		);
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
+			agentType: "resumed-session",
+			createdAt: "2026-07-11T19:00:00.000Z",
+			cwd: "/tmp/worktree",
+			displayName: "Attached",
+			id: "attached-1",
+			lifecycle: "running",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T19:00:00.000Z",
+		});
+		const agent = readMultiAgentAgent(controlDbPath, sessionPath, "attached-1");
+		if (!agent) throw new Error("Expected attached test agent");
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => "unused",
+			now: () => "2026-07-11T20:00:01.000Z",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+			supervisorRuntimeInstanceId: missingIncarnationId,
+		});
+
+		expect(coordinator.acquireAttachedRuntime(agent, "supervisor-session")).toEqual({
+			error: "mutation_mismatch",
+			ok: false,
+		});
+	});
+
+	it("rejects attached recovery from the same process under the wrong runtime incarnation", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const runtimeInstanceId = JSON.stringify({ ...CURRENT_PROCESS_IDENTITY, incarnation: "current" });
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
+			agentType: "resumed-session",
+			createdAt: "2026-07-11T19:00:00.000Z",
+			cwd: "/tmp/worktree",
+			displayName: "Attached",
+			id: "attached-1",
+			lifecycle: "running",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T19:00:00.000Z",
+		});
+		createCoordinator(controlDbPath, sessionPath, undefined, undefined, runtimeInstanceId);
+		const agent = readMultiAgentAgent(controlDbPath, sessionPath, "attached-1");
+		if (!agent) throw new Error("Expected attached test agent");
+		const staleCoordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => "unused",
+			now: () => "2026-07-11T20:00:01.000Z",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+			supervisorRuntimeInstanceId: JSON.stringify({ ...CURRENT_PROCESS_IDENTITY, incarnation: "stale" }),
+		});
+
+		expect(staleCoordinator.acquireAttachedRuntime(agent, "supervisor-session")).toEqual({
+			error: "mutation_mismatch",
+			ok: false,
+		});
+	});
+
+	it("rotates same-process recovery authority to the newly registered incarnation exactly once", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const oldRuntimeInstanceId = JSON.stringify({ ...CURRENT_PROCESS_IDENTITY, incarnation: "old" });
+		const newRuntimeInstanceId = JSON.stringify({ ...CURRENT_PROCESS_IDENTITY, incarnation: "new" });
+		const oldCoordinator = createCoordinator(controlDbPath, sessionPath, undefined, undefined, oldRuntimeInstanceId);
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "attached-1", {
+			agentType: "resumed-session",
+			createdAt: "2026-07-11T19:00:00.000Z",
+			cwd: "/tmp/worktree",
+			displayName: "Attached",
+			id: "attached-1",
+			lifecycle: "running",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 4,
+			updatedAt: "2026-07-11T19:00:00.000Z",
+		});
+		retireRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor-session" },
+			CURRENT_PROCESS_IDENTITY.pid,
+		);
+		const newCoordinator = createCoordinator(controlDbPath, sessionPath, undefined, undefined, newRuntimeInstanceId);
+		const agent = readMultiAgentAgent(controlDbPath, sessionPath, "attached-1");
+		if (!agent) throw new Error("Expected attached test agent");
+
+		expect(oldCoordinator.acquireAttachedRuntime(agent, "supervisor-session")).toEqual({
+			error: "mutation_mismatch",
+			ok: false,
+		});
+		const acquired = newCoordinator.acquireAttachedRuntime(agent, "supervisor-session");
+		expect(acquired).toMatchObject({ agent: { revision: 5 }, ok: true });
+		if (!acquired.ok) throw new Error("Expected new runtime acquisition");
+		expect(newCoordinator.acquireAttachedRuntime(acquired.agent, "supervisor-session")).toMatchObject({
+			agent: { revision: 5 },
+			ok: true,
+		});
+	});
+
+	it("rejects detached runtime agents from attached-session acquisition", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "detached-1", {
+			agentType: "background",
+			createdAt: "2026-07-11T19:00:00.000Z",
+			cwd: "/tmp/worktree",
+			displayName: "Detached Bash",
+			id: "detached-1",
+			lifecycle: "running",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T19:00:00.000Z",
+			worker: { adapter: "runtime" },
+		});
+		const agent = readMultiAgentAgent(controlDbPath, sessionPath, "detached-1");
+		if (!agent) throw new Error("Expected detached test agent");
+
+		expect(coordinator.acquireAttachedRuntime(agent, "supervisor-session")).toEqual({
+			error: "invalid_agent",
+			ok: false,
 		});
 	});
 

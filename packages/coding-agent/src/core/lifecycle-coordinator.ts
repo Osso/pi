@@ -22,6 +22,7 @@ export interface LifecycleCoordinatorOptions {
 	now: () => string;
 	processIdentity: ProcessIdentity;
 	sessionPath: string;
+	supervisorRuntimeInstanceId?: string;
 }
 
 export interface PrepareChildCommandInput extends SpawnAgentInput {
@@ -118,6 +119,8 @@ export class LifecycleCoordinator {
 	}
 
 	acquireAttachedRuntime(agent: AgentSnapshot, ownerSessionId: string): AcquireAttachedRuntimeCommandResult {
+		const runtimeInstanceId = this.options.supervisorRuntimeInstanceId;
+		if (!runtimeInstanceId) return { ok: false, error: "mutation_mismatch" };
 		const nowIso = this.options.now();
 		const result = acquireAttachedRuntimeOwnership(this.options.controlDbPath, {
 			agentId: agent.id,
@@ -125,7 +128,7 @@ export class LifecycleCoordinator {
 			owner: { agentId: null, sessionId: ownerSessionId },
 			processIdentity: this.options.processIdentity,
 			sessionPath: this.options.sessionPath,
-			supervisor: { processIdentity: this.options.processIdentity, sessionId: ownerSessionId },
+			supervisor: { processIdentity: this.options.processIdentity, runtimeInstanceId, sessionId: ownerSessionId },
 		});
 		if (!result.ok) return result;
 		return { agent: result.agent, ok: true, ownership: result.ownership };
@@ -194,6 +197,8 @@ export class LifecycleCoordinator {
 	}
 
 	recoverDeadChild(input: RecoverDeadChildCommandInput): RecoverDeadChildCommandResult {
+		const runtimeInstanceId = this.options.supervisorRuntimeInstanceId;
+		if (!runtimeInstanceId) return { ok: false, error: "mutation_mismatch" };
 		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, false);
 		if (
 			!identity ||
@@ -207,7 +212,11 @@ export class LifecycleCoordinator {
 		const recovered = recoverDeadMultiAgentRuntime(this.options.controlDbPath, {
 			expectedOwner: identity,
 			nowIso,
-			supervisor: { processIdentity: this.options.processIdentity, sessionId: input.ownerSessionId },
+			supervisor: {
+				processIdentity: this.options.processIdentity,
+				runtimeInstanceId,
+				sessionId: input.ownerSessionId,
+			},
 		});
 		if (!recovered.ok) return recovered;
 		return { ok: true, agent: recovered.agent as unknown as AgentSnapshot };

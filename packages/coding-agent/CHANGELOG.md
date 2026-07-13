@@ -110,6 +110,7 @@
 
 ### Fixed
 
+- Fixed supervisor restarts leaving spawned agents stuck `running`: mailbox registration and lifecycle recovery now share the exact runtime incarnation, so stale same-PID generations fail closed while the current generation resumes the child.
 - Fixed detached Pyrun cleanup leaving an orphaned `pyrun-jsonl` process by keeping the inner runner in its durable wrapper's process group.
 - Fixed interactive Escape cancellation of a detached Bash/Pyrun agent always failing with `runtime_ownership_unavailable`; the persisted-detached cancel path no longer requires an `ExtensionContext` (which the lifecycle coordinator never used), so cancellation reaches the durable runner and settles.
 - Fixed restored RPC and interactive sessions leaving interrupted post-tool model turns idle; session startup now continues from existing JSONL, and agent-loop continuation resumes a trailing unfinished tool call before requesting the model.
