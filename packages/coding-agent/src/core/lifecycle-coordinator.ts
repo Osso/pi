@@ -174,10 +174,15 @@ export class LifecycleCoordinator {
 	}
 
 	requestDetachedCancellation(input: DetachedCancellationCommandInput): LifecycleCommandResult {
-		return this.commitReservedLifecycle(input, "cancelling", {
-			outputLabel: input.outputLabel,
-			reason: input.reason,
-		}, false);
+		return this.commitReservedLifecycle(
+			input,
+			"cancelling",
+			{
+				outputLabel: input.outputLabel,
+				reason: input.reason,
+			},
+			false,
+		);
 	}
 
 	acknowledgeCancellation(input: OwnedLifecycleCommandInput & { reason?: string }): LifecycleCommandResult {
@@ -216,7 +221,10 @@ export class LifecycleCoordinator {
 		return this.finalizeOwnedChild(input, false);
 	}
 
-	private finalizeOwnedChild(input: FinalizeChildCommandInput, requireCurrentProcess: boolean): LifecycleCommandResult {
+	private finalizeOwnedChild(
+		input: FinalizeChildCommandInput,
+		requireCurrentProcess: boolean,
+	): LifecycleCommandResult {
 		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, requireCurrentProcess);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
