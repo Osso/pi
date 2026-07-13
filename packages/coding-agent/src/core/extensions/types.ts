@@ -335,8 +335,6 @@ export interface ExtensionContext {
 	settingsManager?: SettingsManager;
 	/** Global control DB path for session metadata, when available. */
 	controlDbPath?: string;
-	/** @internal Exact runtime incarnation registered for lifecycle authorization. */
-	runtimeInstanceId: string;
 	/** Current multi-agent runtime agent identity, when this session is running as a child agent. */
 	multiAgentAgentId?: string;
 	/** Parent runtime session ID for supervisor-directed messages from attached agents. */
@@ -1770,7 +1768,6 @@ export interface ExtensionContextActions {
 	shutdown: () => void;
 	restart: (options?: { notice?: string; process?: boolean }) => Promise<void>;
 	getControlDbPath?: () => string | undefined;
-	getRuntimeInstanceId: () => string;
 	getContextUsage: () => ContextUsage | undefined;
 	getMultiAgentAgentId?: () => string | undefined;
 	getMultiAgentParentSessionId?: () => string | undefined;

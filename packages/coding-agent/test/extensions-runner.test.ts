@@ -78,7 +78,6 @@ describe("ExtensionRunner", () => {
 
 	const extensionContextActions: ExtensionContextActions = {
 		getModel: () => undefined,
-		getRuntimeInstanceId: () => "test-runtime-instance",
 		isIdle: () => true,
 		isProjectTrusted: () => true,
 		getSignal: () => undefined,

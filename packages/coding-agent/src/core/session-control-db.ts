@@ -2220,7 +2220,6 @@ export interface AcquireMultiAgentRuntimeOwnershipInput extends MultiAgentRuntim
 
 export interface SupervisorRuntimeOwnership {
 	processIdentity: ProcessIdentity;
-	runtimeInstanceId: string;
 	sessionId: string;
 }
 
@@ -3206,9 +3205,7 @@ export function acquireAttachedRuntimeOwnership(
 			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
 			const agent = parseStoredJsonObject(row.data, context);
 			validatePersistedAgentPayload(agent, context);
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle) || isDetachedRuntimeAgentPayload(agent)) {
-				return { ok: false, error: "invalid_agent" };
-			}
+			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
 			const current = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 			if (current?.process_identity) {
 				const currentIdentity = parseProcessIdentity(current.process_identity);
@@ -3243,28 +3240,21 @@ function registeredSupervisorOwnsSession(
 	sessionPath: string,
 	supervisor: SupervisorRuntimeOwnership,
 ): boolean {
-	if (!runtimeInstanceMatchesProcess(supervisor.runtimeInstanceId, supervisor.processIdentity)) return false;
 	if (!isProcessIdentityAlive(supervisor.processIdentity)) return false;
-	return Boolean(
-		db
-			.prepare(
-				`SELECT 1 FROM runtime_mailbox_listeners
-				 WHERE recipient_session_id = ? AND recipient_agent_id_key = ''
-				 AND pid = ? AND runtime_instance_id = ?
-				 AND session_path = ? AND session_path_asserted_at IS NOT NULL`,
-			)
-			.get(supervisor.sessionId, supervisor.processIdentity.pid, supervisor.runtimeInstanceId, sessionPath),
-	);
-}
-
-function runtimeInstanceMatchesProcess(runtimeInstanceId: string, processIdentity: ProcessIdentity): boolean {
+	const listener = db
+		.prepare(
+			`SELECT runtime_instance_id FROM runtime_mailbox_listeners
+			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ''
+			 AND pid = ? AND session_path = ? AND session_path_asserted_at IS NOT NULL`,
+		)
+		.get(supervisor.sessionId, supervisor.processIdentity.pid, sessionPath) as
+		| { runtime_instance_id: string | null }
+		| undefined;
+	if (!listener?.runtime_instance_id) return false;
 	try {
-		const value = JSON.parse(runtimeInstanceId) as Record<string, unknown>;
 		return (
-			value.pid === processIdentity.pid &&
-			value.startTimeTicks === processIdentity.startTimeTicks &&
-			typeof value.incarnation === "string" &&
-			value.incarnation.length > 0
+			serializeProcessIdentity(parseProcessIdentity(listener.runtime_instance_id)) ===
+			serializeProcessIdentity(supervisor.processIdentity)
 		);
 	} catch {
 		return false;
@@ -3275,11 +3265,6 @@ function isRecoverableRuntimeLifecycle(value: unknown): boolean {
 	return (
 		value === "waiting_for_input" || value === "running" || value === "steering_pending" || value === "cancelling"
 	);
-}
-
-function isDetachedRuntimeAgentPayload(agent: Record<string, unknown>): boolean {
-	const worker = agent.worker;
-	return Boolean(worker && typeof worker === "object" && (worker as Record<string, unknown>).adapter === "runtime");
 }
 
 function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRuntimeOwnershipIdentity): void {

@@ -1967,7 +1967,6 @@ export class InteractiveMode {
 			mode: "tui",
 			hasUI: true,
 			cwd: this.sessionManager.getCwd(),
-			runtimeInstanceId: this.session.runtimeInstanceId,
 			sessionManager: this.sessionManager,
 			modelRegistry: this.session.modelRegistry,
 			model: this.session.model,

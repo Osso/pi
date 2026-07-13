@@ -692,10 +692,6 @@ export class AgentSession {
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
 	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
-	private readonly _runtimeInstanceId = JSON.stringify({
-		...this._detachedJobProcessIdentity,
-		incarnation: randomUUID(),
-	});
 	private readonly _terminalOutboxClaimId = randomUUID();
 	private _multiAgentAgentId: string | undefined;
 	private readonly _multiAgentActiveTools = new Map<
@@ -1963,10 +1959,6 @@ export class AgentSession {
 		return this.sessionManager.getSessionId();
 	}
 
-	/** Exact runtime incarnation registered for this session's mailbox listener. */
-	get runtimeInstanceId(): string {
-		return this._runtimeInstanceId;
-	}
 
 	/** Current session display name, if set */
 	get sessionName(): string | undefined {
@@ -2963,9 +2955,7 @@ export class AgentSession {
 
 	private _registerRuntimeMailboxListeners(controlDbPath: string, agentId: string | null): void {
 		if (agentId) {
-			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid, undefined, {
-				runtimeInstanceId: this._runtimeInstanceId,
-			});
+			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
 			return;
 		}
 		registerRuntimeMailboxListener(
@@ -2973,7 +2963,6 @@ export class AgentSession {
 			{ agentId: null, sessionId: this.sessionId },
 			process.pid,
 			this.sessionFile,
-			{ runtimeInstanceId: this._runtimeInstanceId },
 		);
 	}
 
@@ -4225,7 +4214,6 @@ export class AgentSession {
 					return this._extensionCommandContextActions.restart(options);
 				},
 				getControlDbPath: () => this._getRuntimeMailboxControlDbPath(),
-				getRuntimeInstanceId: () => this._runtimeInstanceId,
 				getContextUsage: () => this.getContextUsage(),
 				getMultiAgentAgentId: () => this._multiAgentAgentId,
 				getMultiAgentParentSessionId: () => this._multiAgentParentSessionId,

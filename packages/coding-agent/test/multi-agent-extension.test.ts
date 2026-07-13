@@ -288,12 +288,10 @@ function createMultiAgentHarness(
 		store,
 	});
 
-	const runtimeInstanceId = JSON.stringify({ ...CURRENT_PROCESS_IDENTITY, incarnation: "test-runtime" });
 	const ctx = {
 		cwd: "/repo",
 		hasUI: false,
 		mode: "print",
-		runtimeInstanceId,
 		...options.ctx,
 	} as ExtensionContext;
 	const persistence = store.getPersistenceTarget();
@@ -304,7 +302,7 @@ function createMultiAgentHarness(
 			{ agentId: null, sessionId: supervisorSessionId },
 			CURRENT_PROCESS_IDENTITY.pid,
 			persistence.sessionPath,
-			{ runtimeInstanceId },
+			{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
 		);
 	}
 
