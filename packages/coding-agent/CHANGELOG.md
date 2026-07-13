@@ -11,7 +11,7 @@
 
 ### Added
 
-- Added durable detached Bash and Pyrun runner foundations with independent payload ownership, diagnostic output artifacts, runtime-mailbox cancellation, and exact process-owner terminal transactions. Detach-eligible Bash now launches through the durable runner and no longer uses Pi-owned exit, abort, or finalization paths; Pyrun extension cutover remains pending.
+- Added durable detached Bash and Pyrun runners with independent payload ownership, diagnostic output artifacts, runtime-mailbox cancellation, and exact process-owner terminal transactions. Detach-eligible Bash launches through the durable runner, while Pyrun remains foreground until manual or automatic detachment creates exactly one durable runner-owned agent.
 - Added the public `runtime_mailbox` extension event for consuming validated durable protocol messages before prompt conversion; handled messages are delivered atomically, handler failures fail transport, and unhandled messages retain normal prompt delivery.
 - AgentSession now injects a lazily constructed, session-current detached-job lifecycle controller into first-party Bash background-job options, preserving exact process ownership while avoiding stale session paths after switches.
 - Added a shared detached-job lifecycle controller adapter covering identity allocation, diagnostic artifacts, coordinator process ownership, projection publication, and direct in-memory finalization for Bash/Pyrun callers.

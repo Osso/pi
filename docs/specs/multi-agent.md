@@ -126,8 +126,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   creates exactly one running agent under the runner's exact process identity, then activates its runtime-mailbox
   control and terminal-finalize authority. Activation persistence failure kills the runner and resolves the row
   through dead-owner recovery; a runner waiting for activation also exits when the exact supervisor process dies.
-  Detached Bash and Pyrun runners directly finalize
-  through the coordinator using their in-memory identity, outcome, and output metadata.
+  Detached Bash and Pyrun runners directly call the narrowly scoped repository terminal-finalize transaction using their in-memory identity, outcome, and output metadata.
   The output file is a diagnostic artifact, not terminal lifecycle proof. Status attachment, cancellation,
   bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a runner dies
   before its terminal commit, the owning supervisor marks the agent `failed/lost_runtime` from the exact
