@@ -105,7 +105,7 @@
 ### Fixed
 
 - Fixed lifecycle ownership for one agent authorizing mutations on another agent owned by the same supervisor process; coordinator commands now bind ownership to agent ID and session path.
-- Fixed dead-owner recovery terminalizing a parent while descendants remained active, and fixed zombie processes blocking exact-owner recovery before parent reaping.
+- Fixed dead-owner recovery terminalizing a parent while descendants remained active or stranding a dead parent after recovering its child, and fixed zombie processes blocking exact-owner recovery before parent reaping.
 - Fixed dispatcher cancellation leaving the dispatcher signal live; dispatcher runtimes now register one abort handle and acknowledge exit through the normal lifecycle path.
 - Fixed Pyrun activation persistence failures and supervisor crashes leaving a live runner permanently waiting after its running row was committed.
 - Fixed Bash manifest persistence failures leaving a registered running row without same-call settlement, and fixed completed parents losing their terminal result while descendants remained active.

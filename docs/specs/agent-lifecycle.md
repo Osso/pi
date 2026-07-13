@@ -156,7 +156,7 @@ transaction order; `aborted` requires the exact runner's exit acknowledgement.
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] After a runtime registers its current mailbox listener, the one registered supervisor binding for that
-      session path reconciles its orphaned active rows through coordinator recovery commands. Runtime ownership
+      session path reconciles its orphaned active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot strand an earlier parent row. Runtime ownership
       stores the exact `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no
       global recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session
       relocation moves the assertion transactionally with the store. Verified administrative restart may
