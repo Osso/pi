@@ -2376,6 +2376,139 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("preserves canonical payloads and delivery while releasing legacy claims during v14 migration", () => {
+		const sessionPath = "/sessions/legacy-authority.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 13");
+			db.exec(`
+				CREATE TABLE runtime_mailbox_messages (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					recipient_session_id TEXT NOT NULL,
+					recipient_agent_id TEXT,
+					sender_session_id TEXT,
+					sender_agent_id TEXT,
+					kind TEXT NOT NULL,
+					body TEXT NOT NULL,
+					store_session_path TEXT,
+					store_message_id TEXT,
+					status TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					claimed_at TEXT,
+					delivered_at TEXT,
+					error TEXT
+				)
+			`);
+			const insertCanonical = db.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			);
+			insertCanonical.run(
+				sessionPath,
+				"pending-message",
+				JSON.stringify({
+					body: "pending body",
+					correlationId: "correlation-pending",
+					fromAgentId: "agent_1",
+					id: "pending-message",
+					kind: "supervisor_request",
+					status: "claimed",
+					threadId: "thread-pending",
+					toAgentId: "supervisor",
+					claimantProcessIdentity: JSON.stringify({ pid: process.pid, startTimeTicks: 1 }),
+				}),
+				"2026-07-13T00:00:00.000Z",
+			);
+			insertCanonical.run(
+				sessionPath,
+				"delivered-message",
+				JSON.stringify({
+					body: "delivered body",
+					correlationId: "correlation-delivered",
+					deliveredAt: "2026-07-13T00:02:00.000Z",
+					fromAgentId: "agent_2",
+					id: "delivered-message",
+					kind: "system",
+					status: "delivered",
+					threadId: "thread-delivered",
+					toAgentId: "main",
+				}),
+				"2026-07-13T00:02:00.000Z",
+			);
+			const insertRuntime = db.prepare(
+				`INSERT INTO runtime_mailbox_messages
+				 (recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
+				  store_session_path, store_message_id, status, created_at, updated_at, claimed_at)
+				 VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?)`,
+			);
+			insertRuntime.run(
+				"recipient-session",
+				null,
+				"sender-session",
+				"agent_1",
+				"supervisor_request",
+				sessionPath,
+				"pending-message",
+				"claimed",
+				"2026-07-13T00:00:00.000Z",
+				"2026-07-13T00:01:00.000Z",
+				"2026-07-13T00:01:00.000Z",
+			);
+			insertRuntime.run(
+				"recipient-session",
+				null,
+				"sender-session",
+				"agent_2",
+				"system",
+				sessionPath,
+				"delivered-message",
+				"claimed",
+				"2026-07-13T00:00:00.000Z",
+				"2026-07-13T00:03:00.000Z",
+				"2026-07-13T00:03:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		listRuntimeMailboxMessages(controlDbPath);
+		const migrated = createSqliteDatabase(controlDbPath);
+		try {
+			const rows = migrated
+				.prepare(
+					"SELECT message_id, data FROM multi_agent_mailbox_messages WHERE session_path = ? ORDER BY message_id",
+				)
+				.all(sessionPath) as Array<{ data: string; message_id: string }>;
+			const payloads = Object.fromEntries(rows.map((row) => [row.message_id, JSON.parse(row.data)]));
+			expect(payloads["pending-message"]).toMatchObject({
+				body: "pending body",
+				correlationId: "correlation-pending",
+				kind: "supervisor_request",
+				status: "pending",
+				threadId: "thread-pending",
+			});
+			expect(payloads["pending-message"]).not.toHaveProperty("claimantProcessIdentity");
+			expect(payloads["delivered-message"]).toMatchObject({
+				body: "delivered body",
+				correlationId: "correlation-delivered",
+				deliveredAt: "2026-07-13T00:02:00.000Z",
+				kind: "system",
+				status: "delivered",
+				threadId: "thread-delivered",
+			});
+			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+			expect(
+				migrated
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
+					.get(),
+			).toBeUndefined();
+		} finally {
+			migrated.close();
+		}
+	});
+
 	it("rolls back legacy transport migration when a referenced canonical payload is malformed", () => {
 		const sessionPath = "/sessions/malformed-legacy-transport.jsonl";
 		const messageId = "malformed-legacy-message";
@@ -2994,6 +3127,112 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		} finally {
 			db.close();
 		}
+	});
+
+	it("allows only the exact registered process to win a concurrent canonical claim", async () => {
+		const recipient = { agentId: null, sessionId: "racing-parent" };
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "one winner",
+			kind: "message",
+			recipient,
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		retireRuntimeMailboxListener(controlDbPath, recipient, process.pid);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import { claimRuntimeMailboxMessages, registerRuntimeMailboxListener } from ${JSON.stringify(moduleUrl)};
+			let registered = false;
+			let registrationError;
+			try {
+				registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+				registered = true;
+			} catch (error) {
+				registrationError = error instanceof Error ? error.message : String(error);
+			}
+			parentPort?.postMessage({ registered, registrationError, type: "ready" });
+			parentPort?.once("message", () => {
+				const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient, 1);
+				parentPort?.postMessage({ ids: claimed.map((message) => message.id), registered, type: "result" });
+			});
+		`;
+		const workers = Array.from(
+			{ length: 2 },
+			() =>
+				new Worker(workerSource, {
+					eval: true,
+					execArgv: ["--experimental-strip-types"],
+					workerData: { controlDbPath, recipient },
+				}),
+		);
+		try {
+			const readyMessages = await Promise.all(workers.map((worker) => once(worker, "message")));
+			expect(readyMessages.filter(([message]) => (message as { registered: boolean }).registered)).toHaveLength(1);
+			const results = workers.map(
+				(worker) =>
+					new Promise<number[]>((resolve, reject) => {
+						worker.once("message", (message: { ids: number[]; type: string }) => resolve(message.ids));
+						worker.once("error", reject);
+					}),
+			);
+			for (const worker of workers) worker.postMessage("claim");
+			expect((await Promise.all(results)).flat()).toEqual([messageId]);
+		} finally {
+			await Promise.all(workers.map((worker) => worker.terminate()));
+		}
+	});
+
+	it("rejects a listener with the current pid but a different process start identity", () => {
+		const recipient = { agentId: null, sessionId: "stale-same-pid" };
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "stale listener",
+			kind: "message",
+			recipient,
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				`UPDATE runtime_mailbox_listeners SET runtime_instance_id = ?
+				 WHERE recipient_session_id = ? AND recipient_agent_id_key = ''`,
+			).run(JSON.stringify({ pid: process.pid, startTimeTicks: 1 }), recipient.sessionId);
+		} finally {
+			db.close();
+		}
+
+		expect(claimRuntimeMailboxMessages(controlDbPath, recipient)).toEqual([]);
+		registerRuntimeMailboxListener(controlDbPath, recipient, process.pid);
+		expect(claimRuntimeMailboxMessages(controlDbPath, recipient).map((message) => message.id)).toEqual([messageId]);
+	});
+
+	it("allows a detached exact process owner to claim its canonical mailbox row", () => {
+		const sessionPath = "/sessions/detached-owner.jsonl";
+		const recipient = { agentId: "agent-detached", sessionId: "parent-session" };
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "detached delivery",
+			kind: "message",
+			recipient,
+			sender: { agentId: null, sessionId: "parent-session" },
+		});
+		retireRuntimeMailboxListener(controlDbPath, recipient, process.pid);
+		forceRuntimeOwnership(controlDbPath, {
+			agentId: recipient.agentId,
+			nowIso: "2026-07-13T00:00:00.000Z",
+			owner: { agentId: null, sessionId: recipient.sessionId },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("UPDATE multi_agent_mailbox_messages SET session_path = ? WHERE rowid = ?").run(
+				sessionPath,
+				messageId,
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(claimRuntimeMailboxMessages(controlDbPath, recipient).map((message) => message.id)).toEqual([messageId]);
 	});
 
 	it("recovers canonical mailbox claims only after exact claimant death", () => {
