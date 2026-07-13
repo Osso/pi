@@ -1450,20 +1450,16 @@ describe("pyrun extension", () => {
 		expect(store.listAgents()).toEqual([]);
 	});
 
-	it(
-		"keeps a 30-second evaluation in the foreground before the configured detach threshold",
-		async () => {
-			const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
-			const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 35_000 });
-			const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+	it("keeps a 30-second evaluation in the foreground before the configured detach threshold", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 35_000 });
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 
-			const result = await harness.evaluate({ code: "run.foreground_30s()" });
+		const result = await harness.evaluate({ code: "run.foreground_30s()" });
 
-			expect(result.details.value).toBe("foreground-30s-done");
-			expect(store.listAgents()).toEqual([]);
-		},
-		35_000,
-	);
+		expect(result.details.value).toBe("foreground-30s-done");
+		expect(store.listAgents()).toEqual([]);
+	}, 35_000);
 
 	it("does not detach an evaluation that already completed in the foreground runner", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
