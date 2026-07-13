@@ -4106,7 +4106,8 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			PRIMARY KEY (session_id, agent_id_key)
 		);
 	`);
-	migrateLegacyMultiAgentCounters(db);
+	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) migrateLegacyMultiAgentCounters(db);
 	migrateLegacyMultiAgentPayloads(db, selfRestartProcessId);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
@@ -4173,6 +4174,7 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessI
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
 		assertLifecycleProtocolMigrationQuiescent(db, selfRestartProcessId);
 
+		migrateLegacyMultiAgentCounters(db);
 		dropLifecycleAccessControlTriggers(db);
 		db.exec("DROP TABLE IF EXISTS multi_agent_recovery_leader");
 		migrateTerminalOutboxSchema(db);

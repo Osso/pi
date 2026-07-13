@@ -96,7 +96,6 @@ import {
 import { parseCommandArgs } from "../../core/prompt-templates.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
-import { restartCurrentProcess } from "../../core/self-restart.ts";
 import {
 	completeIncomingMessage,
 	failIncomingMessage,
@@ -4488,18 +4487,8 @@ export class InteractiveMode {
 	}
 
 	private async restartProcess(options?: { fromSignal?: boolean; notice?: string }): Promise<void> {
-		const sessionFile = this.session.sessionFile;
-		if (!sessionFile) {
-			throw new Error("Cannot restart without a persisted session file");
-		}
-
-		if (options?.fromSignal) {
-			this.themeController.disableAutoSync();
-		} else {
-			await this.stopInteractiveTerminalForProcessRestart();
-		}
-		const notice = options?.notice;
-		await restartCurrentProcess({ sessionFile, prompt: notice });
+		if (options?.fromSignal) this.themeController.disableAutoSync();
+		await this.runtimeHost.restart({ notice: options?.notice, process: true });
 	}
 
 	private emergencyTerminalExit(): never {

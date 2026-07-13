@@ -1447,7 +1447,15 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.exec("PRAGMA user_version = 2");
+			db.exec(`
+				PRAGMA user_version = 2;
+				CREATE TABLE multi_agent_counters (
+					session_path TEXT PRIMARY KEY,
+					next_agent_number INTEGER NOT NULL,
+					next_message_number INTEGER NOT NULL,
+					updated_at TEXT NOT NULL
+				);
+			`);
 			db.prepare(
 				`INSERT INTO runtime_mailbox_listeners (
 					recipient_session_id, recipient_agent_id_key, pid, runtime_instance_id,
@@ -1468,6 +1476,12 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(() => readMultiAgentState(controlDbPath, sessionPath)).toThrow(
 			/stop all pi and detached runner processes/i,
 		);
+		const blockedDb = createSqliteDatabase(controlDbPath);
+		try {
+			expect(blockedDb.prepare("SELECT 1 FROM sqlite_master WHERE name = 'multi_agent_counters'").get()).toBeDefined();
+		} finally {
+			blockedDb.close();
+		}
 
 		const offlineDb = createSqliteDatabase(controlDbPath);
 		try {

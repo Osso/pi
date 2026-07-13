@@ -12,6 +12,13 @@ interface SignalContext {
 
 interface InteractiveModeSignals {
 	registerSignalHandlers(this: SignalContext): void;
+	restartProcess(
+		this: {
+			runtimeHost: { restart: (options: { notice?: string; process: boolean }) => Promise<void> };
+			themeController: { disableAutoSync: () => void };
+		},
+		options?: { fromSignal?: boolean; notice?: string },
+	): Promise<void>;
 }
 
 const interactiveModePrototype = InteractiveMode.prototype as unknown as InteractiveModeSignals;
@@ -19,6 +26,19 @@ const interactiveModePrototype = InteractiveMode.prototype as unknown as Interac
 describe("InteractiveMode SIGHUP restart harness", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	test("routes process restart through runtime teardown", async () => {
+		const restart = vi.fn(async () => {});
+		const disableAutoSync = vi.fn();
+
+		await interactiveModePrototype.restartProcess.call(
+			{ runtimeHost: { restart }, themeController: { disableAutoSync } },
+			{ fromSignal: true, notice: "Restarted." },
+		);
+
+		expect(disableAutoSync).toHaveBeenCalledTimes(1);
+		expect(restart).toHaveBeenCalledWith({ notice: "Restarted.", process: true });
 	});
 
 	test("routes SIGHUP to self-restart while SIGTERM still shuts down", async () => {
