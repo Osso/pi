@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
@@ -112,7 +113,7 @@ function createReservedRuntimeAgent(
 		controlDbPath: persistence.controlDbPath,
 		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
 		now: () => new Date().toISOString(),
-		processIdentity: testProcessIdentity("runtime-mailbox-test"),
+		processIdentity: readProcessIdentity(process.pid),
 		sessionPath: persistence.sessionPath,
 	});
 	const prepared = coordinator.prepareChild({
