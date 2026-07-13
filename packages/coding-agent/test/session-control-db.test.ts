@@ -1478,7 +1478,9 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		);
 		const blockedDb = createSqliteDatabase(controlDbPath);
 		try {
-			expect(blockedDb.prepare("SELECT 1 FROM sqlite_master WHERE name = 'multi_agent_counters'").get()).toBeDefined();
+			expect(
+				blockedDb.prepare("SELECT 1 FROM sqlite_master WHERE name = 'multi_agent_counters'").get(),
+			).toBeDefined();
 		} finally {
 			blockedDb.close();
 		}

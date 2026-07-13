@@ -1315,7 +1315,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 		await Promise.resolve();
 		enqueueStoredRuntimeMessage(controlDbPath, {
-			body: JSON.stringify({ agentId: "background_1", eventKind: "detached_job_completed", type: "multi_agent_terminal" }),
+			body: JSON.stringify({
+				agentId: "background_1",
+				eventKind: "detached_job_completed",
+				type: "multi_agent_terminal",
+			}),
 			kind: "system",
 			messageId: "terminal:background_1:2:detached_job_completed",
 			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
