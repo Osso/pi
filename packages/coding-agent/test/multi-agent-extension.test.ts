@@ -2453,6 +2453,34 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("terminalizes a completed parent after its active child becomes terminal", async () => {
+		const parentGate = deferred<void>();
+		const childGate = deferred<void>();
+		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
+			await (agent.displayName === "Parent" ? parentGate.promise : childGate.promise);
+			return { lifecycle: "completed", result: { summary: `${agent.displayName} done` } };
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "parent",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "child",
+		});
+
+		parentGate.resolve();
+		await delay(20);
+		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "running" });
+
+		childGate.resolve();
+		await waitForTerminalAgent(harness, child.details.agent.id);
+		const completedParent = await waitForTerminalAgent(harness, parent.details.agent.id);
+		expect(completedParent).toMatchObject({ lifecycle: "completed", result: { summary: "Parent done" } });
+	});
+
 	it("wait_agents returns when any active agent reaches a terminal state", async () => {
 		const firstGate = deferred<void>();
 		const secondGate = deferred<void>();

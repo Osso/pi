@@ -1593,6 +1593,7 @@ async function runAgentSession(
 			store.updateAgentTranscript(running.agent.id, activeSession.transcript);
 		}
 		await activeSession.prompt(prompt);
+		await waitForActiveDescendants(store, running.agent.id, reservedRuntime.abortController.signal);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		while (true) {
@@ -1670,6 +1671,7 @@ async function runAgentDispatcher(
 			prompt,
 			signal: reservedRuntime.abortController.signal,
 		});
+		await waitForActiveDescendants(store, running.agent.id, reservedRuntime.abortController.signal);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		const current = store.getAgent(running.agent.id) ?? running.agent;
@@ -1706,6 +1708,23 @@ async function runAgentDispatcher(
 	} finally {
 		unregisterAbortHandler();
 	}
+}
+
+async function waitForActiveDescendants(store: MultiAgentStore, agentId: string, signal: AbortSignal): Promise<void> {
+	const hasActiveDescendants = () => store.listDescendants(agentId).some((agent) => isActiveLifecycle(agent.lifecycle));
+	if (!hasActiveDescendants() || signal.aborted) return;
+	await new Promise<void>((resolve) => {
+		const finish = () => {
+			unsubscribe();
+			signal.removeEventListener("abort", finish);
+			resolve();
+		};
+		const unsubscribe = store.subscribeAgentUpdates(() => {
+			if (!hasActiveDescendants()) finish();
+		});
+		signal.addEventListener("abort", finish, { once: true });
+		if (!hasActiveDescendants() || signal.aborted) finish();
+	});
 }
 
 function finalizeReservedRuntime(
