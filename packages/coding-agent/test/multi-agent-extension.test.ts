@@ -2379,6 +2379,32 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("aborts a dispatcher signal when its agent is cancelled", async () => {
+		const dispatchStarted = deferred<void>();
+		let dispatcherSignal: AbortSignal | undefined;
+		const dispatcher: ChildAgentDispatcher = async ({ signal }) => {
+			if (!signal) throw new Error("Expected dispatcher abort signal");
+			dispatcherSignal = signal;
+			dispatchStarted.resolve(undefined);
+			await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+			throw new Error("dispatcher aborted");
+		};
+		const harness = createMultiAgentHarness({ dispatcher });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Dispatcher",
+			prompt: "wait",
+		});
+		await dispatchStarted.promise;
+
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			agentId: spawned.details.agent.id,
+			reason: "stop dispatcher",
+		});
+
+		expect(dispatcherSignal?.aborted).toBe(true);
+		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
+	});
+
 	it("returns from spawn_agent before the background dispatcher settles", async () => {
 		const dispatchGate = deferred<void>();
 		const dispatcher: ChildAgentDispatcher = async () => {

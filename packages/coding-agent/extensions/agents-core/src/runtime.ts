@@ -1660,6 +1660,9 @@ async function runAgentDispatcher(
 ): Promise<AgentSnapshot> {
 	const restoreGeneration = store.getRestoreGeneration();
 	const running = { agent: runningAgent };
+	const unregisterAbortHandler = store.registerAgentAbortHandler(runningAgent.id, () => {
+		reservedRuntime.abortController.abort();
+	});
 	try {
 		const dispatchResult = await dispatcher({
 			agent: running.agent,
@@ -1700,6 +1703,8 @@ async function runAgentDispatcher(
 			reservedRuntime,
 			restoreGeneration,
 		);
+	} finally {
+		unregisterAbortHandler();
 	}
 }
 
