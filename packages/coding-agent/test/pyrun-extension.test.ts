@@ -1162,7 +1162,7 @@ describe("pyrun extension", () => {
 
 		expect(updates.map((update) => readToolText(update))).toEqual(["before error"]);
 		expect(result.isError).toBe(true);
-		expect(readToolText(result)).toBe("raise.after_output()\n\nSession: default\nbefore error\nError: boom");
+		expect(readToolText(result)).toBe("raise.after_output()\n\nbefore error\nError: boom");
 	});
 
 	it("caps accumulated streaming console output to the final console line limit", async () => {
@@ -1208,7 +1208,7 @@ describe("pyrun extension", () => {
 		});
 		expect(result.content[0]).toEqual({
 			type: "text",
-			text: "raise Exception('boom')\n\nSession: default\nError: boom",
+			text: "raise Exception('boom')\n\nError: boom",
 		});
 	});
 
