@@ -4,7 +4,7 @@ import { createAllToolDefinitions, type ToolName } from "../../../core/tools/ind
 import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
 import { convertToPng } from "../../../utils/image-convert.ts";
 import { theme } from "../theme/theme.ts";
-import { formatElapsedDuration, MIN_VISIBLE_ELAPSED_MS } from "./elapsed-time.ts";
+import { formatElapsedDuration } from "./elapsed-time.ts";
 
 const TOOL_TIMER_INTERVAL_MS = 1000;
 const MAX_TOOL_OUTPUT_LINES = 100;
@@ -196,9 +196,6 @@ export class ToolExecutionComponent extends Container {
 
 		const finishedAt = this.executionFinishedAt ?? Date.now();
 		const elapsedMs = finishedAt - this.executionStartedAt;
-		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
-			return undefined;
-		}
 		return `Elapsed: ${formatElapsedDuration(elapsedMs)}`;
 	}
 

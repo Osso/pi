@@ -15,6 +15,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] The final tool result retains console history without duplicating entries inside the rendered final output.
 - [x] Streaming output accumulation remains capped to the configured console line limit.
 - [x] Foreground streamed and buffered results use the shared tool lifecycle start/end timestamps for elapsed rendering.
+- [x] Foreground results, including immediate failures, render elapsed durations below one second in milliseconds.
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
 - [x] Detached success and failure results retain duration from the original foreground tool invocation.
 - [x] Detached completion and failure notifications render the persisted duration consistently.

@@ -8,7 +8,12 @@ function padTwoDigits(value: number): string {
 }
 
 export function formatElapsedDuration(durationMs: number): string {
-	const totalSeconds = Math.max(0, Math.floor(durationMs / SECOND_MS));
+	const nonNegativeDurationMs = Math.max(0, durationMs);
+	if (nonNegativeDurationMs < SECOND_MS) {
+		return `${Math.floor(nonNegativeDurationMs)}ms`;
+	}
+
+	const totalSeconds = Math.floor(nonNegativeDurationMs / SECOND_MS);
 	if (totalSeconds < MINUTE_SECONDS) {
 		return `${totalSeconds}s`;
 	}

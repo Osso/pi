@@ -842,6 +842,27 @@ describe("pyrun extension", () => {
 			5_500,
 		);
 		expect(stripAnsi(bufferedFailure.render(120).join("\n"))).toContain("Elapsed: 3s");
+
+		const immediateFailure = new ToolExecutionComponent(
+			"pyrun_eval",
+			"pyrun-immediate-failure-timing",
+			{ code: "cli.command('./missing').run()" },
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		immediateFailure.markExecutionStarted(6_000);
+		immediateFailure.updateResult(
+			{
+				content: [{ type: "text", text: "Error: No such file or directory" }],
+				details: { error: "No such file or directory", type: "error" },
+				isError: true,
+			},
+			false,
+			6_084,
+		);
+		expect(stripAnsi(immediateFailure.render(120).join("\n"))).toContain("Elapsed: 84ms");
 	});
 
 	it("replaces live console rendering with the final result without duplication", () => {

@@ -44,7 +44,9 @@ describe("ToolExecutionComponent parity", () => {
 	});
 
 	test("formats elapsed durations compactly", () => {
-		expect(formatElapsedDuration(999)).toBe("0s");
+		expect(formatElapsedDuration(0)).toBe("0ms");
+		expect(formatElapsedDuration(999)).toBe("999ms");
+		expect(formatElapsedDuration(1_000)).toBe("1s");
 		expect(formatElapsedDuration(65_000)).toBe("1m 05s");
 		expect(formatElapsedDuration(3_660_000)).toBe("1h 01m");
 	});
@@ -61,6 +63,11 @@ describe("ToolExecutionComponent parity", () => {
 			createFakeTui(),
 			process.cwd(),
 		);
+
+		component.markExecutionStarted(0);
+		vi.setSystemTime(84);
+		component.updateResult({ content: [{ type: "text", text: "failed" }], details: {}, isError: true }, false);
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 84ms");
 
 		component.markExecutionStarted(0);
 		vi.setSystemTime(2_100);
