@@ -294,6 +294,7 @@ async function finalizeDetachedPyrunSettlement(
 		outcome,
 		new Date(terminalAt).toISOString(),
 		Math.max(0, terminalAt - manifest.startedAt),
+		manifest.toolCallId,
 	);
 	const finalized = await finalizeDetachedJobWithRetry(terminal, (terminalInput) =>
 		finalizeDetachedJob(manifest.controlDbPath, { sessionPath: manifest.sessionPath, terminal: terminalInput }),

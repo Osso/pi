@@ -1289,6 +1289,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				permission: { narrowed: true, policy: "on-request" },
 				revision: 1,
 				updatedAt: "2026-07-11T00:00:00.000Z",
+				worker: { adapter: "runtime", handleId: "runner-dead", toolCallId: "tool-dead" },
 			},
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
@@ -1319,7 +1320,10 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
 		);
 		const recovered = recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput);
-		expect(recovered).toMatchObject({ ok: true, agent: { lifecycle: "failed", revision: 2 } });
+		expect(recovered).toMatchObject({
+			ok: true,
+			agent: { lifecycle: "failed", result: { toolCallId: "tool-dead" }, revision: 2, worker: undefined },
+		});
 	});
 
 	it("removes renewable lease columns when migrating version ten ownership rows", () => {

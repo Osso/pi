@@ -39,6 +39,17 @@ describe("buildDetachedToolCallCompletionEntry", () => {
 		});
 	});
 
+	it("uses the persisted terminal result after the runtime worker is cleared", () => {
+		const entry = buildDetachedToolCallCompletionEntry(
+			detachedJob({
+				lifecycle: "completed",
+				result: { summary: "Pyrun evaluation completed.", toolCallId: "terminal-tool-call" },
+				worker: undefined,
+			}),
+		);
+		expect(entry).toMatchObject({ lifecycle: "completed", toolCallId: "terminal-tool-call" });
+	});
+
 	it("carries the error message for a failed detached job", () => {
 		const entry = buildDetachedToolCallCompletionEntry(
 			detachedJob({ lifecycle: "failed", error: { message: "boom" } }),

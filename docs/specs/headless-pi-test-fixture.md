@@ -33,6 +33,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 
 ## How it works
 
+- Detached-tool scenarios enable the fixture-only `autoDetachTools` option, which gives the child process a short headless auto-detach interval without changing the production default.
 - [RPC protocol](../../packages/coding-agent/docs/rpc.md)
 - [Multi-agent contract](multi-agent.md)
 
@@ -60,6 +61,11 @@ Recovery is reconstructed from the existing session JSONL. It does not add recov
 - [x] Prove restoring JSONL that ends with an unfinished Bash or Pyrun tool call reattaches its still-running durable runner without executing the command again (`headless-pi.test.ts`: `reattaches a live Bash runner when restoring its unfinished JSONL tool call`; `reattaches a live Pyrun runner when restoring its unfinished JSONL tool call`).
 - [x] Prove restoring the same unfinished JSONL tool call reruns the Bash or Pyrun command when its original runner cannot be reattached (`headless-pi.test.ts`: `reruns an unfinished Bash JSONL tool call when its original runner is dead`; `reruns an unfinished Pyrun JSONL tool call when its original runner is dead`).
 - Restoring later repeats the same reattach-or-rerun rule; no recovery-specific retry state is persisted.
+
+## Detached tool completion (current cycle)
+
+- [x] Prove the caller JSONL first persists the detached `toolResult` with `backgroundJobId`, then persists one `detached_tool_call_completion` entry with the same `toolCallId` after terminal completion (`headless-pi.test.ts`: `persists detached tool state and terminal completion in the caller JSONL`).
+- [x] Prove a detached tool started by a nested subagent sends its terminal completion only to that subagent's direct parent agent and does not notify the main thread (`headless-pi.test.ts`: `routes a subagent detached completion only to the detached job parent`).
 
 ## Out of scope
 

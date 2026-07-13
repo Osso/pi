@@ -17,6 +17,7 @@ export interface DetachedJobLifecycleControllerOptions {
 	writeBashLaunchManifest?: typeof writeDetachedBashLaunchManifest;
 	controlDbPath: string;
 	coordinator: LifecycleCoordinator;
+	ownerAgentId?: string;
 	ownerSessionId: string;
 	sessionPath: string;
 	store: MultiAgentStore;
@@ -96,6 +97,7 @@ function launchDetachedBashJob(
 			runnerAddress: { agentId: jobId, sessionId: options.ownerSessionId },
 			sessionPath: options.sessionPath,
 			timeoutMs: input.timeoutMs,
+			toolCallId: input.toolCallId,
 		});
 	} catch (error) {
 		terminateDetachedRunner(runnerPid);
@@ -143,11 +145,17 @@ function registerDetachedJob(
 		agentType: "background",
 		cwd: input.cwd,
 		displayName: input.displayName,
+		parentId: options.ownerAgentId,
 		permission: { narrowed: true, policy: "on-request" },
 		result: { fileRefs: [{ label: outputLabel, path: artifacts.outputPath }] },
 		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId, toolCallId: input.toolCallId },
 	});
-	const created = options.coordinator.commitRunningChild(prepared, options.ownerSessionId, input.processIdentity);
+	const created = options.coordinator.commitRunningChild(
+		prepared,
+		options.ownerSessionId,
+		input.processIdentity,
+		options.ownerAgentId ?? null,
+	);
 	if (!created.ok) throw new Error(`Could not own detached ${input.agentType} job: ${created.error}`);
 	options.store.publishLifecycleCoordinatorSnapshot(created.agent);
 	const processIdentity = created.ownership.processIdentity;

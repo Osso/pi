@@ -2967,17 +2967,18 @@ function detachedJobAgentDetails(
 ): Record<string, unknown> {
 	const fileRefs = [{ label: terminal.output.label, path: terminal.output.path }];
 	const timing = terminal.durationMs === undefined ? {} : { durationMs: terminal.durationMs };
-	if (terminalLifecycle === "aborted") return { result: { fileRefs, ...timing } };
+	const correlation = terminal.toolCallId === undefined ? {} : { toolCallId: terminal.toolCallId };
+	if (terminalLifecycle === "aborted") return { result: { fileRefs, ...timing, ...correlation } };
 	if (terminal.outcome.kind === "completed") {
-		return { result: { fileRefs, summary: terminal.outcome.summary, ...timing } };
+		return { result: { fileRefs, summary: terminal.outcome.summary, ...timing, ...correlation } };
 	}
 	if (terminal.outcome.kind === "failed") {
 		return {
 			error: terminal.outcome.error,
-			result: { fileRefs, summary: terminal.outcome.error.message, ...timing },
+			result: { fileRefs, summary: terminal.outcome.error.message, ...timing, ...correlation },
 		};
 	}
-	return { result: { fileRefs, ...timing } };
+	return { result: { fileRefs, ...timing, ...correlation } };
 }
 
 export function recoverDeadMultiAgentRuntime(
@@ -3023,10 +3024,14 @@ export function recoverDeadMultiAgentRuntime(
 			if (released.changes !== 1) return { ok: false, error: "mutation_mismatch" };
 			const terminalRevision = Number(agent.revision) + 1;
 			const error = { code: "lost_runtime", message: "Agent owner process exited before terminal confirmation." };
+			const worker = agent.worker as AgentSnapshot["worker"] | undefined;
+			const result = agent.result as AgentSnapshot["result"] | undefined;
+			const toolCallId = worker?.toolCallId;
 			const updated = {
 				...agent,
 				error,
 				lifecycle: "failed",
+				...(toolCallId === undefined ? {} : { result: { ...result, toolCallId } }),
 				revision: terminalRevision,
 				updatedAt: input.nowIso,
 				worker: undefined,

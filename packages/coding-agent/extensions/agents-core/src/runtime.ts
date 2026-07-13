@@ -2751,12 +2751,14 @@ function mirrorLifecycleRuntimeMailboxMessage(
 		);
 		return;
 	}
+	const recipient = resolveRuntimeRecipient(store, notification, ctx);
+	if (!recipient) return;
 	const agent = store.getAgent(notification.fromAgentId);
 	const currentSessionId = ctx.sessionManager.getSessionId();
 	const senderSessionId = agent?.transcript?.sessionId ?? currentSessionId;
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
 		kind: notification.kind,
-		recipient: { agentId: null, sessionId: currentSessionId },
+		recipient,
 		sender: {
 			agentId: notification.fromAgentId,
 			sessionId: senderSessionId,

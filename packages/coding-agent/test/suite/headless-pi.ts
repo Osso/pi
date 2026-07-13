@@ -7,8 +7,13 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai/compat";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
-import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../src/core/session-control-db.ts";
-import { SessionManager } from "../../src/core/session-manager.ts";
+import {
+	getControlDbPath,
+	listRuntimeMailboxMessages,
+	type RuntimeMailboxMessage,
+	readMultiAgentRuntimeOwnership,
+} from "../../src/core/session-control-db.ts";
+import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 
@@ -40,6 +45,10 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 	socketPath: string;
 }
 
+export interface HeadlessPiOptions {
+	autoDetachTools?: boolean;
+}
+
 export interface HeadlessPi {
 	paths: HeadlessPiPaths;
 	crash(): Promise<void>;
@@ -48,6 +57,10 @@ export interface HeadlessPi {
 	getPyrunRunnerPids(): number[];
 	getRunnerPid(agentId: string): number | undefined;
 	listAgents(): AgentSnapshot[];
+	listMailboxMessages(): AgentMailboxMessage[];
+	listRuntimeMailboxMessages(): RuntimeMailboxMessage[];
+	readSessionEntries(agentId: string | null): SessionEntry[];
+	waitForSessionEntry(agentId: string | null, predicate: (entry: SessionEntry) => boolean): Promise<SessionEntry>;
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
 	waitForLlmRequest(predicate?: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest>;
 	respondToLlmRequest(requestId: string, message: AssistantMessage): void;
@@ -180,7 +193,11 @@ async function createProviderServer(
 	return { server, getSocket: () => providerSocket };
 }
 
-function createHeadlessRpcClient(paths: HeadlessRuntimePaths, sessionFile?: string): RpcClient {
+function createHeadlessRpcClient(
+	paths: HeadlessRuntimePaths,
+	options: HeadlessPiOptions,
+	sessionFile?: string,
+): RpcClient {
 	const preloadPath = join(import.meta.dirname, "fixtures", "headless-pi-provider-preload.ts");
 	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
 	const args = ["--approve", "--no-context-files", "--no-skills", "--no-themes"];
@@ -192,6 +209,7 @@ function createHeadlessRpcClient(paths: HeadlessRuntimePaths, sessionFile?: stri
 			PI_CODING_AGENT_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
 			PI_HEADLESS_PROVIDER_SOCKET: paths.socketPath,
+			...(options.autoDetachTools ? { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "50" } : {}),
 		},
 		provider: "headless-faux",
 		model: "headless-faux-1",
@@ -417,8 +435,19 @@ interface HeadlessClientControl {
 	unsubscribeEvents: () => void;
 }
 
+function resolveHeadlessSessionFile(
+	options: { paths: HeadlessRuntimePaths; context: HeadlessSessionContext },
+	agentId: string | null,
+): string {
+	if (agentId === null) return options.context.sessionFile;
+	const agent = readHeadlessStore(options.paths.agentDir, options.context.sessionFile).getAgent(agentId);
+	if (!agent?.transcript?.path) throw new Error(`Headless agent ${agentId} has no transcript path`);
+	return agent.transcript.path;
+}
+
 function createHeadlessRuntime(options: {
 	paths: HeadlessRuntimePaths;
+	fixtureOptions: HeadlessPiOptions;
 	clientControl: HeadlessClientControl;
 	provider: ProviderServerControl;
 	disposeController: AbortController;
@@ -465,7 +494,7 @@ function createHeadlessRuntime(options: {
 			await options.clientControl.client.stop();
 			options.events.length = 0;
 			options.requests.length = 0;
-			const client = createHeadlessRpcClient(options.paths, options.context.sessionFile);
+			const client = createHeadlessRpcClient(options.paths, options.fixtureOptions, options.context.sessionFile);
 			options.clientControl.client = client;
 			options.clientControl.unsubscribeEvents = client.onEvent((event) => {
 				options.events.push(event);
@@ -501,6 +530,22 @@ function createHeadlessRuntime(options: {
 			readMultiAgentRuntimeOwnership(getControlDbPath(options.paths.agentDir), options.context.sessionFile, agentId)
 				?.processIdentity?.pid,
 		listAgents: () => readHeadlessStore(options.paths.agentDir, options.context.sessionFile).listAgents(),
+		listMailboxMessages: () =>
+			readHeadlessStore(options.paths.agentDir, options.context.sessionFile).listMailboxMessages(),
+		listRuntimeMailboxMessages: () => listRuntimeMailboxMessages(getControlDbPath(options.paths.agentDir)),
+		readSessionEntries: (agentId) => SessionManager.open(resolveHeadlessSessionFile(options, agentId)).getEntries(),
+		async waitForSessionEntry(agentId, predicate) {
+			const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
+			while (Date.now() < deadline) {
+				if (options.disposeController.signal.aborted) throw new Error("Headless Pi fixture disposed");
+				const entry = SessionManager.open(resolveHeadlessSessionFile(options, agentId))
+					.getEntries()
+					.find(predicate);
+				if (entry) return entry;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			throw new Error(`Timed out waiting for session entry. Stderr: ${options.clientControl.client.getStderr()}`);
+		},
 		waitForEvent,
 		waitForLlmRequest: (predicate = () => true) => waitForRequest(predicate),
 		respondToLlmRequest(requestId, message) {
@@ -526,7 +571,7 @@ function createHeadlessRuntime(options: {
 	};
 }
 
-async function startHeadlessPi(): Promise<HeadlessPiRuntime> {
+async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<HeadlessPiRuntime> {
 	const paths = createHeadlessPaths();
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
 	const disposeController = new AbortController();
@@ -548,7 +593,7 @@ async function startHeadlessPi(): Promise<HeadlessPiRuntime> {
 	let unsubscribeEvents = (): void => {};
 	try {
 		provider = await createProviderServer(paths.socketPath, recordRequest);
-		client = createHeadlessRpcClient(paths);
+		client = createHeadlessRpcClient(paths, fixtureOptions);
 		unsubscribeEvents = client.onEvent((event) => {
 			events.push(event);
 			for (const listener of eventListeners) listener();
@@ -567,6 +612,7 @@ async function startHeadlessPi(): Promise<HeadlessPiRuntime> {
 	const clientControl = { client, unsubscribeEvents };
 	return createHeadlessRuntime({
 		paths,
+		fixtureOptions,
 		clientControl,
 		provider,
 		disposeController,
@@ -578,8 +624,11 @@ async function startHeadlessPi(): Promise<HeadlessPiRuntime> {
 	});
 }
 
-export async function withHeadlessPi<T>(run: (agent: HeadlessPi) => Promise<T>): Promise<T> {
-	const agent = await startHeadlessPi();
+export async function withHeadlessPi<T>(
+	run: (agent: HeadlessPi) => Promise<T>,
+	options: HeadlessPiOptions = {},
+): Promise<T> {
+	const agent = await startHeadlessPi(options);
 	return runWithCleanup(
 		() => run(agent),
 		() => agent.dispose(),

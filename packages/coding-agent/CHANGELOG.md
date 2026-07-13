@@ -110,6 +110,8 @@
 
 ### Fixed
 
+- Fixed detached tool completion correlation by preserving the originating `toolCallId` in terminal job results and appending the matching completion entry after the immutable detached tool result in the caller JSONL.
+- Fixed detached tools started by subagents so terminal notifications route only to their direct parent agent rather than the main thread.
 - Fixed supervisor restarts leaving spawned agents stuck `running` by authorizing recovery against the process identity embedded in the registered mailbox listener.
 - Fixed detached Pyrun cleanup leaving an orphaned `pyrun-jsonl` process by keeping the inner runner in its durable wrapper's process group.
 - Fixed interactive Escape cancellation of a detached Bash/Pyrun agent always failing with `runtime_ownership_unavailable`; the persisted-detached cancel path no longer requires an `ExtensionContext` (which the lifecycle coordinator never used), so cancellation reaches the durable runner and settles.

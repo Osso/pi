@@ -63,6 +63,7 @@ function createPyrunLifecycleController(
 			processIdentity: readProcessIdentity(process.pid),
 			sessionPath: persistence.sessionPath,
 		}),
+		ownerAgentId: input.ctx.multiAgentAgentId,
 		ownerSessionId: input.ctx.sessionManager.getSessionId(),
 		sessionPath: persistence.sessionPath,
 		store: input.store,

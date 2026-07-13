@@ -178,6 +178,16 @@ const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 3_000;
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
+
+function readHeadlessToolAutoDetachAfterMs(env: NodeJS.ProcessEnv = process.env): number | undefined {
+	const value = env.PI_HEADLESS_TOOL_AUTO_DETACH_MS;
+	if (value === undefined) return undefined;
+	const milliseconds = Number(value);
+	if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
+		throw new Error(`PI_HEADLESS_TOOL_AUTO_DETACH_MS must be a positive integer: ${value}`);
+	}
+	return milliseconds;
+}
 const CODEX_PROVIDER_PAIRS = new Map([
 	["openai-codex", "openai-codex-gc"],
 	["openai-codex-gc", "openai-codex"],
@@ -578,12 +588,12 @@ export interface DetachedToolCallCompletionEntryData {
 /**
  * Builds the transcript entry data for a detached tool call's terminal outcome,
  * or undefined when the agent is not a terminal detached tool-call job (no
- * originating toolCallId on its worker, or still active).
+ * originating toolCallId on its active worker or terminal result, or still active).
  */
 export function buildDetachedToolCallCompletionEntry(
 	agent: AgentSnapshot | undefined,
 ): DetachedToolCallCompletionEntryData | undefined {
-	const toolCallId = agent?.worker?.toolCallId;
+	const toolCallId = agent?.worker?.toolCallId ?? agent?.result?.toolCallId;
 	if (!agent || !toolCallId) return undefined;
 	if (agent.lifecycle !== "completed" && agent.lifecycle !== "failed" && agent.lifecycle !== "aborted") {
 		return undefined;
@@ -635,7 +645,9 @@ export class AgentSession {
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
-	private readonly _toolDetachRegistry = new ToolDetachRegistry();
+	private readonly _toolDetachRegistry = new ToolDetachRegistry({
+		autoDetachAfterMs: readHeadlessToolAutoDetachAfterMs(),
+	});
 	private _pendingBashMessages: BashExecutionMessage[] = [];
 
 	// Extension system
@@ -1959,7 +1971,6 @@ export class AgentSession {
 		return this.sessionManager.getSessionId();
 	}
 
-
 	/** Current session display name, if set */
 	get sessionName(): string | undefined {
 		return this.sessionManager.getSessionName();
@@ -2575,6 +2586,7 @@ export class AgentSession {
 			artifactRoot: this._agentDir,
 			controlDbPath,
 			coordinator,
+			ownerAgentId: this._multiAgentAgentId,
 			ownerSessionId: this.sessionId,
 			sessionPath: persistence.sessionPath,
 			store,
@@ -2664,6 +2676,7 @@ export class AgentSession {
 	): Promise<boolean> {
 		const delivery = readRuntimeMailboxMessageForDelivery(controlDbPath, claimedMessage.id);
 		const message = delivery?.message ?? claimedMessage;
+		this._recordDetachedToolCallCompletion(message);
 		if (this._consumeResolvedStoreMailboxMessage(controlDbPath, message)) return false;
 		if (!delivery?.payloadValid) {
 			this._failStoreMailboxDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
@@ -2682,7 +2695,6 @@ export class AgentSession {
 				throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
 			}
 			this._markStoreMailboxMessageDelivered(message);
-			this._recordDetachedToolCallCompletion(message);
 			if (triggerIfIdle && !this.isStreaming) this._completeRuntimeMailboxSteeringTurn(this.messages);
 			return !triggerIfIdle;
 		} catch (error) {
@@ -2733,7 +2745,20 @@ export class AgentSession {
 		const senderId = message.sender.agentId;
 		if (!this._multiAgentStore || !senderId) return;
 		const data = buildDetachedToolCallCompletionEntry(this._multiAgentStore.getAgent(senderId));
-		if (data) this.sessionManager.appendCustomEntry(DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE, data);
+		if (!data) return;
+		const alreadyRecorded = this.sessionManager.getEntries().some((entry) => {
+			if (entry.type !== "custom" || entry.customType !== DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE) return false;
+			const existing = entry.data;
+			return (
+				typeof existing === "object" &&
+				existing !== null &&
+				"agentId" in existing &&
+				existing.agentId === data.agentId &&
+				"toolCallId" in existing &&
+				existing.toolCallId === data.toolCallId
+			);
+		});
+		if (!alreadyRecorded) this.sessionManager.appendCustomEntry(DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE, data);
 	}
 
 	private async _interceptRuntimeMailboxMessage(

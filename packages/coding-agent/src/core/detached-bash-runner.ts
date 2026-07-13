@@ -16,7 +16,7 @@ import {
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
 
 export const DETACHED_BASH_RUNNER_MODE = "--internal-detached-bash-runner";
-const DETACHED_BASH_LAUNCH_VERSION = 1;
+const DETACHED_BASH_LAUNCH_VERSION = 2;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
@@ -31,6 +31,7 @@ export interface DetachedBashLaunchManifestData {
 	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
 	timeoutMs?: number;
+	toolCallId?: string;
 }
 
 interface DetachedBashLaunchManifest extends DetachedBashLaunchManifestData {
@@ -116,6 +117,8 @@ export async function runDetachedBashRunner(
 		controlled.identity,
 		outcome,
 		options?.now?.() ?? new Date().toISOString(),
+		undefined,
+		manifest.toolCallId,
 	);
 	const finalized = await finalizeDetachedJobWithRetry(terminal, (terminalInput) =>
 		finalizeDetachedJob(manifest.controlDbPath, { sessionPath: manifest.sessionPath, terminal: terminalInput }),

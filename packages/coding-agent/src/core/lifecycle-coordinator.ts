@@ -268,11 +268,12 @@ export class LifecycleCoordinator {
 		agent: AgentSnapshot,
 		ownerSessionId: string,
 		processIdentity: ProcessIdentity = this.options.processIdentity,
+		ownerAgentId: string | null = null,
 	): CreateChildCommandResult {
 		if (agent.lifecycle !== "running" || agent.revision !== 1) {
 			throw new Error("Constructed child must enter persistence as running revision 1");
 		}
-		return this.persistChildWithOwnership(agent, ownerSessionId, processIdentity);
+		return this.persistChildWithOwnership(agent, ownerSessionId, processIdentity, ownerAgentId);
 	}
 
 	private buildChildSnapshot(input: PrepareChildCommandInput): AgentSnapshot {
@@ -304,12 +305,13 @@ export class LifecycleCoordinator {
 		agent: AgentSnapshot,
 		ownerSessionId: string,
 		processIdentity: ProcessIdentity,
+		ownerAgentId: string | null,
 	): CreateChildCommandResult {
 		const result = createMultiAgentChildWithRuntimeOwnership(this.options.controlDbPath, {
 			agent,
 			agentId: agent.id,
 			nowIso: this.options.now(),
-			owner: { agentId: null, sessionId: ownerSessionId },
+			owner: { agentId: ownerAgentId, sessionId: ownerSessionId },
 			processIdentity,
 			sessionPath: this.options.sessionPath,
 		});

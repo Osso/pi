@@ -52,6 +52,7 @@ export interface AgentResult {
 	summary?: string;
 	fileRefs?: AgentFileReference[];
 	durationMs?: number;
+	toolCallId?: string;
 }
 
 export interface AgentWorkerAdapter {
@@ -1369,5 +1370,6 @@ function copyResult(result: AgentResult | undefined): AgentResult | undefined {
 		durationMs: result.durationMs,
 		fileRefs: validateFileRefs(result.fileRefs, "agent_result"),
 		summary: result.summary,
+		toolCallId: result.toolCallId,
 	};
 }

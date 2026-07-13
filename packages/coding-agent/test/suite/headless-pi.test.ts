@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
+import type { CustomEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
 import {
 	cleanupHeadlessPiResources,
 	createHeadlessPaths,
@@ -169,6 +170,214 @@ describe("headless Pi fixture", () => {
 				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
 			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
 		});
+	});
+
+	it("persists detached tool state and terminal completion in the caller JSONL", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const releasePath = join(agent.paths.workspaceDir, "release-detached-jsonl");
+				const toolCallId = "detached-jsonl-tool-call";
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`release = Path(${JSON.stringify(releasePath)})`,
+					"while not release.exists(): time.sleep(0.05)",
+					'print("detached-jsonl-complete")',
+				].join("\n");
+				await agent.send({ type: "prompt", message: "Detach this Pyrun evaluation" });
+				const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage(
+						{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+						{ stopReason: "toolUse" },
+					),
+				);
+
+				const afterDetach = await agent.waitForLlmRequest(
+					(candidate) => candidate.agentId === null && candidate.id !== request.id,
+				);
+				const detachedEntry = (await agent.waitForSessionEntry(
+					null,
+					(entry) =>
+						entry.type === "message" &&
+						entry.message.role === "toolResult" &&
+						entry.message.toolCallId === toolCallId,
+				)) as SessionMessageEntry;
+				expect(detachedEntry.message).toMatchObject({
+					role: "toolResult",
+					toolCallId,
+					details: { type: "detached" },
+				});
+				const backgroundJobId = (detachedEntry.message as { details?: { backgroundJobId?: string } }).details
+					?.backgroundJobId;
+				expect(backgroundJobId).toBeTruthy();
+				expect(
+					agent
+						.readSessionEntries(null)
+						.some((entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion"),
+				).toBe(false);
+				const detachedJob = await agent.waitForAgent(
+					(candidate) => candidate.id === backgroundJobId && candidate.lifecycle === "running",
+				);
+				agent.respondToLlmRequest(
+					afterDetach.id,
+					fauxAssistantMessage(fauxToolCall("wait_agents", {}), { stopReason: "toolUse" }),
+				);
+				await agent.waitForEvent(
+					(event) => event.type === "tool_execution_start" && event.toolName === "wait_agents",
+				);
+				writeFileSync(releasePath, "release");
+				await agent.waitForAgent(
+					(candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "completed",
+				);
+				expect(agent.listAgents().find((candidate) => candidate.id === detachedJob.id)?.result?.toolCallId).toBe(
+					toolCallId,
+				);
+				const completionRequest = await agent.waitForLlmRequest(
+					(candidate) => candidate.agentId === null && JSON.stringify(candidate.messages).includes(detachedJob.id),
+				);
+				agent.respondToLlmRequest(completionRequest.id, fauxAssistantMessage("Detached completion recorded"));
+				await agent.waitForMailboxMessage(
+					(message) =>
+						message.fromAgentId === detachedJob.id &&
+						message.toAgentId === "main" &&
+						message.status === "delivered",
+				);
+				const completionEntry = (await agent.waitForSessionEntry(
+					null,
+					(entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion",
+				)) as CustomEntry;
+				expect(completionEntry.data).toMatchObject({
+					agentId: detachedJob.id,
+					lifecycle: "completed",
+					toolCallId,
+				});
+				const entries = agent.readSessionEntries(null);
+				const completionEntries = entries.filter(
+					(entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion",
+				);
+				expect(completionEntries).toHaveLength(1);
+				const detachedIndex = entries.findIndex((entry) => entry.id === detachedEntry.id);
+				const completionIndex = entries.findIndex((entry) => entry.id === completionEntry.id);
+				expect(detachedIndex).toBeGreaterThanOrEqual(0);
+				expect(completionIndex).toBeGreaterThan(detachedIndex);
+			},
+			{ autoDetachTools: true },
+		);
+	});
+
+	it("routes a subagent detached completion only to the detached job parent", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const releasePath = join(agent.paths.workspaceDir, "release-subagent-detached");
+				const toolCallId = "subagent-detached-tool-call";
+				await agent.send({ type: "prompt", message: "Delegate a detached evaluation" });
+				const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					mainRequest.id,
+					fauxAssistantMessage(
+						fauxToolCall("spawn_agent", {
+							displayName: "Detached caller",
+							prompt: "Run the detached Pyrun evaluation",
+						}),
+						{ stopReason: "toolUse" },
+					),
+				);
+				const caller = await agent.waitForAgent((candidate) => candidate.displayName === "Detached caller");
+				const callerRequest = await agent.waitForLlmRequest((request) => request.agentId === caller.id);
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`release = Path(${JSON.stringify(releasePath)})`,
+					"while not release.exists(): time.sleep(0.05)",
+					'print("subagent-detached-complete")',
+				].join("\n");
+				agent.respondToLlmRequest(
+					callerRequest.id,
+					fauxAssistantMessage(
+						{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+						{ stopReason: "toolUse" },
+					),
+				);
+				const callerAfterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === caller.id && request.id !== callerRequest.id,
+				);
+				const childDetachedEntry = (await agent.waitForSessionEntry(
+					caller.id,
+					(entry) =>
+						entry.type === "message" &&
+						entry.message.role === "toolResult" &&
+						entry.message.toolCallId === toolCallId,
+				)) as SessionMessageEntry;
+				const childBackgroundJobId = (childDetachedEntry.message as { details?: { backgroundJobId?: string } })
+					.details?.backgroundJobId;
+				expect(childBackgroundJobId).toBeTruthy();
+				const detachedJob = await agent.waitForAgent((candidate) => candidate.id === childBackgroundJobId);
+				writeFileSync(releasePath, "release");
+				await agent.waitForAgent(
+					(candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "completed",
+				);
+				const pendingCompletion = await agent.waitForMailboxMessage(
+					(message) =>
+						message.fromAgentId === detachedJob.id &&
+						message.toAgentId === caller.id &&
+						message.kind === "system" &&
+						message.status === "pending",
+				);
+				expect(pendingCompletion.status).toBe("pending");
+				expect(
+					agent
+						.listMailboxMessages()
+						.some((message) => message.fromAgentId === detachedJob.id && message.toAgentId === "main"),
+				).toBe(false);
+				const runtimeMessages = agent
+					.listRuntimeMailboxMessages()
+					.filter((message) => message.sender.agentId === detachedJob.id);
+				expect(runtimeMessages).toHaveLength(1);
+				expect(runtimeMessages[0]?.recipient).toEqual({
+					agentId: caller.id,
+					sessionId: caller.transcript?.sessionId,
+				});
+				expect(runtimeMessages.some((message) => message.recipient.agentId === null)).toBe(false);
+
+				agent.respondToLlmRequest(callerAfterDetach.id, fauxAssistantMessage("Detached child work started"));
+				const completionRequest = await agent.waitForLlmRequest(
+					(request) => request.agentId === caller.id && request.id !== callerAfterDetach.id,
+				);
+				expect(JSON.stringify(completionRequest.messages)).toContain(detachedJob.id);
+				await agent.waitForMailboxMessage(
+					(message) => message.id === pendingCompletion.id && message.status === "delivered",
+				);
+
+				const completionEntry = (await agent.waitForSessionEntry(
+					caller.id,
+					(entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion",
+				)) as CustomEntry;
+				expect(completionEntry.data).toMatchObject({
+					agentId: detachedJob.id,
+					lifecycle: "completed",
+					toolCallId,
+				});
+				const callerCompletionEntries = agent
+					.readSessionEntries(caller.id)
+					.filter((entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion");
+				expect(callerCompletionEntries).toHaveLength(1);
+				expect(
+					agent
+						.readSessionEntries(null)
+						.some(
+							(entry) =>
+								entry.type === "custom" &&
+								entry.customType === "detached_tool_call_completion" &&
+								JSON.stringify(entry.data).includes(detachedJob.id),
+						),
+				).toBe(false);
+
+				agent.respondToLlmRequest(completionRequest.id, fauxAssistantMessage("Detached child work complete"));
+			},
+			{ autoDetachTools: true },
+		);
 	});
 
 	it("continues post-tool model thinking after restoring the session JSONL", async () => {
