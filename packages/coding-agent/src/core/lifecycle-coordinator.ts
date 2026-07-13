@@ -323,7 +323,10 @@ export class LifecycleCoordinator {
 		return { ok: true, agent: result.agent as unknown as AgentSnapshot };
 	}
 
-	private readOwnershipIdentity(ownership: MultiAgentRuntimeOwnership, expectedAgentId: string):
+	private readOwnershipIdentity(
+		ownership: MultiAgentRuntimeOwnership,
+		expectedAgentId: string,
+	):
 		| {
 				agentId: string;
 				owner: { agentId: string | null; sessionId: string };

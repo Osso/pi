@@ -134,9 +134,10 @@ describe("LifecycleCoordinator child creation", () => {
 		const second = createRunningChild(coordinator);
 		if (!first.ok || !second.ok) throw new Error("Expected running child fixtures");
 
-		expect(
-			coordinator.requestCancellation({ agent: second.agent, ownership: first.ownership }),
-		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(coordinator.requestCancellation({ agent: second.agent, ownership: first.ownership })).toEqual({
+			ok: false,
+			error: "mutation_mismatch",
+		});
 		expect(readMultiAgentAgent(controlDbPath, sessionPath, second.agent.id)).toMatchObject({
 			lifecycle: "running",
 			revision: 1,
