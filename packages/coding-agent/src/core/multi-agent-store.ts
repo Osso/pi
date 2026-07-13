@@ -4,6 +4,7 @@ import {
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
+	updateMultiAgentAgentCurrentActivity,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentMailboxMessage,
@@ -31,6 +32,10 @@ export interface AgentActivity {
 	description: string;
 	toolName?: string;
 }
+
+export type AgentCurrentActivity =
+	| { phase: "thinking"; startedAt: string }
+	| { phase: "tool"; startedAt: string; toolCallId: string; toolName: string };
 
 export interface AgentFileReference {
 	path: string;
@@ -88,6 +93,7 @@ export interface AgentNode {
 	transcript?: AgentTranscriptMetadata;
 	eventStream?: AgentEventStreamMetadata;
 	worker?: AgentWorkerAdapter;
+	currentActivity?: AgentCurrentActivity;
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
 	error?: { message: string; code?: string };
@@ -593,6 +599,21 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
+	publishAgentCurrentActivity(
+		agentId: string,
+		currentActivity: AgentCurrentActivity | undefined,
+	): AgentSnapshot | undefined {
+		const current = this.agents.get(agentId);
+		if (!current) {
+			return undefined;
+		}
+		if (currentActivity && current.lifecycle !== "running" && current.lifecycle !== "steering_pending") {
+			return undefined;
+		}
+
+		return copyAgent(this.updateAgentMetadata(current, { currentActivity }));
+	}
+
 	updateAgentTranscript(agentId: string, transcript: AgentTranscriptMetadata): AgentTranscriptCommandResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
@@ -934,36 +955,39 @@ export class MultiAgentStore {
 		return { ok: false, error: "stale_revision", current: copyAgent(current) };
 	}
 
+	private persistAgentMetadata(
+		current: AgentNode,
+		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "slot" | "transcript">>,
+		updatedAt: string,
+	): AgentNode | undefined {
+		if (!this.persistence) {
+			return undefined;
+		}
+		const { controlDbPath, sessionPath } = this.persistence;
+		if ("currentActivity" in updates) {
+			return updateMultiAgentAgentCurrentActivity(
+				controlDbPath,
+				sessionPath,
+				current.id,
+				updates.currentActivity,
+				updatedAt,
+			);
+		}
+		if ("transcript" in updates) {
+			return updateMultiAgentAgentTranscript(controlDbPath, sessionPath, current.id, updates.transcript, updatedAt);
+		}
+		if ("slot" in updates) {
+			return updateMultiAgentAgentSlot(controlDbPath, sessionPath, current.id, updates.slot, updatedAt);
+		}
+		return updateMultiAgentAgentActivity(controlDbPath, sessionPath, current.id, updates.lastActivity, updatedAt);
+	}
+
 	private updateAgentMetadata(
 		current: AgentNode,
-		updates: Partial<Pick<AgentNode, "lastActivity" | "slot" | "transcript">>,
+		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "slot" | "transcript">>,
 	): AgentNode {
 		const updatedAt = this.now();
-		const persisted = this.persistence
-			? "transcript" in updates
-				? updateMultiAgentAgentTranscript(
-						this.persistence.controlDbPath,
-						this.persistence.sessionPath,
-						current.id,
-						updates.transcript,
-						updatedAt,
-					)
-				: "slot" in updates
-					? updateMultiAgentAgentSlot(
-							this.persistence.controlDbPath,
-							this.persistence.sessionPath,
-							current.id,
-							updates.slot,
-							updatedAt,
-						)
-					: updateMultiAgentAgentActivity(
-							this.persistence.controlDbPath,
-							this.persistence.sessionPath,
-							current.id,
-							updates.lastActivity,
-							updatedAt,
-						)
-			: undefined;
+		const persisted = this.persistAgentMetadata(current, updates, updatedAt);
 		if (this.persistence && !persisted) {
 			throw new Error(`Persisted agent ${current.id} disappeared during metadata update`);
 		}
@@ -1191,6 +1215,7 @@ function copyAgent(agent: AgentNode): AgentSnapshot {
 		...agent,
 		account: copyAccount(agent.account),
 		error: copyOptional(agent.error),
+		currentActivity: copyOptional(agent.currentActivity),
 		lastActivity: copyOptional(agent.lastActivity),
 		model: copyOptional(agent.model),
 		permission: { ...agent.permission },

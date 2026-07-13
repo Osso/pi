@@ -177,6 +177,7 @@ interface InteractiveModeKeyHandlerInternals {
 		sessionContext: ReturnType<SessionManager["buildSessionContext"]>,
 		options?: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean },
 	): void;
+	getPendingToolStartedAt(this: unknown, toolCallId: string): number | undefined;
 	renderSessionItems(
 		this: unknown,
 		messages: unknown[],
@@ -187,6 +188,10 @@ interface InteractiveModeKeyHandlerInternals {
 	selectAgentView(this: unknown, agentId: string): boolean;
 	selectAgentViewFromBridge(this: unknown, agentId: string): boolean;
 	setWorkingVisible(this: unknown, visible: boolean): void;
+	getWorkingLoaderMessage(this: unknown): string;
+	getToolWaitingMessage(this: unknown, toolName: string, startedAt?: number, showElapsed?: boolean): string;
+	startChildActivityTimer(this: unknown): void;
+	stopChildActivityTimer(this: unknown): void;
 	syncWorkingLoaderVisibility(this: unknown): void;
 	isSelectedChildWorking(this: unknown): boolean;
 	subscribeToMultiAgentStore(this: unknown): void;
@@ -215,6 +220,7 @@ type TranscriptSwitchFixture = {
 		addMessageToChat: typeof interactiveModeKeyHandlers.addMessageToChat;
 		addRenderedMessageToEditorHistory: () => void;
 		chatContainer: Container;
+		childActivityTimer?: ReturnType<typeof setInterval>;
 		loadedResourcesContainer: Container;
 		childViewAgentId?: string;
 		childViewSessionManager?: SessionManager;
@@ -252,6 +258,7 @@ type TranscriptSwitchFixture = {
 		renderSelectedAgentView: typeof interactiveModeKeyHandlers.renderSelectedAgentView;
 		restorePreviousAgentSelection: typeof interactiveModeKeyHandlers.restorePreviousAgentSelection;
 		renderSessionContext: typeof interactiveModeKeyHandlers.renderSessionContext;
+		getPendingToolStartedAt: typeof interactiveModeKeyHandlers.getPendingToolStartedAt;
 		renderSessionItems: typeof interactiveModeKeyHandlers.renderSessionItems;
 		selectAgentView: typeof interactiveModeKeyHandlers.selectAgentView;
 		selectedAgentBanner: AgentSelectionBannerComponent;
@@ -259,6 +266,10 @@ type TranscriptSwitchFixture = {
 		session: { isStreaming: boolean };
 		sessionManager: SessionManager;
 		setWorkingVisible: typeof interactiveModeKeyHandlers.setWorkingVisible;
+		getWorkingLoaderMessage: typeof interactiveModeKeyHandlers.getWorkingLoaderMessage;
+		getToolWaitingMessage: typeof interactiveModeKeyHandlers.getToolWaitingMessage;
+		startChildActivityTimer: typeof interactiveModeKeyHandlers.startChildActivityTimer;
+		stopChildActivityTimer: typeof interactiveModeKeyHandlers.stopChildActivityTimer;
 		settingsManager: { getImageWidthCells: () => number; getShowImages: () => boolean };
 		syncWorkingLoaderVisibility: typeof interactiveModeKeyHandlers.syncWorkingLoaderVisibility;
 		showStatus: ReturnType<typeof vi.fn>;
@@ -266,6 +277,7 @@ type TranscriptSwitchFixture = {
 		stopWorkingLoader: typeof interactiveModeKeyHandlers.stopWorkingLoader;
 		toolOutputExpanded: boolean;
 		ui: { requestRender: ReturnType<typeof vi.fn> };
+		workingLoaderView?: "main" | "child";
 		workingVisible: boolean;
 		updateEditorBorderColor: ReturnType<typeof vi.fn>;
 		updateSelectedAgentBanner: typeof interactiveModeKeyHandlers.updateSelectedAgentBanner;
@@ -316,6 +328,7 @@ function createTranscriptSwitchFixture(options: {
 		createWorkingLoader: vi.fn(() => ({
 			invalidate: () => {},
 			render: () => ["Thinking..."],
+			setMessage: vi.fn(),
 			stop: vi.fn(),
 		})),
 		footer: {
@@ -349,6 +362,7 @@ function createTranscriptSwitchFixture(options: {
 		renderSelectedAgentView: interactiveModeKeyHandlers.renderSelectedAgentView,
 		restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 		renderSessionContext: interactiveModeKeyHandlers.renderSessionContext,
+		getPendingToolStartedAt: interactiveModeKeyHandlers.getPendingToolStartedAt,
 		renderSessionItems: interactiveModeKeyHandlers.renderSessionItems,
 		selectAgentView: interactiveModeKeyHandlers.selectAgentView,
 		selectedAgentBanner: new AgentSelectionBannerComponent(store),
@@ -364,6 +378,10 @@ function createTranscriptSwitchFixture(options: {
 		},
 		sessionManager: parent,
 		setWorkingVisible: interactiveModeKeyHandlers.setWorkingVisible,
+		getWorkingLoaderMessage: interactiveModeKeyHandlers.getWorkingLoaderMessage,
+		getToolWaitingMessage: interactiveModeKeyHandlers.getToolWaitingMessage,
+		startChildActivityTimer: interactiveModeKeyHandlers.startChildActivityTimer,
+		stopChildActivityTimer: interactiveModeKeyHandlers.stopChildActivityTimer,
 		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
 		syncWorkingLoaderVisibility: interactiveModeKeyHandlers.syncWorkingLoaderVisibility,
 		isSelectedChildWorking: interactiveModeKeyHandlers.isSelectedChildWorking,
@@ -373,6 +391,7 @@ function createTranscriptSwitchFixture(options: {
 		stopWorkingLoader: interactiveModeKeyHandlers.stopWorkingLoader,
 		toolOutputExpanded: false,
 		ui: { requestRender: vi.fn() },
+		workingLoaderView: undefined,
 		workingVisible: true,
 		updateEditorBorderColor: vi.fn(),
 		updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
@@ -382,7 +401,10 @@ function createTranscriptSwitchFixture(options: {
 	return {
 		childAgentId: spawned.agent.id,
 		childTranscriptPath,
-		cleanup: () => rmSync(tmp, { force: true, recursive: true }),
+		cleanup: () => {
+			interactiveModeKeyHandlers.stopChildActivityTimer.call(fakeThis);
+			rmSync(tmp, { force: true, recursive: true });
+		},
 		fakeThis,
 		store,
 	};
@@ -937,6 +959,33 @@ describe("InteractiveMode key handlers", () => {
 			expect(renderedToolCwd).toBe("/child-repo");
 		} finally {
 			fixture.cleanup();
+		}
+	});
+
+	test("renders authoritative elapsed time on the selected child's pending tool component", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime("2026-07-13T12:00:05.000Z");
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const transcriptPath = fixture.store.getAgent(fixture.childAgentId)?.transcript?.path;
+		if (!transcriptPath) {
+			throw new Error("expected child transcript path");
+		}
+		const toolCall = fauxToolCall("edit", { path: "README.md" });
+		SessionManager.open(transcriptPath).appendMessage(fauxAssistantMessage(toolCall, { stopReason: "toolUse" }));
+		fixture.store.publishAgentCurrentActivity(fixture.childAgentId, {
+			phase: "tool",
+			startedAt: "2026-07-13T12:00:00.000Z",
+			toolCallId: toolCall.id,
+			toolName: "edit",
+		});
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+
+			const rendered = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(rendered).toContain("Elapsed: 5s");
+		} finally {
+			fixture.cleanup();
+			vi.useRealTimers();
 		}
 	});
 

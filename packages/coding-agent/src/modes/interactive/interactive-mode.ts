@@ -419,6 +419,7 @@ export class InteractiveMode {
 	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
 	private thinkingStartedAt: number | undefined;
 	private thinkingTimer: ReturnType<typeof setInterval> | undefined;
+	private childActivityTimer: ReturnType<typeof setInterval> | undefined;
 	private thinkingFollowsTool = false;
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
@@ -2016,11 +2017,24 @@ export class InteractiveMode {
 	}
 
 	private getWorkingLoaderMessage(): string {
-		if (this.isViewingAgentSession()) {
-			return this.defaultWorkingMessage;
+		const selectedAgentId = this.multiAgentStore?.getSelectedAgentId();
+		if (!selectedAgentId) {
+			return this.workingMessage ?? this.currentWorkingDefaultMessage;
 		}
 
-		return this.workingMessage ?? this.currentWorkingDefaultMessage;
+		const activity = this.multiAgentStore?.getAgent(selectedAgentId)?.currentActivity;
+		if (!activity) {
+			return "Working...";
+		}
+		const startedAt = Date.parse(activity.startedAt);
+		if (!Number.isFinite(startedAt)) {
+			return "Working...";
+		}
+		if (activity.phase === "tool") {
+			const componentOwnsElapsed = this.pendingTools.has(activity.toolCallId);
+			return this.getToolWaitingMessage(activity.toolName, startedAt, !componentOwnsElapsed);
+		}
+		return `${this.defaultWorkingMessage} ${formatElapsedDuration(Date.now() - startedAt)}`;
 	}
 
 	private getThinkingWorkingMessage(): string {
@@ -2153,6 +2167,7 @@ export class InteractiveMode {
 	}
 
 	private stopWorkingLoader(): void {
+		this.stopChildActivityTimer();
 		const loader = this.loadingAnimation;
 		if (!loader) {
 			return;
@@ -2175,6 +2190,25 @@ export class InteractiveMode {
 		this.statusContainer.removeChild(loader);
 	}
 
+	private startChildActivityTimer(): void {
+		if (this.childActivityTimer) {
+			return;
+		}
+		this.childActivityTimer = setInterval(() => {
+			if (this.workingLoaderView === "child") {
+				this.loadingAnimation?.setMessage(this.getWorkingLoaderMessage());
+			}
+		}, MIN_VISIBLE_ELAPSED_MS);
+	}
+
+	private stopChildActivityTimer(): void {
+		if (!this.childActivityTimer) {
+			return;
+		}
+		clearInterval(this.childActivityTimer);
+		this.childActivityTimer = undefined;
+	}
+
 	private syncWorkingLoaderVisibility(): void {
 		const viewingChild = this.isViewingAgentSession();
 		const shouldShow =
@@ -2186,12 +2220,16 @@ export class InteractiveMode {
 
 		const desiredView = viewingChild ? "child" : "main";
 		if (this.loadingAnimation && this.workingLoaderView === desiredView) {
+			this.loadingAnimation.setMessage(this.getWorkingLoaderMessage());
 			return;
 		}
 		this.stopWorkingLoader();
 		this.loadingAnimation = this.createWorkingLoader();
 		this.workingLoaderView = desiredView;
 		this.statusContainer.addChild(this.loadingAnimation);
+		if (viewingChild) {
+			this.startChildActivityTimer();
+		}
 	}
 
 	private isSelectedChildWorking(): boolean {
@@ -4298,6 +4336,20 @@ export class InteractiveMode {
 		InteractiveMode.prototype.renderSessionItems.call(this, messages, options);
 	}
 
+	private getPendingToolStartedAt(toolCallId: string): number | undefined {
+		const selectedAgentId = this.multiAgentStore?.getSelectedAgentId();
+		if (!selectedAgentId) {
+			return this.executingToolStartedAt.get(toolCallId);
+		}
+
+		const activity = this.multiAgentStore?.getAgent(selectedAgentId)?.currentActivity;
+		if (activity?.phase !== "tool" || activity.toolCallId !== toolCallId) {
+			return undefined;
+		}
+		const startedAt = Date.parse(activity.startedAt);
+		return Number.isFinite(startedAt) ? startedAt : undefined;
+	}
+
 	private renderSessionItems(
 		messages: AgentMessage[],
 		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
@@ -4368,7 +4420,7 @@ export class InteractiveMode {
 		}
 
 		for (const [toolCallId, component] of renderedPendingTools) {
-			const startedAt = this.isViewingAgentSession() ? undefined : this.executingToolStartedAt.get(toolCallId);
+			const startedAt = this.getPendingToolStartedAt(toolCallId);
 			if (startedAt !== undefined) {
 				component.markExecutionStarted(startedAt);
 			}
@@ -7066,6 +7118,7 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
+		this.stopChildActivityTimer();
 		this.clearChildAgentView();
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();

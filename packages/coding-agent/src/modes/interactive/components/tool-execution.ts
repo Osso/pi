@@ -313,35 +313,37 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	private renderSelfTimer(width: number): string[] {
+		return this.createTimerComponent()?.render(width) ?? [];
+	}
+
+	private renderSelfShell(width: number): string[] {
+		const contentLines = this.selfRenderContainer.render(width);
+		if (contentLines.length === 0 && this.imageComponents.length === 0) {
+			return [];
+		}
+
+		const lines = contentLines.length > 0 ? ["", ...contentLines, ...this.renderSelfTimer(width)] : [];
+		for (let i = 0; i < this.imageComponents.length; i++) {
+			const spacer = this.imageSpacers[i];
+			if (spacer) {
+				lines.push(...spacer.render(width));
+			}
+			const imageComponent = this.imageComponents[i];
+			if (imageComponent) {
+				lines.push(...imageComponent.render(width));
+			}
+		}
+		return lines;
+	}
+
 	override render(width: number): string[] {
 		if (this.hideComponent) {
 			return [];
 		}
-
 		if (this.hasRendererDefinition() && this.getRenderShell() === "self") {
-			const contentLines = this.selfRenderContainer.render(width);
-			if (contentLines.length === 0 && this.imageComponents.length === 0) {
-				return [];
-			}
-
-			const lines: string[] = [];
-			if (contentLines.length > 0) {
-				lines.push("");
-				lines.push(...contentLines);
-			}
-			for (let i = 0; i < this.imageComponents.length; i++) {
-				const spacer = this.imageSpacers[i];
-				if (spacer) {
-					lines.push(...spacer.render(width));
-				}
-				const imageComponent = this.imageComponents[i];
-				if (imageComponent) {
-					lines.push(...imageComponent.render(width));
-				}
-			}
-			return lines;
+			return this.renderSelfShell(width);
 		}
-
 		return super.render(width);
 	}
 

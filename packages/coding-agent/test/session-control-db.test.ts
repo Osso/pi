@@ -69,6 +69,7 @@ import {
 	setNamedSession,
 	unarchiveSession,
 	updateMultiAgentAgentActivity,
+	updateMultiAgentAgentCurrentActivity,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentMailboxMessage,
@@ -813,6 +814,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const agentId = "agent-1";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			createdAt: "2026-07-11T00:00:00.000Z",
+			currentActivity: { phase: "thinking", startedAt: "2026-07-11T00:00:00.000Z" },
 			cwd: "/repo",
 			displayName: "Terminal agent",
 			agentType: "test",
@@ -880,6 +882,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				).data,
 			) as Record<string, unknown>;
 			expect(agent).toMatchObject({ lifecycle: "completed", revision: 5 });
+			expect(agent).not.toHaveProperty("currentActivity");
 			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
 		} finally {
 			db.close();
@@ -949,6 +952,15 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			transcript: { path: "/sessions/child.jsonl", sessionId: "child-session" },
 		});
 		expect(
+			updateMultiAgentAgentCurrentActivity(
+				controlDbPath,
+				sessionPath,
+				"agent-1",
+				{ phase: "thinking", startedAt: "2026-07-11T00:02:30.000Z" },
+				"2026-07-11T00:02:30.000Z",
+			),
+		).toBeUndefined();
+		expect(
 			updateMultiAgentAgentActivity(
 				controlDbPath,
 				sessionPath,
@@ -978,6 +990,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
 			agentType: "background",
 			createdAt: "2026-07-11T21:00:00.000Z",
+			currentActivity: { phase: "thinking", startedAt: "2026-07-11T21:00:00.000Z" },
 			cwd: "/repo",
 			displayName: "Detached job",
 			id: agentId,
@@ -1016,6 +1029,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			terminalRevision: 5,
 		});
 		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toEqual(finalized);
+		expect(finalized.ok ? finalized.terminalAgent.currentActivity : "missing").toBeUndefined();
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{
 				id: agentId,

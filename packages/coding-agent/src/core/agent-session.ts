@@ -634,6 +634,10 @@ export class AgentSession {
 	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
 	private readonly _terminalOutboxClaimId = randomUUID();
 	private _multiAgentAgentId: string | undefined;
+	private readonly _multiAgentActiveTools = new Map<
+		string,
+		{ startedAt: string; toolCallId: string; toolName: string }
+	>();
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
 	private _disableRuntimeCoordinationInbound: boolean;
@@ -1122,6 +1126,8 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
+		this._publishCurrentAgentActivity(event);
+
 		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
@@ -1199,6 +1205,46 @@ export class AgentSession {
 			}
 		}
 	};
+
+	private _publishCurrentAgentActivity(event: AgentEvent): void {
+		const store = this._multiAgentStore;
+		const agentId = this._multiAgentAgentId;
+		if (!store || !agentId) {
+			return;
+		}
+
+		switch (event.type) {
+			case "agent_start":
+				this._multiAgentActiveTools.clear();
+				store.publishAgentCurrentActivity(agentId, { phase: "thinking", startedAt: new Date().toISOString() });
+				break;
+			case "tool_execution_start": {
+				const activity = {
+					startedAt: new Date(event.startedAt).toISOString(),
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+				};
+				this._multiAgentActiveTools.set(event.toolCallId, activity);
+				if (this._multiAgentActiveTools.size === 1) {
+					store.publishAgentCurrentActivity(agentId, { phase: "tool", ...activity });
+				}
+				break;
+			}
+			case "tool_execution_end": {
+				this._multiAgentActiveTools.delete(event.toolCallId);
+				const nextTool = this._multiAgentActiveTools.values().next().value;
+				const currentActivity = nextTool
+					? { phase: "tool" as const, ...nextTool }
+					: { phase: "thinking" as const, startedAt: new Date(event.finishedAt).toISOString() };
+				store.publishAgentCurrentActivity(agentId, currentActivity);
+				break;
+			}
+			case "agent_end":
+				this._multiAgentActiveTools.clear();
+				store.publishAgentCurrentActivity(agentId, undefined);
+				break;
+		}
+	}
 
 	private _completeRuntimeMailboxSteeringTurn(messages: AgentMessage[]): void {
 		if (!this._multiAgentStore || this._runtimeMailboxSteeringAgentIds.size === 0) {

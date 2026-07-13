@@ -64,6 +64,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent state persists as per-entity rows in the session control DB (one upsert per
       mutated agent or mailbox message), not as snapshots appended to the session
       JSONL transcript; transcripts carry conversation history only.
+- [x] A running child publishes its authoritative current activity phase (`thinking` or `tool`),
+      phase start timestamp, and tool call ID/name when applicable into its agent row. Phase transitions,
+      not timer ticks, are persisted; terminalization clears current activity. Transcript content
+      remains history and is never used to infer the live phase.
 - [x] Persisted agent and message IDs are allocated from per-session counters. Allocation reconciles
       alternate counter state and existing IDs across agent, mailbox, and runtime mailbox transport rows
       before advancing, so stale counters cannot cause ID reuse. Legacy `multi_agent_counters_v2` rows
@@ -333,6 +337,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       session restores the main footer model.
 - [x] The main-session working loader is hidden while a child transcript is selected, preserves
       unrelated status rows, and is restored after returning to a still-streaming main session.
+- [x] A selected running child renders its current thinking or tool phase and computes elapsed time
+      locally from the child-scoped phase start timestamp; the matching pending tool component owns
+      tool elapsed rendering. It never borrows the parent timer or
+      infers live state from the latest transcript entry; missing or invalid activity renders the
+      phase-neutral `Working...` label.
 - [x] Escape cancels the currently viewed active child-agent turn before falling back to main-thread
       cancellation or idle Escape behavior.
 - [x] TUI controls show stale-revision conflicts and require the user or caller to retry against
@@ -426,6 +435,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)
   verifies explicit runtime mailbox mirroring and delivery for child completion, waiting-for-input,
   steering, and failed detached Pyrun notifications, including `wait_agents({})` delivery marking.
+- [`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`](../../packages/coding-agent/test/suite/agent-session-child-activity.test.ts)
+  verifies child sessions publish thinking/tool phase transitions with stable start timestamps and
+  clear current activity at turn completion.
 - [`packages/coding-agent/test/pyrun-extension.test.ts`](../../packages/coding-agent/test/pyrun-extension.test.ts)
   covers detached Pyrun completion and failure regressions, including `durationMs` and duration-bearing
   lifecycle notifications.

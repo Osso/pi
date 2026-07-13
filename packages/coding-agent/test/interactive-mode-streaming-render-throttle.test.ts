@@ -2,6 +2,7 @@ import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import { Container, type MarkdownTheme, Text, type TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
+import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { getMarkdownTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -22,6 +23,7 @@ const EMPTY_USAGE: Usage = {
 
 type HandleEventThis = {
 	chatContainer: Container;
+	childActivityTimer: ReturnType<typeof setInterval> | undefined;
 	compactionQueuedMessages: [];
 	currentWorkingDefaultMessage: string;
 	defaultWorkingMessage: string;
@@ -33,7 +35,12 @@ type HandleEventThis = {
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
 	loadingAnimation: { setMessage(message: string): void } | undefined;
-	multiAgentStore: { getSelectedAgentId(): string | undefined } | undefined;
+	multiAgentStore:
+		| {
+				getAgent(agentId: string): Pick<AgentSnapshot, "currentActivity"> | undefined;
+				getSelectedAgentId(): string | undefined;
+		  }
+		| undefined;
 	pendingMessagesContainer: Container;
 	pendingTools: Map<string, unknown>;
 	runtimeHost: {
@@ -50,6 +57,7 @@ type HandleEventThis = {
 	thinkingFollowsTool: boolean;
 	thinkingStartedAt: number | undefined;
 	toolOutputExpanded: boolean;
+	workingLoaderView: "main" | "child" | undefined;
 	workingMessage: string | undefined;
 	ui: Pick<TUI, "requestRender">;
 	getRegisteredToolDefinition(): undefined;
@@ -73,6 +81,8 @@ type HandleEvent = (this: HandleEventThis, event: AgentSessionEvent) => Promise<
 
 interface WorkingLoaderInternals {
 	getWorkingLoaderMessage(this: unknown): string;
+	startChildActivityTimer(this: unknown): void;
+	stopChildActivityTimer(this: unknown): void;
 }
 
 const handleEvent = (InteractiveMode.prototype as unknown as { handleEvent: HandleEvent }).handleEvent;
@@ -120,6 +130,7 @@ function createUserMessage(text: string): AgentSessionEvent {
 function createFakeInteractiveModeThis(): HandleEventThis {
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
+		childActivityTimer: undefined,
 		compactionQueuedMessages: [],
 		currentWorkingDefaultMessage: "Thinking...",
 		defaultWorkingMessage: "Thinking...",
@@ -149,6 +160,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		thinkingFollowsTool: false,
 		thinkingStartedAt: undefined,
 		toolOutputExpanded: false,
+		workingLoaderView: undefined,
 		workingMessage: undefined,
 		ui: { requestRender: vi.fn() },
 		getRegisteredToolDefinition: () => undefined,
@@ -166,7 +178,7 @@ describe("InteractiveMode streaming render throttling", () => {
 
 	test("does not append main session messages while viewing an agent", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
-		fakeThis.multiAgentStore = { getSelectedAgentId: () => "agent_1" };
+		fakeThis.multiAgentStore = { getAgent: () => undefined, getSelectedAgentId: () => "agent_1" };
 		fakeThis.chatContainer.addChild(new Text("child backlog", 0, 0));
 
 		await handleEvent.call(fakeThis, createUserMessage("main thread leak"));
@@ -358,6 +370,8 @@ describe("InteractiveMode streaming render throttling", () => {
 	});
 
 	test("uses clearer waiting labels while tools execute", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
 		const fakeThis = createFakeInteractiveModeThis();
 		const setMessage = vi.fn();
 		fakeThis.loadingAnimation = { setMessage };
@@ -402,7 +416,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			startedAt: 1_000,
 			finishedAt: 2_000,
 		});
-		expect(setMessage).toHaveBeenLastCalledWith("Thinking... 0s");
+		expect(setMessage).toHaveBeenLastCalledWith("Thinking... 0ms");
 	});
 
 	test("keeps elapsed time out of waiting labels when a rendered tool row exists", async () => {
@@ -463,7 +477,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
 
-		fakeThis.multiAgentStore = { getSelectedAgentId: () => "agent_1" };
+		fakeThis.multiAgentStore = { getAgent: () => undefined, getSelectedAgentId: () => "agent_1" };
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_end",
 			toolCallId: "bash-1",
@@ -485,12 +499,69 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Custom extension label");
 	});
 
-	test("uses the default working message in a child view", () => {
+	test.each([undefined, { phase: "thinking" as const, startedAt: "invalid" }])(
+		"uses a phase-neutral label for missing or invalid selected-child activity",
+		(currentActivity) => {
+			const fakeThis = createFakeInteractiveModeThis();
+			fakeThis.multiAgentStore = {
+				getAgent: () => ({ currentActivity }),
+				getSelectedAgentId: () => "agent_1",
+			};
+
+			expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Working...");
+		},
+	);
+
+	test("uses selected child activity timing without leaking the main working override", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime("2026-07-13T12:00:05.000Z");
 		const fakeThis = createFakeInteractiveModeThis();
-		fakeThis.multiAgentStore = { getSelectedAgentId: () => "agent_1" };
+		fakeThis.multiAgentStore = {
+			getAgent: () => ({ currentActivity: { phase: "thinking", startedAt: "2026-07-13T12:00:00.000Z" } }),
+			getSelectedAgentId: () => "agent_1",
+		};
 		fakeThis.workingMessage = "Custom extension label";
 
-		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Thinking...");
+		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Thinking... 5s");
+	});
+
+	test("updates selected child activity elapsed time locally", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime("2026-07-13T12:00:05.000Z");
+		const fakeThis = createFakeInteractiveModeThis();
+		const setMessage = vi.fn();
+		fakeThis.loadingAnimation = { setMessage };
+		fakeThis.workingLoaderView = "child";
+		fakeThis.multiAgentStore = {
+			getAgent: () => ({ currentActivity: { phase: "thinking", startedAt: "2026-07-13T12:00:00.000Z" } }),
+			getSelectedAgentId: () => "agent_1",
+		};
+
+		workingLoader.startChildActivityTimer.call(fakeThis);
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect(setMessage).toHaveBeenLastCalledWith("Thinking... 6s");
+		workingLoader.stopChildActivityTimer.call(fakeThis);
+		expect(fakeThis.childActivityTimer).toBeUndefined();
+	});
+
+	test("shows selected child tool activity timing", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime("2026-07-13T12:00:05.000Z");
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.multiAgentStore = {
+			getAgent: () => ({
+				currentActivity: {
+					phase: "tool",
+					startedAt: "2026-07-13T12:00:00.000Z",
+					toolCallId: "read-1",
+					toolName: "read",
+				},
+			}),
+			getSelectedAgentId: () => "agent_1",
+		};
+
+		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Waiting for tool: read... Elapsed: 5s");
 	});
 
 	test("keeps extension working message override during tool execution", async () => {

@@ -2848,6 +2848,7 @@ export function commitMultiAgentTerminalMutation(
 			const updatedAgent = {
 				...agent,
 				...input.agentDetails,
+				currentActivity: undefined,
 				lifecycle: input.terminalLifecycle,
 				revision: terminalRevision,
 				updatedAt: input.updatedAt,
@@ -3056,6 +3057,7 @@ function persistDetachedJobTerminal(
 	const updated = {
 		...agent,
 		...detachedJobAgentDetails(terminal, terminalLifecycle),
+		currentActivity: undefined,
 		lifecycle: terminalLifecycle,
 		revision: terminalRevision,
 		updatedAt: terminal.terminalAt,
@@ -3470,6 +3472,16 @@ export function updateMultiAgentAgentActivity(
 	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { lastActivity }, updatedAt);
 }
 
+export function updateMultiAgentAgentCurrentActivity(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	currentActivity: AgentSnapshot["currentActivity"],
+	updatedAt: string,
+): AgentSnapshot | undefined {
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { currentActivity }, updatedAt);
+}
+
 export function updateMultiAgentAgentSlot(
 	controlDbPath: string,
 	sessionPath: string,
@@ -3494,7 +3506,11 @@ function updateMultiAgentAgentMetadata(
 	controlDbPath: string,
 	sessionPath: string,
 	agentId: string,
-	metadata: Pick<AgentSnapshot, "lastActivity"> | Pick<AgentSnapshot, "slot"> | Pick<AgentSnapshot, "transcript">,
+	metadata:
+		| Pick<AgentSnapshot, "currentActivity">
+		| Pick<AgentSnapshot, "lastActivity">
+		| Pick<AgentSnapshot, "slot">
+		| Pick<AgentSnapshot, "transcript">,
 	updatedAt: string,
 ): AgentSnapshot | undefined {
 	return withControlDb(controlDbPath, (db) =>
@@ -3505,6 +3521,14 @@ function updateMultiAgentAgentMetadata(
 			if (!row) return undefined;
 			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
 			validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
+			if (
+				"currentActivity" in metadata &&
+				metadata.currentActivity !== undefined &&
+				agent.lifecycle !== "running" &&
+				agent.lifecycle !== "steering_pending"
+			) {
+				return undefined;
+			}
 			const updated = { ...agent, ...metadata, updatedAt } as AgentSnapshot;
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
