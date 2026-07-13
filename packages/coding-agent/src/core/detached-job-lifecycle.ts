@@ -96,7 +96,7 @@ function launchDetachedBashJob(
 		});
 	} catch (error) {
 		terminateDetachedRunner(runnerPid);
-		const failed = options.coordinator.finalizeChild({
+		const failed = options.coordinator.failDetachedLaunch({
 			agent: ownership.agent,
 			error: { code: "runtime_spawn_failed", message: error instanceof Error ? error.message : String(error) },
 			ownership: ownership.controlOwnership,

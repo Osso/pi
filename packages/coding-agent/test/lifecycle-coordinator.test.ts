@@ -144,6 +144,33 @@ describe("LifecycleCoordinator child creation", () => {
 		});
 	});
 
+	it("rejects lifecycle finalization from a different current process", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const ownerCoordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = createRunningChild(ownerCoordinator);
+		if (!created.ok) throw new Error("Expected running child fixture");
+		const foreignCoordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => "unused",
+			now: () => "2026-07-11T20:00:01.000Z",
+			processIdentity: testProcessIdentity("foreign-runtime"),
+			sessionPath,
+		});
+
+		expect(
+			foreignCoordinator.finalizeChild({
+				agent: created.agent,
+				ownership: created.ownership,
+				terminalLifecycle: "completed",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(readMultiAgentAgent(controlDbPath, sessionPath, created.agent.id)).toMatchObject({
+			lifecycle: "running",
+			revision: 1,
+		});
+	});
+
 	it("requires cancelling before abort acknowledgement", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const coordinator = createCoordinator(controlDbPath, "/tmp/supervisor.jsonl");

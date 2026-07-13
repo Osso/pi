@@ -177,7 +177,7 @@ export class LifecycleCoordinator {
 		return this.commitReservedLifecycle(input, "cancelling", {
 			outputLabel: input.outputLabel,
 			reason: input.reason,
-		});
+		}, false);
 	}
 
 	acknowledgeCancellation(input: OwnedLifecycleCommandInput & { reason?: string }): LifecycleCommandResult {
@@ -189,7 +189,7 @@ export class LifecycleCoordinator {
 	}
 
 	recoverDeadChild(input: RecoverDeadChildCommandInput): RecoverDeadChildCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, false);
 		if (
 			!identity ||
 			identity.agentId !== input.agent.id ||
@@ -209,7 +209,15 @@ export class LifecycleCoordinator {
 	}
 
 	finalizeChild(input: FinalizeChildCommandInput): LifecycleCommandResult {
-		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id);
+		return this.finalizeOwnedChild(input, true);
+	}
+
+	failDetachedLaunch(input: FinalizeChildCommandInput): LifecycleCommandResult {
+		return this.finalizeOwnedChild(input, false);
+	}
+
+	private finalizeOwnedChild(input: FinalizeChildCommandInput, requireCurrentProcess: boolean): LifecycleCommandResult {
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, requireCurrentProcess);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentTerminalMutation(this.options.controlDbPath, {
@@ -305,9 +313,10 @@ export class LifecycleCoordinator {
 		input: OwnedLifecycleCommandInput,
 		requestedLifecycle: "running" | "waiting_for_input" | "cancelling",
 		detachedCancellation?: { outputLabel: string; reason?: string },
+		requireCurrentProcess = true,
 	): LifecycleCommandResult {
 		const ownership = input.ownership;
-		const identity = this.readOwnershipIdentity(ownership, input.agent.id);
+		const identity = this.readOwnershipIdentity(ownership, input.agent.id, requireCurrentProcess);
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const updatedAt = this.options.now();
 		const result = commitMultiAgentLifecycleMutation(this.options.controlDbPath, {
@@ -326,6 +335,7 @@ export class LifecycleCoordinator {
 	private readOwnershipIdentity(
 		ownership: MultiAgentRuntimeOwnership,
 		expectedAgentId: string,
+		requireCurrentProcess = true,
 	):
 		| {
 				agentId: string;
@@ -338,7 +348,10 @@ export class LifecycleCoordinator {
 			ownership.agentId !== expectedAgentId ||
 			ownership.sessionPath !== this.options.sessionPath ||
 			!ownership.processIdentity ||
-			!ownership.owner.sessionId
+			!ownership.owner.sessionId ||
+			(requireCurrentProcess &&
+				(ownership.processIdentity.pid !== this.options.processIdentity.pid ||
+					ownership.processIdentity.startTimeTicks !== this.options.processIdentity.startTimeTicks))
 		) {
 			return undefined;
 		}
