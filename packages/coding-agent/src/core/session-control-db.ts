@@ -1044,7 +1044,9 @@ export function readRuntimeMailboxListener(
  * asserted. Zero or multiple matches are rejected (returns undefined) so wait
  * primitives never poll a selected child's address.
  */
-export function resolveOwnMainRuntimeCoordinationRecipient(controlDbPath: string): RuntimeMailboxAddress | undefined {
+export function resolveOwnMainRuntimeCoordinationRecipient(
+	controlDbPath: string,
+): RuntimeMailboxAddress | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
 			.prepare(
