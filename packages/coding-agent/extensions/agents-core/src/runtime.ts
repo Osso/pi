@@ -2259,7 +2259,7 @@ async function waitAgents(
 		persistence.controlDbPath,
 		persistence.sessionPath,
 		signal,
-		runtimeCoordinationRecipient(ctx),
+		runtimeCoordinationRecipient(ctx, persistence),
 	);
 	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
 	if (wake.kind === "coordination") return result("Mailbox or shared-channel message received.", {});
@@ -2276,14 +2276,14 @@ async function waitAgents(
 
 function runtimeCoordinationRecipient(
 	ctx: ExtensionContext | undefined,
+	persistence: { controlDbPath: string; sessionPath: string },
 ): RuntimeCoordinationRecipient | undefined {
 	if (!ctx?.controlDbPath) return undefined;
+	const supervisorSessionId = readSessionMetadata(persistence.controlDbPath, persistence.sessionPath)?.id;
+	if (!supervisorSessionId) return undefined;
 	return {
-		address: {
-			agentId: ctx.multiAgentAgentId ?? null,
-			sessionId: ctx.sessionManager.getSessionId(),
-		},
-		controlDbPath: ctx.controlDbPath,
+		address: { agentId: null, sessionId: supervisorSessionId },
+		controlDbPath: persistence.controlDbPath,
 	};
 }
 

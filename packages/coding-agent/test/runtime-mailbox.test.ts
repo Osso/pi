@@ -1188,6 +1188,84 @@ describe("runtime SQLite mailbox delivery", () => {
 		},
 	);
 
+	it("wait_agents ignores outbound steering to the selected child until supervisor coordination arrives", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
+			id: "child-session",
+			isSubagent: true,
+			parentSession: parentSession.getSessionFile(),
+			subagentName: "Worker",
+		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		childSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, childSession.getSessionId(), "/repo");
+		const tools = collectMultiAgentTools(store);
+		const steerAgent = tools.get("steer_agent");
+		const waitAgents = tools.get("wait_agents");
+		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
+		const supervisorContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		await steerAgent.execute(
+			"steer",
+			{ agentId: runtime.agent.id, expectedRevision: runtime.agent.revision, message: "Check permissions" },
+			undefined,
+			undefined,
+			supervisorContext,
+		);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				recipient: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+				sender: { agentId: "supervisor", sessionId: parentSession.getSessionId() },
+				status: "pending",
+			},
+		]);
+
+		let selectedChildIdentityRead = false;
+		const selectedChildSessionManager = {
+			getSessionId: () => childSession.getSessionId(),
+			isSubagentSession: () => false,
+		} as unknown as SessionManager;
+		const selectedChildContext = createRuntimeMailboxContext({
+			controlDbPath,
+			sessionManager: selectedChildSessionManager,
+		});
+		Object.defineProperty(selectedChildContext, "multiAgentAgentId", {
+			get: () => {
+				if (!selectedChildIdentityRead) {
+					selectedChildIdentityRead = true;
+					return undefined;
+				}
+				return runtime.agent.id;
+			},
+		});
+
+		let settled = false;
+		const waiting = waitAgents.execute("wait", {}, undefined, undefined, selectedChildContext).then((result) => {
+			settled = true;
+			return result;
+		});
+		await Promise.resolve();
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(settled).toBe(false);
+
+		const inboundMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Need parent review",
+			kind: "message",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+		});
+		await vi.advanceTimersByTimeAsync(3_000);
+
+		const waited = await waiting;
+		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
+		expect(readRuntimeMailboxMessage(controlDbPath, inboundMessageId)).toMatchObject({ status: "pending" });
+	});
+
 	it("wait_agents ignores pending terminal transport rows until actionable coordination arrives", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
