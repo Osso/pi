@@ -1327,10 +1327,14 @@ function hasDeliverableRuntimeMailboxMessage(db: SqliteDatabase, recipient: Runt
 }
 
 function isLifecycleNotificationPayload(message: Record<string, unknown>): boolean {
+	if (message.kind !== "system") return false;
+	if (typeof message.id === "string" && message.id.startsWith("terminal:")) return true;
+	const body = typeof message.body === "string" ? parseJsonObject(message.body) : undefined;
+	if (body?.type === "multi_agent_terminal") return true;
 	const threadId = message.threadId;
-	if (message.kind !== "system" || typeof threadId !== "string") return false;
-	return ["agent-completed:", "agent-failed:", "agent-waiting-for-input:"].some((prefix) =>
-		threadId.startsWith(prefix),
+	return (
+		typeof threadId === "string" &&
+		["agent-completed:", "agent-failed:", "agent-waiting-for-input:"].some((prefix) => threadId.startsWith(prefix))
 	);
 }
 

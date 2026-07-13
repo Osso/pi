@@ -36,12 +36,13 @@ function enqueueStoredRuntimeMessage(
 	input: {
 		body: string;
 		kind: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["kind"];
+		messageId?: string;
 		recipient: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["recipient"];
 		sender: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["sender"];
 	},
 ): number {
 	storedMessageCounter += 1;
-	const messageId = `runtime_test_message_${storedMessageCounter}`;
+	const messageId = input.messageId ?? `runtime_test_message_${storedMessageCounter}`;
 	const sessionPath = "/sessions/runtime-test-sender.jsonl";
 	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
 		body: input.body,
@@ -1186,6 +1187,46 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
 		},
 	);
+
+	it("wait_agents ignores pending terminal transport rows until actionable coordination arrives", async () => {
+		vi.useFakeTimers();
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		let settled = false;
+		const waiting = waitAgents.execute("wait", {}, undefined, undefined, context).then((result) => {
+			settled = true;
+			return result;
+		});
+		await Promise.resolve();
+		enqueueStoredRuntimeMessage(controlDbPath, {
+			body: JSON.stringify({ agentId: "background_1", eventKind: "detached_job_completed", type: "multi_agent_terminal" }),
+			kind: "system",
+			messageId: "terminal:background_1:2:detached_job_completed",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: "background_1", sessionId: "child-session" },
+		});
+
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(settled).toBe(false);
+		enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Need parent review",
+			kind: "message",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: runtime.agent.id, sessionId: "child-session" },
+		});
+		await vi.advanceTimersByTimeAsync(3_000);
+
+		const waited = await waiting;
+		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
+	});
 
 	it("wait_agents wakes for an eligible shared-channel message without advancing its cursor", async () => {
 		vi.useFakeTimers();
