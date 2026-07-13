@@ -38,7 +38,6 @@ import {
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
 import {
-	acquireMultiAgentRuntimeOwnership,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
@@ -56,6 +55,7 @@ import multiAgentExtension, {
 import { main } from "../src/main.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
+import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./suite/harness.ts";
 
 const firstPartyGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
@@ -205,7 +205,7 @@ function addDeadProcessOwner(store: MultiAgentStore, agentId: string) {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected persisted store fixture");
 	const processIdentity = testProcessIdentity("dead-runtime");
-	const acquired = acquireMultiAgentRuntimeOwnership(persistence.controlDbPath, {
+	const acquired = forceRuntimeOwnership(persistence.controlDbPath, {
 		agentId,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },
@@ -219,7 +219,7 @@ function addDeadProcessOwner(store: MultiAgentStore, agentId: string) {
 function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) throw new Error("expected persisted store fixture");
-	const acquired = acquireMultiAgentRuntimeOwnership(persistence.controlDbPath, {
+	const acquired = forceRuntimeOwnership(persistence.controlDbPath, {
 		agentId,
 		nowIso: "2026-06-21T00:00:00.000Z",
 		owner: { agentId: null, sessionId: persistence.sessionPath },

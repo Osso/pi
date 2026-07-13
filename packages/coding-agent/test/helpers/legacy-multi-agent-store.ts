@@ -11,13 +11,13 @@ import type {
 	SpawnChildAgentInput,
 } from "../../src/core/multi-agent-store.ts";
 import {
-	acquireMultiAgentRuntimeOwnership,
 	bootstrapMultiAgentAgent,
 	type MultiAgentRuntimeOwnership,
 	readMultiAgentRuntimeOwnership,
 } from "../../src/core/session-control-db.ts";
 import { deliverTerminalOutboxProjections } from "../../src/core/terminal-outbox-delivery.ts";
 import { testProcessIdentity } from "./process-identity.ts";
+import { forceRuntimeOwnership } from "./runtime-ownership.ts";
 
 interface TransitionAgentDetails {
 	error?: AgentSnapshot["error"];
@@ -346,7 +346,7 @@ function acquireTestOwnership(
 	sessionPath: string,
 	agent: AgentSnapshot,
 ): MultiAgentRuntimeOwnership {
-	const result = acquireMultiAgentRuntimeOwnership(controlDbPath, {
+	const result = forceRuntimeOwnership(controlDbPath, {
 		agentId: agent.id,
 		nowIso: shiftIso(agent.updatedAt, -2),
 		owner: { agentId: agent.parentId ?? null, sessionId: "legacy-test-session" },

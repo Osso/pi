@@ -2349,10 +2349,6 @@ export interface AcquireMultiAgentRuntimeOwnershipInput extends MultiAgentRuntim
 	nowIso: string;
 }
 
-export type AcquireMultiAgentRuntimeOwnershipResult =
-	| { ok: true; ownership: MultiAgentRuntimeOwnership }
-	| { ok: false; error: "ownership_held"; current: MultiAgentRuntimeOwnership };
-
 export interface SupervisorRuntimeOwnership {
 	processIdentity: ProcessIdentity;
 	sessionId: string;
@@ -2366,8 +2362,6 @@ export interface AcquireAttachedRuntimeOwnershipInput extends MultiAgentRuntimeO
 export type AcquireAttachedRuntimeOwnershipResult =
 	| { ok: true; agent: AgentSnapshot; ownership: MultiAgentRuntimeOwnership }
 	| { ok: false; error: "agent_not_found" | "invalid_agent" | "ownership_held" | "mutation_mismatch" };
-
-export type ReleaseMultiAgentRuntimeOwnershipInput = MultiAgentRuntimeOwnershipIdentity;
 
 export interface MultiAgentTerminalOutboxRecord {
 	sessionPath: string;
@@ -3393,53 +3387,6 @@ function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRu
 		serializeProcessIdentity(input.processIdentity),
 		input.owner.sessionId,
 		input.owner.agentId,
-	);
-}
-
-export function acquireMultiAgentRuntimeOwnership(
-	controlDbPath: string,
-	input: AcquireMultiAgentRuntimeOwnershipInput,
-): AcquireMultiAgentRuntimeOwnershipResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const currentRow = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (currentRow?.process_identity) {
-				const currentIdentity = parseProcessIdentity(currentRow.process_identity);
-				if (isProcessIdentityAlive(currentIdentity)) {
-					return { ok: false, error: "ownership_held", current: multiAgentRuntimeOwnershipFromRow(currentRow) };
-				}
-			}
-			persistAcquiredRuntimeOwnership(db, input);
-			const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!acquired)
-				throw new Error(`Runtime ownership acquisition did not persist ${input.sessionPath}#${input.agentId}`);
-			return { ok: true, ownership: multiAgentRuntimeOwnershipFromRow(acquired) };
-		}),
-	);
-}
-
-export function releaseMultiAgentRuntimeOwnership(
-	controlDbPath: string,
-	input: ReleaseMultiAgentRuntimeOwnershipInput,
-): boolean {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const result = db
-				.prepare(
-					`UPDATE multi_agent_runtime_owners
-					 SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
-					 WHERE session_path = ? AND agent_id = ?
-					 AND process_identity = ? AND owner_session_id = ? AND owner_agent_id IS ?`,
-				)
-				.run(
-					input.sessionPath,
-					input.agentId,
-					serializeProcessIdentity(input.processIdentity),
-					input.owner.sessionId,
-					input.owner.agentId,
-				);
-			return result.changes === 1;
-		}),
 	);
 }
 

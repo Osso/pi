@@ -6,13 +6,15 @@ const packageRoot = join(import.meta.dirname, "..");
 const productionRoots = [join(packageRoot, "src"), join(packageRoot, "extensions")];
 const excludedFiles = new Set(["src/core/lifecycle-coordinator.ts", "src/core/session-control-db.ts"]);
 const repositoryWriterAllowlist = new Map<string, Set<string>>([
-	["acquireMultiAgentRuntimeOwnership(", new Set(["src/core/lifecycle-coordinator.ts"])],
+	["acquireAttachedRuntimeOwnership(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["commitMultiAgentLifecycleMutation(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["commitMultiAgentSteeringDelivery(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["commitMultiAgentSteeringMutation(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["commitMultiAgentTerminalMutation(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["createFailedMultiAgentChild(", new Set(["src/core/lifecycle-coordinator.ts"])],
+	["createMultiAgentAttachment(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["createMultiAgentChildWithRuntimeOwnership(", new Set(["src/core/lifecycle-coordinator.ts"])],
+	["releaseMultiAgentRuntimeOwnership(", new Set()],
 	[
 		"finalizeDetachedJob(",
 		new Set([

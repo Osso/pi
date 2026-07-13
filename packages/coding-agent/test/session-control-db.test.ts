@@ -8,7 +8,6 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import {
-	acquireMultiAgentRuntimeOwnership,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -85,6 +84,7 @@ import {
 	createSqliteDatabase,
 } from "../src/core/sqlite.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
+import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 
 let storedMessageCounter = 0;
 
@@ -652,7 +652,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 0,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		acquireMultiAgentRuntimeOwnership(controlDbPath, {
+		forceRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
@@ -718,7 +718,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 3,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		acquireMultiAgentRuntimeOwnership(controlDbPath, {
+		forceRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
@@ -822,7 +822,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 4,
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
-		acquireMultiAgentRuntimeOwnership(controlDbPath, {
+		forceRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
@@ -986,7 +986,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 4,
 			updatedAt: "2026-07-11T21:00:00.000Z",
 		});
-		acquireMultiAgentRuntimeOwnership(controlDbPath, {
+		forceRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T21:00:00.000Z",
 			owner: { agentId: null, sessionId: "runner" },
@@ -1035,7 +1035,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			},
 		]);
 		expect(
-			acquireMultiAgentRuntimeOwnership(controlDbPath, {
+			forceRuntimeOwnership(controlDbPath, {
 				agentId,
 				nowIso: "2026-07-11T23:01:00.000Z",
 				owner: { agentId: null, sessionId: "runner-2" },
@@ -1075,7 +1075,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				updatedAt: "2026-07-11T21:00:00.000Z",
 			});
 			expect(
-				acquireMultiAgentRuntimeOwnership(controlDbPath, {
+				forceRuntimeOwnership(controlDbPath, {
 					agentId,
 					nowIso: "2026-07-11T21:00:00.000Z",
 					owner,
@@ -1151,7 +1151,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const sessionPath = "/sessions/process-owner.jsonl";
 		const agentId = "agent-owner";
 		const liveIdentity = CURRENT_PROCESS_IDENTITY;
-		const first = acquireMultiAgentRuntimeOwnership(controlDbPath, {
+		const first = forceRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor-a" },
@@ -1160,7 +1160,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		expect(first).toMatchObject({ ok: true });
 		expect(
-			acquireMultiAgentRuntimeOwnership(controlDbPath, {
+			forceRuntimeOwnership(controlDbPath, {
 				agentId,
 				nowIso: "2026-07-11T00:00:01.000Z",
 				owner: { agentId: null, sessionId: "supervisor-b" },

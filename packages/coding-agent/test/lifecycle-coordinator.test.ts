@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import {
-	acquireMultiAgentRuntimeOwnership,
 	bootstrapMultiAgentAgent,
 	listRuntimeMailboxMessages,
 	readMultiAgentAgent,
@@ -14,6 +13,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
+import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 
 function createCoordinator(
 	controlDbPath: string,
@@ -115,7 +115,7 @@ describe("LifecycleCoordinator child creation", () => {
 		if (!created.ok) return;
 
 		expect(
-			acquireMultiAgentRuntimeOwnership(controlDbPath, {
+			forceRuntimeOwnership(controlDbPath, {
 				agentId: created.agent.id,
 				nowIso: "2026-07-11T20:01:00.000Z",
 				owner: { agentId: null, sessionId: "supervisor-2" },
