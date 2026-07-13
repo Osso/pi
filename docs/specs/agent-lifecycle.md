@@ -74,11 +74,13 @@ Dispatch and graph invariants:
 - Child session construction occurs before persistence. On success, the child row, its single parent link,
   exact process ownership, `running` lifecycle, and revision 1 commit atomically. Construction interruption
   or failure persists `failed` revision 1 with the construction error; no persisted `queued` or `starting`
-  startup row exists. Parent links cannot self-reference or form cycles.
+  startup row exists. Parent links cannot self-reference or form cycles, and child/attachment creation
+  transactionally rejects a parent that is already terminal.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. A parent dispatch whose result is ready waits
   without disposing its runtime until every descendant is terminal, then commits its preserved terminal result.
-  Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal.
+  Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal. Runtime-mailbox
+  steering completion stores the original terminal lifecycle/result and retries it when descendants settle.
 
 Race precedence is deterministic and based on coordinator commit order, not callback order, PID,
 wall-clock time, or mailbox delivery:
