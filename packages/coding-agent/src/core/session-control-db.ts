@@ -3478,8 +3478,9 @@ export function updateMultiAgentAgentCurrentActivity(
 	agentId: string,
 	currentActivity: AgentSnapshot["currentActivity"],
 	updatedAt: string,
+	ownership: { ownerSessionId: string; processIdentity: ProcessIdentity },
 ): AgentSnapshot | undefined {
-	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { currentActivity }, updatedAt);
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { currentActivity }, updatedAt, ownership);
 }
 
 export function updateMultiAgentAgentSlot(
@@ -3502,6 +3503,36 @@ export function updateMultiAgentAgentTranscript(
 	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { transcript }, updatedAt);
 }
 
+function multiAgentActivityOwnershipMatches(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	ownership: { ownerSessionId: string; processIdentity: ProcessIdentity },
+): boolean {
+	const runtimeOwnership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
+	return (
+		runtimeOwnership?.owner_session_id === ownership.ownerSessionId &&
+		runtimeOwnership.owner_agent_id === null &&
+		runtimeOwnership.process_identity === serializeProcessIdentity(ownership.processIdentity)
+	);
+}
+
+function permitsMultiAgentCurrentActivity(
+	agent: Record<string, unknown>,
+	metadata:
+		| Pick<AgentSnapshot, "currentActivity">
+		| Pick<AgentSnapshot, "lastActivity">
+		| Pick<AgentSnapshot, "slot">
+		| Pick<AgentSnapshot, "transcript">,
+): boolean {
+	return (
+		!("currentActivity" in metadata) ||
+		metadata.currentActivity === undefined ||
+		agent.lifecycle === "running" ||
+		agent.lifecycle === "steering_pending"
+	);
+}
+
 function updateMultiAgentAgentMetadata(
 	controlDbPath: string,
 	sessionPath: string,
@@ -3512,6 +3543,7 @@ function updateMultiAgentAgentMetadata(
 		| Pick<AgentSnapshot, "slot">
 		| Pick<AgentSnapshot, "transcript">,
 	updatedAt: string,
+	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
 ): AgentSnapshot | undefined {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
@@ -3521,14 +3553,10 @@ function updateMultiAgentAgentMetadata(
 			if (!row) return undefined;
 			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
 			validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
-			if (
-				"currentActivity" in metadata &&
-				metadata.currentActivity !== undefined &&
-				agent.lifecycle !== "running" &&
-				agent.lifecycle !== "steering_pending"
-			) {
+			if (activityOwnership && !multiAgentActivityOwnershipMatches(db, sessionPath, agentId, activityOwnership)) {
 				return undefined;
 			}
+			if (!permitsMultiAgentCurrentActivity(agent, metadata)) return undefined;
 			const updated = { ...agent, ...metadata, updatedAt } as AgentSnapshot;
 			db.prepare(
 				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",

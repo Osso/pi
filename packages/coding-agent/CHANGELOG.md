@@ -107,7 +107,7 @@
 
 ### Fixed
 
-- Fixed selected child-agent views showing a static thinking indicator without authoritative thinking/tool phase timing.
+- Fixed selected child-agent views showing a static thinking indicator without exact-runtime-owner-scoped thinking/tool phase timing.
 - Fixed idle shared-channel delivery racing a newly started agent turn and logging an `Agent is already processing` coordination-drain error.
 - Fixed Hostrun lifecycle mirroring retaining a stale extension context after `/reload` replaces the session runtime.
 - Fixed `deploy.sh` failing outside login shells when `USER`, `XDG_RUNTIME_DIR`, or `DBUS_SESSION_BUS_ADDRESS` are absent.

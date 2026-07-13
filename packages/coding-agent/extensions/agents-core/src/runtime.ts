@@ -584,6 +584,8 @@ export function createProductionChildAgentSessionFactory(
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
 			multiAgentAgentId: agent.id,
+			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
+			multiAgentRequiresAgentId: true,
 			multiAgentRuntimeRole: "child",
 			multiAgentStore: options.multiAgentStore,
 			sessionManager,

@@ -923,6 +923,67 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(cleanupMultiAgentTerminalOutbox(controlDbPath, "2026-07-11T00:04:00.000Z")).toBe(1);
 	});
 
+	it("rejects child activity from a stale runtime owner", () => {
+		const sessionPath = "/sessions/activity-owner.jsonl";
+		const agentId = "agent-activity";
+		const firstIdentity = testProcessIdentity("activity-runtime-1");
+		const secondIdentity = testProcessIdentity("activity-runtime-2");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "test",
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Activity agent",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			nowIso: "2026-07-11T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: firstIdentity,
+			sessionPath,
+		});
+
+		expect(
+			updateMultiAgentAgentCurrentActivity(
+				controlDbPath,
+				sessionPath,
+				agentId,
+				{ phase: "thinking", startedAt: "2026-07-11T00:00:01.000Z" },
+				"2026-07-11T00:00:01.000Z",
+				{ ownerSessionId: "supervisor", processIdentity: firstIdentity },
+			),
+		).toMatchObject({ currentActivity: { phase: "thinking" } });
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			nowIso: "2026-07-11T00:00:02.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: secondIdentity,
+			sessionPath,
+		});
+
+		expect(
+			updateMultiAgentAgentCurrentActivity(
+				controlDbPath,
+				sessionPath,
+				agentId,
+				{ phase: "tool", startedAt: "2026-07-11T00:00:03.000Z", toolCallId: "stale", toolName: "edit" },
+				"2026-07-11T00:00:03.000Z",
+				{ ownerSessionId: "supervisor", processIdentity: firstIdentity },
+			),
+		).toBeUndefined();
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toMatchObject({
+			currentActivity: {
+				phase: "thinking",
+				startedAt: "2026-07-11T00:00:01.000Z",
+			},
+		});
+	});
+
 	it("updates transcript metadata without overwriting a newer lifecycle revision", () => {
 		const sessionPath = "/sessions/transcript-merge.jsonl";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
@@ -958,6 +1019,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				"agent-1",
 				{ phase: "thinking", startedAt: "2026-07-11T00:02:30.000Z" },
 				"2026-07-11T00:02:30.000Z",
+				{ ownerSessionId: "supervisor", processIdentity: testProcessIdentity("missing-activity-owner") },
 			),
 		).toBeUndefined();
 		expect(

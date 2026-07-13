@@ -79,6 +79,7 @@ export {
 	type AgentActivity,
 	type AgentCommandResult,
 	type AgentCurrentActivity,
+	type AgentCurrentActivityOwner,
 	type AgentFileReference,
 	type AgentLifecycleState,
 	type AgentMailboxMessage,

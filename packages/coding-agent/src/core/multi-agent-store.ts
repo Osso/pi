@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	allocateMultiAgentCounter,
 	type MultiAgentPersistedState,
@@ -36,6 +37,11 @@ export interface AgentActivity {
 export type AgentCurrentActivity =
 	| { phase: "thinking"; startedAt: string }
 	| { phase: "tool"; startedAt: string; toolCallId: string; toolName: string };
+
+export interface AgentCurrentActivityOwner {
+	ownerSessionId: string;
+	processIdentity: ProcessIdentity;
+}
 
 export interface AgentFileReference {
 	path: string;
@@ -602,6 +608,7 @@ export class MultiAgentStore {
 	publishAgentCurrentActivity(
 		agentId: string,
 		currentActivity: AgentCurrentActivity | undefined,
+		ownership?: AgentCurrentActivityOwner,
 	): AgentSnapshot | undefined {
 		const current = this.agents.get(agentId);
 		if (!current) {
@@ -610,8 +617,11 @@ export class MultiAgentStore {
 		if (currentActivity && current.lifecycle !== "running" && current.lifecycle !== "steering_pending") {
 			return undefined;
 		}
+		if (this.persistence && !ownership) {
+			throw new Error(`Persisted agent ${agentId} activity update requires exact runtime ownership`);
+		}
 
-		return copyAgent(this.updateAgentMetadata(current, { currentActivity }));
+		return copyAgent(this.updateAgentMetadata(current, { currentActivity }, ownership));
 	}
 
 	updateAgentTranscript(agentId: string, transcript: AgentTranscriptMetadata): AgentTranscriptCommandResult {
@@ -959,18 +969,23 @@ export class MultiAgentStore {
 		current: AgentNode,
 		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "slot" | "transcript">>,
 		updatedAt: string,
+		activityOwnership?: AgentCurrentActivityOwner,
 	): AgentNode | undefined {
 		if (!this.persistence) {
 			return undefined;
 		}
 		const { controlDbPath, sessionPath } = this.persistence;
 		if ("currentActivity" in updates) {
+			if (!activityOwnership) {
+				throw new Error(`Persisted agent ${current.id} activity update requires exact runtime ownership`);
+			}
 			return updateMultiAgentAgentCurrentActivity(
 				controlDbPath,
 				sessionPath,
 				current.id,
 				updates.currentActivity,
 				updatedAt,
+				activityOwnership,
 			);
 		}
 		if ("transcript" in updates) {
@@ -985,11 +1000,12 @@ export class MultiAgentStore {
 	private updateAgentMetadata(
 		current: AgentNode,
 		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "slot" | "transcript">>,
+		activityOwnership?: AgentCurrentActivityOwner,
 	): AgentNode {
 		const updatedAt = this.now();
-		const persisted = this.persistAgentMetadata(current, updates, updatedAt);
+		const persisted = this.persistAgentMetadata(current, updates, updatedAt, activityOwnership);
 		if (this.persistence && !persisted) {
-			throw new Error(`Persisted agent ${current.id} disappeared during metadata update`);
+			throw new Error(`Persisted agent ${current.id} metadata update was rejected`);
 		}
 		const updated = persisted ?? { ...current, ...updates, updatedAt };
 		this.agents.set(updated.id, updated);

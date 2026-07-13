@@ -65,7 +65,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       mutated agent or mailbox message), not as snapshots appended to the session
       JSONL transcript; transcripts carry conversation history only.
 - [x] A running child publishes its authoritative current activity phase (`thinking` or `tool`),
-      phase start timestamp, and tool call ID/name when applicable into its agent row. Phase transitions,
+      phase start timestamp, and tool call ID/name when applicable into its agent row. Each activity write
+      must match the agent's exact persisted runtime process and owning supervisor session. Phase transitions,
       not timer ticks, are persisted; terminalization clears current activity. Transcript content
       remains history and is never used to infer the live phase.
 - [x] Persisted agent and message IDs are allocated from per-session counters. Allocation reconciles

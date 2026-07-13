@@ -99,7 +99,13 @@ import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { parseModelPattern, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
-import type { AgentLifecycleState, AgentSnapshot, MultiAgentStore, SteeringCheckpoint } from "./multi-agent-store.ts";
+import type {
+	AgentCurrentActivityOwner,
+	AgentLifecycleState,
+	AgentSnapshot,
+	MultiAgentStore,
+	SteeringCheckpoint,
+} from "./multi-agent-store.ts";
 import {
 	type ApprovalRecentDecision,
 	appendApprovalMemory,
@@ -1206,17 +1212,32 @@ export class AgentSession {
 		}
 	};
 
+	private _getCurrentAgentActivityOwner(): AgentCurrentActivityOwner | undefined {
+		if (!this._multiAgentParentSessionId) {
+			return undefined;
+		}
+		return {
+			ownerSessionId: this._multiAgentParentSessionId,
+			processIdentity: this._detachedJobProcessIdentity,
+		};
+	}
+
 	private _publishCurrentAgentActivity(event: AgentEvent): void {
 		const store = this._multiAgentStore;
 		const agentId = this._multiAgentAgentId;
 		if (!store || !agentId) {
 			return;
 		}
+		const ownership = this._getCurrentAgentActivityOwner();
 
 		switch (event.type) {
 			case "agent_start":
 				this._multiAgentActiveTools.clear();
-				store.publishAgentCurrentActivity(agentId, { phase: "thinking", startedAt: new Date().toISOString() });
+				store.publishAgentCurrentActivity(
+					agentId,
+					{ phase: "thinking", startedAt: new Date().toISOString() },
+					ownership,
+				);
 				break;
 			case "tool_execution_start": {
 				const activity = {
@@ -1226,7 +1247,7 @@ export class AgentSession {
 				};
 				this._multiAgentActiveTools.set(event.toolCallId, activity);
 				if (this._multiAgentActiveTools.size === 1) {
-					store.publishAgentCurrentActivity(agentId, { phase: "tool", ...activity });
+					store.publishAgentCurrentActivity(agentId, { phase: "tool", ...activity }, ownership);
 				}
 				break;
 			}
@@ -1236,12 +1257,12 @@ export class AgentSession {
 				const currentActivity = nextTool
 					? { phase: "tool" as const, ...nextTool }
 					: { phase: "thinking" as const, startedAt: new Date(event.finishedAt).toISOString() };
-				store.publishAgentCurrentActivity(agentId, currentActivity);
+				store.publishAgentCurrentActivity(agentId, currentActivity, ownership);
 				break;
 			}
 			case "agent_end":
 				this._multiAgentActiveTools.clear();
-				store.publishAgentCurrentActivity(agentId, undefined);
+				store.publishAgentCurrentActivity(agentId, undefined, ownership);
 				break;
 		}
 	}

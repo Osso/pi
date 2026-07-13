@@ -79,6 +79,8 @@ export interface HarnessOptions {
 	multiAgentStore?: MultiAgentStore;
 	/** Current multi-agent runtime agent identity for child-session mailbox tests. */
 	multiAgentAgentId?: string;
+	/** Exact owning supervisor session for persisted child activity updates. */
+	multiAgentParentSessionId?: string;
 }
 
 export interface Harness {
@@ -198,6 +200,8 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		extensionRunnerRef,
 		multiAgentStore: options.multiAgentStore,
 		multiAgentAgentId: options.multiAgentAgentId,
+		multiAgentParentSessionId:
+			options.multiAgentParentSessionId ?? (options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
 	});
 
 	const events: AgentSessionEvent[] = [];
