@@ -1055,6 +1055,49 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("finalizes a detached job after its session control data relocates", () => {
+		const oldSessionPath = "/sessions/detached-old.jsonl";
+		const newSessionPath = "/sessions/detached-new.jsonl";
+		const agentId = "relocated-job";
+		const owner = { agentId: null, sessionId: "runner" };
+		const processIdentity = testProcessIdentity("relocated-runtime");
+		bootstrapMultiAgentAgent(controlDbPath, oldSessionPath, agentId, {
+			agentType: "background",
+			createdAt: "2026-07-11T21:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Relocated job",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T21:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath: oldSessionPath });
+		const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detached-relocate-")), agentId);
+		writeFileSync(artifacts.outputPath, "runner output", { mode: 0o600 });
+		const terminal = createDetachedJobTerminalInput(
+			artifacts,
+			{ jobId: agentId, outputLabel: "Bash output", owner, processIdentity },
+			{ exitCode: 0, kind: "completed", summary: "done after relocation" },
+			"2026-07-11T22:00:00.000Z",
+		);
+
+		relocateSessionControlData(controlDbPath, oldSessionPath, newSessionPath);
+
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, newSessionPath, agentId)).toMatchObject({ processIdentity });
+		expect(finalizeDetachedJob(controlDbPath, { sessionPath: oldSessionPath, terminal })).toMatchObject({
+			ok: true,
+			terminalAgent: { id: agentId, lifecycle: "completed", revision: 2 },
+		});
+		expect(readMultiAgentState(controlDbPath, newSessionPath)?.agents).toMatchObject([
+			{ id: agentId, lifecycle: "completed", revision: 2 },
+		]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{ storeRef: { messageId: `terminal:${agentId}:2:detached_job_completed`, sessionPath: newSessionPath } },
+		]);
+	});
+
 	it.each(["Bash output", "Pyrun output"])(
 		"treats %s exact-owner exit evidence as aborted when cancellation committed first",
 		(outputLabel) => {

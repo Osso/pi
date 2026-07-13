@@ -1044,9 +1044,7 @@ export function readRuntimeMailboxListener(
  * asserted. Zero or multiple matches are rejected (returns undefined) so wait
  * primitives never poll a selected child's address.
  */
-export function resolveOwnMainRuntimeCoordinationRecipient(
-	controlDbPath: string,
-): RuntimeMailboxAddress | undefined {
+export function resolveOwnMainRuntimeCoordinationRecipient(controlDbPath: string): RuntimeMailboxAddress | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
 			.prepare(
@@ -1973,6 +1971,8 @@ export function relocateSessionControlData(
 			relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
 			relocateSessionPathPrimaryKey(db, "named_sessions", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
+			relocateMultiAgentRuntimeOwners(db, oldSessionPath, newSessionPath);
+			relocateMultiAgentSessionRows(db, "multi_agent_terminal_outbox", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
 			relocateSessionPathPrimaryKey(db, "multi_agent_counters_v2", oldSessionPath, newSessionPath, now);
 			relocateRuntimeMailboxListenerPaths(db, oldSessionPath, newSessionPath);
@@ -2025,9 +2025,17 @@ function relocateSessionPathPrimaryKey(
 	);
 }
 
+function relocateMultiAgentRuntimeOwners(db: SqliteDatabase, oldSessionPath: string, newSessionPath: string): void {
+	db.prepare("DELETE FROM multi_agent_runtime_owners WHERE session_path = ?").run(newSessionPath);
+	db.prepare("UPDATE multi_agent_runtime_owners SET session_path = ? WHERE session_path = ?").run(
+		newSessionPath,
+		oldSessionPath,
+	);
+}
+
 function relocateMultiAgentSessionRows(
 	db: SqliteDatabase,
-	table: "multi_agent_agents" | "multi_agent_mailbox_messages",
+	table: "multi_agent_agents" | "multi_agent_mailbox_messages" | "multi_agent_terminal_outbox",
 	oldSessionPath: string,
 	newSessionPath: string,
 	now: string,
@@ -2926,8 +2934,35 @@ function runtimeOwnershipMatchesTerminalMutation(
 
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => finalizeDetachedJobTransaction(db, input.sessionPath, input.terminal)),
+		withImmediateTransaction(db, () => {
+			const sessionPath = findDetachedJobSessionPath(db, input);
+			if (!sessionPath) return detachedJobLookupFailure(db, input);
+			return finalizeDetachedJobTransaction(db, sessionPath, input.terminal);
+		}),
 	);
+}
+
+function findDetachedJobSessionPath(db: SqliteDatabase, input: FinalizeDetachedJobInput): string | undefined {
+	const candidates = db
+		.prepare("SELECT session_path FROM multi_agent_runtime_owners WHERE agent_id = ?")
+		.all(input.terminal.jobId) as Array<{ session_path: string }>;
+	const matchingPaths = candidates.filter(({ session_path: sessionPath }) => {
+		const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, input.terminal.jobId);
+		return runtimeOwnerMatches(ownership, {
+			agentId: input.terminal.jobId,
+			owner: input.terminal.owner,
+			processIdentity: input.terminal.processIdentity,
+			sessionPath,
+		});
+	});
+	return matchingPaths.length === 1 ? matchingPaths[0]?.session_path : undefined;
+}
+
+function detachedJobLookupFailure(db: SqliteDatabase, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
+	const agent = db
+		.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.terminal.jobId);
+	return agent ? { ok: false, error: "mutation_mismatch" } : { ok: false, error: "agent_not_found" };
 }
 
 function finalizeDetachedJobTransaction(
