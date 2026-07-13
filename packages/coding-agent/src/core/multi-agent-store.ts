@@ -27,7 +27,7 @@ export type SteeringCheckpoint = "next_model_call" | "after_tool_result" | "when
 
 export type MailboxMessageKind = "message" | "ask" | "reply" | "steer" | "supervisor_request" | "system";
 
-export type MailboxMessageStatus = "pending" | "accepted" | "rejected" | "delivered" | "failed";
+export type MailboxMessageStatus = "pending" | "claimed" | "accepted" | "rejected" | "delivered" | "failed";
 
 export interface AgentActivity {
 	description: string;

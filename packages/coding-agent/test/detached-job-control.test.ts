@@ -11,6 +11,7 @@ import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runn
 import {
 	enqueueRuntimeMailboxMessage,
 	listRuntimeMailboxMessages,
+	registerRuntimeMailboxListener,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
@@ -37,7 +38,7 @@ describe("detached job runtime mailbox control", () => {
 		});
 
 		expect(claimDetachedJobControlCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([
-			{ command: "cancel", identity, reason: "user requested", transportId: 1 },
+			{ command: "cancel", identity, reason: "user requested", mailboxRowId: 1 },
 		]);
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([{ id: 1, status: "delivered" }]);
 	});
@@ -59,7 +60,7 @@ describe("detached job runtime mailbox control", () => {
 				identity,
 				replyTo: { agentId: null, sessionId: "supervisor-1" },
 				requestId: "status-1",
-				transportId: 1,
+				mailboxRowId: 1,
 			},
 		]);
 	});
@@ -79,7 +80,7 @@ describe("detached job runtime mailbox control", () => {
 				identity,
 				requestId: "request-1",
 				result: { value: 42 },
-				transportId: 1,
+				mailboxRowId: 1,
 			},
 		]);
 	});
@@ -101,11 +102,13 @@ describe("detached job runtime mailbox control", () => {
 function createFixture() {
 	const directory = mkdtempSync(join(tmpdir(), "pi-detached-control-"));
 	temporaryDirectories.push(directory);
-	return {
+	const fixture = {
 		controlDbPath: join(directory, "control.sqlite"),
 		recipient: { agentId: identity.jobId, sessionId: "supervisor-1" },
 		sessionPath: join(directory, "session.jsonl"),
 	};
+	registerRuntimeMailboxListener(fixture.controlDbPath, fixture.recipient, process.pid);
+	return fixture;
 }
 
 function enqueueControl(

@@ -63,7 +63,7 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 ## How it works
 
 - [`docs/specs/session-control-db.md`](session-control-db.md) owns the global control DB path and
-  runtime mailbox transport used for delivery.
+  canonical mailbox delivery state.
 - [`docs/specs/multi-agent.md`](multi-agent.md) defines runtime mailbox delivery and listener
   lifecycle for session main threads.
 - [`docs/wiki/systems/session-directory-tools.md`](../wiki/systems/session-directory-tools.md)

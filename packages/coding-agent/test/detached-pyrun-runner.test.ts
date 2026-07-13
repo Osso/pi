@@ -20,6 +20,7 @@ import {
 	claimRuntimeMailboxMessages,
 	listRuntimeMailboxMessages,
 	readMultiAgentState,
+	registerRuntimeMailboxListener,
 } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
@@ -84,6 +85,7 @@ describe("detached Pyrun runner", () => {
 			workerHandleId: String(runnerPid),
 		});
 		const supervisorAddress = { agentId: null, sessionId: "main" };
+		registerRuntimeMailboxListener(controlDbPath, supervisorAddress, process.pid);
 		writeDetachedPyrunLaunchManifest(manifestPath, {
 			activationPath,
 			artifacts,

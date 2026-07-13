@@ -70,8 +70,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       not timer ticks, are persisted; terminalization clears current activity. Transcript content
       remains history and is never used to infer the live phase.
 - [x] Persisted agent and message IDs are allocated from per-session counters. Allocation reconciles
-      alternate counter state and existing IDs across agent, mailbox, and runtime mailbox transport rows
-      before advancing, so stale counters cannot cause ID reuse. Legacy `multi_agent_counters_v2` rows
+      alternate counter state and existing agent and canonical mailbox IDs before advancing, so stale counters cannot cause ID reuse. Legacy `multi_agent_counters_v2` rows
       migrate into authoritative `multi_agent_counters` during schema initialization and the alternate
       table is dropped after migration.
 - [x] Control-DB schema initialization performs an atomic, durable, one-time cleanup of legacy
@@ -292,8 +291,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       operation.
 - [x] While a session is streaming, runtime mailbox polling leaves pending messages unclaimed;
       whatever remains is drained as follow-up input at the end of the turn.
-- [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so all
-      runtime mailbox transport uses one durable database without path fallback.
+- [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so canonical mailbox delivery uses one durable database without path fallback.
 - [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
       no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray
       wake signal (stale listener row, signal pending across a session switch) terminate the
@@ -388,7 +386,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
 - [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
   owns SQLite schema, exact-owner lifecycle/steering/terminal transactions and runtime ownership,
-  terminal agent rows and completion outbox delivery, runtime mailbox transport, session health, and path
+  terminal agent rows and completion outbox delivery, canonical mailbox delivery, session health, and path
   relocation.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.

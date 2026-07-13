@@ -108,8 +108,7 @@ or failure notification in the same SQLite transaction. The agent row is termina
 only a delivery queue. Notification delivery may retry or expire, but it never creates or replaces
 terminal state. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and
 Hostrun/Pyrun handlers. `wait_agents` snapshots active agents, consumes one pending completion
-notification, and uses that notification only to wake a query of the current agent rows. It does not
-consume the runtime mailbox transport as its source of truth.
+notification, and uses that notification only to wake a query of the current agent rows. The canonical mailbox row is the sole delivery state; no separate runtime transport lifecycle exists.
 Runtime transcript metadata updates merge into the latest persisted agent snapshot inside an immediate
 transaction and cannot rewrite lifecycle or revision from a stale in-memory projection; restore never
 writes its runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata

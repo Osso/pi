@@ -104,9 +104,11 @@
 - Cached session-derived footer statistics until session data changes, reducing repeated render work.
 - Coalesced partial tool-output renders within 50ms to reduce terminal redraws during rapid updates.
 - Changed interactive tool execution rendering to use `AgentEvent` start/end timestamps for elapsed durations.
+- Removed per-message `runtime_mailbox_messages` state. Canonical `multi_agent_mailbox_messages` rows now own routing, exact-process claims, failures, and delivery acknowledgments; listener rows only resolve and wake runtimes. Schema v14 migrates legacy routing/status, safely releases legacy claims, and drops the old table without a compatibility path.
 
 ### Fixed
 
+- Fixed terminal-outbox projection failures aborting unrelated canonical mailbox delivery.
 - Fixed selected child-agent views showing a static thinking indicator without exact-runtime-owner-scoped thinking/tool phase timing.
 - Fixed idle shared-channel delivery racing a newly started agent turn and logging an `Agent is already processing` coordination-drain error.
 - Fixed Hostrun lifecycle mirroring retaining a stale extension context after `/reload` replaces the session runtime.

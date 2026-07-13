@@ -11,7 +11,7 @@ export interface DetachedJobCancelCommand {
 	command: "cancel";
 	identity: DetachedJobOwnershipIdentity;
 	reason?: string;
-	transportId: number;
+	mailboxRowId: number;
 }
 
 export interface DetachedJobStatusCommand {
@@ -19,7 +19,7 @@ export interface DetachedJobStatusCommand {
 	identity: DetachedJobOwnershipIdentity;
 	replyTo: RuntimeMailboxAddress;
 	requestId: string;
-	transportId: number;
+	mailboxRowId: number;
 }
 
 export interface DetachedJobResponseCommand {
@@ -28,7 +28,7 @@ export interface DetachedJobResponseCommand {
 	identity: DetachedJobOwnershipIdentity;
 	requestId: string;
 	result?: unknown;
-	transportId: number;
+	mailboxRowId: number;
 }
 
 export type DetachedJobRuntimeCommand =
@@ -37,9 +37,9 @@ export type DetachedJobRuntimeCommand =
 	| DetachedJobResponseCommand;
 
 type StoredDetachedJobRuntimeCommand =
-	| Omit<DetachedJobCancelCommand, "transportId">
-	| Omit<DetachedJobStatusCommand, "transportId">
-	| Omit<DetachedJobResponseCommand, "transportId">;
+	| Omit<DetachedJobCancelCommand, "mailboxRowId">
+	| Omit<DetachedJobStatusCommand, "mailboxRowId">
+	| Omit<DetachedJobResponseCommand, "mailboxRowId">;
 
 export function claimDetachedJobRuntimeCommands(
 	controlDbPath: string,
@@ -57,7 +57,7 @@ export function claimDetachedJobRuntimeCommands(
 			failRuntimeMailboxMessage(controlDbPath, message.id, "Detached job control delivery failed");
 			continue;
 		}
-		commands.push({ ...command, transportId: message.id });
+		commands.push({ ...command, mailboxRowId: message.id });
 	}
 	return commands;
 }

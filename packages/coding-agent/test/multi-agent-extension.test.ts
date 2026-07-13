@@ -796,13 +796,20 @@ describe("multi-agent extension tools", () => {
 			]);
 			const db = createSqliteDatabase(controlDbPath);
 			try {
+				const runtimeTable = db
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
+					.get();
 				const raw = db
-					.prepare("SELECT body, store_session_path, store_message_id FROM runtime_mailbox_messages")
-					.all() as Array<{ body: string; store_session_path: string | null; store_message_id: string | null }>;
+					.prepare("SELECT session_path, message_id, data FROM multi_agent_mailbox_messages")
+					.all() as Array<{ session_path: string; message_id: string; data: string }>;
+				expect(runtimeTable).toBeUndefined();
 				expect(raw).toHaveLength(1);
-				expect(raw[0].body).toBe("");
-				expect(raw[0].store_session_path).toBe(supervisorSession.getSessionFile());
-				expect(raw[0].store_message_id).toMatch(/^message_/);
+				expect(raw[0].session_path).toBe(supervisorSession.getSessionFile());
+				expect(raw[0].message_id).toMatch(/^message_/);
+				expect(JSON.parse(raw[0].data)).toMatchObject({
+					body: `Session ${savedSessionId} completed: attached complete`,
+					recipientSessionId: supervisorSessionId,
+				});
 			} finally {
 				db.close();
 			}
@@ -2771,7 +2778,7 @@ describe("multi-agent extension tools", () => {
 			),
 		).toMatchObject([
 			{ kind: "system", status: "pending" },
-			{ kind: "system", status: "pending" },
+			{ kind: "system", status: "delivered" },
 		]);
 	});
 

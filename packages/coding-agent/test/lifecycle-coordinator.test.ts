@@ -226,7 +226,7 @@ describe("LifecycleCoordinator child creation", () => {
 		});
 	});
 
-	it("rolls back detached cancellation when runtime-mailbox insertion fails", () => {
+	it("rolls back detached cancellation when canonical mailbox insertion fails", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
 		const coordinator = createCoordinator(controlDbPath, sessionPath);
@@ -234,7 +234,8 @@ describe("LifecycleCoordinator child creation", () => {
 		if (!created.ok) return;
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.exec(`CREATE TRIGGER reject_detached_control BEFORE INSERT ON runtime_mailbox_messages
+			db.exec(`CREATE TRIGGER reject_detached_control BEFORE INSERT ON multi_agent_mailbox_messages
+				WHEN NEW.message_id LIKE 'detached-cancel:%'
 				BEGIN SELECT RAISE(ABORT, 'blocked detached control'); END`);
 		} finally {
 			db.close();

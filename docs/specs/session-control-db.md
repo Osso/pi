@@ -16,7 +16,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   messages.
 - [x] Allow a claimed incoming message to be marked completed after it is
   submitted to the agent.
-- [x] Allow a claimed runtime mailbox transport row to be released back to pending when delivery races with an active prompt, enabling bounded redelivery and avoiding spurious failures during concurrent delivery attempts.
+- [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control last`, and `pi control path` so
   harnesses use the CLI instead of writing SQLite directly.
@@ -87,12 +87,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       externally observable.
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
-- [x] Runtime mailbox transport rows never copy message bodies: `storeRef`
-      (`store_session_path`, `store_message_id`) is required at enqueue, reads resolve
-      body/absolute `fileRefs` payloads from `multi_agent_mailbox_messages`, and invalid legacy rows
-      without a store reference remain rejected. Enqueue is idempotent per store reference (one
-      transport row per store message); referenced payloads are covered by the one-time legacy-field
-      cleanup above.
+- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
@@ -114,7 +109,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path and schema,
-  incoming-message claim/complete API, runtime mailbox transport and listener/health lifecycle,
+  incoming-message claim/complete API, canonical mailbox delivery and listener/health lifecycle,
   per-session multi-agent rows and counters, prompt-history and session-metadata APIs, and
   persisted spawned-agent ghost reconciliation.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open

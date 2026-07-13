@@ -126,7 +126,6 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 import {
 	advanceSharedChannelCursor,
 	claimRuntimeMailboxMessages,
-	cleanupRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessage,
 	deliverRuntimeMailboxMessage,
 	failRuntimeMailboxMessage,
@@ -138,10 +137,11 @@ import {
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
 	readMultiAgentRuntimeOwnership,
+	readRuntimeMailboxListener,
 	readRuntimeMailboxMessageForDelivery,
 	readSharedChannelTail,
 	recordPromptHistoryEntry,
-	recoverStaleRuntimeMailboxClaims,
+	recoverDeadRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
 	releaseRuntimeMailboxMessageClaim,
 	removeNamedSession,
@@ -2537,7 +2537,11 @@ export class AgentSession {
 		if (this._disableRuntimeCoordinationInbound || this._disposed) {
 			return false;
 		}
-		this._drainTerminalOutboxProjections();
+		try {
+			this._drainTerminalOutboxProjections();
+		} catch (error) {
+			console.error(`Failed to drain terminal outbox projections: ${errorMessage(error)}`);
+		}
 		const mailboxQueued = await this._drainRuntimeMailboxMessages(options);
 		const channelQueued =
 			options.checkpoint === "after_tool_result" ? false : await this._drainSharedChannelMessages(options);
@@ -2585,7 +2589,8 @@ export class AgentSession {
 		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
 	): Promise<boolean> {
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
-		recoverStaleRuntimeMailboxClaims(controlDbPath, recipient);
+		if (readRuntimeMailboxListener(controlDbPath, recipient)?.pid !== process.pid) return false;
+		recoverDeadRuntimeMailboxClaims(controlDbPath, recipient);
 		const claimed = claimRuntimeMailboxMessages(controlDbPath, recipient);
 		let queued = false;
 		for (const claimedMessage of claimed) {
@@ -2765,8 +2770,7 @@ export class AgentSession {
 		return consumeRuntimeMailboxMessage(controlDbPath, message.id);
 	}
 
-	// Transport delivery is the only delivery, so the store record transitions to
-	// delivered here — at actual delivery — not when the row was enqueued.
+	// Canonical mailbox state transitions to delivered only after actual delivery.
 	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): string | undefined {
 		const storeRef = message.storeRef;
 		if (!storeRef) {
@@ -2843,7 +2847,6 @@ export class AgentSession {
 		if (!controlDbPath || this._runtimeMailboxPollTimer) {
 			return;
 		}
-		cleanupRuntimeMailboxMessages(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
 			void this._drainRuntimeCoordinationMessages({ triggerIfIdle: true }).catch((error: unknown) => {
 				console.error("Failed to drain runtime coordination messages:", error);

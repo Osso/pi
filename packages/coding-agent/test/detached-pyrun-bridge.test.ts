@@ -9,7 +9,7 @@ import {
 } from "../extensions/pyrun/src/detached-bridge.ts";
 import { claimDetachedJobRuntimeCommands } from "../src/core/detached-job-control.ts";
 import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
-import { claimRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
+import { claimRuntimeMailboxMessages, registerRuntimeMailboxListener } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
@@ -26,6 +26,8 @@ describe("detached Pyrun bridge", () => {
 		const sessionPath = join(root, "session.jsonl");
 		const runnerAddress = { agentId: "agent_1", sessionId: "supervisor-1" };
 		const supervisorAddress = { agentId: null, sessionId: "supervisor-1" };
+		registerRuntimeMailboxListener(controlDbPath, supervisorAddress, process.pid);
+		registerRuntimeMailboxListener(controlDbPath, runnerAddress, process.pid);
 		const identity: DetachedJobOwnershipIdentity = {
 			jobId: "agent_1",
 			owner: { agentId: null, sessionId: "supervisor-1" },

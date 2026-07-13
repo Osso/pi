@@ -245,6 +245,41 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(getUserTexts(harness)).toEqual([]);
 	});
 
+	it("continues mailbox delivery when terminal outbox projection fails", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const handled = vi.fn();
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("runtime_mailbox", (event) => {
+						handled(event.message.body);
+						return { handled: true };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "independent delivery",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.session.sessionId },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainable = harness.session as unknown as {
+			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+			_drainTerminalOutboxProjections(): void;
+		};
+		drainable._drainTerminalOutboxProjections = vi.fn(() => {
+			throw new Error("poison terminal projection");
+		});
+
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: false })).resolves.toBe(false);
+		expect(handled).toHaveBeenCalledWith("independent delivery");
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
 	it("fails intercepted runtime mailbox messages when the extension handler throws", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -1045,7 +1080,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const waited = await handler({ method: "agents.wait", params: {} }, ctx, undefined);
 
 		expect(waited).toBeNull();
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "pending" }]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
 	});
 
 	it("wait_agents observes the mirrored completion notification", async () => {
@@ -1078,7 +1113,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed. Duration: 1234ms" });
 		expect(waited.details).toMatchObject({ agent: { result: { durationMs: 1234 } } });
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Worker completed: tests passed. Duration: 1234ms", status: "pending" },
+			{ body: "Worker completed: tests passed. Duration: 1234ms", status: "delivered" },
 		]);
 	});
 
@@ -1127,7 +1162,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		});
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
+			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
 		]);
 	});
 
@@ -1178,7 +1213,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		});
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
+			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
 		]);
 	});
 
@@ -1476,6 +1511,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			storeRef: { messageId, sessionPath },
 		});
 
+		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "parent-session" }, process.pid);
 		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
 		expect(claimed).toHaveLength(1);
 
@@ -1994,7 +2030,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 	});
 
-	it("starts runtime mailbox polling before extension binding", async () => {
+	it("does not claim mailbox messages before listener binding", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -2009,6 +2045,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 		});
 
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
+
+		await harness.session.bindExtensions({ controlDbPath });
 		await vi.advanceTimersByTimeAsync(3_000);
 		for (let attempt = 0; attempt < 10 && getUserTexts(harness).length === 0; attempt += 1) {
 			await delay(0);

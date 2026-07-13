@@ -18,7 +18,6 @@ import {
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupMultiAgentTerminalOutbox,
-	cleanupRuntimeMailboxMessages,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
@@ -30,7 +29,6 @@ import {
 	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
 	enqueueRuntimeMailboxMessage,
-	enqueueStoredRuntimeMailboxMessage,
 	failMultiAgentTerminalOutbox,
 	failRuntimeMailboxMessage,
 	finalizeDetachedJob,
@@ -59,7 +57,7 @@ import {
 	readSessionMetadata,
 	readSharedChannelCursor,
 	recoverDeadMultiAgentRuntime,
-	recoverStaleRuntimeMailboxClaims,
+	recoverDeadRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
 	relocateSessionControlData,
 	removeNamedSession,
@@ -106,6 +104,14 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 	await exited;
 }
 
+function claimTestRuntimeMailboxMessages(
+	controlDbPath: string,
+	recipient: Parameters<typeof claimRuntimeMailboxMessages>[1],
+) {
+	registerRuntimeMailboxListener(controlDbPath, recipient, process.pid);
+	return claimRuntimeMailboxMessages(controlDbPath, recipient);
+}
+
 function enqueueStoredRuntimeMessage(
 	controlDbPath: string,
 	input: {
@@ -119,6 +125,7 @@ function enqueueStoredRuntimeMessage(
 	storedMessageCounter += 1;
 	const messageId = `message_${storedMessageCounter}`;
 	const sessionPath = "/sessions/test-sender.jsonl";
+	registerRuntimeMailboxListener(controlDbPath, input.recipient, process.pid);
 	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
 		fileRefs: input.fileRefs,
 		body: input.body,
@@ -352,10 +359,10 @@ describe("session control DB", () => {
 				...input,
 				recipient: { agentId: null, sessionId: "other-recipient" },
 			}),
-		).toThrow("conflicts with existing runtime mailbox row");
+		).toThrow("conflicts with canonical mailbox row");
 	});
 
-	it("delivers the durable store row and transport row atomically", () => {
+	it("delivers the claimed canonical mailbox row atomically", () => {
 		const sessionPath = "/sessions/atomic-delivery.jsonl";
 		const messageId = "atomic-delivery";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
@@ -372,6 +379,7 @@ describe("session control DB", () => {
 			sender: { agentId: null, sessionId: "sender-session" },
 			storeRef: { messageId, sessionPath },
 		});
+		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
 		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
 		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("delivered");
 		const db = createSqliteDatabase(controlDbPath);
@@ -385,7 +393,7 @@ describe("session control DB", () => {
 		}
 	});
 
-	it("rolls back durable delivery when transport delivery fails", () => {
+	it("rolls back canonical delivery when its row update fails", () => {
 		const sessionPath = "/sessions/atomic-rollback.jsonl";
 		const messageId = "atomic-rollback";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
@@ -402,28 +410,29 @@ describe("session control DB", () => {
 			sender: { agentId: null, sessionId: "sender-session" },
 			storeRef: { messageId, sessionPath },
 		});
+		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.exec(`
-				CREATE TRIGGER reject_runtime_delivery
-				BEFORE UPDATE OF status ON runtime_mailbox_messages
-				WHEN OLD.id = ${id}
+				CREATE TRIGGER reject_canonical_delivery
+				BEFORE UPDATE OF data ON multi_agent_mailbox_messages
+				WHEN OLD.rowid = ${id} AND json_extract(NEW.data, '$.status') = 'delivered'
 				BEGIN
-					SELECT RAISE(ABORT, 'reject transport delivery');
+					SELECT RAISE(ABORT, 'reject canonical delivery');
 				END
 			`);
 		} finally {
 			db.close();
 		}
 
-		expect(() => deliverRuntimeMailboxMessage(controlDbPath, id)).toThrow("reject transport delivery");
-		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("pending");
+		expect(() => deliverRuntimeMailboxMessage(controlDbPath, id)).toThrow("reject canonical delivery");
+		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("claimed");
 		const reader = createSqliteDatabase(controlDbPath);
 		try {
 			const row = reader
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 				.get(sessionPath, messageId) as { data: string };
-			expect(JSON.parse(row.data).status).toBe("pending");
+			expect(JSON.parse(row.data).status).toBe("claimed");
 		} finally {
 			reader.close();
 		}
@@ -446,7 +455,7 @@ describe("session control DB", () => {
 			sender: { agentId: null, sessionId: "sender-session" },
 			storeRef: { messageId, sessionPath },
 		});
-		claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.prepare("UPDATE multi_agent_mailbox_messages SET data = ? WHERE session_path = ? AND message_id = ?").run(
@@ -492,33 +501,6 @@ describe("session control DB", () => {
 				storeRef: { messageId: "missing", sessionPath: "/sessions/missing.jsonl" },
 			}),
 		).toThrow("Runtime mailbox store reference does not exist");
-	});
-
-	it("rejects legacy runtime mailbox rows without a store reference", () => {
-		readMultiAgentState(controlDbPath, "/sessions/legacy-runtime.jsonl");
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			db.prepare(
-				`INSERT INTO runtime_mailbox_messages
-				 (recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
-				  status, created_at, updated_at)
-				 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-			).run(
-				"recipient-session",
-				null,
-				"sender-session",
-				null,
-				"message",
-				"copied legacy body",
-				"2026-07-11T00:00:00.000Z",
-				"2026-07-11T00:00:00.000Z",
-			);
-		} finally {
-			db.close();
-		}
-
-		expect(() => listRuntimeMailboxMessages(controlDbPath)).toThrow(/storeRef/i);
-		expect(() => markRuntimeMailboxMessageDelivered(controlDbPath, 1)).toThrow(/storeRef/i);
 	});
 
 	it("rejects non-string persisted file reference labels", () => {
@@ -1392,7 +1374,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				"owner_session_id",
 				"owner_agent_id",
 			]);
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(13);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
 		} finally {
 			migratedDb.close();
 		}
@@ -1447,7 +1429,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
 					.get("multi_agent_dispatch_leases"),
 			).toBeUndefined();
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(13);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
 		} finally {
 			migratedDb.close();
 		}
@@ -1698,7 +1680,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(13);
+			expect(version.user_version).toBe(14);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -1819,7 +1801,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(13);
+			expect(version.user_version).toBe(14);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
@@ -1952,6 +1934,153 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		);
 	});
 
+	it("migrates legacy transport routing into canonical rows and drops the transport table", () => {
+		const sessionPath = "/sessions/legacy-transport.jsonl";
+		const messageId = "legacy-message";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 13");
+			db.exec(`
+				CREATE TABLE runtime_mailbox_messages (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					recipient_session_id TEXT NOT NULL,
+					recipient_agent_id TEXT,
+					sender_session_id TEXT,
+					sender_agent_id TEXT,
+					kind TEXT NOT NULL,
+					body TEXT NOT NULL,
+					store_session_path TEXT,
+					store_message_id TEXT,
+					status TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					claimed_at TEXT,
+					delivered_at TEXT,
+					error TEXT
+				)
+			`);
+			db.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+			).run(
+				sessionPath,
+				messageId,
+				JSON.stringify({
+					body: "legacy",
+					fromAgentId: "agent_1",
+					id: messageId,
+					kind: "message",
+					status: "pending",
+					toAgentId: "main",
+				}),
+				"2026-07-13T00:00:00.000Z",
+			);
+			db.prepare(
+				`INSERT INTO runtime_mailbox_messages
+				 (recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
+				  store_session_path, store_message_id, status, created_at, updated_at, claimed_at)
+				 VALUES (?, NULL, ?, ?, 'message', '', ?, ?, 'claimed', ?, ?, ?)`,
+			).run(
+				"recipient-session",
+				"sender-session",
+				"agent_1",
+				sessionPath,
+				messageId,
+				"2026-07-13T00:00:00.000Z",
+				"2026-07-13T00:01:00.000Z",
+				"2026-07-13T00:01:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		const [message] = listRuntimeMailboxMessages(controlDbPath);
+		expect(message).toMatchObject({
+			recipient: { agentId: null, sessionId: "recipient-session" },
+			status: "pending",
+		});
+		const migrated = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				migrated
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
+					.get(),
+			).toBeUndefined();
+			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+		} finally {
+			migrated.close();
+		}
+	});
+
+	it("rolls back legacy transport migration when a referenced canonical payload is malformed", () => {
+		const sessionPath = "/sessions/malformed-legacy-transport.jsonl";
+		const messageId = "malformed-legacy-message";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 13");
+			db.exec(`
+				CREATE TABLE runtime_mailbox_messages (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					recipient_session_id TEXT NOT NULL,
+					recipient_agent_id TEXT,
+					sender_session_id TEXT,
+					sender_agent_id TEXT,
+					kind TEXT NOT NULL,
+					body TEXT NOT NULL,
+					store_session_path TEXT,
+					store_message_id TEXT,
+					status TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					claimed_at TEXT,
+					delivered_at TEXT,
+					error TEXT
+				)
+			`);
+			db.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, 'not-json', ?)`,
+			).run(sessionPath, messageId, "2026-07-13T00:00:00.000Z");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_messages
+				 (recipient_session_id, sender_session_id, kind, body, store_session_path, store_message_id,
+				  status, created_at, updated_at)
+				 VALUES (?, ?, 'message', '', ?, ?, 'pending', ?, ?)`,
+			).run(
+				"recipient-session",
+				"sender-session",
+				sessionPath,
+				messageId,
+				"2026-07-13T00:00:00.000Z",
+				"2026-07-13T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => listRuntimeMailboxMessages(controlDbPath)).toThrow(/Invalid persisted JSON/);
+		const unchanged = createSqliteDatabase(controlDbPath);
+		try {
+			expect((unchanged.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(13);
+			expect(
+				unchanged
+					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
+					.get(),
+			).toBeDefined();
+			expect(
+				(
+					unchanged
+						.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+						.get(sessionPath, messageId) as { data: string }
+				).data,
+			).toBe("not-json");
+		} finally {
+			unchanged.close();
+		}
+	});
+
 	it("deduplicates concurrent runtime mailbox enqueues by store reference", async () => {
 		const sessionPath = "/sessions/concurrent-sender.jsonl";
 		const messageId = "message-concurrent";
@@ -1993,33 +2122,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(new Set(ids).size).toBe(1);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
-	});
-
-	it("preserves delivered status when migrating duplicate runtime mailbox rows", () => {
-		const id = enqueueStoredRuntimeMessage(controlDbPath, {
-			body: "delivered once",
-			kind: "message",
-			recipient: { agentId: null, sessionId: "recipient-session" },
-			sender: { agentId: null, sessionId: "sender-session" },
-		});
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			db.exec("DROP INDEX runtime_mailbox_store_ref_unique_idx");
-			db.prepare(
-				`INSERT INTO runtime_mailbox_messages
-				 (recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
-				  store_session_path, store_message_id, status, created_at, updated_at, claimed_at, delivered_at, error)
-				 SELECT recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id, kind, body,
-				  store_session_path, store_message_id, 'delivered', created_at, updated_at, claimed_at, delivered_at, error
-				 FROM runtime_mailbox_messages WHERE id = ?`,
-			).run(id);
-		} finally {
-			db.close();
-		}
-
-		const rows = listRuntimeMailboxMessages(controlDbPath);
-		expect(rows).toHaveLength(1);
-		expect(rows[0]?.status).toBe("delivered");
 	});
 
 	it("does not resurrect relocated legacy counters at the old session path", () => {
@@ -2362,40 +2464,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
-	it("rolls back the durable payload when atomic runtime transport insertion fails", () => {
-		listRuntimeMailboxMessages(controlDbPath);
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			db.exec(
-				`CREATE TRIGGER reject_atomic_runtime_transport
-				 BEFORE INSERT ON runtime_mailbox_messages
-				 BEGIN SELECT RAISE(ABORT, 'transport rejected'); END`,
-			);
-		} finally {
-			db.close();
-		}
-		const sessionPath = "/sessions/atomic.jsonl";
-		const messageId = "atomic-message";
-		expect(() =>
-			enqueueStoredRuntimeMailboxMessage(controlDbPath, {
-				kind: "system",
-				message: { body: "request", id: messageId, kind: "system", status: "pending" },
-				recipient: { agentId: null, sessionId: "parent-session" },
-				sender: { agentId: "agent_1", sessionId: "child-session" },
-				storeRef: { messageId, sessionPath },
-			}),
-		).toThrow("transport rejected");
-		const verify = createSqliteDatabase(controlDbPath);
-		try {
-			const stored = verify
-				.prepare("SELECT 1 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(sessionPath, messageId);
-			expect(stored).toBeUndefined();
-		} finally {
-			verify.close();
-		}
-	});
-
 	it("stores runtime mailbox messages by recipient session and nullable agent id", () => {
 		const mainMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "main thread notice",
@@ -2418,7 +2486,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			status: "pending",
 		});
 		expect(
-			claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
+			claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
 				(message) => message.id,
 			),
 		).toEqual([mainMessageId]);
@@ -2448,17 +2516,23 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			kind: "supervisor_request",
 		});
 		expect(
-			claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
+			claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
 				(message) => message.body,
 			),
 		).toEqual(["stored supervisor request"]);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			const raw = db
-				.prepare("SELECT body, store_session_path FROM runtime_mailbox_messages WHERE id = ?")
-				.get(messageId) as { body: string; store_session_path: string | null };
-			expect(raw.body).toBe("");
-			expect(raw.store_session_path).toBe("/sessions/supervisor.jsonl");
+			const runtimeTable = db
+				.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
+				.get();
+			const raw = db.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE rowid = ?").get(messageId) as {
+				data: string;
+			};
+			expect(runtimeTable).toBeUndefined();
+			expect(JSON.parse(raw.data)).toMatchObject({
+				body: "stored supervisor request",
+				recipientSessionId: "parent-session",
+			});
 		} finally {
 			db.close();
 		}
@@ -2492,7 +2566,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 	});
 
-	it("claims runtime mailbox rows atomically before delivery", () => {
+	it("claims canonical mailbox rows atomically without a runtime message table", () => {
 		const firstId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "first",
 			kind: "message",
@@ -2506,16 +2580,32 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sender: { agentId: "agent_2", sessionId: "child-session" },
 		});
 
-		const firstClaim = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
-		const secondClaim = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		const firstClaim = claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		const secondClaim = claimTestRuntimeMailboxMessages(controlDbPath, {
+			agentId: null,
+			sessionId: "parent-session",
+		});
 
 		expect(firstClaim.map((message) => message.id)).toEqual([firstId, secondId]);
 		expect(secondClaim).toEqual([]);
 		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toMatchObject({ status: "claimed" });
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "claimed" });
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const runtimeTable = db
+				.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
+				.get();
+			const canonicalStatuses = db
+				.prepare("SELECT json_extract(data, '$.status') AS status FROM multi_agent_mailbox_messages ORDER BY rowid")
+				.all() as Array<{ status: string }>;
+			expect(runtimeTable).toBeUndefined();
+			expect(canonicalStatuses).toEqual([{ status: "claimed" }, { status: "claimed" }]);
+		} finally {
+			db.close();
+		}
 	});
 
-	it("recovers stale claimed runtime mailbox rows for bounded redelivery", () => {
+	it("recovers canonical mailbox claims only after exact claimant death", () => {
 		const staleId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "stale",
 			kind: "message",
@@ -2528,29 +2618,27 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_2", sessionId: "child-session" },
 		});
-		claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.prepare("UPDATE runtime_mailbox_messages SET claimed_at = ?, updated_at = ? WHERE id = ?").run(
-				"2026-07-04T00:00:00.000Z",
-				"2026-07-04T00:00:00.000Z",
+			const stale = db.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE rowid = ?").get(staleId) as {
+				data: string;
+			};
+			const payload = JSON.parse(stale.data) as Record<string, unknown>;
+			payload.claimantProcessIdentity = JSON.stringify({ pid: 999_999_999, startTimeTicks: 1 });
+			db.prepare("UPDATE multi_agent_mailbox_messages SET data = ? WHERE rowid = ?").run(
+				JSON.stringify(payload),
 				staleId,
-			);
-			db.prepare("UPDATE runtime_mailbox_messages SET claimed_at = ?, updated_at = ? WHERE id = ?").run(
-				"2026-07-04T00:04:30.000Z",
-				"2026-07-04T00:04:30.000Z",
-				freshId,
 			);
 		} finally {
 			db.close();
 		}
 
-		const recovered = recoverStaleRuntimeMailboxClaims(
-			controlDbPath,
-			{ agentId: null, sessionId: "parent-session" },
-			{ nowIso: "2026-07-04T00:05:00.000Z", staleAfterMs: 60_000 },
-		);
-		const claimed = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		const recovered = recoverDeadRuntimeMailboxClaims(controlDbPath, {
+			agentId: null,
+			sessionId: "parent-session",
+		});
+		const claimed = claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
 
 		expect(recovered).toBe(1);
 		expect(claimed.map((message) => message.id)).toEqual([staleId]);
@@ -2571,13 +2659,13 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			db.close();
 		}
 
-		expect(() => claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" })).toThrow(
-			/Invalid persisted JSON/,
+		expect(claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" })).toEqual(
+			[],
 		);
 		expect(() => readRuntimeMailboxMessage(controlDbPath, messageId)).toThrow(/Invalid persisted JSON/);
 	});
 
-	it("marks runtime mailbox rows delivered only after enqueue and failed on enqueue failure", () => {
+	it("marks canonical mailbox rows delivered or failed after claim", () => {
 		const deliveredId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "delivered",
 			kind: "message",
@@ -2590,7 +2678,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_2", sessionId: "child-session" },
 		});
-		claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
+		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
 
 		markRuntimeMailboxMessageDelivered(controlDbPath, deliveredId);
 		failRuntimeMailboxMessage(controlDbPath, failedId, "enqueue failed");
@@ -2600,42 +2688,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			error: "enqueue failed",
 			status: "failed",
 		});
-	});
-
-	it("cleans runtime mailbox rows older than thirty days", () => {
-		const db = createSqliteDatabase(controlDbPath);
-		try {
-			db.exec(`
-				CREATE TABLE runtime_mailbox_messages (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					recipient_session_id TEXT NOT NULL,
-					recipient_agent_id TEXT,
-					sender_session_id TEXT,
-					sender_agent_id TEXT,
-					kind TEXT NOT NULL,
-					body TEXT NOT NULL,
-					status TEXT NOT NULL,
-					created_at TEXT NOT NULL,
-					updated_at TEXT NOT NULL,
-					claimed_at TEXT,
-					delivered_at TEXT,
-					error TEXT
-				);
-			`);
-			db.prepare(
-				`INSERT INTO runtime_mailbox_messages (recipient_session_id, kind, body, status, created_at, updated_at)
-				 VALUES (?, ?, ?, ?, ?, ?)`,
-			).run("parent-session", "message", "old", "pending", "2026-05-01T00:00:00.000Z", "2026-05-01T00:00:00.000Z");
-			db.prepare(
-				`INSERT INTO runtime_mailbox_messages (recipient_session_id, kind, body, status, created_at, updated_at)
-				 VALUES (?, ?, ?, ?, ?, ?)`,
-			).run("parent-session", "message", "new", "pending", "2026-06-15T00:00:00.000Z", "2026-06-15T00:00:00.000Z");
-		} finally {
-			db.close();
-		}
-
-		expect(cleanupRuntimeMailboxMessages(controlDbPath, "2026-07-01T00:00:00.000Z")).toBe(1);
-		expect(() => listRuntimeMailboxMessages(controlDbPath)).toThrow(/storeRef/);
 	});
 
 	it("retires listener ownership without rewriting lifecycle rows", async () => {
