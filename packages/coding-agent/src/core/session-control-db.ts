@@ -1327,7 +1327,7 @@ export function hasPendingRuntimeCoordinationMessage(controlDbPath: string, reci
 				`,
 			)
 			.get(cursor, recipient.sessionId) as { present: number } | undefined;
-		return row !== undefined;
+		return row != null;
 	});
 }
 
