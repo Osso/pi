@@ -28,7 +28,6 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
-import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 let storedMessageCounter = 0;
 
