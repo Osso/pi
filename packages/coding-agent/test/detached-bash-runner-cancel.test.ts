@@ -65,8 +65,9 @@ describe("detached Bash runner cancellation", () => {
 		});
 		const running = runDetachedBashRunner(manifestPath);
 		await waitFor(() => existsSync(join(artifacts.directory, "payload.json")));
-		const cancelling = coordinator.requestCancellation({
+		const cancelling = coordinator.requestDetachedCancellation({
 			agent: ownership.agent,
+			outputLabel: artifacts.outputPath,
 			ownership: ownership.controlOwnership,
 		});
 		expect(cancelling.ok).toBe(true);
