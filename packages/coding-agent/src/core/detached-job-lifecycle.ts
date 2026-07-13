@@ -13,6 +13,7 @@ import { readMultiAgentAgent, readMultiAgentRuntimeOwnership } from "./session-c
 
 export interface DetachedJobLifecycleControllerOptions {
 	artifactRoot: string;
+	writeBashLaunchManifest?: typeof writeDetachedBashLaunchManifest;
 	controlDbPath: string;
 	coordinator: LifecycleCoordinator;
 	ownerSessionId: string;
@@ -80,19 +81,45 @@ function launchDetachedBashJob(
 		processIdentity: readProcessIdentity(runnerPid),
 		workerHandleId: String(runnerPid),
 	});
-	writeDetachedBashLaunchManifest(manifestPath, {
-		args: input.args,
-		artifacts,
-		command: input.command,
-		controlDbPath: options.controlDbPath,
-		cwd: input.cwd,
-		env: input.env,
-		identity: ownership.identity,
-		runnerAddress: { agentId: jobId, sessionId: options.ownerSessionId },
-		sessionPath: options.sessionPath,
-		timeoutMs: input.timeoutMs,
-	});
+	try {
+		(options.writeBashLaunchManifest ?? writeDetachedBashLaunchManifest)(manifestPath, {
+			args: input.args,
+			artifacts,
+			command: input.command,
+			controlDbPath: options.controlDbPath,
+			cwd: input.cwd,
+			env: input.env,
+			identity: ownership.identity,
+			runnerAddress: { agentId: jobId, sessionId: options.ownerSessionId },
+			sessionPath: options.sessionPath,
+			timeoutMs: input.timeoutMs,
+		});
+	} catch (error) {
+		terminateDetachedRunner(runnerPid);
+		const failed = options.coordinator.finalizeChild({
+			agent: ownership.agent,
+			error: { code: "runtime_spawn_failed", message: error instanceof Error ? error.message : String(error) },
+			ownership: ownership.controlOwnership,
+			terminalLifecycle: "failed",
+		});
+		if (failed.ok) options.store.publishLifecycleCoordinatorSnapshot(failed.agent);
+		throw error;
+	}
 	return { manifestPath, ownership, runnerPid };
+}
+
+function terminateDetachedRunner(pid: number): void {
+	try {
+		process.kill(-pid, "SIGKILL");
+		return;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+	try {
+		process.kill(pid, "SIGKILL");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
 }
 
 function registerDetachedJob(

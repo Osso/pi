@@ -2,14 +2,19 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
+import {
+	createDetachedJobLifecycleController,
+	type DetachedJobLifecycleControllerOptions,
+} from "../src/core/detached-job-lifecycle.ts";
 import { createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
-function createFixture() {
+function createFixture(
+	options: Pick<DetachedJobLifecycleControllerOptions, "writeBashLaunchManifest"> = {},
+) {
 	const root = mkdtempSync(join(tmpdir(), "pi-detached-lifecycle-"));
 	const controlDbPath = join(root, "control.sqlite");
 	const sessionPath = join(root, "session.jsonl");
@@ -28,11 +33,32 @@ function createFixture() {
 		ownerSessionId: "supervisor-1",
 		sessionPath,
 		store,
+		writeBashLaunchManifest: options.writeBashLaunchManifest,
 	});
 	return { controlDbPath, controller, sessionPath, store };
 }
 
 describe("detached job lifecycle controller", () => {
+	it("kills and fails a Bash runner when launch manifest persistence fails", () => {
+		const fixture = createFixture({
+			writeBashLaunchManifest: () => {
+				throw new Error("manifest disk failure");
+			},
+		});
+
+		expect(() =>
+			fixture.controller.launchBash({
+				args: ["-e", "setInterval(() => {}, 1000)"],
+				command: process.execPath,
+				cwd: "/repo",
+				env: process.env,
+			}),
+		).toThrow("manifest disk failure");
+		expect(fixture.store.listAgents()).toMatchObject([
+			{ error: { code: "runtime_spawn_failed" }, lifecycle: "failed", revision: 2 },
+		]);
+	});
+
 	it("binds preallocated artifacts, ownership, projection, and exact finalization", () => {
 		const fixture = createFixture();
 		const jobId = fixture.controller.allocateJobId();
