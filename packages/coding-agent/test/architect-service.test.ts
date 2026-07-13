@@ -194,6 +194,10 @@ describe("resident architect service", () => {
 		expect(unit).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
 		expect(deploy).toContain("@PI_ARCHITECT_BINARY@");
 		expect(deploy).toContain("pi-architect.service");
+		expect(deploy).toContain('XDG_RUNTIME_DIR="');
+		expect(deploy).toContain("/run/user/$(id -u)");
+		expect(deploy).toContain('DBUS_SESSION_BUS_ADDRESS="');
+		expect(deploy).toContain("unix:path=$XDG_RUNTIME_DIR/bus");
 		expect(deploy).toContain("systemctl --user daemon-reload");
 		expect(deploy).toContain("systemctl --user enable --now pi-architect.service");
 		expect(deploy).toContain("systemctl --user restart pi-architect.service");

@@ -122,6 +122,9 @@ SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR"
 render_architect_service_unit "$SYSTEMD_USER_DIR/pi-architect.service"
 chmod 644 "$SYSTEMD_USER_DIR/pi-architect.service"
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 systemctl --user daemon-reload
 if [[ "$DEFER_ARCHITECT_RESTART" == "1" ]]; then
 	echo "Architect restart deferred until lifecycle protocol migration completes."
