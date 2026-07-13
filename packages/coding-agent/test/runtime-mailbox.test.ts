@@ -1484,14 +1484,13 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
 	});
 
-	it("batches unread shared channel chatter into one idle agent turn and advances the cursor", async () => {
+	it("queues shared channel chatter when idle delivery races a newly started turn", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
 		harnesses.push(harness);
 		await harness.session.bindExtensions({ controlDbPath });
-		harness.setResponses([fauxAssistantMessage("channel reply")]);
-		const prompt = vi.spyOn(harness.session, "prompt");
+		harness.setResponses([fauxAssistantMessage("user reply"), fauxAssistantMessage("channel reply")]);
 		initializeSharedChannelCursorAtTail(controlDbPath, {
 			agentId: null,
 			sessionId: harness.sessionManager.getSessionId(),
@@ -1516,16 +1515,13 @@ describe("runtime SQLite mailbox delivery", () => {
 			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
 
+		const activePrompt = harness.session.prompt("User turn");
 		const queued = await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
-		await harness.session.agent.waitForIdle();
+		await activePrompt;
 
 		expect(queued).toBe(false);
-		expect(prompt).toHaveBeenCalledWith(expect.any(String), {
-			expandPromptTemplates: false,
-			source: "extension",
-			streamingBehavior: "followUp",
-		});
 		expect(getUserTexts(harness)).toEqual([
+			"User turn",
 			[
 				sharedChannelPrompt("First shared status?", "sender-session-a"),
 				sharedChannelPrompt("Second shared status?", "sender-session-b"),
