@@ -48,6 +48,7 @@ import {
 	markRuntimeMailboxMessageDelivered,
 	postArchitectRequest,
 	postSharedChannelMessage,
+	prepareControlDbForSelfRestart,
 	readIncomingMessageStatus,
 	readLastMessage,
 	readMultiAgentRuntimeOwnership,
@@ -1476,6 +1477,33 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		} finally {
 			offlineDb.close();
 		}
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+	});
+
+	it("allows same-PID exec restart to activate a newer lifecycle protocol", () => {
+		const sessionPath = "/sessions/self-restart-quiescence.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 2");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_listeners (
+					recipient_session_id, recipient_agent_id_key, pid, runtime_instance_id,
+					session_path, session_path_asserted_at, updated_at
+				) VALUES (?, '', ?, ?, ?, ?, ?)`,
+			).run(
+				"restarting-supervisor",
+				process.pid,
+				"old-runtime",
+				sessionPath,
+				"2026-07-11T00:00:00.000Z",
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => prepareControlDbForSelfRestart(controlDbPath, process.pid)).not.toThrow();
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
 	});
 

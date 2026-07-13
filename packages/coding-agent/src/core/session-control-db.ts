@@ -3897,6 +3897,16 @@ export function readMultiAgentState(controlDbPath: string, sessionPath: string):
 	});
 }
 
+export function prepareControlDbForSelfRestart(controlDbPath: string, processId: number): void {
+	const db = createSqliteDatabase(controlDbPath);
+	try {
+		configureSharedSqliteDatabase(db);
+		initializeSchema(db, processId);
+	} finally {
+		db.close();
+	}
+}
+
 function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
 	const db = createSqliteDatabase(controlDbPath);
 	try {
@@ -3910,7 +3920,7 @@ function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) 
 	}
 }
 
-function initializeSchema(db: SqliteDatabase): void {
+function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): void {
 	assertSupportedControlDbSchemaVersion(db);
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS incoming_messages (
@@ -4097,7 +4107,7 @@ function initializeSchema(db: SqliteDatabase): void {
 		);
 	`);
 	migrateLegacyMultiAgentCounters(db);
-	migrateLegacyMultiAgentPayloads(db);
+	migrateLegacyMultiAgentPayloads(db, selfRestartProcessId);
 	addMissingSessionMetadataColumns(db);
 	addMissingRuntimeMailboxColumns(db);
 	deduplicateRuntimeMailboxStoreReferences(db);
@@ -4154,14 +4164,14 @@ function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
 	db.exec("DROP TABLE IF EXISTS multi_agent_artifacts");
 }
 
-function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
+function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessId?: number): void {
 	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
 
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
-		assertLifecycleProtocolMigrationQuiescent(db);
+		assertLifecycleProtocolMigrationQuiescent(db, selfRestartProcessId);
 
 		dropLifecycleAccessControlTriggers(db);
 		db.exec("DROP TABLE IF EXISTS multi_agent_recovery_leader");
@@ -4176,7 +4186,7 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase): void {
 	});
 }
 
-function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
+function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase, selfRestartProcessId?: number): void {
 	const rows = db
 		.prepare(
 			`SELECT pid FROM runtime_mailbox_listeners
@@ -4202,7 +4212,7 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase): void {
 			}
 		}
 	}
-	const uniqueLivePids = [...new Set(liveRuntimePids)];
+	const uniqueLivePids = [...new Set(liveRuntimePids)].filter((pid) => pid !== selfRestartProcessId);
 	if (uniqueLivePids.length === 0) return;
 
 	throw new Error(

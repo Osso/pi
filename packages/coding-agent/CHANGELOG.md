@@ -104,7 +104,7 @@
 
 ### Fixed
 
-- Fixed same-PID `restart_self` upgrades failing lifecycle protocol activation because the old runtime's listener and session-health registrations were not retired before `execve`.
+- Fixed same-PID `restart_self` upgrades failing lifecycle protocol activation: restart now tears down the current runtime before `execve`, and validated same-PID startup ignores only its pre-image PID while retaining quiescence checks for every other lifecycle writer.
 - Fixed lifecycle ownership for one agent authorizing mutations on another agent owned by the same supervisor process; coordinator commands now bind ownership to agent ID and session path.
 - Fixed dead-owner recovery terminalizing a parent while descendants remained active or stranding a dead parent after recovering its child, fixed zombie processes blocking exact-owner recovery before parent reaping, and preserved detached ownership/outbox authority across session relocation.
 - Fixed dispatcher cancellation leaving the dispatcher signal live; dispatcher runtimes now register one abort handle and acknowledge exit through the normal lifecycle path.

@@ -77,7 +77,11 @@ import {
 	consumeSelfRestartRequest,
 	waitForSelfRestartParentExit,
 } from "./core/self-restart.ts";
-import { claimLatestIncomingMessage, getControlDbPath } from "./core/session-control-db.ts";
+import {
+	claimLatestIncomingMessage,
+	getControlDbPath,
+	prepareControlDbForSelfRestart,
+} from "./core/session-control-db.ts";
 import {
 	formatMissingSessionCwdPrompt,
 	getMissingSessionCwdIssue,
@@ -698,6 +702,9 @@ export async function main(args: string[], options?: MainOptions) {
 	const selfRestartHandoff = consumeSelfRestartRequest();
 	applySelfRestartRequest(parsed, selfRestartHandoff);
 	await waitForSelfRestartParentExit(selfRestartHandoff);
+	if (selfRestartHandoff?.oldPid === process.pid) {
+		prepareControlDbForSelfRestart(getControlDbPath(agentDir), process.pid);
+	}
 	let extensionFactories: ExtensionFactory[] = [];
 	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(() => extensionFactories);
 	extensionFactories = parsed.noExtensions

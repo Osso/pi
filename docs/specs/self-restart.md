@@ -12,7 +12,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Expose a command-context `restart()` action to extensions.
 - [x] Emit `session_shutdown` and `session_start` lifecycle events with reason
   `restart` while preserving the same session file.
-- [x] Emit `session_shutdown`, dispose the old runtime, and retire its listener/health registrations before replacing the process image, so same-PID `execve` can activate a newer lifecycle protocol without seeing the old image as a concurrent writer.
+- [x] Emit `session_shutdown` and dispose the old runtime before replacing the process image. On a validated same-PID `execve` handoff, startup may ignore only that PID while checking lifecycle-protocol migration quiescence; every other live Pi or detached owner still blocks activation. This permits upgrading from an older image that could not retire its registrations itself.
 - [x] Let interactive mode replace the current Pi process in place via
   `process.execve` with the same argv and an environment restart request that
   resumes the current session. exec-in-place keeps the pid, controlling
