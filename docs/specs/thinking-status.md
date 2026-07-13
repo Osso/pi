@@ -12,6 +12,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 ### Tool waits
 
 - [x] While an active tool controls the working row, the thinking-duration timer must not replace its tool-wait message (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
+- [x] When a model turn follows a completed tool and emits another tool call, render the completed interval as `Thought for <duration>` between the two tool rows; intervals shorter than one second remain hidden (`packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts`).
 
 ## How it works
 
@@ -24,6 +25,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/interactive-mode-thinking-timer.test.ts` — elapsed formatting, response-end shutdown, and tool-wait precedence.
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — completed model-turn duration placement between consecutive tools.
 
 ## Known gaps (current cycle)
 

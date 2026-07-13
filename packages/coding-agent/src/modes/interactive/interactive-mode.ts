@@ -419,6 +419,7 @@ export class InteractiveMode {
 	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
 	private thinkingStartedAt: number | undefined;
 	private thinkingTimer: ReturnType<typeof setInterval> | undefined;
+	private thinkingFollowsTool = false;
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
 
@@ -2049,7 +2050,24 @@ export class InteractiveMode {
 	private restartThinkingTimer(): void {
 		if (this.executingToolNames.size === 0) {
 			this.startThinkingTimer();
+			this.thinkingFollowsTool = true;
 		}
+	}
+
+	private addCompletedThinkingDurationBeforeToolCall(message: AssistantMessage): void {
+		const hasToolCall = message.content.some((content) => content.type === "toolCall");
+		if (!hasToolCall || !this.thinkingFollowsTool || this.thinkingStartedAt === undefined) {
+			return;
+		}
+
+		const elapsedMs = Date.now() - this.thinkingStartedAt;
+		this.thinkingFollowsTool = false;
+		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
+			return;
+		}
+
+		const duration = formatElapsedDuration(elapsedMs);
+		this.chatContainer.addChild(new Text(theme.fg("muted", `Thought for ${duration}`), 1, 0));
 	}
 
 	private stopThinkingTimer(): void {
@@ -3780,6 +3798,7 @@ export class InteractiveMode {
 		switch (event.type) {
 			case "agent_start":
 				this.closeResponseCompleteNotification();
+				this.thinkingFollowsTool = false;
 				this.clearPendingToolComponents();
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
@@ -3871,6 +3890,7 @@ export class InteractiveMode {
 				if (event.message.role === "user") break;
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
+					this.addCompletedThinkingDurationBeforeToolCall(this.streamingMessage);
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
 						const retryAttempt = this.session.retryAttempt;
@@ -3960,6 +3980,7 @@ export class InteractiveMode {
 			case "agent_end":
 				this.cancelPartialUpdateRender();
 				this.notifyResponseComplete(event);
+				this.thinkingFollowsTool = false;
 				this.stopThinkingTimer();
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
