@@ -86,6 +86,32 @@ describe("wrapToolDefinition", () => {
 		expect(readFileSync(fullOutputPath, "utf-8")).toBe(hugeText);
 	});
 
+	it("reuses one spill file across oversized partial updates", async () => {
+		const firstText = `first\n${"a".repeat(DEFAULT_MAX_BYTES * 2)}\nfirst-end`;
+		const secondText = `second\n${"b".repeat(DEFAULT_MAX_BYTES * 2)}\nsecond-end`;
+		const tool = wrapToolDefinition(
+			defineTool({
+				name: "repeated_huge_updates",
+				label: "Repeated huge updates",
+				description: "Streams repeated huge text",
+				parameters: Type.Object({}),
+				async execute(_toolCallId, _params, _signal, onUpdate) {
+					onUpdate?.({ content: [{ type: "text" as const, text: firstText }], details: { ok: true } });
+					onUpdate?.({ content: [{ type: "text" as const, text: secondText }], details: { ok: true } });
+					return { content: [{ type: "text" as const, text: "done" }], details: { ok: true } };
+				},
+			}),
+		);
+		const updates: AgentToolResult<{ ok: boolean }>[] = [];
+
+		await tool.execute("test-call-repeated-huge-updates", {}, undefined, (update) => updates.push(update));
+		const firstPath = requireFullOutputPath(updates[0].details);
+		const secondPath = requireFullOutputPath(updates[1].details);
+
+		expect(secondPath).toBe(firstPath);
+		expect(readFileSync(secondPath, "utf-8")).toBe(secondText);
+	});
+
 	it("spills a single oversized chunk to a temp file", async () => {
 		const hugeText = `start${"z".repeat(DEFAULT_MAX_BYTES * 2)}end`;
 		const tool = wrapToolDefinition(

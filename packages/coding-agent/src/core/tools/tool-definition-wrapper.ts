@@ -12,6 +12,10 @@ interface ToolOutputDetails {
 	fullOutputPath?: string;
 }
 
+interface ToolOutputSpill {
+	fullOutputPath?: string;
+}
+
 function createFullOutputPath(): string {
 	const id = randomBytes(8).toString("hex");
 	return join(tmpdir(), `pi-tool-${id}.log`);
@@ -34,7 +38,10 @@ function hasExistingOutputDetails(details: unknown): boolean {
 	return hasFullOutputPath || hasTruncation;
 }
 
-function capToolResultOutput<TDetails>(result: AgentToolResult<TDetails>): AgentToolResult<TDetails> {
+function capToolResultOutput<TDetails>(
+	result: AgentToolResult<TDetails>,
+	spill: ToolOutputSpill,
+): AgentToolResult<TDetails> {
 	if (hasExistingOutputDetails(result.details)) {
 		return result;
 	}
@@ -48,7 +55,8 @@ function capToolResultOutput<TDetails>(result: AgentToolResult<TDetails>): Agent
 		return result;
 	}
 
-	const fullOutputPath = createFullOutputPath();
+	spill.fullOutputPath ??= createFullOutputPath();
+	const fullOutputPath = spill.fullOutputPath;
 	writeFileSync(fullOutputPath, fullText, "utf-8");
 	const footer = `[Showing last ${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
 	return {
@@ -71,12 +79,13 @@ export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 		prepareArguments: definition.prepareArguments,
 		executionMode: definition.executionMode,
 		execute: async (toolCallId, params, signal, onUpdate) => {
+			const spill: ToolOutputSpill = {};
 			const cappedUpdate = onUpdate
-				? (partial: AgentToolResult<TDetails>) => onUpdate(capToolResultOutput(partial))
+				? (partial: AgentToolResult<TDetails>) => onUpdate(capToolResultOutput(partial, spill))
 				: undefined;
 			const context = ctxFactory?.() as ExtensionContext;
 			const result = await definition.execute(toolCallId, params, signal, cappedUpdate, context);
-			return capToolResultOutput(result);
+			return capToolResultOutput(result, spill);
 		},
 	};
 }
