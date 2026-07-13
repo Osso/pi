@@ -266,7 +266,7 @@ export class AgentSessionRuntime {
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
 			await this.beforeProcessRestart?.();
-			this.beforeSessionInvalidate?.();
+			await this.teardownCurrent("restart", currentSessionFile);
 			await this.processRestarter({
 				sessionFile: currentSessionFile,
 				prompt: options.notice,
