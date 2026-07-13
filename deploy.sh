@@ -7,6 +7,7 @@ BIN_DIR="${PI_DEPLOY_BIN_DIR:-$HOME/.local/bin}"
 TMP_INSTALL_DIR="${INSTALL_DIR}.tmp"
 OLD_INSTALL_DIR="${INSTALL_DIR}.old"
 BUILD_DIR="${PI_DEPLOY_BUILD_DIR:-$ROOT_DIR/packages/coding-agent/binaries}"
+DEFER_ARCHITECT_RESTART="${PI_DEPLOY_DEFER_ARCHITECT_RESTART:-0}"
 
 require_safe_absolute_dir() {
 	local name="$1"
@@ -122,7 +123,11 @@ mkdir -p "$SYSTEMD_USER_DIR"
 render_architect_service_unit "$SYSTEMD_USER_DIR/pi-architect.service"
 chmod 644 "$SYSTEMD_USER_DIR/pi-architect.service"
 systemctl --user daemon-reload
-systemctl --user enable --now pi-architect.service
-systemctl --user restart pi-architect.service
-systemctl --user is-active --quiet pi-architect.service
+if [[ "$DEFER_ARCHITECT_RESTART" == "1" ]]; then
+	echo "Architect restart deferred until lifecycle protocol migration completes."
+else
+	systemctl --user enable --now pi-architect.service
+	systemctl --user restart pi-architect.service
+	systemctl --user is-active --quiet pi-architect.service
+fi
 rm -rf "$OLD_INSTALL_DIR"
