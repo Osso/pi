@@ -1491,6 +1491,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		harnesses.push(harness);
 		await harness.session.bindExtensions({ controlDbPath });
 		harness.setResponses([fauxAssistantMessage("channel reply")]);
+		const prompt = vi.spyOn(harness.session, "prompt");
 		initializeSharedChannelCursorAtTail(controlDbPath, {
 			agentId: null,
 			sessionId: harness.sessionManager.getSessionId(),
@@ -1519,6 +1520,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(queued).toBe(false);
+		expect(prompt).toHaveBeenCalledWith(expect.any(String), {
+			expandPromptTemplates: false,
+			source: "extension",
+			streamingBehavior: "followUp",
+		});
 		expect(getUserTexts(harness)).toEqual([
 			[
 				sharedChannelPrompt("First shared status?", "sender-session-a"),

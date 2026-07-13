@@ -2680,7 +2680,11 @@ export class AgentSession {
 
 	private async _sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean> {
 		if (options.triggerIfIdle && !this.isStreaming) {
-			await this.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
+			await this.prompt(prompt, {
+				expandPromptTemplates: false,
+				source: "extension",
+				streamingBehavior: "followUp",
+			});
 			return false;
 		}
 		await this._queueFollowUp(prompt);

@@ -106,6 +106,7 @@
 
 ### Fixed
 
+- Fixed idle shared-channel delivery racing a newly started agent turn and logging an `Agent is already processing` coordination-drain error.
 - Fixed Hostrun lifecycle mirroring retaining a stale extension context after `/reload` replaces the session runtime.
 - Fixed `deploy.sh` failing outside login shells when `USER`, `XDG_RUNTIME_DIR`, or `DBUS_SESSION_BUS_ADDRESS` are absent.
 - Fixed interactive session resume stopping after a persisted tool result instead of continuing the interrupted assistant turn.
