@@ -612,6 +612,11 @@ export class AgentSession {
 	private _runtimeMailboxDrainInProgress = false;
 	private _sharedChannelDrainInProgress = false;
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
+	private readonly _runtimeMailboxPendingTerminal = new Map<
+		string,
+		{ lifecycle: "completed" | "failed" | "aborted"; summary?: string }
+	>();
+	private _runtimeMailboxPendingTerminalUnsubscribe: (() => void) | undefined;
 
 	// Model registry for API key resolution
 	private _modelRegistry: ModelRegistry;
@@ -1203,7 +1208,12 @@ export class AgentSession {
 		const lifecycle = this._runtimeMailboxSteeringLifecycle(messages);
 		const summary = lifecycle === "completed" ? this._lastRuntimeMailboxAssistantText(messages) : undefined;
 		for (const agentId of this._runtimeMailboxSteeringAgentIds) {
-			this._completeRuntimeMailboxSteeredAgent(agentId, lifecycle, summary);
+			if (this._completeRuntimeMailboxSteeredAgent(agentId, lifecycle, summary)) continue;
+			if (!this._isTerminalMultiAgentLifecycle(lifecycle)) continue;
+			const hasActiveDescendants = this._multiAgentStore
+				.listDescendants(agentId)
+				.some((agent) => !this._isTerminalMultiAgentLifecycle(agent.lifecycle));
+			if (hasActiveDescendants) this._deferRuntimeMailboxSteeredTerminal(agentId, lifecycle, summary);
 		}
 		this._runtimeMailboxSteeringAgentIds.clear();
 	}
@@ -1212,20 +1222,52 @@ export class AgentSession {
 		agentId: string,
 		lifecycle: AgentLifecycleState,
 		summary: string | undefined,
-	): void {
+	): boolean {
 		if (!this._multiAgentStore) {
-			return;
+			return false;
 		}
 		const current = this._multiAgentStore.getAgent(agentId);
 		if (!current || this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
-			return;
+			return true;
 		}
-		if (!this._isTerminalMultiAgentLifecycle(lifecycle)) return;
+		if (!this._isTerminalMultiAgentLifecycle(lifecycle)) return true;
 		const result = summary ? { summary } : undefined;
 		const error = lifecycle === "failed" ? { message: "Runtime mailbox steering turn failed" } : undefined;
 		if (!this._finalizeReservedMultiAgent(current, lifecycle, { error, result })) {
-			console.error(`Failed to complete runtime mailbox steering for ${current.id}: runtime ownership unavailable`);
+			return false;
 		}
+		return true;
+	}
+
+	private _deferRuntimeMailboxSteeredTerminal(
+		agentId: string,
+		lifecycle: "completed" | "failed" | "aborted",
+		summary: string | undefined,
+	): void {
+		if (!this._multiAgentStore) return;
+		this._runtimeMailboxPendingTerminal.set(agentId, { lifecycle, summary });
+		if (this._runtimeMailboxPendingTerminalUnsubscribe) return;
+		this._runtimeMailboxPendingTerminalUnsubscribe = this._multiAgentStore.subscribeAgentUpdates(() => {
+			this._retryRuntimeMailboxSteeredTerminals();
+		});
+	}
+
+	private _retryRuntimeMailboxSteeredTerminals(): void {
+		const store = this._multiAgentStore;
+		if (!store) return;
+		for (const [agentId, pending] of this._runtimeMailboxPendingTerminal) {
+			const hasActiveDescendants = store
+				.listDescendants(agentId)
+				.some((agent) => !this._isTerminalMultiAgentLifecycle(agent.lifecycle));
+			if (hasActiveDescendants) continue;
+			this._runtimeMailboxPendingTerminal.delete(agentId);
+			if (!this._completeRuntimeMailboxSteeredAgent(agentId, pending.lifecycle, pending.summary)) {
+				this._runtimeMailboxPendingTerminal.set(agentId, pending);
+			}
+		}
+		if (this._runtimeMailboxPendingTerminal.size > 0) return;
+		this._runtimeMailboxPendingTerminalUnsubscribe?.();
+		this._runtimeMailboxPendingTerminalUnsubscribe = undefined;
 	}
 
 	private _finalizeReservedMultiAgent(
