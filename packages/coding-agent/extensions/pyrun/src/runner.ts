@@ -53,6 +53,7 @@ interface PendingRequest {
 export interface PyrunRunnerOptions {
 	args?: string[];
 	command?: string;
+	detached?: boolean;
 	env?: NodeJS.ProcessEnv;
 	inheritEnv?: boolean;
 }
@@ -61,7 +62,7 @@ export interface PyrunRunnerResolutionOptions {
 	env?: NodeJS.ProcessEnv;
 }
 
-type ResolvedPyrunRunnerOptions = Required<Omit<PyrunRunnerOptions, "inheritEnv">>;
+type ResolvedPyrunRunnerOptions = Required<Omit<PyrunRunnerOptions, "detached" | "inheritEnv">>;
 
 function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	if (!value) {
@@ -94,7 +95,11 @@ function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
 	}
 }
 
-function terminateRunnerTree(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals = "SIGTERM"): void {
+function terminateRunnerTree(
+	child: ChildProcessWithoutNullStreams,
+	detached: boolean,
+	signal: NodeJS.Signals = "SIGTERM",
+): void {
 	if (process.platform === "win32" && child.pid !== undefined) {
 		const result = spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
 			stdio: "ignore",
@@ -102,7 +107,7 @@ function terminateRunnerTree(child: ChildProcessWithoutNullStreams, signal: Node
 		});
 		if (result.status === 0) return;
 	}
-	const canSignalProcessGroup = process.platform !== "win32" && child.pid !== undefined;
+	const canSignalProcessGroup = detached && process.platform !== "win32" && child.pid !== undefined;
 	if (canSignalProcessGroup && signalProcessGroup(child.pid, signal)) return;
 	child.kill(signal);
 }
@@ -155,7 +160,11 @@ export class PyrunRunnerClient {
 	private terminateProcess(): void {
 		const child = this.process;
 		this.process = undefined;
-		if (child) terminateRunnerTree(child);
+		if (child) terminateRunnerTree(child, this.shouldDetachProcess());
+	}
+
+	private shouldDetachProcess(): boolean {
+		return this.options.detached ?? process.platform !== "win32";
 	}
 
 	private ensureProcess(): ChildProcessWithoutNullStreams {
@@ -168,8 +177,9 @@ export class PyrunRunnerClient {
 			...this.options,
 			env: { ...resolvedOptions.env, ...this.options.env },
 		};
+		const detached = this.shouldDetachProcess();
 		const child = spawn(options.command, options.args, {
-			detached: process.platform !== "win32",
+			detached,
 			env: options.inheritEnv === false ? options.env : { ...process.env, ...options.env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
@@ -180,7 +190,9 @@ export class PyrunRunnerClient {
 		child.stderr.on("data", (chunk: string) => this.stderr.push(chunk));
 		child.on("error", (error) => this.rejectAll(error));
 		child.on("exit", (code, signal) => {
-			if (process.platform !== "win32" && child.pid !== undefined) signalProcessGroup(child.pid, "SIGTERM");
+			if (detached && process.platform !== "win32" && child.pid !== undefined) {
+				signalProcessGroup(child.pid, "SIGTERM");
+			}
 			if (this.process === child) this.process = undefined;
 			if (this.pending.length === 0) {
 				return;

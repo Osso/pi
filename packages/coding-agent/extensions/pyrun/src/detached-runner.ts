@@ -126,7 +126,7 @@ export function launchDetachedPyrunRunner(manifestPath: string, options?: { entr
 
 export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ terminalRevision?: number }> {
 	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
-	const runner = new PyrunRunnerClient(manifest.runnerOptions);
+	const runner = new PyrunRunnerClient({ ...manifest.runnerOptions, detached: false });
 	try {
 		const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
 		appendPyrunSettlementRecord(manifest, settlement);

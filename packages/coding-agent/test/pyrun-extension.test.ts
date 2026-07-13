@@ -263,6 +263,12 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
 	throw new Error(`Timed out waiting for ${label}`);
 }
 
+function readProcessGroup(pid: number): number {
+	const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" });
+	if (result.status !== 0) throw new Error(`Could not read process group for PID ${pid}: ${result.stderr}`);
+	return Number(result.stdout.trim());
+}
+
 function processIsAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -1851,6 +1857,38 @@ describe("pyrun extension", () => {
 		requestDetachedCancellation(store, job.id);
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "aborted"), "detached Pyrun cancellation");
 		expect(store.abortAgentHandle(job.id)).toBe(false);
+	});
+
+	it.skipIf(process.platform === "win32")("can inherit the caller process group", async () => {
+		const runnerPidPath = join(tempDir, "inherited-group-pyrun-runner.pid");
+		const runnerPath = join(tempDir, "inherited-group-pyrun-runner.mjs");
+		writeFileSync(
+			runnerPath,
+			`import { writeFileSync } from "node:fs";
+writeFileSync(process.env.RUNNER_PID_PATH, String(process.pid));
+process.stdin.on("data", () => {
+  process.stdout.write(JSON.stringify({ type: "status", message: "running" }) + "\\n");
+});
+setInterval(() => {}, 1000);
+`,
+		);
+		const runner = new PyrunRunnerClient({
+			args: [runnerPath],
+			command: process.execPath,
+			detached: false,
+			env: { RUNNER_PID_PATH: runnerPidPath },
+		});
+		const evaluation = runner.evaluate({ code: "run.never()" }).catch((error: unknown) => error);
+		await waitFor(() => existsSync(runnerPidPath), "inherited Pyrun runner PID");
+		const runnerPid = Number(readFileSync(runnerPidPath, "utf8"));
+		try {
+			expect(readProcessGroup(runnerPid)).toBe(readProcessGroup(process.pid));
+		} finally {
+			runner.dispose();
+		}
+		expect(await evaluation).toEqual(
+			expect.objectContaining({ message: expect.stringContaining("Pyrun runner exited") }),
+		);
 	});
 
 	it("keeps a replacement Pyrun runner after the aborted runner exits", async () => {
