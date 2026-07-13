@@ -19,7 +19,7 @@ require_safe_absolute_dir() {
 	fi
 
 	case "$value" in
-		/|/home|/home/"$USER"|"$ROOT_DIR")
+		/|/home|"$HOME"|"$ROOT_DIR")
 			echo "$name is too broad to replace: $value" >&2
 			exit 1
 			;;

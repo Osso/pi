@@ -198,5 +198,6 @@ describe("resident architect service", () => {
 		expect(deploy).toContain("systemctl --user enable --now pi-architect.service");
 		expect(deploy).toContain("systemctl --user restart pi-architect.service");
 		expect(deploy).toContain("systemctl --user is-active --quiet pi-architect.service");
+		expect(deploy).not.toContain('"$USER"');
 	});
 });
