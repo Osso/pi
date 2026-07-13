@@ -21,8 +21,8 @@ import type { RpcCommand, RpcResponse, RpcSessionState, RpcSlashCommand } from "
 /** Distributive Omit that works with union types */
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
-/** RpcCommand without the id field (for internal send) */
-type RpcCommandBody = DistributiveOmit<RpcCommand, "id">;
+/** RPC command accepted by `RpcClient.send()` before request correlation is added. */
+export type RpcCommandBody = DistributiveOmit<RpcCommand, "id">;
 
 export interface RpcClientOptions {
 	/** Path to the CLI entry point (default: searches for dist/cli.js) */
@@ -35,6 +35,8 @@ export interface RpcClientOptions {
 	provider?: string;
 	/** Model ID to use */
 	model?: string;
+	/** Additional arguments passed to Node before the CLI entry point. */
+	nodeArgs?: string[];
 	/** Additional CLI arguments */
 	args?: string[];
 }
@@ -61,6 +63,8 @@ export class RpcClient {
 	private requestId = 0;
 	private stderr = "";
 	private exitError: Error | null = null;
+	private stopPromise: Promise<void> | null = null;
+	private stopError: Error | null = null;
 	private options: RpcClientOptions;
 
 	constructor(options: RpcClientOptions = {}) {
@@ -71,8 +75,8 @@ export class RpcClient {
 	 * Start the RPC agent process.
 	 */
 	async start(): Promise<void> {
-		if (this.process) {
-			throw new Error("Client already started");
+		if (this.process || this.stopPromise) {
+			throw new Error("Client already started or stopping");
 		}
 
 		this.exitError = null;
@@ -90,7 +94,7 @@ export class RpcClient {
 			args.push(...this.options.args);
 		}
 
-		const childProcess = spawn("node", [cliPath, ...args], {
+		const childProcess = spawn("node", [...(this.options.nodeArgs ?? []), cliPath, ...args], {
 			cwd: this.options.cwd,
 			env: { ...process.env, ...this.options.env },
 			stdio: ["pipe", "pipe", "pipe"],
@@ -131,8 +135,11 @@ export class RpcClient {
 		// Wait a moment for process to initialize
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
-		if (this.process.exitCode !== null) {
-			const error = this.exitError ?? this.createProcessExitError(this.process.exitCode, this.process.signalCode);
+		if (this.stopPromise || this.process !== childProcess) {
+			throw new Error(`RPC client stopped during startup. Stderr: ${this.stderr}`);
+		}
+		if (childProcess.exitCode !== null) {
+			const error = this.exitError ?? this.createProcessExitError(childProcess.exitCode, childProcess.signalCode);
 			this.exitError = error;
 			throw error;
 		}
@@ -142,27 +149,28 @@ export class RpcClient {
 	 * Stop the RPC agent process.
 	 */
 	async stop(): Promise<void> {
-		if (!this.process) return;
+		if (this.stopPromise) return this.stopPromise;
+		const childProcess = this.process;
+		if (!childProcess) return;
 
+		this.stopPromise = this.stopProcess(childProcess);
+		try {
+			await this.stopPromise;
+			this.stopError = null;
+		} catch (error) {
+			this.stopError = error instanceof Error ? error : new Error(String(error));
+			throw error;
+		} finally {
+			this.stopPromise = null;
+		}
+	}
+
+	private async stopProcess(childProcess: ChildProcess): Promise<void> {
 		this.stopReadingStdout?.();
 		this.stopReadingStdout = null;
-		this.process.kill("SIGTERM");
-
-		// Wait for process to exit
-		await new Promise<void>((resolve) => {
-			const timeout = setTimeout(() => {
-				this.process?.kill("SIGKILL");
-				resolve();
-			}, 1000);
-
-			this.process?.on("exit", () => {
-				clearTimeout(timeout);
-				resolve();
-			});
-		});
-
-		this.process = null;
-		this.pendingRequests.clear();
+		this.rejectPendingRequests(new Error(`RPC client stopped. Stderr: ${this.stderr}`));
+		await this.terminateProcess(childProcess);
+		if (this.process === childProcess) this.process = null;
 	}
 
 	/**
@@ -517,6 +525,31 @@ export class RpcClient {
 		}
 	}
 
+	private terminateProcess(childProcess: ChildProcess): Promise<void> {
+		if (childProcess.exitCode !== null || childProcess.signalCode !== null) return Promise.resolve();
+		return new Promise((resolve, reject) => {
+			let killTimeout: ReturnType<typeof setTimeout> | undefined;
+			const cleanup = (): void => {
+				clearTimeout(termTimeout);
+				if (killTimeout) clearTimeout(killTimeout);
+				childProcess.off("exit", exited);
+			};
+			const exited = (): void => {
+				cleanup();
+				resolve();
+			};
+			const termTimeout = setTimeout(() => {
+				childProcess.kill("SIGKILL");
+				killTimeout = setTimeout(() => {
+					cleanup();
+					reject(new Error(`RPC child did not exit after SIGKILL. Stderr: ${this.stderr}`));
+				}, 1000);
+			}, 1000);
+			childProcess.once("exit", exited);
+			childProcess.kill("SIGTERM");
+		});
+	}
+
 	private createProcessExitError(code: number | null, signal: NodeJS.Signals | null): Error {
 		return new Error(`Agent process exited (code=${code} signal=${signal}). Stderr: ${this.stderr}`);
 	}
@@ -528,7 +561,9 @@ export class RpcClient {
 		this.pendingRequests.clear();
 	}
 
-	private async send(command: RpcCommandBody): Promise<RpcResponse> {
+	async send(command: RpcCommandBody): Promise<RpcResponse> {
+		if (this.stopPromise) throw new Error(`RPC client is stopping. Stderr: ${this.stderr}`);
+		if (this.stopError) throw new Error(`Previous RPC stop failed: ${this.stopError.message}`);
 		const childProcess = this.process;
 		const stdin = childProcess?.stdin;
 		if (!childProcess || !stdin) {

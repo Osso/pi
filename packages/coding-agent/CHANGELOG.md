@@ -11,6 +11,7 @@
 
 ### Added
 
+- Added a disposable real-process headless Pi test fixture built on RPC mode, with isolated state, typed raw commands, private faux-provider response control, persisted agent/mailbox waiters, and automatic cleanup; `RpcClient.send()`, `RpcCommandBody`, and `RpcClientOptions.nodeArgs` are now public for raw commands and preload instrumentation.
 - Added completed `Thought for <duration>` rows between consecutive tool calls so model-turn latency remains visible after the next tool starts.
 - Added `ctx.toolExecutionStartedAt` for extension tools that need the shared agent lifecycle start timestamp when work continues outside the foreground promise.
 - Added durable detached Bash and Pyrun runners with independent payload ownership, diagnostic output artifacts, runtime-mailbox cancellation, and exact process-owner terminal transactions. Detach-eligible Bash launches through the durable runner, while Pyrun remains foreground until manual or automatic detachment creates exactly one durable runner-owned agent.
@@ -106,6 +107,8 @@
 
 ### Fixed
 
+- Fixed `RpcClient` startup/shutdown races so startup rejects when stop begins, stop rejects in-flight requests and waits for confirmed child exit, and failed forced termination retains the live child handle for safe cleanup retry.
+- Fixed headless fixture cleanup to roll back partial startup, remove state even when process/server shutdown fails, preserve both scenario and cleanup errors, and reject waiters during or immediately after disposal instead of timing out or reading removed state.
 - Fixed `deploy.sh` failing outside login shells when `USER`, `XDG_RUNTIME_DIR`, or `DBUS_SESSION_BUS_ADDRESS` are absent.
 - Fixed interactive session resume stopping after a persisted tool result instead of continuing the interrupted assistant turn.
 - Fixed detached Bash and Pyrun jobs from different supervisor sessions sharing stale artifact directories when their per-session agent IDs matched; artifacts are now session-namespaced and exclusively reserved before runner launch.

@@ -1402,6 +1402,29 @@ Created by the `bash` RPC command (not by LLM tool calls):
 }
 ```
 
+## Typed Node.js client
+
+`RpcClient` starts a child Pi process and provides typed helpers for the RPC protocol. Use `send()` when a test or integration needs a raw typed command instead of a convenience method:
+
+```typescript
+import { RpcClient } from "@earendil-works/pi-coding-agent";
+
+const agent = new RpcClient({ cwd: process.cwd() });
+await agent.start();
+await agent.send({ type: "prompt", message: "Inspect the repository" });
+await agent.stop();
+```
+
+`stop()` rejects pending commands, sends `SIGTERM`, escalates to `SIGKILL` after one second, and resolves only after the child exits. It rejects if the child remains alive after forced termination.
+
+`RpcClientOptions.nodeArgs` inserts Node arguments before the CLI entry point. This supports preload modules and runtime instrumentation without changing the RPC protocol:
+
+```typescript
+const agent = new RpcClient({
+  nodeArgs: ["--import", "/absolute/path/to/preload.mjs"],
+});
+```
+
 ## Example: Basic Client (Python)
 
 ```python
