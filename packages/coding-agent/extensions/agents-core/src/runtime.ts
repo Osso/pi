@@ -1636,6 +1636,7 @@ async function runAgentSession(
 		}
 
 	} catch (error) {
+		await waitForActiveDescendants(store, running.agent.id);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		const failure = { message: error instanceof Error ? error.message : String(error) };
@@ -1707,6 +1708,7 @@ async function runAgentDispatcher(
 			restoreGeneration,
 		);
 	} catch (error) {
+		await waitForActiveDescendants(store, running.agent.id);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		const failure = { message: error instanceof Error ? error.message : String(error) };
@@ -1724,20 +1726,20 @@ async function runAgentDispatcher(
 	}
 }
 
-async function waitForActiveDescendants(store: MultiAgentStore, agentId: string, signal: AbortSignal): Promise<void> {
+async function waitForActiveDescendants(store: MultiAgentStore, agentId: string, signal?: AbortSignal): Promise<void> {
 	const hasActiveDescendants = () => store.listDescendants(agentId).some((agent) => isActiveLifecycle(agent.lifecycle));
-	if (!hasActiveDescendants() || signal.aborted) return;
+	if (!hasActiveDescendants() || signal?.aborted) return;
 	await new Promise<void>((resolve) => {
 		const finish = () => {
 			unsubscribe();
-			signal.removeEventListener("abort", finish);
+			signal?.removeEventListener("abort", finish);
 			resolve();
 		};
 		const unsubscribe = store.subscribeAgentUpdates(() => {
 			if (!hasActiveDescendants()) finish();
 		});
-		signal.addEventListener("abort", finish, { once: true });
-		if (!hasActiveDescendants() || signal.aborted) finish();
+		signal?.addEventListener("abort", finish, { once: true });
+		if (!hasActiveDescendants() || signal?.aborted) finish();
 	});
 }
 
