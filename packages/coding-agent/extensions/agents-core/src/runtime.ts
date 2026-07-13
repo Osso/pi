@@ -39,12 +39,14 @@ import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.t
 import {
 	enqueueRuntimeMailboxMessage,
 	hasPendingRuntimeCoordinationMessage,
+	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSessionMetadata,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
+	type RuntimeMailboxMessage,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
@@ -2751,9 +2753,18 @@ function mirrorLifecycleRuntimeMailboxMessage(
 		);
 		return;
 	}
+	const agent = store.getAgent(notification.fromAgentId);
+	if (
+		agent &&
+		listRuntimeMailboxMessages(ctx.controlDbPath).some(
+			(message) =>
+				message.storeRef?.sessionPath === storeRef.sessionPath && isDetachedTerminalTransport(message, agent),
+		)
+	) {
+		return;
+	}
 	const recipient = resolveRuntimeRecipient(store, notification, ctx);
 	if (!recipient) return;
-	const agent = store.getAgent(notification.fromAgentId);
 	const currentSessionId = ctx.sessionManager.getSessionId();
 	const senderSessionId = agent?.transcript?.sessionId ?? currentSessionId;
 	enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
@@ -2765,6 +2776,16 @@ function mirrorLifecycleRuntimeMailboxMessage(
 		},
 		storeRef,
 	});
+}
+
+function isDetachedTerminalTransport(message: RuntimeMailboxMessage, agent: AgentSnapshot): boolean {
+	if (message.sender.agentId !== agent.id || message.kind !== "system") return false;
+	try {
+		const body = JSON.parse(message.body) as Record<string, unknown>;
+		return body.type === "multi_agent_terminal" && body.agentId === agent.id && body.terminalRevision === agent.revision;
+	} catch {
+		return false;
+	}
 }
 
 function isRuntimeMirroredLifecycle(

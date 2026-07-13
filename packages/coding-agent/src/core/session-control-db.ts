@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import type { DetachedJobTerminalInput } from "./detached-job-runner.ts";
-import type { AgentFileReference, AgentMailboxMessage, AgentSnapshot } from "./multi-agent-store.ts";
+import {
+	type AgentFileReference,
+	type AgentMailboxMessage,
+	type AgentSnapshot,
+	isActiveLifecycle,
+} from "./multi-agent-store.ts";
 import {
 	isPiRuntimeProcessAlive,
 	isProcessIdentityAlive,
@@ -2219,6 +2224,7 @@ export interface AcquireMultiAgentRuntimeOwnershipInput extends MultiAgentRuntim
 }
 
 export interface SupervisorRuntimeOwnership {
+	agentId?: string;
 	processIdentity: ProcessIdentity;
 	sessionId: string;
 }
@@ -3023,14 +3029,22 @@ export function recoverDeadMultiAgentRuntime(
 				);
 			if (released.changes !== 1) return { ok: false, error: "mutation_mismatch" };
 			const terminalRevision = Number(agent.revision) + 1;
-			const error = { code: "lost_runtime", message: "Agent owner process exited before terminal confirmation." };
+			// A cancelling agent already has a terminal intent; recovery honors it as
+			// aborted instead of reporting a lost runtime failure.
+			const cancelling = agent.lifecycle === "cancelling";
+			const error = {
+				code: "lost_runtime",
+				message: cancelling
+					? "Cancellation requested; agent owner process exited before terminal confirmation."
+					: "Agent owner process exited before terminal confirmation.",
+			};
 			const worker = agent.worker as AgentSnapshot["worker"] | undefined;
 			const result = agent.result as AgentSnapshot["result"] | undefined;
 			const toolCallId = worker?.toolCallId;
 			const updated = {
 				...agent,
 				error,
-				lifecycle: "failed",
+				lifecycle: cancelling ? "aborted" : "failed",
 				...(toolCallId === undefined ? {} : { result: { ...result, toolCallId } }),
 				revision: terminalRevision,
 				updatedAt: input.nowIso,
@@ -3246,16 +3260,31 @@ function registeredSupervisorOwnsSession(
 	supervisor: SupervisorRuntimeOwnership,
 ): boolean {
 	if (!isProcessIdentityAlive(supervisor.processIdentity)) return false;
+	const recipientAgentIdKey = supervisor.agentId ?? "";
 	const listener = db
 		.prepare(
-			`SELECT runtime_instance_id FROM runtime_mailbox_listeners
-			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ''
-			 AND pid = ? AND session_path = ? AND session_path_asserted_at IS NOT NULL`,
+			`SELECT runtime_instance_id, session_path, session_path_asserted_at
+			 FROM runtime_mailbox_listeners
+			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?`,
 		)
-		.get(supervisor.sessionId, supervisor.processIdentity.pid, sessionPath) as
-		| { runtime_instance_id: string | null }
+		.get(supervisor.sessionId, recipientAgentIdKey, supervisor.processIdentity.pid) as
+		| { runtime_instance_id: string | null; session_path: string | null; session_path_asserted_at: string | null }
 		| undefined;
 	if (!listener?.runtime_instance_id) return false;
+	if (supervisor.agentId) {
+		const supervisorAgent = db
+			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+			.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
+		if (!supervisorAgent) return false;
+		const snapshot = parseStoredJsonObject(
+			supervisorAgent.data,
+			`multi_agent_agents:${sessionPath}#${supervisor.agentId}`,
+		) as unknown as AgentSnapshot;
+		if (snapshot.transcript?.sessionId !== supervisor.sessionId || !isActiveLifecycle(snapshot.lifecycle))
+			return false;
+	} else if (listener.session_path !== sessionPath || listener.session_path_asserted_at === null) {
+		return false;
+	}
 	try {
 		return (
 			serializeProcessIdentity(parseProcessIdentity(listener.runtime_instance_id)) ===

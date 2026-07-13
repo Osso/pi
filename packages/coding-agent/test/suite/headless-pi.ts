@@ -14,6 +14,7 @@ import {
 	readMultiAgentRuntimeOwnership,
 } from "../../src/core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
+import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 
@@ -60,6 +61,7 @@ export interface HeadlessPi {
 	listMailboxMessages(): AgentMailboxMessage[];
 	listRuntimeMailboxMessages(): RuntimeMailboxMessage[];
 	readSessionEntries(agentId: string | null): SessionEntry[];
+	readTerminalOutboxStatuses(agentId: string): string[];
 	waitForSessionEntry(agentId: string | null, predicate: (entry: SessionEntry) => boolean): Promise<SessionEntry>;
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
 	waitForLlmRequest(predicate?: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest>;
@@ -534,6 +536,21 @@ function createHeadlessRuntime(options: {
 			readHeadlessStore(options.paths.agentDir, options.context.sessionFile).listMailboxMessages(),
 		listRuntimeMailboxMessages: () => listRuntimeMailboxMessages(getControlDbPath(options.paths.agentDir)),
 		readSessionEntries: (agentId) => SessionManager.open(resolveHeadlessSessionFile(options, agentId)).getEntries(),
+		readTerminalOutboxStatuses(agentId) {
+			const db = createSqliteDatabase(getControlDbPath(options.paths.agentDir));
+			try {
+				const rows = db
+					.prepare(
+						`SELECT status FROM multi_agent_terminal_outbox
+						 WHERE session_path = ? AND agent_id = ?
+						 ORDER BY terminal_revision ASC`,
+					)
+					.all(options.context.sessionFile, agentId) as Array<{ status: string }>;
+				return rows.map((row) => row.status);
+			} finally {
+				db.close();
+			}
+		},
 		async waitForSessionEntry(agentId, predicate) {
 			const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
 			while (Date.now() < deadline) {

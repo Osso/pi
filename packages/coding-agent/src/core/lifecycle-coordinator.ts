@@ -73,6 +73,7 @@ export type LifecycleCommandResult =
 
 export interface RecoverDeadChildCommandInput extends OwnedLifecycleCommandInput {
 	ownerSessionId: string;
+	supervisorAgentId?: string;
 }
 
 export type RecoverDeadChildCommandResult =
@@ -195,11 +196,17 @@ export class LifecycleCoordinator {
 
 	recoverDeadChild(input: RecoverDeadChildCommandInput): RecoverDeadChildCommandResult {
 		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, false);
+		// The recorded owner session may be a dead prior incarnation of this session
+		// (every resume registers a fresh session ID), so owner.sessionId is not
+		// required to equal the recovering supervisor's session. Authorization comes
+		// from recoverDeadMultiAgentRuntime: the supervisor must be the live
+		// registered listener asserted on this session path, and the owner process
+		// must be provably dead before ownership is released in the same transaction.
 		if (
 			!identity ||
 			identity.agentId !== input.agent.id ||
 			identity.sessionPath !== this.options.sessionPath ||
-			identity.owner.sessionId !== input.ownerSessionId
+			identity.owner.agentId !== (input.supervisorAgentId ?? null)
 		) {
 			return { ok: false, error: "mutation_mismatch" };
 		}
@@ -207,7 +214,11 @@ export class LifecycleCoordinator {
 		const recovered = recoverDeadMultiAgentRuntime(this.options.controlDbPath, {
 			expectedOwner: identity,
 			nowIso,
-			supervisor: { processIdentity: this.options.processIdentity, sessionId: input.ownerSessionId },
+			supervisor: {
+				agentId: input.supervisorAgentId,
+				processIdentity: this.options.processIdentity,
+				sessionId: input.ownerSessionId,
+			},
 		});
 		if (!recovered.ok) return recovered;
 		return { ok: true, agent: recovered.agent as unknown as AgentSnapshot };

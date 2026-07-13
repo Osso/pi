@@ -50,7 +50,7 @@ export function createDetachedJobLifecycleController(
 				ownership?.processIdentity &&
 				ownership.sessionPath === options.sessionPath &&
 				ownership.agentId === jobId &&
-				ownership.owner.agentId === null &&
+				ownership.owner.agentId === (options.ownerAgentId ?? null) &&
 				ownership.owner.sessionId === options.ownerSessionId &&
 				!isProcessIdentityAlive(ownership.processIdentity)
 			) {
@@ -58,6 +58,7 @@ export function createDetachedJobLifecycleController(
 					agent,
 					ownerSessionId: options.ownerSessionId,
 					ownership,
+					supervisorAgentId: options.ownerAgentId,
 				});
 				if (recovered.ok) agent = recovered.agent;
 			}

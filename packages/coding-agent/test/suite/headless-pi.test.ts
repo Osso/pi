@@ -349,6 +349,15 @@ describe("headless Pi fixture", () => {
 				await agent.waitForMailboxMessage(
 					(message) => message.id === pendingCompletion.id && message.status === "delivered",
 				);
+				await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(detachedJob.id)).toEqual(["delivered"]));
+				const terminalRuntimeMessages = agent
+					.listRuntimeMailboxMessages()
+					.filter((message) => message.sender.agentId === detachedJob.id);
+				expect(terminalRuntimeMessages).toHaveLength(1);
+				expect(terminalRuntimeMessages[0]?.recipient).toEqual({
+					agentId: caller.id,
+					sessionId: caller.transcript?.sessionId,
+				});
 
 				const completionEntry = (await agent.waitForSessionEntry(
 					caller.id,

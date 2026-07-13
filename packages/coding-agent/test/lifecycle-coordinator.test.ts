@@ -278,6 +278,61 @@ describe("LifecycleCoordinator child creation", () => {
 		});
 	});
 
+	it("recovers a dead child owned by a prior session incarnation", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		// The owner session ID belongs to a dead earlier incarnation of the same
+		// session file; the current supervisor registered under a fresh session ID.
+		const created = coordinator.commitRunningChild(
+			coordinator.prepareChild(childInput()),
+			"stale-incarnation-session",
+			testProcessIdentity("stale-incarnation-runtime"),
+		);
+		if (!created.ok) throw new Error("Expected stale-owner fixture");
+
+		const recovered = coordinator.recoverDeadChild({
+			agent: created.agent,
+			ownerSessionId: "supervisor-session",
+			ownership: created.ownership,
+		});
+
+		expect(recovered).toMatchObject({ ok: true, agent: { lifecycle: "failed" } });
+		expect(readMultiAgentAgent(controlDbPath, sessionPath, created.agent.id)).toMatchObject({
+			error: { code: "lost_runtime" },
+			lifecycle: "failed",
+			revision: 2,
+		});
+	});
+
+	it("settles a cancelling child to aborted on dead-owner recovery", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		const coordinator = createCoordinator(controlDbPath, sessionPath);
+		const created = createRunningChild(coordinator, childInput(), testProcessIdentity("cancelling-dead-runtime"));
+		if (!created.ok) throw new Error("Expected cancelling fixture");
+		const cancelling = coordinator.requestDetachedCancellation({
+			agent: created.agent,
+			outputLabel: "Pyrun output",
+			ownership: created.ownership,
+			reason: "test cancel",
+		});
+		if (!cancelling.ok) throw new Error("Expected cancelling lifecycle");
+		expect(cancelling.agent.lifecycle).toBe("cancelling");
+
+		const recovered = coordinator.recoverDeadChild({
+			agent: cancelling.agent,
+			ownerSessionId: "supervisor-session",
+			ownership: created.ownership,
+		});
+
+		expect(recovered).toMatchObject({ ok: true, agent: { lifecycle: "aborted" } });
+		expect(readMultiAgentAgent(controlDbPath, sessionPath, created.agent.id)).toMatchObject({
+			error: { code: "lost_runtime" },
+			lifecycle: "aborted",
+		});
+	});
+
 	it("blocks parent terminalization until active descendants are terminal", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";

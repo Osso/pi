@@ -149,8 +149,11 @@ Detached runner recovery does not reconstruct terminal state from artifacts. The
 finalizes from its in-memory identity, outcome, and output metadata. The output artifact is diagnostic
 only. If the runner dies before its terminal commit, the owning supervisor uses the exact persisted
 process identity to mark the agent `failed/lost_runtime`; it does not replay or infer a terminal result
-from the output file. A cancellation committed before a pending natural-result finalizer still wins by
-transaction order; `aborted` requires the exact runner's exit acknowledgement.
+from the output file. If the persisted lifecycle already recorded a cancellation intent (`cancelling`),
+dead-owner recovery settles that intent as `aborted` instead of reporting a lost-runtime failure — still
+without replaying or inferring a result. A cancellation committed before a pending natural-result
+finalizer still wins by transaction order; outside dead-owner recovery, `aborted` requires the exact
+runner's exit acknowledgement.
 
 Detached runner artifacts are namespaced by the persisted supervisor session before the per-session
 agent ID. A new job reserves its artifact directory exclusively before launching the runner; an existing
@@ -165,7 +168,11 @@ folder from reading stale manifests or output belonging to another supervisor.
       global recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session
       relocation moves the assertion, runtime ownership, pending terminal outbox, and runtime transport references transactionally with the store; detached finalization resolves the relocated row by exact agent/process ownership rather than a stale runner path. Verified administrative restart may
       terminalize owned work through the coordinator; exact owner-process exit resolves as
-      `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Terminal, current-live,
+      `failed`/`lost_runtime` — or `aborted` when the persisted lifecycle already recorded a cancellation
+      intent — never direct JSON rewrite or a result inferred from artifacts. The recorded owner session
+      ID may belong to a dead prior incarnation of the same session file; recovery is authorized by the
+      live registered supervisor binding for the session path plus proof the owner process is dead, not
+      by owner-session equality with the current incarnation. Terminal, current-live,
       and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.

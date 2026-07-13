@@ -10,7 +10,11 @@ import {
 } from "../extensions/pyrun/src/detached-runner.ts";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { getControlDbPath, readMultiAgentAgent, registerRuntimeMailboxListener } from "../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	readMultiAgentAgent,
+	registerRuntimeMailboxListener,
+} from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
