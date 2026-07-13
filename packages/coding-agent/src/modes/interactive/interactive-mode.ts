@@ -5871,6 +5871,13 @@ export class InteractiveMode {
 			});
 	}
 
+	private async continueInterruptedResumedSession(): Promise<void> {
+		const lastMessage = this.session.messages[this.session.messages.length - 1];
+		if (lastMessage?.role !== "toolResult") return;
+
+		await this.session.continue();
+	}
+
 	private async handleResumeSession(
 		sessionPath: string,
 		options?: Parameters<ExtensionCommandContext["switchSession"]>[1],
@@ -5888,6 +5895,7 @@ export class InteractiveMode {
 			if (result.cancelled) {
 				return result;
 			}
+			await this.continueInterruptedResumedSession();
 			this.showStatus("Resumed session");
 			return result;
 		} catch (error: unknown) {
@@ -5905,6 +5913,7 @@ export class InteractiveMode {
 				if (result.cancelled) {
 					return result;
 				}
+				await this.continueInterruptedResumedSession();
 				this.showStatus("Resumed session in current cwd");
 				return result;
 			}

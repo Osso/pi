@@ -106,6 +106,7 @@
 
 ### Fixed
 
+- Fixed interactive session resume stopping after a persisted tool result instead of continuing the interrupted assistant turn.
 - Fixed detached Bash and Pyrun jobs from different supervisor sessions sharing stale artifact directories when their per-session agent IDs matched; artifacts are now session-namespaced and exclusively reserved before runner launch.
 - Fixed detached Pyrun success and failure results losing the original invocation duration; durable settlement and completion notifications now use the shared tool lifecycle start timestamp.
 - Fixed oversized streaming tool updates creating a new full-output temp file for every partial update; each tool call now reuses one spill file.
