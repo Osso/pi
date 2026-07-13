@@ -77,7 +77,7 @@ Dispatch and graph invariants:
   startup row exists. Parent links cannot self-reference or form cycles, and child/attachment creation
   transactionally rejects a parent that is already terminal.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
-  reaches a terminal state through its own exact-owner command. A parent dispatch whose result is ready waits
+  reaches a terminal state through its own exact-owner command. Bounded cancellation calls may return while a slow descendant remains `cancelling`; the parent dispatch stays retained and cannot acknowledge exit until every descendant settles. A parent dispatch whose result is ready waits
   without disposing its runtime until every descendant is terminal, then commits its preserved terminal result.
   Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal. Runtime-mailbox
   steering completion stores the original terminal lifecycle/result and retries it when descendants settle.
@@ -159,7 +159,7 @@ transaction order; `aborted` requires the exact runner's exit acknowledgement.
       session path reconciles its orphaned active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot strand an earlier parent row. Runtime ownership
       stores the exact `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no
       global recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session
-      relocation moves the assertion transactionally with the store. Verified administrative restart may
+      relocation moves the assertion, runtime ownership, pending terminal outbox, and runtime transport references transactionally with the store; detached finalization resolves the relocated row by exact agent/process ownership rather than a stale runner path. Verified administrative restart may
       terminalize owned work through the coordinator; exact owner-process exit resolves as
       `failed`/`lost_runtime`, never direct JSON rewrite or inferred `aborted`. Terminal, current-live,
       and uncertain process-backed rows follow their explicit recovery policy.

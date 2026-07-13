@@ -105,11 +105,11 @@
 ### Fixed
 
 - Fixed lifecycle ownership for one agent authorizing mutations on another agent owned by the same supervisor process; coordinator commands now bind ownership to agent ID and session path.
-- Fixed dead-owner recovery terminalizing a parent while descendants remained active or stranding a dead parent after recovering its child, and fixed zombie processes blocking exact-owner recovery before parent reaping.
+- Fixed dead-owner recovery terminalizing a parent while descendants remained active or stranding a dead parent after recovering its child, fixed zombie processes blocking exact-owner recovery before parent reaping, and preserved detached ownership/outbox authority across session relocation.
 - Fixed dispatcher cancellation leaving the dispatcher signal live; dispatcher runtimes now register one abort handle and acknowledge exit through the normal lifecycle path.
 - Fixed Pyrun activation persistence failures and supervisor crashes leaving a live runner permanently waiting after its running row was committed.
 - Fixed Bash manifest persistence failures leaving a registered running row without same-call settlement, and fixed completed parents losing their terminal result while descendants remained active.
-- Fixed child/attachment creation accepting terminal parents and runtime-mailbox steering discarding deferred parent terminal results; dispatcher cancellation now aborts its signal without fabricating exit acknowledgement on timeout.
+- Fixed child/attachment creation accepting terminal parents and runtime-mailbox steering discarding deferred parent terminal results; dispatcher cancellation now aborts its signal without fabricating exit acknowledgement on timeout, and cancelling parents retain their dispatch until slow descendants exit.
 - Expanded lifecycle authority tests to reject direct production repository-writer calls outside coordinator and detached-runner authority modules, and removed generic production runtime-ownership acquire/release exports.
 - Fixed pending steering being overwritten when a child dispatcher attempted to become `waiting_for_input`; SQLite now rejects idle/natural-completion commits from `steering_pending`, so delivery must return the agent to `running` before it can become idle or terminal.
 - Fixed terminal completion delivery to use the committed agent row and exact owner identity; detached finalization now passes in-memory outcome and output metadata, while output artifacts remain diagnostic.
