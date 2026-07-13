@@ -172,6 +172,19 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("prompt guidelines", () => {
+		test("instructs models to emit independent tool calls together", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["read", "grep", "find"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				"Before making tool calls, identify all calls whose inputs are already known and independent. Emit those calls together in the same assistant response; do not serialize independent exploration calls. Only wait when a later call requires an earlier result.",
+			);
+		});
+
 		test("appends promptGuidelines to default guidelines", () => {
 			const prompt = buildSystemPrompt({
 				selectedTools: ["read", "dynamic_tool"],

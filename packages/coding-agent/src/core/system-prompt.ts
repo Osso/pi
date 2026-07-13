@@ -162,6 +162,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		addGuideline("Use bash for file operations like ls, rg, find");
 	}
 
+	if (tools.length > 1) {
+		addGuideline(
+			"Before making tool calls, identify all calls whose inputs are already known and independent. Emit those calls together in the same assistant response; do not serialize independent exploration calls. Only wait when a later call requires an earlier result.",
+		);
+	}
+
 	for (const guideline of promptGuidelines ?? []) {
 		const normalized = guideline.trim();
 		if (normalized.length > 0) {
