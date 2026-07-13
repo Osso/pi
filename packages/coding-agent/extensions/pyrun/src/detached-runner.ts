@@ -4,6 +4,7 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, w
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../../../src/config.ts";
+import { isProcessIdentityAlive, type ProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
 	claimDetachedJobRuntimeCommands,
 	enqueueDetachedJobStatusResponse,
@@ -47,6 +48,7 @@ export interface DetachedPyrunLaunchManifestData {
 	runnerAddress: RuntimeMailboxAddress;
 	runnerOptions: PyrunRunnerOptions;
 	sessionPath: string;
+	supervisorProcessIdentity: ProcessIdentity;
 }
 
 interface DetachedPyrunLaunchManifest extends DetachedPyrunLaunchManifestData {
@@ -322,6 +324,7 @@ async function waitForPyrunOwnershipDecision(
 		const identity = readDetachedPyrunActivation(manifest.activationPath);
 		if (identity) return identity;
 		if (existsSync(manifest.foregroundCompletionPath)) return undefined;
+		if (!isProcessIdentityAlive(manifest.supervisorProcessIdentity)) return undefined;
 		await new Promise((resolve) => setTimeout(resolve, CONTROL_POLL_MS));
 	}
 }

@@ -32,6 +32,7 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	runnerOptions: PyrunRunnerOptions;
 	signal?: AbortSignal;
 	store: MultiAgentStore;
+	writeActivation?: typeof writeDetachedPyrunActivation;
 }): Promise<AgentToolResult<unknown>> {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) throw new Error("Detached Pyrun requires a persisted supervisor session");
@@ -85,6 +86,7 @@ function launchForegroundPyrunRunner(
 		runnerAddress: { agentId: jobId, sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: input.runnerOptions,
 		sessionPath: persistence.sessionPath,
+		supervisorProcessIdentity: readProcessIdentity(process.pid),
 	});
 	return {
 		activationPath,
@@ -109,7 +111,9 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 	cancel: () => void;
 	detach: () => boolean;
 	getOwnership: () => PyrunOwnership | undefined;
+	isActivated: () => boolean;
 } {
+	let activated = false;
 	let ownership: PyrunOwnership | undefined;
 	return {
 		cancel: () => {
@@ -126,10 +130,17 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 				processIdentity: input.runner.processIdentity,
 				workerHandleId: String(input.runner.runnerPid),
 			});
-			writeDetachedPyrunActivation(input.runner.activationPath, ownership.identity);
-			return true;
+			try {
+				(input.writeActivation ?? writeDetachedPyrunActivation)(input.runner.activationPath, ownership.identity);
+				activated = true;
+				return true;
+			} catch {
+				terminateForegroundRunner(input.runner.runnerPid, "SIGKILL");
+				return false;
+			}
 		},
 		getOwnership: () => ownership,
+		isActivated: () => activated,
 	};
 }
 
@@ -167,7 +178,9 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			}
 			if (ownership) terminalAgent = input.controller.observe(ownership.agent.id);
 			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
-			if (ownership) return detachedResult(input.params, ownership.agent.id, ownership.artifacts.outputPath);
+			if (ownership && control.isActivated()) {
+				return detachedResult(input.params, ownership.agent.id, ownership.artifacts.outputPath);
+			}
 			await new Promise((resolve) => setTimeout(resolve, ARTIFACT_POLL_MS));
 		}
 		if (result) return formatCanonicalPyrunEvalResult(input.params, result);
@@ -231,9 +244,15 @@ function appendJsonLine(path: string, value: unknown): void {
 	writeFileSync(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", flag: "a", mode: 0o600 });
 }
 
-function terminateForegroundRunner(pid: number): void {
+function terminateForegroundRunner(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
 	try {
-		process.kill(-pid, "SIGTERM");
+		process.kill(-pid, signal);
+		return;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+	try {
+		process.kill(pid, signal);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 	}
