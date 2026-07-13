@@ -76,9 +76,9 @@ Dispatch and graph invariants:
   or failure persists `failed` revision 1 with the construction error; no persisted `queued` or `starting`
   startup row exists. Parent links cannot self-reference or form cycles.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
-  reaches a terminal state through its own exact-owner command. A parent remains nonterminal until every
-  descendant is terminal or has been resolved as `failed` with `lost_runtime`; normal completion and
-  dead-owner recovery both reject a terminal parent while any descendant remains nonterminal.
+  reaches a terminal state through its own exact-owner command. A parent dispatch whose result is ready waits
+  without disposing its runtime until every descendant is terminal, then commits its preserved terminal result.
+  Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal.
 
 Race precedence is deterministic and based on coordinator commit order, not callback order, PID,
 wall-clock time, or mailbox delivery:

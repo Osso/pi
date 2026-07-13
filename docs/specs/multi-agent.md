@@ -133,7 +133,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   before its terminal commit, the owning supervisor marks the agent `failed/lost_runtime` from the exact
   persisted process identity; it does not replay output or reconstruct a terminal result. Coordinator
   cancellation and its durable store/transport rows commit in one SQLite transaction; transport insertion
-  failure rolls the lifecycle mutation back. A live runner retries the same terminal input only for SQLite
+  failure rolls the lifecycle mutation back. Bash manifest persistence failure kills the unactivated runner,
+  commits the registered row as failed through its exact ownership, and reports the launch error in the same call.
+  A live runner retries the same terminal input only for SQLite
   busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
   Dispatcher runtimes register their abort controller as the single store abort handle, so cancellation aborts
   their signal once and waits for normal exit acknowledgement. AgentSession constructs detached controllers
@@ -155,6 +157,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   retained according to the detached-job retention policy and are not lifecycle records. Interrupted garbage
   collection is idempotent; missing referenced bytes are corruption, not permission to cascade-delete the
   remaining evidence.
+- Production exposes no generic runtime-ownership acquire/release writer. Tests that need historical or
+  malformed ownership use an explicit raw fixture helper outside production; production attachment, creation,
+  lifecycle, steering, recovery, and terminal writers are allowlisted to coordinator or detached-runner modules.
 - The repository and SQLite transaction are a second enforcement boundary, not a trust-through
   path. They re-check transition legality, authorization, and the complete mutation predicate
   before committing any lifecycle or terminal-row change. A coordinator response is successful
