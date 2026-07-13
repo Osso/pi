@@ -3164,13 +3164,7 @@ export function createFailedMultiAgentChild(
 				throw new Error("Failed child creation requires failed revision 1");
 			}
 			const parentId = agent.parentId;
-			if (
-				!parentId ||
-				(parentId !== "main" &&
-					!db
-						.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-						.get(input.sessionPath, parentId))
-			) {
+			if (!parentId || !hasActiveParent(db, input.sessionPath, parentId)) {
 				return { ok: false, error: "parent_not_found" };
 			}
 			if (
@@ -3194,6 +3188,17 @@ export function createFailedMultiAgentChild(
 	);
 }
 
+function hasActiveParent(db: SqliteDatabase, sessionPath: string, parentId: string): boolean {
+	if (parentId === "main") return true;
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, parentId) as { data: string } | undefined;
+	if (!row) return false;
+	const parent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${parentId}`);
+	validatePersistedAgentPayload(parent, `multi_agent_agents:${sessionPath}#${parentId}`);
+	return isNonterminalLifecycle(parent.lifecycle);
+}
+
 export function createMultiAgentChildWithRuntimeOwnership(
 	controlDbPath: string,
 	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
@@ -3208,13 +3213,7 @@ export function createMultiAgentChildWithRuntimeOwnership(
 				throw new Error("Child runtime ownership requires running revision 1");
 			}
 			const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
-			if (
-				!parentId ||
-				(parentId !== "main" &&
-					!db
-						.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-						.get(input.sessionPath, parentId))
-			) {
+			if (!parentId || !hasActiveParent(db, input.sessionPath, parentId)) {
 				return { ok: false, error: "parent_not_found" };
 			}
 			if (
@@ -3273,6 +3272,7 @@ export function createMultiAgentAttachment(
 					`multi_agent_agents:${input.sessionPath}#${agent.parentId}`,
 				);
 				validatePersistedAgentPayload(parent, `multi_agent_agents:${input.sessionPath}#${agent.parentId}`);
+				if (!isNonterminalLifecycle(parent.lifecycle)) return { ok: false, error: "parent_not_found" };
 				const parentPermission = parent.permission as AgentSnapshot["permission"];
 				if (!agent.permission.narrowed || agent.permission.policy !== parentPermission.policy) {
 					return { ok: false, error: "permission_broadened" };

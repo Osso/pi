@@ -374,6 +374,36 @@ describe("LifecycleCoordinator child creation", () => {
 		expect(generatedIds).toBe(0);
 	});
 
+	it("rejects child and attachment creation beneath a terminal parent", () => {
+		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
+		const sessionPath = "/tmp/supervisor.jsonl";
+		let nextId = 0;
+		const coordinator = createCoordinator(controlDbPath, sessionPath, undefined, () => `agent-${++nextId}`);
+		const parent = createRunningChild(coordinator);
+		if (!parent.ok) throw new Error("Expected parent fixture");
+		const completed = coordinator.finalizeChild({
+			agent: parent.agent,
+			ownership: parent.ownership,
+			terminalLifecycle: "completed",
+		});
+		expect(completed).toMatchObject({ ok: true });
+
+		expect(createRunningChild(coordinator, childInput(parent.agent.id))).toEqual({
+			ok: false,
+			error: "parent_not_found",
+		});
+		expect(
+			coordinator.createAttachment({
+				agentType: "attached",
+				cwd: "/tmp/worktree",
+				displayName: "Attached",
+				parentId: parent.agent.id,
+				permission: { narrowed: true, policy: "on-request" },
+			}),
+		).toEqual({ ok: false, error: "parent_not_found" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toHaveLength(1);
+	});
+
 	it("rejects a missing parent without committing child or ownership", () => {
 		const controlDbPath = join(mkdtempSync(join(tmpdir(), "pi-lifecycle-coordinator-")), "control.sqlite");
 		const sessionPath = "/tmp/supervisor.jsonl";
