@@ -317,6 +317,7 @@ type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
 interface OwnedAgentRuntime {
 	abortController: AbortController;
 	coordinator: LifecycleCoordinator;
+	kind: "dispatcher" | "session";
 	lifecycle: OwnedLifecycleCommandInput;
 }
 
@@ -520,6 +521,7 @@ async function backgroundCommand(
 	const runtime = {
 		abortController,
 		coordinator,
+		kind: "session" as const,
 		lifecycle: { agent: created.agent, ownership: created.ownership },
 	};
 	background.ownerships.set(created.agent.id, runtime);
@@ -984,7 +986,12 @@ async function spawnAgent(
 	}
 	store.publishLifecycleCoordinatorSnapshot(created.agent);
 	const lifecycle: OwnedLifecycleCommandInput = { agent: created.agent, ownership: created.ownership };
-	const runtime = { abortController, coordinator, lifecycle };
+	const runtime: OwnedAgentRuntime = {
+		abortController,
+		coordinator,
+		kind: createChildSession ? "session" : "dispatcher",
+		lifecycle,
+	};
 	ownerships.set(created.agent.id, runtime);
 
 	if (createChildSession && childSession) {
@@ -1207,6 +1214,7 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRu
 	return {
 		abortController: new AbortController(),
 		coordinator,
+		kind: "session",
 		lifecycle: { agent: acquired.agent, ownership: acquired.ownership },
 	};
 }
@@ -2406,11 +2414,23 @@ async function cancelOneOwnedAgentRuntime(
 	store.publishLifecycleCoordinatorSnapshot(cancelling.agent);
 	abortAgentHandleSafely(store, agentId);
 	const dispatch = runtimeHandles.dispatches.get(agentId);
+	let dispatchSettled = dispatch === undefined;
 	if (dispatch) {
 		await Promise.race([
-			dispatch,
+			dispatch.then(() => {
+				dispatchSettled = true;
+			}),
 			new Promise<void>((resolve) => setTimeout(resolve, CANCELLATION_SETTLEMENT_TIMEOUT_MS)),
 		]);
+	}
+	if (!dispatchSettled && reservedRuntime.kind === "dispatcher") {
+		const current = store.getAgent(agentId) ?? cancelling.agent;
+		const aborted = reservedRuntime.coordinator.acknowledgeCancellation({
+			agent: current,
+			reason: reason ?? "Dispatcher did not settle after cancellation",
+			ownership: reservedRuntime.lifecycle.ownership,
+		});
+		if (aborted.ok) store.publishLifecycleCoordinatorSnapshot(aborted.agent);
 	}
 	const settled = store.getAgent(agentId) ?? cancelling.agent;
 	return { ok: true, agent: settled };
