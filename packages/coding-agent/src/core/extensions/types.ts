@@ -324,6 +324,8 @@ export interface ExtensionContext {
 	hasUI: boolean;
 	/** Current working directory */
 	cwd: string;
+	/** Wall-clock start timestamp for the current tool invocation, when called from a tool definition. */
+	toolExecutionStartedAt?: number;
 	/** Session manager (read-only) */
 	sessionManager: ReadonlySessionManager;
 	/** Model registry for API key resolution */

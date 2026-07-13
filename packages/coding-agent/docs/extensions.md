@@ -953,6 +953,12 @@ export default function (pi: ExtensionAPI) {
 }
 ```
 
+### ctx.toolExecutionStartedAt
+
+Optional Unix-epoch millisecond timestamp captured by the shared agent tool lifecycle before an agent-loop tool begins execution. For those executions it uses the same start value as `tool_execution_start` and `tool_execution_end` events. Direct or synthetic calls such as `pi.tools.call(...)` do not provide it.
+
+Use it when agent-loop work can outlive the foreground tool promise and needs to retain the original invocation duration, such as durable background-job metadata. Do not start a second tool timer inside streamed, buffered, success, or failure output paths.
+
 ### ctx.isProjectTrusted()
 
 Returns whether project-local trust is active for the current session context. This includes temporary trust decisions and CLI trust overrides, not just saved decisions in the global trust store.

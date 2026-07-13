@@ -9,6 +9,7 @@ import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/r
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
 import {
 	createCanonicalPyrunEvalParams,
+	createPyrunProgressReporter,
 	formatCanonicalPyrunEvalResult,
 	type PyrunEvalParams,
 	type PyrunPiRequestDispatcher,
@@ -34,10 +35,14 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	store: MultiAgentStore;
 	writeActivation?: typeof writeDetachedPyrunActivation;
 }): Promise<AgentToolResult<unknown>> {
+	const startedAt = input.ctx.toolExecutionStartedAt;
+	if (startedAt === undefined) {
+		throw new Error("Detached Pyrun requires the tool lifecycle start timestamp");
+	}
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) throw new Error("Detached Pyrun requires a persisted supervisor session");
 	const controller = createPyrunLifecycleController(input, persistence);
-	const runner = launchForegroundPyrunRunner(input, persistence, controller);
+	const runner = launchForegroundPyrunRunner(input, persistence, controller, startedAt);
 	return observeDetachablePyrunEvaluation({ ...input, controller, runner });
 }
 
@@ -65,6 +70,7 @@ function launchForegroundPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
+	startedAt: number,
 ) {
 	const jobId = controller.allocateJobId();
 	const artifacts = controller.createArtifacts(jobId);
@@ -86,6 +92,7 @@ function launchForegroundPyrunRunner(
 		runnerAddress: { agentId: jobId, sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: input.runnerOptions,
 		sessionPath: persistence.sessionPath,
+		startedAt,
 		supervisorProcessIdentity: readProcessIdentity(process.pid),
 	});
 	return {
@@ -149,6 +156,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	let outputOffset = 0;
 	let result: CanonicalPyrunEvalResult | undefined;
 	let terminalAgent: AgentSnapshot | undefined;
+	const reportProgress = createPyrunProgressReporter(input.onUpdate);
 	const control = createPyrunDetachControl(input);
 	const unregister = input.detachRegistry.register({ detach: control.detach });
 	const cancel = control.cancel;
@@ -162,7 +170,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			);
 			const records = readNewArtifactRecords(input.runner.artifacts.outputPath, outputOffset);
 			outputOffset = records.offset;
-			result = consumeArtifactRecords(records.values, input.onUpdate) ?? result;
+			result = consumeArtifactRecords(records.values, reportProgress) ?? result;
 			const ownership = control.getOwnership();
 			const foregroundError = records.values.find((record) => record.kind === "error");
 			if (!ownership && foregroundError) {
@@ -260,11 +268,11 @@ function terminateForegroundRunner(pid: number, signal: NodeJS.Signals = "SIGTER
 
 function consumeArtifactRecords(
 	records: ReturnType<typeof readNewArtifactRecords>["values"],
-	onUpdate: ((partial: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void) | undefined,
+	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
 ): CanonicalPyrunEvalResult | undefined {
 	let result: CanonicalPyrunEvalResult | undefined;
 	for (const record of records) {
-		if (record.kind === "progress") onUpdate?.({ content: [], details: record.update });
+		if (record.kind === "progress") reportProgress(record.update);
 		else if (record.kind === "result") result = record.result;
 	}
 	return result;

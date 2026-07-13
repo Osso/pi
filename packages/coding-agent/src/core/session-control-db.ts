@@ -3113,14 +3113,18 @@ function detachedJobAgentDetails(
 	terminalLifecycle: "completed" | "failed" | "aborted",
 ): Record<string, unknown> {
 	const fileRefs = [{ label: terminal.output.label, path: terminal.output.path }];
-	if (terminalLifecycle === "aborted") return { result: { fileRefs } };
+	const timing = terminal.durationMs === undefined ? {} : { durationMs: terminal.durationMs };
+	if (terminalLifecycle === "aborted") return { result: { fileRefs, ...timing } };
 	if (terminal.outcome.kind === "completed") {
-		return { result: { fileRefs, summary: terminal.outcome.summary } };
+		return { result: { fileRefs, summary: terminal.outcome.summary, ...timing } };
 	}
 	if (terminal.outcome.kind === "failed") {
-		return { error: terminal.outcome.error, result: { fileRefs, summary: terminal.outcome.error.message } };
+		return {
+			error: terminal.outcome.error,
+			result: { fileRefs, summary: terminal.outcome.error.message, ...timing },
+		};
 	}
-	return { result: { fileRefs } };
+	return { result: { fileRefs, ...timing } };
 }
 
 export function recoverDeadMultiAgentRuntime(

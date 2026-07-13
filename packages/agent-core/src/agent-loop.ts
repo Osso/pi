@@ -410,7 +410,7 @@ async function executeToolCallsSequential(
 				isError: preparation.isError,
 			};
 		} else {
-			const executed = await executePreparedToolCall(preparation, signal, emit);
+			const executed = await executePreparedToolCall(preparation, signal, emit, startedAt);
 			finalized = await finalizeExecutedToolCall(
 				currentContext,
 				assistantMessage,
@@ -468,7 +468,7 @@ async function executeToolCallsParallel(
 		}
 
 		finalizedCalls.push(async () => {
-			const executed = await executePreparedToolCall(preparation, signal, emit);
+			const executed = await executePreparedToolCall(preparation, signal, emit, startedAt);
 			const finalized = capFinalizedToolCallOutcome(
 				await finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal),
 			);
@@ -616,6 +616,7 @@ async function executePreparedToolCall(
 	prepared: PreparedToolCall,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
+	startedAt: number,
 ): Promise<ExecutedToolCallOutcome> {
 	const updateEvents: Promise<void>[] = [];
 	let acceptingUpdates = true;
@@ -639,6 +640,7 @@ async function executePreparedToolCall(
 					),
 				);
 			},
+			{ startedAt },
 		);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolExecutionContext, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { formatSize, type TruncationResult, truncateTail } from "./truncate.ts";
@@ -78,12 +78,22 @@ export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 		parameters: definition.parameters,
 		prepareArguments: definition.prepareArguments,
 		executionMode: definition.executionMode,
-		execute: async (toolCallId, params, signal, onUpdate) => {
+		execute: async (toolCallId, params, signal, onUpdate, execution: AgentToolExecutionContext | undefined) => {
 			const spill: ToolOutputSpill = {};
 			const cappedUpdate = onUpdate
 				? (partial: AgentToolResult<TDetails>) => onUpdate(capToolResultOutput(partial, spill))
 				: undefined;
-			const context = ctxFactory?.() as ExtensionContext;
+			const baseContext = ctxFactory?.();
+			const context = baseContext
+				? (Object.defineProperties({}, Object.getOwnPropertyDescriptors(baseContext)) as ExtensionContext)
+				: (undefined as unknown as ExtensionContext);
+			if (baseContext) {
+				Object.defineProperty(context, "toolExecutionStartedAt", {
+					configurable: true,
+					enumerable: true,
+					value: execution?.startedAt,
+				});
+			}
 			const result = await definition.execute(toolCallId, params, signal, cappedUpdate, context);
 			return capToolResultOutput(result, spill);
 		},

@@ -239,13 +239,15 @@ describe("agentLoop with AgentMessage", () => {
 	it("should handle tool calls and results", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const executed: string[] = [];
+		let executionStartedAt: number | undefined;
 		const tool: AgentTool<typeof toolSchema, { value: string }> = {
 			name: "echo",
 			label: "Echo",
 			description: "Echo tool",
 			parameters: toolSchema,
-			async execute(_toolCallId, params) {
+			async execute(_toolCallId, params, _signal, _onUpdate, execution) {
 				executed.push(params.value);
+				executionStartedAt = execution?.startedAt;
 				return {
 					content: [{ type: "text", text: `echoed: ${params.value}` }],
 					details: { value: params.value },
@@ -303,6 +305,7 @@ describe("agentLoop with AgentMessage", () => {
 		expect(toolStart).toBeDefined();
 		expect(toolEnd).toBeDefined();
 		if (toolStart?.type === "tool_execution_start" && toolEnd?.type === "tool_execution_end") {
+			expect(executionStartedAt).toBe(toolStart.startedAt);
 			expect(toolEnd.isError).toBe(false);
 			expect(toolEnd.startedAt).toBe(toolStart.startedAt);
 			expect(toolEnd.finishedAt).toBeGreaterThanOrEqual(toolStart.startedAt);

@@ -369,6 +369,12 @@ export interface AgentToolResult<T> {
  */
 export type AgentToolUpdateCallback<T = any> = (partialResult: AgentToolResult<T>) => void;
 
+/** Lifecycle metadata for one tool execution. */
+export interface AgentToolExecutionContext {
+	/** Wall-clock timestamp captured before the tool start event is emitted. */
+	startedAt: number;
+}
+
 /** Tool definition used by the agent runtime. */
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any> extends Tool<TParameters> {
 	/** Human-readable label for UI display. */
@@ -384,6 +390,7 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any
 		params: Static<TParameters>,
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<TDetails>,
+		execution?: AgentToolExecutionContext,
 	) => Promise<AgentToolResult<TDetails>>;
 	/**
 	 * Per-tool execution mode override.

@@ -1006,6 +1006,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			},
 			{ exitCode: 0, kind: "completed", summary: "done" },
 			"2026-07-11T22:00:00.000Z",
+			3_600_000,
 		);
 
 		const finalized = finalizeDetachedJob(controlDbPath, { sessionPath, terminal });
@@ -1019,7 +1020,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			{
 				id: agentId,
 				lifecycle: "completed",
-				result: { fileRefs: [{ path: terminal.output.path }], summary: "done" },
+				result: { durationMs: 3_600_000, fileRefs: [{ path: terminal.output.path }], summary: "done" },
 				revision: 5,
 			},
 		]);

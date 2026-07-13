@@ -23,9 +23,11 @@ describe("detached job runner artifacts", () => {
 				identity,
 				{ exitCode: 0, kind: "completed", summary: "done" },
 				"2026-07-11T22:00:00.000Z",
+				1_234,
 			),
 		).toEqual({
 			...identity,
+			durationMs: 1_234,
 			outcome: { exitCode: 0, kind: "completed", summary: "done" },
 			output: {
 				label: "Bash output",
