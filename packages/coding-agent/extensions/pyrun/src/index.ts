@@ -604,6 +604,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			return runDurableDetachablePyrunEvaluation({
 				ctx,
 				detachRegistry,
+				dispatchPiRequest,
 				onUpdate: typedOnUpdate,
 				params,
 				piBridgeEnabled: activeExecutor.piBridgeEnabled,

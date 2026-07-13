@@ -59,6 +59,7 @@
 
 ### Changed
 
+- Pyrun evaluations now remain foreground executions without multi-agent rows until manual or automatic detachment; detachment creates exactly one durable runner-owned agent while preserving foreground progress and Pi bridge requests.
 - Removed global multi-agent recovery leadership; each session has one supervisor owner, and dead-process recovery uses the exact persisted `(pid, startTimeTicks)` identity without cross-session contention.
 - Persisted session agents now use the same recovery and shutdown behavior regardless of whether `spawn_agent` created a new session or `attach_session_agent` selected an existing session; origin remains construction provenance only.
 - Replaced renewable dispatch reservations with exact Linux process ownership; lifecycle recovery checks `(pid, /proc/<pid>/stat startTimeTicks)` immediately, including PID-reuse protection, with no renewal timer or expiry takeover. Runtime ownership APIs and schema now use ownership terminology instead of lease/reservation terminology, and schema v12 migrates v11 exact identities without losing ownership.

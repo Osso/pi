@@ -54,6 +54,9 @@ describe("durable detached Pyrun evaluation", () => {
 				sessionManager,
 			} as unknown as ExtensionContext,
 			detachRegistry,
+			dispatchPiRequest: () => {
+				throw new Error("Pi bridge disabled");
+			},
 			params: { code: "6 * 7" },
 			piBridgeEnabled: false,
 			runnerOptions: { command: runnerPath },

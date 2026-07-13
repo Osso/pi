@@ -9,11 +9,13 @@ import {
 } from "../extensions/pyrun/src/detached-bridge.ts";
 import {
 	launchDetachedPyrunRunner,
+	writeDetachedPyrunActivation,
 	writeDetachedPyrunLaunchManifest,
 } from "../extensions/pyrun/src/detached-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	claimRuntimeMailboxMessages,
 	listRuntimeMailboxMessages,
@@ -66,6 +68,7 @@ describe("detached Pyrun runner", () => {
 		});
 		const jobId = lifecycle.allocateJobId();
 		const artifacts = lifecycle.createArtifacts(jobId);
+		const activationPath = join(artifacts.directory, "activation.json");
 		const manifestPath = join(artifacts.directory, "launch.json");
 		const runnerPid = launchDetachedPyrunRunner(manifestPath, {
 			entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
@@ -77,19 +80,23 @@ describe("detached Pyrun runner", () => {
 			cwd: root,
 			displayName: "Pyrun evaluation",
 			jobId,
-			processIdentity: testProcessIdentity("runner"),
+			processIdentity: readProcessIdentity(runnerPid),
 			workerHandleId: String(runnerPid),
 		});
 		const supervisorAddress = { agentId: null, sessionId: "main" };
 		writeDetachedPyrunLaunchManifest(manifestPath, {
+			activationPath,
 			artifacts,
+			bridgeRequestPath: join(artifacts.directory, "foreground-bridge-requests.jsonl"),
+			bridgeResponsePath: join(artifacts.directory, "foreground-bridge-responses.jsonl"),
 			controlDbPath,
-			identity: ownership.identity,
+			foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
 			params: { code: "6 * 7" },
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			runnerOptions: { command: runnerPath, inheritEnv: true },
 			sessionPath,
 		});
+		writeDetachedPyrunActivation(activationPath, ownership.identity);
 
 		await waitFor(() =>
 			listRuntimeMailboxMessages(controlDbPath).some(

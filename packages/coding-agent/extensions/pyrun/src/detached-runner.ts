@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, extname } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../../../src/config.ts";
 import {
@@ -37,9 +37,12 @@ const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
 export interface DetachedPyrunLaunchManifestData {
+	activationPath: string;
 	artifacts: DetachedJobArtifacts;
+	bridgeRequestPath: string;
+	bridgeResponsePath: string;
 	controlDbPath: string;
-	identity: DetachedJobOwnershipIdentity;
+	foregroundCompletionPath: string;
 	params: CanonicalPyrunEvalParams;
 	runnerAddress: RuntimeMailboxAddress;
 	runnerOptions: PyrunRunnerOptions;
@@ -66,7 +69,15 @@ export function writeDetachedPyrunLaunchManifest(path: string, data: DetachedPyr
 
 interface DetachedPyrunControlState {
 	cancel?: DetachedJobCancelCommand;
-	identity: DetachedJobOwnershipIdentity;
+	identity?: DetachedJobOwnershipIdentity;
+}
+
+export function writeDetachedPyrunActivation(path: string, identity: DetachedJobOwnershipIdentity): void {
+	const temporaryPath = `${path}.tmp`;
+	writeFileSync(temporaryPath, `${JSON.stringify(identity)}\n`, { encoding: "utf8", mode: 0o600 });
+	fsyncFile(temporaryPath);
+	renameSync(temporaryPath, path);
+	fsyncDirectory(dirname(path));
 }
 
 interface PendingBridgeRequest {
@@ -75,8 +86,8 @@ interface PendingBridgeRequest {
 }
 
 type PyrunSettlement =
-	| { cancel?: DetachedJobCancelCommand; identity: DetachedJobOwnershipIdentity; result: CanonicalPyrunEvalResult }
-	| { cancel?: DetachedJobCancelCommand; error: unknown; identity: DetachedJobOwnershipIdentity };
+	| { cancel?: DetachedJobCancelCommand; identity?: DetachedJobOwnershipIdentity; result: CanonicalPyrunEvalResult }
+	| { cancel?: DetachedJobCancelCommand; error: unknown; identity?: DetachedJobOwnershipIdentity };
 
 export function getDetachedPyrunRunnerInvocation(
 	manifestPath: string,
@@ -108,12 +119,15 @@ export function launchDetachedPyrunRunner(manifestPath: string, options?: { entr
 	return child.pid;
 }
 
-export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ terminalRevision: number }> {
+export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ terminalRevision?: number }> {
 	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
 	const runner = new PyrunRunnerClient(manifest.runnerOptions);
 	try {
 		const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
-		return finalizeDetachedPyrunSettlement(manifest, settlement);
+		appendPyrunSettlementRecord(manifest, settlement);
+		const identity = settlement.identity ?? (await waitForPyrunOwnershipDecision(manifest));
+		if (!identity) return {};
+		return finalizeDetachedPyrunSettlement(manifest, { ...settlement, identity });
 	} finally {
 		runner.dispose();
 	}
@@ -124,10 +138,12 @@ async function waitForDetachedPyrunSettlement(
 	runner: PyrunRunnerClient,
 ): Promise<PyrunSettlement> {
 	const abort = new AbortController();
-	const control: DetachedPyrunControlState = { identity: manifest.identity };
+	const control: DetachedPyrunControlState = {};
 	const pendingRequests = new Map<string, PendingBridgeRequest>();
 	const dispatchPiRequest = (request: { method: string; params: unknown }) =>
-		dispatchDetachedPyrunBridgeRequest(manifest, control.identity, pendingRequests, request);
+		control.identity
+			? dispatchDetachedPyrunBridgeRequest(manifest, control.identity, pendingRequests, request)
+			: dispatchForegroundPyrunBridgeRequest(manifest, pendingRequests, request);
 	const settled = runner
 		.evaluate(
 			manifest.params,
@@ -144,8 +160,9 @@ async function waitForDetachedPyrunSettlement(
 			settled,
 			new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), CONTROL_POLL_MS)),
 		]);
-		if (result) return { ...result, cancel: control.cancel, identity: control.identity };
-		applyDetachedPyrunRuntimeCommands(manifest, control, pendingRequests, abort);
+		control.identity ??= readDetachedPyrunActivation(manifest.activationPath);
+		if (result) return { ...result, cancel: control.cancel, identity: control.identity } as PyrunSettlement;
+		if (control.identity) applyDetachedPyrunRuntimeCommands(manifest, control, pendingRequests, abort);
 	}
 }
 
@@ -155,11 +172,9 @@ function applyDetachedPyrunRuntimeCommands(
 	pendingRequests: Map<string, PendingBridgeRequest>,
 	abort: AbortController,
 ): void {
-	const commands = claimDetachedJobRuntimeCommands(
-		manifest.controlDbPath,
-		manifest.runnerAddress,
-		control.identity,
-	);
+	const identity = control.identity;
+	if (!identity) return;
+	const commands = claimDetachedJobRuntimeCommands(manifest.controlDbPath, manifest.runnerAddress, identity);
 	for (const command of commands) {
 		if (command.command === "respond") {
 			settleBridgeResponse(pendingRequests, command);
@@ -168,7 +183,7 @@ function applyDetachedPyrunRuntimeCommands(
 		if (command.command === "status") {
 			enqueueDetachedJobStatusResponse({
 				controlDbPath: manifest.controlDbPath,
-				identity: control.identity,
+				identity,
 				replyTo: command.replyTo,
 				requestId: command.requestId,
 				runnerAddress: manifest.runnerAddress,
@@ -186,6 +201,43 @@ function applyDetachedPyrunRuntimeCommands(
 			control.identity = command.identity;
 			abort.abort();
 		}
+	}
+}
+
+async function dispatchForegroundPyrunBridgeRequest(
+	manifest: DetachedPyrunLaunchManifest,
+	pendingRequests: Map<string, PendingBridgeRequest>,
+	request: { method: string; params: unknown },
+): Promise<unknown> {
+	const requestId = randomUUID();
+	appendArtifactRecord(manifest.bridgeRequestPath, { ...request, requestId });
+	let offset = 0;
+	for (;;) {
+		const records = readJsonLines<{ claimed?: boolean; error?: string; requestId: string; result?: unknown }>(
+			manifest.bridgeResponsePath,
+			offset,
+		);
+		offset = records.offset;
+		for (const response of records.values.filter((record) => record.requestId === requestId)) {
+			if (response.claimed) continue;
+			if (response.error) throw new Error(response.error);
+			return response.result;
+		}
+		const identity = readDetachedPyrunActivation(manifest.activationPath);
+		if (identity && claimForegroundBridgeRequest(manifest.artifacts.directory, requestId)) {
+			return dispatchDetachedPyrunBridgeRequest(manifest, identity, pendingRequests, request);
+		}
+		await new Promise((resolve) => setTimeout(resolve, CONTROL_POLL_MS));
+	}
+}
+
+function claimForegroundBridgeRequest(directory: string, requestId: string): boolean {
+	try {
+		closeSync(openSync(join(directory, `bridge-claim-${requestId}`), "wx", 0o600));
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+		throw error;
 	}
 }
 
@@ -218,15 +270,18 @@ function settleBridgeResponse(
 	else pending.resolve(response.result);
 }
 
-async function finalizeDetachedPyrunSettlement(
-	manifest: DetachedPyrunLaunchManifest,
-	settlement: PyrunSettlement,
-): Promise<{ terminalRevision: number }> {
-	const outcome = pyrunSettlementOutcome(settlement);
+function appendPyrunSettlementRecord(manifest: DetachedPyrunLaunchManifest, settlement: PyrunSettlement): void {
 	const record = "result" in settlement
 		? { kind: "result", result: settlement.result }
 		: { error: errorMessage(settlement.error), kind: "error" };
 	appendArtifactRecord(manifest.artifacts.outputPath, record);
+}
+
+async function finalizeDetachedPyrunSettlement(
+	manifest: DetachedPyrunLaunchManifest,
+	settlement: PyrunSettlement & { identity: DetachedJobOwnershipIdentity },
+): Promise<{ terminalRevision: number }> {
+	const outcome = pyrunSettlementOutcome(settlement);
 	const terminal = createDetachedJobTerminalInput(
 		manifest.artifacts,
 		settlement.identity,
@@ -258,6 +313,35 @@ async function waitForDetachedPyrunLaunchManifest(path: string): Promise<Detache
 		await new Promise((resolve) => setTimeout(resolve, LAUNCH_MANIFEST_POLL_MS));
 	}
 	return readDetachedPyrunLaunchManifest(path);
+}
+
+async function waitForPyrunOwnershipDecision(
+	manifest: DetachedPyrunLaunchManifest,
+): Promise<DetachedJobOwnershipIdentity | undefined> {
+	for (;;) {
+		const identity = readDetachedPyrunActivation(manifest.activationPath);
+		if (identity) return identity;
+		if (existsSync(manifest.foregroundCompletionPath)) return undefined;
+		await new Promise((resolve) => setTimeout(resolve, CONTROL_POLL_MS));
+	}
+}
+
+function readJsonLines<T>(path: string, offset: number): { offset: number; values: T[] } {
+	if (!existsSync(path)) return { offset, values: [] };
+	const data = readFileSync(path);
+	if (data.length <= offset) return { offset, values: [] };
+	const values = data
+		.subarray(offset)
+		.toString("utf8")
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as T);
+	return { offset: data.length, values };
+}
+
+function readDetachedPyrunActivation(path: string): DetachedJobOwnershipIdentity | undefined {
+	if (!existsSync(path)) return undefined;
+	return JSON.parse(readFileSync(path, "utf8")) as DetachedJobOwnershipIdentity;
 }
 
 function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaunchManifest {

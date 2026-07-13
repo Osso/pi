@@ -390,6 +390,11 @@ async function resultFor(request) {
     await new Promise((resolve) => setTimeout(resolve, 140));
     return { type: "completed", executed: request.code, value: "auto-detached-done" };
   }
+  if (request.code === "run.foreground_30s()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "30-second foreground started" }) + "\\n");
+    await new Promise((resolve) => setTimeout(resolve, 30000));
+    return { type: "completed", executed: request.code, value: "foreground-30s-done" };
+  }
   if (request.code === "run.slow_detachable()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "slow detachable started" }) + "\\n");
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1434,6 +1439,81 @@ describe("pyrun extension", () => {
 		expect(harness.switchedSessions).toEqual([]);
 	});
 
+	it("preserves foreground Pi bridge requests without creating an agent", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+		const result = await harness.evaluate({ code: "pi.commands.list()" });
+
+		expect(result.details.value).toEqual([{ name: "usage", source: "extension" }]);
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it(
+		"keeps a 30-second evaluation in the foreground before the configured detach threshold",
+		async () => {
+			const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+			const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 35_000 });
+			const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+			const result = await harness.evaluate({ code: "run.foreground_30s()" });
+
+			expect(result.details.value).toBe("foreground-30s-done");
+			expect(store.listAgents()).toEqual([]);
+		},
+		35_000,
+	);
+
+	it("does not detach an evaluation that already completed in the foreground runner", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+		const resultPromise = harness.evaluate({ code: "empty.result" });
+		await delay(180);
+
+		expect(detachRegistry.detachRunning()).toBe(false);
+		const result = await resultPromise;
+		expect(result.details.value).toBe("");
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("completes a claimed foreground Pi bridge request when detachment races its response", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		let toolCalls = 0;
+		const harness = createPyrunHarness({
+			backgroundJobs: { store },
+			callTool: async () => {
+				toolCalls += 1;
+				await delay(100);
+				return { content: [{ type: "text", text: "done" }], details: { ok: true } };
+			},
+			detachRegistry,
+		});
+
+		const resultPromise = harness.evaluate({ code: "pi.web_search('current Pi release')" });
+		await waitFor(() => toolCalls === 1, "foreground bridge claim");
+		expect(detachRegistry.detachRunning()).toBe(true);
+		const result = await resultPromise;
+
+		expect(result.details.backgroundJobId).toBe("agent_1");
+		await waitFor(() => hasProjectedLifecycle(store, "agent_1", "completed"), "detached bridge completion");
+		expect(toolCalls).toBe(1);
+	});
+
+	it("does not create an agent for a foreground Pyrun evaluation", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+		const result = await harness.evaluate({ code: "empty.result" });
+
+		expect(result.details.value).toBe("");
+		expect(store.listAgents()).toEqual([]);
+	});
+
 	it("creates the reported detached Pyrun log path before evaluation completes", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
 		const detachRegistry = new ToolDetachRegistry();
@@ -1467,7 +1547,9 @@ describe("pyrun extension", () => {
 		expect(resultText).toContain("Pyrun evaluation moved to background as job");
 		expect(result.details?.backgroundJobId).toBeDefined();
 
-		const [job] = store.listAgents();
+		const jobs = store.listAgents();
+		expect(jobs).toHaveLength(1);
+		const [job] = jobs;
 		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "auto-detached Pyrun completion");
 	});
@@ -1511,7 +1593,9 @@ describe("pyrun extension", () => {
 		expect(resultText).toContain("Pyrun evaluation moved to background as job");
 		expect(result.details?.backgroundJobId).toBeDefined();
 
-		const [job] = store.listAgents();
+		const jobs = store.listAgents();
+		expect(jobs).toHaveLength(1);
+		const [job] = jobs;
 		expect(job).toMatchObject({ agentType: "background", displayName: "Pyrun evaluation", lifecycle: "running" });
 		const [runningFileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
 		expect(runningFileRef).toMatchObject({ label: "Pyrun output" });
@@ -1679,6 +1763,20 @@ setInterval(() => {}, 1000);
 			{ type: "running", executed: "run.never()" },
 			{ type: "status", message: "still running" },
 		]);
+	});
+
+	it("rejects a failed foreground runner without creating an agent", async () => {
+		const badRunnerPath = join(tempDir, "bad-foreground-pyrun-runner.mjs");
+		writeFileSync(badRunnerPath, 'process.stderr.write("bad foreground runner\\n"); process.exit(7);\n');
+		process.env.PI_PYRUN_RUNNER_ARGS = JSON.stringify([badRunnerPath]);
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+
+		await expect(harness.evaluate({ code: "1 + 1" })).rejects.toThrow(
+			"Pyrun runner exited with exit code 7\nbad foreground runner",
+		);
+		expect(store.listAgents()).toEqual([]);
 	});
 
 	it("reports runner exit errors with stderr", async () => {

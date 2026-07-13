@@ -121,8 +121,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   terminal-finalize operation from their in-memory identity, outcome, and output metadata; they may not
   create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
   Detached runners allocate a durable job/agent ID before payload spawn so the output path is identity-bound
-  from the first byte; foreground-only execution consumes no lifecycle row. Detached Bash and Pyrun runners
-  directly finalize through the coordinator using their in-memory identity, outcome, and output metadata.
+  from the first byte; foreground-only execution consumes no lifecycle row. Pyrun begins as a foreground
+  runner with diagnostic output and direct foreground bridge control only. Manual or automatic detachment
+  atomically creates exactly one running agent under the runner's exact process identity, then activates its
+  runtime-mailbox control and terminal-finalize authority. Detached Bash and Pyrun runners directly finalize
+  through the coordinator using their in-memory identity, outcome, and output metadata.
   The output file is a diagnostic artifact, not terminal lifecycle proof. Status attachment, cancellation,
   bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a runner dies
   before its terminal commit, the owning supervisor marks the agent `failed/lost_runtime` from the exact
