@@ -138,9 +138,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   A live runner retries the same terminal input only for SQLite
   busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
   Dispatcher runtimes register their abort controller as the single store abort handle, so cancellation aborts
-  their signal once and waits for normal exit acknowledgement. If an in-process dispatcher ignores cancellation
-  past the bounded settlement wait, the owning supervisor commits its exact-owner abort acknowledgement; late
-  dispatcher results cannot rewrite the terminal row. AgentSession constructs detached controllers
+  their signal once and waits for actual exit acknowledgement. An abort-ignoring dispatcher remains `cancelling`;
+  timeout alone never fabricates `aborted`. AgentSession constructs detached controllers
   lazily from the current store/session/control-DB binding, so session switches
   cannot retain an old session path.
 

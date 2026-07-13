@@ -2379,28 +2379,6 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("terminalizes a dispatcher that ignores cancellation after the bounded wait", async () => {
-		const dispatchStarted = deferred<void>();
-		const dispatcher: ChildAgentDispatcher = async () => {
-			dispatchStarted.resolve(undefined);
-			return new Promise(() => undefined);
-		};
-		const harness = createMultiAgentHarness({ dispatcher });
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			displayName: "Ignoring dispatcher",
-			prompt: "wait forever",
-		});
-		await dispatchStarted.promise;
-
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
-			agentId: spawned.details.agent.id,
-			reason: "stop dispatcher",
-		});
-
-		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
-		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
-	}, 10_000);
-
 	it("aborts a dispatcher signal when its agent is cancelled", async () => {
 		const dispatchStarted = deferred<void>();
 		let dispatcherSignal: AbortSignal | undefined;
