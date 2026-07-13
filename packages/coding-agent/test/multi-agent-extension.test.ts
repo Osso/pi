@@ -1212,6 +1212,35 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("recovers dead-owned descendants before their parent", async () => {
+		const session = createControlDbSession();
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
+		const parent = legacyMultiAgentStore(source).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Dead parent",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const child = legacyMultiAgentStore(source).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Dead child",
+			parentId: parent.agent.id,
+			permission: { inheritedFrom: parent.agent.id, narrowed: true, policy: "on-request" },
+		});
+		addDeadProcessOwner(source, parent.agent.id);
+		addDeadProcessOwner(source, child.agent.id);
+		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
+		const harness = createMultiAgentHarness({ store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+		await delay(20);
+
+		expect(store.getAgent(child.agent.id)).toMatchObject({ error: { code: "lost_runtime" }, lifecycle: "failed" });
+		expect(store.getAgent(parent.agent.id)).toMatchObject({ error: { code: "lost_runtime" }, lifecycle: "failed" });
+	});
+
 	it("marks a detached runner failed when it dies before committing terminal state", async () => {
 		const artifactRoot = mkdtempSync(join(tmpdir(), "pi-detached-recovery-"));
 		try {

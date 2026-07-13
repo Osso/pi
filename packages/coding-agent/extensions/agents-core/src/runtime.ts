@@ -1215,9 +1215,23 @@ function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "targe
 	if (input.ctx.multiAgentAgentId) {
 		return;
 	}
-	for (const agent of input.store.listActiveAgents()) {
+	for (const agent of orderRecoveryAgents(input.store.listActiveAgents())) {
 		recoverAgent(input, agent);
 	}
+}
+
+function orderRecoveryAgents(agents: AgentSnapshot[]): AgentSnapshot[] {
+	const byId = new Map(agents.map((agent) => [agent.id, agent]));
+	const depths = new Map<string, number>();
+	const depthOf = (agent: AgentSnapshot): number => {
+		const cached = depths.get(agent.id);
+		if (cached !== undefined) return cached;
+		const parent = agent.parentId ? byId.get(agent.parentId) : undefined;
+		const depth = parent ? depthOf(parent) + 1 : 0;
+		depths.set(agent.id, depth);
+		return depth;
+	};
+	return [...agents].sort((left, right) => depthOf(right) - depthOf(left));
 }
 
 function recoverAgent(input: Omit<AttachSessionDispatchInput, "prompt" | "target">, agent: AgentSnapshot): void {
