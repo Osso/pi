@@ -104,6 +104,7 @@
 
 ### Fixed
 
+- Fixed detached Bash and Pyrun jobs from different supervisor sessions sharing stale artifact directories when their per-session agent IDs matched; artifacts are now session-namespaced and exclusively reserved before runner launch.
 - Fixed oversized streaming tool updates creating a new full-output temp file for every partial update; each tool call now reuses one spill file.
 - Fixed same-PID `restart_self` upgrades failing lifecycle protocol activation: restart now tears down the current runtime before `execve`, and validated same-PID startup ignores only its pre-image PID while retaining quiescence checks for every other lifecycle writer.
 - Fixed lifecycle ownership for one agent authorizing mutations on another agent owned by the same supervisor process; coordinator commands now bind ownership to agent ID and session path.

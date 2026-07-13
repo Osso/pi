@@ -78,11 +78,30 @@ export interface DetachedJobRunnerContract {
 }
 
 export function createDetachedJobArtifacts(rootDirectory: string, jobId: string): DetachedJobArtifacts {
-	if (!jobId || jobId.includes("/") || jobId.includes("\\"))
-		throw new Error("Detached job ID must be one path segment");
-	const directory = join(rootDirectory, jobId);
+	const directory = detachedJobDirectory(rootDirectory, jobId);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	return { directory, outputPath: join(directory, "output.log") };
+}
+
+export function reserveDetachedJobArtifacts(rootDirectory: string, jobId: string): DetachedJobArtifacts {
+	const directory = detachedJobDirectory(rootDirectory, jobId);
+	mkdirSync(rootDirectory, { recursive: true, mode: 0o700 });
+	try {
+		mkdirSync(directory, { mode: 0o700 });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+			throw new Error(`Detached job artifact directory already exists: ${directory}`);
+		}
+		throw error;
+	}
+	return { directory, outputPath: join(directory, "output.log") };
+}
+
+function detachedJobDirectory(rootDirectory: string, jobId: string): string {
+	if (!jobId || jobId.includes("/") || jobId.includes("\\")) {
+		throw new Error("Detached job ID must be one path segment");
+	}
+	return join(rootDirectory, jobId);
 }
 
 export function createDetachedJobTerminalInput(

@@ -153,6 +153,11 @@ process identity to mark the agent `failed/lost_runtime`; it does not replay or 
 from the output file. A cancellation committed before a pending natural-result finalizer still wins by
 transaction order; `aborted` requires the exact runner's exit acknowledgement.
 
+Detached runner artifacts are namespaced by the persisted supervisor session before the per-session
+agent ID. A new job reserves its artifact directory exclusively before launching the runner; an existing
+directory is a launch failure, never reusable state. This prevents sessions sharing one cwd/session
+folder from reading stale manifests or output belonging to another supervisor.
+
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
 - [x] After a runtime registers its current mailbox listener, the one registered supervisor binding for that

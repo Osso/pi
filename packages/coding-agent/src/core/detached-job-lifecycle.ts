@@ -1,10 +1,11 @@
-import { join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { launchDetachedBashRunner, writeDetachedBashLaunchManifest } from "./detached-bash-runner.ts";
 import {
 	createDetachedJobArtifacts,
 	type DetachedJobLifecycleController,
 	type DetachedJobOwnership,
 	type RegisterDetachedJobInput,
+	reserveDetachedJobArtifacts,
 } from "./detached-job-runner.ts";
 import type { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { isActiveLifecycle, type MultiAgentStore } from "./multi-agent-store.ts";
@@ -24,6 +25,7 @@ export interface DetachedJobLifecycleControllerOptions {
 export function createDetachedJobLifecycleController(
 	options: DetachedJobLifecycleControllerOptions,
 ): DetachedJobLifecycleController {
+	const artifactRoot = detachedJobArtifactRoot(options);
 	return {
 		allocateJobId: () => options.store.allocateAgentIdForLifecycleCoordinator(),
 		cancel: (ownership, reason) => {
@@ -36,7 +38,7 @@ export function createDetachedJobLifecycleController(
 			if (cancelled.ok) options.store.publishLifecycleCoordinatorSnapshot(cancelled.agent);
 			return cancelled;
 		},
-		createArtifacts: (jobId) => createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), jobId),
+		createArtifacts: (jobId) => reserveDetachedJobArtifacts(artifactRoot, jobId),
 		launchBash: (input) => launchDetachedBashJob(options, input),
 		observe: (jobId) => {
 			let agent = readMultiAgentAgent(options.controlDbPath, options.sessionPath, jobId);
@@ -70,7 +72,7 @@ function launchDetachedBashJob(
 	input: Parameters<DetachedJobLifecycleController["launchBash"]>[0],
 ): ReturnType<DetachedJobLifecycleController["launchBash"]> {
 	const jobId = options.store.allocateAgentIdForLifecycleCoordinator();
-	const artifacts = createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), jobId);
+	const artifacts = reserveDetachedJobArtifacts(detachedJobArtifactRoot(options), jobId);
 	const manifestPath = join(artifacts.directory, "launch.json");
 	const runnerPid = launchDetachedBashRunner(manifestPath);
 	const ownership = registerDetachedJob(options, {
@@ -108,6 +110,13 @@ function launchDetachedBashJob(
 	return { manifestPath, ownership, runnerPid };
 }
 
+function detachedJobArtifactRoot(options: DetachedJobLifecycleControllerOptions): string {
+	const sessionFileName = basename(options.sessionPath);
+	const sessionName = sessionFileName.slice(0, sessionFileName.length - extname(sessionFileName).length);
+	if (!sessionName) throw new Error("Detached job session path must have a file name");
+	return join(options.artifactRoot, "detached-jobs", sessionName);
+}
+
 function terminateDetachedRunner(pid: number): void {
 	try {
 		process.kill(-pid, "SIGKILL");
@@ -126,7 +135,7 @@ function registerDetachedJob(
 	options: DetachedJobLifecycleControllerOptions,
 	input: RegisterDetachedJobInput,
 ): DetachedJobOwnership {
-	const artifacts = createDetachedJobArtifacts(join(options.artifactRoot, "detached-jobs"), input.jobId);
+	const artifacts = createDetachedJobArtifacts(detachedJobArtifactRoot(options), input.jobId);
 	const outputLabel = input.agentType === "bash" ? "Bash output" : "Pyrun output";
 	const prepared = options.coordinator.prepareChild({
 		agentId: input.jobId,
