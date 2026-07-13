@@ -47,6 +47,8 @@ type HandleEventThis = {
 	};
 	streamingComponent: unknown;
 	streamingMessage: AssistantMessage | undefined;
+	thinkingFollowsTool: boolean;
+	thinkingStartedAt: number | undefined;
 	toolOutputExpanded: boolean;
 	workingMessage: string | undefined;
 	ui: Pick<TUI, "requestRender">;
@@ -144,6 +146,8 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		},
 		streamingComponent: undefined,
 		streamingMessage: undefined,
+		thinkingFollowsTool: false,
+		thinkingStartedAt: undefined,
 		toolOutputExpanded: false,
 		workingMessage: undefined,
 		ui: { requestRender: vi.fn() },
@@ -207,6 +211,23 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await vi.advanceTimersByTimeAsync(50);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+	});
+
+	test("renders completed thinking time between consecutive tool calls", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_000);
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.thinkingStartedAt = 1_000;
+		fakeThis.thinkingFollowsTool = true;
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: createAssistantMessage("") });
+		vi.setSystemTime(3_400);
+		await handleEvent.call(fakeThis, { type: "message_end", message: createToolCallMessage("next command") });
+
+		const rendered = fakeThis.chatContainer.render(120).join("\n");
+		expect(rendered).toContain("Thought for 2s");
+		expect(rendered.indexOf("Thought for 2s")).toBeLessThan(rendered.indexOf("next command"));
+		expect(fakeThis.thinkingFollowsTool).toBe(false);
 	});
 
 	test("renders final tool call arguments without streaming partial arguments", async () => {

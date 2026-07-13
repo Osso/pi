@@ -397,8 +397,11 @@ const readFileTool: AgentTool = {
   // "parallel" allows concurrent execution with other tool calls.
   // If omitted, the global toolExecution config applies.
   executionMode: "sequential",
-  execute: async (toolCallId, params, signal, onUpdate) => {
+  execute: async (toolCallId, params, signal, onUpdate, execution) => {
     const content = await fs.readFile(params.path, "utf-8");
+
+    // Optional: retain the shared lifecycle start timestamp for durable work
+    const startedAt = execution?.startedAt;
 
     // Optional: stream progress
     onUpdate?.({ content: [{ type: "text", text: "Reading..." }], details: {} });

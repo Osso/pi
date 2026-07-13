@@ -24,6 +24,7 @@ export interface DetachedJobArtifacts {
 
 export interface DetachedJobTerminalInput extends DetachedJobOwnershipIdentity {
 	terminalAt: string;
+	durationMs?: number;
 	outcome: DetachedJobOutcome;
 	output: { label: string; path: string; size: number; sha256: string };
 }
@@ -109,11 +110,13 @@ export function createDetachedJobTerminalInput(
 	identity: DetachedJobOwnershipIdentity,
 	outcome: DetachedJobOutcome,
 	terminalAt: string,
+	durationMs?: number,
 ): DetachedJobTerminalInput {
 	fsyncPath(artifacts.outputPath);
 	const data = readFileSync(artifacts.outputPath);
 	return {
 		...identity,
+		...(durationMs === undefined ? {} : { durationMs }),
 		outcome,
 		output: {
 			label: identity.outputLabel,

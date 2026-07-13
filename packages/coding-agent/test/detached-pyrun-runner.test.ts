@@ -95,6 +95,7 @@ describe("detached Pyrun runner", () => {
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			runnerOptions: { command: runnerPath, inheritEnv: true },
 			sessionPath,
+			startedAt: Date.now() - 1_000,
 			supervisorProcessIdentity: readProcessIdentity(process.pid),
 		});
 		writeDetachedPyrunActivation(activationPath, ownership.identity);

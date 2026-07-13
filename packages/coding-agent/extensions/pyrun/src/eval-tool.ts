@@ -167,6 +167,30 @@ export interface PyrunEvalExecutorOptions {
 	enablePiBridge?: boolean;
 }
 
+export type PyrunProgressUpdateCallback = (
+	partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>,
+) => void;
+
+export function createPyrunProgressReporter(
+	onUpdate: PyrunProgressUpdateCallback | undefined,
+): (update: CanonicalPyrunProgressUpdate) => void {
+	let streamedConsoleText = "";
+	return (update) => {
+		const formattedProgressText = formatProgressText(update);
+		const progressText =
+			update.type === "console"
+				? appendCappedConsoleText(streamedConsoleText, formattedProgressText)
+				: formattedProgressText;
+		if (update.type === "console") {
+			streamedConsoleText = progressText;
+		}
+		onUpdate?.({
+			content: [{ type: "text", text: progressText }],
+			details: update,
+		});
+	};
+}
+
 export function createPyrunEvalExecutor(
 	runner: PyrunRunnerClient,
 	dispatchPiRequest?: PyrunPiRequestDispatcher,
@@ -187,23 +211,9 @@ export function createPyrunEvalExecutor(
 					return dispatchPiRequest(request, ctx, signal);
 				}
 			: undefined;
-		let streamedConsoleText = "";
 		const result = await runner.evaluate(
 			createCanonicalPyrunEvalParams(params, ctx, piBridgeEnabled),
-			(update) => {
-				const formattedProgressText = formatProgressText(update);
-				const progressText =
-					update.type === "console"
-						? appendCappedConsoleText(streamedConsoleText, formattedProgressText)
-						: formattedProgressText;
-				if (update.type === "console") {
-					streamedConsoleText = progressText;
-				}
-				onUpdate?.({
-					content: [{ type: "text", text: progressText }],
-					details: update,
-				});
-			},
+			createPyrunProgressReporter(onUpdate),
 			signal,
 			onPiRequest,
 		);

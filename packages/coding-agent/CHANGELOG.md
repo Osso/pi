@@ -11,6 +11,8 @@
 
 ### Added
 
+- Added completed `Thought for <duration>` rows between consecutive tool calls so model-turn latency remains visible after the next tool starts.
+- Added `ctx.toolExecutionStartedAt` for extension tools that need the shared agent lifecycle start timestamp when work continues outside the foreground promise.
 - Added durable detached Bash and Pyrun runners with independent payload ownership, diagnostic output artifacts, runtime-mailbox cancellation, and exact process-owner terminal transactions. Detach-eligible Bash launches through the durable runner, while Pyrun remains foreground until manual or automatic detachment creates exactly one durable runner-owned agent.
 - Added the public `runtime_mailbox` extension event for consuming validated durable protocol messages before prompt conversion; handled messages are delivered atomically, handler failures fail transport, and unhandled messages retain normal prompt delivery.
 - AgentSession now injects a lazily constructed, session-current detached-job lifecycle controller into first-party Bash background-job options, preserving exact process ownership while avoiding stale session paths after switches.
@@ -105,6 +107,7 @@
 ### Fixed
 
 - Fixed detached Bash and Pyrun jobs from different supervisor sessions sharing stale artifact directories when their per-session agent IDs matched; artifacts are now session-namespaced and exclusively reserved before runner launch.
+- Fixed detached Pyrun success and failure results losing the original invocation duration; durable settlement and completion notifications now use the shared tool lifecycle start timestamp.
 - Fixed oversized streaming tool updates creating a new full-output temp file for every partial update; each tool call now reuses one spill file.
 - Fixed same-PID `restart_self` upgrades failing lifecycle protocol activation: restart now tears down the current runtime before `execve`, and validated same-PID startup ignores only its pre-image PID while retaining quiescence checks for every other lifecycle writer.
 - Fixed lifecycle ownership for one agent authorizing mutations on another agent owned by the same supervisor process; coordinator commands now bind ownership to agent ID and session path.

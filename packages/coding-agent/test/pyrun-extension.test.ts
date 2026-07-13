@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
 import { createPyrunEvalExecutor } from "../extensions/pyrun/src/eval-tool.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
@@ -132,6 +132,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	const registeredPyrunTool = pyrunTool;
 	const ctx = {
 		cwd: process.cwd(),
+		toolExecutionStartedAt: Date.now(),
 		footerData: {
 			getAvailableProviderCount: () => 3,
 			getExecutableName: () => undefined,
@@ -367,6 +368,28 @@ async function resultFor(request) {
     }
     return { type: "completed", executed: request.code, console: ["tick 1", "tick 2"], value: "done" };
   }
+  if (request.code === "print.interleaved_streams()") {
+    if (request.stream_console === true) {
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "out 1\\n" }) + "\\n");
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stderr", text: "err 1\\n" }) + "\\n");
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "partial" }) + "\\n");
+    }
+    return { type: "completed", executed: request.code, console: ["out 1", "err 1", "partial"], value: "done" };
+  }
+  if (request.code === "print.delayed_streaming()") {
+    if (request.stream_console === true) {
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "start\\n" }) + "\\n");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "end\\n" }) + "\\n");
+    }
+    return { type: "completed", executed: request.code, console: ["start", "end"], value: "done" };
+  }
+  if (request.code === "raise.after_output()") {
+    if (request.stream_console === true) {
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stderr", text: "before error" }) + "\\n");
+    }
+    return { type: "error", executed: request.code, console: ["before error"], error: "boom" };
+  }
   if (request.code === "print.noisy_stream()") {
     if (request.stream_console === true) {
       for (let i = 0; i < 305; i += 1) {
@@ -570,6 +593,7 @@ describe("pyrun extension", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		for (const directory of temporaryHarnessDirectories.splice(0)) {
 			rmSync(directory, { force: true, recursive: true });
 		}
@@ -762,6 +786,102 @@ describe("pyrun extension", () => {
 		expect(stripAnsi(rendered)).not.toContain("Session: default");
 	});
 
+	it("uses shared lifecycle timing for streamed success and buffered failure rendering", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(1_000);
+		const harness = createPyrunHarness();
+		const streamed = new ToolExecutionComponent(
+			"pyrun_eval",
+			"pyrun-streamed-timing",
+			{ code: "print.delayed_streaming()" },
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		streamed.markExecutionStarted(1_000);
+		vi.setSystemTime(3_500);
+		streamed.updateResult(
+			{
+				content: [{ type: "text", text: "start\n" }],
+				details: { stream: "stdout", text: "start\n", type: "console" },
+				isError: false,
+			},
+			true,
+		);
+		expect(stripAnsi(streamed.render(120).join("\n"))).toContain("Elapsed: 2s");
+		streamed.updateResult(
+			{
+				content: [{ type: "text", text: "print.delayed_streaming()\n\nstart\nend\ndone" }],
+				details: { console: ["start", "end"], type: "completed", value: "done" },
+				isError: false,
+			},
+			false,
+			5_000,
+		);
+		vi.setSystemTime(10_000);
+		expect(stripAnsi(streamed.render(120).join("\n"))).toContain("Elapsed: 4s");
+
+		const bufferedFailure = new ToolExecutionComponent(
+			"pyrun_eval",
+			"pyrun-buffered-timing",
+			{ code: "raise Exception('boom')" },
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		bufferedFailure.markExecutionStarted(2_000);
+		bufferedFailure.updateResult(
+			{
+				content: [{ type: "text", text: "raise Exception('boom')\n\nSession: default\nError: boom" }],
+				details: { error: "boom", executed: "raise Exception('boom')", type: "error" },
+				isError: true,
+			},
+			false,
+			5_500,
+		);
+		expect(stripAnsi(bufferedFailure.render(120).join("\n"))).toContain("Elapsed: 3s");
+	});
+
+	it("replaces live console rendering with the final result without duplication", () => {
+		const harness = createPyrunHarness();
+		const component = new ToolExecutionComponent(
+			"pyrun_eval",
+			"pyrun-render-test-call",
+			{ code: "raise.after_output()" },
+			{},
+			harness.toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "before error" }],
+				details: { stream: "stderr", text: "before error", type: "console" },
+				isError: false,
+			},
+			true,
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "raise.after_output()\n\nSession: default\nbefore error\nError: boom" }],
+				details: {
+					console: ["before error"],
+					error: "boom",
+					executed: "raise.after_output()",
+					type: "error",
+				},
+				isError: true,
+			},
+			false,
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered.split("before error")).toHaveLength(2);
+		expect(rendered).toContain("Error: boom");
+	});
+
 	it("delegates evaluation to the Pyrun JSONL runner process", async () => {
 		const harness = createPyrunHarness();
 
@@ -785,7 +905,9 @@ describe("pyrun extension", () => {
 		const detachRegistry = new ToolDetachRegistry();
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 
-		const evaluation = harness.evaluate({ code: "run.detachable()" });
+		const evaluation = harness.evaluate({ code: "run.detachable()" }, undefined, undefined, {
+			toolExecutionStartedAt: Date.now() - 1_000,
+		});
 		await waitFor(() => detachRegistry.detachRunning(), "detached Pyrun evaluation");
 		const detached = await evaluation;
 		expect(detached.details).toMatchObject({ backgroundJobId: "agent_1" });
@@ -793,9 +915,10 @@ describe("pyrun extension", () => {
 		await waitFor(() => hasProjectedLifecycle(store, "agent_1", "completed"), "detached Pyrun completion");
 		const agent = store.getAgent("agent_1");
 		expect(agent?.result?.summary).toBe("Pyrun evaluation completed.");
-		expect(store.listPendingLifecycleNotificationsForAgent("agent_1", "completed")[0]?.body).toContain(
-			"Pyrun evaluation completed",
-		);
+		expect(agent?.result?.durationMs).toBeGreaterThanOrEqual(1_000);
+		const notification = store.listPendingLifecycleNotificationsForAgent("agent_1", "completed")[0]?.body;
+		expect(notification).toContain("Pyrun evaluation completed");
+		expect(notification).toMatch(/Duration: \d+ms/);
 	});
 
 	it("omits empty Pyrun result values", async () => {
@@ -941,6 +1064,64 @@ describe("pyrun extension", () => {
 			type: "completed",
 			value: "done",
 		});
+	});
+
+	it("uses the same visible progress formatting for durable foreground evaluations", async () => {
+		const store = new MultiAgentStore();
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "print.streaming()" }, (update) => updates.push(update));
+
+		expect(updates.map((update) => readToolText(update))).toEqual([
+			"print.streaming()",
+			"tick 1\n",
+			"tick 1\ntick 2\n",
+		]);
+		expect(readToolText(result)).toBe("print.streaming()\n\ntick 1\ntick 2\ndone");
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("preserves stdout and stderr console event order including partial text", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "print.interleaved_streams()" }, (update) => updates.push(update));
+
+		expect(updates.slice(1).map((update) => update.details)).toEqual([
+			{ type: "console", stream: "stdout", text: "out 1\n" },
+			{ type: "console", stream: "stderr", text: "err 1\n" },
+			{ type: "console", stream: "stdout", text: "partial" },
+		]);
+		expect(readToolText(updates.at(-1) ?? { content: [], details: undefined })).toBe("out 1\nerr 1\npartial");
+		expect(readToolText(result)).toBe("print.interleaved_streams()\n\nout 1\nerr 1\npartial\ndone");
+	});
+
+	it("forwards the first console line while evaluation remains active", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+		let completed = false;
+
+		const evaluation = harness.evaluate({ code: "print.delayed_streaming()" }, (update) => updates.push(update));
+		void evaluation.then(() => {
+			completed = true;
+		});
+		await waitFor(() => updates.some((update) => readToolText(update) === "start\n"), "first console line");
+
+		expect(completed).toBe(false);
+		expect(readToolText(await evaluation)).toBe("print.delayed_streaming()\n\nstart\nend\ndone");
+	});
+
+	it("retains streamed console history in an error result without duplicate final text", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "raise.after_output()" }, (update) => updates.push(update));
+
+		expect(updates.map((update) => readToolText(update))).toEqual(["raise.after_output()", "before error"]);
+		expect(result.isError).toBe(true);
+		expect(readToolText(result)).toBe("raise.after_output()\n\nSession: default\nbefore error\nError: boom");
 	});
 
 	it("caps accumulated streaming console output to the final console line limit", async () => {
@@ -1610,7 +1791,12 @@ describe("pyrun extension", () => {
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
 
-		const resultPromise = harness.evaluate({ code: "run.detached_error()" }, (update) => updates.push(update));
+		const resultPromise = harness.evaluate(
+			{ code: "run.detached_error()" },
+			(update) => updates.push(update),
+			undefined,
+			{ toolExecutionStartedAt: Date.now() - 1_000 },
+		);
 		await waitFor(
 			() => updates.some((update) => update.details.type === "status"),
 			"Pyrun error progress before detach",
@@ -1621,6 +1807,8 @@ describe("pyrun extension", () => {
 		const [job] = store.listAgents();
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "failed"), "detached Pyrun failure");
 		expect(store.getAgent(job.id)?.result?.summary).toContain("detached boom");
+		expect(store.getAgent(job.id)?.result?.durationMs).toBeGreaterThanOrEqual(1_000);
+		expect(store.listPendingLifecycleNotificationsForAgent(job.id, "failed")[0]?.body).toMatch(/Duration: \d+ms/);
 	});
 
 	it("aborts a detached Pyrun evaluation through its agent runtime handle", async () => {

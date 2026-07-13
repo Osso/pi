@@ -34,6 +34,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Safe mode (`/safe`) | [`safe-mode.md`](safe-mode.md) | **BUILD** (done) | First-party session-local tool-call allowlist allowing only `web_search` and `ask_questions` while enabled. |
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox extensions, account-governed budgets/permissions. |
 | Tool backgrounding | [`tool-backgrounding.md`](tool-backgrounding.md) | **BUILD** (done) | Shared detach registry with bash and Pyrun background job tracking. |
+| Pyrun console streaming | [`pyrun-console-streaming.md`](pyrun-console-streaming.md) | **BUILD** (done) | Ordered line-buffered stdout/stderr JSONL events with retained final console history. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Web search tool | [`web-search-tool.md`](web-search-tool.md) | **BUILD** | First-party `web_search` tool backed by OpenAI Responses hosted search; no legacy web-search flag. |
 | Bubblewrap sandbox backend | [`bwrap-sandbox.md`](bwrap-sandbox.md) | **BUILD** | Linux `bwrap` backend for routing tool workers through sandbox profiles while leaving host Pi outside. |

@@ -32,7 +32,7 @@ import {
 } from "./runner.ts";
 
 export const DETACHED_PYRUN_RUNNER_MODE = "--internal-detached-pyrun-runner";
-const DETACHED_PYRUN_LAUNCH_VERSION = 1;
+const DETACHED_PYRUN_LAUNCH_VERSION = 2;
 const CONTROL_POLL_MS = 25;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
@@ -48,6 +48,7 @@ export interface DetachedPyrunLaunchManifestData {
 	runnerAddress: RuntimeMailboxAddress;
 	runnerOptions: PyrunRunnerOptions;
 	sessionPath: string;
+	startedAt: number;
 	supervisorProcessIdentity: ProcessIdentity;
 }
 
@@ -284,11 +285,13 @@ async function finalizeDetachedPyrunSettlement(
 	settlement: PyrunSettlement & { identity: DetachedJobOwnershipIdentity },
 ): Promise<{ terminalRevision: number }> {
 	const outcome = pyrunSettlementOutcome(settlement);
+	const terminalAt = Date.now();
 	const terminal = createDetachedJobTerminalInput(
 		manifest.artifacts,
 		settlement.identity,
 		outcome,
-		new Date().toISOString(),
+		new Date(terminalAt).toISOString(),
+		Math.max(0, terminalAt - manifest.startedAt),
 	);
 	const finalized = await finalizeDetachedJobWithRetry(terminal, (terminalInput) =>
 		finalizeDetachedJob(manifest.controlDbPath, { sessionPath: manifest.sessionPath, terminal: terminalInput }),
@@ -350,7 +353,11 @@ function readDetachedPyrunActivation(path: string): DetachedJobOwnershipIdentity
 function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaunchManifest {
 	const parsed = JSON.parse(readFileSync(path, "utf8")) as DetachedPyrunLaunchManifest;
 	const { checksum, ...unsigned } = parsed;
-	if (parsed.version !== DETACHED_PYRUN_LAUNCH_VERSION || checksum !== hashJson(unsigned)) {
+	if (
+		parsed.version !== DETACHED_PYRUN_LAUNCH_VERSION ||
+		!Number.isFinite(parsed.startedAt) ||
+		checksum !== hashJson(unsigned)
+	) {
 		throw new Error(`Invalid detached Pyrun launch manifest: ${path}`);
 	}
 	return parsed;
