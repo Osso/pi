@@ -1004,6 +1004,7 @@ export class InteractiveMode {
 	 */
 	async run(): Promise<void> {
 		await this.init();
+		await this.continueInterruptedResumedSession();
 
 		// Check tmux keyboard setup asynchronously
 		this.checkTmuxKeyboardSetup().then((warning) => {
