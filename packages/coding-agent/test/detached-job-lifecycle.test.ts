@@ -12,9 +12,7 @@ import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
-function createFixture(
-	options: Pick<DetachedJobLifecycleControllerOptions, "writeBashLaunchManifest"> = {},
-) {
+function createFixture(options: Pick<DetachedJobLifecycleControllerOptions, "writeBashLaunchManifest"> = {}) {
 	const root = mkdtempSync(join(tmpdir(), "pi-detached-lifecycle-"));
 	const controlDbPath = join(root, "control.sqlite");
 	const sessionPath = join(root, "session.jsonl");

@@ -1,8 +1,8 @@
 import { isProcessIdentityAlive, type ProcessIdentity } from "../../src/core/runtime-process.ts";
 import {
+	type MultiAgentRuntimeOwnership,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
-	type MultiAgentRuntimeOwnership,
 } from "../../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 
