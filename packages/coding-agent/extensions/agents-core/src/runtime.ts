@@ -474,7 +474,7 @@ async function backgroundCommand(
 		}
 	}
 
-	const coordinator = createLifecycleCoordinator(background.store, ctx);
+	const coordinator = createLifecycleCoordinator(background.store);
 	if (!coordinator) {
 		ctx.ui.notify("Background jobs require a persisted supervisor session.", "error");
 		return;
@@ -879,7 +879,7 @@ function truncateText(text: string): { truncated: boolean; value: string } {
 	return { truncated: true, value: text.slice(0, MESSAGE_CONTENT_LIMIT) };
 }
 
-function createLifecycleCoordinator(store: MultiAgentStore, ctx: ExtensionContext): LifecycleCoordinator | undefined {
+function createLifecycleCoordinator(store: MultiAgentStore): LifecycleCoordinator | undefined {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return undefined;
 	return new LifecycleCoordinator({
@@ -931,7 +931,7 @@ async function spawnAgent(
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);
-	const coordinator = createLifecycleCoordinator(store, ctx);
+	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) {
 		return errorResult("spawn_agent requires a persisted supervisor session.", {
 			agent: emptyAgent("spawn_agent"),
@@ -1199,7 +1199,7 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 }
 
 function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRuntime | undefined {
-	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
+	const coordinator = createLifecycleCoordinator(input.store);
 	if (!coordinator) return undefined;
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return undefined;
@@ -1258,7 +1258,7 @@ function resolveDeadAgentRuntime(
 ): void {
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return;
-	const coordinator = createLifecycleCoordinator(input.store, input.ctx);
+	const coordinator = createLifecycleCoordinator(input.store);
 	if (!coordinator) return;
 	const deadOwnership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
 	if (!deadOwnership) return;
@@ -1328,7 +1328,7 @@ function spawnAttachedSessionAgent(
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);
 	const permission = buildAttachedSessionPermission(store, params.parentId);
 	const parent = params.parentId ? store.getAgent(params.parentId) : undefined;
-	const coordinator = createLifecycleCoordinator(store, ctx);
+	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) return { ok: false, error: "lifecycle_coordinator_unavailable" };
 	const attached = coordinator.createAttachment({
 		account: parent?.account,
@@ -2386,15 +2386,14 @@ export async function cancelOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
-	ctx?: ExtensionContext,
 	reason?: string,
 ): Promise<CancelReservedAgentResult> {
 	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
 	for (const descendant of descendants) {
-		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, ctx, reason);
+		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, reason);
 		if (!cancelled.ok) return cancelled;
 	}
-	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, ctx, reason);
+	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, reason);
 }
 
 function abortAgentHandleSafely(store: MultiAgentStore, agentId: string): void {
@@ -2409,13 +2408,12 @@ async function cancelOneOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
-	ctx?: ExtensionContext,
 	reason?: string,
 ): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
 	const reservedRuntime = runtimeHandles.ownerships.get(agentId);
-	if (!reservedRuntime) return cancelPersistedDetachedRuntime(store, current, ctx, reason);
+	if (!reservedRuntime) return cancelPersistedDetachedRuntime(store, current, reason);
 	const cancelling = reservedRuntime.coordinator.requestCancellation({
 		agent: current,
 		ownership: reservedRuntime.lifecycle.ownership,
@@ -2437,16 +2435,15 @@ async function cancelOneOwnedAgentRuntime(
 function cancelPersistedDetachedRuntime(
 	store: MultiAgentStore,
 	agent: AgentSnapshot,
-	ctx?: ExtensionContext,
 	reason?: string,
 ): CancelReservedAgentResult {
 	const persistence = store.getPersistenceTarget();
 	const outputLabel = detachedRuntimeOutputLabel(agent);
-	if (!ctx || !persistence || !outputLabel) {
+	if (!persistence || !outputLabel) {
 		return { ok: false, error: "runtime_ownership_unavailable", agent };
 	}
 	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	const coordinator = createLifecycleCoordinator(store, ctx);
+	const coordinator = createLifecycleCoordinator(store);
 	if (!ownership?.processIdentity || !ownership.owner.sessionId || !coordinator) {
 		return { ok: false, error: "runtime_ownership_unavailable", agent };
 	}
@@ -2473,9 +2470,8 @@ async function cancelAgent(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	params: CancelAgentParams,
-	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<AgentToolDetails>> {
-	const cancelled = await cancelOwnedAgentRuntime(store, runtimeHandles, params.agentId, ctx, params.reason);
+	const cancelled = await cancelOwnedAgentRuntime(store, runtimeHandles, params.agentId, params.reason);
 	if (!cancelled.ok) {
 		const error = cancelled.error === "runtime_ownership_unavailable" ? "runtime ownership unavailable" : cancelled.error;
 		return errorResult(`Could not cancel ${params.agentId}: ${error}`, {
@@ -2557,7 +2553,7 @@ function steerAgent(
 	}
 
 	const persistence = store.getPersistenceTarget();
-	const coordinator = ctx ? createLifecycleCoordinator(store, ctx) : undefined;
+	const coordinator = ctx ? createLifecycleCoordinator(store) : undefined;
 	const ownership = persistence
 		? readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, current.id)
 		: undefined;
@@ -3085,8 +3081,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Cancel an agent through the multi-agent store using the current store revision.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				cancelAgent(store, runtimeHandles, params, ctx),
+			execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) =>
+				cancelAgent(store, runtimeHandles, params),
 		}),
 	);
 

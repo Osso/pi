@@ -1061,7 +1061,12 @@ export async function main(args: string[], options?: MainOptions) {
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
 			cancelMultiAgent: (agentId) =>
-				cancelOwnedAgentRuntime(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles, agentId),
+				cancelOwnedAgentRuntime(
+					firstPartyMultiAgentStore,
+					firstPartyMultiAgentRuntimeHandles,
+					agentId,
+					"cancelled interactively",
+				),
 			verbose: parsed.verbose,
 		});
 		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);
