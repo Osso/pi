@@ -42,7 +42,7 @@ describe("detached Bash runner", () => {
 			sessionPath,
 			store,
 		});
-		const jobId = lifecycle.allocateJobId();
+		const jobId = lifecycle.allocateJobId("bash");
 		const artifacts = lifecycle.createArtifacts(jobId);
 		const ownership = lifecycle.register({
 			agentType: "bash",

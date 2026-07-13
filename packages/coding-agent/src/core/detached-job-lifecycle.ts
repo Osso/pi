@@ -27,7 +27,7 @@ export function createDetachedJobLifecycleController(
 ): DetachedJobLifecycleController {
 	const artifactRoot = detachedJobArtifactRoot(options);
 	return {
-		allocateJobId: () => options.store.allocateAgentIdForLifecycleCoordinator(),
+		allocateJobId: (agentType) => options.store.allocateAgentIdForLifecycleCoordinator(agentType),
 		cancel: (ownership, reason) => {
 			const cancelled = options.coordinator.requestDetachedCancellation({
 				agent: ownership.agent,
@@ -71,7 +71,7 @@ function launchDetachedBashJob(
 	options: DetachedJobLifecycleControllerOptions,
 	input: Parameters<DetachedJobLifecycleController["launchBash"]>[0],
 ): ReturnType<DetachedJobLifecycleController["launchBash"]> {
-	const jobId = options.store.allocateAgentIdForLifecycleCoordinator();
+	const jobId = options.store.allocateAgentIdForLifecycleCoordinator("bash");
 	const artifacts = reserveDetachedJobArtifacts(detachedJobArtifactRoot(options), jobId);
 	const manifestPath = join(artifacts.directory, "launch.json");
 	const runnerPid = launchDetachedBashRunner(manifestPath);

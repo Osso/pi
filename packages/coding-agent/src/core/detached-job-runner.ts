@@ -64,7 +64,7 @@ export interface LaunchedDetachedBashJob {
 }
 
 export interface DetachedJobLifecycleController {
-	allocateJobId(): string;
+	allocateJobId(agentType: "bash" | "pyrun"): string;
 	cancel(ownership: DetachedJobOwnership, reason?: string): DetachedJobLifecycleCommandResult;
 	createArtifacts(jobId: string): DetachedJobArtifacts;
 	launchBash(input: LaunchDetachedBashInput): LaunchedDetachedBashJob;

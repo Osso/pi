@@ -317,8 +317,8 @@ export class MultiAgentStore {
 		return true;
 	}
 
-	allocateAgentIdForLifecycleCoordinator(): string {
-		return this.createAgentId();
+	allocateAgentIdForLifecycleCoordinator(prefix: "agent" | "bash" | "pyrun" = "agent"): string {
+		return this.createAgentId(prefix);
 	}
 
 	prepareSteeringMessageForLifecycleCoordinator(agentId: string, input: SendSteeringInput): AgentMailboxMessage {
@@ -1126,9 +1126,9 @@ export class MultiAgentStore {
 		return false;
 	}
 
-	private createAgentId(): string {
+	private createAgentId(prefix: "agent" | "bash" | "pyrun" = "agent"): string {
 		const allocated = this.allocateCounter("agent", this.nextAgentNumber);
-		return `agent_${allocated}`;
+		return `${prefix}_${allocated}`;
 	}
 
 	private createMessageId(): string {

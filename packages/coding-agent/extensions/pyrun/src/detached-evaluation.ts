@@ -125,7 +125,7 @@ function launchForegroundPyrunRunner(
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
 	startedAt: number,
 ) {
-	const jobId = controller.allocateJobId();
+	const jobId = controller.allocateJobId("pyrun");
 	const artifacts = controller.createArtifacts(jobId);
 	const activationPath = join(artifacts.directory, "activation.json");
 	const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
@@ -191,6 +191,7 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 				jobId: input.runner.jobId,
 				processIdentity: input.runner.processIdentity,
 				workerHandleId: String(input.runner.runnerPid),
+				toolCallId: input.toolCallId,
 			});
 			try {
 				(input.writeActivation ?? writeDetachedPyrunActivation)(input.runner.activationPath, ownership.identity);

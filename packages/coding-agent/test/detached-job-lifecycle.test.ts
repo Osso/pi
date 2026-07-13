@@ -85,7 +85,7 @@ describe("detached job lifecycle controller", () => {
 
 	it("binds preallocated artifacts, ownership, projection, and exact finalization", () => {
 		const fixture = createFixture();
-		const jobId = fixture.controller.allocateJobId();
+		const jobId = fixture.controller.allocateJobId("bash");
 		const artifacts = fixture.controller.createArtifacts(jobId);
 		const ownership = fixture.controller.register({
 			agentType: "bash",
@@ -120,7 +120,7 @@ describe("detached job lifecycle controller", () => {
 
 	it("requests detached cancellation through the coordinator and publishes cancelling state", () => {
 		const fixture = createFixture();
-		const jobId = fixture.controller.allocateJobId();
+		const jobId = fixture.controller.allocateJobId("bash");
 		const ownership = fixture.controller.register({
 			agentType: "bash",
 			cwd: "/repo",
@@ -139,7 +139,7 @@ describe("detached job lifecycle controller", () => {
 
 	it("observes and publishes a terminal snapshot committed by an external runner", () => {
 		const fixture = createFixture();
-		const jobId = fixture.controller.allocateJobId();
+		const jobId = fixture.controller.allocateJobId("bash");
 		const artifacts = fixture.controller.createArtifacts(jobId);
 		const ownership = fixture.controller.register({
 			agentType: "bash",

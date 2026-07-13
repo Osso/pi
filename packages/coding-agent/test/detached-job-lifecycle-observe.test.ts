@@ -50,7 +50,7 @@ describe("detached job lifecycle observation", () => {
 			agentType: "bash",
 			cwd: "/repo",
 			displayName: "Bash command",
-			jobId: fixture.controller.allocateJobId(),
+			jobId: fixture.controller.allocateJobId("bash"),
 			processIdentity: { ...CURRENT_PROCESS_IDENTITY, startTimeTicks: CURRENT_PROCESS_IDENTITY.startTimeTicks + 1 },
 			workerHandleId: "runner-1",
 		});
@@ -74,7 +74,7 @@ describe("detached job lifecycle observation", () => {
 			agentType: "bash",
 			cwd: "/repo",
 			displayName: "Bash command",
-			jobId: fixture.controller.allocateJobId(),
+			jobId: fixture.controller.allocateJobId("bash"),
 			processIdentity: CURRENT_PROCESS_IDENTITY,
 			workerHandleId: "runner-1",
 		});
@@ -93,7 +93,7 @@ describe("detached job lifecycle observation", () => {
 			agentType: "bash",
 			cwd: "/repo",
 			displayName: "Bash command",
-			jobId: fixture.controller.allocateJobId(),
+			jobId: fixture.controller.allocateJobId("bash"),
 			processIdentity: testProcessIdentity("runner-dead-other-session"),
 			workerHandleId: "runner-1",
 		});

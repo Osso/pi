@@ -67,7 +67,7 @@ describe("detached Pyrun runner", () => {
 			sessionPath,
 			store,
 		});
-		const jobId = lifecycle.allocateJobId();
+		const jobId = lifecycle.allocateJobId("pyrun");
 		const artifacts = lifecycle.createArtifacts(jobId);
 		const activationPath = join(artifacts.directory, "activation.json");
 		const manifestPath = join(artifacts.directory, "launch.json");

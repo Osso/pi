@@ -135,14 +135,14 @@ describe("durable detached Pyrun evaluation", () => {
 		});
 		await waitFor(() => detachRegistry.detachRunning());
 		const result = await evaluation;
-		expect(result.details).toMatchObject({ backgroundJobId: "agent_1" });
+		expect(result.details).toMatchObject({ backgroundJobId: "pyrun_1" });
 		await waitFor(() => {
 			const agent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as
 				| { lifecycle?: unknown }
 				| undefined;
 			return agent?.lifecycle === "completed";
 		});
-		expect(store.getAgent("agent_1")?.lifecycle).toBe("running");
+		expect(store.getAgent("pyrun_1")?.lifecycle).toBe("running");
 		expect(store.listMailboxMessages()).toHaveLength(0);
 		const unsubscribeFailure = store.subscribeLifecycleNotifications(() => {
 			throw new Error("transport unavailable");
@@ -171,9 +171,9 @@ describe("durable detached Pyrun evaluation", () => {
 		).toBe(1);
 		unsubscribeRetry();
 		expect(retriedNotifications).toHaveLength(1);
-		expect(store.getAgent("agent_1")?.lifecycle).toBe("completed");
+		expect(store.getAgent("pyrun_1")?.lifecycle).toBe("completed");
 		expect(store.listMailboxMessages()).toMatchObject([
-			{ fromAgentId: "agent_1", status: "pending", threadId: "agent-completed:agent_1" },
+			{ fromAgentId: "pyrun_1", status: "pending", threadId: "agent-completed:pyrun_1" },
 		]);
 		expect(
 			deliverTerminalOutboxProjections({
