@@ -42,6 +42,14 @@ export function createDetachedJobLifecycleController(
 		createArtifacts: (jobId) => reserveDetachedJobArtifacts(artifactRoot, jobId),
 		findBashJobByToolCallId: (toolCallId) => findPersistedBashJob(options, toolCallId),
 		launchBash: (input) => launchDetachedBashJob(options, input),
+		markDetached: (ownership) => {
+			const marked = options.coordinator.markDetached({
+				agent: ownership.agent,
+				ownership: ownership.controlOwnership,
+			});
+			if (marked.ok) options.store.publishLifecycleCoordinatorSnapshot(marked.agent);
+			return marked;
+		},
 		observe: (jobId) => {
 			let agent = readMultiAgentAgent(options.controlDbPath, options.sessionPath, jobId);
 			if (!agent) return undefined;
@@ -165,6 +173,7 @@ function registerDetachedJob(
 		agentId: input.jobId,
 		agentType: "background",
 		cwd: input.cwd,
+		detached: input.detached,
 		displayName: input.displayName,
 		parentId: options.ownerAgentId,
 		permission: { narrowed: true, policy: "on-request" },

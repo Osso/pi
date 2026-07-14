@@ -102,6 +102,8 @@ export interface AgentNode {
 	transcript?: AgentTranscriptMetadata;
 	eventStream?: AgentEventStreamMetadata;
 	worker?: AgentWorkerAdapter;
+	/** True when a background job was detached from its waiting tool call; only detached jobs emit terminal mailbox notifications. */
+	detached?: boolean;
 	currentActivity?: AgentCurrentActivity;
 	lastActivity?: AgentActivity;
 	result?: AgentResult;

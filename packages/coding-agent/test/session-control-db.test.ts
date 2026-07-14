@@ -18,6 +18,7 @@ import {
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupMultiAgentTerminalOutbox,
+	commitMultiAgentDetachMark,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
@@ -1036,6 +1037,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			createdAt: "2026-07-11T21:00:00.000Z",
 			currentActivity: { phase: "thinking", startedAt: "2026-07-11T21:00:00.000Z" },
 			cwd: "/repo",
+			detached: true,
 			displayName: "Detached job",
 			id: agentId,
 			lifecycle: "running",
@@ -1115,6 +1117,124 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("finalizes an attended job without a supervisor mailbox notification", () => {
+		const sessionPath = "/sessions/attended-finalize.jsonl";
+		const agentId = "attended-job";
+		const owner = { agentId: null, sessionId: "runner" };
+		const processIdentity = testProcessIdentity("attended-runtime");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "background",
+			createdAt: "2026-07-11T21:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Attended job",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T21:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-attended-finalize-")), agentId);
+		writeFileSync(artifacts.outputPath, "runner output", { mode: 0o600 });
+		const terminal = createDetachedJobTerminalInput(
+			artifacts,
+			{ jobId: agentId, outputLabel: "Bash output", owner, processIdentity },
+			{ exitCode: 0, kind: "completed", summary: "done in-band" },
+			"2026-07-11T22:00:00.000Z",
+		);
+
+		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toMatchObject({
+			ok: true,
+			terminalAgent: { id: agentId, lifecycle: "completed", revision: 2 },
+		});
+		// The waiting tool call consumes the terminal row in-band; no mailbox wakeup.
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
+		} finally {
+			db.close();
+		}
+	});
+
+	it("marks an owned job detached exactly once under the full owner predicate", () => {
+		const sessionPath = "/sessions/detach-mark.jsonl";
+		const agentId = "mark-job";
+		const owner = { agentId: null, sessionId: "runner" };
+		const processIdentity = testProcessIdentity("mark-runtime");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "background",
+			createdAt: "2026-07-11T21:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Marked job",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T21:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+
+		expect(
+			commitMultiAgentDetachMark(controlDbPath, {
+				agentId,
+				owner: { agentId: null, sessionId: "someone-else" },
+				processIdentity,
+				sessionPath,
+				updatedAt: "2026-07-11T21:30:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+
+		const marked = commitMultiAgentDetachMark(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity,
+			sessionPath,
+			updatedAt: "2026-07-11T21:31:00.000Z",
+		});
+		expect(marked).toMatchObject({ ok: true, agent: { detached: true, revision: 2 } });
+
+		// Idempotent: a second mark does not bump the revision.
+		expect(
+			commitMultiAgentDetachMark(controlDbPath, {
+				agentId,
+				owner,
+				processIdentity,
+				sessionPath,
+				updatedAt: "2026-07-11T21:32:00.000Z",
+			}),
+		).toMatchObject({ ok: true, agent: { detached: true, revision: 2 } });
+
+		const artifacts = createDetachedJobArtifacts(mkdtempSync(join(tmpdir(), "pi-detach-mark-")), agentId);
+		writeFileSync(artifacts.outputPath, "runner output", { mode: 0o600 });
+		const terminal = createDetachedJobTerminalInput(
+			artifacts,
+			{ jobId: agentId, outputLabel: "Bash output", owner, processIdentity },
+			{ exitCode: 0, kind: "completed", summary: "done detached" },
+			"2026-07-11T22:00:00.000Z",
+		);
+		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toMatchObject({
+			ok: true,
+			terminalAgent: { id: agentId, detached: true, lifecycle: "completed", revision: 3 },
+		});
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{ storeRef: { messageId: `terminal:${agentId}:3:detached_job_completed`, sessionPath } },
+		]);
+
+		// Terminal rows reject further detach marks.
+		expect(
+			commitMultiAgentDetachMark(controlDbPath, {
+				agentId,
+				owner,
+				processIdentity,
+				sessionPath,
+				updatedAt: "2026-07-11T23:00:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
+	});
+
 	it("finalizes a detached job after its session control data relocates", () => {
 		const oldSessionPath = "/sessions/detached-old.jsonl";
 		const newSessionPath = "/sessions/detached-new.jsonl";
@@ -1125,6 +1245,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			agentType: "background",
 			createdAt: "2026-07-11T21:00:00.000Z",
 			cwd: "/repo",
+			detached: true,
 			displayName: "Relocated job",
 			id: agentId,
 			lifecycle: "running",

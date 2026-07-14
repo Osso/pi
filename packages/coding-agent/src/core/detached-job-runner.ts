@@ -46,6 +46,8 @@ export interface RegisterDetachedJobInput {
 	workerHandleId: string;
 	/** Originating tool call in the owning agent, recorded on the detached job's worker. */
 	toolCallId?: string;
+	/** True when the job is already detached from its waiting tool call at registration. */
+	detached?: boolean;
 }
 
 export type DetachedJobLifecycleCommandResult =
@@ -73,6 +75,7 @@ export interface DetachedJobLifecycleController {
 	createArtifacts(jobId: string): DetachedJobArtifacts;
 	findBashJobByToolCallId(toolCallId: string): AgentSnapshot | undefined;
 	launchBash(input: LaunchDetachedBashInput): LaunchedDetachedBashJob;
+	markDetached(ownership: DetachedJobOwnership): DetachedJobLifecycleCommandResult;
 	observe(jobId: string): AgentSnapshot | undefined;
 	register(input: RegisterDetachedJobInput): DetachedJobOwnership;
 }

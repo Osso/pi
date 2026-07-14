@@ -2,6 +2,7 @@ import type { AgentMailboxMessage, AgentSnapshot, SpawnAgentInput } from "./mult
 import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	acquireAttachedRuntimeOwnership,
+	commitMultiAgentDetachMark,
 	commitMultiAgentLifecycleMutation,
 	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
@@ -26,6 +27,7 @@ export interface LifecycleCoordinatorOptions {
 
 export interface PrepareChildCommandInput extends SpawnAgentInput {
 	agentId?: string;
+	detached?: boolean;
 	result?: AgentSnapshot["result"];
 }
 
@@ -170,6 +172,24 @@ export class LifecycleCoordinator {
 		return this.commitReservedLifecycle(input, "waiting_for_input");
 	}
 
+	/**
+	 * Mark an owned background job as detached from its waiting tool call so its
+	 * terminal state notifies the supervisor through the runtime mailbox.
+	 */
+	markDetached(input: OwnedLifecycleCommandInput): LifecycleCommandResult {
+		// Detached job ownership records the runner's process identity, not this
+		// supervisor's, so the mutation is fenced by the full owner predicate only.
+		const identity = this.readOwnershipIdentity(input.ownership, input.agent.id, false);
+		if (!identity) return { ok: false, error: "mutation_mismatch" };
+		return commitMultiAgentDetachMark(this.options.controlDbPath, {
+			agentId: input.agent.id,
+			owner: identity.owner,
+			processIdentity: identity.processIdentity,
+			sessionPath: this.options.sessionPath,
+			updatedAt: this.options.now(),
+		});
+	}
+
 	requestCancellation(input: OwnedLifecycleCommandInput): LifecycleCommandResult {
 		return this.commitReservedLifecycle(input, "cancelling");
 	}
@@ -294,6 +314,7 @@ export class LifecycleCoordinator {
 			agentType: input.agentType,
 			createdAt: nowIso,
 			cwd: input.cwd,
+			detached: input.detached,
 			displayName: input.displayName,
 			eventStream: input.eventStream,
 			id: input.agentId ?? this.options.createAgentId(),

@@ -252,6 +252,7 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 			ownership = input.controller.register({
 				agentType: "pyrun",
 				cwd: input.ctx.cwd,
+				detached: true,
 				displayName: "Pyrun evaluation",
 				jobId: input.runner.jobId,
 				processIdentity: input.runner.processIdentity,

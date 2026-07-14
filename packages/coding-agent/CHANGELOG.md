@@ -110,6 +110,7 @@
 
 ### Fixed
 
+- Fixed redundant `detached_job_completed` supervisor notifications for attended Bash tool calls: terminal runtime-mailbox messages are now sent only for jobs explicitly detached from their waiting tool call (Ctrl+B, auto-detach, or Pyrun detach registration), tracked through a fenced `detached` lifecycle mark. Attended jobs deliver their result in-band without a mailbox wakeup.
 - Fixed Escape losing queued steering messages when a background turn (e.g. runtime mailbox delivery) started before the main loop resubmitted them: main-loop input now queues as steering instead of failing with "Agent is already processing".
 - Fixed resumed sessions relaunching Bash commands whose durable job was already cancelling or aborted for the same tool call.
 - Fixed session-load recovery never settling a wedged `cancelling` detached job: dead-owner recovery no longer requires the recorded owner session ID to match the current incarnation (every resume registers a fresh session ID, making that check unsatisfiable). Authorization now rests on the live registered supervisor binding for the session path plus proof the owner process is dead, and a recovered `cancelling` agent settles as `aborted` (honoring the recorded cancellation intent) instead of `failed/lost_runtime`.

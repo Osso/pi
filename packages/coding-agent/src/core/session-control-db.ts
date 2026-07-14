@@ -2519,6 +2519,61 @@ function runtimeOwnerMatches(
 	);
 }
 
+export interface CommitMultiAgentDetachMarkInput {
+	agentId: string;
+	owner: { agentId: string | null; sessionId: string };
+	processIdentity: ProcessIdentity;
+	sessionPath: string;
+	updatedAt: string;
+}
+
+export type CommitMultiAgentDetachMarkResult =
+	| { ok: true; agent: AgentSnapshot }
+	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
+
+/**
+ * Mark an owned background job as detached from its waiting tool call.
+ * Only detached jobs emit a terminal runtime-mailbox notification; attended
+ * jobs deliver their result in-band through the waiting tool call.
+ */
+export function commitMultiAgentDetachMark(
+	controlDbPath: string,
+	input: CommitMultiAgentDetachMarkInput,
+): CommitMultiAgentDetachMarkResult {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+			if (!row) return { ok: false, error: "agent_not_found" };
+			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!runtimeOwnerMatches(ownership, input)) {
+				return { ok: false, error: "mutation_mismatch" };
+			}
+			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
+				return { ok: false, error: "invalid_transition" };
+			}
+			if (agent.detached === true) {
+				return { ok: true, agent: agent as unknown as AgentSnapshot };
+			}
+			const updated = {
+				...agent,
+				detached: true,
+				revision: Number(agent.revision) + 1,
+				updatedAt: input.updatedAt,
+			};
+			db.prepare(
+				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
+			validatePersistedAgentPayload(updated, context);
+			return { ok: true, agent: updated as unknown as AgentSnapshot };
+		}),
+	);
+}
+
 function runtimeOwnershipMatchesLifecycleMutation(
 	ownership: MultiAgentRuntimeOwnershipRow | undefined,
 	input: CommitMultiAgentLifecycleMutationInput,
@@ -2931,7 +2986,11 @@ function persistDetachedJobTerminal(
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
 	).run(sessionPath, terminal.jobId, terminalRevision, eventKind, terminal.terminalAt);
-	persistDetachedJobTerminalTransport(db, sessionPath, terminal, ownership, terminalRevision, eventKind);
+	// Attended jobs deliver their result in-band through the waiting tool call;
+	// only jobs explicitly detached from their tool call notify the supervisor.
+	if (agent.detached === true) {
+		persistDetachedJobTerminalTransport(db, sessionPath, terminal, ownership, terminalRevision, eventKind);
+	}
 	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
 	return updated as unknown as AgentSnapshot;
 }

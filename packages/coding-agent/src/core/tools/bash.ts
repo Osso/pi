@@ -380,14 +380,20 @@ async function executeRunnerOwnedBash(
 			terminalAgent = options.lifecycle.observe(launched.ownership.agent.id);
 			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
 			if (options.detach.signal.aborted) {
-				return {
-					exitCode: null,
-					detached: {
-						jobId: launched.ownership.agent.id,
-						logPath: launched.ownership.artifacts.outputPath,
-						message: `Detached bash command as background job ${launched.ownership.agent.id}.`,
-					},
-				};
+				// Mark detachment before reporting it so the terminal notification is
+				// guaranteed. If the job already reached a terminal state, keep polling
+				// and deliver the result in-band instead.
+				const marked = options.lifecycle.markDetached(launched.ownership);
+				if (marked.ok) {
+					return {
+						exitCode: null,
+						detached: {
+							jobId: launched.ownership.agent.id,
+							logPath: launched.ownership.artifacts.outputPath,
+							message: `Detached bash command as background job ${launched.ownership.agent.id}.`,
+						},
+					};
+				}
 			}
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
