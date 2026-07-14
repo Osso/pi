@@ -63,6 +63,7 @@
 
 ### Changed
 
+- Increased the selected background-agent log preview limit from 32 KiB to 64 KiB.
 - The default system prompt now tells models to emit known independent tool calls together and serialize only calls with result dependencies.
 - Detached runner terminal commits now retry only SQLite busy/locked contention across Node and Bun; disk-full, readonly, I/O, path, programming, and validation failures surface immediately.
 - Pyrun evaluations now remain foreground executions without multi-agent rows until manual or automatic detachment; detachment creates exactly one durable runner-owned agent while preserving foreground progress and Pi bridge requests.

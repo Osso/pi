@@ -137,7 +137,7 @@ import { formatTerminalCurrentDirectorySequence } from "../../utils/terminal-cur
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { AgentSelectionBannerComponent } from "./components/agent-selection-banner.ts";
 
-const MAX_AGENT_LOG_VIEW_BYTES = 32 * 1024;
+const MAX_AGENT_LOG_VIEW_BYTES = 64 * 1024;
 const CHILD_TRANSCRIPT_RELOAD_DEBOUNCE_MS = 50;
 
 function isCompleteJsonlFile(filePath: string): boolean {
