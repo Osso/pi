@@ -2985,10 +2985,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		});
 	});
 	pi.on?.("session_shutdown", async (event) => {
+		runtimeLifecycleMirror.dispose();
 		if (event.reason === "reload") {
 			return;
 		}
-		runtimeLifecycleMirror.dispose();
 		store.invalidateInFlightDispatches();
 		for (const runtime of ownerships.values()) runtime.abortController.abort();
 		for (const agentId of backgroundSessions.keys()) {

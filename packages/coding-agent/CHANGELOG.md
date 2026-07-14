@@ -112,6 +112,7 @@
 
 ### Fixed
 
+- Fixed repeated stale extension-context failures while draining terminal agent outbox projections after extension reloads.
 - Added the RPC `interrupt` command and `RpcClient.interrupt()`, backed by the same session operation as interactive Escape: abort the active turn and resubmit preserved queued input, queueing it as steering if a background turn races in.
 - Fixed redundant `detached_job_completed` supervisor notifications for attended Bash tool calls: terminal runtime-mailbox messages are now sent only for jobs explicitly detached from their waiting tool call (Ctrl+B, auto-detach, or Pyrun detach registration), tracked through a fenced `detached` lifecycle mark. Attended jobs deliver their result in-band without a mailbox wakeup.
 - Fixed Escape losing queued steering messages when a background turn (e.g. runtime mailbox delivery) started before the main loop resubmitted them: main-loop input now queues as steering instead of failing with "Agent is already processing".

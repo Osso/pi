@@ -758,6 +758,42 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("unsubscribes the runtime lifecycle mirror during extension reload", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-reload-lifecycle-mirror-"));
+		try {
+			const supervisorSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000106",
+			});
+			const controlDbPath = getControlDbPath(tempDir);
+			supervisorSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
+			const harness = createMultiAgentHarness({
+				ctx: { controlDbPath, sessionManager: supervisorSession },
+				store,
+			});
+			await harness.emit("session_start", { reason: "startup", type: "session_start" });
+			await harness.emit("session_shutdown", { reason: "reload", type: "session_shutdown" });
+			const agent = legacyMultiAgentStore(store).spawnAgent({
+				agentType: "background",
+				cwd: "/repo",
+				displayName: "Reload worker",
+				permission: { narrowed: true, policy: "on-request" },
+			}).agent;
+
+			store.publishTerminalOutboxSnapshot({
+				...agent,
+				lifecycle: "completed",
+				result: { summary: "finished after reload" },
+				revision: agent.revision + 1,
+			});
+
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("references persisted store rows from mirrored runtime mailbox messages", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-mailbox-store-ref-"));
 		try {
