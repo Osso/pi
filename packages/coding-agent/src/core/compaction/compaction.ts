@@ -95,9 +95,21 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 	return undefined;
 }
 
+const GOAL_REMINDER_PREFIXES = [
+	"Work toward this objective until it is achieved:",
+	"Continue working toward this objective until it is achieved:",
+];
+
 function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | undefined {
 	if (entry.type === "compaction") {
 		return undefined;
+	}
+	if (entry.type === "message" && entry.message.role === "user" && entry.message.inputSource === "extension") {
+		const content = entry.message.content;
+		const text = typeof content === "string" ? content : content.find((part) => part.type === "text")?.text;
+		if (text && GOAL_REMINDER_PREFIXES.some((prefix) => text.startsWith(prefix))) {
+			return undefined;
+		}
 	}
 	return getMessageFromEntry(entry);
 }

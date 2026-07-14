@@ -53,6 +53,10 @@ function createUserMessage(text: string): AgentMessage {
 	return { role: "user", content: text, timestamp: Date.now() };
 }
 
+function createExtensionUserMessage(text: string): AgentMessage {
+	return { role: "user", content: text, inputSource: "extension", timestamp: Date.now() };
+}
+
 function createAssistantMessage(text: string, usage?: Usage): AssistantMessage {
 	return {
 		role: "assistant",
@@ -380,6 +384,38 @@ describe("findCutPoint", () => {
 		expect(preparation?.firstKeptEntryId).toBe(latestUser.id);
 		expect(extractText(preparation!.messagesToSummarize)).not.toContain("latest user must stay verbatim");
 		expect(preparation?.turnPrefixMessages).toEqual([]);
+	});
+
+	it("excludes goal reminders but preserves other extension messages in compaction input", () => {
+		const goalStart = createMessageEntry(
+			createExtensionUserMessage("Work toward this objective until it is achieved: fix compaction"),
+		);
+		const firstAssistant = createMessageEntry(createAssistantMessage("working"));
+		const extensionMessage = createMessageEntry(createExtensionUserMessage("Extension context that must remain"));
+		const secondAssistant = createMessageEntry(createAssistantMessage("still working"));
+		const goalContinuation = createMessageEntry(
+			createExtensionUserMessage("Continue working toward this objective until it is achieved: fix compaction"),
+		);
+		const latestAssistant = createMessageEntry(createAssistantMessage("x".repeat(40_000)));
+		const entries: SessionEntry[] = [
+			goalStart,
+			firstAssistant,
+			extensionMessage,
+			secondAssistant,
+			goalContinuation,
+			latestAssistant,
+		];
+
+		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
+		const compactionText = extractText([
+			...(preparation?.messagesToSummarize ?? []),
+			...(preparation?.turnPrefixMessages ?? []),
+		]);
+
+		expect(preparation).toBeDefined();
+		expect(compactionText).toContain("Extension context that must remain");
+		expect(compactionText).not.toContain("Work toward this objective until it is achieved:");
+		expect(compactionText).not.toContain("Continue working toward this objective until it is achieved:");
 	});
 
 	it("should indicate split turn when cutting at assistant message", () => {

@@ -63,6 +63,7 @@
 
 ### Changed
 
+- Compaction now excludes goal-generated start, resume, and continuation reminders from summarization input while preserving them in the session log.
 - Increased the selected background-agent log preview limit from 32 KiB to 64 KiB.
 - The default system prompt now tells models to emit known independent tool calls together and serialize only calls with result dependencies.
 - Detached runner terminal commits now retry only SQLite busy/locked contention across Node and Bun; disk-full, readonly, I/O, path, programming, and validation failures surface immediately.
