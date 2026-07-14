@@ -6,7 +6,7 @@ export interface ToolDetachRegistryOptions {
 	autoDetachAfterMs?: number;
 }
 
-export const DEFAULT_AUTO_DETACH_AFTER_MS = 120_000;
+export const DEFAULT_AUTO_DETACH_AFTER_MS = 600_000;
 
 export class ToolDetachRegistry {
 	private readonly autoDetachAfterMs: number;
