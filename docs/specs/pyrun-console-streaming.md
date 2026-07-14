@@ -7,6 +7,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 ## What it must do
 
 - [x] Pi requests console streaming from the canonical Pyrun JSONL runner for foreground evaluations.
+- [x] The submitted Python code renders immediately in the tool call, before execution starts, and is not emitted as a synthetic tool result.
 - [x] Complete stdout lines become visible before evaluation completion.
 - [x] Complete stderr lines use the same incremental console-event path.
 - [x] Stdout and stderr console events retain protocol arrival order.

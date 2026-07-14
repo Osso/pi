@@ -733,7 +733,7 @@ describe("pyrun extension", () => {
 		}
 	});
 
-	it("renders only the Pyrun title before execution starts", () => {
+	it("renders Pyrun code in the tool call before execution starts", () => {
 		const harness = createPyrunHarness();
 		const component = new ToolExecutionComponent(
 			"pyrun_eval",
@@ -747,7 +747,7 @@ describe("pyrun extension", () => {
 
 		const rendered = stripAnsi(component.render(120).join("\n"));
 		expect(rendered).toContain("pyrun_eval");
-		expect(rendered).not.toContain("run.sleep(10)");
+		expect(rendered).toContain("run.sleep(10)");
 	});
 
 	it("shows non-default Pyrun session id in the tool title", () => {
@@ -767,12 +767,12 @@ describe("pyrun extension", () => {
 		expect(rendered).not.toContain("Session: worker");
 	});
 
-	it("syntax-colors Pyrun Python in the interactive result row", () => {
+	it("syntax-colors Pyrun Python in the call row without repeating it in the result", () => {
 		const harness = createPyrunHarness();
 		const component = new ToolExecutionComponent(
 			"pyrun_eval",
 			"pyrun-render-test-call",
-			{},
+			{ code: "value = run.sleep(10)" },
 			{},
 			harness.toolDefinition,
 			createFakeTui(),
@@ -788,9 +788,11 @@ describe("pyrun extension", () => {
 		);
 
 		const rendered = component.render(120).join("\n");
+		const plain = stripAnsi(rendered);
 		expect(rendered).toContain("\x1b[");
-		expect(stripAnsi(rendered)).toContain("value = run.sleep(10)");
-		expect(stripAnsi(rendered)).not.toContain("Session: default");
+		expect(plain.split("value = run.sleep(10)")).toHaveLength(2);
+		expect(plain).toContain('Result: {"success":true}');
+		expect(plain).not.toContain("Session: default");
 	});
 
 	it("uses shared lifecycle timing for streamed success and buffered failure rendering", () => {
@@ -848,7 +850,9 @@ describe("pyrun extension", () => {
 			false,
 			5_500,
 		);
-		expect(stripAnsi(bufferedFailure.render(120).join("\n"))).toContain("Elapsed: 3s");
+		const bufferedFailureRendered = stripAnsi(bufferedFailure.render(120).join("\n"));
+		expect(bufferedFailureRendered).toContain("Elapsed: 3s");
+		expect(bufferedFailureRendered).not.toContain("Error: Session: default");
 
 		const immediateFailure = new ToolExecutionComponent(
 			"pyrun_eval",
@@ -1081,11 +1085,7 @@ describe("pyrun extension", () => {
 
 		const result = await harness.evaluate({ code: "print.streaming()" }, (update) => updates.push(update));
 
-		expect(updates.map((update) => readToolText(update))).toEqual([
-			"print.streaming()",
-			"tick 1\n",
-			"tick 1\ntick 2\n",
-		]);
+		expect(updates.map((update) => readToolText(update))).toEqual(["tick 1\n", "tick 1\ntick 2\n"]);
 		expect(result.details).toEqual({
 			console: ["tick 1", "tick 2"],
 			executed: "print.streaming()",
@@ -1102,11 +1102,7 @@ describe("pyrun extension", () => {
 
 		const result = await harness.evaluate({ code: "print.streaming()" }, (update) => updates.push(update));
 
-		expect(updates.map((update) => readToolText(update))).toEqual([
-			"print.streaming()",
-			"tick 1\n",
-			"tick 1\ntick 2\n",
-		]);
+		expect(updates.map((update) => readToolText(update))).toEqual(["tick 1\n", "tick 1\ntick 2\n"]);
 		expect(readToolText(result)).toBe("print.streaming()\n\ntick 1\ntick 2\ndone");
 		expect(store.listAgents()).toEqual([]);
 	});
@@ -1117,7 +1113,7 @@ describe("pyrun extension", () => {
 
 		const result = await harness.evaluate({ code: "print.interleaved_streams()" }, (update) => updates.push(update));
 
-		expect(updates.slice(1).map((update) => update.details)).toEqual([
+		expect(updates.map((update) => update.details)).toEqual([
 			{ type: "console", stream: "stdout", text: "out 1\n" },
 			{ type: "console", stream: "stderr", text: "err 1\n" },
 			{ type: "console", stream: "stdout", text: "partial" },
@@ -1147,7 +1143,7 @@ describe("pyrun extension", () => {
 
 		const result = await harness.evaluate({ code: "raise.after_output()" }, (update) => updates.push(update));
 
-		expect(updates.map((update) => readToolText(update))).toEqual(["raise.after_output()", "before error"]);
+		expect(updates.map((update) => readToolText(update))).toEqual(["before error"]);
 		expect(result.isError).toBe(true);
 		expect(readToolText(result)).toBe("raise.after_output()\n\nSession: default\nbefore error\nError: boom");
 	});
@@ -1172,7 +1168,6 @@ describe("pyrun extension", () => {
 		const result = await harness.evaluate({ code: "run.long_task()" }, (update) => updates.push(update));
 
 		expect(updates.map((update) => update.details)).toEqual([
-			{ type: "running", executed: "run.long_task()" },
 			{ type: "status", message: "starting long task" },
 			{ type: "progress", message: "halfway done" },
 		]);
@@ -2005,10 +2000,7 @@ setInterval(() => {}, 1000);
 				new Promise((_, reject) => setTimeout(() => reject(new Error("Pyrun abort did not settle")), 500)),
 			]),
 		).rejects.toThrow("Pyrun evaluation aborted");
-		expect(updates.map((update) => update.details)).toEqual([
-			{ type: "running", executed: "run.never()" },
-			{ type: "status", message: "still running" },
-		]);
+		expect(updates.map((update) => update.details)).toEqual([{ type: "status", message: "still running" }]);
 	});
 
 	it("rejects a failed foreground runner without creating an agent", async () => {

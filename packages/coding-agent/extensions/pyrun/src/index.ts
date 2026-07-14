@@ -83,19 +83,15 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
 ];
 
-function formatPyrunDisplay(text: string, executed: string | undefined, isError: boolean, theme: Theme): string {
+function formatPyrunResult(text: string, executed: string | undefined, isError: boolean, theme: Theme): string {
 	if (!executed) {
 		return theme.fg("toolOutput", text);
 	}
-
-	const highlightedCode = highlightCode(executed, "python").join("\n");
 	if (!text.startsWith(executed)) {
 		const prefix = isError && !text.startsWith("Error:") ? "Error: " : "";
-		return `${highlightedCode}\n\n${theme.fg("toolOutput", `${prefix}${text}`)}`;
+		return theme.fg("toolOutput", `${prefix}${text}`);
 	}
-
-	const rest = text.slice(executed.length).replace(/^\n+/, "");
-	return rest ? `${highlightedCode}\n\n${theme.fg("toolOutput", rest)}` : highlightedCode;
+	return theme.fg("toolOutput", text.slice(executed.length).replace(/^\n+/, ""));
 }
 
 function getExecutedCode(details: unknown): string | undefined {
@@ -492,7 +488,9 @@ export function createPyrunToolDefinition(
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			const sessionId = readStringArg(args, "session_id");
 			const label = sessionId && sessionId !== "default" ? `pyrun_eval(${sessionId})` : "pyrun_eval";
-			text.setText(theme.bold(label));
+			const code = readStringArg(args, "code");
+			const highlightedCode = code ? highlightCode(code, "python").join("\n") : undefined;
+			text.setText(highlightedCode ? `${theme.bold(label)}\n${highlightedCode}` : theme.bold(label));
 			return text;
 		},
 		renderResult(result, _options, theme, context) {
@@ -502,15 +500,11 @@ export function createPyrunToolDefinition(
 				.map((item) => item.text ?? "")
 				.join("\n");
 			const executed = getExecutedCode(result.details) ?? readStringArg(context.args, "code");
-			text.setText(formatPyrunDisplay(output, executed, context.isError, theme));
+			text.setText(formatPyrunResult(output, executed, context.isError, theme));
 			return text;
 		},
 		execute: async (toolCallId, params, signal, onUpdate, ctx) => {
 			const pyrunParams = params as PyrunEvalParams;
-			onUpdate?.({
-				content: [{ type: "text", text: pyrunParams.code }],
-				details: { executed: pyrunParams.code, type: "running" },
-			});
 			return evaluate(toolCallId, pyrunParams, ctx, onUpdate, signal);
 		},
 	};
