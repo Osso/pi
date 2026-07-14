@@ -266,16 +266,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       maintained only by the runtime listener lifecycle. Fresh
       heartbeats are not accepted as PID ownership proof: inventory and signal delivery verify the PID
       still belongs to Pi, and a different verified live Pi PID blocks concurrent session replacement.
-- [x] Runtime mailbox messages remain `pending` and unread by the recipient runtime until the
-      recipient session is ready to deliver them directly as active session input. A busy session
-      does not claim, read, or copy mailbox messages into an in-memory follow-up queue.
+- [x] Runtime mailbox messages remain `pending` and unread until the recipient reaches an eligible
+      delivery boundary. Idle delivery submits them directly as active session input; an active turn
+      consumes checkpoint-eligible messages through the agent steering queue, never the follow-up queue.
 - [x] When the recipient session is ready, one immediate transaction selects its eligible pending
       mailbox messages and marks those same rows `delivered`. Concurrent recipients cannot select
       the same message, and no claim-before-read interval exists between mailbox selection and the
       delivery-state update.
 - [x] Mailbox rows selected and marked `delivered` at the readiness boundary are submitted directly
-      as the next active session input, without an intermediate volatile queue. Restart before that
-      boundary leaves the rows pending and recoverable.
+      as idle session input or active-turn steering. Restart before that boundary leaves the rows
+      pending and recoverable.
 - [x] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
       messages are no longer actionable.
 - [x] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the
@@ -294,9 +294,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       active at invocation until one reaches a terminal state. Notifications only wake the query; the agent
       row is terminal truth. It does not consume runtime-mailbox transport rows; Hostrun/Pyrun uses the same
       operation.
-- [x] While a session is streaming, runtime mailbox polling leaves pending messages unread and
-      unchanged. The session reads and marks them delivered only when it reaches the readiness
-      boundary for direct next-input delivery.
+- [x] While a session is streaming, ordinary polling leaves pending messages unread and unchanged.
+      Safe-checkpoint drains select eligible messages atomically, mark them delivered, and enqueue
+      them as steering before the next model call; non-eligible messages remain durable and pending.
 - [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so canonical mailbox delivery uses one durable database without path fallback.
 - [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
       no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray
@@ -519,8 +519,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Add atomic claim/deliver/fail transitions for runtime mailbox rows and regression tests for
       duplicate delivery prevention across concurrent receivers.
 - [x] Replace eager runtime-mailbox claim and volatile follow-up enqueue with readiness-boundary
-      selection and delivery marking in one transaction, then direct next-input submission. Add
-      restart coverage proving messages remain pending until that boundary.
+      selection and delivery marking in one transaction, then direct idle input or active-turn
+      steering. Add restart coverage proving messages remain pending until an eligible boundary.
 - [x] Add 30-day cleanup for stale runtime mailbox rows.
 - [ ] Add true mid-flight detach for the currently running foreground turn; the current `/bg`
       command starts a new background child-agent prompt instead of transferring an active

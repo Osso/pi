@@ -63,6 +63,7 @@
 
 ### Changed
 
+- Runtime mailbox messages now enter active turns through steering at safe checkpoints instead of accumulating as follow-ups between model calls; non-eligible messages remain durable until an eligible checkpoint or idle delivery.
 - Shared-channel follow-up turns now retain extension provenance instead of entering the interactive editor's typed prompt history.
 - Pyrun now renders submitted Python immediately in the tool call instead of emitting it as a synthetic tool result update.
 - User rules now support runtime-scoped `rules/supervisor/` and `rules/child/` directories; shared top-level rules still load everywhere, while observer runtimes receive only shared rules.

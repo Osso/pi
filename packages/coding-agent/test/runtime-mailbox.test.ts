@@ -1895,7 +1895,48 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(statusAtPromptEntry).toBe("delivered");
 	});
 
-	it("does not read runtime mailbox messages when the session is already streaming", async () => {
+	it("steers checkpoint-eligible runtime mailbox messages into an active turn", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Child finished during the active turn",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: {
+				checkpoint: "next_model_call";
+				triggerIfIdle: boolean;
+			}): Promise<boolean>;
+			agent: {
+				state: { isStreaming: boolean };
+				steer(message: { content: Array<{ text?: string }> }): void;
+			};
+		};
+		drainableSession.agent.state.isStreaming = true;
+		const steer = vi.spyOn(drainableSession.agent, "steer");
+
+		const queued = await drainableSession._drainRuntimeMailboxMessages({
+			checkpoint: "next_model_call",
+			triggerIfIdle: false,
+		});
+
+		expect(queued).toBe(true);
+		expect(steer).toHaveBeenCalledWith(
+			expect.objectContaining({
+				content: [{ type: "text", text: runtimeMailboxPrompt("Child finished during the active turn") }],
+				inputSource: "extension",
+				role: "user",
+			}),
+		);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
+	it("does not read runtime mailbox messages when the session is already streaming without a checkpoint", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();

@@ -2626,9 +2626,10 @@ export class AgentSession {
 		checkpoint?: SteeringCheckpoint;
 		triggerIfIdle: boolean;
 	}): Promise<boolean> {
-		// Runtime mailbox input is read only when the idle session can submit it
-		// directly. Post-turn checkpoints leave it durable and pending.
-		if (!options.triggerIfIdle || this.isStreaming) {
+		const canSteerActiveTurn = this.isStreaming && options.checkpoint !== undefined;
+		if (this.isStreaming) {
+			if (!canSteerActiveTurn) return false;
+		} else if (!options.triggerIfIdle) {
 			return false;
 		}
 		if (this._runtimeMailboxDrainPromise) {
@@ -2638,9 +2639,14 @@ export class AgentSession {
 		if (!controlDbPath) {
 			return false;
 		}
-		const drain = this._withTurnStartLock((release) =>
-			this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, release),
-		);
+		const drain = canSteerActiveTurn
+			? this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, { mode: "steer" })
+			: this._withTurnStartLock((releaseTurnStart) =>
+					this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, {
+						mode: "prompt",
+						releaseTurnStart,
+					}),
+				);
 		this._runtimeMailboxDrainPromise = drain;
 		try {
 			return await drain;
@@ -2652,9 +2658,11 @@ export class AgentSession {
 	private async _deliverReadyRuntimeMailboxMessages(
 		controlDbPath: string,
 		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
-		releaseTurnStart: () => void,
+		delivery: { mode: "steer" } | { mode: "prompt"; releaseTurnStart: () => void },
 	): Promise<boolean> {
-		if (this.isStreaming || !this.model || !this._modelRegistry.hasConfiguredAuth(this.model)) return false;
+		if (delivery.mode === "prompt" && (!this.model || !this._modelRegistry.hasConfiguredAuth(this.model))) {
+			return false;
+		}
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		if (readRuntimeMailboxListener(controlDbPath, recipient)?.pid !== process.pid) return false;
 		const messages = takeRuntimeMailboxMessagesForDelivery(controlDbPath, recipient, (message) =>
@@ -2670,7 +2678,17 @@ export class AgentSession {
 		const prompt = promptMessages
 			.map((message) => formatRuntimeMailboxPrompt(message, recipient.sessionId))
 			.join("\n\n");
-		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, releaseTurnStart);
+		if (delivery.mode === "steer") {
+			this.agent.steer({
+				role: "user",
+				content: [{ type: "text", text: prompt }],
+				inputSource: "extension",
+				timestamp: Date.now(),
+			});
+			for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
+			return true;
+		}
+		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, delivery.releaseTurnStart);
 		for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
 		this._completeRuntimeMailboxSteeringTurn(this.messages);
 		return false;
