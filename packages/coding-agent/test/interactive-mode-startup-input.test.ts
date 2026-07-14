@@ -36,9 +36,16 @@ type InputContext = {
 	pendingUserInputs: string[];
 };
 
+type MainLoopContext = {
+	session: { prompt: (text: string, options?: unknown) => Promise<void> };
+	clipboardTempFiles: { cleanupReferencedIn: (text: string) => void };
+	showError: (text: string) => void;
+};
+
 type InteractiveModePrivate = {
 	setupEditorSubmitHandler(this: SubmitContext): void;
 	getUserInput(this: InputContext): Promise<string>;
+	submitMainLoopInput(this: MainLoopContext, userInput: string): Promise<void>;
 	processControlMessage(
 		this: ControlMessageContext,
 		message: { id: number; content: string } | undefined,
@@ -148,6 +155,22 @@ describe("InteractiveMode startup input", () => {
 		await expect(interactiveModePrototype.getUserInput.call(context)).resolves.toBe("queued prompt");
 		expect(context.onInputCallback).toBeUndefined();
 		expect(context.pendingUserInputs).toEqual([]);
+	});
+
+	it("queues main-loop input as steering when a background turn raced in", async () => {
+		// Regression: after Escape resubmits queued steering text, a runtime
+		// mailbox delivery can start a new turn first. The main loop must queue
+		// the text as steering instead of losing it to an "already processing" error.
+		const context: MainLoopContext = {
+			session: { prompt: vi.fn(async () => {}) },
+			clipboardTempFiles: { cleanupReferencedIn: vi.fn() },
+			showError: vi.fn(),
+		};
+
+		await interactiveModePrototype.submitMainLoopInput.call(context, "queued steering");
+
+		expect(context.session.prompt).toHaveBeenCalledWith("queued steering", { streamingBehavior: "steer" });
+		expect(context.showError).not.toHaveBeenCalled();
 	});
 
 	it("submits and completes a claimed control message on startup", async () => {

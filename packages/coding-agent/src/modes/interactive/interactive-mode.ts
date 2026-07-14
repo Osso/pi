@@ -1070,13 +1070,22 @@ export class InteractiveMode {
 		// Main interactive loop
 		while (true) {
 			const userInput = await this.getUserInput();
-			try {
-				await this.session.prompt(userInput);
-				this.clipboardTempFiles.cleanupReferencedIn(userInput);
-			} catch (error: unknown) {
-				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-				this.showError(errorMessage);
-			}
+			await this.submitMainLoopInput(userInput);
+		}
+	}
+
+	/**
+	 * Submit input from the main interactive loop. A background turn (e.g. runtime
+	 * mailbox delivery) can start between queueing this input and prompting, so
+	 * queue as steering instead of throwing away the user's text.
+	 */
+	private async submitMainLoopInput(userInput: string): Promise<void> {
+		try {
+			await this.session.prompt(userInput, { streamingBehavior: "steer" });
+			this.clipboardTempFiles.cleanupReferencedIn(userInput);
+		} catch (error: unknown) {
+			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+			this.showError(errorMessage);
 		}
 	}
 
