@@ -439,6 +439,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				return success(id, "abort");
 			}
 
+			case "interrupt": {
+				const { steering, followUp } = session.clearQueue();
+				void session.interrupt([...steering, ...followUp].join("\n\n"), "rpc").catch((e) => {
+					console.error(`RPC interrupt failed: ${e instanceof Error ? e.message : String(e)}`);
+				});
+				return success(id, "interrupt");
+			}
+
 			case "new_session": {
 				const options = command.parentSession ? { parentSession: command.parentSession } : undefined;
 				const result = await runtimeHost.newSession(options);

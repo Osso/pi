@@ -4999,20 +4999,9 @@ export class InteractiveMode {
 		const queuedText = allQueued.join("\n\n");
 		const currentText = this.editor.getText();
 		const combinedText = [queuedText, currentText].filter((text) => text.trim()).join("\n\n");
-		const releasePendingInput = this.session.reserveExternalUserInput();
 		this.editor.setText("");
 		this.updatePendingMessagesDisplay();
-		const abortPromise = this.session.abort();
-		if (this.onInputCallback) {
-			this.onInputCallback(combinedText);
-		} else {
-			this.pendingUserInputs.push(combinedText);
-		}
-		try {
-			await abortPromise;
-		} finally {
-			releasePendingInput();
-		}
+		await this.session.interrupt(combinedText);
 	}
 
 	private restoreQueuedMessagesToEditor(options?: { abort?: boolean; currentText?: string }): number {

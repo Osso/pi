@@ -157,6 +157,22 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("preserves queued steering when interrupting an active turn", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Start a long response" });
+			const interruptedRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+
+			await agent.send({ type: "steer", message: "Preserve this steering after interrupt" });
+			await agent.send({ type: "interrupt" });
+
+			const resumedRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== interruptedRequest.id,
+			);
+			expect(resumedRequest.userMessages).toContain("Preserve this steering after interrupt");
+			agent.respondToLlmRequest(resumedRequest.id, fauxAssistantMessage("Steering preserved"));
+		});
+	});
+
 	it("resumes a spawned agent that was thinking when its supervisor process died", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Delegate work, then wait" });

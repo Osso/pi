@@ -142,6 +142,20 @@ Response:
 {"type": "response", "command": "abort", "success": true}
 ```
 
+#### interrupt
+
+Abort the current agent operation and immediately resubmit queued steering and follow-up messages as the replacement prompt. This is the headless/RPC equivalent of pressing Escape while the interactive UI is streaming. If a background turn starts after the abort becomes idle, the preserved input queues as steering instead of being lost.
+
+```json
+{"type": "interrupt"}
+```
+
+Response acknowledges that the interrupt operation started; the replacement model turn continues asynchronously through the normal event stream.
+
+```json
+{"type": "response", "command": "interrupt", "success": true}
+```
+
 #### new_session
 
 Start a fresh session. Can be cancelled by a `session_before_switch` extension event handler.

@@ -663,38 +663,18 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.restoreQueuedMessagesToEditor).not.toHaveBeenCalled();
 	});
 
-	test("escape cancellation submits queued and current text without waiting for abort teardown", async () => {
-		let resolveAbort: (() => void) | undefined;
-		const abortPromise = new Promise<void>((resolve) => {
-			resolveAbort = resolve;
-		});
-		const releasePendingInput = vi.fn();
+	test("escape interrupts with queued and current text preserved", async () => {
 		const fakeThis = {
 			clearAllQueues: vi.fn(() => ({ steering: ["queued steering"], followUp: ["queued follow-up"] })),
 			editor: { getText: () => "current draft", setText: vi.fn() },
-			onInputCallback: undefined,
-			pendingUserInputs: [] as string[],
-			session: {
-				abort: vi.fn(() => abortPromise),
-				reserveExternalUserInput: vi.fn(() => releasePendingInput),
-			},
-			showError: vi.fn(),
+			session: { interrupt: vi.fn(async () => {}) },
 			updatePendingMessagesDisplay: vi.fn(),
 		};
 
-		interactiveModeKeyHandlers.cancelStreamingAndSubmitQueuedMessages.call(fakeThis);
-		await Promise.resolve();
+		await interactiveModeKeyHandlers.cancelStreamingAndSubmitQueuedMessages.call(fakeThis);
 
 		expect(fakeThis.editor.setText).toHaveBeenCalledWith("");
-		expect(fakeThis.session.abort).toHaveBeenCalledTimes(1);
-		expect(fakeThis.session.reserveExternalUserInput).toHaveBeenCalledTimes(1);
-		expect(fakeThis.pendingUserInputs).toEqual(["queued steering\n\nqueued follow-up\n\ncurrent draft"]);
-		expect(releasePendingInput).not.toHaveBeenCalled();
-
-		resolveAbort?.();
-		await abortPromise;
-		await Promise.resolve();
-		expect(releasePendingInput).toHaveBeenCalledTimes(1);
+		expect(fakeThis.session.interrupt).toHaveBeenCalledWith("queued steering\n\nqueued follow-up\n\ncurrent draft");
 	});
 
 	test("opens the agent switcher when the agent select action fires", () => {

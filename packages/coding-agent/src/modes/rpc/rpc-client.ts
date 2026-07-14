@@ -228,6 +228,13 @@ export class RpcClient {
 	}
 
 	/**
+	 * Abort the current operation and resubmit queued steering/follow-up input.
+	 */
+	async interrupt(): Promise<void> {
+		await this.send({ type: "interrupt" });
+	}
+
+	/**
 	 * Start a new session, optionally with parent tracking.
 	 * @param parentSession - Optional parent session path for lineage tracking
 	 * @returns Object with `cancelled: true` if an extension cancelled the new session

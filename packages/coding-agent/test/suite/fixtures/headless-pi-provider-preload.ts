@@ -16,7 +16,7 @@ interface ProviderResponse {
 const socket = createConnection(socketPath);
 const pendingResponses = new Map<
 	string,
-	{ resolve: (message: AssistantMessage) => void; reject: (error: Error) => void }
+	{ resolve: (message: AssistantMessage) => void; reject: (error: Error) => void; cleanup: () => void }
 >();
 let inputBuffer = "";
 let nextRequestId = 1;
@@ -34,12 +34,16 @@ socket.on("data", (chunk: string) => {
 		const pending = pendingResponses.get(response.requestId);
 		if (!pending) continue;
 		pendingResponses.delete(response.requestId);
+		pending.cleanup();
 		pending.resolve(response.message);
 	}
 });
 
 function rejectPendingResponses(error: Error): void {
-	for (const pending of pendingResponses.values()) pending.reject(error);
+	for (const pending of pendingResponses.values()) {
+		pending.cleanup();
+		pending.reject(error);
+	}
 	pendingResponses.clear();
 }
 
@@ -49,7 +53,15 @@ socket.on("close", () => rejectPendingResponses(new Error("Headless faux-provide
 function waitForParentResponse(context: Context, options: StreamOptions | undefined): Promise<AssistantMessage> {
 	const requestId = `llm_${nextRequestId++}`;
 	const response = new Promise<AssistantMessage>((resolve, reject) => {
-		pendingResponses.set(requestId, { resolve, reject });
+		const signal = options?.signal;
+		const onAbort = () => {
+			pendingResponses.delete(requestId);
+			reject(signal?.reason instanceof Error ? signal.reason : new Error("aborted"));
+		};
+		const cleanup = () => signal?.removeEventListener("abort", onAbort);
+		pendingResponses.set(requestId, { cleanup, resolve, reject });
+		if (signal?.aborted) onAbort();
+		else signal?.addEventListener("abort", onAbort, { once: true });
 	});
 	socket.write(
 		`${JSON.stringify({

@@ -3193,6 +3193,32 @@ export class AgentSession {
 	}
 
 	/**
+	 * Abort the current operation, then submit preserved user input. A background
+	 * turn may start after abort becomes idle, so the replacement prompt queues as
+	 * steering instead of failing or losing the user's text.
+	 */
+	async interrupt(message: string, source: InputSource = "interactive"): Promise<void> {
+		const trimmedMessage = message.trim();
+		if (!trimmedMessage) {
+			await this.abort();
+			return;
+		}
+		const releasePendingInput = this.reserveExternalUserInput();
+		try {
+			await this.abort();
+			await this.prompt(trimmedMessage, {
+				preflightResult: (accepted) => {
+					if (accepted) releasePendingInput();
+				},
+				source,
+				streamingBehavior: "steer",
+			});
+		} finally {
+			releasePendingInput();
+		}
+	}
+
+	/**
 	 * Abort current operation and wait for agent to become idle.
 	 */
 	async abort(): Promise<void> {

@@ -30,6 +30,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Exercise the production `spawn_agent` tool path.
 - [x] Expose the child user instruction received by the faux provider.
 - [x] Observe a completed child's notification after delivery to the main-thread mailbox.
+- [x] Prove interrupting an active real-process turn preserves queued steering and submits it in the replacement LLM request.
 
 ## How it works
 
