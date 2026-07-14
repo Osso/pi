@@ -157,7 +157,7 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("delivers parent steering to an active subagent's next model call", async () => {
+	it("wait_agents returns after an active subagent processes pending steering", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Spawn a reviewer, then steer it" });
 			const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
@@ -191,21 +191,51 @@ describe("headless Pi fixture", () => {
 			await agent.waitForAgent(
 				(candidate) => candidate.id === spawned.id && candidate.lifecycle === "steering_pending",
 			);
-			agent.respondToLlmRequest(initialChildRequest.id, fauxAssistantMessage("Initial review complete"));
+			const mainAfterSteer = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null && request.id !== initialMainRequest.id && request.id !== mainAfterSpawn.id,
+			);
+			const waitToolCallId = "wait-for-steered-reviewer";
+			agent.respondToLlmRequest(
+				mainAfterSteer.id,
+				fauxAssistantMessage({ ...fauxToolCall("wait_agents", {}), id: waitToolCallId }, { stopReason: "toolUse" }),
+			);
+			await agent.waitForEvent(
+				(event) =>
+					event.type === "tool_execution_start" &&
+					event.toolName === "wait_agents" &&
+					event.toolCallId === waitToolCallId,
+			);
 
+			agent.respondToLlmRequest(initialChildRequest.id, fauxAssistantMessage("Initial review complete"));
 			const steeredChildRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== initialChildRequest.id,
 			);
 			expect(steeredChildRequest.userMessages).toContainEqual(
 				expect.stringContaining("Focus the review on cancellation races"),
 			);
-			agent.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Cancellation races reviewed"));
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "toolResult" &&
+							entry.message.toolCallId === waitToolCallId,
+					),
+			).toBe(false);
 
-			const mainAfterSteer = await agent.waitForLlmRequest(
+			agent.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Cancellation races reviewed"));
+			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
+			const mainAfterWait = await agent.waitForLlmRequest(
 				(request) =>
-					request.agentId === null && request.id !== initialMainRequest.id && request.id !== mainAfterSpawn.id,
+					request.agentId === null &&
+					request.id !== initialMainRequest.id &&
+					request.id !== mainAfterSpawn.id &&
+					request.id !== mainAfterSteer.id,
 			);
-			agent.respondToLlmRequest(mainAfterSteer.id, fauxAssistantMessage("Reviewer steered"));
+			expect(JSON.stringify(mainAfterWait.messages)).toContain("Cancellation races reviewed");
+			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Steered reviewer completed"));
 		});
 	});
 
