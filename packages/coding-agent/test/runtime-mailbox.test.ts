@@ -239,7 +239,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
 
-		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: false })).resolves.toBe(false);
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
 		expect(handled).toHaveBeenCalledWith("protocol request");
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 		expect(getUserTexts(harness)).toEqual([]);
@@ -275,12 +275,12 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("poison terminal projection");
 		});
 
-		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: false })).resolves.toBe(false);
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
 		expect(handled).toHaveBeenCalledWith("independent delivery");
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
-	it("fails intercepted runtime mailbox messages when the extension handler throws", async () => {
+	it("keeps readiness-transaction delivery final when a mailbox extension handler throws", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness({
@@ -304,11 +304,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
 
-		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: false })).resolves.toBe(false);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({
-			error: "protocol rejected",
-			status: "failed",
-		});
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 		expect(getUserTexts(harness)).toEqual([]);
 	});
 
@@ -1807,7 +1804,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		).toBe(initialCursor);
 	});
 
-	it("drains claimed runtime mailbox messages at the end of a turn", async () => {
+	it("delivers pending runtime mailbox messages directly after the session becomes idle", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
@@ -1822,13 +1819,64 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 
 		await harness.session.prompt("hello");
+		await harness.session.drainRuntimeCoordination();
 		await harness.session.agent.waitForIdle();
 
 		expect(getUserTexts(harness)).toEqual(["hello", runtimeMailboxPrompt("Child finished tests")]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
-	it("keeps runtime mailbox messages pending when idle delivery races with an active prompt", async () => {
+	it("leaves runtime mailbox messages pending instead of queuing them during post-turn coordination", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Child finished while the current turn was ending",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const queued = await drainableSession._drainRuntimeMailboxMessages({ triggerIfIdle: false });
+
+		expect(queued).toBe(false);
+		expect(harness.session.getFollowUpMessages()).toEqual([]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
+	});
+
+	it("marks runtime mailbox messages delivered in the transaction that reads them for idle delivery", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Child finished before idle delivery",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+			_promptTurn(text: string, options: unknown, releaseTurnStart: () => void): Promise<void>;
+		};
+		let statusAtPromptEntry: string | undefined;
+		drainableSession._promptTurn = async (_text, _options, releaseTurnStart) => {
+			statusAtPromptEntry = readRuntimeMailboxMessage(controlDbPath, messageId)?.status;
+			releaseTurnStart();
+		};
+
+		await drainableSession._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+
+		expect(statusAtPromptEntry).toBe("delivered");
+	});
+
+	it("does not read runtime mailbox messages when the session is already streaming", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
@@ -1842,13 +1890,9 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 		const drainableSession = harness.session as unknown as {
 			_drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
-			prompt(text: string, options?: unknown): Promise<void>;
+			agent: { state: { isStreaming: boolean } };
 		};
-		drainableSession.prompt = async () => {
-			throw new Error(
-				"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
-			);
-		};
+		drainableSession.agent.state.isStreaming = true;
 
 		const queued = await drainableSession._drainRuntimeMailboxMessages({ triggerIfIdle: true });
 
@@ -2018,7 +2062,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 	});
 
-	it("fails idle runtime mailbox steer state when prompt preflight fails", async () => {
+	it("keeps idle runtime mailbox steer pending when prompt authentication is unavailable", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -2051,18 +2095,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 
 		await vi.advanceTimersByTimeAsync(3_000);
-		for (
-			let attempt = 0;
-			attempt < 10 && readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)?.status !== "failed";
-			attempt += 1
-		) {
-			await delay(0);
-		}
 
-		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "failed" });
-		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "failed" });
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "pending" });
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "steering_pending" });
 		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
-			status: "failed",
+			status: "pending",
 		});
 	});
 

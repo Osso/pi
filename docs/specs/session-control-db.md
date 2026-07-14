@@ -88,6 +88,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
 - [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path.
+- [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
+      `pending` and does not read their payloads into runtime memory. Once ready, one immediate
+      transaction selects eligible pending rows and marks those same rows `delivered`; selected
+      payloads proceed directly to active session input without an intermediate volatile queue.
+      Restart before this transaction leaves the messages pending and recoverable.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
@@ -138,6 +143,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 - [x] Wire SIGHUP startup consumption and last-message recording into
   interactive mode.
+- [x] Move runtime-mailbox selection and delivery marking to the recipient readiness boundary and
+      remove volatile follow-up queuing for mailbox messages.
 
 ## Out of scope
 

@@ -132,10 +132,6 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 
 import {
 	advanceSharedChannelCursor,
-	claimRuntimeMailboxMessages,
-	consumeRuntimeMailboxMessage,
-	deliverRuntimeMailboxMessage,
-	failRuntimeMailboxMessage,
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
@@ -145,16 +141,14 @@ import {
 	type RuntimeMailboxMessage,
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
-	readRuntimeMailboxMessageForDelivery,
 	readSharedChannelTail,
 	recordPromptHistoryEntry,
-	recoverDeadRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
-	releaseRuntimeMailboxMessageClaim,
 	removeNamedSession,
 	retireRuntimeMailboxListener,
 	type SharedChannelMessage,
 	setNamedSession,
+	takeRuntimeMailboxMessagesForDelivery,
 	writeLastMessage,
 } from "./session-control-db.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
@@ -681,7 +675,7 @@ export class AgentSession {
 	private _runtimeMailboxHeartbeatTimer?: ReturnType<typeof setInterval>;
 	private _runtimeMailboxSignalHandler?: () => void;
 	private _disposed = false;
-	private _runtimeMailboxDrainInProgress = false;
+	private _runtimeMailboxDrainPromise: Promise<boolean> | undefined;
 	private _sharedChannelDrainInProgress = false;
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
 	private readonly _runtimeMailboxPendingTerminal = new Map<
@@ -2252,7 +2246,8 @@ export class AgentSession {
 			}
 		}
 
-		return this._withTurnStartLock((release) => this._promptTurn(text, options, release));
+		await this._withTurnStartLock((release) => this._promptTurn(text, options, release));
+		await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
 	}
 
 	private async _promptTurn(
@@ -2631,80 +2626,54 @@ export class AgentSession {
 		checkpoint?: SteeringCheckpoint;
 		triggerIfIdle: boolean;
 	}): Promise<boolean> {
-		if (this._runtimeMailboxDrainInProgress) {
+		// Runtime mailbox input is read only when the idle session can submit it
+		// directly. Post-turn checkpoints leave it durable and pending.
+		if (!options.triggerIfIdle || this.isStreaming) {
 			return false;
 		}
-		// While streaming, leave messages pending so tools like wait_agents can
-		// consume them mid-turn; the post-turn drain delivers whatever remains.
-		if (options.triggerIfIdle && this.isStreaming) {
-			return false;
+		if (this._runtimeMailboxDrainPromise) {
+			return this._runtimeMailboxDrainPromise;
 		}
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath) {
 			return false;
 		}
-		this._runtimeMailboxDrainInProgress = true;
+		const drain = this._withTurnStartLock((release) =>
+			this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, release),
+		);
+		this._runtimeMailboxDrainPromise = drain;
 		try {
-			return await this._drainClaimedRuntimeMailboxMessages(controlDbPath, options);
+			return await drain;
 		} finally {
-			this._runtimeMailboxDrainInProgress = false;
+			if (this._runtimeMailboxDrainPromise === drain) this._runtimeMailboxDrainPromise = undefined;
 		}
 	}
 
-	private async _drainClaimedRuntimeMailboxMessages(
+	private async _deliverReadyRuntimeMailboxMessages(
 		controlDbPath: string,
 		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
+		releaseTurnStart: () => void,
 	): Promise<boolean> {
+		if (this.isStreaming || !this.model || !this._modelRegistry.hasConfiguredAuth(this.model)) return false;
 		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
 		if (readRuntimeMailboxListener(controlDbPath, recipient)?.pid !== process.pid) return false;
-		recoverDeadRuntimeMailboxClaims(controlDbPath, recipient);
-		const claimed = claimRuntimeMailboxMessages(controlDbPath, recipient);
-		let queued = false;
-		for (const claimedMessage of claimed) {
-			queued =
-				(await this._processRuntimeMailboxMessage(controlDbPath, recipient.sessionId, claimedMessage, options)) ||
-				queued;
+		const messages = takeRuntimeMailboxMessagesForDelivery(controlDbPath, recipient, (message) =>
+			this._isRuntimeMailboxMessageDue(message, options),
+		);
+		const promptMessages: RuntimeMailboxMessage[] = [];
+		for (const message of messages) {
+			this._recordDetachedToolCallCompletion(message);
+			if (await this._interceptRuntimeMailboxMessage(message)) continue;
+			promptMessages.push(message);
 		}
-		return queued;
-	}
-
-	private async _processRuntimeMailboxMessage(
-		controlDbPath: string,
-		recipientSessionId: string,
-		claimedMessage: RuntimeMailboxMessage,
-		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
-	): Promise<boolean> {
-		const delivery = readRuntimeMailboxMessageForDelivery(controlDbPath, claimedMessage.id);
-		const message = delivery?.message ?? claimedMessage;
-		this._recordDetachedToolCallCompletion(message);
-		if (this._consumeResolvedStoreMailboxMessage(controlDbPath, message)) return false;
-		if (!delivery?.payloadValid) {
-			this._failStoreMailboxDelivery(message, new Error("Runtime mailbox durable payload is invalid"));
-			failRuntimeMailboxMessage(controlDbPath, message.id, "Runtime mailbox durable payload is invalid");
-			return false;
-		}
-		if (!this._isRuntimeMailboxMessageDue(message, options)) {
-			releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
-			return false;
-		}
-		if (await this._interceptRuntimeMailboxMessage(controlDbPath, message, delivery.payloadData)) return false;
-		const triggerIfIdle = options.triggerIfIdle && !this.isStreaming;
-		try {
-			await this._deliverRuntimeMailboxPrompt(message, recipientSessionId, triggerIfIdle);
-			if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, delivery.payloadData)) {
-				throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
-			}
-			this._markStoreMailboxMessageDelivered(message);
-			if (triggerIfIdle && !this.isStreaming) this._completeRuntimeMailboxSteeringTurn(this.messages);
-			return !triggerIfIdle;
-		} catch (error) {
-			if (isSessionBusyPromptError(error)) releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
-			else {
-				this._failStoreMailboxDelivery(message, error);
-				failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
-			}
-			return false;
-		}
+		if (promptMessages.length === 0) return false;
+		const prompt = promptMessages
+			.map((message) => formatRuntimeMailboxPrompt(message, recipient.sessionId))
+			.join("\n\n");
+		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, releaseTurnStart);
+		for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
+		this._completeRuntimeMailboxSteeringTurn(this.messages);
+		return false;
 	}
 
 	private _isRuntimeMailboxMessageDue(
@@ -2717,23 +2686,6 @@ export class AgentSession {
 		if (checkpoint === "after_tool_result") return options.checkpoint === "after_tool_result";
 		if (checkpoint === "when_waiting") return options.triggerIfIdle && !this.isStreaming;
 		return options.checkpoint === "next_model_call" || options.triggerIfIdle;
-	}
-
-	private async _deliverRuntimeMailboxPrompt(
-		message: RuntimeMailboxMessage,
-		recipientSessionId: string,
-		triggerIfIdle: boolean,
-	): Promise<void> {
-		const prompt = formatRuntimeMailboxPrompt(message, recipientSessionId);
-		if (triggerIfIdle) {
-			await this.prompt(prompt, {
-				expandPromptTemplates: false,
-				source: "extension",
-				streamingBehavior: "followUp",
-			});
-			return;
-		}
-		await this._queueFollowUp(prompt);
 	}
 
 	/**
@@ -2761,23 +2713,15 @@ export class AgentSession {
 		if (!alreadyRecorded) this.sessionManager.appendCustomEntry(DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE, data);
 	}
 
-	private async _interceptRuntimeMailboxMessage(
-		controlDbPath: string,
-		message: RuntimeMailboxMessage,
-		payloadData: string | undefined,
-	): Promise<boolean> {
+	private async _interceptRuntimeMailboxMessage(message: RuntimeMailboxMessage): Promise<boolean> {
 		if (!this._extensionRunner.hasHandlers("runtime_mailbox")) return false;
 		try {
 			const result = await this._extensionRunner.emitRuntimeMailbox({ type: "runtime_mailbox", message });
 			if (!result.handled) return false;
-			if (!deliverRuntimeMailboxMessage(controlDbPath, message.id, payloadData)) {
-				throw new Error(`Runtime mailbox durable delivery failed for row ${message.id}`);
-			}
 			this._markStoreMailboxMessageDelivered(message);
 			return true;
 		} catch (error) {
 			this._failStoreMailboxDelivery(message, error);
-			failRuntimeMailboxMessage(controlDbPath, message.id, errorMessage(error));
 			return true;
 		}
 	}
@@ -2856,14 +2800,7 @@ export class AgentSession {
 		return true;
 	}
 
-	private _consumeResolvedStoreMailboxMessage(controlDbPath: string, message: RuntimeMailboxMessage): boolean {
-		if (!message.storeRef) {
-			return false;
-		}
-		return consumeRuntimeMailboxMessage(controlDbPath, message.id);
-	}
-
-	// Canonical mailbox state transitions to delivered only after actual delivery.
+	// The readiness transaction already committed canonical delivery; this updates the live projection.
 	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): string | undefined {
 		const storeRef = message.storeRef;
 		if (!storeRef) {

@@ -541,6 +541,30 @@ export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient
 	);
 }
 
+export function takeRuntimeMailboxMessagesForDelivery(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	isEligible: (message: RuntimeMailboxMessage) => boolean,
+	limit = 20,
+): RuntimeMailboxMessage[] {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit).filter((row) =>
+				canCurrentRuntimeClaimMailboxRow(db, recipient, row),
+			);
+			const now = new Date().toISOString();
+			return rows.flatMap((row) => {
+				const data = parseCanonicalMailboxPayload(row);
+				const message = runtimeMailboxMessageFromCanonicalRow(row, data);
+				if (!isEligible(message)) return [];
+				const delivered = { ...data, status: "delivered", deliveredAt: now, updatedAt: now };
+				writeCanonicalMailboxPayload(db, row.id, delivered, now);
+				return [runtimeMailboxMessageFromCanonicalRow(row, delivered)];
+			});
+		}),
+	);
+}
+
 export function claimRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
