@@ -26,6 +26,22 @@ function expectSingleToolResult(request: HeadlessLlmRequest, expectedOutput: str
 	expect(JSON.stringify(request.messages)).toContain(expectedOutput);
 }
 
+function expectSingleFailedToolResult(request: HeadlessLlmRequest, expectedOutput: string): void {
+	const results = request.messages.filter((message) => message.role === "toolResult");
+	expect(results).toHaveLength(1);
+	expect(results[0]).toMatchObject({ isError: true });
+	expect(JSON.stringify(results[0])).toContain(expectedOutput);
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function killProcessGroup(pid: number): void {
 	try {
 		process.kill(-pid, "SIGKILL");
@@ -452,6 +468,47 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("does not rerun a failed Pyrun tool when restoring its session", async () => {
+		await withHeadlessPi(async (agent) => {
+			const attemptPath = join(agent.paths.workspaceDir, "attempts-failed-pyrun");
+			const code = [
+				"from pathlib import Path",
+				`attempt = Path(${JSON.stringify(attemptPath)})`,
+				`attempt.write_text((attempt.read_text() if attempt.exists() else "") + "x")`,
+				'print("failed-pyrun-output")',
+				'raise RuntimeError("failed-pyrun")',
+			].join("\n");
+			await agent.send({ type: "prompt", message: "Run the failing Pyrun evaluation, then explain it" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialRequest.id,
+				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+			);
+			const interruptedRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialRequest.id,
+			);
+			expectSingleFailedToolResult(interruptedRequest, "failed-pyrun-output");
+			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+
+			await agent.restart();
+
+			const restoredRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== interruptedRequest.id,
+			);
+			expectSingleFailedToolResult(restoredRequest, "failed-pyrun-output");
+			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+			expect(
+				agent
+					.listAgents()
+					.filter(
+						(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
+					),
+			).toHaveLength(0);
+			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Pyrun failure explained"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+		});
+	});
+
 	it("does not resume a cancelling Bash tool when restoring its session", async () => {
 		await withHeadlessPi(async (agent) => {
 			const attemptPath = join(agent.paths.workspaceDir, "attempts-cancelling-bash");
@@ -492,6 +549,65 @@ describe("headless Pi fixture", () => {
 					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
 			).toHaveLength(0);
 		});
+	});
+
+	it("does not resume a cancelling Pyrun tool when restoring its session", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const attemptPath = join(agent.paths.workspaceDir, "attempts-cancelling-pyrun");
+				const releasePath = join(agent.paths.workspaceDir, "release-cancelling-pyrun");
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`attempt = Path(${JSON.stringify(attemptPath)})`,
+					`release = Path(${JSON.stringify(releasePath)})`,
+					`attempt.write_text((attempt.read_text() if attempt.exists() else "") + "x")`,
+					"while not release.exists(): time.sleep(0.05)",
+				].join("\n");
+				await agent.send({ type: "prompt", message: "Run the cancellable Pyrun evaluation" });
+				const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+				);
+				const afterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== initialRequest.id,
+				);
+				const runner = await agent.waitForAgent(
+					(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
+				);
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				const [runnerPid] = agent.getPyrunRunnerPids();
+				if (!runnerPid) throw new Error("Pyrun runner has no PID");
+				killProcessGroup(runnerPid);
+				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
+				agent.respondToLlmRequest(
+					afterDetach.id,
+					fauxAssistantMessage(fauxToolCall("cancel_agent", { agentId: runner.id, reason: "test cancellation" }), {
+						stopReason: "toolUse",
+					}),
+				);
+				await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
+
+				await agent.crash();
+				await agent.restart();
+
+				await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "aborted");
+				const restoredRequest = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== afterDetach.id,
+				);
+				expect(readFileSync(attemptPath, "utf8")).toBe("x");
+				expect(
+					agent
+						.listAgents()
+						.filter((candidate) => candidate.id !== runner.id && candidate.displayName === "Pyrun evaluation"),
+				).toHaveLength(0);
+				expect(agent.getPyrunRunnerPids().filter(isProcessAlive)).toHaveLength(0);
+				agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Pyrun cancellation confirmed"));
+				await agent.waitForEvent((event) => event.type === "agent_end");
+			},
+			{ autoDetachTools: true },
+		);
 	});
 
 	it("reattaches a live Bash runner when restoring its unfinished JSONL tool call", async () => {

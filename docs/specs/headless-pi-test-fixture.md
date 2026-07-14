@@ -60,8 +60,8 @@ Recovery is reconstructed from the existing session JSONL. It does not add recov
 - [x] Prove a gracefully terminated post-tool thinking turn automatically issues a replacement LLM request after session restore and completes (`headless-pi.test.ts`: `continues post-tool model thinking after restoring the session JSONL`).
 - [x] Prove restoring JSONL that ends with an unfinished Bash or Pyrun tool call reattaches its still-running durable runner without executing the command again (`headless-pi.test.ts`: `reattaches a live Bash runner when restoring its unfinished JSONL tool call`; `reattaches a live Pyrun runner when restoring its unfinished JSONL tool call`).
 - [x] Prove restoring the same unfinished JSONL tool call reruns the Bash or Pyrun command when its original runner cannot be reattached (`headless-pi.test.ts`: `reruns an unfinished Bash JSONL tool call when its original runner is dead`; `reruns an unfinished Pyrun JSONL tool call when its original runner is dead`).
-- [x] Prove restoring after a failed Bash result continues model thinking without running the command again (`headless-pi.test.ts`: `does not rerun a failed Bash tool when restoring its session`).
-- [x] Prove restoring a session whose Bash job was interrupted while cancelling settles the existing job without running the command again (`headless-pi.test.ts`: `does not resume a cancelling Bash tool when restoring its session`).
+- [x] Prove restoring after a failed Bash or Pyrun result continues model thinking without running the command again (`headless-pi.test.ts`: `does not rerun a failed Bash tool when restoring its session`; `does not rerun a failed Pyrun tool when restoring its session`).
+- [x] Prove restoring a session whose Bash or Pyrun job was interrupted while cancelling settles the existing job without running the command again (`headless-pi.test.ts`: `does not resume a cancelling Bash tool when restoring its session`; `does not resume a cancelling Pyrun tool when restoring its session`).
 - Restoring later repeats the same reattach-or-rerun rule; no recovery-specific retry state is persisted.
 
 ## Detached tool completion (current cycle)
