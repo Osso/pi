@@ -89,6 +89,39 @@ export interface PostArchitectRequestInput {
 	body: string;
 }
 
+export type SupervisorRequestKind = "approval_review" | "goal_completion_review" | "goal_idle_review";
+
+export type SupervisorRequestStatus = "pending" | "claimed" | "completed";
+
+export type SupervisorResponse =
+	| { kind: "approve" | "reject"; reason: string }
+	| { kind: "complete"; reason: string }
+	| { kind: "continue"; instructions: string; reason: string }
+	| { kind: "error"; reason: string };
+
+export interface SupervisorRequest {
+	id: number;
+	senderSessionId: string;
+	projectId: string;
+	kind: SupervisorRequestKind;
+	payload: Record<string, unknown>;
+	deadlineAt: string;
+	status: SupervisorRequestStatus;
+	createdAt: string;
+	claimedAt?: string;
+	claimToken?: string;
+	completedAt?: string;
+	response?: SupervisorResponse;
+}
+
+export interface PostSupervisorRequestInput {
+	senderSessionId: string;
+	projectId: string;
+	kind: SupervisorRequestKind;
+	payload: Record<string, unknown>;
+	deadlineAt: string;
+}
+
 export interface EnqueueStoredRuntimeMailboxMessageInput extends EnqueueRuntimeMailboxMessageInput {
 	message: unknown;
 	updatedAt?: string;
@@ -1202,6 +1235,141 @@ export function completeArchitectRequest(
 			 WHERE id = ? AND status = 'claimed' AND claim_token = ?
 			   AND (? IS NULL OR sender_session_id = ?)`,
 		).run(new Date().toISOString(), requestId, claimToken, senderSessionId ?? null, senderSessionId ?? null);
+	});
+}
+
+type SupervisorRequestRow = {
+	id: number;
+	sender_session_id: string;
+	project_id: string;
+	kind: SupervisorRequestKind;
+	payload_json: string;
+	deadline_at: string;
+	status: SupervisorRequestStatus;
+	created_at: string;
+	claimed_at: string | null;
+	claim_token: string | null;
+	completed_at: string | null;
+	response_json: string | null;
+};
+
+function supervisorRequestFromRow(row: SupervisorRequestRow): SupervisorRequest {
+	return {
+		id: row.id,
+		senderSessionId: row.sender_session_id,
+		projectId: row.project_id,
+		kind: row.kind,
+		payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+		deadlineAt: row.deadline_at,
+		status: row.status,
+		createdAt: row.created_at,
+		claimedAt: row.claimed_at ?? undefined,
+		claimToken: row.claim_token ?? undefined,
+		completedAt: row.completed_at ?? undefined,
+		response: row.response_json ? (JSON.parse(row.response_json) as SupervisorResponse) : undefined,
+	};
+}
+
+const SUPERVISOR_REQUEST_COLUMNS = `id, sender_session_id, project_id, kind, payload_json, deadline_at,
+	status, created_at, claimed_at, claim_token, completed_at, response_json`;
+
+export function postSupervisorRequest(controlDbPath: string, input: PostSupervisorRequestInput): number {
+	return withControlDb(controlDbPath, (db) => {
+		const result = db
+			.prepare(
+				`INSERT INTO supervisor_requests
+				 (sender_session_id, project_id, kind, payload_json, deadline_at, status, created_at)
+				 VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+			)
+			.run(
+				input.senderSessionId,
+				input.projectId,
+				input.kind,
+				JSON.stringify(input.payload),
+				input.deadlineAt,
+				new Date().toISOString(),
+			);
+		return Number(result.lastInsertRowid);
+	});
+}
+
+export function readSupervisorRequest(controlDbPath: string, requestId: number): SupervisorRequest | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare(`SELECT ${SUPERVISOR_REQUEST_COLUMNS} FROM supervisor_requests WHERE id = ?`)
+			.get(requestId) as SupervisorRequestRow | undefined;
+		return row ? supervisorRequestFromRow(row) : undefined;
+	});
+}
+
+export function claimNextSupervisorRequest(controlDbPath: string, claimToken: string): SupervisorRequest | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			const activeClaim = db.prepare("SELECT 1 FROM supervisor_requests WHERE status = 'claimed' LIMIT 1").get();
+			if (activeClaim) {
+				db.exec("COMMIT");
+				return undefined;
+			}
+			const row = db
+				.prepare(
+					`SELECT ${SUPERVISOR_REQUEST_COLUMNS}
+					 FROM supervisor_requests
+					 WHERE status = 'pending'
+					 ORDER BY CASE kind WHEN 'approval_review' THEN 0 ELSE 1 END, id ASC
+					 LIMIT 1`,
+				)
+				.get() as SupervisorRequestRow | undefined;
+			if (!row) {
+				db.exec("COMMIT");
+				return undefined;
+			}
+			const claimedAt = new Date().toISOString();
+			db.prepare(
+				"UPDATE supervisor_requests SET status = 'claimed', claimed_at = ?, claim_token = ? WHERE id = ? AND status = 'pending'",
+			).run(claimedAt, claimToken, row.id);
+			db.exec("COMMIT");
+			return supervisorRequestFromRow({
+				...row,
+				status: "claimed",
+				claimed_at: claimedAt,
+				claim_token: claimToken,
+			});
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+export function requeueSupervisorRequest(controlDbPath: string, requestId: number, claimToken: string): void {
+	withControlDb(controlDbPath, (db) => {
+		const result = db
+			.prepare(
+				`UPDATE supervisor_requests
+				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
+				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
+			)
+			.run(requestId, claimToken);
+		if (result.changes !== 1) throw new Error(`Supervisor request claim lost: ${requestId}`);
+	});
+}
+
+export function completeSupervisorRequest(
+	controlDbPath: string,
+	requestId: number,
+	claimToken: string,
+	response: SupervisorResponse,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		const result = db
+			.prepare(
+				`UPDATE supervisor_requests
+				 SET status = 'completed', completed_at = ?, response_json = ?
+				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
+			)
+			.run(new Date().toISOString(), JSON.stringify(response), requestId, claimToken);
+		if (result.changes !== 1) throw new Error(`Supervisor request claim lost: ${requestId}`);
 	});
 }
 
@@ -4117,6 +4285,24 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 
 		CREATE INDEX IF NOT EXISTS architect_requests_status_id_idx
 		ON architect_requests(status, id);
+
+		CREATE TABLE IF NOT EXISTS supervisor_requests (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			sender_session_id TEXT NOT NULL,
+			project_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			deadline_at TEXT NOT NULL,
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			claimed_at TEXT,
+			claim_token TEXT,
+			completed_at TEXT,
+			response_json TEXT
+		);
+
+		CREATE INDEX IF NOT EXISTS supervisor_requests_priority_idx
+		ON supervisor_requests(status, kind, id);
 
 		CREATE TABLE IF NOT EXISTS shared_channel_messages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
