@@ -17,6 +17,10 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       terminal truth. It does not consume shared mailbox delivery; failed jobs expose their failure message
       and direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
+- [x] Only jobs explicitly detached from their waiting tool call emit a terminal supervisor mailbox
+      notification, recorded through a fenced `detached` lifecycle mark. Attended runner-owned jobs
+      deliver results in-band through the waiting tool call without a mailbox wakeup; terminal outbox
+      rows and lifecycle events remain unconditional.
 
 ## How it works
 
