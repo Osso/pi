@@ -110,6 +110,7 @@
 
 ### Fixed
 
+- Fixed resumed sessions relaunching Bash commands whose durable job was already cancelling or aborted for the same tool call.
 - Fixed session-load recovery never settling a wedged `cancelling` detached job: dead-owner recovery no longer requires the recorded owner session ID to match the current incarnation (every resume registers a fresh session ID, making that check unsatisfiable). Authorization now rests on the live registered supervisor binding for the session path plus proof the owner process is dead, and a recovered `cancelling` agent settles as `aborted` (honoring the recorded cancellation intent) instead of `failed/lost_runtime`.
 - Fixed a resumed session re-running a detached Pyrun job whose lifecycle was `cancelling`: on reload the job is now settled to `aborted` (killing any surviving runner) instead of being reattached or relaunched. The refusal also covers legacy manifests with no recorded `toolCallId`, which cannot be correlated to the replayed tool call.
 - Fixed detached tool completion correlation by preserving the originating `toolCallId` in terminal job results and appending the matching completion entry after the immutable detached tool result in the caller JSONL.

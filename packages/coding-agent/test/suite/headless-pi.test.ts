@@ -416,6 +416,84 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("does not rerun a failed Bash tool when restoring its session", async () => {
+		await withHeadlessPi(async (agent) => {
+			const attemptPath = join(agent.paths.workspaceDir, "attempts-failed-bash");
+			await agent.send({ type: "prompt", message: "Run the failing command, then explain it" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("bash", { command: `printf x >> '${attemptPath}'; printf failed-output; exit 7` }),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const interruptedRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialRequest.id,
+			);
+			expectSingleToolResult(interruptedRequest, "failed-output");
+			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+
+			await agent.restart();
+
+			const restoredRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== interruptedRequest.id,
+			);
+			expectSingleToolResult(restoredRequest, "failed-output");
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+			expect(
+				agent
+					.listAgents()
+					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
+			).toHaveLength(0);
+			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Failure explained"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+		});
+	});
+
+	it("does not resume a cancelling Bash tool when restoring its session", async () => {
+		await withHeadlessPi(async (agent) => {
+			const attemptPath = join(agent.paths.workspaceDir, "attempts-cancelling-bash");
+			const releasePath = join(agent.paths.workspaceDir, "release-cancelling-bash");
+			await agent.send({ type: "prompt", message: "Run the cancellable command" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("bash", {
+						command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done`,
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			await agent.waitForEvent((event) => event.type === "tool_execution_start");
+			await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+			const runner = await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
+			);
+
+			const abort = agent.send({ type: "abort" });
+			await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
+			await agent.crash();
+			await abort.catch(() => undefined);
+			await agent.restart();
+
+			const settledRunner = await agent.waitForAgent(
+				(candidate) =>
+					candidate.id === runner.id && (candidate.lifecycle === "aborted" || candidate.lifecycle === "failed"),
+			);
+			expect(settledRunner.lifecycle).toBe("aborted");
+			await agent.waitForEvent((event) => event.type === "tool_execution_end" && event.toolName === "bash");
+			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+			expect(
+				agent
+					.listAgents()
+					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
+			).toHaveLength(0);
+		});
+	});
+
 	it("reattaches a live Bash runner when restoring its unfinished JSONL tool call", async () => {
 		await withHeadlessPi(async (agent) => {
 			const attemptPath = join(agent.paths.workspaceDir, "attempts-bash");

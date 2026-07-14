@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	createDetachedJobLifecycleController,
 	type DetachedJobLifecycleControllerOptions,
@@ -12,6 +12,13 @@ import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
+const temporaryDirectories = new Set<string>();
+
+afterEach(() => {
+	for (const directory of temporaryDirectories) rmSync(directory, { force: true, recursive: true });
+	temporaryDirectories.clear();
+});
+
 function createFixture(
 	options: Pick<DetachedJobLifecycleControllerOptions, "writeBashLaunchManifest"> & {
 		ownerSessionId?: string;
@@ -20,6 +27,7 @@ function createFixture(
 	} = {},
 ) {
 	const root = options.root ?? mkdtempSync(join(tmpdir(), "pi-detached-lifecycle-"));
+	temporaryDirectories.add(root);
 	const controlDbPath = join(root, "control.sqlite");
 	const sessionPath = join(root, options.sessionName ?? "session.jsonl");
 	const store = new MultiAgentStore();
@@ -116,6 +124,61 @@ describe("detached job lifecycle controller", () => {
 		expect(readMultiAgentState(fixture.controlDbPath, fixture.sessionPath)?.agents).toMatchObject([
 			{ id: jobId, lifecycle: "completed", revision: 2 },
 		]);
+	});
+
+	it("finds the active Bash attempt for a repeated tool call", () => {
+		const fixture = createFixture();
+		const toolCallId = "tool-retried";
+		const firstJobId = fixture.controller.allocateJobId("bash");
+		const firstArtifacts = fixture.controller.createArtifacts(firstJobId);
+		const first = fixture.controller.register({
+			agentType: "bash",
+			cwd: "/repo",
+			displayName: "Bash command",
+			jobId: firstJobId,
+			processIdentity: testProcessIdentity("runner-first"),
+			toolCallId,
+			workerHandleId: "runner-first",
+		});
+		writeFileSync(firstArtifacts.outputPath, "failed", { mode: 0o600 });
+		const firstTerminal = createDetachedJobTerminalInput(
+			firstArtifacts,
+			first.identity,
+			{ error: { code: "exit_nonzero", message: "failed" }, kind: "failed" },
+			"2026-07-11T22:00:10.000Z",
+			undefined,
+			toolCallId,
+		);
+		expect(
+			finalizeDetachedJob(fixture.controlDbPath, { sessionPath: fixture.sessionPath, terminal: firstTerminal }),
+		).toMatchObject({ ok: true });
+
+		const pyrunJobId = fixture.controller.allocateJobId("pyrun");
+		fixture.controller.register({
+			agentType: "pyrun",
+			cwd: "/repo",
+			displayName: "Pyrun evaluation",
+			jobId: pyrunJobId,
+			processIdentity: testProcessIdentity("runner-pyrun"),
+			toolCallId,
+			workerHandleId: "runner-pyrun",
+		});
+		const currentJobId = fixture.controller.allocateJobId("bash");
+		const current = fixture.controller.register({
+			agentType: "bash",
+			cwd: "/repo",
+			displayName: "Bash command",
+			jobId: currentJobId,
+			processIdentity: testProcessIdentity("runner-current"),
+			toolCallId,
+			workerHandleId: "runner-current",
+		});
+		expect(fixture.controller.cancel(current, "cancel current attempt")).toMatchObject({ ok: true });
+
+		expect(fixture.controller.findBashJobByToolCallId(toolCallId)).toMatchObject({
+			id: currentJobId,
+			lifecycle: "cancelling",
+		});
 	});
 
 	it("requests detached cancellation through the coordinator and publishes cancelling state", () => {

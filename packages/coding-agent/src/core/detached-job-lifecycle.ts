@@ -8,9 +8,9 @@ import {
 	reserveDetachedJobArtifacts,
 } from "./detached-job-runner.ts";
 import type { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
-import { isActiveLifecycle, type MultiAgentStore } from "./multi-agent-store.ts";
+import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "./multi-agent-store.ts";
 import { isProcessIdentityAlive, readProcessIdentity } from "./runtime-process.ts";
-import { readMultiAgentAgent, readMultiAgentRuntimeOwnership } from "./session-control-db.ts";
+import { readMultiAgentAgent, readMultiAgentRuntimeOwnership, readMultiAgentState } from "./session-control-db.ts";
 
 export interface DetachedJobLifecycleControllerOptions {
 	artifactRoot: string;
@@ -40,6 +40,7 @@ export function createDetachedJobLifecycleController(
 			return cancelled;
 		},
 		createArtifacts: (jobId) => reserveDetachedJobArtifacts(artifactRoot, jobId),
+		findBashJobByToolCallId: (toolCallId) => findPersistedBashJob(options, toolCallId),
 		launchBash: (input) => launchDetachedBashJob(options, input),
 		observe: (jobId) => {
 			let agent = readMultiAgentAgent(options.controlDbPath, options.sessionPath, jobId);
@@ -67,6 +68,25 @@ export function createDetachedJobLifecycleController(
 		},
 		register: (input) => registerDetachedJob(options, input),
 	};
+}
+
+function findPersistedBashJob(
+	options: DetachedJobLifecycleControllerOptions,
+	toolCallId: string,
+): AgentSnapshot | undefined {
+	const parentId = options.ownerAgentId ?? "main";
+	const agents = (readMultiAgentState(options.controlDbPath, options.sessionPath)?.agents ?? []) as AgentSnapshot[];
+	const candidates = agents.filter(
+		(agent) =>
+			agent.parentId === parentId &&
+			agent.result?.fileRefs?.some((fileRef) => fileRef.label === "Bash output") &&
+			(agent.worker?.toolCallId === toolCallId || agent.result?.toolCallId === toolCallId),
+	);
+	return candidates.sort((left, right) => {
+		const activeDifference = Number(isActiveLifecycle(right.lifecycle)) - Number(isActiveLifecycle(left.lifecycle));
+		if (activeDifference !== 0) return activeDifference;
+		return right.updatedAt.localeCompare(left.updatedAt);
+	})[0];
 }
 
 function launchDetachedBashJob(

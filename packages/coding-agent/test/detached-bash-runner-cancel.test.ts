@@ -11,7 +11,7 @@ import {
 	readMultiAgentAgent,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
-import { testProcessIdentity } from "./helpers/process-identity.ts";
+import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -48,7 +48,7 @@ describe("detached Bash runner cancellation", () => {
 			cwd: root,
 			displayName: "Bash command",
 			jobId: runnerAddress.agentId,
-			processIdentity: testProcessIdentity("runner"),
+			processIdentity: CURRENT_PROCESS_IDENTITY,
 			workerHandleId: "runner-pending",
 		});
 		const manifestPath = join(artifacts.directory, "launch.json");

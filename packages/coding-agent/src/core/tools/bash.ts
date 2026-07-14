@@ -312,6 +312,17 @@ function createDetachOptions(
 	return { signal: detachController.signal };
 }
 
+function resultFromTerminalBashAgent(
+	agent: AgentSnapshot,
+	options: { aborted: boolean; timeout?: number },
+): { exitCode: number | null } {
+	if (options.aborted || agent.lifecycle === "aborted") throw new Error("aborted");
+	if (agent.lifecycle === "failed" && agent.error?.message.includes("timed out")) {
+		throw new Error(`timeout:${options.timeout}`);
+	}
+	return { exitCode: agent.lifecycle === "completed" ? 0 : 1 };
+}
+
 async function executeRunnerOwnedBash(
 	command: string,
 	cwd: string,
@@ -329,6 +340,17 @@ async function executeRunnerOwnedBash(
 	const shell = getShellConfig(options.shellPath);
 	if (shell.commandTransport === "stdin")
 		throw new Error("Detached Bash runner does not support stdin shell transport");
+	const restoredJob = options.toolCallId ? options.lifecycle.findBashJobByToolCallId(options.toolCallId) : undefined;
+	if (restoredJob && (restoredJob.lifecycle === "cancelling" || restoredJob.lifecycle === "aborted")) {
+		let restoredState = restoredJob;
+		while (isActiveLifecycle(restoredState.lifecycle)) {
+			restoredState = options.lifecycle.observe(restoredState.id) ?? restoredState;
+			if (isActiveLifecycle(restoredState.lifecycle)) await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		const outputPath = restoredState.result?.fileRefs?.find((fileRef) => fileRef.label === "Bash output")?.path;
+		if (outputPath && existsSync(outputPath)) options.onData(readFileSync(outputPath));
+		return resultFromTerminalBashAgent(restoredState, { aborted: false, timeout: options.timeout });
+	}
 	const launched = options.lifecycle.launchBash({
 		args: [...shell.args, command],
 		command: shell.shell,
@@ -370,11 +392,7 @@ async function executeRunnerOwnedBash(
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
 		if (!terminalAgent) throw new Error("Detached Bash job terminal state is unavailable");
-		if (aborted || terminalAgent.lifecycle === "aborted") throw new Error("aborted");
-		if (terminalAgent.lifecycle === "failed" && terminalAgent.error?.message.includes("timed out")) {
-			throw new Error(`timeout:${options.timeout}`);
-		}
-		return { exitCode: terminalAgent.lifecycle === "completed" ? 0 : 1 };
+		return resultFromTerminalBashAgent(terminalAgent, { aborted, timeout: options.timeout });
 	} finally {
 		options.signal?.removeEventListener("abort", requestCancellation);
 	}
