@@ -583,6 +583,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 	pi.on("session_shutdown", () => {
 		executorState?.runner.dispose();
 		executorState = undefined;
+		for (const handler of options.piRequestHandlers ?? []) handler.dispose?.();
 	});
 
 	pi.registerTool(

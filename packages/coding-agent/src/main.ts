@@ -601,13 +601,6 @@ function createFirstPartyExtensionFactories(
 		extensionFactories: getRuntimeExtensionFactories,
 		multiAgentStore: firstPartyMultiAgentStore,
 	});
-	const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
-		createAttachedSession: attachedSessionFactory,
-		createChildSession: childAgentSessionFactory,
-		runtimeHandles: firstPartyMultiAgentRuntimeHandles,
-		selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
-		store: firstPartyMultiAgentStore,
-	});
 	return [
 		firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 		firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
@@ -636,7 +629,16 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("effort", effortExtension),
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
-		firstPartyExtensionFactory("pyrun", (pi) => pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] })),
+		firstPartyExtensionFactory("pyrun", (pi) => {
+			const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
+				createAttachedSession: attachedSessionFactory,
+				createChildSession: childAgentSessionFactory,
+				runtimeHandles: firstPartyMultiAgentRuntimeHandles,
+				selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
+				store: firstPartyMultiAgentStore,
+			});
+			pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] });
+		}),
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),

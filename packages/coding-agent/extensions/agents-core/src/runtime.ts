@@ -222,11 +222,14 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	sessionDir?: string;
 }
 
-export type HostrunMultiAgentRequestHandler = (
-	request: { method: string; params: unknown },
-	ctx: ExtensionContext,
-	signal: AbortSignal | undefined,
-) => Promise<unknown> | unknown;
+export interface HostrunMultiAgentRequestHandler {
+	(
+		request: { method: string; params: unknown },
+		ctx: ExtensionContext,
+		signal: AbortSignal | undefined,
+	): Promise<unknown> | unknown;
+	dispose(): void;
+}
 
 interface MainThreadSnapshot extends Record<string, unknown> {
 	displayName: "Main thread";
@@ -676,8 +679,10 @@ export function createHostrunMultiAgentRequestHandler(
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
+	let disposed = false;
 
-	return async (request, ctx, signal) => {
+	const handler: HostrunMultiAgentRequestHandler = async (request, ctx, signal) => {
+		if (disposed) throw new Error("Hostrun multi-agent request handler is disposed");
 		runtimeLifecycleMirror.bind(ctx);
 		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
 			throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
@@ -746,6 +751,11 @@ export function createHostrunMultiAgentRequestHandler(
 
 		return undefined;
 	};
+	handler.dispose = () => {
+		disposed = true;
+		runtimeLifecycleMirror.dispose();
+	};
+	return handler;
 }
 
 function selectCurrentAgent(store: MultiAgentStore): AgentSelectionDetails {

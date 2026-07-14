@@ -30,11 +30,14 @@ export interface PyrunEvalContext {
 	sessionManager: Pick<ExtensionContext["sessionManager"], "getCwd" | "getSessionName">;
 }
 
-export type PyrunPiRequestDispatcher = (
-	request: { method: string; params: unknown },
-	ctx: ExtensionContext,
-	signal: AbortSignal | undefined,
-) => Promise<unknown> | unknown;
+export interface PyrunPiRequestDispatcher {
+	(
+		request: { method: string; params: unknown },
+		ctx: ExtensionContext,
+		signal: AbortSignal | undefined,
+	): Promise<unknown> | unknown;
+	dispose?(): void;
+}
 
 const STREAMED_CONSOLE_LINE_LIMIT = 300;
 

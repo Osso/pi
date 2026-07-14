@@ -99,9 +99,12 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	const restartRequests: unknown[] = [];
 	const selectedModels: unknown[] = [];
 	const switchedSessions: string[] = [];
+	let sessionShutdownHandler: (() => void | Promise<void>) | undefined;
 
 	const pi = {
-		on() {},
+		on(event: string, handler: () => void | Promise<void>) {
+			if (event === "session_shutdown") sessionShutdownHandler = handler;
+		},
 		callCommand: options.callCommand ?? (async () => undefined),
 		callTool: options.callTool ?? (async () => ({ content: [], details: undefined })),
 		getCommands: () => [{ name: "usage", source: "extension" }],
@@ -185,6 +188,7 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		evaluateContext: ctx,
 		enqueuedMessages,
 		restartRequests,
+		emitSessionShutdown: async () => sessionShutdownHandler?.(),
 		selectedModels,
 		switchedSessions,
 		toolDefinition: pyrunDefinition,
@@ -620,6 +624,15 @@ describe("pyrun extension", () => {
 			process.env.PI_PYRUN_RUNNER_ARGS = previousRunnerArgs;
 		}
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it("disposes Pi request handlers during session shutdown", async () => {
+		const handler = Object.assign(vi.fn(), { dispose: vi.fn() });
+		const harness = createPyrunHarness({ piRequestHandlers: [handler] });
+
+		await harness.emitSessionShutdown();
+
+		expect(handler.dispose).toHaveBeenCalledOnce();
 	});
 
 	it("registers pyrun_eval as a Pi adapter for the canonical Pyrun JSONL runner", () => {

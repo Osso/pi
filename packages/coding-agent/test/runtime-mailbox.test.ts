@@ -760,6 +760,42 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("disposes Hostrun lifecycle mirroring before its session context becomes stale", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		let contextReplaced = false;
+		Object.defineProperty(staleContext, "controlDbPath", {
+			get() {
+				if (contextReplaced) throw new Error("stale extension context");
+				return controlDbPath;
+			},
+		});
+		await handler({ method: "agents.list", params: {} }, staleContext, undefined);
+
+		handler.dispose();
+		contextReplaced = true;
+		await expect(handler({ method: "agents.list", params: {} }, staleContext, undefined)).rejects.toThrow(
+			"Hostrun multi-agent request handler is disposed",
+		);
+		const child = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		expect(() =>
+			legacyMultiAgentStore(store).transitionAgent(child.agent.id, child.agent.revision, "waiting_for_input"),
+		).not.toThrow();
+	});
+
 	it("rebinds Hostrun lifecycle mirroring when a session context is replaced", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
