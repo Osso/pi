@@ -63,6 +63,7 @@
 
 ### Changed
 
+- Shared-channel follow-up turns now retain extension provenance instead of entering the interactive editor's typed prompt history.
 - Pyrun now renders submitted Python immediately in the tool call instead of emitting it as a synthetic tool result update.
 - User rules now support runtime-scoped `rules/supervisor/` and `rules/child/` directories; shared top-level rules still load everywhere, while observer runtimes receive only shared rules.
 - Compaction now excludes goal-generated start, resume, and continuation reminders from summarization input while preserving them in the session log.

@@ -2796,7 +2796,7 @@ export class AgentSession {
 			});
 			return false;
 		}
-		await this._queueFollowUp(prompt);
+		await this._queueFollowUp(prompt, undefined, "extension");
 		return true;
 	}
 

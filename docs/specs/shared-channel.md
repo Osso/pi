@@ -22,6 +22,7 @@ once needed.
 - [x] All unread deliverable chatter present at an idle drain is combined into one shared-channel prompt and one agent turn, preserving message order.
 - [x] Subagent sessions do not drain shared-channel messages by default.
 - [x] Every delivered channel entry is clearly tagged as shared-channel input and includes its sender session/agent.
+- [x] Shared-channel turns retain extension input provenance and never enter the interactive editor's typed prompt history, including post-run follow-up delivery.
 - [x] The cursor advances through a batch only after its combined prompt is successfully delivered; a failed batch remains unread.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
 - [x] Messages posted by subagents are skipped and marked seen, preventing old-process subagent traffic from flooding main sessions.

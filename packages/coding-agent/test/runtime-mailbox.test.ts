@@ -1601,6 +1601,25 @@ describe("runtime SQLite mailbox delivery", () => {
 		).toBe(messageId);
 	});
 
+	it("marks post-run shared channel follow-ups as extension input", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("user reply"), fauxAssistantMessage("channel reply")]);
+		const sharedPrompt = sharedChannelPrompt("Post-run shared status?");
+		const promptableSession = harness.session as unknown as {
+			_sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const activePrompt = harness.session.prompt("User turn");
+		const queued = await promptableSession._sendSharedChannelPrompt(sharedPrompt, { triggerIfIdle: false });
+		await activePrompt;
+
+		expect(queued).toBe(true);
+		expect(getUserTexts(harness)).toEqual(["User turn", sharedPrompt]);
+		const userMessages = harness.session.messages.filter((message) => message.role === "user");
+		expect(userMessages[1]).toMatchObject({ inputSource: "extension" });
+	});
+
 	it("batches every unread shared channel message across database pages into one idle agent turn", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
