@@ -114,6 +114,7 @@
 
 ### Fixed
 
+- Fixed OpenAI remote compaction describing empty tool output as an attached image when no image existed.
 - Fixed runtime mailbox messages being marked delivered after entering a volatile follow-up queue: busy or unauthenticated sessions now leave rows pending, while ready sessions select and mark rows delivered in one transaction before submitting them directly as active input.
 - Fixed repeated stale extension-context failures while draining terminal agent outbox projections after session replacement or reload by making Pyrun dispose session-bound Pi request handlers during session shutdown.
 - Added the RPC `interrupt` command and `RpcClient.interrupt()`, backed by the same session operation as interactive Escape: abort the active turn and resubmit preserved queued input, queueing it as steering if a background turn races in.

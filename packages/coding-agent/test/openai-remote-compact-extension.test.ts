@@ -310,6 +310,40 @@ describe("openai remote compact extension", () => {
 		expect(functionCall).toMatchObject({ arguments: JSON.stringify(toolArguments) });
 	});
 
+	it("preserves empty tool output without claiming an image exists", () => {
+		const messages: AgentMessage[] = [
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-1|item-1", name: "search", arguments: { query: "missing" } }],
+				api: "openai-codex-responses",
+				provider: "openai-codex",
+				model: "gpt-5.5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: 1,
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call-1|item-1",
+				toolName: "search",
+				content: [],
+				isError: false,
+				timestamp: 2,
+			},
+		];
+
+		const payload = buildOpenAICompactPayload(createOpenAICodexResponsesModel(), messages, "system prompt", []);
+
+		expect(payload.input).toContainEqual({ type: "function_call_output", call_id: "call-1", output: "" });
+	});
+
 	it("truncates oversized text tool output while preserving its function call pair", () => {
 		const messages: AgentMessage[] = [
 			{

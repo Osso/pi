@@ -550,7 +550,10 @@ function convertToolResultMessage(
 		.map((part) => part.text)
 		.join("\n");
 	const images = content.filter((part): part is ImageContent => part.type === "image");
-	if (images.length === 0 || !model.input.includes("image")) {
+	if (images.length === 0) {
+		return { type: "function_call_output", call_id: callId, output: text };
+	}
+	if (!model.input.includes("image")) {
 		return { type: "function_call_output", call_id: callId, output: text || "(see attached image)" };
 	}
 	return {
