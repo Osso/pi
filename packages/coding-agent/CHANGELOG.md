@@ -63,6 +63,7 @@
 
 ### Changed
 
+- User rules now support runtime-scoped `rules/supervisor/` and `rules/child/` directories; shared top-level rules still load everywhere, while observer runtimes receive only shared rules.
 - Compaction now excludes goal-generated start, resume, and continuation reminders from summarization input while preserving them in the session log.
 - Increased the selected background-agent log preview limit from 32 KiB to 64 KiB.
 - The default system prompt now tells models to emit known independent tool calls together and serialize only calls with result dependencies.

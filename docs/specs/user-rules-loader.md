@@ -8,6 +8,10 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 
 ### Directory discovery
 - [x] Returns no content (does not error) when the global agent `rules/` directory does not exist.
+- [x] Loads top-level `rules/*.md` for every runtime.
+- [x] Loads `rules/supervisor/*.md` only for standalone and orchestrator runtimes.
+- [x] Loads `rules/child/*.md` only for child runtimes.
+- [x] Observer runtimes load only shared top-level rules.
 - [x] Returns no content when the directory exists but contains no non-empty `*.md` files.
 - [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
 - [x] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
@@ -20,8 +24,8 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - [x] Non-empty trimmed contents are joined with a double newline (`\n\n`).
 
 ### Load order
-- [x] Global rules (`~/.config/pi/agent/rules/` by default) are loaded first.
-- [x] Project-local rules (`.pi/rules/`, trust-gated) are appended after global rules.
+- [x] Global shared rules (`~/.config/pi/agent/rules/*.md` by default) are loaded first, followed by the selected runtime scope directory.
+- [x] Project-local shared rules (`.pi/rules/*.md`, trust-gated) are appended next, followed by the selected project runtime scope directory.
 
 ### System-prompt injection
 - [x] The concatenated rules string is injected into the system prompt in `buildSystemPrompt()` (`core/system-prompt.ts`), appended after the existing `<project_instructions>` context-file block.
@@ -63,3 +67,4 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - TOML, YAML, or non-markdown rule file formats.
 - Watching the rules directory for live changes (reload on file change); `reload()` on demand is sufficient.
 - Per-extension or per-skill rule scoping.
+- Additional runtime scopes beyond shared, supervisor, and child rules.

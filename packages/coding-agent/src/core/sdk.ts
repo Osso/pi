@@ -19,7 +19,7 @@ import { ModelRegistry } from "./model-registry.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
-import type { ResourceLoader } from "./resource-loader.ts";
+import type { ResourceLoader, RulesScope } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
@@ -106,6 +106,12 @@ export interface CreateAgentSessionOptions {
 	settingsManager?: SettingsManager;
 	/** Session start event metadata for extension runtime startup. */
 	sessionStartEvent?: SessionStartEvent;
+}
+
+function rulesScopeForRuntimeRole(role: MultiAgentRuntimeRole | undefined): RulesScope {
+	if (role === "child") return "child";
+	if (role === "observer") return "shared";
+	return "supervisor";
 }
 
 /** Result from createAgentSession */
@@ -212,6 +218,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			agentDir,
 			settingsManager,
 			extensionFactories: options.extensionFactories,
+			rulesScope: rulesScopeForRuntimeRole(options.multiAgentRuntimeRole),
 		});
 		await resourceLoader.reload();
 		time("resourceLoader.reload");

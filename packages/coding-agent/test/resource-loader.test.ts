@@ -544,6 +544,34 @@ Content`,
 			expect(loader.getRulesContent()).toBe("First rule.\n\nSecond rule.");
 		});
 
+		it("should load shared and supervisor rules for supervisor sessions", async () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(join(rulesDir, "supervisor"), { recursive: true });
+			mkdirSync(join(rulesDir, "child"), { recursive: true });
+			writeFileSync(join(rulesDir, "shared.md"), "Shared rule.");
+			writeFileSync(join(rulesDir, "supervisor", "coordination.md"), "Supervisor rule.");
+			writeFileSync(join(rulesDir, "child", "worker.md"), "Child rule.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("Shared rule.\n\nSupervisor rule.");
+		});
+
+		it("should load shared and child rules for child sessions", async () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(join(rulesDir, "supervisor"), { recursive: true });
+			mkdirSync(join(rulesDir, "child"), { recursive: true });
+			writeFileSync(join(rulesDir, "shared.md"), "Shared rule.");
+			writeFileSync(join(rulesDir, "supervisor", "coordination.md"), "Supervisor rule.");
+			writeFileSync(join(rulesDir, "child", "worker.md"), "Child rule.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir, rulesScope: "child" });
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("Shared rule.\n\nChild rule.");
+		});
+
 		it("should return no rules content when the rules directory is missing", () => {
 			expect(loadRulesFromDir(join(agentDir, "rules"))).toBeUndefined();
 		});

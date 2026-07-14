@@ -194,6 +194,8 @@ export function loadRulesFromDir(dirPath: string): string | undefined {
 	return contents.length > 0 ? contents.join("\n\n") : undefined;
 }
 
+export type RulesScope = "shared" | "supervisor" | "child";
+
 export interface DefaultResourceLoaderOptions {
 	cwd: string;
 	agentDir: string;
@@ -209,6 +211,8 @@ export interface DefaultResourceLoaderOptions {
 	noPromptTemplates?: boolean;
 	noThemes?: boolean;
 	noContextFiles?: boolean;
+	/** Rule directories to load in addition to shared top-level rules. Defaults to supervisor. */
+	rulesScope?: RulesScope;
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
 	extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
@@ -247,6 +251,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private noPromptTemplates: boolean;
 	private noThemes: boolean;
 	private noContextFiles: boolean;
+	private rulesScope: RulesScope;
 	private systemPromptSource?: string;
 	private appendSystemPromptSource?: string[];
 	private extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
@@ -308,6 +313,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
 		this.noThemes = options.noThemes ?? false;
 		this.noContextFiles = options.noContextFiles ?? false;
+		this.rulesScope = options.rulesScope ?? "supervisor";
 		this.systemPromptSource = options.systemPrompt;
 		this.appendSystemPromptSource = options.appendSystemPrompt;
 		this.extensionsOverride = options.extensionsOverride;
@@ -557,9 +563,17 @@ export class DefaultResourceLoader implements ResourceLoader {
 		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
 		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
-		const rulesFiles = loadRulesFilesFromDir(join(this.agentDir, "rules"));
+		const globalRulesDir = join(this.agentDir, "rules");
+		const rulesFiles = loadRulesFilesFromDir(globalRulesDir);
+		if (this.rulesScope !== "shared") {
+			rulesFiles.push(...loadRulesFilesFromDir(join(globalRulesDir, this.rulesScope)));
+		}
 		if (this.settingsManager.isProjectTrusted()) {
-			rulesFiles.push(...loadRulesFilesFromDir(join(this.cwd, CONFIG_DIR_NAME, "rules")));
+			const projectRulesDir = join(this.cwd, CONFIG_DIR_NAME, "rules");
+			rulesFiles.push(...loadRulesFilesFromDir(projectRulesDir));
+			if (this.rulesScope !== "shared") {
+				rulesFiles.push(...loadRulesFilesFromDir(join(projectRulesDir, this.rulesScope)));
+			}
 		}
 		this.rulesFiles = rulesFiles;
 		this.rulesContent = rulesFiles.length > 0 ? rulesFiles.map((file) => file.content).join("\n\n") : undefined;
