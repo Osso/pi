@@ -157,6 +157,58 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("delivers parent steering to an active subagent's next model call", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Spawn a reviewer, then steer it" });
+			const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialMainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("spawn_agent", {
+						displayName: "Steered reviewer",
+						prompt: "Review the original implementation",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+
+			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Steered reviewer");
+			const initialChildRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
+			const mainAfterSpawn = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialMainRequest.id,
+			);
+			agent.respondToLlmRequest(
+				mainAfterSpawn.id,
+				fauxAssistantMessage(
+					fauxToolCall("steer_agent", {
+						agentId: spawned.id,
+						message: "Focus the review on cancellation races",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+
+			await agent.waitForAgent(
+				(candidate) => candidate.id === spawned.id && candidate.lifecycle === "steering_pending",
+			);
+			agent.respondToLlmRequest(initialChildRequest.id, fauxAssistantMessage("Initial review complete"));
+
+			const steeredChildRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === spawned.id && request.id !== initialChildRequest.id,
+			);
+			expect(steeredChildRequest.userMessages).toContainEqual(
+				expect.stringContaining("Focus the review on cancellation races"),
+			);
+			agent.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Cancellation races reviewed"));
+
+			const mainAfterSteer = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null && request.id !== initialMainRequest.id && request.id !== mainAfterSpawn.id,
+			);
+			agent.respondToLlmRequest(mainAfterSteer.id, fauxAssistantMessage("Reviewer steered"));
+		});
+	});
+
 	it("preserves queued steering when interrupting an active turn", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Start a long response" });
