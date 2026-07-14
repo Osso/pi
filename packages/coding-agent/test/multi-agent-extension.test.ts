@@ -1295,7 +1295,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("fails cancelling spawned agents as lost runtimes after their owner process exits", async () => {
+	it("settles cancelling spawned agents as aborted after their owner process exits", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1315,11 +1315,13 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
-		const failed = await waitForAgentLifecycle(harness, cancelled.agent.id, "failed");
+		// Dead-owner recovery honors the recorded cancellation intent: a cancelling
+		// agent settles as aborted instead of failed/lost_runtime.
+		const aborted = await waitForAgentLifecycle(harness, cancelled.agent.id, "aborted");
 
 		expect(createAttachedSession).not.toHaveBeenCalled();
-		expect(failed).toMatchObject({
-			lifecycle: "failed",
+		expect(aborted).toMatchObject({
+			lifecycle: "aborted",
 			error: { code: "lost_runtime" },
 		});
 	});
