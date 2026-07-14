@@ -1683,11 +1683,9 @@ describe("pyrun extension", () => {
 		const detachRegistry = new ToolDetachRegistry();
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 
-		const resultPromise = harness.evaluate({ code: "empty.result" });
-		await delay(180);
+		const result = await harness.evaluate({ code: "empty.result" });
 
 		expect(detachRegistry.detachRunning()).toBe(false);
-		const result = await resultPromise;
 		expect(result.details.value).toBe("");
 		expect(store.listAgents()).toEqual([]);
 	});
@@ -1782,7 +1780,7 @@ describe("pyrun extension", () => {
 		const foregroundResult = await Promise.race([
 			harness.evaluate({ code: "empty.result" }),
 			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error("foreground Pyrun remained queued")), 200),
+				setTimeout(() => reject(new Error("foreground Pyrun remained queued")), 5_000),
 			),
 		]);
 

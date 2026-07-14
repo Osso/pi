@@ -18,6 +18,7 @@ const repositoryWriterAllowlist = new Map<string, Set<string>>([
 	[
 		"finalizeDetachedJob(",
 		new Set([
+			"extensions/pyrun/src/detached-evaluation.ts",
 			"extensions/pyrun/src/detached-runner.ts",
 			"src/core/detached-bash-runner.ts",
 			"src/core/session-control-db.ts",

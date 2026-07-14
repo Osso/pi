@@ -292,7 +292,16 @@ describe("SessionManager relocate", () => {
 		expect(readMultiAgentState(controlDbPath, sourceFile!)).toBeUndefined();
 		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual({
 			agents: [{ id: "agent_1" }],
-			mailboxMessages: [{ messageId: "message_1", status: "pending" }],
+			mailboxMessages: [
+				{
+					messageId: "message_1",
+					recipientAgentId: "agent_1",
+					recipientSessionId: "recipient",
+					senderAgentId: null,
+					senderSessionId: "sender",
+					status: "pending",
+				},
+			],
 			counters: { nextAgentNumber: 2, nextMessageNumber: 4 },
 		});
 		expect(

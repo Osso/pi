@@ -49,6 +49,7 @@ type RenderSessionContextThis = {
 	executingToolStartedAt: Map<string, number>;
 	completedToolTimings: Map<string, { startedAt: number; finishedAt: number }>;
 	clearToolExecutionTrackingFor(toolCallId: string): void;
+	getPendingToolStartedAt(toolCallId: string): number | undefined;
 	isInitialized: boolean;
 	viewingAgentSession: boolean;
 	isViewingAgentSession(): boolean;
@@ -93,6 +94,9 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		clearToolExecutionTrackingFor: (
 			InteractiveMode.prototype as unknown as { clearToolExecutionTrackingFor(toolCallId: string): void }
 		).clearToolExecutionTrackingFor,
+		getPendingToolStartedAt: (
+			InteractiveMode.prototype as unknown as { getPendingToolStartedAt(toolCallId: string): number | undefined }
+		).getPendingToolStartedAt,
 		isInitialized: true,
 		viewingAgentSession: false,
 		isViewingAgentSession() {
