@@ -1,9 +1,19 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import goalExtension from "../../extensions/goal/src/index.ts";
-import type { ExtensionUIContext } from "../../src/core/extensions/index.ts";
+import type { ExtensionAPI, ExtensionUIContext } from "../../src/core/extensions/index.ts";
 import { type Theme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { createHarness, getUserTexts, type Harness } from "./harness.ts";
+
+function goalTestExtension(pi: ExtensionAPI): void {
+	goalExtension(pi, {
+		reviewGoal: async ({ payload }) => ({
+			instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
+			kind: "continue",
+			reason: "test continuation",
+		}),
+	});
+}
 
 function readStoredGoal(harness: Harness): { objective: string } {
 	const goalJson = harness.sessionManager.getSessionGoalJson();
@@ -74,7 +84,7 @@ describe("goal extension runtime", () => {
 	});
 
 	it("continues a goal from agent_end without another user prompt", async () => {
-		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
+		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([
 			...Array.from({ length: 8 }, (_, index) => fauxAssistantMessage(`round ${index + 1}`)),
@@ -91,7 +101,7 @@ describe("goal extension runtime", () => {
 	});
 
 	it("does not continue a goal while an aborted turn has a queued interactive prompt", async () => {
-		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
+		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("queued user prompt"), fauxAssistantMessage("goal continuation")]);
 		harness.sessionManager.setSessionGoalJson(
@@ -110,7 +120,7 @@ describe("goal extension runtime", () => {
 	});
 
 	it("lets an agent reset an active goal through manage_goal", async () => {
-		const harness = await createHarness({ extensionFactories: [goalExtension], uiContext: createUiContext() });
+		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "agent-chosen objective" }), {

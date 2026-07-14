@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import goalExtension from "../extensions/goal/src/index.ts";
+import goalExtension, { type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
 	BeforeAgentStartEvent,
@@ -97,6 +97,7 @@ function createGoalHarness(
 		sessionId?: string;
 		isSubagent?: boolean;
 		subagentName?: string;
+		reviewGoal?: GoalSupervisorReview;
 	},
 ) {
 	let command: RegisteredGoalCommand | undefined;
@@ -135,7 +136,18 @@ function createGoalHarness(
 		sendUserMessage,
 	} as unknown as ExtensionAPI;
 
-	goalExtension(pi);
+	goalExtension(pi, {
+		reviewGoal:
+			options?.reviewGoal ??
+			(async ({ kind, payload }) =>
+				kind === "goal_completion_review"
+					? { kind: "complete", reason: "verified" }
+					: {
+							kind: "continue",
+							reason: "work remains",
+							instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
+						}),
+	});
 
 	const ctx = {
 		cwd,
@@ -575,6 +587,47 @@ describe("goal extension", () => {
 			"Continue working toward this objective until it is achieved: continue from agent_end",
 			{ deliverAs: "followUp" },
 		);
+	});
+
+	it("keeps the goal running and follows Supervisor instructions when completion is rejected", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "continue", reason: "proof missing", instructions: "Run npm test." }),
+		});
+		await harness.runCommand("complete explicitly");
+		harness.sendUserMessage.mockClear();
+
+		const result = await harness.runGoalComplete("done");
+
+		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: proof missing" }]);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Run npm test.", { deliverAs: "followUp" });
+		expect(await harness.runBeforeAgentStart()).toBeDefined();
+	});
+
+	it("lets the Supervisor complete a running goal at the existing agent_end continuation point", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "complete", reason: "all evidence passed" }),
+		});
+		await harness.runCommand("finish automatically");
+		harness.sendUserMessage.mockClear();
+
+		await harness.runAgentEnd();
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(await harness.runBeforeAgentStart()).toBeUndefined();
+	});
+
+	it("keeps a goal running without continuing automatically after Supervisor error", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "error", reason: "service failed" }),
+		});
+		await harness.runCommand("survive review error");
+		harness.sendUserMessage.mockClear();
+
+		await harness.runAgentEnd();
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).toHaveBeenCalledWith("Supervisor goal review failed: service failed", "error");
+		expect(await harness.runBeforeAgentStart()).toBeDefined();
 	});
 
 	it("stops continuation after manage_goal completes the objective", async () => {

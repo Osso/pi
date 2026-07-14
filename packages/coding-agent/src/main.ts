@@ -96,6 +96,7 @@ import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import { runSupervisorService } from "./supervisor/main.ts";
 import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
@@ -652,6 +653,10 @@ function createFirstPartyExtensionFactories(
 export async function main(args: string[], options?: MainOptions) {
 	if (args.length === 1 && args[0] === "architect") {
 		await runArchitectService();
+		return;
+	}
+	if (args.length === 1 && args[0] === "supervisor") {
+		await runSupervisorService();
 		return;
 	}
 	resetTimings();

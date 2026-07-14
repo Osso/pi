@@ -148,7 +148,6 @@ export interface Settings {
 	permissionRules?: PermissionRulesSettings; // Persisted permission-prompt allow rules by tool name
 	approvalPolicy?: ApprovalPolicy; // Derived tool approval policy
 	approvalPreset?: ApprovalPresetName; // User-facing approval selector preset
-	approvalReviewerModel?: string; // Optional model reference for LLM approval reviewer
 	sandboxProfile?: SandboxProfileName; // User-facing sandbox selector profile
 }
 

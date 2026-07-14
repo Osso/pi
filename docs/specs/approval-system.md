@@ -34,12 +34,10 @@ Implementation details belong in
 
 - [x] Support human-reviewed approvals for `on-request` via the native
   `tool_call` hook and `ui.confirm`.
-- [x] Support LLM-approved approvals as `on-request` with the reviewer set to
-  the auto-reviewer path (a permissive guardian LLM call that pre-approves
-  ordinary bounded-risk coding-agent work). `LLM Approved (and deny)` denies
-  catastrophic, credential-exposing, irreversible data-loss, system-damaging,
-  or unrelated external-side-effect actions; `LLM Approved (and ask)` escalates
-  those cases to the human reviewer.
+- [x] Support LLM-approved approvals as `on-request` by sending a synchronous
+  `approval_review` request to the resident Supervisor service. `LLM Approved
+  (and deny)` blocks Supervisor rejection; `LLM Approved (and ask)` escalates
+  Supervisor rejection to the human reviewer.
 - [x] Expose LLM-approved deny and LLM-approved ask modes as explicit choices
   in the `/approvals` preset selector, distinct from `never` and `auto-approve`.
 - [x] Skip the LLM-approved reviewer when the action has already been approved
@@ -51,21 +49,19 @@ Implementation details belong in
 - [x] Tools can opt out of generic wrapper approval with `approvalRequired:
   false` only when they gate their own host effects internally; those calls skip
   hook, human, and LLM reviewers at the wrapper layer.
-- [x] Include the last 30 LLM approval decisions from the current session in
-  future LLM approval prompts to improve consistency within the same session.
-- [x] Load structured persistent approval memory from
-  `~/.config/pi/agent/approval-memory.jsonl` into LLM approval prompts.
-- [x] Allow the LLM approval reviewer to suggest structured persistent memory
-  records; Pi validates bounded fields before appending them to the JSONL file.
-- [x] Support an optional `approvalReviewerModel` setting so LLM approval review
-  can use a dedicated model; if configured and unresolved, approval fails closed.
+- [x] Send bounded current-request evidence to the Supervisor without historical
+  session transcripts or the retired in-process approval decision history.
+- [x] Escalate Supervisor `error`, timeout, unavailable-service, and invalid-response
+  outcomes to the human reviewer.
+- [x] Keep project approval memory in Supervisor-managed KB files rather than
+  `approval-memory.jsonl` or an in-process reviewer prompt.
 
 ### Presets and slash commands
 
 - [x] Register `/approvals` as a slash command that opens an approval preset
   selector; choices must include at least: Ask Me (on-request/human),
-  LLM Approved (and deny) (on-request/auto-reviewer), LLM Approved (and ask)
-  (on-request/auto-reviewer with human escalation), Never Ask/Deny (never), and
+  LLM Approved (and deny) (on-request/Supervisor), LLM Approved (and ask)
+  (on-request/Supervisor with human escalation), Never Ask/Deny (never), and
   Auto Approve (auto-approve).
 - [x] Register `/sandbox` as a slash command that opens a sandbox/profile
   selector without changing approval policy; choices must include at least:
@@ -113,18 +109,13 @@ Implementation details belong in
   read/write helpers, including `approvalPreset` identity plus derived
   `approvalPolicy`, optional `approvalReviewerModel`, and scoped sandbox profile
   serialization.
-- `packages/coding-agent/src/core/permissions/auto-reviewer.ts` — LLM-approved
-  reviewer: builds guardian prompt, calls the model, interprets the result as
-  allow/deny or allow/ask depending on the selected preset. The prompt explicitly
-  allows bounded local coding work and temporary workspace/cache cleanup such as
-  deleting files under `/tmp`, and includes current-session approval history plus
-  persistent approval memory.
+- `packages/coding-agent/src/supervisor/approval-reviewer.ts` — converts typed
+  Supervisor approval decisions into allow, reject, or human-escalation results.
+- `packages/coding-agent/src/supervisor/client.ts` — persists bounded synchronous
+  approval requests and waits for the resident service response.
 - `packages/coding-agent/src/core/permissions/orchestrator.ts` — central
   approval flow: check policy and route `on-request` calls to the configured
   reviewer.
-- `packages/coding-agent/src/core/permissions/approval-memory.ts` — validates,
-  loads, and appends structured persistent approval memory records in
-  `approval-memory.jsonl` under the active agent config directory.
 - `packages/coding-agent/extensions/approval-controls/src/index.ts` — registers
   `/approvals` and `/sandbox` commands.
 - `packages/coding-agent/src/core/extensions/types.ts` and
@@ -153,11 +144,11 @@ Implementation details belong in
   ordinary tools still prompt.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — built-in
   `/approvals` and `/sandbox` command metadata plus approval/sandbox separation.
-- `packages/coding-agent/test/approval-auto-reviewer.test.ts` — LLM-approved
-  reviewer prompt contract, result parser, session-history prompt context, and
-  memory suggestion callbacks.
-- `packages/coding-agent/test/approval-memory.test.ts` — persistent approval
-  memory validation and JSONL load/append behavior.
+- `packages/coding-agent/test/supervisor-approval-reviewer.test.ts` — typed
+  approve/reject/error handling and human escalation.
+- `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
+  session integration, bounded request evidence, preset escalation, and hook/rule
+  short-circuit behavior.
 - `packages/coding-agent/test/approval-selector.test.ts` — red tests for
   `/approvals` and `/sandbox` selector rendering and selection behavior.
 
@@ -166,7 +157,7 @@ Implementation details belong in
 - [x] Define `ApprovalPolicy` type and config read/write in `policy.ts`.
 - [x] Implement approval orchestrator with policy-gating and hook-shortcircuit
   logic.
-- [x] Implement LLM-approved auto-reviewer.
+- [x] Replace the LLM-approved auto-reviewer with resident Supervisor review.
 - [x] Register `/approvals` command with preset selector UI.
 - [x] Register `/sandbox` command with profile selector UI.
 - [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.
@@ -178,9 +169,9 @@ Implementation details belong in
 - [x] Add tests for scoped sandbox profile serialization without changing
   approval policy.
 - [x] Add selector UI tests for `/approvals` and `/sandbox`.
-- [x] Add failing tests for LLM-approved auto-reviewer prompt/result parsing.
-- [x] Add tests for current-session approval history and persistent approval
-  memory in LLM approval prompts.
+- [x] Add tests for typed Supervisor approval decisions and human escalation.
+- [x] Replace in-process approval history and `approval-memory.jsonl` with
+  Supervisor-managed KB memory.
 
 ## Out of scope
 

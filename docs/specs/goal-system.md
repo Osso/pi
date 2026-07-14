@@ -44,10 +44,10 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ### Starting and continuing work
 
 - [x] Setting a goal while the session is idle immediately submits a user message that asks the agent to work toward the objective.
-- [x] When an `agent_end` event fires and a goal is active, not paused, and not completed, Pi re-submits a continuation message unless a continuation stop condition applies.
+- [x] When an `agent_end` event fires for a running goal, Pi preserves the existing abort, pending-message, error-stop, and empty-response guards, then requests resident Supervisor review at the existing continuation point.
 - [x] If the last assistant message has `stopReason: "error"`, goal continuation neither queues a follow-up nor emits the empty-response warning; retry/session error handling owns recovery and leaves the active goal intact.
-- [x] The `manage_goal` completion action marks the active goal complete and stops further continuation.
-- [x] Autonomous continuation has no numeric turn cap; it may run for long-lived goals until completion, pending queued work, or a non-error empty final assistant response stops it.
+- [x] The `manage_goal` completion action requests resident Supervisor review; only a `complete` decision marks the running goal complete, while `continue` keeps it running and injects concrete next-step instructions.
+- [x] Autonomous continuation has no numeric turn cap; a Supervisor `continue` decision submits its concrete instructions as the next follow-up, while `complete` closes the goal and `error` visibly stops automatic continuation without closing it.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
 - [x] Goal start/resume/continuation messages remain in live model context and transcript rendering, but do not appear in the editor's typed prompt history.
 - [x] Compaction excludes goal-generated start/resume/continuation reminders from summarization input while preserving other extension-origin messages and the original session log.

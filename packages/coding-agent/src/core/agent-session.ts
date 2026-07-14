@@ -49,6 +49,9 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
+import { reviewToolCallWithSupervisor } from "../supervisor/approval-reviewer.ts";
+import { requestSupervisorDecision } from "../supervisor/client.ts";
+import { DEFAULT_SUPERVISOR_KB_DIR, resolveSupervisorProjectForCwd } from "../supervisor/project-resolver.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
@@ -105,7 +108,7 @@ import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
-import { parseModelPattern, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
+import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type {
 	AgentCurrentActivityOwner,
 	AgentLifecycleState,
@@ -113,12 +116,6 @@ import type {
 	MultiAgentStore,
 	SteeringCheckpoint,
 } from "./multi-agent-store.ts";
-import {
-	type ApprovalRecentDecision,
-	appendApprovalMemory,
-	loadApprovalMemory,
-} from "./permissions/approval-memory.ts";
-import { reviewToolCallWithAutoReviewer } from "./permissions/auto-reviewer.ts";
 import { createPermissionPromptHandler } from "./permissions/mcp-permission-prompt.ts";
 import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/orchestrator.ts";
 import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
@@ -129,6 +126,27 @@ import { readProcessIdentity } from "./runtime-process.ts";
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
+
+function findLastUserText(messages: unknown[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (!isRecord(message) || message.role !== "user") continue;
+		if (typeof message.content === "string") return message.content;
+		if (!Array.isArray(message.content)) continue;
+		return message.content
+			.filter(
+				(part): part is { text: string; type: "text" } =>
+					isRecord(part) && part.type === "text" && typeof part.text === "string",
+			)
+			.map((part) => part.text)
+			.join("");
+	}
+	return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 import {
 	advanceSharedChannelCursor,
@@ -307,6 +325,8 @@ export function createMultiAgentExecutionCapability(): MultiAgentExecutionCapabi
 	return capability;
 }
 
+export type SupervisorDecisionRequester = typeof requestSupervisorDecision;
+
 export interface AgentSessionConfig {
 	agent: Agent;
 	sessionManager: SessionManager;
@@ -342,6 +362,8 @@ export interface AgentSessionConfig {
 	disableRuntimeCoordinationInbound?: boolean;
 	/** Global settings directory used for persistent permission rule writes. */
 	agentDir?: string;
+	/** Override resident Supervisor transport for isolated tests. */
+	supervisorDecisionRequester?: SupervisorDecisionRequester;
 	/**
 	 * Override base tools (useful for custom runtimes).
 	 *
@@ -658,8 +680,8 @@ export class AgentSession {
 	private _excludedToolNames?: Set<string>;
 	private _permissionPromptTool?: string;
 	private _permissionRuleStore: PermissionRuleStore;
-	private readonly _recentApprovalDecisions: ApprovalRecentDecision[] = [];
 	private _agentDir: string;
+	private readonly _supervisorDecisionRequester: SupervisorDecisionRequester;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
@@ -730,6 +752,7 @@ export class AgentSession {
 		this._disableRuntimeCoordinationInbound = config.disableRuntimeCoordinationInbound ?? false;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
+		this._supervisorDecisionRequester = config.supervisorDecisionRequester ?? requestSupervisorDecision;
 		this._permissionRuleStore = new PermissionRuleStore({
 			agentDir: this._agentDir,
 			cwd: this._cwd,
@@ -1023,9 +1046,10 @@ export class AgentSession {
 		event: ToolCallEvent,
 		runner: ExtensionRunner,
 		reason?: string,
+		force = false,
 	): ApprovalReviewer | undefined {
 		const approvalPreset = this.settingsManager.getApprovalPreset();
-		if ((approvalPreset !== "ask-me" && approvalPreset !== "llm-approved-ask") || !runner.hasUI()) {
+		if ((!force && approvalPreset !== "ask-me" && approvalPreset !== "llm-approved-ask") || !runner.hasUI()) {
 			return undefined;
 		}
 
@@ -1072,74 +1096,34 @@ export class AgentSession {
 
 	private _createToolApprovalLlmReviewer(event: ToolCallEvent): ApprovalReviewer | undefined {
 		const approvalPreset = this.settingsManager.getApprovalPreset();
-		if (approvalPreset !== "llm-approved-deny" && approvalPreset !== "llm-approved-ask") {
-			return undefined;
-		}
+		if (approvalPreset !== "llm-approved-deny" && approvalPreset !== "llm-approved-ask") return undefined;
 
 		return async () => {
-			let approvalReviewerModel: Model<any>;
-			try {
-				approvalReviewerModel = await this._resolveApprovalReviewerModel();
-			} catch (error) {
-				return { block: true, reason: error instanceof Error ? error.message : String(error) };
-			}
-
-			return reviewToolCallWithAutoReviewer(
-				{
-					cwd: this._cwd,
-					escalation: approvalPreset === "llm-approved-ask" ? "ask" : "deny",
-					input: event.input,
-					persistentMemory: loadApprovalMemory(this._agentDir),
-					recentDecisions: this._recentApprovalDecisions,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
+			const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
+			return reviewToolCallWithSupervisor(
+				() =>
+					this._supervisorDecisionRequester({
+						controlDbPath: getControlDbPath(this._agentDir),
+						kind: "approval_review",
+						payload: {
+							activeGoal: this.sessionManager.getSessionGoalJson(),
+							currentUserRequest: findLastUserText(this.agent.state.messages),
+							input: event.input,
+							preset: approvalPreset,
+							toolCallId: event.toolCallId,
+							toolName: event.toolName,
+						},
+						projectId: resolveSupervisorProjectForCwd(this._cwd, kbDir),
+						senderSessionId: this.sessionId,
+						timeoutMs: 30_000,
+					}),
+				async (reason) => {
+					const humanReviewer = this._createToolApprovalHumanReviewer(event, this._extensionRunner, reason, true);
+					return humanReviewer ? await humanReviewer() : { block: true, reason };
 				},
-				async (prompt) => {
-					const stream = await this.agent.streamFn(approvalReviewerModel, {
-						messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
-						systemPrompt: "",
-						tools: [],
-					});
-					return stream.result();
-				},
-				{
-					onAsk: async (reason) => {
-						const humanReviewer = this._createToolApprovalHumanReviewer(event, this._extensionRunner, reason);
-						return humanReviewer ? await humanReviewer() : { block: true, reason };
-					},
-					recordDecision: (decision) => this._recordApprovalDecision(decision),
-					recordMemorySuggestion: (memory) => appendApprovalMemory(this._agentDir, memory),
-				},
+				approvalPreset === "llm-approved-ask",
 			);
 		};
-	}
-
-	private async _resolveApprovalReviewerModel(): Promise<Model<any>> {
-		const modelReference = this.settingsManager.getMergedSettings().approvalReviewerModel;
-		if (!modelReference) {
-			return this.agent.state.model;
-		}
-
-		const parsed = parseModelPattern(modelReference, this._modelRegistry.getAll());
-		if (!parsed.model) {
-			throw new Error(`Approval reviewer model not found: ${modelReference}`);
-		}
-
-		const auth = await this._modelRegistry.getApiKeyAndHeaders(parsed.model);
-		if (!auth.ok) {
-			throw new Error(
-				`Approval reviewer model auth unavailable for ${parsed.model.provider}/${parsed.model.id}: ${auth.error}`,
-			);
-		}
-
-		return parsed.model;
-	}
-
-	private _recordApprovalDecision(decision: ApprovalRecentDecision): void {
-		this._recentApprovalDecisions.push(decision);
-		if (this._recentApprovalDecisions.length > 30) {
-			this._recentApprovalDecisions.shift();
-		}
 	}
 
 	private _installAgentNextTurnRefresh(): void {

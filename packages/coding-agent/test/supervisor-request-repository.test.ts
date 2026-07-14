@@ -8,6 +8,7 @@ import {
 	getControlDbPath,
 	postSupervisorRequest,
 	readSupervisorRequest,
+	recoverSupervisorRequests,
 	requeueSupervisorRequest,
 } from "../src/core/session-control-db.ts";
 
@@ -70,6 +71,21 @@ describe("Supervisor request repository", () => {
 			projectId: "pi",
 			senderSessionId: "goal-session",
 		});
+	});
+
+	it("recovers claimed requests after a Supervisor process restart", () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 120_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		claimNextSupervisorRequest(controlDbPath, "dead-runtime");
+
+		recoverSupervisorRequests(controlDbPath);
+
+		expect(claimNextSupervisorRequest(controlDbPath, "replacement-runtime")).toMatchObject({ id: requestId });
 	});
 
 	it("persists a typed response for the waiting caller", () => {

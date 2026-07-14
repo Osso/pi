@@ -8,103 +8,117 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 
 ### Service lifecycle and model
 
-- [ ] Run as one resident systemd-supervised SDK service, separate from the resident Architect.
-- [ ] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
-- [ ] Preserve one global Supervisor transcript across service restarts.
-- [ ] Process requests through an event-driven request/response queue rather than polling sessions.
-- [ ] Remain local-only without web access.
+- [x] Run as one resident systemd-supervised SDK service, separate from the resident Architect.
+- [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
+- [x] Preserve one global Supervisor transcript across service restarts.
+- [x] Process requests through an event-driven request/response queue rather than polling sessions.
+- [x] Remain local-only without web access.
 
 ### Authority boundary
 
-- [ ] Act as a policy engine whose typed response is enforced by the calling subsystem.
-- [ ] Read workspace files without modifying them.
-- [ ] Read and write the full shared KB.
-- [ ] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
-- [ ] Exclude cross-session conflict detection, work coordination, and goal compatibility checks from the initial service.
+- [x] Act as a policy engine whose typed response is enforced by the calling subsystem.
+- [x] Read workspace files without modifying them.
+- [x] Read and write the full shared KB.
+- [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
+- [x] Exclude cross-session conflict detection, work coordination, and goal compatibility checks from the initial service.
 
 ### Project identity and memory
 
-- [ ] Resolve a canonical project family from `KB/memory/supervisor/projects.json` using configured repository roots, remote repository names, and aliases.
-- [ ] Fall back from configured project mappings to the current repository's remote repository name, then to the repository directory basename.
-- [ ] Support one canonical project family spanning multiple repositories, including GlobalComix, MangaHelpers, and World of Osso, without hardcoding those projects into service logic.
-- [ ] Store Supervisor-owned memory under `KB/memory/supervisor/`, with one memory file per canonical project family and optional global memory.
-- [ ] Do not inject all Supervisor memory into model context automatically; let the Supervisor selectively read relevant memory files with its read tools.
-- [ ] Permit synchronous KB reads and writes during request evaluation, within the request deadline.
+- [x] Resolve a canonical project family from `KB/memory/supervisor/projects.json` using configured repository roots and owner/repository remote identities.
+- [x] Fall back from configured project mappings to the current repository's remote repository basename, then to the repository directory basename.
+- [x] Support one canonical project family spanning multiple repositories, including GlobalComix, MangaHelpers, and World of Osso, without hardcoding those projects into service logic.
+- [x] Store Supervisor-owned memory under `KB/memory/supervisor/`, with one memory file per canonical project family and optional global memory.
+- [x] Do not inject all Supervisor memory into model context automatically; let the Supervisor selectively read relevant memory files with its read tools.
+- [x] Permit synchronous KB reads and writes during request evaluation, within the request deadline.
 
 ### Request evidence
 
-- [ ] Give every request the canonical project identity and originating session identity.
-- [ ] Keep request evidence bounded and specific to the current decision.
-- [ ] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
-- [ ] Let the Supervisor consult KB memory and read-only workspace evidence when current request evidence is insufficient.
+- [x] Give every request the canonical project identity and originating session identity.
+- [x] Keep request evidence bounded and specific to the current decision.
+- [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
+- [x] Let the Supervisor consult KB memory and read-only workspace evidence when current request evidence is insufficient.
 
 ### Approval review
 
-- [ ] Replace the existing LLM auto-reviewer with a Supervisor `approval_review` request while preserving the surrounding approval orchestrator and human-review paths.
-- [ ] Include the tool name, normalized arguments, current user request, active running goal when present, and applicable preclassified approval rules in the request evidence.
-- [ ] Return exactly `approve`, `reject`, or generic `error` for approval review.
-- [ ] Enforce a 30-second deadline that includes model work plus synchronous KB reads and writes.
-- [ ] Escalate `error`, timeout, invalid response, or unavailable Supervisor to human review.
+- [x] Replace the existing LLM auto-reviewer with a Supervisor `approval_review` request while preserving the surrounding approval orchestrator and human-review paths.
+- [x] Include the tool name, normalized arguments, current user request, active running goal when present, and applicable preclassified approval rules in the request evidence.
+- [x] Return exactly `approve`, `reject`, or generic `error` for approval review.
+- [x] Enforce a 30-second deadline that includes model work plus synchronous KB reads and writes.
+- [x] Escalate `error`, timeout, invalid response, or unavailable Supervisor to human review.
 
 ### Goal completion review
 
-- [ ] Intercept `manage_goal complete` before the calling session marks the running goal complete.
-- [ ] Send a `goal_completion_review` request containing the objective, current terminal turn evidence, and proposed completion reason.
-- [ ] Return exactly `complete`, `continue`, or generic `error` for goal completion review.
-- [ ] Mark the goal complete only when the caller receives `complete`.
-- [ ] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
-- [ ] Require the Supervisor to make its best judgment between `complete` and `continue` when evidence is uncertain; missing evidence alone is not an error.
+- [x] Intercept `manage_goal complete` before the calling session marks the running goal complete.
+- [x] Send a `goal_completion_review` request containing the objective, current terminal turn evidence, and proposed completion reason.
+- [x] Return exactly `complete`, `continue`, or generic `error` for goal completion review.
+- [x] Mark the goal complete only when the caller receives `complete`.
+- [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
+- [x] Require the Supervisor to make its best judgment between `complete` and `continue` when evidence is uncertain; missing evidence alone is not an error.
 
 ### Goal idle review
 
-- [ ] Preserve the goal extension's existing `agent_end` trigger and all existing guards exactly: the event already occurs after the tool loop reaches a terminal response with no further tool calls, and no redundant tool-call check may be added.
-- [ ] Trigger `goal_idle_review` only at the current continuation point for a running goal, after abort, pending-message, error-stop, and empty-response handling.
-- [ ] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
-- [ ] Return exactly `complete`, `continue`, or generic `error` for goal idle review.
-- [ ] Mark the goal complete when the caller receives `complete`.
-- [ ] Submit the Supervisor's concrete instructions as the follow-up continuation prompt when the caller receives `continue`.
-- [ ] Require best judgment between `complete` and `continue` despite uncertainty.
-- [ ] On goal `error`, keep the goal running, stop automatic continuation, and display a visible error without requiring human approval.
-- [ ] Enforce a two-minute deadline for goal reviews.
+- [x] Preserve the goal extension's existing `agent_end` trigger and all existing guards exactly: the event already occurs after the tool loop reaches a terminal response with no further tool calls, and no redundant tool-call check may be added.
+- [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after abort, pending-message, error-stop, and empty-response handling.
+- [x] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
+- [x] Return exactly `complete`, `continue`, or generic `error` for goal idle review.
+- [x] Mark the goal complete when the caller receives `complete`.
+- [x] Submit the Supervisor's concrete instructions as the follow-up continuation prompt when the caller receives `continue`.
+- [x] Require best judgment between `complete` and `continue` despite uncertainty.
+- [x] On goal `error`, keep the goal running, stop automatic continuation, and display a visible error without requiring human approval.
+- [x] Enforce a two-minute deadline for goal reviews.
 
 ### Scheduling and preemption
 
-- [ ] Give approval reviews priority over goal reviews and memory work.
-- [ ] Abort and requeue an active goal review when an approval request arrives.
-- [ ] Preserve the original goal request evidence when requeuing it.
-- [ ] Process the approval immediately after preemption.
-- [ ] Keep the requeued goal review within its original two-minute request deadline.
+- [x] Give approval reviews priority over goal reviews and memory work.
+- [x] Abort and requeue an active goal review when an approval request arrives.
+- [x] Preserve the original goal request evidence when requeuing it.
+- [x] Process the approval immediately after preemption.
+- [x] Keep the requeued goal review within its original two-minute request deadline.
 
 ### Failure handling
 
-- [ ] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures.
-- [ ] Fail approval reviews to human escalation.
-- [ ] Fail goal reviews visibly without completing the goal, continuing automatically, or invoking human approval.
+- [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures.
+- [x] Fail approval reviews to human escalation.
+- [x] Fail goal reviews visibly without completing the goal, continuing automatically, or invoking human approval.
 
 ## How it works
 
-- [ ] See [`docs/wiki/systems/supervisor-service.md`](../wiki/systems/supervisor-service.md).
-- [ ] Integrates with [`approval-system.md`](approval-system.md).
-- [ ] Integrates with [`goal-system.md`](goal-system.md).
-- [ ] Reuses applicable resident-service lifecycle patterns from [`architect-service.md`](architect-service.md) without inheriting the Architect's advisory-only contract.
+- [x] See [`docs/wiki/systems/supervisor-service.md`](../wiki/systems/supervisor-service.md).
+- [x] Integrates with [`approval-system.md`](approval-system.md).
+- [x] Integrates with [`goal-system.md`](goal-system.md).
+- [x] Reuses applicable resident-service lifecycle patterns from [`architect-service.md`](architect-service.md) without inheriting the Architect's advisory-only contract.
 
 ## Implementation inventory
 
-- Not implemented. Expected inventory will include the resident Supervisor service, control-DB request repository, approval integration, goal integration, systemd unit, deployment wiring, and KB project-identity resolver.
+- `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, and request loop.
+- `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, and approval preemption.
+- `packages/coding-agent/src/supervisor/client.ts` — durable synchronous caller transport.
+- `packages/coding-agent/src/supervisor/project-resolver.ts` — KB config loading and canonical project-family resolution.
+- `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
+- `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
+- `packages/coding-agent/src/core/agent-session.ts` — LLM-approved preset integration.
+- `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.
+- `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — installed service lifecycle.
 
 ## Tests asserting this spec
 
-- Not implemented.
+- `packages/coding-agent/test/supervisor-request-repository.test.ts`
+- `packages/coding-agent/test/supervisor-project-resolver.test.ts`
+- `packages/coding-agent/test/supervisor-client.test.ts`
+- `packages/coding-agent/test/supervisor-service.test.ts`
+- `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
+- `packages/coding-agent/test/goal-extension.test.ts`
+- `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 
 ## Known gaps (current cycle)
 
-- [ ] Define and test the typed Supervisor request and response protocol.
-- [ ] Implement the persistent request/response repository with priority and preemption semantics.
-- [ ] Implement the resident Supervisor SDK service and restricted tool boundary.
-- [ ] Implement KB-backed canonical project resolution and memory access.
-- [ ] Replace the approval auto-reviewer call with `approval_review`.
-- [ ] Gate explicit goal completion with `goal_completion_review`.
-- [ ] Replace the existing `agent_end` continuation decision with `goal_idle_review` without changing its trigger or guards.
+- [x] Define and test the typed Supervisor request and response protocol.
+- [x] Implement the persistent request/response repository with priority and preemption semantics.
+- [x] Implement the resident Supervisor SDK service and restricted tool boundary.
+- [x] Implement KB-backed canonical project resolution and memory access.
+- [x] Replace the approval auto-reviewer call with `approval_review`.
+- [x] Gate explicit goal completion with `goal_completion_review`.
+- [x] Replace the existing `agent_end` continuation decision with `goal_idle_review` without changing its trigger or guards.
 - [ ] Deploy and verify the systemd service.
 
 ## Out of scope

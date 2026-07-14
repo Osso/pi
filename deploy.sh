@@ -35,6 +35,15 @@ render_architect_service_unit() {
 	done < "$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service" > "$output_path"
 }
 
+render_supervisor_service_unit() {
+	local output_path="$1"
+	local line
+
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		printf '%s\n' "${line//@PI_SUPERVISOR_BINARY@/$BIN_DIR/pi}"
+	done < "$ROOT_DIR/packages/coding-agent/systemd/pi-supervisor.service" > "$output_path"
+}
+
 cleanup_extension_build_outputs() {
 	shopt -s globstar nullglob
 	rm -f \
@@ -121,7 +130,8 @@ ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR"
 render_architect_service_unit "$SYSTEMD_USER_DIR/pi-architect.service"
-chmod 644 "$SYSTEMD_USER_DIR/pi-architect.service"
+render_supervisor_service_unit "$SYSTEMD_USER_DIR/pi-supervisor.service"
+chmod 644 "$SYSTEMD_USER_DIR/pi-architect.service" "$SYSTEMD_USER_DIR/pi-supervisor.service"
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
@@ -133,4 +143,7 @@ else
 	systemctl --user restart pi-architect.service
 	systemctl --user is-active --quiet pi-architect.service
 fi
+systemctl --user enable --now pi-supervisor.service
+systemctl --user restart pi-supervisor.service
+systemctl --user is-active --quiet pi-supervisor.service
 rm -rf "$OLD_INSTALL_DIR"

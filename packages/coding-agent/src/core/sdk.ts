@@ -3,7 +3,12 @@ import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
-import { AgentSession, type MultiAgentExecutionCapability, type MultiAgentRuntimeRole } from "./agent-session.ts";
+import {
+	AgentSession,
+	type AgentSessionConfig,
+	type MultiAgentExecutionCapability,
+	type MultiAgentRuntimeRole,
+} from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
@@ -106,6 +111,8 @@ export interface CreateAgentSessionOptions {
 	settingsManager?: SettingsManager;
 	/** Session start event metadata for extension runtime startup. */
 	sessionStartEvent?: SessionStartEvent;
+	/** Override resident Supervisor transport for isolated tests. */
+	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
 }
 
 function rulesScopeForRuntimeRole(role: MultiAgentRuntimeRole | undefined): RulesScope {
@@ -441,6 +448,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		multiAgentExecutionCapability: options.multiAgentExecutionCapability,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
+		supervisorDecisionRequester: options.supervisorDecisionRequester,
 	});
 	sessionRef.current = session;
 	const extensionsResult = resourceLoader.getExtensions();

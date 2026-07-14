@@ -32,7 +32,6 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 | `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
 | `thinkingBudgets` | object | - | Custom token budgets per thinking level |
-| `approvalReviewerModel` | string | active session model | Optional model reference for LLM approval review, e.g. `"ollama/gemma4:e4b-it-qat"`. If configured and unresolved, tool approval fails closed. |
 
 #### thinkingBudgets
 

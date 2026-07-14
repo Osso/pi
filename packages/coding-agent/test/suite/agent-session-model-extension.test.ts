@@ -888,7 +888,7 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("native-approved");
 	});
 
-	it("blocks tool calls denied by the LLM-approved reviewer", async () => {
+	it("blocks tool calls rejected by the resident Supervisor", async () => {
 		let toolExecutions = 0;
 		const echoTool: AgentTool = {
 			name: "echo",
@@ -903,12 +903,12 @@ describe("AgentSession model and extension characterization", () => {
 		};
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			supervisorDecisionRequester: async () => ({ kind: "reject", reason: "llm denied" }),
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage('{"behavior":"deny","message":"llm denied"}'),
 			(context) => {
 				const toolResult = context.messages.find((message) => message.role === "toolResult");
 				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
@@ -921,7 +921,42 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("llm denied");
 	});
 
-	it("escalates LLM-approved ask decisions to native approval", async () => {
+	it("escalates Supervisor error to native approval even for the deny preset", async () => {
+		let toolExecutions = 0;
+		const select = vi.fn(async () => "Allow once");
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async () => {
+				toolExecutions += 1;
+				return { content: [{ type: "text", text: "executed" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			supervisorDecisionRequester: async () => ({ kind: "error", reason: "service unavailable" }),
+			tools: [echoTool],
+			uiContext: createConfirmUiContext(vi.fn(), select),
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(toolExecutions).toBe(1);
+		expect(select).toHaveBeenCalledWith(expect.stringContaining("Reason: service unavailable"), [
+			"Allow once",
+			"Allow always",
+			"Deny",
+		]);
+	});
+
+	it("escalates Supervisor rejection to native approval for the ask preset", async () => {
 		let toolExecutions = 0;
 		const select = vi.fn(async () => "Allow once");
 		const echoTool: AgentTool = {
@@ -937,13 +972,13 @@ describe("AgentSession model and extension characterization", () => {
 		};
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-ask" },
+			supervisorDecisionRequester: async () => ({ kind: "reject", reason: "needs supervision" }),
 			tools: [echoTool],
 			uiContext: createConfirmUiContext(vi.fn(), select),
 		});
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage('{"behavior":"ask","message":"needs supervision"}'),
 			(context) => {
 				const toolResult = context.messages.find((message) => message.role === "toolResult");
 				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
@@ -961,8 +996,8 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("hello");
 	});
 
-	it("feeds prior session LLM approval decisions into later LLM approval prompts", async () => {
-		let secondApprovalPrompt = "";
+	it("sends bounded current-request evidence to the Supervisor without prior decision history", async () => {
+		const supervisorPayloads: Record<string, unknown>[] = [];
 		const echoTool: AgentTool = {
 			name: "echo",
 			label: "Echo",
@@ -975,30 +1010,31 @@ describe("AgentSession model and extension characterization", () => {
 		};
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			supervisorDecisionRequester: async (input) => {
+				supervisorPayloads.push(input.payload);
+				return { kind: "approve", reason: "bounded" };
+			},
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "first" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage('{"behavior":"allow"}'),
 			fauxAssistantMessage("first done"),
 			fauxAssistantMessage([fauxToolCall("echo", { text: "second" })], { stopReason: "toolUse" }),
-			(context) => {
-				secondApprovalPrompt = getMessageText(context.messages.at(-1));
-				return fauxAssistantMessage('{"behavior":"allow"}');
-			},
 			fauxAssistantMessage("second done"),
 		]);
 
 		await harness.session.prompt("first");
 		await harness.session.prompt("second");
 
-		expect(secondApprovalPrompt).toContain("Recent session approval decisions:");
-		expect(secondApprovalPrompt).toContain('"inputSummary": "{\\"text\\":\\"first\\"}"');
+		expect(supervisorPayloads).toHaveLength(2);
+		expect(supervisorPayloads[0]).toMatchObject({ currentUserRequest: "first", input: { text: "first" } });
+		expect(supervisorPayloads[1]).toMatchObject({ currentUserRequest: "second", input: { text: "second" } });
+		expect(supervisorPayloads[1]).not.toHaveProperty("recentDecisions");
 	});
 
-	it("loads persistent approval memory and stores bounded memory suggestions", async () => {
-		let approvalPrompt = "";
+	it("does not load or mutate the retired approval-memory file", async () => {
+		let supervisorCalls = 0;
 		const echoTool: AgentTool = {
 			name: "echo",
 			label: "Echo",
@@ -1011,6 +1047,10 @@ describe("AgentSession model and extension characterization", () => {
 		};
 		const harness = await createHarness({
 			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			supervisorDecisionRequester: async () => {
+				supervisorCalls += 1;
+				return { kind: "approve", reason: "bounded" };
+			},
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
@@ -1026,104 +1066,13 @@ describe("AgentSession model and extension characterization", () => {
 		);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				approvalPrompt = getMessageText(context.messages.at(-1));
-				return fauxAssistantMessage(
-					JSON.stringify({
-						behavior: "allow",
-						memorySuggestion: {
-							decision: "allow",
-							pattern: "echo hello",
-							reason: "Echo hello is bounded",
-							scope: "local-echo",
-							toolName: "echo",
-						},
-					}),
-				);
-			},
 			fauxAssistantMessage("done"),
 		]);
 
 		await harness.session.prompt("hi");
 
-		expect(approvalPrompt).toContain("Persistent approval memory:");
-		expect(approvalPrompt).toContain("Echoing safe text is bounded");
-		expect(readFileSync(join(harness.tempDir, "approval-memory.jsonl"), "utf-8")).toContain("echo hello");
-	});
-
-	it("uses configured approval reviewer model instead of the active session model", async () => {
-		const approvalModels: string[] = [];
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
-			},
-		};
-		const harness = await createHarness({
-			models: [
-				{ id: "faux-main", name: "Main", reasoning: true },
-				{ id: "faux-reviewer", name: "Reviewer", reasoning: false },
-			],
-			settings: {
-				approvalPolicy: "on-request",
-				approvalPreset: "llm-approved-deny",
-				approvalReviewerModel: "faux/faux-reviewer",
-			},
-			tools: [echoTool],
-		});
-		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(_context, _options, _state, model) => {
-				approvalModels.push(`${model.provider}/${model.id}`);
-				return fauxAssistantMessage('{"behavior":"allow"}');
-			},
-			fauxAssistantMessage("done"),
-		]);
-
-		await harness.session.prompt("hi");
-
-		expect(harness.session.model?.id).toBe("faux-main");
-		expect(approvalModels).toEqual(["faux/faux-reviewer"]);
-	});
-
-	it("fails closed when configured approval reviewer model cannot be resolved", async () => {
-		let toolExecutions = 0;
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
-			parameters: Type.Object({ text: Type.String() }),
-			execute: async () => {
-				toolExecutions++;
-				return { content: [{ type: "text", text: "executed" }], details: {} };
-			},
-		};
-		const harness = await createHarness({
-			settings: {
-				approvalPolicy: "on-request",
-				approvalPreset: "llm-approved-deny",
-				approvalReviewerModel: "faux/missing",
-			},
-			tools: [echoTool],
-		});
-		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
-
-		await harness.session.prompt("hi");
-
-		expect(toolExecutions).toBe(0);
-		expect(getAssistantTexts(harness).join("\n")).toContain("Approval reviewer model not found: faux/missing");
+		expect(supervisorCalls).toBe(1);
+		expect(readFileSync(join(harness.tempDir, "approval-memory.jsonl"), "utf-8")).not.toContain("echo hello");
 	});
 
 	it("skips the LLM-approved reviewer when a cached permission rule allows", async () => {

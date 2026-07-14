@@ -1342,6 +1342,40 @@ export function claimNextSupervisorRequest(controlDbPath: string, claimToken: st
 	});
 }
 
+export function recoverSupervisorRequests(controlDbPath: string): void {
+	withControlDb(controlDbPath, (db) => {
+		const now = new Date().toISOString();
+		const errorResponse = JSON.stringify({ kind: "error", reason: "Supervisor request deadline expired" });
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			db.prepare(
+				`UPDATE supervisor_requests
+				 SET status = 'completed', completed_at = ?, response_json = ?, claim_token = NULL
+				 WHERE status IN ('pending', 'claimed') AND deadline_at <= ?`,
+			).run(now, errorResponse, now);
+			db.prepare(
+				`UPDATE supervisor_requests
+				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
+				 WHERE status = 'claimed'`,
+			).run();
+			db.exec("COMMIT");
+		} catch (error) {
+			db.exec("ROLLBACK");
+			throw error;
+		}
+	});
+}
+
+export function hasPendingSupervisorApprovalRequest(controlDbPath: string): boolean {
+	return withControlDb(controlDbPath, (db) =>
+		Boolean(
+			db
+				.prepare("SELECT 1 FROM supervisor_requests WHERE status = 'pending' AND kind = 'approval_review' LIMIT 1")
+				.get(),
+		),
+	);
+}
+
 export function requeueSupervisorRequest(controlDbPath: string, requestId: number, claimToken: string): void {
 	withControlDb(controlDbPath, (db) => {
 		const result = db

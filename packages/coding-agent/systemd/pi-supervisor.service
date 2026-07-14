@@ -1,0 +1,14 @@
+[Unit]
+Description=Pi resident supervisor
+After=default.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h
+ExecStart=@PI_SUPERVISOR_BINARY@ supervisor
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

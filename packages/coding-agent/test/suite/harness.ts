@@ -14,7 +14,7 @@ import type {
 	Model,
 } from "@earendil-works/pi-ai/compat";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
+import { AgentSession, type AgentSessionConfig, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
@@ -81,6 +81,7 @@ export interface HarnessOptions {
 	multiAgentAgentId?: string;
 	/** Exact owning supervisor session for persisted child activity updates. */
 	multiAgentParentSessionId?: string;
+	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
 }
 
 export interface Harness {
@@ -202,6 +203,8 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		multiAgentAgentId: options.multiAgentAgentId,
 		multiAgentParentSessionId:
 			options.multiAgentParentSessionId ?? (options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
+		supervisorDecisionRequester:
+			options.supervisorDecisionRequester ?? (async () => ({ kind: "approve", reason: "test approval" })),
 	});
 
 	const events: AgentSessionEvent[] = [];

@@ -34,6 +34,13 @@ import type {
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { getAgentDir } from "../../../src/config.ts";
+import { getControlDbPath, type SupervisorResponse } from "../../../src/core/session-control-db.ts";
+import { requestSupervisorDecision } from "../../../src/supervisor/client.ts";
+import {
+	DEFAULT_SUPERVISOR_KB_DIR,
+	resolveSupervisorProjectForCwd,
+} from "../../../src/supervisor/project-resolver.ts";
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
@@ -69,6 +76,17 @@ interface ManageGoalContext {
 	ctx: ExtensionContext;
 	params: ManageGoalParams;
 	pi: ExtensionAPI;
+	reviewGoal: GoalSupervisorReview;
+}
+
+export type GoalSupervisorReview = (input: {
+	kind: "goal_completion_review" | "goal_idle_review";
+	payload: Record<string, unknown>;
+	ctx: ExtensionContext;
+}) => Promise<SupervisorResponse>;
+
+export interface GoalExtensionOptions {
+	reviewGoal?: GoalSupervisorReview;
 }
 
 function goalPathForSessionId(cwd: string, sessionId: string): string {
@@ -364,7 +382,7 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	};
 }
 
-function runSetGoalAction({ ctx, params, pi }: ManageGoalContext): AgentToolResult<unknown> {
+function runSetGoalAction({ ctx, params, pi }: Omit<ManageGoalContext, "reviewGoal">): AgentToolResult<unknown> {
 	const objective = params.objective?.trim() ?? "";
 	if (!objective) {
 		return textResult("Objective is required.");
@@ -403,13 +421,32 @@ function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentTool
 	return textResult(`Goal resumed: ${goal.objective}`, { objective: goal.objective });
 }
 
-function runCompleteGoalAction(ctx: ExtensionContext, reasonInput: string | undefined): AgentToolResult<unknown> {
+async function runCompleteGoalAction(
+	ctx: ExtensionContext,
+	reasonInput: string | undefined,
+	reviewGoal: GoalSupervisorReview,
+	pi: ExtensionAPI,
+): Promise<AgentToolResult<unknown>> {
+	const runningGoal = loadRunningGoal(ctx);
+	if (!runningGoal) return textResult("No active goal to complete.");
+
 	const reason = reasonInput?.trim() || "complete";
-	const goal = markGoalComplete(ctx, reason);
-	if (!goal) {
-		return textResult("No active goal to complete.");
+	const decision = await reviewGoal({
+		ctx,
+		kind: "goal_completion_review",
+		payload: { objective: runningGoal.objective, proposedCompletionReason: reason },
+	});
+	if (decision.kind === "continue") {
+		pi.sendUserMessage(decision.instructions, { deliverAs: "followUp" });
+		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
+	}
+	if (decision.kind !== "complete") {
+		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
+		return textResult(`Goal review failed: ${decision.reason}`);
 	}
 
+	const goal = markGoalComplete(ctx, reason);
+	if (!goal) return textResult("No active goal to complete.");
 	updateGoalFooterStatus(ctx);
 	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 	return textResult(`Goal marked complete: ${reason}`);
@@ -431,7 +468,7 @@ function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 	return textResult(message, details);
 }
 
-function manageGoal({ ctx, params, pi }: ManageGoalContext): AgentToolResult<unknown> {
+async function manageGoal({ ctx, params, pi, reviewGoal }: ManageGoalContext): Promise<AgentToolResult<unknown>> {
 	switch (params.action) {
 		case "set":
 			return runSetGoalAction({ ctx, params, pi });
@@ -440,7 +477,7 @@ function manageGoal({ ctx, params, pi }: ManageGoalContext): AgentToolResult<unk
 		case "resume":
 			return runResumeGoalAction(ctx, pi);
 		case "complete":
-			return runCompleteGoalAction(ctx, params.reason);
+			return runCompleteGoalAction(ctx, params.reason, reviewGoal, pi);
 		case "clear":
 			return runClearGoalAction(ctx);
 		case "status":
@@ -448,7 +485,24 @@ function manageGoal({ ctx, params, pi }: ManageGoalContext): AgentToolResult<unk
 	}
 }
 
-export default function goalExtension(pi: ExtensionAPI) {
+async function reviewGoalWithResidentSupervisor(input: {
+	kind: "goal_completion_review" | "goal_idle_review";
+	payload: Record<string, unknown>;
+	ctx: ExtensionContext;
+}): Promise<SupervisorResponse> {
+	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
+	return requestSupervisorDecision({
+		controlDbPath: getControlDbPath(getAgentDir()),
+		kind: input.kind,
+		payload: input.payload,
+		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
+		senderSessionId: input.ctx.sessionManager.getSessionId(),
+		timeoutMs: 120_000,
+	});
+}
+
+export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}) {
+	const reviewGoal = options.reviewGoal ?? reviewGoalWithResidentSupervisor;
 	pi.registerTool({
 		name: "manage_goal",
 		label: "Manage Goal",
@@ -467,7 +521,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 			objective: Type.Optional(Type.String()),
 			reason: Type.Optional(Type.String()),
 		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => manageGoal({ ctx, params, pi }),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => manageGoal({ ctx, params, pi, reviewGoal }),
 	});
 
 	// Notify on session start if an objective is active.
@@ -495,11 +549,31 @@ export default function goalExtension(pi: ExtensionAPI) {
 			return;
 		}
 
+		const decision = await reviewGoal({
+			ctx,
+			kind: "goal_idle_review",
+			payload: {
+				objective: goal.objective,
+				terminalTurn: event.messages,
+			},
+		});
+		if (decision.kind === "complete") {
+			markGoalComplete(ctx, decision.reason);
+			updateGoalFooterStatus(ctx);
+			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+			return;
+		}
+		if (decision.kind === "error") {
+			ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
+			return;
+		}
+		if (decision.kind !== "continue") {
+			ctx.ui.notify("Supervisor returned an invalid goal response", "error");
+			return;
+		}
 		const continuationTurns = goal.continuationTurns ?? 0;
 		saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
-		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`, {
-			deliverAs: "followUp",
-		});
+		pi.sendUserMessage(decision.instructions, { deliverAs: "followUp" });
 	});
 
 	// Inject the active objective into the system prompt every turn.

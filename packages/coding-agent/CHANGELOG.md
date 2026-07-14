@@ -8,9 +8,11 @@
 - Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
 - Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unowned bootstrap/migration rows.
 - Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` exact-owner commands.
+- Removed the in-process LLM approval reviewer, `approvalReviewerModel`, recent approval-decision prompt history, and `approval-memory.jsonl`; LLM-approved presets now use the resident Supervisor and its KB memory.
 
 ### Added
 
+- Added the systemd-supervised resident Supervisor service with durable priority requests, approval preemption, bounded project evidence, KB-backed project-family memory, and typed approval/goal decisions.
 - Added visible provider-internal retry and transport-fallback notices: a new `provider_stream_retry` session event is emitted when the provider retries a request or falls back to another transport, and interactive mode renders the attempt count, delay, and reason instead of an unchanged `Thinking...` spinner.
 - Added a disposable real-process headless Pi test fixture built on RPC mode, with isolated state, typed raw commands, private faux-provider response control, persisted agent/mailbox waiters, and automatic cleanup; `RpcClient.send()`, `RpcCommandBody`, and `RpcClientOptions.nodeArgs` are now public for raw commands and preload instrumentation.
 - Added completed `Thought for <duration>` rows between consecutive tool calls so model-turn latency remains visible after the next tool starts.
@@ -101,8 +103,8 @@
 - Changed the default interactive `Thinking...` working ticker to show elapsed duration and leave active tool-wait messages in control of the working row.
 - Changed production-created `spawn_agent` children, `attach_session_agent` runtimes, and `/bg` background jobs to exclude the goal extension and goal-state seeding; attached sessions may retain existing goal metadata, but it is inert. Child prompts remain validated before dispatch and `spawn_agent` rejects blank prompts before creating an agent record.
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
-- Changed LLM approval prompts to include recent session approval decisions and structured persistent approval memory from `~/.config/pi/agent/approval-memory.jsonl`.
-- Changed LLM approval review to support a dedicated `approvalReviewerModel` setting, failing closed if the configured model cannot be resolved.
+- Changed LLM-approved tool review to use synchronous resident Supervisor decisions, with service failures escalating to native human review.
+- Changed goal completion and guarded `agent_end` continuation to require resident Supervisor `complete` or `continue` decisions.
 - Changed `/goal <objective>` to replace the active goal by default and removed the replacement flag.
 - Changed the LLM-approved tool reviewer to allow bounded-risk coding-agent commands, including `/tmp` cleanup, while still denying catastrophic system, credential, irreversible data-loss, or unrelated external-side-effect actions.
 - Changed the `pi -r` and `/resume` session selector default sort to recent sessions.
