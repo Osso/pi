@@ -99,6 +99,7 @@ async function createFauxChildSession(
 ): Promise<ChildAgentSession> {
 	const child = await createHarness({
 		multiAgentAgentId: input.agent.id,
+		multiAgentParentSessionId: fixture.harness.sessionManager.getSessionId(),
 		multiAgentStore: fixture.store,
 		persistedSession: true,
 	});
