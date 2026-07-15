@@ -14,6 +14,11 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - [x] While an active tool controls the working row, the thinking-duration timer must not replace its tool-wait message (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
 - [x] When a model turn follows a completed tool and emits another tool call, render the completed interval as `Thought for <duration>` between the two tool rows; intervals shorter than one second remain hidden (`packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts`).
 
+### Steering
+
+- [x] Steering submitted during model thinking aborts the active provider request and automatically continues with the steering message (`packages/coding-agent/test/agent-session-concurrent.test.ts`).
+- [x] Steering submitted during tool execution does not abort the tool and is delivered before the next model request (`packages/coding-agent/test/suite/agent-session-queue.test.ts`).
+
 ## How it works
 
 - [Thinking status implementation](../wiki/systems/thinking-status.md).

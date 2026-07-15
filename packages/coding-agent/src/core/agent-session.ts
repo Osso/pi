@@ -673,6 +673,7 @@ export class AgentSession {
 	// Extension system
 	private _extensionRunner!: ExtensionRunner;
 	private _turnIndex = 0;
+	private _executionPhase: "idle" | "thinking" | "tool" = "idle";
 
 	private _resourceLoader: ResourceLoader;
 	private _customTools: ToolDefinition[];
@@ -1188,6 +1189,20 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
+		if (event.type === "agent_end") {
+			this._executionPhase = "idle";
+		} else if (event.type === "tool_execution_start") {
+			this._executionPhase = "tool";
+		} else if (
+			event.type === "message_end" &&
+			event.message.role === "assistant" &&
+			event.message.content.some((content) => content.type === "toolCall")
+		) {
+			this._executionPhase = "tool";
+		} else if (event.type === "turn_start") {
+			this._executionPhase = "thinking";
+		}
+
 		this._publishCurrentAgentActivity(event);
 
 		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
@@ -2521,8 +2536,8 @@ export class AgentSession {
 
 	/**
 	 * Queue a steering message while the agent is running.
-	 * Delivered after the current assistant turn finishes executing its tool calls,
-	 * before the next LLM call.
+	 * Interrupts active model thinking and restarts with the message. Active tool
+	 * execution finishes before the message is delivered to the next LLM call.
 	 * Expands skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
 	 * @throws Error if text is an extension command
@@ -2589,6 +2604,9 @@ export class AgentSession {
 			inputSource,
 			timestamp: Date.now(),
 		});
+		if (this.isStreaming && this._executionPhase === "thinking") {
+			this.agent.abort();
+		}
 	}
 
 	/**

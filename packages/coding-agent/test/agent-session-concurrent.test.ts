@@ -190,6 +190,25 @@ describe("AgentSession concurrent prompt guard", () => {
 		await firstPrompt.catch(() => {});
 	});
 
+	it("interrupts model thinking and continues with steering", async () => {
+		createSession();
+		const firstPrompt = session.prompt("First message");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		await session.steer("Steering message");
+
+		const outcome = await Promise.race([
+			firstPrompt.then(() => "completed"),
+			new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 200)),
+		]);
+		expect(outcome).toBe("completed");
+		expect(
+			session.messages
+				.filter((message) => message.role === "user")
+				.map((message) => getUserMessageText(message.content)),
+		).toEqual(["First message", "Steering message"]);
+	});
+
 	it("should allow followUp() while streaming", async () => {
 		createSession();
 
@@ -206,7 +225,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		await firstPrompt.catch(() => {});
 	});
 
-	it("should queue extension-origin steering messages while streaming", async () => {
+	it("should interrupt model thinking for extension-origin steering messages", async () => {
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
 		let abortSignal: AbortSignal | undefined;
 		let lastInputSource: string | undefined;
@@ -292,15 +311,16 @@ describe("AgentSession concurrent prompt guard", () => {
 		expect(pi).toBeDefined();
 
 		pi!.sendUserMessage("Steer from extension", { deliverAs: "steer" });
-		await new Promise((resolve) => setTimeout(resolve, 25));
+		await firstPrompt;
 
-		expect(session.pendingMessageCount).toBe(1);
-		expect(session.getSteeringMessages()).toContain("Steer from extension");
+		expect(session.pendingMessageCount).toBe(0);
 		expect(lastInputSource).toBe("extension");
 		expect(queueEvents.some((event) => event.steering.includes("Steer from extension"))).toBe(true);
-
-		await session.abort();
-		await firstPrompt.catch(() => {});
+		expect(
+			session.messages
+				.filter((message) => message.role === "user")
+				.map((message) => getUserMessageText(message.content)),
+		).toEqual(["First message", "Steer from extension"]);
 	});
 
 	it("should allow prompt() after previous completes", async () => {

@@ -229,14 +229,14 @@ await session.prompt("After you're done, also check X", { streamingBehavior: "fo
 For explicit queueing during streaming:
 
 ```typescript
-// Queue a steering message for delivery after the current assistant turn finishes its tool calls
+// Interrupt active model thinking, or wait for active tools before steering the next model call
 await session.steer("New instruction");
 
 // Wait for agent to finish (delivered only when agent stops)
 await session.followUp("After you're done, also do this");
 ```
 
-Both `steer()` and `followUp()` expand file-based prompt templates but error on extension commands (extension commands cannot be queued).
+`steer()` interrupts an active model request and automatically continues with the steering message. It does not abort active tool execution; steering queued during a tool runs before the next model call. `followUp()` still waits until the agent finishes. Both methods expand file-based prompt templates but error on extension commands (extension commands cannot be queued).
 
 ### Agent and AgentState
 
