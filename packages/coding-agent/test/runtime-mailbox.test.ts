@@ -1985,6 +1985,69 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("interrupts model thinking for terminal runtime mailbox notifications", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		let markRequestStarted!: () => void;
+		const requestStarted = new Promise<void>((resolve) => {
+			markRequestStarted = resolve;
+		});
+		harness.setResponses([
+			async (_context, options) => {
+				markRequestStarted();
+				await new Promise<void>((resolve) => {
+					options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+				return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
+			},
+			fauxAssistantMessage("Completion handled"),
+		]);
+
+		const activePrompt = harness.session.prompt("Wait for completion");
+		await requestStarted;
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: JSON.stringify({
+				agentId: "agent_1",
+				eventKind: "agent_completed",
+				type: "multi_agent_terminal",
+			}),
+			kind: "system",
+			messageId: "terminal:agent_1:2:agent_completed",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: {
+				checkpoint: "next_model_call";
+				triggerIfIdle: boolean;
+			}): Promise<boolean>;
+		};
+
+		await drainableSession._drainRuntimeMailboxMessages({
+			checkpoint: "next_model_call",
+			triggerIfIdle: false,
+		});
+		const outcome = await Promise.race([
+			activePrompt.then(() => "completed"),
+			new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 200)),
+		]);
+
+		expect(outcome).toBe("completed");
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(getUserTexts(harness)).toContain(
+			runtimeMailboxPrompt(
+				JSON.stringify({
+					agentId: "agent_1",
+					eventKind: "agent_completed",
+					type: "multi_agent_terminal",
+				}),
+			),
+		);
+	});
+
 	it("does not read runtime mailbox messages when the session is already streaming without a checkpoint", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

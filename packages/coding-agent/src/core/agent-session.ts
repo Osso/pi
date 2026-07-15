@@ -2604,6 +2604,10 @@ export class AgentSession {
 			inputSource,
 			timestamp: Date.now(),
 		});
+		this._interruptModelThinkingForSteering();
+	}
+
+	private _interruptModelThinkingForSteering(): void {
 		if (this.isStreaming && this._executionPhase === "thinking") {
 			this.agent.abort();
 		}
@@ -2757,6 +2761,9 @@ export class AgentSession {
 				timestamp: Date.now(),
 			});
 			for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
+			if (promptMessages.some((message) => message.storeRef.messageId.startsWith("terminal:"))) {
+				this._interruptModelThinkingForSteering();
+			}
 			return true;
 		}
 		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, delivery.releaseTurnStart);

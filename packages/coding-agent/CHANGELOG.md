@@ -66,7 +66,7 @@
 
 ### Changed
 
-- Steering now interrupts an active model-thinking request and automatically continues with the steering message; active tool execution remains uninterrupted and receives steering before the next model call.
+- Steering and terminal completion notifications from subagents or detached background jobs now interrupt an active model-thinking request and automatically continue with the new input; active tool execution remains uninterrupted and receives it before the next model call.
 - Approval hooks that return no decision now fall through to the configured Supervisor or human reviewer; explicit `{ block: false }` still short-circuits later approval review.
 - Increased automatic backgrounding timeout for detachable Bash and Pyrun tool calls from 2 minutes to 10 minutes.
 - Runtime mailbox messages now enter active turns through steering at safe checkpoints instead of accumulating as follow-ups between model calls; non-eligible messages remain durable until an eligible checkpoint or idle delivery.
