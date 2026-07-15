@@ -1528,7 +1528,7 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "completed" });
 	});
 
-	it("keeps a /bg child cancelling when abort does not acknowledge exit", async () => {
+	it("bounds /bg cancellation when abort does not acknowledge exit", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
@@ -1547,10 +1547,10 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(abort).toHaveBeenCalledTimes(1);
-		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "cancelling" });
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
 	});
 
-	it("keeps cancellation committed when the runtime abort handler throws", async () => {
+	it("terminalizes cancellation when the runtime abort handler throws", async () => {
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
 			abort: () => {
@@ -1571,11 +1571,11 @@ describe("multi-agent extension tools", () => {
 			reason: "user requested",
 		});
 
-		expect(cancelled.details.agent).toMatchObject({ lifecycle: "cancelling" });
-		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
+		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
+		expect(harness.store.getAgent(spawned.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
 	});
 
-	it("keeps a spawn_agent child cancelling when abort does not acknowledge exit", async () => {
+	it("bounds spawn_agent cancellation when abort does not acknowledge exit", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const createChildSession: ChildAgentSessionFactory = async () => ({
@@ -1600,7 +1600,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(abort).toHaveBeenCalledTimes(1);
-		expect(harness.store.getAgent(current.id)).toMatchObject({ lifecycle: "cancelling" });
+		expect(harness.store.getAgent(current.id)).toMatchObject({ lifecycle: "aborted" });
 	});
 
 	it("cascades cancellation through active descendants before terminalizing the parent", async () => {
@@ -1640,7 +1640,7 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	});
 
-	it("retains a cancelling parent until a slow descendant exits", async () => {
+	it("bounds parent cancellation when a slow descendant ignores abort", async () => {
 		const rejectPromptByAgent = new Map<string, (error: Error) => void>();
 		let slowChildAgentId: string | undefined;
 		const harness = createMultiAgentHarness({
@@ -1668,17 +1668,13 @@ describe("multi-agent extension tools", () => {
 		slowChildAgentId = child.details.agent.id;
 		await Promise.resolve();
 
-		const cancellation = harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: parent.details.agent.id,
 			reason: "cascade",
 		});
-		await delay(5_200);
 
-		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
-		expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
-		rejectPromptByAgent.get(child.details.agent.id)?.(new Error("child exited"));
-		const cancelled = await cancellation;
 		expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
+		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
 		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	}, 12_000);
 
@@ -1837,7 +1833,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("keeps Hostrun-spawned child sessions cancelling until exit acknowledgement", async () => {
+	it("aborts Hostrun-spawned child sessions when exit acknowledgement times out", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -1867,7 +1863,8 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(abort).toHaveBeenCalledOnce();
-		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "cancelling" });
+		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "aborted" });
+		expect(store.getAgent(spawned.agent.id)).toMatchObject({ id: spawned.agent.id, lifecycle: "aborted" });
 	});
 
 	it("persists a spawned child as running only after session construction succeeds", async () => {
@@ -1920,7 +1917,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(cancelled.details.agent).toMatchObject({
 			id: spawned.details.agent.id,
-			lifecycle: "cancelling",
+			lifecycle: "aborted",
 		});
 	});
 
@@ -1942,9 +1939,9 @@ describe("multi-agent extension tools", () => {
 			reason: "user requested",
 		});
 
-		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "cancelling" });
+		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "aborted" });
 		expect(abort).toHaveBeenCalledTimes(1);
-		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "cancelling" });
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
 	});
 
 	it("lists only background jobs in /jobs", async () => {

@@ -2435,10 +2435,14 @@ async function cancelOneOwnedAgentRuntime(
 	abortAgentHandleSafely(store, agentId);
 	const dispatch = runtimeHandles.dispatches.get(agentId);
 	if (dispatch) {
-		await Promise.race([
-			dispatch,
-			new Promise<void>((resolve) => setTimeout(resolve, CANCELLATION_SETTLEMENT_TIMEOUT_MS)),
+		const settledBeforeTimeout = await Promise.race([
+			dispatch.then(() => true),
+			new Promise<false>((resolve) => setTimeout(() => resolve(false), CANCELLATION_SETTLEMENT_TIMEOUT_MS)),
 		]);
+		if (!settledBeforeTimeout) {
+			const aborted = acknowledgeCancelledRuntime(store, agentId, reservedRuntime);
+			if (aborted) return { ok: true, agent: aborted };
+		}
 	}
 	const settled = store.getAgent(agentId) ?? cancelling.agent;
 	return { ok: true, agent: settled };
