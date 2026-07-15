@@ -128,6 +128,70 @@ describe("agentLoop with AgentMessage", () => {
 		expect(eventTypes).toContain("agent_end");
 	});
 
+	it("terminalizes when stream acquisition ignores abort", async () => {
+		const context: AgentContext = {
+			systemPrompt: "You are helpful.",
+			messages: [],
+			tools: [],
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		const controller = new AbortController();
+		let signalStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			signalStarted = resolve;
+		});
+		const stream = agentLoop(
+			[createUserMessage("Hello")],
+			context,
+			config,
+			controller.signal,
+			() => {
+				signalStarted();
+				return new Promise<never>(() => undefined);
+			},
+		);
+
+		await started;
+		controller.abort();
+
+		await expect(stream.result()).rejects.toThrow("Agent run aborted");
+	});
+
+	it("terminalizes when stream iteration ignores abort", async () => {
+		const context: AgentContext = {
+			systemPrompt: "You are helpful.",
+			messages: [],
+			tools: [],
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		const controller = new AbortController();
+		let signalStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			signalStarted = resolve;
+		});
+		const stream = agentLoop(
+			[createUserMessage("Hello")],
+			context,
+			config,
+			controller.signal,
+			() => {
+				signalStarted();
+				return new MockAssistantStream();
+			},
+		);
+
+		await started;
+		controller.abort();
+
+		await expect(stream.result()).rejects.toThrow("Agent run aborted");
+	});
+
 	it("should handle custom message types via convertToLlm", async () => {
 		// Create a custom message type
 		interface CustomNotification {

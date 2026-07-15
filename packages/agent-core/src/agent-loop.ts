@@ -336,9 +336,46 @@ async function runLoop(
 	await emit({ type: "agent_end", messages: newMessages });
 }
 
+function agentAbortError(): Error {
+	return new Error("Agent run aborted");
+}
+
 function throwIfAborted(signal: AbortSignal | undefined): void {
-	if (signal?.aborted) {
-		throw new Error("Agent run aborted");
+	if (signal?.aborted) throw agentAbortError();
+}
+
+async function awaitWithAbort<T>(value: T | PromiseLike<T>, signal: AbortSignal | undefined): Promise<T> {
+	if (!signal) return await value;
+	if (signal.aborted) {
+		void Promise.resolve(value).catch(() => undefined);
+		throw agentAbortError();
+	}
+	return await new Promise<T>((resolve, reject) => {
+		const abort = () => reject(agentAbortError());
+		signal.addEventListener("abort", abort, { once: true });
+		void Promise.resolve(value)
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener("abort", abort));
+	});
+}
+
+async function* iterateWithAbort<T>(source: AsyncIterable<T>, signal: AbortSignal | undefined): AsyncGenerator<T> {
+	const iterator = source[Symbol.asyncIterator]();
+	try {
+		while (true) {
+			const next = await awaitWithAbort(iterator.next(), signal);
+			if (next.done) return;
+			yield next.value;
+		}
+	} finally {
+		const close = iterator.return?.();
+		if (close) {
+			if (signal?.aborted) {
+				void Promise.resolve(close).catch(() => undefined);
+			} else {
+				await close;
+			}
+		}
 	}
 }
 
@@ -375,16 +412,19 @@ async function streamAssistantResponse(
 	const resolvedApiKey =
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 
-	const response = await streamFunction(config.model, llmContext, {
-		...config,
-		apiKey: resolvedApiKey,
+	const response = await awaitWithAbort(
+		streamFunction(config.model, llmContext, {
+			...config,
+			apiKey: resolvedApiKey,
+			signal,
+		}),
 		signal,
-	});
+	);
 
 	let partialMessage: AssistantMessage | null = null;
 	let addedPartial = false;
 
-	for await (const event of response) {
+	for await (const event of iterateWithAbort(response, signal)) {
 		switch (event.type) {
 			case "start":
 				partialMessage = event.partial;
@@ -415,7 +455,7 @@ async function streamAssistantResponse(
 
 			case "done":
 			case "error": {
-				const finalMessage = await response.result();
+				const finalMessage = await awaitWithAbort(response.result(), signal);
 				if (addedPartial) {
 					context.messages[context.messages.length - 1] = finalMessage;
 				} else {
@@ -430,7 +470,7 @@ async function streamAssistantResponse(
 		}
 	}
 
-	const finalMessage = await response.result();
+	const finalMessage = await awaitWithAbort(response.result(), signal);
 	if (addedPartial) {
 		context.messages[context.messages.length - 1] = finalMessage;
 	} else {
