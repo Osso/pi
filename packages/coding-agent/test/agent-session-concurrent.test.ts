@@ -86,7 +86,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		}
 	});
 
-	function createSession() {
+	function createSession(options: { authenticated?: boolean } = {}) {
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
 		let abortSignal: AbortSignal | undefined;
 
@@ -129,8 +129,9 @@ describe("AgentSession concurrent prompt guard", () => {
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		// Set a runtime API key so validation passes
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		if (options.authenticated !== false) {
+			authStorage.setRuntimeApiKey("anthropic", "test-key");
+		}
 
 		session = new AgentSession({
 			agent,
@@ -164,6 +165,13 @@ describe("AgentSession concurrent prompt guard", () => {
 		// Cleanup
 		await session.abort();
 		await firstPrompt.catch(() => {}); // Ignore abort error
+	});
+
+	it("does not retain idle steering when authentication fails", async () => {
+		createSession({ authenticated: false });
+
+		await expect(session.steer("Steering message")).rejects.toThrow("No API key found for anthropic");
+		expect(session.pendingMessageCount).toBe(0);
 	});
 
 	it("should allow steer() while streaming", async () => {

@@ -239,7 +239,7 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("wakes after steering races with completion of a real Pyrun tool turn", async () => {
+	it("wakes idle steering after completion of a real Pyrun tool turn", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Run Pyrun, then finish the turn" });
 			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);

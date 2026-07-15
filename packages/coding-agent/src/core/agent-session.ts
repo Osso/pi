@@ -2487,10 +2487,13 @@ export class AgentSession {
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		await this._withTurnStartLock(async (release) => {
-			await this._queueSteer(expandedText, images);
-			if (this.isStreaming) return;
+			if (this.isStreaming) {
+				await this._queueSteer(expandedText, images);
+				return;
+			}
 
 			this.validateModelAuthentication();
+			await this._queueSteer(expandedText, images);
 			const continuation = this._runAgentContinuation();
 			release();
 			void continuation.catch((error) => {
