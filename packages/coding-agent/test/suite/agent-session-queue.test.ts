@@ -151,6 +151,45 @@ describe("AgentSession queue characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("saw steer");
 	});
 
+	it("interrupts post-tool model thinking and continues with steering", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Return a fixed result",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "echoed" }], details: {} }),
+		};
+		const harness = await createHarness({ initialActiveToolNames: ["echo"], tools: [echoTool] });
+		harnesses.push(harness);
+		let markPostToolRequestStarted!: () => void;
+		const postToolRequestStarted = new Promise<void>((resolve) => {
+			markPostToolRequestStarted = resolve;
+		});
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("echo", {}, { id: "echo-call" }), { stopReason: "toolUse" }),
+			async (_context, options) => {
+				markPostToolRequestStarted();
+				await new Promise<void>((resolve) => {
+					options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+				return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
+			},
+			fauxAssistantMessage("Steering handled"),
+		]);
+
+		const prompt = harness.session.prompt("start");
+		await postToolRequestStarted;
+		await harness.session.steer("change course");
+		const outcome = await Promise.race([
+			prompt.then(() => "completed"),
+			new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 200)),
+		]);
+
+		expect(outcome).toBe("completed");
+		expect(getUserTexts(harness)).toEqual(["start", "change course"]);
+		expect(getAssistantTexts(harness)).toContain("Steering handled");
+	});
+
 	it("delivers follow-up messages only after the current run finishes", async () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;

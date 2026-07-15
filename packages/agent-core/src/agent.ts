@@ -57,15 +57,24 @@ const DEFAULT_MODEL = {
 	maxTokens: 0,
 } satisfies Model<any>;
 
-type MutableAgentState = Omit<AgentState, "isStreaming" | "streamingMessage" | "pendingToolCalls" | "errorMessage"> & {
+type MutableAgentState = Omit<
+	AgentState,
+	"isStreaming" | "isModelRequestActive" | "streamingMessage" | "pendingToolCalls" | "errorMessage"
+> & {
 	isStreaming: boolean;
+	isModelRequestActive: boolean;
 	streamingMessage?: AgentMessage;
 	pendingToolCalls: Set<string>;
 	errorMessage?: string;
 };
 
 function createMutableAgentState(
-	initialState?: Partial<Omit<AgentState, "pendingToolCalls" | "isStreaming" | "streamingMessage" | "errorMessage">>,
+	initialState?: Partial<
+		Omit<
+			AgentState,
+			"pendingToolCalls" | "isStreaming" | "isModelRequestActive" | "streamingMessage" | "errorMessage"
+		>
+	>,
 ): MutableAgentState {
 	let tools = initialState?.tools?.slice() ?? [];
 	let messages = initialState?.messages?.slice() ?? [];
@@ -87,6 +96,7 @@ function createMutableAgentState(
 			messages = nextMessages.slice();
 		},
 		isStreaming: false,
+		isModelRequestActive: false,
 		streamingMessage: undefined,
 		pendingToolCalls: new Set<string>(),
 		errorMessage: undefined,
@@ -95,7 +105,12 @@ function createMutableAgentState(
 
 /** Options for constructing an {@link Agent}. */
 export interface AgentOptions {
-	initialState?: Partial<Omit<AgentState, "pendingToolCalls" | "isStreaming" | "streamingMessage" | "errorMessage">>;
+	initialState?: Partial<
+		Omit<
+			AgentState,
+			"pendingToolCalls" | "isStreaming" | "isModelRequestActive" | "streamingMessage" | "errorMessage"
+		>
+	>;
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	streamFn?: StreamFn;
@@ -273,9 +288,12 @@ export class Agent {
 		return this.followUpQueue.mode;
 	}
 
-	/** Queue a message to be injected after the current assistant turn finishes. */
+	/** Queue steering and interrupt the active model request without aborting tools. */
 	steer(message: AgentMessage): void {
 		this.steeringQueue.enqueue(message);
+		if (this._state.isModelRequestActive) {
+			this.activeRun?.abortController.abort();
+		}
 	}
 
 	/** Queue a message to run only after the agent would otherwise stop. */
@@ -327,6 +345,7 @@ export class Agent {
 	reset(): void {
 		this._state.messages = [];
 		this._state.isStreaming = false;
+		this._state.isModelRequestActive = false;
 		this._state.streamingMessage = undefined;
 		this._state.pendingToolCalls = new Set<string>();
 		this._state.errorMessage = undefined;
@@ -465,6 +484,9 @@ export class Agent {
 				return this.steeringQueue.drain();
 			},
 			getFollowUpMessages: async () => this.followUpQueue.drain(),
+			onModelRequestStateChange: (active) => {
+				this._state.isModelRequestActive = active;
+			},
 		};
 	}
 
@@ -481,6 +503,7 @@ export class Agent {
 		this.activeRun = { promise, resolve: resolvePromise, abortController };
 
 		this._state.isStreaming = true;
+		this._state.isModelRequestActive = false;
 		this._state.streamingMessage = undefined;
 		this._state.errorMessage = undefined;
 
@@ -513,6 +536,7 @@ export class Agent {
 
 	private finishRun(): void {
 		this._state.isStreaming = false;
+		this._state.isModelRequestActive = false;
 		this._state.streamingMessage = undefined;
 		this._state.pendingToolCalls = new Set<string>();
 		this.activeRun?.resolve();

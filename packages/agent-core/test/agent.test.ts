@@ -81,6 +81,7 @@ describe("Agent", () => {
 		expect(agent.state.tools).toEqual([]);
 		expect(agent.state.messages).toEqual([]);
 		expect(agent.state.isStreaming).toBe(false);
+		expect(agent.state.isModelRequestActive).toBe(false);
 		expect(agent.state.streamingMessage).toBe(undefined);
 		expect(agent.state.pendingToolCalls).toEqual(new Set());
 		expect(agent.state.errorMessage).toBeUndefined();
@@ -263,6 +264,39 @@ describe("Agent", () => {
 		await promptPromise;
 
 		expect(receivedSignal?.aborted).toBe(true);
+	});
+
+	it("should abort an active model request when steering is queued", async () => {
+		let requestSignal: AbortSignal | undefined;
+		const agent = new Agent({
+			streamFn: (_model, _context, options) => {
+				requestSignal = options?.signal;
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					const checkAbort = () => {
+						if (requestSignal?.aborted) {
+							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+						} else {
+							setTimeout(checkAbort, 5);
+						}
+					};
+					checkAbort();
+				});
+				return stream;
+			},
+		});
+
+		const prompt = agent.prompt("hello");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		agent.steer({
+			role: "user",
+			content: [{ type: "text", text: "change course" }],
+			timestamp: Date.now(),
+		});
+
+		expect(requestSignal?.aborted).toBe(true);
+		await prompt;
 	});
 
 	it("should ignore tool updates after the tool execution settles", async () => {

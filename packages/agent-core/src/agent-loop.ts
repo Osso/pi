@@ -251,7 +251,13 @@ async function runLoop(
 			}
 
 			// Stream assistant response
-			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+			config.onModelRequestStateChange?.(true);
+			let message: AssistantMessage;
+			try {
+				message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+			} finally {
+				config.onModelRequestStateChange?.(false);
+			}
 			newMessages.push(message);
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {

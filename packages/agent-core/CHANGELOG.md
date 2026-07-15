@@ -8,11 +8,13 @@
 
 ### Added
 
+- Added authoritative `AgentState.isModelRequestActive` state for distinguishing model requests from tool execution.
 - Added an `onRetry` agent option forwarded to the stream function, mirroring `onPayload`/`onResponse`, so hosts can observe provider-internal retries.
 - Added optional tool execution context carrying the same `startedAt` timestamp emitted by tool lifecycle events.
 
 ### Fixed
 
+- Fixed `Agent.steer()` to abort an active model request while leaving active tool execution uninterrupted; queued steering remains available for the continuation.
 - Fixed `Agent.continue()` to allow continuing transcripts whose last message is an assistant message.
 - Fixed harness compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
 - Fixed harness split-turn compaction to serialize summary requests so single-concurrency providers are not asked to run overlapping generations ([#5536](https://github.com/earendil-works/pi/issues/5536)).

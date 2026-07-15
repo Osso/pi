@@ -251,6 +251,7 @@ const state = session.agent.state;
 // state.thinkingLevel: ThinkingLevel - current thinking level
 // state.systemPrompt: string - system prompt
 // state.tools: AgentTool[] - available tools
+// state.isModelRequestActive: boolean - true only during model request preparation/streaming
 // state.streamingMessage?: AgentMessage - current partial assistant message
 // state.errorMessage?: string - latest assistant error
 

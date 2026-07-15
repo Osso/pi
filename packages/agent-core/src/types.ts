@@ -247,6 +247,9 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 */
 	getFollowUpMessages?: () => Promise<AgentMessage[]>;
 
+	/** Internal model-request lifecycle callback owned by Agent. */
+	onModelRequestStateChange?: (active: boolean) => void;
+
 	/**
 	 * Tool execution mode.
 	 * - "sequential": execute tool calls one by one
@@ -338,6 +341,8 @@ export interface AgentState {
 	 * This remains true until awaited `agent_end` listeners settle.
 	 */
 	readonly isStreaming: boolean;
+	/** True only while preparing or streaming a model request; false during tool execution. */
+	readonly isModelRequestActive: boolean;
 	/** Partial assistant message for the current streamed response, if any. */
 	readonly streamingMessage?: AgentMessage;
 	/** Tool call ids currently executing. */
