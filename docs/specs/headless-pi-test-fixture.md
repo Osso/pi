@@ -20,6 +20,10 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Accept typed RPC commands through `agent.send({...})`.
 - [x] Wait for production RPC events without racing events emitted before the waiter starts.
 - [x] Expose provider requests and allow the test to supply a response to a specific request.
+- [x] Configure isolated approval presets through the fixture's persisted settings.
+- [x] Claim and answer durable Supervisor requests without bypassing the production control-database boundary.
+- [x] Seed and inspect persisted goal state for real-process goal extension scenarios.
+- [x] Capture RPC extension UI requests so tests can distinguish human escalation from background status output.
 - [x] Wait deterministically for persisted agents and mailbox messages.
 - [x] Reject pending event, provider-request, agent, and mailbox waiters when the fixture disposes.
 - [x] Reject new event, provider-request, agent, and mailbox waiters immediately after disposal.
@@ -59,6 +63,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - `packages/agent-core/test/agent-loop.test.ts`
 - `packages/coding-agent/test/interactive-mode-resume-continuation.test.ts`
 - `packages/coding-agent/test/suite/headless-pi.test.ts`
+- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/rpc-client-process-exit.test.ts`
 
 ## Session restoration (current cycle)

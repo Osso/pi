@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,16 +8,24 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai/compat";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
+import { type ApprovalPresetName, findApprovalPreset } from "../../src/core/permissions/presets.ts";
 import {
+	claimNextSupervisorRequest,
+	completeSupervisorRequest,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
 	type RuntimeMailboxMessage,
 	readMultiAgentRuntimeOwnership,
+	readSessionGoal,
+	type SupervisorRequest,
+	type SupervisorRequestKind,
+	type SupervisorResponse,
+	writeSessionGoal,
 } from "../../src/core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
-import type { RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
+import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -47,6 +56,7 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 }
 
 export interface HeadlessPiOptions {
+	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
 }
 
@@ -62,9 +72,16 @@ export interface HeadlessPi {
 	listRuntimeMailboxMessages(): RuntimeMailboxMessage[];
 	readSessionEntries(agentId: string | null): SessionEntry[];
 	readTerminalOutboxStatuses(agentId: string): string[];
+	writeRunningGoal(objective: string): void;
+	readGoal(): Record<string, unknown> | undefined;
+	countSupervisorRequests(kind: SupervisorRequestKind): number;
+	countExtensionUiRequests(predicate?: (request: RpcExtensionUIRequest) => boolean): number;
 	waitForSessionEntry(agentId: string | null, predicate: (entry: SessionEntry) => boolean): Promise<SessionEntry>;
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
+	waitForExtensionUiRequest(predicate?: (request: RpcExtensionUIRequest) => boolean): Promise<RpcExtensionUIRequest>;
 	waitForLlmRequest(predicate?: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest>;
+	waitForSupervisorRequest(kind: SupervisorRequestKind): Promise<SupervisorRequest>;
+	respondToSupervisorRequest(request: SupervisorRequest, response: SupervisorResponse): void;
 	respondToLlmRequest(requestId: string, message: AssistantMessage): void;
 	waitForAgent(predicate: (agent: AgentSnapshot) => boolean): Promise<AgentSnapshot>;
 	waitForMailboxMessage(predicate: (message: AgentMailboxMessage) => boolean): Promise<AgentMailboxMessage>;
@@ -202,7 +219,7 @@ function createHeadlessRpcClient(
 ): RpcClient {
 	const preloadPath = join(import.meta.dirname, "fixtures", "headless-pi-provider-preload.ts");
 	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
-	const args = ["--approve", "--no-context-files", "--no-skills", "--no-themes"];
+	const args = [...(options.approvalPreset ? [] : ["--approve"]), "--no-context-files", "--no-skills", "--no-themes"];
 	if (sessionFile) args.push("--session", sessionFile);
 	return new RpcClient({
 		cliPath,
@@ -447,6 +464,35 @@ function resolveHeadlessSessionFile(
 	return agent.transcript.path;
 }
 
+function subscribeHeadlessRpcOutput(
+	client: RpcClient,
+	options: {
+		events: AgentEvent[];
+		eventListeners: Set<() => void>;
+		uiRequests: RpcExtensionUIRequest[];
+		uiRequestListeners: Set<() => void>;
+	},
+): () => void {
+	return client.onEvent((event) => {
+		const output: unknown = event;
+		if (isExtensionUiRequest(output)) {
+			options.uiRequests.push(output);
+			for (const listener of options.uiRequestListeners) listener();
+			return;
+		}
+		options.events.push(event);
+		for (const listener of options.eventListeners) listener();
+	});
+}
+
+function isExtensionUiRequest(value: unknown): value is RpcExtensionUIRequest {
+	return isRecord(value) && value.type === "extension_ui_request" && typeof value.id === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function createHeadlessRuntime(options: {
 	paths: HeadlessRuntimePaths;
 	fixtureOptions: HeadlessPiOptions;
@@ -455,6 +501,8 @@ function createHeadlessRuntime(options: {
 	disposeController: AbortController;
 	events: AgentEvent[];
 	eventListeners: Set<() => void>;
+	uiRequests: RpcExtensionUIRequest[];
+	uiRequestListeners: Set<() => void>;
 	requests: HeadlessLlmRequest[];
 	requestListeners: Set<() => void>;
 	context: HeadlessSessionContext;
@@ -477,6 +525,17 @@ function createHeadlessRuntime(options: {
 			timeoutError: () =>
 				new Error(`Timed out waiting for LLM request. Stderr: ${options.clientControl.client.getStderr()}`),
 		});
+	const waitForUiRequest = (predicate: (request: RpcExtensionUIRequest) => boolean): Promise<RpcExtensionUIRequest> =>
+		waitForBufferedItem({
+			items: options.uiRequests,
+			listeners: options.uiRequestListeners,
+			predicate,
+			disposeSignal: options.disposeController.signal,
+			timeoutError: () =>
+				new Error(
+					`Timed out waiting for extension UI request. Stderr: ${options.clientControl.client.getStderr()}`,
+				),
+		});
 	const pollStore = createStorePoller({
 		agentDir: options.paths.agentDir,
 		getSessionFile: () => options.context.sessionFile,
@@ -495,13 +554,11 @@ function createHeadlessRuntime(options: {
 			options.clientControl.unsubscribeEvents();
 			await options.clientControl.client.stop();
 			options.events.length = 0;
+			options.uiRequests.length = 0;
 			options.requests.length = 0;
 			const client = createHeadlessRpcClient(options.paths, options.fixtureOptions, options.context.sessionFile);
 			options.clientControl.client = client;
-			options.clientControl.unsubscribeEvents = client.onEvent((event) => {
-				options.events.push(event);
-				for (const listener of options.eventListeners) listener();
-			});
+			options.clientControl.unsubscribeEvents = subscribeHeadlessRpcOutput(client, options);
 			await startRpcClientSession(client, options.context);
 		},
 		async crash() {
@@ -551,6 +608,30 @@ function createHeadlessRuntime(options: {
 				db.close();
 			}
 		},
+		writeRunningGoal(objective) {
+			writeSessionGoal(
+				getControlDbPath(options.paths.agentDir),
+				options.context.sessionFile,
+				JSON.stringify({ branch: "headless", createdAt: new Date().toISOString(), objective }),
+			);
+		},
+		readGoal() {
+			const goalJson = readSessionGoal(getControlDbPath(options.paths.agentDir), options.context.sessionFile);
+			return goalJson ? (JSON.parse(goalJson) as Record<string, unknown>) : undefined;
+		},
+		countSupervisorRequests(kind) {
+			const db = createSqliteDatabase(getControlDbPath(options.paths.agentDir));
+			try {
+				db.exec("PRAGMA busy_timeout = 1000");
+				const row = db.prepare("SELECT COUNT(*) AS count FROM supervisor_requests WHERE kind = ?").get(kind) as {
+					count: number;
+				};
+				return row.count;
+			} finally {
+				db.close();
+			}
+		},
+		countExtensionUiRequests: (predicate = () => true) => options.uiRequests.filter(predicate).length,
 		async waitForSessionEntry(agentId, predicate) {
 			const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
 			while (Date.now() < deadline) {
@@ -564,7 +645,24 @@ function createHeadlessRuntime(options: {
 			throw new Error(`Timed out waiting for session entry. Stderr: ${options.clientControl.client.getStderr()}`);
 		},
 		waitForEvent,
+		waitForExtensionUiRequest: (predicate = () => true) => waitForUiRequest(predicate),
 		waitForLlmRequest: (predicate = () => true) => waitForRequest(predicate),
+		async waitForSupervisorRequest(kind) {
+			const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
+			while (Date.now() < deadline) {
+				const request = claimNextSupervisorRequest(getControlDbPath(options.paths.agentDir), randomUUID());
+				if (request) {
+					if (request.kind !== kind) throw new Error(`Expected ${kind}, received ${request.kind}`);
+					return request;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			throw new Error(`Timed out waiting for Supervisor request ${kind}`);
+		},
+		respondToSupervisorRequest(request, response) {
+			if (!request.claimToken) throw new Error(`Supervisor request ${request.id} has no claim token`);
+			completeSupervisorRequest(getControlDbPath(options.paths.agentDir), request.id, request.claimToken, response);
+		},
 		respondToLlmRequest(requestId, message) {
 			const providerSocket = options.provider.getSocket();
 			if (!providerSocket) throw new Error("Headless faux provider is not connected");
@@ -590,10 +688,18 @@ function createHeadlessRuntime(options: {
 
 async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<HeadlessPiRuntime> {
 	const paths = createHeadlessPaths();
+	const approvalPreset = fixtureOptions.approvalPreset ?? "auto-approve";
+	const approval = findApprovalPreset(approvalPreset);
+	writeFileSync(
+		join(paths.agentDir, "settings.json"),
+		JSON.stringify({ approvalPolicy: approval.policy, approvalPreset }),
+	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
 	const disposeController = new AbortController();
 	const events: AgentEvent[] = [];
 	const eventListeners = new Set<() => void>();
+	const uiRequests: RpcExtensionUIRequest[] = [];
+	const uiRequestListeners = new Set<() => void>();
 	const requests: HeadlessLlmRequest[] = [];
 	const requestListeners = new Set<() => void>();
 	const resolveAgentId = (sessionId: string | undefined): string | null => {
@@ -611,9 +717,11 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 	try {
 		provider = await createProviderServer(paths.socketPath, recordRequest);
 		client = createHeadlessRpcClient(paths, fixtureOptions);
-		unsubscribeEvents = client.onEvent((event) => {
-			events.push(event);
-			for (const listener of eventListeners) listener();
+		unsubscribeEvents = subscribeHeadlessRpcOutput(client, {
+			events,
+			eventListeners,
+			uiRequests,
+			uiRequestListeners,
 		});
 		await startRpcClientSession(client, context);
 	} catch (error) {
@@ -635,6 +743,8 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 		disposeController,
 		events,
 		eventListeners,
+		uiRequests,
+		uiRequestListeners,
 		requests,
 		requestListeners,
 		context,

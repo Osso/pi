@@ -40,10 +40,10 @@ Implementation details belong in
   Supervisor rejection to the human reviewer.
 - [x] Expose LLM-approved deny and LLM-approved ask modes as explicit choices
   in the `/approvals` preset selector, distinct from `never` and `auto-approve`.
-- [x] Skip the LLM-approved reviewer when the action has already been approved
-  by a hook (`tool_call` handler returned no block), a cached rule, or an
-  explicit policy decision — hook `allow` short-circuits both human and LLM
-  review.
+- [x] Skip the LLM-approved reviewer when the action has already been explicitly
+  approved by a hook (`tool_call` handler returned `{ block: false }`), a cached
+  rule, or an explicit policy decision. A hook returning `undefined` made no
+  decision and must fall through to the configured Supervisor or human reviewer.
 - [x] Do not run the LLM-approved reviewer when the active policy is `never` or
   `auto-approve`.
 - [x] Tools can opt out of generic wrapper approval with `approvalRequired:
@@ -77,11 +77,12 @@ Implementation details belong in
 ### Hook compatibility
 
 - [x] Preserve the native `tool_call` hook as the baseline rule/preclassification
-  engine: a handler may return `{block: true, reason}` to deny, mutate
-  `event.input` in place to rewrite args, or return nothing to allow.
-- [x] Treat a `tool_call` handler that returns no block as an allow decision;
-  do not re-prompt the human or run the LLM-approved reviewer after an implicit
-  hook allow.
+  engine: a handler may return `{ block: true, reason }` to deny, return
+  `{ block: false }` to explicitly allow, mutate `event.input` in place to
+  rewrite args, or return `undefined` when it makes no approval decision.
+- [x] Treat `undefined` hook results as no decision and continue to the configured
+  Supervisor or human reviewer; only explicit allow/block results short-circuit
+  later reviewers.
 - [x] Never map Pi `never` policy to Claude Code `bypassPermissions` in hook
   compatibility payloads.
 - [x] Allow Pi `auto-approve` policy to map to `bypassPermissions` in hook
@@ -120,7 +121,8 @@ Implementation details belong in
   `/approvals` and `/sandbox` commands.
 - `packages/coding-agent/src/core/extensions/types.ts` and
   `packages/coding-agent/src/core/extensions/runner.ts` — expose command-context
-  actions used by the controls extension to open the interactive selectors.
+  actions used by the controls extension and preserve explicit approval-reviewer
+  allow decisions after applying input rewrites.
 - `packages/coding-agent/src/core/agent-session.ts` — thread active policy into
   `_installAgentToolHooks` so the orchestrator wraps permission prompt and
   `tool_call` review.
@@ -135,8 +137,8 @@ Implementation details belong in
   `auto-approve`, scoped approval preset serialization, and sandbox profile
   serialization.
 - `packages/coding-agent/test/approval-orchestrator.test.ts` — orchestrator
-  policy gating for `on-request`, `never`, and `auto-approve`, plus hook
-  reviewer short-circuit behavior before the future LLM reviewer.
+  policy gating for `on-request`, `never`, and `auto-approve`, including explicit
+  hook decisions and undefined-hook fallthrough to the Supervisor reviewer.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts` —
   session-level coverage proving `never` blocks before hook reviewers,
   `auto-approve` skips human/LLM review while preserving approval-reviewer
@@ -151,6 +153,9 @@ Implementation details belong in
   short-circuit behavior.
 - `packages/coding-agent/test/approval-selector.test.ts` — red tests for
   `/approvals` and `/sandbox` selector rendering and selection behavior.
+- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real
+  RPC-process coverage for Supervisor approval execution, rejection, errors,
+  human escalation, and deny-preset blocking.
 
 ## Known gaps (current cycle)
 

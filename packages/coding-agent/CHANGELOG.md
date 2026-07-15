@@ -65,6 +65,7 @@
 
 ### Changed
 
+- Approval hooks that return no decision now fall through to the configured Supervisor or human reviewer; explicit `{ block: false }` still short-circuits later approval review.
 - Increased automatic backgrounding timeout for detachable Bash and Pyrun tool calls from 2 minutes to 10 minutes.
 - Runtime mailbox messages now enter active turns through steering at safe checkpoints instead of accumulating as follow-ups between model calls; non-eligible messages remain durable until an eligible checkpoint or idle delivery.
 - Shared-channel follow-up turns now retain extension provenance instead of entering the interactive editor's typed prompt history.

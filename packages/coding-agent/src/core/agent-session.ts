@@ -1016,8 +1016,11 @@ export class AgentSession {
 		runner: ExtensionRunner,
 		reviewerResult: ExtensionApprovalReviewerResult | undefined,
 	): Promise<ToolCallEventResult | undefined> {
-		if (!reviewerResult || reviewerResult.action === "allow") {
+		if (!reviewerResult) {
 			return undefined;
+		}
+		if (reviewerResult.action === "allow") {
+			return { block: false };
 		}
 
 		if (reviewerResult.action === "deny") {
@@ -1025,9 +1028,10 @@ export class AgentSession {
 		}
 
 		const humanReviewer = this._createToolApprovalHumanReviewer(event, runner, reviewerResult.reason);
-		return humanReviewer
-			? await humanReviewer()
-			: { block: true, reason: reviewerResult.reason ?? "Approval required" };
+		if (!humanReviewer) {
+			return { block: true, reason: reviewerResult.reason ?? "Approval required" };
+		}
+		return (await humanReviewer()) ?? { block: false };
 	}
 
 	private _resolvePermissionPromptTool(): string | undefined {

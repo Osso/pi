@@ -27,7 +27,8 @@ export async function orchestrateToolApproval(
 	}
 
 	if (options.hookReviewer) {
-		return options.hookReviewer();
+		const hookDecision = await options.hookReviewer();
+		if (hookDecision !== undefined) return hookDecision;
 	}
 
 	if (options.llmReviewer) {

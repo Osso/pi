@@ -1097,21 +1097,8 @@ export class ExtensionRunner {
 		for (const ext of this.extensions) {
 			for (const reviewer of ext.approvalReviewers) {
 				const result = await reviewer(event, ctx);
-				if (!result) {
-					continue;
-				}
-				if (result.action === "allow") {
-					if (result.updatedInput) {
-						replaceToolInput(event.input, result.updatedInput);
-					}
-					return undefined;
-				}
-				if (result.action === "deny") {
-					return result;
-				}
-				if (result.action === "ask") {
-					return result;
-				}
+				const decision = applyApprovalReviewerResult(event, result);
+				if (decision) return decision;
 			}
 		}
 
@@ -1374,6 +1361,17 @@ export class ExtensionRunner {
 			? { action: "transform", text: currentText, images: currentImages }
 			: { action: "continue" };
 	}
+}
+
+function applyApprovalReviewerResult(
+	event: ToolCallEvent,
+	result: ApprovalReviewerResult | undefined,
+): ApprovalReviewerResult | undefined {
+	if (!result) return undefined;
+	if (result.action === "allow" && result.updatedInput) {
+		replaceToolInput(event.input, result.updatedInput);
+	}
+	return result;
 }
 
 function replaceToolInput(target: Record<string, unknown>, source: Record<string, unknown>): void {
