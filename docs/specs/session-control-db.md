@@ -10,7 +10,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   directory.
 - [x] Open the control database with multi-consumer SQLite settings (WAL journal
   mode, busy timeout, NORMAL synchronous) so concurrent Pi sessions can read and
-  write without exclusive-lock failures.
+  write without exclusive-lock failures. Bun connections must finalize every
+  prepared statement before close so polling runtimes do not retain database file
+  descriptors or eventually block coordination through descriptor exhaustion.
 - [x] Store incoming harness messages outside the JSONL transcript.
 - [x] Claim only the newest pending incoming message and supersede older pending
   messages.

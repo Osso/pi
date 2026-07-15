@@ -121,6 +121,7 @@
 
 ### Fixed
 
+- Fixed compiled Bun runtimes leaking one `control.sqlite` file descriptor per database access because prepared statements survived connection close; statements are now finalized before closing so long-running detached jobs cannot exhaust descriptors and deadlock agent coordination.
 - Fixed steering accepted at the completion boundary of a real tool turn remaining queued indefinitely after the agent loop had already performed its final queue check; idle steering now atomically starts a continuation without delaying RPC acknowledgment.
 - Fixed owned child agents remaining in `cancelling` indefinitely when their prompt ignored runtime abort; cancellation now terminalizes them as `aborted` after the bounded settlement deadline and fences late dispatch results.
 - Fixed goal continuation racing ahead of steering or follow-up input queued during asynchronous Supervisor review, which could create repeated quota-consuming goal loops.

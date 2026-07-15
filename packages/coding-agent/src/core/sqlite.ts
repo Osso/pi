@@ -13,13 +13,21 @@ export interface SqliteStatement {
 	run(...values: SqliteValue[]): SqliteRunResult;
 }
 
+interface BunSqliteStatement extends SqliteStatement {
+	finalize(): void;
+}
+
 export interface SqliteDatabase {
 	close(): void;
 	exec(sql: string): void;
 	prepare(sql: string): SqliteStatement;
 }
 
-type BunSqliteDatabaseConstructor = new (path: string, options?: { readonly?: boolean }) => SqliteDatabase;
+interface BunSqliteDatabase extends Omit<SqliteDatabase, "prepare"> {
+	prepare(sql: string): BunSqliteStatement;
+}
+
+type BunSqliteDatabaseConstructor = new (path: string, options?: { readonly?: boolean }) => BunSqliteDatabase;
 type NodeSqliteDatabaseConstructor = new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase;
 
 interface BunSqliteModule {
@@ -38,22 +46,35 @@ function isBunRuntime(): boolean {
 }
 
 export function createSqliteDatabase(path: string): SqliteDatabase {
-	if (isBunRuntime()) {
-		const { Database } = require("bun:sqlite") as BunSqliteModule;
-		return new Database(path);
-	}
+	if (isBunRuntime()) return createBunSqliteDatabase(path);
 	const { DatabaseSync } = require("node:sqlite") as NodeSqliteModule;
 	return new DatabaseSync(path);
 }
 
 /** Opens an existing SQLite database without changing its configuration or contents. */
 export function createReadOnlySqliteDatabase(path: string): SqliteDatabase {
-	if (isBunRuntime()) {
-		const { Database } = require("bun:sqlite") as BunSqliteModule;
-		return new Database(path, { readonly: true });
-	}
+	if (isBunRuntime()) return createBunSqliteDatabase(path, { readonly: true });
 	const { DatabaseSync } = require("node:sqlite") as NodeSqliteModule;
 	return new DatabaseSync(path, { readOnly: true });
+}
+
+function createBunSqliteDatabase(path: string, options?: { readonly?: boolean }): SqliteDatabase {
+	const { Database } = require("bun:sqlite") as BunSqliteModule;
+	const database = new Database(path, options);
+	const statements = new Set<BunSqliteStatement>();
+	return {
+		close: () => {
+			for (const statement of statements) statement.finalize();
+			statements.clear();
+			database.close();
+		},
+		exec: (sql) => database.exec(sql),
+		prepare: (sql) => {
+			const statement = database.prepare(sql);
+			statements.add(statement);
+			return statement;
+		},
+	};
 }
 
 /** Default multi-consumer open settings for shared process-local SQLite DBs. */
