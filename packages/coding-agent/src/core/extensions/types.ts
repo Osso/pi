@@ -510,6 +510,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	promptGuidelines?: string[];
 	/** Whether this wrapper tool needs generic tool-call approval before execute(). Defaults to true. Set false only for tools that gate all host effects internally. */
 	approvalRequired?: boolean;
+	/** Stable approval classification preserved by trusted wrappers around built-in tools. */
+	approvalKind?: "read-only";
 	/** Parameter schema (TypeBox) */
 	parameters: TParams;
 	/** Controls whether ToolExecutionComponent renders the standard colored shell or the tool renders its own framing. */

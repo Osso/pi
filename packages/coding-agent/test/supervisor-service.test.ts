@@ -25,6 +25,7 @@ import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } 
 const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
 const serviceUnit = fileURLToPath(new URL("../systemd/pi-supervisor.service", import.meta.url));
 const supervisorMain = fileURLToPath(new URL("../src/supervisor/main.ts", import.meta.url));
+const preserveProviderContext = () => undefined;
 
 describe("resident Supervisor service", () => {
 	let tempDir: string;

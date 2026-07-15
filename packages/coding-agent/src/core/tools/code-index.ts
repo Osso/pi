@@ -206,6 +206,7 @@ function createCodeIndexToolDefinition<TParams extends TSchema>(
 	return {
 		name: config.name,
 		label: config.label,
+		approvalKind: "read-only",
 		description: config.description,
 		promptSnippet: config.promptSnippet,
 		parameters: config.parameters,

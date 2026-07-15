@@ -107,6 +107,7 @@ export function createLsToolDefinition(
 	return {
 		name: "ls",
 		label: "rtk ls",
+		approvalKind: "read-only",
 		description: `List directory contents through rtk ls when available. Returns token-optimized entries, includes dotfiles, and truncates output to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: "List directory contents",
 		parameters: lsSchema,

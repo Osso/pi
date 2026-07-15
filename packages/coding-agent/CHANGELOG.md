@@ -132,6 +132,7 @@
 - Changed production-created `spawn_agent` children, `attach_session_agent` runtimes, and `/bg` background jobs to exclude the goal extension and goal-state seeding; attached sessions may retain existing goal metadata, but it is inert. Child prompts remain validated before dispatch and `spawn_agent` rejects blank prompts before creating an agent record.
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
 - Changed LLM-approved tool review to use synchronous resident Supervisor decisions, with service failures escalating to native human review.
+- LLM-approved presets now auto-approve inherently read-only built-in file and code-navigation tools after extension and permission hooks, without consulting the Supervisor or prompting the user.
 - Changed goal completion and guarded `agent_end` continuation to require resident Supervisor `complete`, actionable `continue`, `pause`, or `error` decisions.
 - Changed `/goal <objective>` to replace the active goal by default and removed the replacement flag.
 - Changed the LLM-approved tool reviewer to allow bounded-risk coding-agent commands, including `/tmp` cleanup, while still denying catastrophic system, credential, irreversible data-loss, or unrelated external-side-effect actions.
@@ -146,6 +147,7 @@
 
 ### Fixed
 
+- Fixed Supervisor compaction retaining the OpenAI cached continuation for the pre-compaction context, which could cause later approval requests to fail with context-window errors despite a small compacted transcript.
 - Fixed the resident Supervisor eventually exceeding its model context window and reporting a misleading invalid response; the shared cross-request model context now compacts at 75% usage while preserving prior decisions and policies, and empty error responses surface the current provider error instead of stale prior JSON.
 - Fixed Supervisor goal continuations displaying both the visible provenance header and model-only XML wrapper; the TUI now shows one `[Supervisor]` header with a plain instruction body while retaining tagged model content.
 - Fixed Supervisor goal continuation instructions being rendered and delivered as unmarked user-authored input; they now carry visible and model-readable Supervisor provenance.

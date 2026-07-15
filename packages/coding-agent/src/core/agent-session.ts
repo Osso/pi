@@ -347,6 +347,15 @@ export function createMultiAgentExecutionCapability(): MultiAgentExecutionCapabi
 export type SupervisorDecisionRequester = typeof requestSupervisorDecision;
 
 const THINKING_PHASE_TIMEOUT_MS = 15 * 60 * 1000;
+const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS = new Set([
+	"find",
+	"grep",
+	"ls",
+	"outline",
+	"read",
+	"references",
+	"symbol",
+]);
 
 export interface AgentSessionConfig {
 	agent: Agent;
@@ -1106,6 +1115,10 @@ export class AgentSession {
 	private _createToolApprovalLlmReviewer(event: ToolCallEvent): ApprovalReviewer | undefined {
 		const approvalPreset = this.settingsManager.getApprovalPreset();
 		if (approvalPreset !== "llm-approved-deny" && approvalPreset !== "llm-approved-ask") return undefined;
+		const approvalKind = this._toolDefinitions.get(event.toolName)?.definition.approvalKind;
+		if (approvalKind === "read-only" && SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS.has(event.toolName)) {
+			return async () => undefined;
+		}
 
 		return async () => {
 			const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;

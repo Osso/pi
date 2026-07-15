@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
+import { cleanupSessionResources } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
@@ -166,6 +167,7 @@ export async function processSupervisorRequest(
 		compact?: (customInstructions?: string) => Promise<unknown>;
 		getContextUsage?: () => { percent: number | null } | undefined;
 		prompt(content: string): Promise<void>;
+		sessionId?: string;
 		sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
 	},
 ): Promise<void> {
@@ -190,6 +192,7 @@ export async function processSupervisorRequest(
 						await session.compact(
 							"Preserve Supervisor decisions, project-specific policies, and reusable approval rationale.",
 						);
+						if (session.sessionId) cleanupSupervisorProviderContext(session.sessionId);
 					}
 					if (signal.aborted) throw new Error("Supervisor request aborted");
 					const previousLeafId = session.sessionManager.getLeafId();
@@ -207,6 +210,10 @@ export async function processSupervisorRequest(
 			reason: error instanceof Error ? error.message : String(error),
 		});
 	}
+}
+
+export function cleanupSupervisorProviderContext(sessionId: string): void {
+	cleanupSessionResources(sessionId);
 }
 
 function readCurrentAssistantText(

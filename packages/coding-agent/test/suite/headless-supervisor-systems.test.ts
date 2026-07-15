@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
@@ -234,6 +234,41 @@ describe("headless Supervisor goal system", () => {
 });
 
 describe("headless Supervisor approval system", () => {
+	it("executes built-in grep without Supervisor or human review", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const searchPath = join(agent.paths.workspaceDir, "composer.json");
+				writeFileSync(searchPath, '{"require-dev":{"phpstan/phpstan":"2.1.0"}}');
+				await agent.send({ type: "prompt", message: "Find phpstan" });
+				const request = await agent.waitForLlmRequest();
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage(fauxToolCall("grep", { pattern: "phpstan", path: searchPath, limit: 20 }), {
+						stopReason: "toolUse",
+					}),
+				);
+
+				const outcome = await Promise.race([
+					agent.waitForLlmRequest().then((afterTool) => ({ afterTool, kind: "llm" as const })),
+					agent
+						.waitForExtensionUiRequest((uiRequest) => uiRequest.method === "select")
+						.then((request) => ({ kind: "human" as const, request })),
+					agent
+						.waitForSupervisorRequest("approval_review")
+						.then((request) => ({ kind: "supervisor" as const, request })),
+				]);
+				expect(outcome.kind).toBe("llm");
+				if (outcome.kind !== "llm") throw new Error(`Unexpected ${outcome.kind} review`);
+				const { afterTool } = outcome;
+				expect(JSON.stringify(afterTool.messages)).toContain("phpstan/phpstan");
+				expect(agent.countSupervisorRequests("approval_review")).toBe(0);
+				expect(agent.countExtensionUiRequests((uiRequest) => uiRequest.method === "select")).toBe(0);
+				agent.respondToLlmRequest(afterTool.id, fauxAssistantMessage("Search finished"));
+			},
+			{ approvalPreset: "llm-approved-ask" },
+		);
+	});
+
 	it("executes an approved tool call without human escalation", async () => {
 		const toolExecuted = await startToolCall("llm-approved-ask", { kind: "approve", reason: "safe" });
 		expect(toolExecuted).toBe(true);

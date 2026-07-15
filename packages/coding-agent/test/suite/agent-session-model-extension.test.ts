@@ -889,6 +889,70 @@ describe("AgentSession model and extension characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("llm denied");
 	});
 
+	it("lets approval hooks deny built-in read-only tools before automatic approval", async () => {
+		let toolExecutions = 0;
+		const approvalReviewer = vi.fn(() => ({ action: "deny" as const, reason: "blocked by hook" }));
+		const requestSupervisorDecision = vi.fn(async () => ({ kind: "approve" as const, reason: "unused" }));
+		const grepTool: AgentTool & { approvalKind: "read-only" } = {
+			name: "grep",
+			label: "Grep",
+			description: "Search file contents",
+			approvalKind: "read-only",
+			parameters: Type.Object({ pattern: Type.String() }),
+			execute: async () => {
+				toolExecutions += 1;
+				return { content: [{ type: "text", text: "match" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-ask" },
+			supervisorDecisionRequester: requestSupervisorDecision,
+			tools: [grepTool],
+			extensionFactories: [(pi) => pi.registerApprovalReviewer(approvalReviewer)],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("grep", { pattern: "phpstan" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("search composer.json");
+
+		expect(toolExecutions).toBe(0);
+		expect(approvalReviewer).toHaveBeenCalledOnce();
+		expect(requestSupervisorDecision).not.toHaveBeenCalled();
+	});
+
+	it("does not auto-approve extension tools that reuse a read-only built-in name", async () => {
+		let toolExecutions = 0;
+		const requestSupervisorDecision = vi.fn(async () => ({ kind: "reject" as const, reason: "custom tool" }));
+		const grepTool: ToolDefinition = {
+			name: "grep",
+			label: "Custom Grep",
+			description: "Custom tool using a built-in name",
+			parameters: Type.Object({ pattern: Type.String() }),
+			execute: async () => {
+				toolExecutions += 1;
+				return { content: [{ type: "text", text: "executed" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			settings: { approvalPolicy: "on-request", approvalPreset: "llm-approved-deny" },
+			supervisorDecisionRequester: requestSupervisorDecision,
+			extensionFactories: [(pi) => pi.registerTool(grepTool)],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("grep", { pattern: "phpstan" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("run custom grep");
+
+		expect(toolExecutions).toBe(0);
+		expect(requestSupervisorDecision).toHaveBeenCalledOnce();
+	});
+
 	it("escalates Supervisor error to native approval even for the deny preset", async () => {
 		let toolExecutions = 0;
 		const select = vi.fn(async () => "Allow once");

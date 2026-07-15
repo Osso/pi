@@ -10,7 +10,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 
 - [x] Run as one resident systemd-supervised SDK service, separate from the resident Architect.
 - [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
-- [x] Preserve one global Supervisor model transcript across requests and service restarts. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history.
+- [x] Preserve one global Supervisor model transcript across requests and service restarts. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
 - [x] Process requests through an event-driven request/response queue rather than polling sessions.
 - [x] Remain local-only without web access.
 
@@ -42,6 +42,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 ### Approval review
 
 - [x] Replace the existing LLM auto-reviewer with a Supervisor `approval_review` request while preserving the surrounding approval orchestrator and human-review paths.
+- [x] Auto-approve inherently read-only built-in tools (`read`, `grep`, `find`, `ls`, `outline`, `symbol`, and `references`) after extension and permission hooks have had an opportunity to deny them, without consulting the Supervisor or prompting the user.
 - [x] Include the tool name, normalized arguments, current user request, active running goal when present, and applicable preclassified approval rules in the request evidence.
 - [x] Return exactly `approve`, `reject`, or generic `error` for approval review.
 - [x] Enforce a 30-second deadline that includes model work plus synchronous KB reads and writes.
