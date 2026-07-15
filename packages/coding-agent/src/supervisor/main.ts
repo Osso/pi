@@ -24,6 +24,7 @@ import { runSupervisorRequest } from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
 const REQUEST_POLL_INTERVAL_MS = 100;
+const SUPERVISOR_COMPACTION_PERCENT = 75;
 
 export const SUPERVISOR_TOOL_NAMES = ["read", "edit", "write"];
 
@@ -162,6 +163,8 @@ export async function processSupervisorRequest(
 	request: SupervisorRequest,
 	session: {
 		abort(): Promise<void>;
+		compact?: (customInstructions?: string) => Promise<unknown>;
+		getContextUsage?: () => { percent: number | null } | undefined;
 		prompt(content: string): Promise<void>;
 		sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
 	},
@@ -171,9 +174,25 @@ export async function processSupervisorRequest(
 			controlDbPath,
 			evaluate: async (prompt, signal) => {
 				const abort = () => void session.abort();
-				const previousLeafId = session.sessionManager.getLeafId();
 				signal.addEventListener("abort", abort, { once: true });
 				try {
+					if (signal.aborted) {
+						await session.abort();
+						throw new Error("Supervisor request aborted");
+					}
+					const contextPercent = session.getContextUsage?.().percent;
+					if (
+						session.compact &&
+						contextPercent !== null &&
+						contextPercent !== undefined &&
+						contextPercent >= SUPERVISOR_COMPACTION_PERCENT
+					) {
+						await session.compact(
+							"Preserve Supervisor decisions, project-specific policies, and reusable approval rationale.",
+						);
+					}
+					if (signal.aborted) throw new Error("Supervisor request aborted");
+					const previousLeafId = session.sessionManager.getLeafId();
 					await session.prompt(prompt);
 					return readCurrentAssistantText(session.sessionManager.getBranch(), previousLeafId);
 				} finally {

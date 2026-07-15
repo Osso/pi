@@ -146,6 +146,7 @@
 
 ### Fixed
 
+- Fixed the resident Supervisor eventually exceeding its model context window and reporting a misleading invalid response; the shared cross-request model context now compacts at 75% usage while preserving prior decisions and policies, and empty error responses surface the current provider error instead of stale prior JSON.
 - Fixed Supervisor goal continuations displaying both the visible provenance header and model-only XML wrapper; the TUI now shows one `[Supervisor]` header with a plain instruction body while retaining tagged model content.
 - Fixed Supervisor goal continuation instructions being rendered and delivered as unmarked user-authored input; they now carry visible and model-readable Supervisor provenance.
 - Fixed literal resume-picker searches being buried among subsequence-only fuzzy matches; exact substring matches now appear first in Recent and Fuzzy sort modes.
