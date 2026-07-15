@@ -705,6 +705,7 @@ export class AgentSession {
 	private _runtimeMailboxSignalHandler?: () => void;
 	private _disposed = false;
 	private _runtimeMailboxDrainPromise: Promise<boolean> | undefined;
+	private _runtimeMailboxDrainMode: "prompt" | "steer" | undefined;
 	private _sharedChannelDrainInProgress = false;
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
 	private readonly _runtimeMailboxPendingTerminal = new Map<
@@ -2784,22 +2785,26 @@ export class AgentSession {
 			return false;
 		}
 		if (this._runtimeMailboxDrainPromise) {
+			if (canSteerActiveTurn && this._runtimeMailboxDrainMode === "prompt") return false;
 			return this._runtimeMailboxDrainPromise;
 		}
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath) {
 			return false;
 		}
+		const drainMode = canSteerActiveTurn ? "steer" : "prompt";
 		let releaseMailboxDrain = () => {};
-		const drain = canSteerActiveTurn
-			? this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, { mode: "steer" })
-			: this._withTurnStartLock((releaseTurnStart) =>
-					this._deliverReadyRuntimeMailboxMessages(
-						controlDbPath,
-						options,
-						this.isStreaming ? { mode: "steer" } : { mode: "prompt", releaseMailboxDrain, releaseTurnStart },
-					),
-				);
+		const drain =
+			drainMode === "steer"
+				? this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, { mode: "steer" })
+				: this._withTurnStartLock((releaseTurnStart) =>
+						this._deliverReadyRuntimeMailboxMessages(
+							controlDbPath,
+							options,
+							this.isStreaming ? { mode: "steer" } : { mode: "prompt", releaseMailboxDrain, releaseTurnStart },
+						),
+					);
+		this._runtimeMailboxDrainMode = drainMode;
 		this._runtimeMailboxDrainPromise = drain;
 		releaseMailboxDrain = () => {
 			if (this._runtimeMailboxDrainPromise === drain) this._runtimeMailboxDrainPromise = undefined;
@@ -2807,7 +2812,10 @@ export class AgentSession {
 		try {
 			return await drain;
 		} finally {
-			if (this._runtimeMailboxDrainPromise === drain) this._runtimeMailboxDrainPromise = undefined;
+			if (this._runtimeMailboxDrainPromise === drain) {
+				this._runtimeMailboxDrainMode = undefined;
+				this._runtimeMailboxDrainPromise = undefined;
+			}
 		}
 	}
 

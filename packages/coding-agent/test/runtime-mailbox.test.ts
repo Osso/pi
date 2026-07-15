@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
@@ -285,6 +287,42 @@ describe("runtime SQLite mailbox delivery", () => {
 			rmSync(tempDir, { force: true, recursive: true });
 			tempDir = undefined;
 		}
+	});
+
+	it("does not let a mailbox-started tool turn await its own prompt drain", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		let toolExecutions = 0;
+		const tool: AgentTool = {
+			name: "inspect",
+			label: "Inspect",
+			description: "Inspect state",
+			parameters: Type.Object({}),
+			execute: async () => {
+				toolExecutions += 1;
+				return { content: [{ type: "text", text: "inspected" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [tool] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("inspect", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("finished"),
+		]);
+		await harness.session.bindExtensions({ controlDbPath });
+		enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Inspect the current state",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.session.sessionId },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+
+		const drain = harness.session.drainRuntimeCoordination();
+		const settled = await Promise.race([drain.then(() => true), delay(500).then(() => false)]);
+
+		expect(settled).toBe(true);
+		expect(toolExecutions).toBe(1);
+		expect(getUserTexts(harness)).toContain(runtimeMailboxPrompt("Inspect the current state"));
 	});
 
 	it("lets extensions consume durable runtime mailbox messages before prompt conversion", async () => {

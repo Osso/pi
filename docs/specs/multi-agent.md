@@ -337,6 +337,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       mismatches, PID or start-time mismatches, dead recipients, stale sender sessions, non-direct
       descendants, and invalid lifecycle requests reject atomically without lifecycle/mailbox mutation or
       counter advancement.
+- [x] A turn started by idle runtime-mailbox prompt delivery never awaits its own enclosing prompt drain
+      at a post-tool checkpoint. Prompt-mode and steer-mode drains retain distinct ownership so the
+      active turn can continue to its next model call without a self-deadlock.
 - [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so canonical mailbox delivery uses one durable database without path fallback.
 - [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
       no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray
