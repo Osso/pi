@@ -701,7 +701,8 @@ async function* mapCodexEvents(events: AsyncIterable<Record<string, unknown>>): 
 			const normalizedResponse = response
 				? { ...response, status: normalizeCodexStatus(response.status) }
 				: response;
-			yield { ...event, type: "response.completed", response: normalizedResponse } as ResponseStreamEvent;
+			const terminalType = type === "response.incomplete" ? "response.incomplete" : "response.completed";
+			yield { ...event, type: terminalType, response: normalizedResponse } as ResponseStreamEvent;
 			return;
 		}
 

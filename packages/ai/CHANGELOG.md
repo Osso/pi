@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Responses incomplete terminal events to preserve their reason and enter the normal transient-error retry path instead of ending the turn as output-length truncation.
 - Fixed Anthropic message replay to normalize invalid persisted tool IDs even for same-model history, avoiding `tool_result.tool_use_id` request validation errors after restart.
 - Fixed OpenAI Responses context conversion to drop orphaned tool results, avoiding `No tool call found for function call output` errors after compaction keeps a tool result without its original tool call.
 - Fixed GitHub Copilot device-code login polling to wait before the first token poll, avoiding incorrect device-code failures for some users after browser authorization ([#6187](https://github.com/earendil-works/pi/issues/6187)).

@@ -64,9 +64,11 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"websocket.?closed",
 	"websocket.?error",
 
-	// Premature stream endings from SDKs and transports. Anthropic can throw
+	// Premature or incomplete stream endings from SDKs and transports. Anthropic can throw
 	// "stream ended without ..." and "Anthropic stream ended before message_stop"
-	// (#4433); Bedrock/Smithy can throw an HTTP/2 no-response error (#3594).
+	// (#4433); OpenAI can emit response.incomplete; Bedrock/Smithy can throw an HTTP/2
+	// no-response error (#3594).
+	"Incomplete response returned",
 	"ended without",
 	"stream ended before message_stop",
 	"http2 request did not get a response",

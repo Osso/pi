@@ -131,6 +131,7 @@ async function* createIncompleteEvents(): AsyncIterable<ResponseStreamEvent> {
 		response: {
 			id: "resp_incomplete",
 			status: "incomplete",
+			incomplete_details: { reason: "max_output_tokens" },
 			usage: {
 				input_tokens: 30,
 				output_tokens: 12,
@@ -203,22 +204,14 @@ describe("OpenAI Responses terminal event handling", () => {
 		});
 	});
 
-	it("finalizes incomplete terminal events as length stops", async () => {
+	it("rejects incomplete terminal events with the provider reason", async () => {
 		const model = createModel();
 		const output = createOutput(model);
 		const stream = new AssistantMessageEventStream();
 
-		await processResponsesStream(createIncompleteEvents(), output, stream, model);
-
-		expect(output.responseId).toBe("resp_incomplete");
-		expect(output.stopReason).toBe("length");
-		expect(output.usage).toMatchObject({
-			input: 25,
-			output: 12,
-			cacheRead: 5,
-			cacheWrite: 0,
-			totalTokens: 42,
-		});
+		await expect(processResponsesStream(createIncompleteEvents(), output, stream, model)).rejects.toThrow(
+			"Incomplete response returned, reason: max_output_tokens",
+		);
 	});
 
 	it("rejects failed terminal events with the provider error", async () => {

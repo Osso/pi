@@ -523,8 +523,12 @@ export async function processResponsesStream<TApi extends Api>(
 				});
 				outputSlots.delete(event.output_index);
 			}
-		} else if (event.type === "response.completed" || event.type === "response.incomplete") {
+		} else if (event.type === "response.completed") {
 			finalizeResponse(event.response);
+		} else if (event.type === "response.incomplete") {
+			sawTerminalResponseEvent = true;
+			const reason = event.response?.incomplete_details?.reason ?? "unknown";
+			throw new Error(`Incomplete response returned, reason: ${reason}`);
 		} else if (event.type === "error") {
 			throw new Error(`Error Code ${event.code}: ${event.message}` || "Unknown error");
 		} else if (event.type === "response.failed") {
