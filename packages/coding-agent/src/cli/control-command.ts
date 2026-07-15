@@ -1,4 +1,9 @@
-import { enqueueIncomingMessage, getControlDbPath, readLastMessage } from "../core/session-control-db.ts";
+import {
+	enqueueIncomingMessage,
+	getControlDbPath,
+	readLastMessage,
+	readSessionHealth,
+} from "../core/session-control-db.ts";
 
 interface ControlCommandDependencies {
 	agentDir: string;
@@ -34,6 +39,31 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 			signalProcess(parsed.pid, "SIGHUP");
 			stdout(`signaled ${parsed.pid}\n`);
 		}
+		return true;
+	}
+
+	if (subcommand === "restart") {
+		const sessionId = parseRestartCommand(args.slice(2));
+		if (!sessionId) {
+			printControlHelp(stderr);
+			process.exitCode = 1;
+			return true;
+		}
+		const health = readSessionHealth(getControlDbPath(dependencies.agentDir), sessionId);
+		if (!health?.pid || health.checkStatus !== "ok") {
+			stderr(`Session ${sessionId} is not running.\n`);
+			process.exitCode = 1;
+			return true;
+		}
+		try {
+			signalProcess(health.pid, "SIGHUP");
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			stderr(`Could not restart session ${sessionId}: ${message}\n`);
+			process.exitCode = 1;
+			return true;
+		}
+		stdout(`signaled session ${sessionId} (pid ${health.pid})\n`);
 		return true;
 	}
 
@@ -78,9 +108,15 @@ function parseSendCommand(args: string[]): ParsedSendCommand | undefined {
 	return { message, pid };
 }
 
+function parseRestartCommand(args: string[]): string | undefined {
+	if (args.length !== 2 || args[0] !== "--session-id") return undefined;
+	return args[1]?.trim() || undefined;
+}
+
 function printControlHelp(write: (text: string) => void): void {
 	write(`Usage:
   pi control send [--pid <pid>] <message>
+  pi control restart --session-id <session-id>
   pi control last
   pi control path
 `);

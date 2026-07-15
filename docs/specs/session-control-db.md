@@ -18,8 +18,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   submitted to the agent.
 - [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
 - [x] Store only the latest assistant message for external readers.
-- [x] Provide `pi control send`, `pi control last`, and `pi control path` so
-  harnesses use the CLI instead of writing SQLite directly.
+- [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
+  `pi control last`, and `pi control path` so harnesses and operators use the CLI
+  instead of reading or writing SQLite directly. Session restart resolves the exact
+  live session health row and signals its PID with `SIGHUP`.
 - [x] Store named-session metadata in the control DB.
 - [x] Session-listing metadata is maintained incrementally: appended entries fold into a
       per-session accumulator (rebuilt only after wholesale entry replacement such as resume,

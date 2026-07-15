@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleControlCommand } from "../src/cli/control-command.ts";
-import { claimLatestIncomingMessage, getControlDbPath, writeLastMessage } from "../src/core/session-control-db.ts";
+import {
+	claimLatestIncomingMessage,
+	getControlDbPath,
+	writeLastMessage,
+	writeSessionHealth,
+} from "../src/core/session-control-db.ts";
 
 describe("control command", () => {
 	let agentDir: string;
@@ -35,6 +40,33 @@ describe("control command", () => {
 		expect(stderr).toEqual([]);
 		expect(signalProcess).toHaveBeenCalledWith(1234, "SIGHUP");
 		expect(claimLatestIncomingMessage(getControlDbPath(agentDir))?.content).toBe("finish now");
+	});
+
+	it("restarts a running session by exact session ID", () => {
+		const sessionId = "019f626e-bd57-7f89-ae55-9541228b8edb";
+		writeSessionHealth(getControlDbPath(agentDir), {
+			agentGeneration: 5,
+			checkedGeneration: 5,
+			checkLatencyMs: 0,
+			checkStatus: "ok",
+			lastActiveAt: "2026-07-15T00:48:35.798Z",
+			lastCheckedAt: "2026-07-15T00:48:35.798Z",
+			pid: 870429,
+			sessionId,
+			updatedAt: "2026-07-15T00:48:35.798Z",
+		});
+
+		const handled = handleControlCommand(["control", "restart", "--session-id", sessionId], {
+			agentDir,
+			signalProcess,
+			stderr: (text) => stderr.push(text),
+			stdout: (text) => stdout.push(text),
+		});
+
+		expect(handled).toBe(true);
+		expect(stdout).toEqual([`signaled session ${sessionId} (pid 870429)\n`]);
+		expect(stderr).toEqual([]);
+		expect(signalProcess).toHaveBeenCalledWith(870429, "SIGHUP");
 	});
 
 	it("prints the last assistant reply", () => {
