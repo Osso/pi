@@ -159,6 +159,7 @@ interface InteractiveModeKeyHandlerInternals {
 	isViewingAgentSession(this: unknown): boolean;
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	registerGlobalAgentSlotInputHandler(this: unknown): void;
+	registerGlobalInterruptInputHandler(this: unknown): void;
 	showAgentSwitcher(this: unknown): void;
 	openChildAgentView(this: unknown, agent: unknown): boolean;
 	renderInitialMessages(this: unknown): void;
@@ -578,6 +579,7 @@ describe("InteractiveMode key handlers", () => {
 			footer: { invalidate: vi.fn() },
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
+			registerGlobalInterruptInputHandler: vi.fn(),
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
@@ -630,6 +632,7 @@ describe("InteractiveMode key handlers", () => {
 			multiAgentStore: undefined,
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
+			registerGlobalInterruptInputHandler: vi.fn(),
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: true },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
@@ -687,6 +690,7 @@ describe("InteractiveMode key handlers", () => {
 			multiAgentStore: undefined,
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
+			registerGlobalInterruptInputHandler: vi.fn(),
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
 			settingsManager: { getDoubleEscapeAction: () => "none" },
 			ui: { onDebug: undefined, requestRender: vi.fn() },
@@ -759,6 +763,7 @@ describe("InteractiveMode key handlers", () => {
 			syncWorkingLoaderVisibility: vi.fn(),
 			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
 			registerGlobalAgentSlotInputHandler: vi.fn(),
+			registerGlobalInterruptInputHandler: vi.fn(),
 			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
 			selectAgentSlot: interactiveModeKeyHandlers.selectAgentSlot,
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
@@ -1468,6 +1473,63 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.showStatus).toHaveBeenCalledWith(`Agent is not active: Done (completed)`);
 		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
 		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
+	});
+
+	test("interrupts a streaming main turn before focused components receive escape", () => {
+		const listeners: Array<(data: string) => { consume?: boolean } | undefined> = [];
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const fakeThis = {
+			keybindings: { matches: (data: string, action: string) => action === "app.interrupt" && data === "\x1b" },
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui: {
+				addInputListener: (listener: (data: string) => { consume?: boolean } | undefined) => {
+					listeners.push(listener);
+					return () => {};
+				},
+			},
+		};
+
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		const result = listeners[0]?.("\x1b");
+
+		expect(result).toEqual({ consume: true });
+		expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+	});
+
+	test("raw terminal escape interrupts before a focused component can consume it and preserves queued steering", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const focusedComponent = new TestFocusableComponent("FOCUSED");
+		const interrupt = vi.fn(async () => {});
+		const editor = { getText: () => "current draft", setText: vi.fn() };
+		const fakeThis = {
+			clearAllQueues: vi.fn(() => ({ steering: ["urgent steering"], followUp: [] })),
+			cancelStreamingAndSubmitQueuedMessages: interactiveModeKeyHandlers.cancelStreamingAndSubmitQueuedMessages,
+			editor,
+			keybindings: { matches: (data: string, action: string) => action === "app.interrupt" && data === "\x1b" },
+			session: { interrupt, isStreaming: true },
+			showError: vi.fn(),
+			ui,
+			updatePendingMessagesDisplay: vi.fn(),
+		};
+
+		ui.addChild(focusedComponent);
+		ui.setFocus(focusedComponent);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			terminal.sendInput("\x1b");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+
+			expect(focusedComponent.inputs).toEqual([]);
+			expect(interrupt).toHaveBeenCalledWith("urgent steering\n\ncurrent draft");
+			expect(editor.setText).toHaveBeenCalledWith("");
+		} finally {
+			ui.stop();
+		}
 	});
 
 	test("switches to main thread from slot 1 before focused components receive input", () => {

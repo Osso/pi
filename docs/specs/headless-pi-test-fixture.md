@@ -30,8 +30,14 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Exercise the production `spawn_agent` tool path.
 - [x] Expose the child user instruction received by the faux provider.
 - [x] Observe a completed child's notification after delivery to the main-thread mailbox.
-- [x] Prove interrupting an active real-process turn preserves queued steering and submits it in the replacement LLM request.
+- [x] Prove an RPC `interrupt` command during an active real-process turn preserves queued steering and submits it in the replacement LLM request. This test starts below terminal/TUI input routing and does not prove that an Escape key reaches the interrupt command.
 - [x] Prove `wait_agents` remains blocked while an active child has pending `steer_agent` input, the steering reaches the child's next LLM request, and the wait returns only after that full child turn completes and terminalizes.
+
+### Terminal interrupt coverage
+
+- [x] Route raw Escape input through a real `TUI` and `VirtualTerminal` while another focused component can consume input.
+- [x] Prove the global interrupt listener consumes Escape first, interrupts the active main turn, and preserves queued steering plus current editor text (`interactive-mode-status.test.ts`: `raw terminal escape interrupts before a focused component can consume it and preserves queued steering`).
+- [x] Keep the RPC real-process test as the independent lower-layer proof that interruption creates a replacement LLM request containing queued steering (`headless-pi.test.ts`: `preserves queued steering when interrupting an active turn`).
 
 ## How it works
 

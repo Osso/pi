@@ -529,6 +529,7 @@ export class InteractiveMode {
 	private childViewTranscriptWatchRetryTimer: ReturnType<typeof setTimeout> | undefined;
 	private childViewTranscriptReloadRetries = 0;
 	private unregisterAgentSlotInputHandler: (() => void) | undefined;
+	private unregisterInterruptInputHandler: (() => void) | undefined;
 	private terminalCurrentDirectory: string | undefined;
 
 	// Convenience accessors
@@ -2956,6 +2957,19 @@ export class InteractiveMode {
 		});
 	}
 
+	private registerGlobalInterruptInputHandler(): void {
+		this.unregisterInterruptInputHandler?.();
+		this.unregisterInterruptInputHandler = this.ui.addInputListener((data) => {
+			if (!this.session.isStreaming || !this.keybindings.matches(data, "app.interrupt")) {
+				return undefined;
+			}
+			void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
+				this.showError(error instanceof Error ? error.message : String(error));
+			});
+			return { consume: true };
+		});
+	}
+
 	private selectAgentSlot(slotIndex: number): boolean {
 		if (slotIndex === 0) {
 			return this.selectAgentView("main");
@@ -3425,6 +3439,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.agent.select", () => this.showAgentSwitcher());
 		this.registerAgentSlotKeyHandlers();
 		this.registerGlobalAgentSlotInputHandler();
+		this.registerGlobalInterruptInputHandler();
 
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
