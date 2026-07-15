@@ -121,6 +121,7 @@
 
 ### Fixed
 
+- Fixed steering accepted at the completion boundary of a real tool turn remaining queued indefinitely after the agent loop had already performed its final queue check; idle steering now atomically starts a continuation without delaying RPC acknowledgment.
 - Fixed owned child agents remaining in `cancelling` indefinitely when their prompt ignored runtime abort; cancellation now terminalizes them as `aborted` after the bounded settlement deadline and fences late dispatch results.
 - Fixed goal continuation racing ahead of steering or follow-up input queued during asynchronous Supervisor review, which could create repeated quota-consuming goal loops.
 - Fixed Escape failing to interrupt an active main LLM turn when autocomplete, an overlay, or another focused component consumed the key; queued steering messages now reach the interrupted turn replacement.

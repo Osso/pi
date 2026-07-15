@@ -2486,7 +2486,17 @@ export class AgentSession {
 		let expandedText = this._expandSkillCommand(text);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
-		await this._queueSteer(expandedText, images);
+		await this._withTurnStartLock(async (release) => {
+			await this._queueSteer(expandedText, images);
+			if (this.isStreaming) return;
+
+			this.validateModelAuthentication();
+			const continuation = this._runAgentContinuation();
+			release();
+			void continuation.catch((error) => {
+				console.error(`Failed to continue idle steering: ${errorMessage(error)}`);
+			});
+		});
 	}
 
 	/**

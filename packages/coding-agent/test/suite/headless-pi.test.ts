@@ -239,6 +239,34 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("wakes after steering races with completion of a real Pyrun tool turn", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Run Pyrun, then finish the turn" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialRequest.id,
+				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code: 'print("pyrun-race-complete")' }), {
+					stopReason: "toolUse",
+				}),
+			);
+
+			const postToolRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialRequest.id,
+			);
+			expectSingleToolResult(postToolRequest, "pyrun-race-complete");
+			agent.respondToLlmRequest(postToolRequest.id, fauxAssistantMessage("Pyrun turn complete"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+
+			await agent.send({ type: "steer", message: "Handle steering queued at the completion boundary" });
+			const steeredRequest = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null && request.id !== initialRequest.id && request.id !== postToolRequest.id,
+			);
+			expect(steeredRequest.userMessages).toContain("Handle steering queued at the completion boundary");
+			agent.respondToLlmRequest(steeredRequest.id, fauxAssistantMessage("Completion-boundary steering handled"));
+		});
+	});
+
 	it("preserves queued steering when interrupting an active turn", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Start a long response" });
