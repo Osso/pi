@@ -76,6 +76,7 @@ Dispatch and graph invariants:
   or failure persists `failed` revision 1 with the construction error; no persisted `queued` or `starting`
   startup row exists. Parent links cannot self-reference or form cycles, and child/attachment creation
   transactionally rejects a parent that is already terminal.
+- Each spawned or attached child-agent thinking phase has a 15-minute deadline. Tool execution clears the deadline and remains uncapped; when the last active tool finishes or steering starts another model turn, a fresh thinking deadline begins. Expiry aborts the active child turn and finalizes it as `failed` with `Child agent thinking phase exceeded 15 minutes`. Agent end, cancellation, disposal, restoration replacement, and runtime ownership loss clear the prior timer.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. An owned child runtime gets a bounded
   opportunity to settle after abort; if its dispatch ignores abort past that deadline, the exact owner

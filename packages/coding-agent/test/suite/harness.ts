@@ -82,6 +82,7 @@ export interface HarnessOptions {
 	/** Exact owning supervisor session for persisted child activity updates. */
 	multiAgentParentSessionId?: string;
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
+	childThinkingPhaseTimeoutMs?: AgentSessionConfig["childThinkingPhaseTimeoutMs"];
 }
 
 export interface Harness {
@@ -205,6 +206,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 			options.multiAgentParentSessionId ?? (options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
 		supervisorDecisionRequester:
 			options.supervisorDecisionRequester ?? (async () => ({ kind: "approve", reason: "test approval" })),
+		childThinkingPhaseTimeoutMs: options.childThinkingPhaseTimeoutMs,
 	});
 
 	const events: AgentSessionEvent[] = [];

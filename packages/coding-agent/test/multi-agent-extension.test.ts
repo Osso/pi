@@ -758,6 +758,45 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("terminalizes a real spawned child AgentSession thinking timeout as failed", async () => {
+		let childHarness: Harness | undefined;
+		const supervisorSession = createControlDbSession();
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(supervisorSession);
+		const harness = createMultiAgentHarness({
+			ctx: { sessionManager: supervisorSession },
+			store,
+			createChildSession: async ({ agent }) => {
+				childHarness = await createHarness({
+					childThinkingPhaseTimeoutMs: 10,
+					multiAgentAgentId: agent.id,
+					multiAgentParentSessionId: supervisorSession.getSessionId(),
+					multiAgentStore: store,
+				});
+				childHarnesses.push(childHarness);
+				childHarness.setResponses([
+					async () => {
+						await delay(50);
+						return fauxAssistantMessage("too late");
+					},
+				]);
+				return childHarness.session;
+			},
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Timed out worker",
+			prompt: "start",
+		});
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(childHarness).toBeDefined();
+		expect(waited).toMatchObject({
+			error: { message: "Child agent thinking phase exceeded 15 minutes" },
+			lifecycle: "failed",
+		});
+	});
+
 	it("unsubscribes the runtime lifecycle mirror during extension reload", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-reload-lifecycle-mirror-"));
 		try {
@@ -1467,6 +1506,53 @@ describe("multi-agent extension tools", () => {
 
 			expect(waited).toMatchObject({
 				error: { message: "resume failed" },
+				lifecycle: "failed",
+				transcript: { sessionId: savedSessionId },
+			});
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("terminalizes a real attached child AgentSession thinking timeout as failed", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-timeout-attached-session-"));
+		try {
+			const savedSessionId = "019f29f4-0000-7000-8000-000000000016";
+			const savedSession = SessionManager.create("/repo", tempDir, { id: savedSessionId });
+			savedSession.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+			savedSession.appendMessage(fauxAssistantMessage("saved response"));
+			const supervisorSession = createControlDbSession();
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
+			const harness = createMultiAgentHarness({
+				ctx: { sessionManager: supervisorSession },
+				store,
+				createAttachedSession: async ({ agent }) => {
+					const childHarness = await createHarness({
+						childThinkingPhaseTimeoutMs: 10,
+						multiAgentAgentId: agent.id,
+						multiAgentParentSessionId: supervisorSession.getSessionId(),
+						multiAgentStore: store,
+					});
+					childHarnesses.push(childHarness);
+					childHarness.setResponses([
+						async () => {
+							await delay(50);
+							return fauxAssistantMessage("too late");
+						},
+					]);
+					return childHarness.session;
+				},
+			});
+
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: savedSession.getSessionFile(),
+				prompt: "Continue saved work",
+			});
+			const waited = await waitForTerminalAgent(harness, attached.details.agent.id);
+
+			expect(waited).toMatchObject({
+				error: { message: "Child agent thinking phase exceeded 15 minutes" },
 				lifecycle: "failed",
 				transcript: { sessionId: savedSessionId },
 			});

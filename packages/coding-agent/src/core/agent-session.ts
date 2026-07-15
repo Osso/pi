@@ -327,6 +327,8 @@ export function createMultiAgentExecutionCapability(): MultiAgentExecutionCapabi
 
 export type SupervisorDecisionRequester = typeof requestSupervisorDecision;
 
+const CHILD_THINKING_PHASE_TIMEOUT_MS = 15 * 60 * 1000;
+
 export interface AgentSessionConfig {
 	agent: Agent;
 	sessionManager: SessionManager;
@@ -375,6 +377,8 @@ export interface AgentSessionConfig {
 	extensionRunnerRef?: { current?: ExtensionRunner };
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
+	/** Override the child-agent thinking-phase deadline for deterministic tests. */
+	childThinkingPhaseTimeoutMs?: number;
 }
 
 export interface ExtensionBindings {
@@ -728,6 +732,9 @@ export class AgentSession {
 	>();
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
+	private readonly _childThinkingPhaseTimeoutMs: number;
+	private _childThinkingPhaseTimer: ReturnType<typeof setTimeout> | undefined;
+	private _childThinkingPhaseTimeoutError: Error | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
 	private _systemPromptOverride?: string;
 
@@ -749,6 +756,7 @@ export class AgentSession {
 		this._multiAgentAgentId = config.multiAgentAgentId;
 		this._multiAgentParentSessionId = config.multiAgentParentSessionId;
 		this._multiAgentRequiresAgentId = config.multiAgentRequiresAgentId ?? false;
+		this._childThinkingPhaseTimeoutMs = config.childThinkingPhaseTimeoutMs ?? CHILD_THINKING_PHASE_TIMEOUT_MS;
 		this._disableRuntimeCoordinationInbound = config.disableRuntimeCoordinationInbound ?? false;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
@@ -1270,6 +1278,27 @@ export class AgentSession {
 		};
 	}
 
+	private _startChildThinkingPhaseDeadline(): void {
+		if (!this._multiAgentAgentId || this._childThinkingPhaseTimeoutMs <= 0) return;
+		this._clearChildThinkingPhaseDeadline();
+		this._childThinkingPhaseTimer = setTimeout(() => {
+			this._childThinkingPhaseTimer = undefined;
+			this._childThinkingPhaseTimeoutError = new Error("Child agent thinking phase exceeded 15 minutes");
+			this.agent.abort();
+		}, this._childThinkingPhaseTimeoutMs);
+	}
+
+	private _clearChildThinkingPhaseDeadline(): void {
+		if (this._childThinkingPhaseTimer) clearTimeout(this._childThinkingPhaseTimer);
+		this._childThinkingPhaseTimer = undefined;
+	}
+
+	private _consumeChildThinkingPhaseTimeoutError(): Error | undefined {
+		const error = this._childThinkingPhaseTimeoutError;
+		this._childThinkingPhaseTimeoutError = undefined;
+		return error;
+	}
+
 	private _publishCurrentAgentActivity(event: AgentEvent): void {
 		const store = this._multiAgentStore;
 		const agentId = this._multiAgentAgentId;
@@ -1281,6 +1310,7 @@ export class AgentSession {
 		switch (event.type) {
 			case "agent_start":
 				this._multiAgentActiveTools.clear();
+				this._startChildThinkingPhaseDeadline();
 				store.publishAgentCurrentActivity(
 					agentId,
 					{ phase: "thinking", startedAt: new Date().toISOString() },
@@ -1295,6 +1325,7 @@ export class AgentSession {
 				};
 				this._multiAgentActiveTools.set(event.toolCallId, activity);
 				if (this._multiAgentActiveTools.size === 1) {
+					this._clearChildThinkingPhaseDeadline();
 					store.publishAgentCurrentActivity(agentId, { phase: "tool", ...activity }, ownership);
 				}
 				break;
@@ -1305,11 +1336,13 @@ export class AgentSession {
 				const currentActivity = nextTool
 					? { phase: "tool" as const, ...nextTool }
 					: { phase: "thinking" as const, startedAt: new Date(event.finishedAt).toISOString() };
+				if (!nextTool) this._startChildThinkingPhaseDeadline();
 				store.publishAgentCurrentActivity(agentId, currentActivity, ownership);
 				break;
 			}
 			case "agent_end":
 				this._multiAgentActiveTools.clear();
+				this._clearChildThinkingPhaseDeadline();
 				store.publishAgentCurrentActivity(agentId, undefined, ownership);
 				break;
 		}
@@ -1731,6 +1764,8 @@ export class AgentSession {
 			// Dispose must succeed even if an abort hook throws.
 		}
 
+		this._clearChildThinkingPhaseDeadline();
+		this._childThinkingPhaseTimeoutError = undefined;
 		this._extensionRunner.invalidate(
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
 		);
@@ -2080,20 +2115,36 @@ export class AgentSession {
 	}
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		this._childThinkingPhaseTimeoutError = undefined;
 		try {
-			await this.agent.prompt(messages);
+			try {
+				await this.agent.prompt(messages);
+			} catch (error) {
+				throw this._consumeChildThinkingPhaseTimeoutError() ?? error;
+			}
+			const timeoutError = this._consumeChildThinkingPhaseTimeoutError();
+			if (timeoutError) throw timeoutError;
 			await this._continuePostAgentRuns();
 		} finally {
+			this._clearChildThinkingPhaseDeadline();
 			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 		}
 	}
 
 	private async _runAgentContinuation(): Promise<void> {
+		this._childThinkingPhaseTimeoutError = undefined;
 		try {
-			await this.agent.continue();
+			try {
+				await this.agent.continue();
+			} catch (error) {
+				throw this._consumeChildThinkingPhaseTimeoutError() ?? error;
+			}
+			const timeoutError = this._consumeChildThinkingPhaseTimeoutError();
+			if (timeoutError) throw timeoutError;
 			await this._continuePostAgentRuns();
 		} finally {
+			this._clearChildThinkingPhaseDeadline();
 			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 		}
@@ -3179,6 +3230,8 @@ export class AgentSession {
 	 */
 	async abort(): Promise<void> {
 		this.abortRetry();
+		this._clearChildThinkingPhaseDeadline();
+		this._childThinkingPhaseTimeoutError = undefined;
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this.agent.clearAllQueues();
