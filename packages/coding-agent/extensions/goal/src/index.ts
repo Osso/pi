@@ -557,6 +557,8 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 				terminalTurn: event.messages,
 			},
 		});
+		if (ctx.hasPendingMessages()) return;
+
 		if (decision.kind === "complete") {
 			markGoalComplete(ctx, decision.reason);
 			updateGoalFooterStatus(ctx);

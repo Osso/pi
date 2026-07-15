@@ -119,6 +119,7 @@
 
 ### Fixed
 
+- Fixed goal continuation racing ahead of steering or follow-up input queued during asynchronous Supervisor review, which could create repeated quota-consuming goal loops.
 - Fixed Escape failing to interrupt an active main LLM turn when autocomplete, an overlay, or another focused component consumed the key; queued steering messages now reach the interrupted turn replacement.
 - Fixed OpenAI remote compaction describing empty tool output as an attached image when no image existed.
 - Fixed runtime mailbox messages being marked delivered after entering a volatile follow-up queue: busy or unauthenticated sessions now leave rows pending, while ready sessions select and mark rows delivered in one transaction before submitting them directly as active input.

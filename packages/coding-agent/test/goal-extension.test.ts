@@ -93,7 +93,7 @@ function createGoalHarness(
 	options?: {
 		idle?: boolean;
 		contextUsage?: ContextUsage;
-		hasPendingMessages?: boolean;
+		hasPendingMessages?: boolean | (() => boolean);
 		sessionId?: string;
 		isSubagent?: boolean;
 		subagentName?: string;
@@ -170,7 +170,10 @@ function createGoalHarness(
 			getSubagentName: () => options?.subagentName,
 		},
 		isIdle: () => options?.idle ?? true,
-		hasPendingMessages: () => options?.hasPendingMessages ?? false,
+		hasPendingMessages: () =>
+			typeof options?.hasPendingMessages === "function"
+				? options.hasPendingMessages()
+				: (options?.hasPendingMessages ?? false),
 		getContextUsage: () => options?.contextUsage,
 	} as unknown as ExtensionCommandContext;
 
@@ -587,6 +590,36 @@ describe("goal extension", () => {
 			"Continue working toward this objective until it is achieved: continue from agent_end",
 			{ deliverAs: "followUp" },
 		);
+	});
+
+	it("does not queue a goal continuation when user input arrives during Supervisor review", async () => {
+		let hasPendingMessages = false;
+		let finishReview: (() => void) | undefined;
+		let markReviewStarted: (() => void) | undefined;
+		const reviewStarted = new Promise<void>((resolve) => {
+			markReviewStarted = resolve;
+		});
+		const harness = createGoalHarness(cwd, {
+			hasPendingMessages: () => hasPendingMessages,
+			reviewGoal: async () => {
+				markReviewStarted?.();
+				await new Promise<void>((resolve) => {
+					finishReview = resolve;
+				});
+				return { kind: "continue", reason: "work remains", instructions: "goal continuation" };
+			},
+		});
+
+		await harness.runCommand("wait for queued user input");
+		harness.sendUserMessage.mockClear();
+		const agentEnd = harness.runAgentEnd();
+		await reviewStarted;
+		hasPendingMessages = true;
+		finishReview?.();
+		await agentEnd;
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(readStoredGoal<{ continuationTurns: number }>(cwd).continuationTurns).toBe(0);
 	});
 
 	it("keeps the goal running and follows Supervisor instructions when completion is rejected", async () => {
