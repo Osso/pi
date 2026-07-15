@@ -96,7 +96,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       `pending` and does not read their payloads into runtime memory. Once ready, one immediate
       transaction selects eligible pending rows and marks those same rows `delivered`; selected
       payloads proceed directly to active session input without an intermediate volatile queue.
-      Restart before this transaction leaves the messages pending and recoverable.
+      Restart before this transaction leaves the messages pending and recoverable. If another turn
+      starts while idle delivery waits for the turn-start lock, delivery rechecks the active state
+      under that lock and steers the message instead of attempting a conflicting prompt.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt

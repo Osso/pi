@@ -1895,6 +1895,55 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(statusAtPromptEntry).toBe("delivered");
 	});
 
+	it("steers idle delivery when another turn starts before the turn-start lock is acquired", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		let releasePreflight!: () => void;
+		const preflightGate = new Promise<void>((resolve) => {
+			releasePreflight = resolve;
+		});
+		let markPreflightEntered!: () => void;
+		const preflightEntered = new Promise<void>((resolve) => {
+			markPreflightEntered = resolve;
+		});
+		let firstTurn = true;
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", async () => {
+						if (!firstTurn) return;
+						firstTurn = false;
+						markPreflightEntered();
+						await preflightGate;
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("user reply"), fauxAssistantMessage("mailbox reply")]);
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Child finished while another turn was starting",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+
+		const activePrompt = harness.session.prompt("User turn");
+		await preflightEntered;
+		const drain = harness.session.drainRuntimeCoordination();
+		releasePreflight();
+
+		await expect(Promise.all([activePrompt, drain])).resolves.toBeDefined();
+		await harness.session.agent.waitForIdle();
+
+		expect(getUserTexts(harness)).toEqual([
+			"User turn",
+			runtimeMailboxPrompt("Child finished while another turn was starting"),
+		]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
 	it("steers checkpoint-eligible runtime mailbox messages into an active turn", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

@@ -121,6 +121,7 @@
 
 ### Fixed
 
+- Fixed idle runtime-mailbox delivery racing a newly started turn and failing with `Agent is already processing`; delivery now rechecks active-turn state under the turn-start lock and steers the message when needed.
 - Fixed spawned and attached child agents remaining in a model thinking phase indefinitely; each thinking phase now aborts after 15 minutes and terminalizes as failed, while tool execution remains uncapped and post-tool or steered model turns receive fresh deadlines.
 - Fixed compiled Bun runtimes leaking one `control.sqlite` file descriptor per database access because prepared statements survived connection close; statements are now finalized before closing so long-running detached jobs cannot exhaust descriptors and deadlock agent coordination.
 - Fixed steering accepted at the completion boundary of a real tool turn remaining queued indefinitely after the agent loop had already performed its final queue check; idle steering now atomically starts a continuation without delaying RPC acknowledgment.

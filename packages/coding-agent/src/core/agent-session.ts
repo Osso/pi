@@ -2694,10 +2694,11 @@ export class AgentSession {
 		const drain = canSteerActiveTurn
 			? this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, { mode: "steer" })
 			: this._withTurnStartLock((releaseTurnStart) =>
-					this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, {
-						mode: "prompt",
-						releaseTurnStart,
-					}),
+					this._deliverReadyRuntimeMailboxMessages(
+						controlDbPath,
+						options,
+						this.isStreaming ? { mode: "steer" } : { mode: "prompt", releaseTurnStart },
+					),
 				);
 		this._runtimeMailboxDrainPromise = drain;
 		try {
