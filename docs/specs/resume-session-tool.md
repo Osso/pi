@@ -11,6 +11,7 @@ The `resume_session` tool lets an agent switch the current main Pi session to an
 - [x] `resume_session` is registered as a built-in tool and active by default.
 - [x] The tool accepts exactly one session target: `path`, `id`, or `name`.
 - [x] The tool rejects empty or ambiguous targets.
+- [x] ID and name resolution query only matching active non-subagent metadata instead of materializing unrelated session rows.
 - [x] The tool description warns that it replaces the current supervisor context.
 
 ### Session replacement

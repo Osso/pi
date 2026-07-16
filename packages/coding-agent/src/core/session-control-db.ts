@@ -2297,6 +2297,47 @@ export function listArchivedSessionMetadata(controlDbPath: string): SessionMetad
 	return listSessionMetadataByArchiveState(controlDbPath, true);
 }
 
+export function findActiveSessionMetadataById(controlDbPath: string, id: string): SessionMetadata[] {
+	return findActiveSessionMetadata(controlDbPath, "id", id);
+}
+
+export function findActiveSessionMetadataByName(controlDbPath: string, name: string): SessionMetadata[] {
+	return findActiveSessionMetadata(controlDbPath, "name", name);
+}
+
+function findActiveSessionMetadata(controlDbPath: string, field: "id" | "name", value: string): SessionMetadata[] {
+	return withControlDb(controlDbPath, (db) => {
+		const matchClause = field === "id" ? "id >= ? AND id < ?" : "name = ?";
+		const values = field === "id" ? [value, `${value}\uffff`] : [value];
+		const rows = db
+			.prepare(
+				`
+				SELECT
+					session_path,
+					id,
+					cwd,
+					name,
+					parent_session_path,
+					archived_at,
+					goal_json,
+					is_subagent,
+					subagent_name,
+					created_at,
+					modified_at,
+					message_count,
+					first_message,
+					all_messages_text,
+					updated_at
+				FROM session_metadata
+				WHERE archived_at IS NULL AND is_subagent = 0 AND ${matchClause}
+				ORDER BY modified_at DESC, updated_at DESC, session_path DESC
+				`,
+			)
+			.all(...values) as SessionMetadataRow[];
+		return rows.map(sessionMetadataFromRow);
+	});
+}
+
 function listSessionMetadataByArchiveState(controlDbPath: string, archived?: boolean): SessionMetadata[] {
 	return withControlDb(controlDbPath, (db) => {
 		const archiveClause =
@@ -4340,6 +4381,12 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 
 		CREATE INDEX IF NOT EXISTS session_metadata_modified_at_idx
 		ON session_metadata(modified_at DESC, updated_at DESC);
+
+		CREATE INDEX IF NOT EXISTS session_metadata_id_idx
+		ON session_metadata(id);
+
+		CREATE INDEX IF NOT EXISTS session_metadata_name_idx
+		ON session_metadata(name);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_agents (
 			session_path TEXT NOT NULL,
