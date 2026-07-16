@@ -298,6 +298,9 @@ describe("headless Pi fixture", () => {
 				),
 			);
 			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Interrupted reviewer");
+			const originalTranscript = spawned.transcript;
+			expect(originalTranscript?.path).toContain(originalTranscript?.sessionId);
+			expect(existsSync(originalTranscript?.path ?? "")).toBe(true);
 			const interruptedRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
 
 			await agent.crash();
@@ -306,11 +309,26 @@ describe("headless Pi fixture", () => {
 			const restoredRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== interruptedRequest.id,
 			);
+			const restoredMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(restoredMainRequest.id, fauxAssistantMessage("Supervisor resumed"));
+			expect(restoredRequest.userMessages).toContain("Review until the supervisor restarts");
 			expect(restoredRequest.userMessages).toContainEqual(expect.stringContaining("Continue the conversation"));
+			expect(agent.listAgents().find((candidate) => candidate.id === spawned.id)?.transcript).toEqual(
+				originalTranscript,
+			);
 			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Recovered review complete"));
 			await expect(
 				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
 			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
+			await agent.waitForMailboxMessage(
+				(message) =>
+					message.toAgentId === "main" && message.fromAgentId === spawned.id && message.status === "delivered",
+			);
+			expect(
+				agent
+					.listMailboxMessages()
+					.filter((message) => message.toAgentId === "main" && message.fromAgentId === spawned.id),
+			).toHaveLength(1);
 		});
 	});
 

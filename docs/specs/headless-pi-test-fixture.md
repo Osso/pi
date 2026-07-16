@@ -34,6 +34,9 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Exercise the production `spawn_agent` tool path.
 - [x] Expose the child user instruction received by the faux provider.
 - [x] Observe a completed child's notification after delivery to the main-thread mailbox.
+- [x] Restart the real supervisor while a child is blocked in its first provider request; verify the
+      persisted transcript path/session identity and original assignment survive recovery, then verify
+      exactly one completion notification routes to the original parent.
 - [x] Prove an RPC `interrupt` command during an active real-process turn preserves queued steering and submits it in the replacement LLM request. This test starts below terminal/TUI input routing and does not prove that an Escape key reaches the interrupt command.
 - [x] Prove steering accepted immediately after a real Pyrun tool turn reaches `agent_end` wakes the idle session and produces a new model request instead of remaining queued indefinitely (`headless-pi.test.ts`: `wakes idle steering after completion of a real Pyrun tool turn`).
 - [x] Prove `wait_agents` remains blocked while an active child has pending `steer_agent` input, the steering reaches the child's next LLM request, and the wait returns only after that full child turn completes and terminalizes.
