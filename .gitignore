@@ -34,6 +34,10 @@ out.jsonl
 pi-*.html
 out.html
 packages/coding-agent/binaries/
+packages/coding-agent/extensions/*/src/**/*.js
+packages/coding-agent/extensions/*/src/**/*.js.map
+packages/coding-agent/extensions/*/src/**/*.d.ts
+packages/coding-agent/extensions/*/src/**/*.d.ts.map
 todo.md
 plans/
 .pi/hf-sessions/
