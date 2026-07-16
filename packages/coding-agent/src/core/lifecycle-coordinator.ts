@@ -1,4 +1,4 @@
-import type { AgentMailboxMessage, AgentSnapshot, SpawnAgentInput } from "./multi-agent-store.ts";
+import type { AgentMailboxMessage, AgentSnapshot, SendSteeringInput, SpawnAgentInput } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	acquireAttachedRuntimeOwnership,
@@ -11,6 +11,7 @@ import {
 	createMultiAgentAttachment,
 	createMultiAgentChildWithRuntimeOwnership,
 	type MultiAgentRuntimeOwnership,
+	type RuntimeMailboxAddress,
 	readMultiAgentAgent,
 	reconcileDeadDetachedAgentRuntimes as reconcileDeadDetachedAgentRuntimesRepository,
 	recoverDeadMultiAgentRuntime,
@@ -57,8 +58,8 @@ export interface SteeringDeliveryCommandInput extends OwnedLifecycleCommandInput
 	messageId: string;
 }
 
-export interface SteeringCommandInput extends OwnedLifecycleCommandInput {
-	message: AgentMailboxMessage;
+export interface SteeringCommandInput extends OwnedLifecycleCommandInput, SendSteeringInput {
+	recipient: RuntimeMailboxAddress;
 }
 
 export type SteeringCommandResult =
@@ -163,12 +164,17 @@ export class LifecycleCoordinator {
 		if (!identity) return { ok: false, error: "mutation_mismatch" };
 		const result = commitMultiAgentSteeringMutation(this.options.controlDbPath, {
 			agentId: input.agent.id,
-			message: input.message,
+			body: input.body,
+			fileRefs: input.fileRefs,
+			fromAgentId: input.fromAgentId,
 			owner: identity.owner,
+			recipient: input.recipient,
 			requestedLifecycle: "steering_pending",
 			processIdentity: identity.processIdentity,
 			sessionPath: this.options.sessionPath,
-			updatedAt: input.message.updatedAt,
+			targetCheckpoint: input.targetCheckpoint,
+			threadId: input.threadId,
+			updatedAt: this.options.now(),
 		});
 		return result;
 	}

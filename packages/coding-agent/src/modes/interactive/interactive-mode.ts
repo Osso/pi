@@ -154,6 +154,7 @@ function isCompleteJsonlFile(filePath: string): boolean {
 }
 const MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES = 3;
 const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>(["running", "steering_pending", "cancelling"]);
+const CHILD_STEERABLE_LIFECYCLES = new Set<AgentLifecycleState>(["running", "waiting_for_input", "steering_pending"]);
 
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
@@ -386,6 +387,8 @@ export interface InteractiveModeOptions {
 	multiAgentStore?: MultiAgentStore;
 	/** Submit selected-agent cancellation through the lifecycle coordinator boundary. */
 	cancelMultiAgent?: (agentId: string) => Promise<{ ok: boolean; agent?: AgentSnapshot; error?: string }>;
+	/** Submit editor text to the selected agent through the lifecycle coordinator and runtime mailbox. */
+	steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
 }
@@ -3519,8 +3522,49 @@ export class InteractiveMode {
 		}
 	}
 
+	private async submitSelectedAgentSteering(message: string, submittedText = message): Promise<boolean> {
+		const selectedAgentId = this.multiAgentStore?.getSelectedAgentId();
+		if (!selectedAgentId) return false;
+		const selectedAgent = this.multiAgentStore?.getAgent(selectedAgentId);
+		if (
+			!selectedAgent ||
+			selectedAgent.parentId !== "main" ||
+			!selectedAgent.transcript?.sessionId ||
+			!CHILD_STEERABLE_LIFECYCLES.has(selectedAgent.lifecycle)
+		) {
+			this.showError(`Could not steer ${selectedAgent?.displayName ?? selectedAgentId}: agent is not steerable`);
+			this.editor.setText(submittedText);
+			return true;
+		}
+
+		const steer = this.options.steerMultiAgent;
+		if (!steer) {
+			this.showError(`Could not steer ${selectedAgent.displayName}: lifecycle coordinator unavailable`);
+			this.editor.setText(submittedText);
+			return true;
+		}
+
+		try {
+			const result = await steer(selectedAgentId, message);
+			if (!result.ok) {
+				this.showError(result.error ?? `Could not steer ${selectedAgent.displayName}`);
+				this.editor.setText(submittedText);
+				return true;
+			}
+			this.editor.addToHistory?.(message);
+			this.editor.setText("");
+			this.ui.requestRender();
+		} catch (error: unknown) {
+			const errorMessage = error instanceof Error ? error.message : `Could not steer ${selectedAgent.displayName}`;
+			this.showError(errorMessage);
+			this.editor.setText(submittedText);
+		}
+		return true;
+	}
+
 	private setupEditorSubmitHandler(): void {
 		this.defaultEditor.onSubmit = async (text: string) => {
+			const submittedText = text;
 			text = text.trim();
 			if (!text) return;
 
@@ -3709,6 +3753,14 @@ export class InteractiveMode {
 					this.updateEditorBorderColor();
 					return;
 				}
+			}
+
+			if (
+				!text.startsWith("/") &&
+				!text.startsWith("!") &&
+				(await this.submitSelectedAgentSteering(text, submittedText))
+			) {
+				return;
 			}
 
 			// Queue input during compaction (extension commands execute immediately)

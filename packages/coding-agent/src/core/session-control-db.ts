@@ -495,22 +495,8 @@ function persistStoredRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueSt
 	};
 }
 
-function persistImmutableMailboxPayload(
-	db: SqliteDatabase,
-	input: EnqueueStoredRuntimeMailboxMessageInput,
-	now: string,
-): void {
-	const serialized = JSON.stringify(input.message);
-	const existing = db
-		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-		.get(input.storeRef.sessionPath, input.storeRef.messageId) as { data: string } | undefined;
-	if (existing && existing.data !== serialized) {
-		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
-	}
-	db.prepare(
-		`INSERT OR IGNORE INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-		 VALUES (?, ?, ?, ?)`,
-	).run(input.storeRef.sessionPath, input.storeRef.messageId, serialized, now);
+function persistImmutableMailboxPayload(db: SqliteDatabase, input: EnqueueStoredRuntimeMailboxMessageInput): void {
+	persistStoredRuntimeMailboxMessage(db, input);
 }
 
 function addRuntimeMailboxRouting(
@@ -2536,7 +2522,12 @@ export type CommitMultiAgentLifecycleMutationResult =
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
 export interface CommitMultiAgentSteeringMutationInput extends CommitMultiAgentLifecycleMutationInput {
-	message: AgentMailboxMessage;
+	body: string;
+	fileRefs?: AgentFileReference[];
+	fromAgentId: string;
+	recipient: RuntimeMailboxAddress;
+	targetCheckpoint?: AgentMailboxMessage["targetCheckpoint"];
+	threadId?: string;
 }
 
 export type CommitMultiAgentSteeringMutationResult =
@@ -2729,51 +2720,127 @@ export function commitMultiAgentSteeringMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringMutationInput,
 ): CommitMultiAgentSteeringMutationResult {
-	validateMailboxPayload(input.message, `multi_agent_mailbox_messages:${input.sessionPath}#${input.message.id}`);
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-			const agent = parseStoredJsonObject(row.data, context);
-			validatePersistedAgentPayload(agent, context);
+			const agent = readSteeringMutationAgent(db, input);
+			if (!agent) return { ok: false, error: "agent_not_found" };
 			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) {
+			if (!steeringMutationHasAuthority(db, agent, ownership, input)) {
 				return { ok: false, error: "mutation_mismatch" };
 			}
-			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+			if (
+				input.requestedLifecycle !== "steering_pending" ||
+				!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)
+			) {
 				return { ok: false, error: "invalid_transition" };
 			}
-			const updated = {
-				...agent,
-				lifecycle: input.requestedLifecycle,
-				revision: Number(agent.revision) + 1,
-				updatedAt: input.updatedAt,
-			};
-			persistImmutableMailboxPayload(
-				db,
-				{
-					kind: input.message.kind,
-					message: input.message,
-					recipient: { agentId: input.agentId, sessionId: input.owner.sessionId },
-					sender: input.owner,
-					storeRef: { messageId: input.message.id, sessionPath: input.sessionPath },
-					updatedAt: input.updatedAt,
-				},
-				input.updatedAt,
-			);
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
-			return {
-				agent: updated as unknown as AgentSnapshot,
-				message: input.message,
-				ok: true,
-			};
+			return persistSteeringMutation(db, agent, input);
 		}),
 	);
+}
+
+function readSteeringMutationAgent(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+): AgentSnapshot | undefined {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!row) return undefined;
+	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(agent, context);
+	return agent as unknown as AgentSnapshot;
+}
+
+function steeringMutationHasAuthority(
+	db: SqliteDatabase,
+	agent: AgentSnapshot,
+	ownership: MultiAgentRuntimeOwnershipRow | undefined,
+	input: CommitMultiAgentSteeringMutationInput,
+): boolean {
+	if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) return false;
+	const senderListener = readRuntimeMailboxListenerRow(db, {
+		agentId: input.owner.agentId,
+		sessionId: input.owner.sessionId,
+	});
+	const recipientListener = readRuntimeMailboxListenerRow(db, input.recipient);
+	const senderPathMatches =
+		input.owner.agentId !== null ||
+		(senderListener !== undefined && trustedRuntimeMailboxSessionPath(senderListener) === input.sessionPath);
+	const expectedSenderId = input.owner.agentId ?? "supervisor";
+	return (
+		input.fromAgentId === expectedSenderId &&
+		agent.parentId === (input.owner.agentId ?? "main") &&
+		input.recipient.agentId === input.agentId &&
+		input.recipient.sessionId === agent.transcript?.sessionId &&
+		senderListener?.pid === process.pid &&
+		senderListener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID &&
+		senderPathMatches &&
+		runtimeListenerMatchesProcessIdentity(recipientListener, ownership?.process_identity)
+	);
+}
+
+function persistSteeringMutation(
+	db: SqliteDatabase,
+	agent: AgentSnapshot,
+	input: CommitMultiAgentSteeringMutationInput,
+): CommitMultiAgentSteeringMutationResult {
+	const messageNumber = allocateMultiAgentCounterInTransaction(db, input.sessionPath, "message");
+	const message: AgentMailboxMessage = {
+		body: input.body,
+		createdAt: input.updatedAt,
+		fileRefs: input.fileRefs,
+		fromAgentId: input.fromAgentId,
+		id: `message_${messageNumber}`,
+		kind: "steer",
+		status: "pending",
+		targetCheckpoint: input.targetCheckpoint,
+		threadId: input.threadId,
+		toAgentId: input.agentId,
+		updatedAt: input.updatedAt,
+	};
+	validateMailboxPayload(message, `multi_agent_mailbox_messages:${input.sessionPath}#${message.id}`);
+	const updated: AgentSnapshot = {
+		...agent,
+		lifecycle: input.requestedLifecycle as AgentSnapshot["lifecycle"],
+		revision: agent.revision + 1,
+		updatedAt: input.updatedAt,
+	};
+	persistImmutableMailboxPayload(db, {
+		kind: message.kind,
+		message,
+		recipient: input.recipient,
+		sender: input.owner,
+		storeRef: { messageId: message.id, sessionPath: input.sessionPath },
+		updatedAt: input.updatedAt,
+	});
+	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
+		JSON.stringify(updated),
+		input.updatedAt,
+		input.sessionPath,
+		input.agentId,
+	);
+	return { agent: updated, message, ok: true };
+}
+
+function runtimeListenerMatchesProcessIdentity(
+	listener: RuntimeMailboxListenerRow | undefined,
+	serializedIdentity: string | null | undefined,
+): boolean {
+	if (!listener?.runtime_instance_id || !serializedIdentity) return false;
+	try {
+		const listenerIdentity = parseProcessIdentity(listener.runtime_instance_id);
+		const processIdentity = parseProcessIdentity(serializedIdentity);
+		return (
+			listener.pid === processIdentity.pid &&
+			listenerIdentity.pid === processIdentity.pid &&
+			listenerIdentity.startTimeTicks === processIdentity.startTimeTicks &&
+			isProcessIdentityAlive(processIdentity)
+		);
+	} catch {
+		return false;
+	}
 }
 
 function runtimeOwnerMatches(
@@ -4194,44 +4261,35 @@ export function allocateMultiAgentCounter(
 	sessionPath: string,
 	counterName: MultiAgentCounterName,
 ): number {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => allocateMultiAgentCounterInTransaction(db, sessionPath, counterName)),
+	);
+}
+
+function allocateMultiAgentCounterInTransaction(
+	db: SqliteDatabase,
+	sessionPath: string,
+	counterName: MultiAgentCounterName,
+): number {
 	const column = MULTI_AGENT_COUNTER_COLUMNS[counterName];
-	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const now = new Date().toISOString();
-			const row = db
-				.prepare(
-					`
-					SELECT next_agent_number, next_message_number
-					FROM multi_agent_counters_v2 WHERE session_path = ?
-					`,
-				)
-				.get(sessionPath) as MultiAgentCounterRow | undefined;
-			const counters = {
-				next_agent_number: row?.next_agent_number ?? 1,
-				next_message_number: row?.next_message_number ?? 1,
-			};
-			const allocated = counters[column];
-			counters[column] = allocated + 1;
-			db.prepare(
-				`
-				INSERT INTO multi_agent_counters_v2 (
-					session_path, next_agent_number, next_message_number, updated_at
-				)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(session_path) DO UPDATE SET
-					next_agent_number = excluded.next_agent_number,
-					next_message_number = excluded.next_message_number,
-					updated_at = excluded.updated_at
-				`,
-			).run(sessionPath, counters.next_agent_number, counters.next_message_number, now);
-			db.exec("COMMIT");
-			return allocated;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
-	});
+	const row = db
+		.prepare("SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?")
+		.get(sessionPath) as MultiAgentCounterRow | undefined;
+	const counters = {
+		next_agent_number: row?.next_agent_number ?? 1,
+		next_message_number: row?.next_message_number ?? 1,
+	};
+	const allocated = counters[column];
+	counters[column] = allocated + 1;
+	db.prepare(
+		`INSERT INTO multi_agent_counters_v2 (session_path, next_agent_number, next_message_number, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(session_path) DO UPDATE SET
+		  next_agent_number = excluded.next_agent_number,
+		  next_message_number = excluded.next_message_number,
+		  updated_at = excluded.updated_at`,
+	).run(sessionPath, counters.next_agent_number, counters.next_message_number, new Date().toISOString());
+	return allocated;
 }
 
 export function readMultiAgentAgent(

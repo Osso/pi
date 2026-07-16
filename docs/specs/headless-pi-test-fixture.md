@@ -41,6 +41,9 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Restart the real supervisor while a child is blocked in its first provider request; verify the
       persisted transcript path/session identity and original assignment survive recovery, then verify
       exactly one completion notification routes to the original parent.
+- [x] Steer a restored child through the current main session after supervisor restart; verify the
+      post-restart main-session `steer_agent` request reaches the restored child and appears in its next
+      provider request (`headless-pi.test.ts`: `steers a restored child through the current main session after restart`).
 - [x] Start concurrent real RPC peer sessions after the original supervisor crashes; verify startup refreshes
       current runtime bindings and globally settles a historical detached cancellation only when its recorded owner
       session is sticky-dead, no live listener is registered for that owner session ID, its dead runner identity

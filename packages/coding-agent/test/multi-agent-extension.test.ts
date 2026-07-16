@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +11,7 @@ import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import {
 	createHostrunMultiAgentRequestHandler,
 	createMultiAgentRuntimeHandles,
+	requestAgentSteering,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
@@ -31,6 +34,7 @@ import {
 	isActiveLifecycle,
 	MultiAgentStore,
 } from "../src/core/multi-agent-store.ts";
+import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import { type CreateAgentSessionOptions, createAgentSession } from "../src/core/sdk.ts";
 import {
 	ENV_SELF_RESTART_OLD_PID,
@@ -42,6 +46,7 @@ import {
 	getControlDbPath,
 	listRuntimeMailboxMessages,
 	registerRuntimeMailboxListener,
+	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
@@ -227,6 +232,23 @@ function addActiveDispatchLease(store: MultiAgentStore, agentId: string): void {
 		sessionPath: persistence.sessionPath,
 	});
 	if (!acquired.ok) throw new Error(`failed to add active process ownership: ${acquired.error}`);
+	const transcript = { path: `/sessions/${agentId}.jsonl`, sessionId: `${agentId}-session` };
+	const updated = updateMultiAgentAgentTranscript(
+		persistence.controlDbPath,
+		persistence.sessionPath,
+		agentId,
+		transcript,
+		"2026-06-21T00:00:00.000Z",
+	);
+	if (!updated) throw new Error("failed to attach active process transcript");
+	store.publishLifecycleCoordinatorSnapshot(updated);
+	registerRuntimeMailboxListener(
+		persistence.controlDbPath,
+		{ agentId, sessionId: transcript.sessionId },
+		process.pid,
+		undefined,
+		{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
+	);
 }
 
 function spawnStoreFixture(
@@ -302,7 +324,6 @@ function createMultiAgentHarness(
 			{ agentId: null, sessionId: supervisorSessionId },
 			CURRENT_PROCESS_IDENTITY.pid,
 			persistence.sessionPath,
-			{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
 		);
 	}
 
@@ -1189,15 +1210,33 @@ describe("multi-agent extension tools", () => {
 			agentType: "implement",
 			cwd: "/repo",
 			displayName: "Spawned child",
+			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/spawned-child.jsonl", sessionId: "spawned-child-session" },
 		});
-		const steering = legacyMultiAgentStore(source).sendSteering(interrupted.agent.id, interrupted.agent.revision, {
-			body: "Continue after recovery",
-			fromAgentId: "main",
-			targetCheckpoint: "next_model_call",
+		const liveRuntime = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+		await once(liveRuntime, "spawn");
+		if (liveRuntime.pid === undefined) throw new Error("Spawned child runtime has no PID");
+		const persistence = source.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persisted recovery test store");
+		const liveOwnership = forceRuntimeOwnership(persistence.controlDbPath, {
+			agentId: interrupted.agent.id,
+			owner: { agentId: null, sessionId: persistence.sessionPath },
+			processIdentity: readProcessIdentity(liveRuntime.pid),
+			sessionPath: persistence.sessionPath,
 		});
-		expect(steering.ok).toBe(true);
+		if (!liveOwnership.ok) throw new Error(`Could not add live test ownership: ${liveOwnership.error}`);
+		try {
+			const steering = legacyMultiAgentStore(source).sendSteering(interrupted.agent.id, interrupted.agent.revision, {
+				body: "Continue after recovery",
+				fromAgentId: "main",
+				targetCheckpoint: "next_model_call",
+			});
+			expect(steering.ok).toBe(true);
+		} finally {
+			liveRuntime.kill();
+			await once(liveRuntime, "exit");
+		}
 		addDeadProcessOwner(source, interrupted.agent.id);
 		const store = MultiAgentStore.fromSessionManager(session, {
 			now: () => "2026-06-21T00:00:00.000Z",
@@ -2344,21 +2383,25 @@ describe("multi-agent extension tools", () => {
 
 	it("projects mailbox inbox, outbox, and acknowledgements without mutating state", async () => {
 		const harness = createMultiAgentHarness();
-		const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
+		const parent = spawnStoreFixture(harness.store, {
+			displayName: "Parent",
+			parentId: "main",
+			prompt: "Parent task",
+		});
 		const child = spawnStoreFixture(harness.store, {
 			displayName: "Child",
 			parentId: parent.details.agent.id,
 			prompt: "Child task",
 		});
-		const running = { ok: true as const, agent: child.details.agent };
+		const running = { ok: true as const, agent: parent.details.agent };
 		addActiveDispatchLease(harness.store, running.agent.id);
 		const steered = await harness.call<SteerAgentDetails>("steer_agent", {
-			agentId: child.details.agent.id,
+			agentId: parent.details.agent.id,
 			expectedRevision: running.agent.revision,
 			message: "Check auth",
 		});
 		const accepted = legacyMultiAgentStore(harness.store).ackSteering(
-			child.details.agent.id,
+			parent.details.agent.id,
 			steered.details.agent.revision,
 			steered.details.message.id,
 			"accepted",
@@ -2379,20 +2422,22 @@ describe("multi-agent extension tools", () => {
 		const childAfterMailbox = harness.store.getAgent(child.details.agent.id);
 
 		expect(childMailbox.acknowledgements).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ id: steered.details.message.id, status: "accepted" }),
-				expect.objectContaining({ id: contact.details.message.id, status: "failed" }),
-			]),
+			expect.arrayContaining([expect.objectContaining({ id: contact.details.message.id, status: "failed" })]),
 		);
-		expect(childMailbox.inbox).toMatchObject([
-			{ id: steered.details.message.id, fromAgentId: "supervisor", status: "accepted" },
-		]);
+		expect(childMailbox.inbox).toEqual([]);
 		expect(childMailbox.outbox).toMatchObject([
 			{ id: contact.details.message.id, toAgentId: parent.details.agent.id, status: "failed" },
 		]);
 		expect(childMailbox.pendingCount).toBe(0);
 		expect(parentMailbox).toMatchObject({
-			inbox: [{ id: contact.details.message.id, fromAgentId: child.details.agent.id, status: "failed" }],
+			inbox: expect.arrayContaining([
+				expect.objectContaining({ id: steered.details.message.id, fromAgentId: "supervisor", status: "accepted" }),
+				expect.objectContaining({
+					id: contact.details.message.id,
+					fromAgentId: child.details.agent.id,
+					status: "failed",
+				}),
+			]),
 			pendingCount: 0,
 		});
 		expect(childAfterMailbox).toMatchObject({
@@ -2627,6 +2672,7 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {
 			displayName: "Reviewer",
+			parentId: "main",
 			prompt: "Review auth",
 		});
 		const agent = spawned.details.agent;
@@ -2645,10 +2691,63 @@ describe("multi-agent extension tools", () => {
 			body: "Check permissions too",
 			fromAgentId: "supervisor",
 			kind: "steer",
-			status: "failed",
+			status: "pending",
 			targetCheckpoint: "next_model_call",
 			toAgentId: agent.id,
 		});
+	});
+
+	it("rejects a stale sender session after runtime replacement", () => {
+		const harness = createMultiAgentHarness();
+		const spawned = spawnStoreFixture(harness.store, {
+			displayName: "Reviewer",
+			parentId: "main",
+			prompt: "Review auth",
+		});
+		const agent = spawned.details.agent;
+		addActiveDispatchLease(harness.store, agent.id);
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persisted multi-agent test store");
+
+		const stale = requestAgentSteering(
+			harness.store,
+			{ agentId: agent.id, message: "Use stale session" },
+			{
+				actorAgentId: null,
+				controlDbPath: persistence.controlDbPath,
+				sessionId: "replaced-session",
+			},
+		);
+
+		expect(stale).toMatchObject({ ok: false, error: `Could not steer ${agent.id}: runtime ownership unavailable` });
+		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "running", revision: 1 });
+		expect(harness.store.listMailboxMessages()).toEqual([]);
+	});
+
+	it("rejects steering a descendant that is not the caller's direct child", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = spawnStoreFixture(harness.store, {
+			displayName: "Parent",
+			parentId: "main",
+			prompt: "Parent task",
+		});
+		const child = spawnStoreFixture(harness.store, {
+			displayName: "Grandchild",
+			parentId: parent.details.agent.id,
+			prompt: "Child task",
+		});
+		addActiveDispatchLease(harness.store, child.details.agent.id);
+
+		const steered = await harness.call<SteerAgentDetails>("steer_agent", {
+			agentId: child.details.agent.id,
+			message: "Wrong scope",
+		});
+
+		expect(steered.content).toEqual([
+			{ text: `Could not steer ${child.details.agent.id}: mutation_mismatch`, type: "text" },
+		]);
+		expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "running", revision: 1 });
+		expect(harness.store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("aborts a dispatcher signal when its agent is cancelled", async () => {
@@ -3158,26 +3257,39 @@ describe("multi-agent extension tools", () => {
 		});
 		let drainCalls = 0;
 		const harness = createMultiAgentHarness({
-			createChildSession: async ({ agent }) => ({
-				messages: [],
-				prompt: async () => promptBlocked,
-				drainRuntimeCoordination: async () => {
-					drainCalls += 1;
-					const message = harness.store
-						.listMailboxMessages()
-						.find((candidate) => candidate.kind === "steer" && candidate.toAgentId === agent.id);
-					if (!message) throw new Error("expected pending steering message");
-					const current = harness.store.getAgent(agent.id);
-					if (!current) throw new Error("expected active child agent");
-					const delivered = legacyMultiAgentStore(harness.store).ackSteering(
-						agent.id,
-						current.revision,
-						message.id,
-						"delivered",
-					);
-					if (!delivered.ok) throw new Error(`expected steering delivery: ${delivered.error}`);
-				},
-			}),
+			createChildSession: async ({ agent }) => {
+				const childSessionId = `${agent.id}-session`;
+				const persistence = harness.store.getPersistenceTarget();
+				if (!persistence) throw new Error("expected persisted child store");
+				registerRuntimeMailboxListener(
+					persistence.controlDbPath,
+					{ agentId: agent.id, sessionId: childSessionId },
+					process.pid,
+					undefined,
+					{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
+				);
+				return {
+					messages: [],
+					prompt: async () => promptBlocked,
+					drainRuntimeCoordination: async () => {
+						drainCalls += 1;
+						const message = harness.store
+							.listMailboxMessages()
+							.find((candidate) => candidate.kind === "steer" && candidate.toAgentId === agent.id);
+						if (!message) throw new Error("expected pending steering message");
+						const current = harness.store.getAgent(agent.id);
+						if (!current) throw new Error("expected active child agent");
+						const delivered = legacyMultiAgentStore(harness.store).ackSteering(
+							agent.id,
+							current.revision,
+							message.id,
+							"delivered",
+						);
+						if (!delivered.ok) throw new Error(`expected steering delivery: ${delivered.error}`);
+					},
+					transcript: { path: `/sessions/${agent.id}.jsonl`, sessionId: childSessionId },
+				};
+			},
 		});
 
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {

@@ -10,9 +10,13 @@ export {
 	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
+	requestAgentSteering,
 } from "./runtime.ts";
 export { createHostrunMultiAgentRequestHandler } from "./runtime.ts";
 export type {
+	AgentSteeringRequest,
+	AgentSteeringRequestResult,
+	AgentSteeringRuntimeBinding,
 	AttachedSessionDispatchInput,
 	AttachedSessionFactory,
 	ChildAgentDispatcher,

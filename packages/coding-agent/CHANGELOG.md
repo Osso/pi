@@ -54,6 +54,16 @@
 - Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles.
 - Added core system-prompt delegation rules requiring `explore` agents for codebase research, recommending `documentation-update` agents for documentation-impacting changes, and requiring `verifier` agents before completion claims when `spawn_agent` is available.
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
+- Added selected-child editor steering: ordinary text routes only to a selected direct child with a live
+  transcript and steerable lifecycle, while slash commands and `!` shell commands remain on the main thread;
+  rejected or invalid selected targets preserve the exact submitted editor text without main-thread fallback.
+  Interactive input and `steer_agent` share `requestAgentSteering`. One authority transaction under
+  `BEGIN IMMEDIATE` validates sender/parent/recipient ownership, the canonical recipient-listener PID,
+  embedded `(pid, startTimeTicks)` identity, liveness, and lifecycle before allocating the message counter
+  and constructing the canonical payload; it then persists routing metadata, runtime recipient, store
+  reference, and lifecycle together. Rejected requests do not advance counters or mutate lifecycle/mailbox
+  state. Coverage includes wrong sender/recipient, PID and start-time mismatch, dead recipient, invalid
+  lifecycle, and steering a restored child through the current main session after restart.
 - Added `Ctrl+B` backgrounding for running bash tool calls, moving detached commands into `/jobs` with direct log file references and `cancel_agent` support.
 - Added `Ctrl+B` backgrounding for running Pyrun evaluations, moving detached evaluations into `/jobs` with direct log file references.
 - Added automatic backgrounding after 120 seconds for detachable bash and Pyrun tool calls.
@@ -90,7 +100,7 @@
 - Replaced renewable dispatch reservations with exact Linux process ownership; lifecycle recovery checks `(pid, /proc/<pid>/stat startTimeTicks)` immediately, including PID-reuse protection, with no renewal timer or expiry takeover. Runtime ownership APIs and schema now use ownership terminology instead of lease/reservation terminology, and schema v12 migrates v11 exact identities without losing ownership.
 - Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject owned lifecycle rows, restricting it to unowned bootstrap/migration data after production command families acquire process ownership.
 - Transcript, mailbox/contact activity, and pinned-slot metadata now merge transactionally into the latest persisted agent snapshot without rewriting lifecycle/revision from stale store state; metadata updates no longer advance the lifecycle revision token, and restore no longer persists runtime worker-handle cleanup.
-- Terminal completion and failure notifications now come from the delivery outbox after the agent row commits. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` consumes one pending completion notification only to wake agent-row queries, supports simultaneous and late waiters, and no longer consumes runtime transport rows as terminal truth.
+- Terminal completion and failure notifications now come from the delivery outbox after the agent row commits. Runtime transport uses canonical session-bound mailbox rows shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` consumes one pending completion notification only to wake agent-row queries, supports simultaneous and late waiters, and no longer consumes runtime transport rows as terminal truth.
 - Lifecycle and terminal transactions now read/increment revision internally and validate exact process ownership. Tools no longer supply mutable revisions; duplicate transitions are idempotent.
 - Removed attached-session recovery's direct `cancelling` to `aborted` rewrite; without exact-owner exit acknowledgement the row remains nonterminal for later ownership recovery.
 - Routed selected-agent Escape, descendant cascade, and reserved-runtime shutdown cancellation through the same coordinator operation as `cancel_agent`; InteractiveMode no longer directly terminalizes or aborts store state. SQLite now rejects parent terminalization while any persisted descendant remains nonterminal.
@@ -129,6 +139,8 @@
 
 ### Fixed
 
+- Fixed foreground Pyrun monitoring synchronously reading `/proc/<pid>/stat` every 25ms; artifact polling remains responsive while fallback runner-liveness checks run every three seconds.
+- Fixed `resume_session` allowing a session to resume itself, which tore down and recreated the same runtime context instead of rejecting the target.
 - Fixed `resume_session` ID/name resolution repeatedly materializing the full session metadata table, causing sustained CPU and garbage-collection load on large session archives.
 - Fixed long tool loops deferring `next_model_call` steering until `agent_end`; each completed tool-result batch now delivers `after_tool_result` steering first, then `next_model_call` steering before the following provider request.
 - Fixed `/debug` failing with a premature runtime-initialization error by injecting the process debug REPL into the first-party extension instead of resolving it through module-global state.

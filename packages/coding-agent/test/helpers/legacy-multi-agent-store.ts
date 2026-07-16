@@ -14,6 +14,7 @@ import {
 	bootstrapMultiAgentAgent,
 	type MultiAgentRuntimeOwnership,
 	readMultiAgentRuntimeOwnership,
+	registerRuntimeMailboxListener,
 } from "../../src/core/session-control-db.ts";
 import { deliverTerminalOutboxProjections } from "../../src/core/terminal-outbox-delivery.ts";
 import { testProcessIdentity } from "./process-identity.ts";
@@ -154,19 +155,31 @@ function acknowledgeSteering(
 function requestSteering(store: MultiAgentStore, agentId: string, expectedRevision: number, input: SendSteeringInput) {
 	const reserved = reservedAgent(store, agentId);
 	if (!reserved) return requestUnreservedSteering(store, agentId, expectedRevision, input);
-	const preparedMessage = store.prepareSteeringMessageForLifecycleCoordinator(agentId, input);
-	const message =
-		reserved.ownership.owner.sessionId === "legacy-test-session"
-			? {
-					...preparedMessage,
-					createdAt: shiftIso(reserved.agent.updatedAt, -1),
-					updatedAt: shiftIso(reserved.agent.updatedAt, -1),
-				}
-			: preparedMessage;
+	const ownerSessionId = reserved.ownership.owner.sessionId ?? "legacy-test-session";
+	const processIdentity = reserved.ownership.processIdentity ?? testProcessIdentity("legacy-test-runtime");
+	registerRuntimeMailboxListener(
+		reserved.coordinatorOptions.controlDbPath,
+		{ agentId: reserved.ownership.owner.agentId, sessionId: ownerSessionId },
+		process.pid,
+		reserved.coordinatorOptions.sessionPath,
+	);
+	const recipientSessionId = reserved.agent.transcript?.sessionId ?? ownerSessionId;
+	registerRuntimeMailboxListener(
+		reserved.coordinatorOptions.controlDbPath,
+		{ agentId: reserved.agent.id, sessionId: recipientSessionId },
+		processIdentity.pid,
+		undefined,
+		{ runtimeInstanceId: JSON.stringify(processIdentity) },
+	);
 	const result = reserved.coordinator.requestSteering({
 		agent: reserved.agent,
-		message,
+		...input,
+		fromAgentId: input.fromAgentId === "main" ? "supervisor" : input.fromAgentId,
 		ownership: reserved.ownership,
+		recipient: {
+			agentId: reserved.agent.id,
+			sessionId: recipientSessionId,
+		},
 	});
 	if (result.ok) store.publishLifecycleCoordinatorSteering(result.agent, result.message);
 	return result;

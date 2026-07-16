@@ -172,6 +172,26 @@ describe("resume_session first-party tool", () => {
 		).rejects.toThrow("resume_session is only available from the main supervisor session");
 	});
 
+	it("rejects resuming the current session by path, id, or name", async () => {
+		const { runtime } = await createRuntimeForTest(["root reply"]);
+		await runtime.session.prompt("root");
+		runtime.session.sessionManager.appendSessionInfo("current session");
+		const sessionPath = runtime.session.sessionFile;
+		if (!sessionPath) throw new Error("Missing session path");
+		const sessionId = runtime.session.sessionManager.getSessionId();
+		const tool = runtime.session.getToolDefinition("resume_session");
+		if (!tool) throw new Error("Missing resume_session tool");
+		const context = runtime.session.extensionRunner.createContext();
+
+		for (const target of [{ path: sessionPath }, { id: sessionId }, { name: "current session" }]) {
+			await expect(tool.execute("self-resume", target, undefined, undefined, context)).rejects.toThrow(
+				"resume_session cannot resume the current session",
+			);
+		}
+
+		expect(runtime.session.sessionFile).toBe(sessionPath);
+	});
+
 	it("resolves target sessions by id and name", async () => {
 		const { runtime } = await createRuntimeForTest(["root reply", "target reply"]);
 
