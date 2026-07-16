@@ -198,6 +198,13 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	return assertResumeSessionPath(match.path);
 }
 
+function assertResumeTargetIsDifferent(sessionPath: string, ctx: ExtensionContext): void {
+	const currentSessionPath = ctx.sessionManager.getSessionFile();
+	if (currentSessionPath && resolvePath(sessionPath) === resolvePath(currentSessionPath)) {
+		throw new Error("resume_session cannot resume the current session");
+	}
+}
+
 function formatResumeTarget(args: ResumeSessionToolInput | undefined): string {
 	if (args?.path) return `path ${args.path}`;
 	if (args?.id) return `id ${args.id}`;
@@ -248,6 +255,7 @@ export function createResumeSessionToolDefinition(): ToolDefinition<
 			}
 			const resumeParams = normalizeResumeSessionParams(params);
 			const sessionPath = await resolveResumeSessionFile(resumeParams, ctx);
+			assertResumeTargetIsDifferent(sessionPath, ctx);
 			const starterPrompt = resumeParams.starterPrompt;
 			const result = await ctx.switchSession(sessionPath, {
 				withSession: starterPrompt

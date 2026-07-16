@@ -138,6 +138,7 @@
 
 ### Fixed
 
+- Fixed `resume_session` allowing a session to resume itself, which tore down and recreated the same runtime context instead of rejecting the target.
 - Fixed `resume_session` ID/name resolution repeatedly materializing the full session metadata table, causing sustained CPU and garbage-collection load on large session archives.
 - Fixed long tool loops deferring `next_model_call` steering until `agent_end`; each completed tool-result batch now delivers `after_tool_result` steering first, then `next_model_call` steering before the following provider request.
 - Fixed `/debug` failing with a premature runtime-initialization error by injecting the process debug REPL into the first-party extension instead of resolving it through module-global state.
