@@ -1158,7 +1158,11 @@ export class AgentSession {
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
 			if (turn.toolResults.length > 0) {
-				await this._drainRuntimeCoordinationMessages({ checkpoint: "after_tool_result", triggerIfIdle: false });
+				await this._drainRuntimeCoordinationMessages({
+					checkpoint: "after_tool_result",
+					includeNextModelCall: true,
+					triggerIfIdle: false,
+				});
 			}
 
 			return {
@@ -2656,6 +2660,7 @@ export class AgentSession {
 
 	private async _drainRuntimeCoordinationMessages(options: {
 		checkpoint?: SteeringCheckpoint;
+		includeNextModelCall?: boolean;
 		triggerIfIdle: boolean;
 	}): Promise<boolean> {
 		if (this._disableRuntimeCoordinationInbound || this._disposed) {
@@ -2686,6 +2691,7 @@ export class AgentSession {
 
 	private async _drainRuntimeMailboxMessages(options: {
 		checkpoint?: SteeringCheckpoint;
+		includeNextModelCall?: boolean;
 		triggerIfIdle: boolean;
 	}): Promise<boolean> {
 		const canSteerActiveTurn = this.isStreaming && options.checkpoint !== undefined;
@@ -2724,7 +2730,7 @@ export class AgentSession {
 
 	private async _deliverReadyRuntimeMailboxMessages(
 		controlDbPath: string,
-		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
+		options: { checkpoint?: SteeringCheckpoint; includeNextModelCall?: boolean; triggerIfIdle: boolean },
 		delivery: { mode: "steer" } | { mode: "prompt"; releaseMailboxDrain: () => void; releaseTurnStart: () => void },
 	): Promise<boolean> {
 		if (delivery.mode === "prompt" && (!this.model || !this._modelRegistry.hasConfiguredAuth(this.model))) {
@@ -2735,6 +2741,12 @@ export class AgentSession {
 		const messages = takeRuntimeMailboxMessagesForDelivery(controlDbPath, recipient, (message) =>
 			this._isRuntimeMailboxMessageDue(message, options),
 		);
+		if (options.includeNextModelCall) {
+			messages.sort(
+				(left, right) =>
+					this._runtimeMailboxCheckpointPriority(left) - this._runtimeMailboxCheckpointPriority(right),
+			);
+		}
 		const promptMessages: RuntimeMailboxMessage[] = [];
 		for (const message of messages) {
 			this._recordDetachedToolCallCompletion(message);
@@ -2764,14 +2776,18 @@ export class AgentSession {
 
 	private _isRuntimeMailboxMessageDue(
 		message: RuntimeMailboxMessage,
-		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
+		options: { checkpoint?: SteeringCheckpoint; includeNextModelCall?: boolean; triggerIfIdle: boolean },
 	): boolean {
 		if (options.checkpoint === "after_tool_result" && message.kind !== "steer") return false;
 		if (message.kind !== "steer") return true;
 		const checkpoint = message.targetCheckpoint ?? "next_model_call";
 		if (checkpoint === "after_tool_result") return options.checkpoint === "after_tool_result";
 		if (checkpoint === "when_waiting") return options.triggerIfIdle && !this.isStreaming;
-		return options.checkpoint === "next_model_call" || options.triggerIfIdle;
+		return options.checkpoint === "next_model_call" || options.includeNextModelCall === true || options.triggerIfIdle;
+	}
+
+	private _runtimeMailboxCheckpointPriority(message: RuntimeMailboxMessage): number {
+		return message.targetCheckpoint === "after_tool_result" ? 0 : 1;
 	}
 
 	/**

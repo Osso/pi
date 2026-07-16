@@ -305,9 +305,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       active at invocation until one reaches a terminal state. Notifications only wake the query; the agent
       row is terminal truth. It does not consume runtime-mailbox transport rows; Hostrun/Pyrun uses the same
       operation.
-- [x] While a session is streaming, ordinary polling leaves pending messages unread and unchanged.
-      Safe-checkpoint drains select eligible messages atomically, mark them delivered, and enqueue
-      them as steering before the next model call; non-eligible messages remain durable and pending.
+- [x] While an agent turn is active, ordinary polling leaves pending messages unread and unchanged.
+      After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
+      first and then `next_model_call` steering before the following provider request. Long tool loops must
+      not defer `next_model_call` steering until `agent_end`; eligible messages are selected atomically,
+      marked delivered, and enqueued as steering, while non-eligible messages remain durable and pending.
 - [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so canonical mailbox delivery uses one durable database without path fallback.
 - [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
       no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray

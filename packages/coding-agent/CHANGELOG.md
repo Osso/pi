@@ -127,6 +127,7 @@
 
 ### Fixed
 
+- Fixed long tool loops deferring `next_model_call` steering until `agent_end`; each completed tool-result batch now delivers `after_tool_result` steering first, then `next_model_call` steering before the following provider request.
 - Fixed `/debug` failing with a premature runtime-initialization error by injecting the process debug REPL into the first-party extension instead of resolving it through module-global state.
 - Fixed resident Supervisor requests reusing stale or intermediate assistant text from the persistent transcript; response extraction now requires a non-empty successful terminal assistant entry produced by the current request.
 - Fixed restored child runtimes leaving dead detached-job descendants stuck as running by binding child extensions and reconciling only direct persisted descendants through the normal dead-owner recovery path.

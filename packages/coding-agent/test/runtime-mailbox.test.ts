@@ -39,6 +39,7 @@ function enqueueStoredRuntimeMessage(
 		messageId?: string;
 		recipient: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["recipient"];
 		sender: Parameters<typeof enqueueRuntimeMailboxMessage>[1]["sender"];
+		targetCheckpoint?: AgentMailboxMessage["targetCheckpoint"];
 	},
 ): number {
 	storedMessageCounter += 1;
@@ -50,6 +51,7 @@ function enqueueStoredRuntimeMessage(
 		id: messageId,
 		kind: input.kind,
 		status: "pending",
+		targetCheckpoint: input.targetCheckpoint,
 		toAgentId: input.recipient.agentId ?? "main",
 	});
 	return enqueueRuntimeMailboxMessage(controlDbPath, {
@@ -88,8 +90,8 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function runtimeMailboxPrompt(body: string): string {
-	return ["From:", "- session: child-session", "- agent: agent_1", "", "Message:", body].join("\n");
+function runtimeMailboxPrompt(body: string, sessionId = "child-session", agentId = "agent_1"): string {
+	return ["From:", `- session: ${sessionId}`, `- agent: ${agentId}`, "", "Message:", body].join("\n");
 }
 
 function sharedChannelPrompt(body: string, sessionId = "sender-session"): string {
@@ -1946,6 +1948,57 @@ describe("runtime SQLite mailbox delivery", () => {
 			runtimeMailboxPrompt("Child finished while another turn was starting"),
 		]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+	});
+
+	it("delivers next-model-call steering after a tool result before the provider continues", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const afterToolMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Record the completed read",
+			kind: "steer",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			targetCheckpoint: "after_tool_result",
+		});
+		const nextModelMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Use the expanded readability scope",
+			kind: "steer",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "supervisor", sessionId: "parent-session" },
+			targetCheckpoint: "next_model_call",
+		});
+		const agent = harness.session.agent as unknown as {
+			prepareNextTurnWithContext?: (turn: unknown, signal: AbortSignal) => Promise<unknown>;
+			state: { isStreaming: boolean };
+			steer(message: { content: Array<{ text?: string }> }): void;
+		};
+		agent.state.isStreaming = true;
+		const steer = vi.spyOn(agent, "steer");
+
+		await agent.prepareNextTurnWithContext?.(
+			{ context: [], toolResults: [{ toolCallId: "read-1" }] },
+			new AbortController().signal,
+		);
+
+		expect(steer).toHaveBeenCalledTimes(1);
+		expect(steer).toHaveBeenCalledWith(
+			expect.objectContaining({
+				content: [
+					{
+						type: "text",
+						text: [
+							runtimeMailboxPrompt("Record the completed read", "parent-session", "supervisor"),
+							runtimeMailboxPrompt("Use the expanded readability scope", "parent-session", "supervisor"),
+						].join("\n\n"),
+					},
+				],
+			}),
+		);
+		expect(readRuntimeMailboxMessage(controlDbPath, afterToolMessageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, nextModelMessageId)).toMatchObject({ status: "delivered" });
 	});
 
 	it("steers checkpoint-eligible runtime mailbox messages into an active turn", async () => {
