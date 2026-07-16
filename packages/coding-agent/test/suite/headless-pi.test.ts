@@ -154,6 +154,26 @@ describe("headless Pi fixture", () => {
 			);
 			expect(completion.body).toContain("Authentication flow inspected");
 			expect(completion.status).toBe("delivered");
+
+			const completionRequest = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null && JSON.stringify(request.messages).includes("Authentication flow inspected"),
+			);
+			agent.respondToLlmRequest(
+				completionRequest.id,
+				fauxAssistantMessage(fauxToolCall("list_agents", {}), { stopReason: "toolUse" }),
+			);
+			await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolName === "list_agents",
+			);
+			const postToolRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== completionRequest.id,
+			);
+			agent.respondToLlmRequest(postToolRequest.id, fauxAssistantMessage("Completion handled after tool result"));
 		});
 	});
 

@@ -124,6 +124,7 @@
 
 ### Fixed
 
+- Fixed mailbox-prompted runs self-deadlocking after their first tool result by releasing the runtime-mailbox drain guard before awaiting the agent run it starts.
 - Fixed interactive `/debug` bypassing the live-process REPL extension, replaced unsupported Bun `node:repl` usage with a runtime-neutral VM evaluator, and corrected settled audit outcomes, live session attribution, socket cleanup, listen recovery, and session-bound attachment.
 - Fixed a stale selected-agent ID hiding main-session model-request events and leaving a static `Thinking...` label after the selected agent disappeared.
 - Fixed extension UI reset/reload replacing active `Streaming...` or elapsed `Thinking...` status with a static `Thinking...` label.

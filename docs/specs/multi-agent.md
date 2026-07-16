@@ -278,6 +278,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Mailbox rows selected and marked `delivered` at the readiness boundary are submitted directly
       as idle session input or active-turn steering. Restart before that boundary leaves the rows
       pending and recoverable.
+- [x] Idle prompt delivery releases its mailbox-drain critical-section guard before awaiting the agent
+      run it starts, so the run can drain again at its first post-tool checkpoint without self-deadlocking.
 - [x] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
       messages are no longer actionable.
 - [x] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the

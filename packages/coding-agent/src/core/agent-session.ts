@@ -2691,16 +2691,20 @@ export class AgentSession {
 		if (!controlDbPath) {
 			return false;
 		}
+		let releaseMailboxDrain = () => {};
 		const drain = canSteerActiveTurn
 			? this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, { mode: "steer" })
 			: this._withTurnStartLock((releaseTurnStart) =>
 					this._deliverReadyRuntimeMailboxMessages(
 						controlDbPath,
 						options,
-						this.isStreaming ? { mode: "steer" } : { mode: "prompt", releaseTurnStart },
+						this.isStreaming ? { mode: "steer" } : { mode: "prompt", releaseMailboxDrain, releaseTurnStart },
 					),
 				);
 		this._runtimeMailboxDrainPromise = drain;
+		releaseMailboxDrain = () => {
+			if (this._runtimeMailboxDrainPromise === drain) this._runtimeMailboxDrainPromise = undefined;
+		};
 		try {
 			return await drain;
 		} finally {
@@ -2711,7 +2715,7 @@ export class AgentSession {
 	private async _deliverReadyRuntimeMailboxMessages(
 		controlDbPath: string,
 		options: { checkpoint?: SteeringCheckpoint; triggerIfIdle: boolean },
-		delivery: { mode: "steer" } | { mode: "prompt"; releaseTurnStart: () => void },
+		delivery: { mode: "steer" } | { mode: "prompt"; releaseMailboxDrain: () => void; releaseTurnStart: () => void },
 	): Promise<boolean> {
 		if (delivery.mode === "prompt" && (!this.model || !this._modelRegistry.hasConfiguredAuth(this.model))) {
 			return false;
@@ -2741,6 +2745,7 @@ export class AgentSession {
 			for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
 			return true;
 		}
+		delivery.releaseMailboxDrain();
 		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, delivery.releaseTurnStart);
 		for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
 		this._completeRuntimeMailboxSteeringTurn(this.messages);
