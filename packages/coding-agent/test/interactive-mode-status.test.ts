@@ -1716,6 +1716,19 @@ function createResetExtensionUIFixture(isViewingAgentSession: boolean) {
 	return { fakeThis, setMessage };
 }
 
+describe("InteractiveMode agent view state", () => {
+	test("does not hide main status events for a stale selected-agent id", () => {
+		const fakeThis = {
+			multiAgentStore: {
+				getAgent: () => undefined,
+				getSelectedAgentId: () => "removed-agent",
+			},
+		};
+
+		expect(interactiveModeKeyHandlers.isViewingAgentSession.call(fakeThis)).toBe(false);
+	});
+});
+
 describe("InteractiveMode footer ownership", () => {
 	test("custom footers override default footers and clearing custom restores default", () => {
 		const added: Component[] = [];

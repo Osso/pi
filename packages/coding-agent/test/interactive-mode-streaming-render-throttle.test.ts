@@ -178,7 +178,7 @@ describe("InteractiveMode streaming render throttling", () => {
 
 	test("does not append main session messages while viewing an agent", async () => {
 		const fakeThis = createFakeInteractiveModeThis();
-		fakeThis.multiAgentStore = { getAgent: () => undefined, getSelectedAgentId: () => "agent_1" };
+		fakeThis.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
 		fakeThis.chatContainer.addChild(new Text("child backlog", 0, 0));
 
 		await handleEvent.call(fakeThis, createUserMessage("main thread leak"));
@@ -477,7 +477,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		});
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for command...");
 
-		fakeThis.multiAgentStore = { getAgent: () => undefined, getSelectedAgentId: () => "agent_1" };
+		fakeThis.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_end",
 			toolCallId: "bash-1",

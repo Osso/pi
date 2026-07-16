@@ -3286,7 +3286,8 @@ export class InteractiveMode {
 	}
 
 	private isViewingAgentSession(): boolean {
-		return this.multiAgentStore?.getSelectedAgentId() !== undefined;
+		const selectedAgentId = this.multiAgentStore?.getSelectedAgentId();
+		return selectedAgentId !== undefined && this.multiAgentStore?.getAgent(selectedAgentId) !== undefined;
 	}
 
 	private subscribeToMultiAgentStore(): void {

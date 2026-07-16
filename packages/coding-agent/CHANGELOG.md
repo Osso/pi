@@ -123,6 +123,7 @@
 
 ### Fixed
 
+- Fixed a stale selected-agent ID hiding main-session model-request events and leaving a static `Thinking...` label after the selected agent disappeared.
 - Fixed extension UI reset/reload replacing active `Streaming...` or elapsed `Thinking...` status with a static `Thinking...` label.
 - Fixed child runtimes registering the supervisor lifecycle-notification mirror, which could retain an invalidated child extension context and repeatedly break later terminal-outbox projection.
 - Fixed supervisor restart corrupting an active child's context before its first assistant response: spawned child transcripts are now persisted before the agent becomes recoverable, and recovery rejects missing or session-ID-mismatched transcript files instead of creating a blank replacement session.
