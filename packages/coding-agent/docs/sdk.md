@@ -295,6 +295,14 @@ session.subscribe((event) => {
       );
       break;
     
+    // Provider request lifecycle
+    case "model_request_start":
+      // Model request preparation/streaming started
+      break;
+    case "model_request_end":
+      // Model request finished or aborted
+      break;
+
     // Message lifecycle
     case "message_start":
       // New message starting

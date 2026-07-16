@@ -247,9 +247,6 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 */
 	getFollowUpMessages?: () => Promise<AgentMessage[]>;
 
-	/** Internal model-request lifecycle callback owned by Agent. */
-	onModelRequestStateChange?: (active: boolean) => void;
-
 	/**
 	 * Tool execution mode.
 	 * - "sequential": execute tool calls one by one
@@ -431,6 +428,9 @@ export type AgentEvent =
 	// Turn lifecycle - a turn is one assistant response + any tool calls/results
 	| { type: "turn_start" }
 	| { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }
+	// Model request lifecycle - excludes tool execution and other run bookkeeping
+	| { type: "model_request_start" }
+	| { type: "model_request_end" }
 	// Message lifecycle - emitted for user, assistant, and toolResult messages
 	| { type: "message_start"; message: AgentMessage }
 	// Only emitted for assistant messages during streaming

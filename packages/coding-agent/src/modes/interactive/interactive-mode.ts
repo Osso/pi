@@ -232,6 +232,8 @@ function isMainSessionDisplayEvent(event: AgentSessionEvent): boolean {
 		case "message_end":
 		case "message_start":
 		case "message_update":
+		case "model_request_end":
+		case "model_request_start":
 		case "queue_update":
 		case "tool_execution_end":
 		case "tool_execution_start":
@@ -419,8 +421,9 @@ export class InteractiveMode {
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
+	private readonly defaultStreamingMessage = "Streaming...";
 	private readonly defaultWorkingMessage = "Thinking...";
-	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
+	private currentWorkingDefaultMessage = this.defaultStreamingMessage;
 	private thinkingStartedAt: number | undefined;
 	private thinkingTimer: ReturnType<typeof setInterval> | undefined;
 	private childActivityTimer: ReturnType<typeof setInterval> | undefined;
@@ -2056,7 +2059,9 @@ export class InteractiveMode {
 			return this.defaultWorkingMessage;
 		}
 
-		return `${this.defaultWorkingMessage} ${formatElapsedDuration(Date.now() - this.thinkingStartedAt)}`;
+		const elapsedMs = Date.now() - this.thinkingStartedAt;
+		const duration = elapsedMs < MIN_VISIBLE_ELAPSED_MS ? "0s" : formatElapsedDuration(elapsedMs);
+		return `${this.defaultWorkingMessage} ${duration}`;
 	}
 
 	private updateThinkingWorkingMessage(): void {
@@ -2074,13 +2079,6 @@ export class InteractiveMode {
 		this.thinkingTimer = setInterval(() => {
 			this.updateThinkingWorkingMessage();
 		}, MIN_VISIBLE_ELAPSED_MS);
-	}
-
-	private restartThinkingTimer(): void {
-		if (this.executingToolNames.size === 0) {
-			this.startThinkingTimer();
-			this.thinkingFollowsTool = true;
-		}
 	}
 
 	private addCompletedThinkingDurationBeforeToolCall(message: AssistantMessage): void {
@@ -3870,8 +3868,8 @@ export class InteractiveMode {
 				this.executingToolNames.clear();
 				this.executingToolStartedAt.clear();
 				this.stopToolWaitingTimerIfIdle();
-				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
-				this.startThinkingTimer();
+				this.stopThinkingTimer();
+				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -3893,6 +3891,17 @@ export class InteractiveMode {
 					this.retryLoader = undefined;
 				}
 				this.syncWorkingLoaderVisibility();
+				this.ui.requestRender();
+				break;
+
+			case "model_request_start":
+				this.startThinkingTimer();
+				this.ui.requestRender();
+				break;
+
+			case "model_request_end":
+				this.stopThinkingTimer();
+				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
 				this.ui.requestRender();
 				break;
 
@@ -4036,7 +4045,8 @@ export class InteractiveMode {
 				this.executingToolNames.delete(event.toolCallId);
 				this.executingToolStartedAt.delete(event.toolCallId);
 				this.stopToolWaitingTimerIfIdle();
-				this.restartThinkingTimer();
+				this.thinkingFollowsTool = true;
+				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
 				this.setWorkingMessageForActiveTools();
 				if (component) {
 					this.ui.requestRender();

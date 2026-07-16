@@ -66,6 +66,7 @@
 
 ### Changed
 
+- Interactive status now shows `Streaming...` for the overall active agent run and reserves the elapsed `Thinking...` label for active provider requests; tool wait labels remain unchanged.
 - Steering and terminal completion notifications from subagents or detached background jobs now interrupt an active model-thinking request and automatically continue with the new input; active tool execution remains uninterrupted and receives it before the next model call.
 - Approval hooks that return no decision now fall through to the configured Supervisor or human reviewer; explicit `{ block: false }` still short-circuits later approval review.
 - Increased automatic backgrounding timeout for detachable Bash and Pyrun tool calls from 2 minutes to 10 minutes.

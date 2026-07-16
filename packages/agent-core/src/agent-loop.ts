@@ -251,12 +251,12 @@ async function runLoop(
 			}
 
 			// Stream assistant response
-			config.onModelRequestStateChange?.(true);
+			await emit({ type: "model_request_start" });
 			let message: AssistantMessage;
 			try {
 				message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
 			} finally {
-				config.onModelRequestStateChange?.(false);
+				await emit({ type: "model_request_end" });
 			}
 			newMessages.push(message);
 

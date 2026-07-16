@@ -484,9 +484,6 @@ export class Agent {
 				return this.steeringQueue.drain();
 			},
 			getFollowUpMessages: async () => this.followUpQueue.drain(),
-			onModelRequestStateChange: (active) => {
-				this._state.isModelRequestActive = active;
-			},
 		};
 	}
 
@@ -552,6 +549,14 @@ export class Agent {
 	 */
 	private async processEvents(event: AgentEvent): Promise<void> {
 		switch (event.type) {
+			case "model_request_start":
+				this._state.isModelRequestActive = true;
+				break;
+
+			case "model_request_end":
+				this._state.isModelRequestActive = false;
+				break;
+
 			case "message_start":
 				this._state.streamingMessage = event.message;
 				break;

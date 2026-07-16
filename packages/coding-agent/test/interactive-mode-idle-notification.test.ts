@@ -20,6 +20,7 @@ type HandleEventContext = {
 	clearPendingToolComponents(): void;
 	closeResponseCompleteNotification(): void;
 	defaultEditor: { onEscape?: () => void };
+	defaultStreamingMessage: string;
 	defaultWorkingMessage: string;
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
@@ -41,7 +42,9 @@ type HandleEventContext = {
 	};
 	shutdownRequested: boolean;
 	setDefaultWorkingMessage(message: string): void;
+	startThinkingTimer(): void;
 	statusContainer: Container;
+	stopThinkingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
 	stopWorkingLoader(): void;
 	streamingComponent: undefined;
@@ -70,9 +73,11 @@ type SubmitContext = {
 	showSettingsSelector: () => void;
 };
 
+type ModelRequestEvent = { type: "model_request_start" } | { type: "model_request_end" };
+
 type InteractiveModePrototype = {
 	closeResponseCompleteNotification(this: { responseCompleteNotification?: { close(): void } }): void;
-	handleEvent(this: HandleEventContext, event: AgentSessionEvent): Promise<void>;
+	handleEvent(this: HandleEventContext, event: AgentSessionEvent | ModelRequestEvent): Promise<void>;
 	setupEditorSubmitHandler(this: SubmitContext): void;
 	stopWorkingLoader(this: HandleEventContext): void;
 };
@@ -85,6 +90,7 @@ function createContext(): HandleEventContext {
 	context.clearPendingToolComponents = vi.fn();
 	context.closeResponseCompleteNotification = vi.fn();
 	context.defaultEditor = {};
+	context.defaultStreamingMessage = "Streaming...";
 	context.defaultWorkingMessage = "Thinking...";
 	context.executingToolNames = new Map();
 	context.executingToolStartedAt = new Map();
@@ -100,9 +106,13 @@ function createContext(): HandleEventContext {
 	context.runtimeHost = {
 		session: { abortRetry: vi.fn(), isStreaming: true, settingsManager: { getShowTerminalProgress: () => false } },
 	};
-	context.setDefaultWorkingMessage = vi.fn();
+	context.setDefaultWorkingMessage = vi.fn((message: string) => {
+		context.currentWorkingDefaultMessage = message;
+	});
 	context.shutdownRequested = false;
+	context.startThinkingTimer = vi.fn();
 	context.statusContainer = new Container();
+	context.stopThinkingTimer = vi.fn();
 	context.stopToolWaitingTimerIfIdle = vi.fn();
 	context.stopWorkingLoader = interactiveModePrototype.stopWorkingLoader;
 	context.streamingComponent = undefined;
@@ -178,12 +188,20 @@ describe("InteractiveMode idle desktop notifications", () => {
 		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
 	});
 
-	it("closes the idle notification when the agent starts again", async () => {
+	it("shows Streaming for the active run and Thinking only during model requests", async () => {
 		const context = createContext();
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
-
 		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
+		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
+		expect(context.startThinkingTimer).not.toHaveBeenCalled();
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "model_request_start" });
+		expect(context.startThinkingTimer).toHaveBeenCalledTimes(1);
+
+		await interactiveModePrototype.handleEvent.call(context, { type: "model_request_end" });
+		expect(context.stopThinkingTimer).toHaveBeenCalledTimes(2);
+		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
 	});
 
 	it("does not notify while the agent is about to retry", async () => {
@@ -215,7 +233,7 @@ describe("InteractiveMode retry status", () => {
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
 
 		expect(context.statusContainer.children).toEqual([retryLoader]);
-		expect(retryLoader.render(100).join("\n")).toContain("Thinking...");
+		expect(retryLoader.render(100).join("\n")).toContain("Streaming...");
 		expect(context.retryLoader).toBeUndefined();
 		expect(context.loadingAnimation).toBe(retryLoader);
 		expect(stop).not.toHaveBeenCalled();

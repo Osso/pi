@@ -3,7 +3,6 @@ import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 interface ThinkingTimerInternals {
 	getThinkingWorkingMessage(this: unknown): string;
-	restartThinkingTimer(this: unknown): void;
 	setDefaultWorkingMessage(this: unknown, message: string): void;
 	startThinkingTimer(this: unknown): void;
 	stopThinkingTimer(this: unknown): void;
@@ -57,19 +56,6 @@ describe("InteractiveMode thinking timer", () => {
 		thinkingTimer.stopThinkingTimer.call(fixture);
 		vi.advanceTimersByTime(1_000);
 		expect(fixture.setDefaultWorkingMessage).toHaveBeenCalledTimes(66);
-	});
-
-	test("restarts elapsed time after a tool finishes", () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-		const fixture = createFixture();
-
-		thinkingTimer.startThinkingTimer.call(fixture);
-		vi.advanceTimersByTime(65_000);
-		thinkingTimer.restartThinkingTimer.call(fixture);
-
-		expect(fixture.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking... 0s");
-		thinkingTimer.stopThinkingTimer.call(fixture);
 	});
 
 	test("leaves tool waiting messages in control of the tool timer", () => {

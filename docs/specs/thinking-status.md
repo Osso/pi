@@ -6,8 +6,9 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 
 ### Default thinking status
 
-- [x] At response start, show the default working label with elapsed duration, beginning as `Thinking... 0s` and formatting longer durations such as `Thinking... 1m 05s` (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
-- [x] Stop updating the thinking-duration indicator when the response ends (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
+- [x] At agent-run start, show `Streaming...` until a provider request begins (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
+- [x] While a provider request is active, show elapsed duration beginning as `Thinking... 0s` and formatting longer durations such as `Thinking... 1m 05s` (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
+- [x] Stop the thinking-duration indicator when the provider request ends, returning to `Streaming...` while the agent run remains active (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
 
 ### Tool waits
 
