@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	claimNextSupervisorRequest,
@@ -9,9 +10,11 @@ import {
 	postSupervisorRequest,
 	readSupervisorRequest,
 } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	blockSupervisorMutation,
 	createSupervisorSettingsManager,
+	processSupervisorRequest,
 	SUPERVISOR_EXCLUDED_TOOL_NAMES,
 } from "../src/supervisor/main.ts";
 import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
@@ -101,6 +104,109 @@ describe("resident Supervisor service", () => {
 		expect(prompt).toContain('"toolName": "read"');
 		expect(prompt).toContain("Do not request or reconstruct historical session transcripts");
 	});
+
+	it("does not reuse a prior assistant response when the current request produces none", async () => {
+		postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "approval_review",
+			payload: { toolName: "read" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const approvalRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!approvalRequest) throw new Error("expected approval request");
+		let promptCount = 0;
+		const sessionManager = SessionManager.create(tempDir, tempDir);
+		const session = {
+			abort: async () => {},
+			prompt: async () => {
+				promptCount += 1;
+				if (promptCount !== 1) return;
+				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"approve","reason":"prior approval"}'));
+			},
+			sessionManager,
+		};
+		await processSupervisorRequest(controlDbPath, approvalRequest, session);
+
+		const goalRequestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const goalRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!goalRequest) throw new Error("expected goal request");
+		await processSupervisorRequest(controlDbPath, goalRequest, session);
+
+		expect(readSupervisorRequest(controlDbPath, goalRequestId)).toMatchObject({
+			response: { kind: "error", reason: "Supervisor model returned no assistant text for current request" },
+			status: "completed",
+		});
+	});
+
+	it("extracts the current response after compaction replaces the message array", async () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!request) throw new Error("expected request");
+		const sessionManager = SessionManager.create(tempDir, tempDir);
+		const firstEntryId = sessionManager.appendMessage({ role: "user", content: "old user", timestamp: 1 });
+		sessionManager.appendMessage(fauxAssistantMessage("old assistant"));
+		const session = {
+			abort: async () => {},
+			prompt: async () => {
+				sessionManager.appendCompaction("compacted history", firstEntryId, 100);
+				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"current response"}'));
+			},
+			sessionManager,
+		};
+
+		await processSupervisorRequest(controlDbPath, request, session);
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "complete", reason: "current response" },
+			status: "completed",
+		});
+	});
+
+	it.each(["error", "aborted", "length", "toolUse"] as const)(
+		"rejects valid partial JSON when the terminal assistant stops with %s",
+		async (stopReason) => {
+			const requestId = postSupervisorRequest(controlDbPath, {
+				deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+				kind: "goal_idle_review",
+				payload: { objective: "finish" },
+				projectId: "pi",
+				senderSessionId: "main",
+			});
+			const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+			if (!request) throw new Error("expected request");
+			const sessionManager = SessionManager.create(tempDir, tempDir);
+			const session = {
+				abort: async () => {},
+				prompt: async () => {
+					sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"intermediate"}'));
+					sessionManager.appendMessage(
+						fauxAssistantMessage('{"kind":"complete","reason":"partial terminal response"}', { stopReason }),
+					);
+				},
+				sessionManager,
+			};
+
+			await processSupervisorRequest(controlDbPath, request, session);
+
+			expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+				response: { kind: "error", reason: `Supervisor model request ended with ${stopReason}` },
+				status: "completed",
+			});
+		},
+	);
 
 	it("persists the parsed model decision", async () => {
 		const requestId = postSupervisorRequest(controlDbPath, {

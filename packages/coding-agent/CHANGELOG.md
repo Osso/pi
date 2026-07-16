@@ -124,6 +124,7 @@
 
 ### Fixed
 
+- Fixed resident Supervisor requests reusing stale or intermediate assistant text from the persistent transcript; response extraction now requires a non-empty successful terminal assistant entry produced by the current request.
 - Fixed restored child runtimes leaving dead detached-job descendants stuck as running by binding child extensions and reconciling only direct persisted descendants through the normal dead-owner recovery path.
 - Fixed mailbox-prompted runs self-deadlocking after their first tool result by releasing the runtime-mailbox drain guard before awaiting the agent run it starts.
 - Fixed interactive `/debug` bypassing the live-process REPL extension, replaced unsupported Bun `node:repl` usage with a runtime-neutral VM evaluator, and corrected settled audit outcomes, live session attribution, socket cleanup, listen recovery, and session-bound attachment.

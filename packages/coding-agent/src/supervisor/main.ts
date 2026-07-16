@@ -130,20 +130,25 @@ function openSupervisorSession(agentDir: string, kbDir: string): SessionManager 
 	return sessionManager;
 }
 
-async function processSupervisorRequest(
+export async function processSupervisorRequest(
 	controlDbPath: string,
 	request: SupervisorRequest,
-	session: { abort(): Promise<void>; messages: unknown[]; prompt(content: string): Promise<void> },
+	session: {
+		abort(): Promise<void>;
+		prompt(content: string): Promise<void>;
+		sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
+	},
 ): Promise<void> {
 	try {
 		await runSupervisorRequest({
 			controlDbPath,
 			evaluate: async (prompt, signal) => {
 				const abort = () => void session.abort();
+				const previousLeafId = session.sessionManager.getLeafId();
 				signal.addEventListener("abort", abort, { once: true });
 				try {
 					await session.prompt(prompt);
-					return readLastAssistantText(session.messages);
+					return readCurrentAssistantText(session.sessionManager.getBranch(), previousLeafId);
 				} finally {
 					signal.removeEventListener("abort", abort);
 				}
@@ -158,19 +163,34 @@ async function processSupervisorRequest(
 	}
 }
 
-function readLastAssistantText(messages: unknown[]): string {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
-		return message.content
-			.filter(
-				(part): part is { text: string; type: "text" } =>
-					isRecord(part) && part.type === "text" && typeof part.text === "string",
-			)
-			.map((part) => part.text)
-			.join("");
+function readCurrentAssistantText(
+	entries: ReturnType<SessionManager["getBranch"]>,
+	previousLeafId: string | null,
+): string {
+	const previousLeafIndex = previousLeafId ? entries.findIndex((entry) => entry.id === previousLeafId) : -1;
+	if (previousLeafId && previousLeafIndex === -1) {
+		throw new Error("Supervisor request boundary is missing from the current session branch");
 	}
-	throw new Error("Supervisor model returned no assistant text");
+	const terminalAssistant = entries
+		.slice(previousLeafIndex + 1)
+		.filter((entry) => entry.type === "message" && entry.message.role === "assistant")
+		.at(-1);
+	const terminalMessage = terminalAssistant?.type === "message" ? terminalAssistant.message : undefined;
+	if (!isRecord(terminalMessage) || !Array.isArray(terminalMessage.content)) {
+		throw new Error("Supervisor model returned no assistant text for current request");
+	}
+	if (terminalMessage.stopReason !== "stop") {
+		throw new Error(`Supervisor model request ended with ${String(terminalMessage.stopReason)}`);
+	}
+	const text = terminalMessage.content
+		.filter(
+			(part): part is { text: string; type: "text" } =>
+				isRecord(part) && part.type === "text" && typeof part.text === "string",
+		)
+		.map((part) => part.text)
+		.join("");
+	if (!text.trim()) throw new Error("Supervisor model returned no assistant text for current request");
+	return text;
 }
 
 function readToolPath(input: unknown): string | undefined {

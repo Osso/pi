@@ -37,6 +37,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Keep request evidence bounded and specific to the current decision.
 - [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
 - [x] Let the Supervisor consult KB memory and read-only workspace evidence when current request evidence is insufficient.
+- [x] Extract the model response only from the terminal assistant entry produced during the current request; return an error instead of reusing prior or intermediate assistant text when the current request has no non-empty successful terminal response.
 
 ### Approval review
 
