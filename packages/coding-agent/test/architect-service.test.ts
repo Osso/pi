@@ -191,8 +191,10 @@ describe("resident architect service", () => {
 		const deploy = readFileSync(deployScript, "utf8");
 		const unit = readFileSync(serviceUnit, "utf8");
 
-		expect(unit).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
-		expect(deploy).toContain("@PI_ARCHITECT_BINARY@");
+		expect(unit).toContain("ExecStart=@PI_NODE_LAUNCHER@ --tsconfig @PI_TSCONFIG@ @PI_CLI_SOURCE@ architect");
+		expect(deploy).toContain("@PI_NODE_LAUNCHER@");
+		expect(deploy).toContain("@PI_TSCONFIG@");
+		expect(deploy).toContain("@PI_CLI_SOURCE@");
 		expect(deploy).toContain("pi-architect.service");
 		expect(deploy).toContain('XDG_RUNTIME_DIR="');
 		expect(deploy).toContain("/run/user/$(id -u)");

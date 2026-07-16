@@ -26,22 +26,24 @@ require_safe_absolute_dir() {
 	esac
 }
 
-render_architect_service_unit() {
-	local output_path="$1"
+render_node_service_unit() {
+	local template_path="$1"
+	local output_path="$2"
 	local line
 
 	while IFS= read -r line || [[ -n "$line" ]]; do
-		printf '%s\n' "${line//@PI_ARCHITECT_BINARY@/$BIN_DIR/pi}"
-	done < "$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service" > "$output_path"
+		line="${line//@PI_NODE_LAUNCHER@/$ROOT_DIR/node_modules/.bin/tsx}"
+		line="${line//@PI_TSCONFIG@/$ROOT_DIR/tsconfig.json}"
+		printf '%s\n' "${line//@PI_CLI_SOURCE@/$ROOT_DIR/packages/coding-agent/src/cli.ts}"
+	done < "$template_path" > "$output_path"
+}
+
+render_architect_service_unit() {
+	render_node_service_unit "$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service" "$1"
 }
 
 render_supervisor_service_unit() {
-	local output_path="$1"
-	local line
-
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		printf '%s\n' "${line//@PI_SUPERVISOR_BINARY@/$BIN_DIR/pi}"
-	done < "$ROOT_DIR/packages/coding-agent/systemd/pi-supervisor.service" > "$output_path"
+	render_node_service_unit "$ROOT_DIR/packages/coding-agent/systemd/pi-supervisor.service" "$1"
 }
 
 cleanup_extension_build_outputs() {

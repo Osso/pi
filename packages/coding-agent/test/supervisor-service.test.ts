@@ -82,12 +82,14 @@ describe("resident Supervisor service", () => {
 		).toBeUndefined();
 	});
 
-	it("deploys the installed binary as a resident systemd service", () => {
+	it("deploys the Node-backed CLI as a resident systemd service", () => {
 		const deploy = readFileSync(deployScript, "utf8");
 		const unit = readFileSync(serviceUnit, "utf8");
 
-		expect(unit).toContain("ExecStart=@PI_SUPERVISOR_BINARY@ supervisor");
-		expect(deploy).toContain("@PI_SUPERVISOR_BINARY@");
+		expect(unit).toContain("ExecStart=@PI_NODE_LAUNCHER@ --tsconfig @PI_TSCONFIG@ @PI_CLI_SOURCE@ supervisor");
+		expect(deploy).toContain("@PI_NODE_LAUNCHER@");
+		expect(deploy).toContain("@PI_TSCONFIG@");
+		expect(deploy).toContain("@PI_CLI_SOURCE@");
 		expect(deploy).toContain("pi-supervisor.service");
 		expect(deploy).toContain("systemctl --user enable --now pi-supervisor.service");
 		expect(deploy).toContain("systemctl --user restart pi-supervisor.service");
