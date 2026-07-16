@@ -58,6 +58,22 @@ describe("InteractiveMode thinking timer", () => {
 		expect(fixture.setDefaultWorkingMessage).toHaveBeenCalledTimes(66);
 	});
 
+	test("updates elapsed Thinking text on the main loader even when an agent remains selected", () => {
+		const setMessage = vi.fn();
+		const fixture = {
+			currentWorkingDefaultMessage: "Thinking...",
+			defaultWorkingMessage: "Thinking...",
+			isViewingAgentSession: () => true,
+			loadingAnimation: { setMessage },
+			workingLoaderView: "main",
+			workingMessage: undefined,
+		};
+
+		thinkingTimer.setDefaultWorkingMessage.call(fixture, "Thinking... 1s");
+
+		expect(setMessage).toHaveBeenCalledWith("Thinking... 1s");
+	});
+
 	test("leaves tool waiting messages in control of the tool timer", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));

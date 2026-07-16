@@ -2120,12 +2120,7 @@ export class InteractiveMode {
 
 	private setDefaultWorkingMessage(message: string): void {
 		this.currentWorkingDefaultMessage = message;
-		const isCleanThinkingMessage = message === this.defaultWorkingMessage;
-		if (
-			this.loadingAnimation &&
-			this.workingMessage === undefined &&
-			(!this.isViewingAgentSession() || isCleanThinkingMessage)
-		) {
+		if (this.loadingAnimation && this.workingMessage === undefined && this.workingLoaderView !== "child") {
 			this.loadingAnimation.setMessage(message);
 		}
 	}
