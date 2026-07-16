@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
-import { type REPLEval, type REPLServer, start } from "node:repl";
+import * as repl from "node:repl";
 import { runInNewContext } from "node:vm";
 
 interface DebugRuntime {
@@ -133,26 +133,26 @@ export class DebugReplServer {
 	}
 
 	private startRepl(socket: Socket, clientPid: number): void {
-		const repl = start({ input: socket, output: socket, prompt: "pi> ", terminal: true });
-		Object.defineProperty(repl.context, "pi", {
+		const replSession = repl.start({ input: socket, output: socket, prompt: "pi> ", terminal: true });
+		Object.defineProperty(replSession.context, "pi", {
 			configurable: false,
 			enumerable: true,
 			value: this.createPiRoot(),
 			writable: false,
 		});
-		this.wrapEvaluator(repl, clientPid);
+		this.wrapEvaluator(replSession, clientPid);
 	}
 
-	private wrapEvaluator(repl: REPLServer, clientPid: number): void {
-		const evaluate = repl.eval.bind(repl);
-		const auditEvaluator: REPLEval = (command, context, filename, callback) => {
+	private wrapEvaluator(replSession: repl.REPLServer, clientPid: number): void {
+		const evaluate = replSession.eval.bind(replSession);
+		const auditEvaluator: repl.REPLEval = (command, context, filename, callback) => {
 			const startedAt = Date.now();
 			evaluate(command, context, filename, (error, result) => {
 				this.writeAudit(clientPid, command, startedAt, error ? "error" : "success");
 				callback(error, result);
 			});
 		};
-		Object.defineProperty(repl, "eval", { value: auditEvaluator });
+		Object.defineProperty(replSession, "eval", { value: auditEvaluator });
 	}
 
 	private createPiRoot(): object {
