@@ -69,6 +69,7 @@
 
 ### Changed
 
+- Changed Pyrun `cli.*` command guidance to use forwarding, exit-code-only `.run()` by default and explicit `.capture().run()` when structured stdout/stderr inspection is required.
 - Resident Architect and Supervisor systemd services now run the Node-backed repository CLI instead of the compiled Bun binary.
 - Resident Supervisor now awaits reload of its caller-provided resource loader before `createAgentSession`; with `noExtensions: true`, the explicit extension allowlist contains only the Supervisor mutation gate and first-party OpenAI remote compaction, so both are active and persistent Codex transcript overflow recovers through normal AgentSession compact-and-retry.
 - Interactive status now shows `Streaming...` for the overall active agent run and reserves the elapsed `Thinking...` label for active provider requests; tool wait labels remain unchanged.

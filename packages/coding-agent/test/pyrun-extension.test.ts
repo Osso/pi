@@ -647,6 +647,10 @@ describe("pyrun extension", () => {
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("Do not compose shell strings");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("full logs");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
+			"cli.* builders forward output and return an exit code by default",
+		);
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(".capture().run()");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
 			"MUST NOT rerun the same command only to recover logs",
 		);
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.compact");
