@@ -2996,6 +2996,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 
 	pi.on?.("session_start", async (_event, ctx) => {
+		if (isChildAgentRuntime(ctx)) return;
 		runtimeLifecycleMirror.bind(ctx);
 		recoverAgents({
 			createAttachedSession,

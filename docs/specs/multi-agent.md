@@ -39,8 +39,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `agents.spawn`, `agents.attachSession`, and `agents.wait` bridge methods before rows are created.
       Production child sessions also exclude those three tools as defense in depth.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
-      persisted-store reconciliation, preventing same-PID child startup from retiring or mutating the
-      supervisor's main-session state.
+      persisted-store reconciliation or lifecycle-notification mirroring, preventing same-PID child startup
+      from retiring, mutating, or projecting the supervisor's main-session state.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI. `list_agents` visible content identifies each
       returned agent by ID, name, type, active/terminal status, and lifecycle; `agent_viewer` visible

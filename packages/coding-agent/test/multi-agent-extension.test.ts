@@ -797,6 +797,49 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("does not register the supervisor lifecycle mirror in child runtimes", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-child-lifecycle-mirror-"));
+		try {
+			const childSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000107",
+				isSubagent: true,
+				parentSession: "parent-session",
+			});
+			const controlDbPath = getControlDbPath(tempDir);
+			childSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(childSession);
+			const harness = createMultiAgentHarness({
+				ctx: {
+					controlDbPath,
+					multiAgentAgentId: "agent_child",
+					multiAgentParentSessionId: "parent-session",
+					multiAgentRuntimeRole: "child",
+					sessionManager: childSession,
+				} as unknown as ExtensionContext,
+				store,
+			});
+			await harness.emit("session_start", { reason: "startup", type: "session_start" });
+			const agent = legacyMultiAgentStore(store).spawnAgent({
+				agentType: "background",
+				cwd: "/repo",
+				displayName: "Unrelated worker",
+				permission: { narrowed: true, policy: "on-request" },
+			}).agent;
+
+			store.publishTerminalOutboxSnapshot({
+				...agent,
+				lifecycle: "completed",
+				result: { summary: "finished elsewhere" },
+				revision: agent.revision + 1,
+			});
+
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("unsubscribes the runtime lifecycle mirror during extension reload", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-reload-lifecycle-mirror-"));
 		try {
