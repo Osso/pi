@@ -26,6 +26,7 @@ import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
 import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
 import codexWebSearchExtension from "../extensions/codex-web-search/src/index.ts";
+import debugExtension from "../extensions/debug/src/index.ts";
 import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import docsTreeContextExtension from "../extensions/docs-tree-context/src/index.ts";
 import effortExtension from "../extensions/effort/src/index.ts";
@@ -41,6 +42,7 @@ import sessionIdExtension from "../extensions/session-id/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
+import { handleDebugCommand } from "./cli/debug-command.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listExtensions } from "./cli/list-extensions.ts";
@@ -61,6 +63,7 @@ import {
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage } from "./core/auth-storage.ts";
+import { configureDebugRepl } from "./core/debug-repl.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
@@ -609,6 +612,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
 		firstPartyExtensionFactory("codex-usage", codexUsageExtension),
 		firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
+		firstPartyExtensionFactory("debug", debugExtension),
 		firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
 		firstPartyExtensionFactory("agents-core", (pi) =>
 			agentsCoreExtension(pi, {
@@ -698,6 +702,10 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (handleControlCommand(args, { agentDir })) {
+		process.exit(process.exitCode ?? 0);
+	}
+
+	if (await handleDebugCommand(args, { agentDir })) {
 		process.exit(process.exitCode ?? 0);
 	}
 
@@ -977,6 +985,11 @@ export async function main(args: string[], options?: MainOptions) {
 		cwd: sessionManager.getCwd(),
 		agentDir,
 		sessionManager,
+	});
+	configureDebugRepl({
+		agentDir,
+		getRuntime: () => runtime,
+		getStore: () => firstPartyMultiAgentStore,
 	});
 	time("createAgentSessionRuntime");
 	const { services, session, modelFallbackMessage } = runtime;

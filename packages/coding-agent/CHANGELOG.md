@@ -12,6 +12,7 @@
 
 ### Added
 
+- Added an explicitly enabled privileged live-process JavaScript REPL: `/debug` opens an owner-only Unix socket, `pi debug attach <session-id>` attaches from another terminal, `/debug off` closes it, and the live `pi` root follows session replacement without captured stale runtime state.
 - Added `pi control restart --session-id <session-id>` to resolve a live session through the control DB and request an immediate same-session `SIGHUP` restart without manually finding its PID.
 - Added the systemd-supervised resident Supervisor service with durable priority requests, approval preemption, bounded project evidence, KB-backed project-family memory, and typed approval/goal decisions.
 - Added visible provider-internal retry and transport-fallback notices: a new `provider_stream_retry` session event is emitted when the provider retries a request or falls back to another transport, and interactive mode renders the attempt count, delay, and reason instead of an unchanged `Thinking...` spinner.
