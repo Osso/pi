@@ -44,6 +44,7 @@ import {
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
+const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 interface Goal {
 	objective: string;
@@ -55,11 +56,12 @@ interface Goal {
 	pausedAt?: string;
 }
 
-interface ParsedGoalArgs {
-	objective: string;
-}
+type ParsedGoalArgs =
+	| { action: "view" | "pause" | "resume" | "clear" }
+	| { action: "set"; objective: string };
 
-interface SetGoalParams extends ParsedGoalArgs {
+interface SetGoalParams {
+	objective: string;
 	ctx: ExtensionContext;
 	pi: ExtensionAPI;
 }
@@ -245,8 +247,6 @@ function updateGoalFooterStatus(ctx: ExtensionContext): void {
 
 function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
 	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
-	const objectiveParts: string[] = [];
-
 	for (const part of parts) {
 		if (part === "--token-budget" || part.startsWith("--token-budget=")) {
 			return { error: "/goal --token-budget is no longer supported" };
@@ -257,10 +257,17 @@ function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
 		if (part.startsWith("--")) {
 			return { error: "Goal flags are no longer supported" };
 		}
-		objectiveParts.push(part);
 	}
-
-	return { objective: objectiveParts.join(" ") };
+	if (parts.length === 0) return { action: "view" };
+	const [action, ...objectiveParts] = parts;
+	if (action === "set") {
+		const objective = objectiveParts.join(" ");
+		return objective ? { action: "set", objective } : { error: "Use /goal set <objective> to set a goal" };
+	}
+	if ((action === "pause" || action === "resume" || action === "clear") && objectiveParts.length === 0) {
+		return { action };
+	}
+	return { error: "Use /goal set <objective> to set a goal" };
 }
 
 function goalStateLines(goal: Goal): string[] {
@@ -352,6 +359,13 @@ function textResult(text: string, details: Record<string, unknown> = {}): AgentT
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
 	const { objective, ctx, pi } = params;
+	if (RESERVED_GOAL_OBJECTIVES.has(objective.toLowerCase())) {
+		return {
+			ok: false,
+			message: `Objective cannot be a goal control command: ${objective}`,
+			severity: "error",
+		};
+	}
 	if (objective.length > MAX_OBJECTIVE_CHARS) {
 		return {
 			ok: false,
@@ -371,7 +385,7 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 
 	const idle = ctx.isIdle();
 	if (idle) {
-		pi.sendUserMessage(`Work toward this objective until it is achieved: ${objective}`);
+		pi.sendUserMessage("Continue working toward the active goal.");
 	}
 
 	return {
@@ -416,7 +430,7 @@ function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentTool
 
 	ctx.ui.notify(`Goal resumed: ${goal.objective}`, "info");
 	if (ctx.isIdle()) {
-		pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`);
+		pi.sendUserMessage("Continue working toward the active goal.");
 	}
 	return textResult(`Goal resumed: ${goal.objective}`, { objective: goal.objective });
 }
@@ -462,7 +476,7 @@ function runClearGoalAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 
 function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 	const goal = loadActiveGoal(ctx);
-	const message = goal ? goalViewMessage(goal) : "No active goal — use /goal <objective>";
+	const message = goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>";
 	ctx.ui.notify(message, "info");
 	const details = goal ? { objective: goal.objective } : {};
 	return textResult(message, details);
@@ -586,49 +600,38 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	});
 
 	pi.registerCommand("goal", {
-		description: "Set, view, pause, resume, or clear the objective for a long-running task (/goal <objective> | /goal | /goal pause | /goal resume | /goal clear)",
+		description: "Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const parsedArgs = parseGoalArgs(args);
 			if ("error" in parsedArgs) {
 				ctx.ui.notify(parsedArgs.error, "error");
 				return;
 			}
-			const { objective } = parsedArgs;
-
-			// View
-			if (!objective) {
+			if (parsedArgs.action === "view") {
 				const goal = loadActiveGoal(ctx);
-				ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal <objective>", "info");
+				ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>", "info");
 				return;
 			}
-
-			// Pause
-			if (objective === "pause") {
+			if (parsedArgs.action === "pause") {
 				const goal = pauseGoal(ctx);
 				ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
 				updateGoalFooterStatus(ctx);
 				return;
 			}
-
-			// Resume
-			if (objective === "resume") {
+			if (parsedArgs.action === "resume") {
 				const goal = resumeGoal(ctx);
 				ctx.ui.notify(goal ? `Goal resumed: ${goal.objective}` : "No paused goal to resume", "info");
 				updateGoalFooterStatus(ctx);
-				if (goal && ctx.isIdle()) {
-					pi.sendUserMessage(`Continue working toward this objective until it is achieved: ${goal.objective}`);
-				}
+				if (goal && ctx.isIdle()) pi.sendUserMessage("Continue working toward the active goal.");
 				return;
 			}
-
-			// Clear
-			if (objective === "clear") {
+			if (parsedArgs.action === "clear") {
 				ctx.ui.notify(clearGoal(ctx) ? "Goal cleared" : "No active goal", "info");
 				updateGoalFooterStatus(ctx);
 				return;
 			}
-
-			const result = setGoal({ objective, ctx, pi });
+			if (parsedArgs.action !== "set") return;
+			const result = setGoal({ objective: parsedArgs.objective, ctx, pi });
 			ctx.ui.notify(result.message, result.severity);
 		},
 	});

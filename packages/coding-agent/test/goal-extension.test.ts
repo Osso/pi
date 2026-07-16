@@ -269,6 +269,34 @@ describe("goal extension", () => {
 		expect(schemaHasProperty(manageGoalTool?.parameters, "wallClockMinutes")).toBe(false);
 	});
 
+	it("sets an objective only through the explicit /goal set subcommand", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("set ship the goal feature");
+
+		const goal = readStoredGoal<{ objective: string }>(cwd);
+		expect(goal.objective).toBe("ship the goal feature");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+	});
+
+	it("rejects a bare /goal objective instead of replacing durable state", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("continue");
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).toHaveBeenCalledWith("Use /goal set <objective> to set a goal", "error");
+	});
+
+	it("rejects reserved control words through manage_goal set", async () => {
+		const harness = createGoalHarness(cwd);
+
+		const result = await harness.runSetGoal("continue");
+
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(result?.content).toEqual([{ type: "text", text: "Objective cannot be a goal control command: continue" }]);
+	});
+
 	it("sets an objective through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
@@ -277,15 +305,13 @@ describe("goal extension", () => {
 		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship tool parity");
 		expect(result?.content).toEqual([{ type: "text", text: "Goal set: ship tool parity" }]);
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Work toward this objective until it is achieved: ship tool parity",
-		);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
 	it("replaces an active goal through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("first objective");
+		await harness.runCommand("set first objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		const result = await harness.runSetGoal("agent-chosen objective");
@@ -294,28 +320,24 @@ describe("goal extension", () => {
 		expect(goal.objective).toBe("agent-chosen objective");
 		expect(result?.content).toEqual([{ type: "text", text: "Goal set: agent-chosen objective" }]);
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Work toward this objective until it is achieved: agent-chosen objective",
-		);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
 	it("sets an objective, persists it, and starts work when idle", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("ship the goal feature");
+		await harness.runCommand("set ship the goal feature");
 
 		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship the goal feature");
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Work toward this objective until it is achieved: ship the goal feature",
-		);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
 	it("reports busy goal saves as informational", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
 
-		await harness.runCommand("guide the current run");
+		await harness.runCommand("set guide the current run");
 
 		expect(harness.notify).toHaveBeenCalledTimes(1);
 		expect(harness.notify).toHaveBeenCalledWith("Goal saved — it will guide the current run", "info");
@@ -348,8 +370,8 @@ describe("goal extension", () => {
 		const firstHarness = createGoalHarness(cwd, { sessionId: "agent-one" });
 		const secondHarness = createGoalHarness(cwd, { sessionId: "agent-two" });
 
-		await firstHarness.runCommand("first session objective");
-		await secondHarness.runCommand("second session objective");
+		await firstHarness.runCommand("set first session objective");
+		await secondHarness.runCommand("set second session objective");
 
 		const firstPrompt = await firstHarness.runBeforeAgentStart();
 		const secondPrompt = await secondHarness.runBeforeAgentStart();
@@ -362,18 +384,16 @@ describe("goal extension", () => {
 	it("replaces an active goal by default", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("first objective");
+		await harness.runCommand("set first objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
-		await harness.runCommand("second objective");
+		await harness.runCommand("set second objective");
 
 		const goal = readStoredGoal<{ objective: string; continuationTurns: number }>(cwd);
 		expect(goal.objective).toBe("second objective");
 		expect(goal.continuationTurns).toBe(0);
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Work toward this objective until it is achieved: second objective",
-		);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
 	it("rejects the removed replacement flag", async () => {
@@ -389,7 +409,7 @@ describe("goal extension", () => {
 	it("injects the active objective into the system prompt", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("keep context anchored");
+		await harness.runCommand("set keep context anchored");
 
 		const result = await harness.runBeforeAgentStart();
 		expect(result?.systemPrompt).toContain("<goal>");
@@ -401,7 +421,7 @@ describe("goal extension", () => {
 	it("injects continuation state without budget lines into the system prompt", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("continuation context");
+		await harness.runCommand("set continuation context");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
@@ -414,20 +434,20 @@ describe("goal extension", () => {
 	it("shows and clears the active objective", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("clearable objective");
+		await harness.runCommand("set clearable objective");
 		await harness.runCommand("");
 		await harness.runCommand("clear");
 		await harness.runCommand("");
 
 		expect(harness.notify).toHaveBeenCalledWith("Goal: clearable objective", "info");
 		expect(harness.notify).toHaveBeenCalledWith("Goal cleared", "info");
-		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 	});
 
 	it("rejects objectives longer than the codex limit", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("x".repeat(4001));
+		await harness.runCommand(`set ${"x".repeat(4001)}`);
 
 		expect(harness.notify).toHaveBeenCalledWith("Objective too long (4001 > 4000 chars)", "error");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
@@ -436,7 +456,7 @@ describe("goal extension", () => {
 	it("notifies when a persisted goal is restored on resume, reload, and fork", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("resume this objective");
+		await harness.runCommand("set resume this objective");
 		harness.notify.mockClear();
 		await harness.runSessionStart("resume");
 		await harness.runSessionStart("reload");
@@ -452,7 +472,7 @@ describe("goal extension", () => {
 		const parentSessionId = "parent-session";
 		const childSessionId = "child-session";
 		const parentHarness = createGoalHarness(cwd, { sessionId: parentSessionId });
-		await parentHarness.runCommand("parent objective");
+		await parentHarness.runCommand("set parent objective");
 		const previousSessionFile = join(cwd, "parent-session.jsonl");
 		const parentSessionHeader = {
 			type: "session",
@@ -482,7 +502,7 @@ describe("goal extension", () => {
 		const parentSessionId = "parent-session";
 		const childSessionId = "child-session";
 		const parentHarness = createGoalHarness(cwd, { sessionId: parentSessionId });
-		await parentHarness.runCommand("carry goal into fork");
+		await parentHarness.runCommand("set carry goal into fork");
 		const previousSessionFile = join(cwd, "parent-session.jsonl");
 		const parentSessionHeader = {
 			type: "session",
@@ -506,7 +526,7 @@ describe("goal extension", () => {
 		const previousSessionId = "session-a";
 		const resumedSessionId = "session-b";
 		const previousHarness = createGoalHarness(cwd, { sessionId: previousSessionId });
-		await previousHarness.runCommand("do not leak into resume");
+		await previousHarness.runCommand("set do not leak into resume");
 		const previousSessionFile = join(cwd, "session-a.jsonl");
 		const previousSessionHeader = {
 			type: "session",
@@ -532,7 +552,7 @@ describe("goal extension", () => {
 		await harness.runCommand("");
 		const result = await harness.runBeforeAgentStart();
 
-		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 		expect(result).toBeUndefined();
 	});
 
@@ -548,7 +568,7 @@ describe("goal extension", () => {
 		await harness.runCommand("");
 		const result = await harness.runBeforeAgentStart();
 
-		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 		expect(harness.notify).not.toHaveBeenCalledWith("Active goal: undefined", "info");
 		expect(result).toBeUndefined();
 	});
@@ -556,20 +576,20 @@ describe("goal extension", () => {
 	it("treats completed goal state as no active objective", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("finish once");
+		await harness.runCommand("set finish once");
 		await harness.runGoalComplete("done");
 		harness.notify.mockClear();
 		const result = await harness.runBeforeAgentStart();
 		await harness.runCommand("");
 
-		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 		expect(result).toBeUndefined();
 	});
 
 	it("continues an active goal after agent_end", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("continue this objective");
+		await harness.runCommand("set continue this objective");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
@@ -582,7 +602,7 @@ describe("goal extension", () => {
 	it("continues after agent_end even before the runtime reports idle", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
 
-		await harness.runCommand("continue from agent_end");
+		await harness.runCommand("set continue from agent_end");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
@@ -610,7 +630,7 @@ describe("goal extension", () => {
 			},
 		});
 
-		await harness.runCommand("wait for queued user input");
+		await harness.runCommand("set wait for queued user input");
 		harness.sendUserMessage.mockClear();
 		const agentEnd = harness.runAgentEnd();
 		await reviewStarted;
@@ -626,7 +646,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "continue", reason: "proof missing", instructions: "Run npm test." }),
 		});
-		await harness.runCommand("complete explicitly");
+		await harness.runCommand("set complete explicitly");
 		harness.sendUserMessage.mockClear();
 
 		const result = await harness.runGoalComplete("done");
@@ -640,7 +660,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "complete", reason: "all evidence passed" }),
 		});
-		await harness.runCommand("finish automatically");
+		await harness.runCommand("set finish automatically");
 		harness.sendUserMessage.mockClear();
 
 		await harness.runAgentEnd();
@@ -653,7 +673,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "error", reason: "service failed" }),
 		});
-		await harness.runCommand("survive review error");
+		await harness.runCommand("set survive review error");
 		harness.sendUserMessage.mockClear();
 
 		await harness.runAgentEnd();
@@ -666,7 +686,7 @@ describe("goal extension", () => {
 	it("stops continuation after manage_goal completes the objective", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("complete explicitly");
+		await harness.runCommand("set complete explicitly");
 		const result = await harness.runGoalComplete("done");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
@@ -678,7 +698,7 @@ describe("goal extension", () => {
 	it("does not complete a goal twice through manage_goal", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("complete once");
+		await harness.runCommand("set complete once");
 		await harness.runGoalComplete("done");
 		const result = await harness.runGoalComplete("again");
 
@@ -688,7 +708,7 @@ describe("goal extension", () => {
 	it("pauses an active goal through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("pause by tool objective");
+		await harness.runCommand("set pause by tool objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		harness.setStatus.mockClear();
@@ -719,7 +739,7 @@ describe("goal extension", () => {
 	it("pauses an active goal without clearing it", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("pause retained objective");
+		await harness.runCommand("set pause retained objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		harness.setStatus.mockClear();
@@ -741,7 +761,7 @@ describe("goal extension", () => {
 	it("resumes a paused goal without replacing it", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("resume retained objective");
+		await harness.runCommand("set resume retained objective");
 		await harness.runCommand("pause");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
@@ -754,9 +774,7 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.notify).toHaveBeenCalledWith("Goal resumed: resume retained objective", "info");
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal: resume retained objective");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Continue working toward this objective until it is achieved: resume retained objective",
-		);
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 		expect(injected?.systemPrompt).toContain("Long-running objective: resume retained objective");
 	});
 
@@ -773,14 +791,14 @@ describe("goal extension", () => {
 	it("clears a paused goal", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("clear paused objective");
+		await harness.runCommand("set clear paused objective");
 		await harness.runCommand("pause");
 		await harness.runCommand("clear");
 		await harness.runCommand("");
 
 		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
 		expect(harness.notify).toHaveBeenCalledWith("Goal cleared", "info");
-		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal <objective>", "info");
+		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 	});
 
 	it("does not pause when no active goal exists", async () => {
@@ -795,7 +813,7 @@ describe("goal extension", () => {
 	it("continues without a numeric turn cap", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("long running continuation");
+		await harness.runCommand("set long running continuation");
 		harness.sendUserMessage.mockClear();
 		for (let i = 0; i < 100; i++) {
 			await harness.runAgentEnd();
@@ -808,7 +826,7 @@ describe("goal extension", () => {
 	it("stops continuation when the last assistant response is empty", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("empty response bounded");
+		await harness.runCommand("set empty response bounded");
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd([createAssistantMessage("   ")]);
 
@@ -822,7 +840,7 @@ describe("goal extension", () => {
 	it("does not continue or warn when the last assistant response is an error", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("retry failed request");
+		await harness.runCommand("set retry failed request");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd([createAssistantMessage("", "error")]);
@@ -839,7 +857,7 @@ describe("goal extension", () => {
 	it("pauses the active goal when the agent turn is aborted", async () => {
 		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
 
-		await harness.runCommand("pause on abort");
+		await harness.runCommand("set pause on abort");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		harness.setStatus.mockClear();
@@ -859,7 +877,7 @@ describe("goal extension", () => {
 	it("persists new goals without budget fields", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("plain objective");
+		await harness.runCommand("set plain objective");
 
 		const goal = readStoredGoal<Record<string, unknown>>(cwd);
 		expect(goal.objective).toBe("plain objective");
@@ -890,7 +908,7 @@ describe("goal extension", () => {
 	it("shows the active goal in the footer status", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("visible footer objective");
+		await harness.runCommand("set visible footer objective");
 		await harness.runCommand("clear");
 
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal: visible footer objective");

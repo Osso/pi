@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Goal creation now requires `/goal set <objective>`; bare `/goal <text>` is rejected, and `manage_goal` cannot persist reserved control words such as `continue` as objectives.
 - Removed `MultiAgentStore.spawnAgent`, `spawnChildAgent`, and `attachSessionAgent`; persisted creation must go through `LifecycleCoordinator`, while `MultiAgentStore` only projects committed snapshots.
 - Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
 - Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unowned bootstrap/migration rows.

@@ -91,7 +91,7 @@ describe("goal extension runtime", () => {
 			fauxAssistantMessage("   "),
 		]);
 
-		await harness.session.prompt("/goal say hello twice in two different rounds");
+		await harness.session.prompt("/goal set say hello twice in two different rounds");
 		await waitForProviderCalls(harness, 9);
 
 		expect(harness.faux.state.callCount).toBe(9);
@@ -119,6 +119,22 @@ describe("goal extension runtime", () => {
 		expect(getUserTexts(harness)).toEqual(["queued after escape"]);
 	});
 
+	it("does not let a continuation turn replace the active goal with continue", async () => {
+		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "continue" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("still working"),
+		]);
+
+		await harness.session.prompt("/goal set keep the original objective");
+		await waitForProviderCalls(harness, 2);
+
+		expect(readStoredGoal(harness).objective).toBe("keep the original objective");
+	});
+
 	it("lets an agent reset an active goal through manage_goal", async () => {
 		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
@@ -129,7 +145,7 @@ describe("goal extension runtime", () => {
 			fauxAssistantMessage("done"),
 		]);
 
-		await harness.session.prompt("/goal first objective");
+		await harness.session.prompt("/goal set first objective");
 		await waitForProviderCalls(harness, 2);
 		await waitForStoredGoalObjective(harness, "agent-chosen objective");
 

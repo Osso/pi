@@ -34,12 +34,15 @@ goal; the command and prompt hook do not throw.
 
 `/goal` is registered by the extension as a normal Pi slash command.
 
-`/goal <objective>` creates or replaces a goal, persists it, notifies the UI,
-and if the agent is idle sends:
+`/goal set <objective>` creates or replaces a goal, persists it, and notifies the UI.
+Bare `/goal <text>` input is rejected so words such as `continue` cannot replace durable goal state.
+If the agent is idle, Pi sends the unambiguous reminder:
 
 ```text
-Work toward this objective until it is achieved: <objective>
+Continue working toward the active goal.
 ```
+
+Goal start and `/goal resume` use this same reminder when the session is idle; neither reminder restates the objective or `/goal set` syntax.
 
 If the agent is busy, the goal is saved and Pi shows an informational notice
 instead of starting a second turn.
@@ -48,7 +51,7 @@ instead of starting a second turn.
 
 `/goal clear` clears the current session's `goal_json` metadata and reports whether anything was cleared.
 
-A second `/goal <objective>` replaces the active incomplete goal by default.
+A second `/goal set <objective>` replaces the active incomplete goal.
 
 Objective text is limited to 4000 characters. Longer objectives are rejected
 before state is written.
@@ -57,7 +60,8 @@ The command rejects flags with a visible error and does not write state. Removed
 
 The `manage_goal` tool exposes an `action` parameter with optional `objective`
 and `reason` parameters. It can set, pause, resume, complete, clear, or view the
-current active goal. Paused goals remain visible in `/goal`, startup
+current active goal. The set action rejects reserved goal-control words such as
+`continue`, preventing model-generated continuation instructions from becoming objectives. Paused goals remain visible in `/goal`, startup
 notifications, and footer status, but do not inject prompt context or continue
 automatically until the resume action clears the pause state.
 
@@ -131,8 +135,7 @@ Completed goals do not trigger automatic continuation.
 ## Tests
 
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
-behavior: first-party registration, `manage_goal`, set/view/clear, default
-replacement, removed replacement flag rejection, objective length rejection,
+behavior: first-party registration, explicit `/goal set`, bare-objective and reserved-control-word rejection, `manage_goal`, view/clear, replacement, removed replacement flag rejection, objective length rejection,
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
 handling, automatic continuation, busy guard, per-session isolation, budget flag
