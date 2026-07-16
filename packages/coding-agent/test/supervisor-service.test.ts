@@ -13,9 +13,11 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	blockSupervisorMutation,
+	createSupervisorResourceLoader,
 	createSupervisorSettingsManager,
 	processSupervisorRequest,
 	SUPERVISOR_EXCLUDED_TOOL_NAMES,
+	validateSupervisorExtensionLoad,
 } from "../src/supervisor/main.ts";
 import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
 
@@ -42,6 +44,26 @@ describe("resident Supervisor service", () => {
 		expect(source).toContain('modelRegistry.find("openai-codex", "gpt-5.6-sol")');
 		expect(source).toContain('thinkingLevel: "low"');
 		expect(source).not.toContain('"web_search"');
+	});
+
+	it("loads only the explicit Supervisor extension allowlist", async () => {
+		const settingsManager = createSupervisorSettingsManager();
+		const resourceLoader = await createSupervisorResourceLoader(tempDir, tempDir, settingsManager);
+
+		const extensions = resourceLoader.getExtensions().extensions;
+		expect(extensions).toHaveLength(2);
+		expect(extensions.some((extension) => extension.handlers.has("compaction"))).toBe(true);
+		expect(extensions.some((extension) => extension.toolGates.length > 0)).toBe(true);
+	});
+
+	it("rejects extension diagnostics before the Supervisor session starts", () => {
+		expect(() =>
+			validateSupervisorExtensionLoad({
+				errors: [{ path: "<openai-remote-compact>", error: "factory failed" }],
+				extensions: [],
+				runtime: {} as never,
+			}),
+		).toThrow("Supervisor extension load failed: <openai-remote-compact>: factory failed");
 	});
 
 	it("uses full-access tool routing while blocking mutation outside the KB", () => {

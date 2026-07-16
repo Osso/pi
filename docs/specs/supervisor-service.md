@@ -11,6 +11,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Run as one resident systemd-supervised SDK service, separate from the resident Architect.
 - [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
 - [x] Preserve one global Supervisor transcript across service restarts.
+- [x] Await reload of the caller-provided Supervisor resource loader before `createAgentSession`; with `noExtensions: true`, explicitly load only the Supervisor mutation gate and first-party OpenAI remote compaction, so both are active and persistent Codex transcript overflow recovers through normal AgentSession compact-and-retry.
 - [x] Process requests through an event-driven request/response queue rather than polling sessions.
 - [x] Remain local-only without web access.
 

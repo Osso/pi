@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir } from "../config.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
+import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { DefaultResourceLoader } from "../core/resource-loader.ts";
 import { createAgentSession } from "../core/sdk.ts";
@@ -45,6 +47,38 @@ export function createSupervisorSettingsManager(): SettingsManager {
 	});
 }
 
+export function validateSupervisorExtensionLoad(result: LoadExtensionsResult): void {
+	if (result.errors.length === 0) return;
+	const details = result.errors.map((error) => `${error.path}: ${error.error}`).join("; ");
+	throw new Error(`Supervisor extension load failed: ${details}`);
+}
+
+export async function createSupervisorResourceLoader(
+	agentDir: string,
+	kbDir: string,
+	settingsManager: SettingsManager,
+): Promise<DefaultResourceLoader> {
+	const resourceLoader = new DefaultResourceLoader({
+		agentDir,
+		cwd: kbDir,
+		extensionFactories: [
+			(pi) => {
+				pi.registerToolGate((event) => blockSupervisorMutation(kbDir, event));
+			},
+			openAIRemoteCompactExtension,
+		],
+		noContextFiles: true,
+		noExtensions: true,
+		noPromptTemplates: true,
+		noSkills: true,
+		noThemes: true,
+		settingsManager,
+	});
+	await resourceLoader.reload();
+	validateSupervisorExtensionLoad(resourceLoader.getExtensions());
+	return resourceLoader;
+}
+
 export function blockSupervisorMutation(
 	kbDir: string,
 	event: { input: unknown; toolName: string },
@@ -65,21 +99,7 @@ export async function runSupervisorService(): Promise<void> {
 	const model = modelRegistry.find("openai-codex", "gpt-5.6-sol");
 	if (!model) throw new Error("Pi Supervisor requires openai-codex/gpt-5.6-sol");
 	const settingsManager = createSupervisorSettingsManager();
-	const resourceLoader = new DefaultResourceLoader({
-		agentDir,
-		cwd: kbDir,
-		extensionFactories: [
-			(pi) => {
-				pi.registerToolGate((event) => blockSupervisorMutation(kbDir, event));
-			},
-		],
-		noContextFiles: true,
-		noExtensions: true,
-		noPromptTemplates: true,
-		noSkills: true,
-		noThemes: true,
-		settingsManager,
-	});
+	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager);
 	const { session } = await createAgentSession({
 		agentDir,
 		authStorage,
