@@ -4360,7 +4360,59 @@ export function prepareControlDbForSelfRestart(controlDbPath: string, processId:
 	}
 }
 
+type RetainedControlDb = {
+	activeCalls: number;
+	db: SqliteDatabase;
+	retainCount: number;
+};
+
+const retainedControlDbs = new Map<string, RetainedControlDb>();
+
+export function retainControlDbConnection(controlDbPath: string): () => void {
+	const retained = retainedControlDbs.get(controlDbPath) ?? openRetainedControlDb(controlDbPath);
+	retained.retainCount += 1;
+	let released = false;
+	return () => {
+		if (released) return;
+		released = true;
+		retained.retainCount -= 1;
+		closeReleasedControlDb(controlDbPath, retained);
+	};
+}
+
+function openRetainedControlDb(controlDbPath: string): RetainedControlDb {
+	const db = createSqliteDatabase(controlDbPath);
+	try {
+		configureSharedSqliteDatabase(db);
+		initializeSchema(db);
+		db.finalizeStatements?.();
+	} catch (error) {
+		db.close();
+		throw error;
+	}
+	const retained = { activeCalls: 0, db, retainCount: 0 };
+	retainedControlDbs.set(controlDbPath, retained);
+	return retained;
+}
+
+function closeReleasedControlDb(controlDbPath: string, retained: RetainedControlDb): void {
+	if (retained.retainCount > 0 || retained.activeCalls > 0) return;
+	retainedControlDbs.delete(controlDbPath);
+	retained.db.close();
+}
+
 function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
+	const retained = retainedControlDbs.get(controlDbPath);
+	if (retained) {
+		retained.activeCalls += 1;
+		try {
+			return callback(retained.db);
+		} finally {
+			retained.activeCalls -= 1;
+			if (retained.activeCalls === 0) retained.db.finalizeStatements?.();
+			closeReleasedControlDb(controlDbPath, retained);
+		}
+	}
 	const db = createSqliteDatabase(controlDbPath);
 	try {
 		// Shared control.sqlite is multi-process (all Pi sessions on the machine).

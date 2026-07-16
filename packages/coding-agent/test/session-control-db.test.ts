@@ -64,6 +64,7 @@ import {
 	removeNamedSession,
 	renewArchitectRequestClaims,
 	resolveOwnMainRuntimeCoordinationRecipient,
+	retainControlDbConnection,
 	retireRuntimeMailboxListener,
 	setNamedSession,
 	unarchiveSession,
@@ -159,6 +160,25 @@ describe("session control DB", () => {
 
 	it("stores control state next to the session transcript", () => {
 		expect(controlDbPath).toBe(join(tempDir, "control.sqlite"));
+	});
+
+	it("allows concurrent writes while a process-local control DB connection is retained", () => {
+		const release = retainControlDbConnection(controlDbPath);
+		try {
+			enqueueIncomingMessage(controlDbPath, "retained connection write");
+			const competingWriter = createSqliteDatabase(controlDbPath);
+			try {
+				configureSharedSqliteDatabase(competingWriter);
+				competingWriter
+					.prepare("INSERT INTO incoming_messages (content, status, created_at) VALUES (?, 'pending', ?)")
+					.run("competing write", "2026-07-16T00:00:00.000Z");
+			} finally {
+				competingWriter.close();
+			}
+			expect(claimLatestIncomingMessage(controlDbPath)?.content).toBe("competing write");
+		} finally {
+			release();
+		}
 	});
 
 	it("does not reuse mailbox IDs when persisted rows or an alternate counter table are ahead", () => {

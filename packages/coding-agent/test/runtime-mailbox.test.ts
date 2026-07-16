@@ -26,7 +26,7 @@ import {
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
+import { deliverTerminalOutboxProjections, isTerminalOutboxCleanupDue } from "../src/core/terminal-outbox-delivery.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 let storedMessageCounter = 0;
@@ -89,6 +89,16 @@ type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+describe("terminal outbox cleanup schedule", () => {
+	it("runs cleanup initially and then no more than once per hour", () => {
+		const firstCleanupAt = Date.parse("2026-07-16T12:00:00.000Z");
+		expect(isTerminalOutboxCleanupDue(undefined, firstCleanupAt)).toBe(true);
+		expect(isTerminalOutboxCleanupDue(firstCleanupAt, firstCleanupAt + 3_000)).toBe(false);
+		expect(isTerminalOutboxCleanupDue(firstCleanupAt, firstCleanupAt + 60 * 60 * 1_000 - 1)).toBe(false);
+		expect(isTerminalOutboxCleanupDue(firstCleanupAt, firstCleanupAt + 60 * 60 * 1_000)).toBe(true);
+	});
+});
 
 function runtimeMailboxPrompt(body: string, sessionId = "child-session", agentId = "agent_1"): string {
 	return ["From:", `- session: ${sessionId}`, `- agent: ${agentId}`, "", "Message:", body].join("\n");

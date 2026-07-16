@@ -150,6 +150,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 import {
 	advanceSharedChannelCursor,
+	cleanupMultiAgentTerminalOutbox,
 	getControlDbPath,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
@@ -163,6 +164,7 @@ import {
 	recordPromptHistoryEntry,
 	registerRuntimeMailboxListener,
 	removeNamedSession,
+	retainControlDbConnection,
 	retireRuntimeMailboxListener,
 	type SharedChannelMessage,
 	setNamedSession,
@@ -175,7 +177,11 @@ import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader }
 import type { SettingsManager } from "./settings-manager.ts";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
-import { deliverTerminalOutboxProjections } from "./terminal-outbox-delivery.ts";
+import {
+	deliverTerminalOutboxProjections,
+	isTerminalOutboxCleanupDue,
+	terminalOutboxRetentionThreshold,
+} from "./terminal-outbox-delivery.ts";
 
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
@@ -708,6 +714,8 @@ export class AgentSession {
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
 	private _runtimeMailboxPollTimer?: ReturnType<typeof setInterval>;
+	private _runtimeMailboxControlDbPath?: string;
+	private _runtimeMailboxControlDbRelease?: () => void;
 	private _runtimeMailboxHeartbeatTimer?: ReturnType<typeof setInterval>;
 	private _runtimeMailboxSignalHandler?: () => void;
 	private _disposed = false;
@@ -735,6 +743,7 @@ export class AgentSession {
 	private _multiAgentStore: MultiAgentStore | undefined;
 	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
 	private readonly _terminalOutboxClaimId = randomUUID();
+	private _terminalOutboxLastCleanupAt: number | undefined;
 	private _multiAgentAgentId: string | undefined;
 	private readonly _multiAgentActiveTools = new Map<
 		string,
@@ -2681,6 +2690,12 @@ export class AgentSession {
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		const store = this._multiAgentStore;
 		if (!controlDbPath || !store) return;
+		const now = Date.now();
+		const cleanupDue = isTerminalOutboxCleanupDue(this._terminalOutboxLastCleanupAt, now);
+		if (cleanupDue) {
+			cleanupMultiAgentTerminalOutbox(controlDbPath, terminalOutboxRetentionThreshold(now));
+			this._terminalOutboxLastCleanupAt = now;
+		}
 		deliverTerminalOutboxProjections({
 			claimId: this._terminalOutboxClaimId,
 			controlDbPath,
@@ -2976,9 +2991,12 @@ export class AgentSession {
 	private _startRuntimeMailboxPolling(): void {
 		if (this._disableRuntimeCoordinationInbound) return;
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
-		if (!controlDbPath || this._runtimeMailboxPollTimer) {
-			return;
-		}
+		if (!controlDbPath) return;
+		if (this._runtimeMailboxPollTimer && this._runtimeMailboxControlDbPath === controlDbPath) return;
+		this._stopRuntimeMailboxPolling();
+		this._terminalOutboxLastCleanupAt = undefined;
+		this._runtimeMailboxControlDbPath = controlDbPath;
+		this._runtimeMailboxControlDbRelease = retainControlDbConnection(controlDbPath);
 		this._runtimeMailboxPollTimer = setInterval(() => {
 			void this._drainRuntimeCoordinationMessages({ triggerIfIdle: true }).catch((error: unknown) => {
 				console.error("Failed to drain runtime coordination messages:", error);
@@ -2987,11 +3005,13 @@ export class AgentSession {
 	}
 
 	private _stopRuntimeMailboxPolling(): void {
-		if (!this._runtimeMailboxPollTimer) {
-			return;
+		if (this._runtimeMailboxPollTimer) {
+			clearInterval(this._runtimeMailboxPollTimer);
+			this._runtimeMailboxPollTimer = undefined;
 		}
-		clearInterval(this._runtimeMailboxPollTimer);
-		this._runtimeMailboxPollTimer = undefined;
+		this._runtimeMailboxControlDbRelease?.();
+		this._runtimeMailboxControlDbRelease = undefined;
+		this._runtimeMailboxControlDbPath = undefined;
 	}
 
 	private _startRuntimeMailboxSignalWake(): void {

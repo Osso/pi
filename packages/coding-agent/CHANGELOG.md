@@ -138,6 +138,7 @@
 
 ### Fixed
 
+- Fixed idle runtime-mailbox polling repeatedly reopening and initializing `control.sqlite` and running terminal-outbox retention cleanup every three seconds; live sessions retain one process-local connection and run cleanup hourly.
 - Fixed foreground Pyrun monitoring synchronously reading `/proc/<pid>/stat` every 25ms; artifact polling remains responsive while fallback runner-liveness checks run every three seconds.
 - Fixed `resume_session` allowing a session to resume itself, which tore down and recreated the same runtime context instead of rejecting the target.
 - Fixed `resume_session` ID/name resolution repeatedly materializing the full session metadata table, causing sustained CPU and garbage-collection load on large session archives.

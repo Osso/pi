@@ -1,7 +1,6 @@
 import type { MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	claimMultiAgentTerminalOutbox,
-	cleanupMultiAgentTerminalOutbox,
 	deliverMultiAgentTerminalOutbox,
 	failMultiAgentTerminalOutbox,
 	type MultiAgentTerminalOutboxRecord,
@@ -10,6 +9,7 @@ import {
 
 const TERMINAL_OUTBOX_CLAIM_LEASE_MS = 30_000;
 const TERMINAL_OUTBOX_MAX_ATTEMPTS = 5;
+export const TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const TERMINAL_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DeliverTerminalOutboxOptions {
@@ -19,16 +19,19 @@ export interface DeliverTerminalOutboxOptions {
 	store: MultiAgentStore;
 }
 
+export function isTerminalOutboxCleanupDue(lastCleanupAt: number | undefined, now: number): boolean {
+	return lastCleanupAt === undefined || now - lastCleanupAt >= TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS;
+}
+
+export function terminalOutboxRetentionThreshold(now: number): string {
+	return new Date(now - TERMINAL_OUTBOX_RETENTION_MS).toISOString();
+}
+
 export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxOptions): number {
 	const persistence = options.store.getPersistenceTarget();
 	if (!persistence) return 0;
 
 	let delivered = 0;
-	const cleanupNow = options.now();
-	cleanupMultiAgentTerminalOutbox(
-		options.controlDbPath,
-		new Date(Date.parse(cleanupNow) - TERMINAL_OUTBOX_RETENTION_MS).toISOString(),
-	);
 	while (true) {
 		const nowIso = options.now();
 		const record = claimMultiAgentTerminalOutbox(options.controlDbPath, options.claimId, nowIso, {
