@@ -142,6 +142,7 @@
 - Fixed goal continuation racing ahead of steering or follow-up input queued during asynchronous Supervisor review, which could create repeated quota-consuming goal loops.
 - Fixed Escape failing to interrupt an active main LLM turn when autocomplete, an overlay, or another focused component consumed the key; queued steering messages now reach the interrupted turn replacement.
 - Fixed OpenAI remote compaction describing empty tool output as an attached image when no image existed.
+- Fixed interactive tool elapsed ownership so pending components claim it only after timing hydration, both footer paths use the same predicate, and hydrated components render elapsed below compact or expanded call content.
 - Fixed runtime mailbox messages being marked delivered after entering a volatile follow-up queue: busy or unauthenticated sessions now leave rows pending, while ready sessions select and mark rows delivered in one transaction before submitting them directly as active input.
 - Fixed repeated stale extension-context failures while draining terminal agent outbox projections after session replacement or reload by making Pyrun dispose session-bound Pi request handlers during session shutdown.
 - Added the RPC `interrupt` command and `RpcClient.interrupt()`, backed by the same session operation as interactive Escape: abort the active turn and resubmit preserved queued input, queueing it as steering if a background turn races in.

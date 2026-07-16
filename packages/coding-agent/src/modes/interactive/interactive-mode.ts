@@ -2046,8 +2046,11 @@ export class InteractiveMode {
 			return "Working...";
 		}
 		if (activity.phase === "tool") {
-			const componentOwnsElapsed = this.pendingTools.has(activity.toolCallId);
-			return this.getToolWaitingMessage(activity.toolName, startedAt, !componentOwnsElapsed);
+			return this.getToolWaitingMessage(
+				activity.toolName,
+				startedAt,
+				!this.toolComponentOwnsElapsed(activity.toolCallId),
+			);
 		}
 		return `${this.defaultWorkingMessage} ${formatElapsedDuration(Date.now() - startedAt)}`;
 	}
@@ -2123,6 +2126,10 @@ export class InteractiveMode {
 		}
 	}
 
+	private toolComponentOwnsElapsed(toolCallId: string): boolean {
+		return this.pendingTools.get(toolCallId)?.hasElapsedTiming() === true;
+	}
+
 	private setWorkingMessageForActiveTools(): void {
 		const nextToolEntry = this.executingToolNames.entries().next().value;
 		if (!nextToolEntry) {
@@ -2131,10 +2138,12 @@ export class InteractiveMode {
 		}
 
 		const [toolCallId, toolName] = nextToolEntry;
-		const componentOwnsElapsed = this.pendingTools.has(toolCallId) && !this.isViewingAgentSession();
-		const showElapsed = !componentOwnsElapsed;
 		this.setDefaultWorkingMessage(
-			this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId), showElapsed),
+			this.getToolWaitingMessage(
+				toolName,
+				this.executingToolStartedAt.get(toolCallId),
+				!this.toolComponentOwnsElapsed(toolCallId),
+			),
 		);
 	}
 
@@ -4003,10 +4012,10 @@ export class InteractiveMode {
 				this.cancelPartialUpdateRender();
 				this.executingToolNames.set(event.toolCallId, event.toolName);
 				this.executingToolStartedAt.set(event.toolCallId, event.startedAt);
-				this.startToolWaitingTimer();
-				this.setWorkingMessageForActiveTools();
 				const component = this.ensureToolExecutionComponent(event.toolName, event.toolCallId, event.args);
 				component.markExecutionStarted(event.startedAt);
+				this.startToolWaitingTimer();
+				this.setWorkingMessageForActiveTools();
 				this.ui.requestRender();
 				break;
 			}

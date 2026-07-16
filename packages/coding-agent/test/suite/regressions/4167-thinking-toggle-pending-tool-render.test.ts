@@ -48,6 +48,8 @@ type RenderSessionContextThis = {
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
 	completedToolTimings: Map<string, { startedAt: number; finishedAt: number }>;
+	defaultStreamingMessage: string;
+	thinkingFollowsTool: boolean;
 	clearToolExecutionTrackingFor(toolCallId: string): void;
 	getPendingToolStartedAt(toolCallId: string): number | undefined;
 	isInitialized: boolean;
@@ -56,6 +58,7 @@ type RenderSessionContextThis = {
 	startToolWaitingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
 	restartThinkingTimer(): void;
+	setDefaultWorkingMessage(message: string): void;
 	setWorkingMessageForActiveTools(): void;
 	ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent;
 	syncToolExecutionTrackingForHiddenMainEvent(event: AgentSessionEvent): void;
@@ -91,6 +94,8 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		executingToolNames: new Map<string, string>(),
 		executingToolStartedAt: new Map<string, number>(),
 		completedToolTimings: new Map<string, { startedAt: number; finishedAt: number }>(),
+		defaultStreamingMessage: "Streaming...",
+		thinkingFollowsTool: false,
 		clearToolExecutionTrackingFor: (
 			InteractiveMode.prototype as unknown as { clearToolExecutionTrackingFor(toolCallId: string): void }
 		).clearToolExecutionTrackingFor,
@@ -105,6 +110,7 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		startToolWaitingTimer: vi.fn(),
 		stopToolWaitingTimerIfIdle: vi.fn(),
 		restartThinkingTimer: vi.fn(),
+		setDefaultWorkingMessage: vi.fn(),
 		setWorkingMessageForActiveTools: vi.fn(),
 		ensureToolExecutionComponent(_toolName: string, toolCallId: string) {
 			const component = this.pendingTools.get(toolCallId);

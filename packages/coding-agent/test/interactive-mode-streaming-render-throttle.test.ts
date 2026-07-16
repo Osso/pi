@@ -64,6 +64,7 @@ type HandleEventThis = {
 };
 
 type ToolExecutionStub = {
+	hasElapsedTiming(): boolean;
 	markExecutionStarted(startedAt: number): void;
 	updateArgs(args: unknown): void;
 	updateResult(result: unknown, isPartial?: boolean, finishedAt?: number): void;
@@ -71,6 +72,7 @@ type ToolExecutionStub = {
 
 function createToolExecutionStub(): ToolExecutionStub {
 	return {
+		hasElapsedTiming: () => true,
 		markExecutionStarted: vi.fn(),
 		updateArgs: vi.fn(),
 		updateResult: vi.fn(),

@@ -212,6 +212,10 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	hasElapsedTiming(): boolean {
+		return this.executionStartedAt !== undefined;
+	}
+
 	markExecutionStarted(startedAt: number): void {
 		this.executionStarted = true;
 		this.executionStartedAt = startedAt;
