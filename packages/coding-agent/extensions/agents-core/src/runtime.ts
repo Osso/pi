@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -598,6 +599,7 @@ export function createProductionChildAgentSessionFactory(
 			thinkingLevel: profile.thinkingLevel,
 		});
 
+		sessionManager.persistForRecovery();
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
 		return result.session;
 	};
@@ -612,8 +614,18 @@ export function createProductionAttachedSessionFactory(
 		if (!sessionPath) {
 			throw new Error("Cannot resume attached session without a session path");
 		}
+		if (!existsSync(sessionPath)) {
+			throw new Error(`Child agent transcript does not exist: ${sessionPath}`);
+		}
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
 		const sessionManager = SessionManager.open(sessionPath, sessionDir, agent.cwd);
+		const expectedSessionId = agent.transcript?.sessionId;
+		const actualSessionId = sessionManager.getSessionId();
+		if (expectedSessionId !== undefined && actualSessionId !== expectedSessionId) {
+			throw new Error(
+				`Child agent transcript session mismatch: expected ${expectedSessionId}, found ${actualSessionId}`,
+			);
+		}
 		sessionManager.setMetadataControlDbPath(ctx.controlDbPath);
 		const profile = resolveChildAgentProfile(agent, ctx);
 		const parentSessionFile = ctx.sessionManager.getSessionFile();

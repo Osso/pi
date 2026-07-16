@@ -57,7 +57,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `documentation-update`, `implement`, and `reviewer` profiles provide default model/thinking
       choices and configured profiles override them.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
-      large child output does not become an unbounded event log.
+      large child output does not become an unbounded event log. Spawned child construction persists
+      the transcript header and initial context before the agent can become `running`; recovery rejects
+      missing transcript files or a header session ID that differs from persisted transcript metadata.
 - [x] Supervisor session resume restores the persisted multi-agent store into the production
       first-party store so agent tree, slots, file references, mailbox state, and transcript pointers
       survive a crash or restart. The selected view is ephemeral UI state and is not persisted.

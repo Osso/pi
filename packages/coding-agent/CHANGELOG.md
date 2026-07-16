@@ -123,6 +123,7 @@
 
 ### Fixed
 
+- Fixed supervisor restart corrupting an active child's context before its first assistant response: spawned child transcripts are now persisted before the agent becomes recoverable, and recovery rejects missing or session-ID-mismatched transcript files instead of creating a blank replacement session.
 - Fixed idle runtime-mailbox delivery racing a newly started turn and failing with `Agent is already processing`; delivery now rechecks active-turn state under the turn-start lock and steers the message when needed.
 - Fixed spawned and attached child agents remaining in a model thinking phase indefinitely; each thinking phase now aborts after 15 minutes and terminalizes as failed, while tool execution remains uncapped and post-tool or steered model turns receive fresh deadlines.
 - Fixed compiled Bun runtimes leaking one `control.sqlite` file descriptor per database access because prepared statements survived connection close; statements are now finalized before closing so long-running detached jobs cannot exhaust descriptors and deadlock agent coordination.

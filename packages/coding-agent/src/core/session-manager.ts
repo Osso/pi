@@ -1459,17 +1459,29 @@ export class SessionManager {
 		}
 
 		if (!this.flushed) {
-			const fd = openSync(this.sessionFile, "wx");
-			try {
-				for (const e of this.fileEntries) {
-					writeFileSync(fd, `${JSON.stringify(e)}\n`);
-				}
-			} finally {
-				closeSync(fd);
-			}
+			this._writeNewFile();
 			this.flushed = true;
 		} else {
 			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+		}
+	}
+
+	/** Persist the current session before its first assistant response so interrupted runtimes can resume it safely. */
+	persistForRecovery(): void {
+		if (!this.persist || !this.sessionFile || this.flushed) return;
+		this._writeNewFile();
+		this.flushed = true;
+	}
+
+	private _writeNewFile(): void {
+		if (!this.sessionFile) return;
+		const fd = openSync(this.sessionFile, "wx");
+		try {
+			for (const entry of this.fileEntries) {
+				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
+			}
+		} finally {
+			closeSync(fd);
 		}
 	}
 

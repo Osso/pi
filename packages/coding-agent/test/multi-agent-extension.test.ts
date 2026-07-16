@@ -3240,6 +3240,7 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-session" });
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
+		target.persistForRecovery();
 		let attachedSession: Harness["session"] | undefined;
 		const attachedFactory = createProductionAttachedSessionFactory({
 			agentDir: parentHarness.tempDir,
@@ -3362,6 +3363,7 @@ describe("multi-agent extension tools", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-session" });
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
+		target.persistForRecovery();
 		let sessionOptions: CreateAgentSessionOptions | undefined;
 		const attachedFactory = createProductionAttachedSessionFactory({
 			createSession: async (options) => {
@@ -3398,6 +3400,77 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("rejects recovery when the persisted child transcript is missing", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
+		const createSession = vi.fn(async () => ({ session: { messages: [], prompt: async () => {} } }));
+		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
+		const agent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "verifier",
+			cwd: "/repo",
+			displayName: "Interrupted verifier",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: transcriptPath, sessionId: "expected-child-session" },
+		}).agent;
+
+		await expect(
+			attachedFactory({
+				agent,
+				ctx: {
+					cwd: "/repo",
+					hasUI: false,
+					mode: "print",
+					model: parentHarness.getModel(),
+					modelRegistry: parentHarness.session.modelRegistry,
+					sessionManager: parentHarness.sessionManager,
+				} as unknown as ExtensionContext,
+				prompt: "resume",
+				sessionPath: transcriptPath,
+			}),
+		).rejects.toThrow(`Child agent transcript does not exist: ${transcriptPath}`);
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
+	it("rejects recovery when the child transcript session identity changed", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "replacement-child-session" });
+		target.appendMessage({ role: "user", content: "unrelated context", timestamp: 1 });
+		target.appendMessage(fauxAssistantMessage("replacement context"));
+		const transcriptPath = target.getSessionFile() ?? "";
+		const createSession = vi.fn(async () => ({ session: { messages: [], prompt: async () => {} } }));
+		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
+		const agent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "verifier",
+			cwd: "/repo",
+			displayName: "Interrupted verifier",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: transcriptPath, sessionId: "original-child-session" },
+		}).agent;
+
+		await expect(
+			attachedFactory({
+				agent,
+				ctx: {
+					cwd: "/repo",
+					hasUI: false,
+					mode: "print",
+					model: parentHarness.getModel(),
+					modelRegistry: parentHarness.session.modelRegistry,
+					sessionManager: parentHarness.sessionManager,
+				} as unknown as ExtensionContext,
+				prompt: "resume",
+				sessionPath: transcriptPath,
+			}),
+		).rejects.toThrow(
+			`Child agent transcript session mismatch: expected original-child-session, found replacement-child-session`,
+		);
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	it("records production child transcript metadata when the child session is created", async () => {
 		const tmp = mkdtempSync(join(tmpdir(), "pi-child-transcript-"));
 		try {
@@ -3418,7 +3491,6 @@ describe("multi-agent extension tools", () => {
 							content: "child prompt persisted",
 							timestamp: 1,
 						});
-						sessionManager.appendMessage(fauxAssistantMessage("child response persisted"));
 						return {
 							session: {
 								messages: [fauxAssistantMessage("child transcript ready")],
