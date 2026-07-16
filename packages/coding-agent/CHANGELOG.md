@@ -124,6 +124,7 @@
 
 ### Fixed
 
+- Fixed interactive `/debug` bypassing the live-process REPL extension and retained Bun-compatible `node:repl` loading in the deployed binary.
 - Fixed a stale selected-agent ID hiding main-session model-request events and leaving a static `Thinking...` label after the selected agent disappeared.
 - Fixed extension UI reset/reload replacing active `Streaming...` or elapsed `Thinking...` status with a static `Thinking...` label.
 - Fixed child runtimes registering the supervisor lifecycle-notification mirror, which could retain an invalidated child extension context and repeatedly break later terminal-outbox projection.

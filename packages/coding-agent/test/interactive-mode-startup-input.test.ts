@@ -26,6 +26,7 @@ type SubmitContext = {
 	cancelStreamingAndSubmitQueuedMessages: () => Promise<void>;
 	closeResponseCompleteNotification: () => void;
 	flushPendingBashComponents: () => void;
+	handleDebugCommand: () => void;
 	onInputCallback?: (text: string) => void;
 	pendingUserInputs: string[];
 	showSettingsSelector: () => void;
@@ -79,6 +80,7 @@ function createSubmitContext(): SubmitContext {
 		cancelStreamingAndSubmitQueuedMessages: vi.fn(async () => {}),
 		closeResponseCompleteNotification: vi.fn(),
 		flushPendingBashComponents: vi.fn(),
+		handleDebugCommand: vi.fn(),
 		pendingUserInputs: [],
 		showSettingsSelector: vi.fn(),
 	};
@@ -118,6 +120,16 @@ describe("InteractiveMode startup input", () => {
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("/settings");
 		expect(context.showSettingsSelector).toHaveBeenCalledTimes(1);
 		expect(context.editor.setText).toHaveBeenCalledWith("");
+	});
+
+	it("dispatches /debug through the registered extension command", async () => {
+		const context = createSubmitContext();
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" /debug ");
+
+		expect(context.pendingUserInputs).toEqual(["/debug"]);
+		expect(context.handleDebugCommand).not.toHaveBeenCalled();
 	});
 
 	it("continues the current transcript without submitting a user message", async () => {

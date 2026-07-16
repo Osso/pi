@@ -46,11 +46,15 @@ import { getPackageDir, getThemeDir } from "./config.js";
 
 Never use `__dirname` directly for package assets.
 
-## Debug Command
+## Live Debug REPL
 
-`/debug` (hidden) writes to `~/.pi/agent/pi-debug.log`:
-- Rendered TUI lines with ANSI codes
-- Last messages sent to the LLM
+`/debug` enables a privileged JavaScript REPL for the current Pi process. Attach from another terminal with the session ID shown by `/session-id`:
+
+```bash
+pi debug attach <session-id>
+```
+
+The REPL exposes live runtime state under `pi`. Run `/debug off` in the Pi session to close the endpoint and attached clients. Enable it only for trusted local debugging; evaluated JavaScript has the same system access as Pi.
 
 ## Testing
 

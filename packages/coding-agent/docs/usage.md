@@ -40,6 +40,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
 | `/effort [level]` | Choose a supported thinking level, or set one directly |
+| `/debug`, `/debug off` | Enable or disable the privileged local live-process JavaScript REPL |
 | `/resume` | Pick from previous sessions |
 | `/archive` | Archive the current persisted session; accepts no arguments |
 | `/agents` | Open agent switcher |
@@ -60,6 +61,14 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/quit` | Quit pi |
+
+After enabling `/debug`, attach from another terminal:
+
+```bash
+pi debug attach <session-id>
+```
+
+Use `/session-id` to display the current session ID. Debug evaluation has Pi's full process privileges and is intended only for trusted local diagnosis.
 
 ## Message Queue
 

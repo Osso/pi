@@ -6,7 +6,7 @@ The live-process debug REPL provides explicitly enabled, privileged JavaScript a
 
 ### Activation and attachment
 
-- [x] `/debug` enables a process-local debug endpoint for the current session.
+- [x] `/debug` routes through the registered extension command and enables a process-local debug endpoint for the current session.
 - [x] `/debug off` closes the endpoint and attached clients.
 - [x] `pi debug attach <session-id>` resolves the exact live session PID before connecting.
 - [x] Keep the endpoint inaccessible to other OS users through owner-only directory and socket permissions.
@@ -32,6 +32,7 @@ The live-process debug REPL provides explicitly enabled, privileged JavaScript a
 - `packages/coding-agent/extensions/debug/src/index.ts` — implements `/debug` and `/debug off`.
 - `packages/coding-agent/src/cli/debug-command.ts` — implements external session attachment.
 - `packages/coding-agent/src/main.ts` — registers the extension, CLI command, and live runtime accessor.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — routes `/debug` through ordinary extension-command dispatch without a competing legacy implementation.
 
 ## Tests asserting this spec
 
@@ -39,6 +40,7 @@ The live-process debug REPL provides explicitly enabled, privileged JavaScript a
 - `packages/coding-agent/test/debug-extension.test.ts` — command activation lifecycle.
 - `packages/coding-agent/test/debug-command.test.ts` — exact live-session socket resolution.
 - `packages/coding-agent/test/suite/debug-repl-headless.test.ts` — real-process activation, attachment, evaluation, and live state across session replacement.
+- `packages/coding-agent/test/interactive-mode-startup-input.test.ts` — interactive `/debug` dispatches through the registered extension command.
 
 ## Known gaps (current cycle)
 
