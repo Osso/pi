@@ -20,6 +20,7 @@ interface BunSqliteStatement extends SqliteStatement {
 export interface SqliteDatabase {
 	close(): void;
 	exec(sql: string): void;
+	finalizeStatements?(): void;
 	prepare(sql: string): SqliteStatement;
 }
 
@@ -62,13 +63,17 @@ function createBunSqliteDatabase(path: string, options?: { readonly?: boolean })
 	const { Database } = require("bun:sqlite") as BunSqliteModule;
 	const database = new Database(path, options);
 	const statements = new Set<BunSqliteStatement>();
+	const finalizeStatements = () => {
+		for (const statement of statements) statement.finalize();
+		statements.clear();
+	};
 	return {
 		close: () => {
-			for (const statement of statements) statement.finalize();
-			statements.clear();
+			finalizeStatements();
 			database.close();
 		},
 		exec: (sql) => database.exec(sql),
+		finalizeStatements,
 		prepare: (sql) => {
 			const statement = database.prepare(sql);
 			statements.add(statement);
