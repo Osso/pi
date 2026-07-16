@@ -1388,7 +1388,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			return result;
 		});
 		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 		// Pending outbound steering targets the child, not the main listener.
 		expect(settled).toBe(false);
 
@@ -1398,7 +1398,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
 			sender: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
 		});
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 
 		const waited = await waiting;
 		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
@@ -1443,7 +1443,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			sender: { agentId: "background_1", sessionId: "child-session" },
 		});
 
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 		expect(settled).toBe(false);
 		enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "Need parent review",
@@ -1451,7 +1451,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
 			sender: { agentId: runtime.agent.id, sessionId: "child-session" },
 		});
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 
 		const waited = await waiting;
 		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
@@ -1484,7 +1484,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			sender: { agentId: null, sessionId: "sender-session" },
 		});
 
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 		const waited = await waiting;
 
 		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
@@ -2288,7 +2288,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			storeRef: { messageId: steered.message.id, sessionPath: persistence.sessionPath },
 		});
 
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 		for (let attempt = 0; attempt < 10 && store.getAgent(spawned.agent.id)?.lifecycle !== "completed"; attempt += 1) {
 			await delay(0);
 		}
@@ -2333,7 +2333,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			storeRef: { messageId: steered.message.id, sessionPath: persistence.sessionPath },
 		});
 
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "pending" });
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "steering_pending" });
@@ -2357,12 +2357,12 @@ describe("runtime SQLite mailbox delivery", () => {
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 		});
 
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 		expect(getUserTexts(harness)).toEqual([]);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
 
 		await harness.session.bindExtensions({ controlDbPath });
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(30_000);
 		for (let attempt = 0; attempt < 10 && getUserTexts(harness).length === 0; attempt += 1) {
 			await delay(0);
 		}
@@ -2411,7 +2411,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 
 		try {
-			await vi.advanceTimersByTimeAsync(3_000);
+			await vi.advanceTimersByTimeAsync(30_000);
 			for (let attempt = 0; attempt < 10 && getUserTexts(harness).length === 0; attempt += 1) {
 				await delay(0);
 			}
@@ -2439,7 +2439,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 		});
 
-		await vi.advanceTimersByTimeAsync(3_000);
+		await vi.advanceTimersByTimeAsync(29_999);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
+
+		await vi.advanceTimersByTimeAsync(1);
 		for (let attempt = 0; attempt < 10 && getUserTexts(harness).length === 0; attempt += 1) {
 			await delay(0);
 		}

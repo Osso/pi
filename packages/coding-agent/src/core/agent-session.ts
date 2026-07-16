@@ -194,7 +194,7 @@ import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapp
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
 const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
-const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 3_000;
+const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 30_000;
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
 
 function readHeadlessToolAutoDetachAfterMs(env: NodeJS.ProcessEnv = process.env): number | undefined {
