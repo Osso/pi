@@ -19,7 +19,7 @@ The live-process debug REPL provides explicitly enabled, privileged JavaScript a
 
 ### Audit
 
-- [x] Record client PID, session ID, duration, outcome, timestamp, and a SHA-256 expression hash.
+- [x] Record client-reported PID, live session ID, duration, settled outcome, timestamp, and a SHA-256 expression hash.
 - [x] Never record expression text or returned values in the audit log.
 
 ## How it works

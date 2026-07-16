@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- Prevented global debug shortcuts from firing again for Kitty keyboard repeat and release events.
 - Preserved terminal viewport and scrollback when content grows before following lines by using differential rendering instead of clearing the screen and scrollback. This avoids disruptive redraws in terminals such as Ghostty.
 - Hide HTML comment-only tokens in the TUI Markdown renderer so literal HTML comments like `<!-- -->` are not rendered to the terminal. Non-comment HTML remains rendered as plain text. Added regression tests to cover comment hiding and plain-text behavior.
 

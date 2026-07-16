@@ -42,6 +42,21 @@ function withImageTerminal<T>(fn: () => T): T {
 }
 
 describe("TUI cell size responses", () => {
+	it("invokes the global debug handler only for the initial key press", () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const tui = new TUI(terminal);
+		let calls = 0;
+		tui.onDebug = () => calls++;
+		tui.start();
+
+		terminal.sendInput("\x1b[100;6:1u");
+		terminal.sendInput("\x1b[100;6:2u");
+		terminal.sendInput("\x1b[100;6:3u");
+
+		assert.strictEqual(calls, 1);
+		tui.stop();
+	});
+
 	it("forwards bare escape even when a cell size query was sent at startup", () => {
 		withImageTerminal(() => {
 			const terminal = new VirtualTerminal(80, 24);

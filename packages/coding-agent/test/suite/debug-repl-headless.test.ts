@@ -7,6 +7,10 @@ import { withHeadlessPi } from "./headless-pi.ts";
 function readUntil(socket: Socket, marker: string): Promise<string> {
 	return new Promise((resolve, reject) => {
 		let output = "";
+		const timeout = setTimeout(() => {
+			cleanup();
+			reject(new Error(`Timed out waiting for ${JSON.stringify(marker)} in ${JSON.stringify(output)}`));
+		}, 2000);
 		const onData = (chunk: Buffer) => {
 			output += chunk.toString("utf8");
 			if (!output.includes(marker)) return;
@@ -18,6 +22,7 @@ function readUntil(socket: Socket, marker: string): Promise<string> {
 			reject(error);
 		};
 		const cleanup = () => {
+			clearTimeout(timeout);
 			socket.off("data", onData);
 			socket.off("error", onError);
 		};
@@ -26,11 +31,11 @@ function readUntil(socket: Socket, marker: string): Promise<string> {
 	});
 }
 
-function connectDebugRepl(socketPath: string): Promise<Socket> {
+function connectDebugRepl(socketPath: string, sessionId: string): Promise<Socket> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection(socketPath);
 		socket.once("connect", () => {
-			socket.write(`${JSON.stringify({ pid: process.pid })}\n`);
+			socket.write(`${JSON.stringify({ pid: process.pid, sessionId })}\n`);
 			resolve(socket);
 		});
 		socket.once("error", reject);
@@ -44,20 +49,27 @@ it("keeps the privileged REPL bound to live runtime state across real session re
 		const initialHealth = listSessionHealth(controlDbPath).find((health) => health.checkStatus === "ok");
 		if (!initialHealth?.pid) throw new Error("Headless session health was not available");
 
-		const socket = await connectDebugRepl(getDebugSocketPath(agent.paths.agentDir, initialHealth.pid));
+		const socket = await connectDebugRepl(
+			getDebugSocketPath(agent.paths.agentDir, initialHealth.pid),
+			initialHealth.sessionId,
+		);
 		await readUntil(socket, "pi> ");
 		socket.write("pi.session.sessionId\n");
-		const initialOutput = await readUntil(socket, "pi> ");
+		const initialOutput = await readUntil(socket, initialHealth.sessionId);
 		expect(initialOutput).toContain(initialHealth.sessionId);
 
-		await agent.send({ type: "new_session" });
+		const replacement = agent.send({ type: "new_session" });
+		socket.write("1 + 1\n");
+		const duringReplacementOutput = await readUntil(socket, "2");
+		expect(duringReplacementOutput).toContain("2");
+		await replacement;
 		const replacementHealth = listSessionHealth(controlDbPath).find(
 			(health) => health.checkStatus === "ok" && health.sessionId !== initialHealth.sessionId,
 		);
 		if (!replacementHealth) throw new Error("Replacement session health was not available");
 
 		socket.write("pi.session.sessionId\n");
-		const replacementOutput = await readUntil(socket, "pi> ");
+		const replacementOutput = await readUntil(socket, replacementHealth.sessionId);
 		expect(replacementOutput).toContain(replacementHealth.sessionId);
 		expect(replacementOutput).not.toContain(initialHealth.sessionId);
 

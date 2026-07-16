@@ -12,6 +12,24 @@ afterEach(() => {
 	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
 });
 
+it("prints debug command help successfully", async () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-debug-command-"));
+	temporaryDirectories.push(agentDir);
+	const stdout: string[] = [];
+	const stderr: string[] = [];
+
+	const handled = await handleDebugCommand(["debug", "--help"], {
+		agentDir,
+		stderr: (text) => stderr.push(text),
+		stdout: (text) => stdout.push(text),
+	});
+
+	expect(handled).toBe(true);
+	expect(stdout).toEqual(["Usage: pi debug attach <session-id>\n"]);
+	expect(stderr).toEqual([]);
+	expect(process.exitCode).toBe(0);
+});
+
 it("attaches to the debug socket owned by the exact live session", async () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-debug-command-"));
 	temporaryDirectories.push(agentDir);
@@ -32,5 +50,5 @@ it("attaches to the debug socket owned by the exact live session", async () => {
 	const handled = await handleDebugCommand(["debug", "attach", sessionId], { agentDir, attach });
 
 	expect(handled).toBe(true);
-	expect(attach).toHaveBeenCalledWith(getDebugSocketPath(agentDir, 1131255));
+	expect(attach).toHaveBeenCalledWith(getDebugSocketPath(agentDir, 1131255), sessionId);
 });

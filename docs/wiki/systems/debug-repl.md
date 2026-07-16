@@ -10,10 +10,10 @@ The debug REPL is a first-party extension backed by a process-local Unix socket.
 
 ## Runtime access
 
-Each connection receives a Node JavaScript REPL with one `pi` root. Its `runtime`, `session`, `agent`, `services`, and `store` properties are getters. They resolve the current `AgentSessionRuntime` at evaluation time rather than retaining a session or extension context, so in-process session replacement does not make the root stale.
+Each connection receives a runtime-neutral JavaScript REPL backed by a persistent `node:vm` context with one `pi` root. Its `runtime`, `session`, `agent`, `services`, and `store` properties are getters. They resolve the current `AgentSessionRuntime` at evaluation time rather than retaining a session or extension context, so in-process session replacement does not make the root stale.
 
 The REPL is intentionally privileged. Evaluated code runs inside the live Pi process with Pi's filesystem, network, credential, and mutation authority.
 
 ## Audit
 
-Each evaluation appends an owner-only JSONL record under `~/.pi/agent/debug/audit.jsonl`. Records contain the client PID, session ID, timestamp, duration, outcome, and SHA-256 expression hash. Expression text and returned values are not persisted.
+Each evaluation appends an owner-only JSONL record under `~/.pi/agent/debug/audit.jsonl`. Records contain the client-reported PID, live session ID, timestamp, duration, settled outcome, and SHA-256 expression hash. Expression text and returned values are not persisted.

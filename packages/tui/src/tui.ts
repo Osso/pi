@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
-import { isKeyRelease, matchesKey } from "./keys.ts";
+import { isKeyRelease, isKeyRepeat, matchesKey } from "./keys.ts";
 import type { Terminal } from "./terminal.ts";
 import {
 	isOsc11BackgroundColorResponse,
@@ -839,7 +839,7 @@ export class TUI extends Container {
 		}
 
 		// Global debug key handler (Shift+Ctrl+D)
-		if (matchesKey(data, "shift+ctrl+d") && this.onDebug) {
+		if (matchesKey(data, "shift+ctrl+d") && !isKeyRelease(data) && !isKeyRepeat(data) && this.onDebug) {
 			this.onDebug();
 			return;
 		}

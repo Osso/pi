@@ -5,14 +5,21 @@ import { getControlDbPath, readSessionHealth } from "../core/session-control-db.
 
 interface DebugCommandDependencies {
 	agentDir: string;
-	attach?: (socketPath: string) => Promise<void>;
+	attach?: (socketPath: string, sessionId: string) => Promise<void>;
 	stderr?: (text: string) => void;
+	stdout?: (text: string) => void;
 }
 
 export async function handleDebugCommand(args: string[], dependencies: DebugCommandDependencies): Promise<boolean> {
 	if (args[0] !== "debug") return false;
 
 	const stderr = dependencies.stderr ?? ((text) => process.stderr.write(text));
+	const stdout = dependencies.stdout ?? ((text) => process.stdout.write(text));
+	if (args.length === 2 && (args[1] === "--help" || args[1] === "-h")) {
+		stdout("Usage: pi debug attach <session-id>\n");
+		process.exitCode = 0;
+		return true;
+	}
 	if (args.length !== 3 || args[1] !== "attach") {
 		stderr("Usage: pi debug attach <session-id>\n");
 		process.exitCode = 1;
@@ -28,9 +35,11 @@ export async function handleDebugCommand(args: string[], dependencies: DebugComm
 	}
 
 	const socketPath = getDebugSocketPath(dependencies.agentDir, health.pid);
-	const attach = dependencies.attach ?? ((path) => attachDebugRepl(path, process.stdin, process.stdout));
+	const attach =
+		dependencies.attach ??
+		((path, expectedSessionId) => attachDebugRepl(path, expectedSessionId, process.stdin, process.stdout));
 	try {
-		await attach(socketPath);
+		await attach(socketPath, sessionId);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		stderr(`Could not attach to debug REPL for session ${sessionId}: ${message}\n`);
@@ -39,7 +48,12 @@ export async function handleDebugCommand(args: string[], dependencies: DebugComm
 	return true;
 }
 
-export function attachDebugRepl(socketPath: string, input: Readable, output: Writable): Promise<void> {
+export function attachDebugRepl(
+	socketPath: string,
+	sessionId: string,
+	input: Readable,
+	output: Writable,
+): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection(socketPath);
 		const cleanup = () => {
@@ -47,7 +61,7 @@ export function attachDebugRepl(socketPath: string, input: Readable, output: Wri
 			socket.unpipe(output);
 		};
 		socket.once("connect", () => {
-			socket.write(`${JSON.stringify({ pid: process.pid })}\n`);
+			socket.write(`${JSON.stringify({ pid: process.pid, sessionId })}\n`);
 			input.pipe(socket);
 			socket.pipe(output);
 		});

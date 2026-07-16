@@ -22,29 +22,43 @@ it("evaluates expressions against the current runtime instead of a captured sess
 	const agentDir = createAgentDir();
 	let runtime = { session: { sessionId: "first" } };
 	const server = new DebugReplServer({ agentDir, getRuntime: () => runtime });
-	await server.enable("supervisor-session");
+	await server.enable("first");
 
 	const first = await server.evaluateForTest("pi.session.sessionId");
 	runtime = { session: { sessionId: "second" } };
 	const second = await server.evaluateForTest("pi.session.sessionId");
+	const awaited = await server.evaluateForTest("await Promise.resolve(3)");
 
 	expect(first).toBe("first");
 	expect(second).toBe("second");
+	expect(awaited).toBe(3);
 	expect(server.socketPath).toBe(getDebugSocketPath(agentDir, process.pid));
 	await server.disable();
 });
 
-it("records expression hashes without recording expression or result contents", async () => {
+it("records promise outcomes and current session identity without expression or result contents", async () => {
 	const agentDir = createAgentDir();
-	const server = new DebugReplServer({ agentDir, getRuntime: () => ({ session: { secret: "returned-secret" } }) });
-	await server.enable("audit-session");
+	let runtime = { session: { sessionId: "first", secret: "returned-secret" } };
+	const server = new DebugReplServer({ agentDir, getRuntime: () => runtime });
+	await server.enable("first");
 
 	await server.evaluateForTest("pi.session.secret", 4242);
+	runtime = { session: { sessionId: "second", secret: "returned-secret" } };
+	await expect(server.evaluateForTest("Promise.reject(new Error('rejected-secret'))", 4242)).rejects.toThrow(
+		"rejected-secret",
+	);
 	await server.disable();
 
 	const audit = readFileSync(join(agentDir, "debug", "audit.jsonl"), "utf8");
-	expect(audit).toContain('"clientPid":4242');
-	expect(audit).toContain('"status":"success"');
+	const records = audit
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+	expect(records).toMatchObject([
+		{ claimedClientPid: 4242, sessionId: "first", status: "success" },
+		{ claimedClientPid: 4242, sessionId: "second", status: "error" },
+	]);
 	expect(audit).not.toContain("pi.session.secret");
 	expect(audit).not.toContain("returned-secret");
+	expect(audit).not.toContain("rejected-secret");
 });
