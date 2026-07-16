@@ -26,6 +26,7 @@ import {
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 
 const ARTIFACT_POLL_MS = 25;
+const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
 
 export async function runDurableDetachablePyrunEvaluation(input: {
 	ctx: ExtensionContext;
@@ -273,8 +274,38 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 	};
 }
 
+function settleForegroundEvaluation(
+	input: DetachablePyrunInput,
+	records: ReturnType<typeof readNewArtifactRecords>["values"],
+	result: CanonicalPyrunEvalResult | undefined,
+	ownership: PyrunOwnership | undefined,
+): AgentToolResult<unknown> | undefined {
+	if (ownership) return undefined;
+	const foregroundError = records.find((record) => record.kind === "error");
+	if (foregroundError) {
+		writeFileSync(input.runner.foregroundCompletionPath, "failed\n", { encoding: "utf8", mode: 0o600 });
+		throw new Error(foregroundError.error);
+	}
+	if (!result) return undefined;
+	writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
+	return formatCanonicalPyrunEvalResult(input.params, result);
+}
+
+function checkForegroundRunnerLiveness(
+	processIdentity: DetachablePyrunInput["runner"]["processIdentity"],
+	nextCheckAt: number,
+	now: number,
+): number {
+	if (now < nextCheckAt) return nextCheckAt;
+	if (!isProcessIdentityAlive(processIdentity)) {
+		throw new Error("Foreground Pyrun runner exited without producing a result");
+	}
+	return now + FOREGROUND_RUNNER_LIVENESS_POLL_MS;
+}
+
 async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Promise<AgentToolResult<unknown>> {
 	let bridgeRequestOffset = 0;
+	let nextForegroundRunnerLivenessCheckAt = 0;
 	let outputOffset = 0;
 	let result: CanonicalPyrunEvalResult | undefined;
 	let terminalAgent: AgentSnapshot | undefined;
@@ -294,17 +325,14 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			outputOffset = records.offset;
 			result = consumeArtifactRecords(records.values, reportProgress) ?? result;
 			const ownership = control.getOwnership();
-			const foregroundError = records.values.find((record) => record.kind === "error");
-			if (!ownership && foregroundError) {
-				writeFileSync(input.runner.foregroundCompletionPath, "failed\n", { encoding: "utf8", mode: 0o600 });
-				throw new Error(foregroundError.error);
-			}
-			if (!ownership && result) {
-				writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
-				return formatCanonicalPyrunEvalResult(input.params, result);
-			}
-			if (!ownership && !isProcessIdentityAlive(input.runner.processIdentity)) {
-				throw new Error("Foreground Pyrun runner exited without producing a result");
+			const foregroundResult = settleForegroundEvaluation(input, records.values, result, ownership);
+			if (foregroundResult) return foregroundResult;
+			if (!ownership) {
+				nextForegroundRunnerLivenessCheckAt = checkForegroundRunnerLiveness(
+					input.runner.processIdentity,
+					nextForegroundRunnerLivenessCheckAt,
+					Date.now(),
+				);
 			}
 			if (ownership) terminalAgent = input.controller.observe(ownership.agent.id);
 			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
