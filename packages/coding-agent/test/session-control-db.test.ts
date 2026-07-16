@@ -699,21 +699,37 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			id: agentId,
 			lifecycle: "running",
 			origin: "spawned",
+			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 			revision: 3,
+			transcript: { path: "/sessions/steering-child.jsonl", sessionId: "steering-child" },
 			updatedAt: "2026-07-11T00:00:00.000Z",
 		});
+		const steeringProcessIdentity = CURRENT_PROCESS_IDENTITY;
 		forceRuntimeOwnership(controlDbPath, {
 			agentId,
 			nowIso: "2026-07-11T00:00:00.000Z",
 			owner: { agentId: null, sessionId: "supervisor" },
-			processIdentity: testProcessIdentity("steer-runtime"),
+			processIdentity: steeringProcessIdentity,
 			sessionPath,
 		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor" },
+			process.pid,
+			sessionPath,
+		);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId, sessionId: "steering-child" },
+			steeringProcessIdentity.pid,
+			undefined,
+			{ runtimeInstanceId: JSON.stringify(steeringProcessIdentity) },
+		);
 		const message = {
 			body: "Continue",
 			createdAt: "2026-07-11T00:01:00.000Z",
-			fromAgentId: "main",
+			fromAgentId: "supervisor",
 			id: "message_1",
 			kind: "steer" as const,
 			status: "pending" as const,
@@ -722,10 +738,12 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		};
 		const committed = commitMultiAgentSteeringMutation(controlDbPath, {
 			agentId,
-			message,
+			body: message.body,
+			fromAgentId: message.fromAgentId,
 			owner: { agentId: null, sessionId: "supervisor" },
+			recipient: { agentId, sessionId: "steering-child" },
 			requestedLifecycle: "steering_pending",
-			processIdentity: testProcessIdentity("steer-runtime"),
+			processIdentity: steeringProcessIdentity,
 			sessionPath,
 			updatedAt: message.updatedAt,
 		});
@@ -736,10 +754,24 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			ok: true,
 		});
 		expect(
+			commitMultiAgentSteeringMutation(controlDbPath, {
+				agentId,
+				body: "Invalid duplicate steering",
+				fromAgentId: "supervisor",
+				owner: { agentId: null, sessionId: "supervisor" },
+				processIdentity: steeringProcessIdentity,
+				recipient: { agentId, sessionId: "steering-child" },
+				requestedLifecycle: "completed",
+				sessionPath,
+				updatedAt: "2026-07-11T00:01:30.000Z",
+			}),
+		).toEqual({ ok: false, error: "invalid_transition" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.counters.nextMessageNumber).toBe(2);
+		expect(
 			commitMultiAgentLifecycleMutation(controlDbPath, {
 				agentId,
 				owner: { agentId: null, sessionId: "supervisor" },
-				processIdentity: testProcessIdentity("steer-runtime"),
+				processIdentity: steeringProcessIdentity,
 				requestedLifecycle: "waiting_for_input",
 				sessionPath,
 				updatedAt: "2026-07-11T00:02:00.000Z",
@@ -750,7 +782,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				agentId,
 				eventKind: "completed",
 				owner: { agentId: null, sessionId: "supervisor" },
-				processIdentity: testProcessIdentity("steer-runtime"),
+				processIdentity: steeringProcessIdentity,
 				sessionPath,
 				terminalLifecycle: "completed",
 				updatedAt: "2026-07-11T00:02:00.000Z",
@@ -758,13 +790,20 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		).toEqual({ ok: false, error: "invalid_transition" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
 			agents: [{ id: agentId, lifecycle: "steering_pending", revision: 4 }],
+			counters: { nextMessageNumber: 2 },
 			mailboxMessages: [{ id: "message_1", status: "pending" }],
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.mailboxMessages[0]).toMatchObject({
+			recipientAgentId: agentId,
+			recipientSessionId: "steering-child",
+			senderAgentId: null,
+			senderSessionId: "supervisor",
 		});
 		expect(
 			commitMultiAgentLifecycleMutation(controlDbPath, {
 				agentId,
 				owner: { agentId: null, sessionId: "supervisor" },
-				processIdentity: testProcessIdentity("steer-runtime"),
+				processIdentity: steeringProcessIdentity,
 				requestedLifecycle: "running",
 				sessionPath,
 				updatedAt: "2026-07-11T00:03:00.000Z",
@@ -774,22 +813,201 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			commitMultiAgentLifecycleMutation(controlDbPath, {
 				agentId,
 				owner: { agentId: null, sessionId: "supervisor" },
-				processIdentity: testProcessIdentity("steer-runtime"),
+				processIdentity: steeringProcessIdentity,
 				requestedLifecycle: "waiting_for_input",
 				sessionPath,
 				updatedAt: "2026-07-11T00:04:00.000Z",
 			}),
 		).toMatchObject({ ok: true, agent: { lifecycle: "waiting_for_input", revision: 6 } });
+		const rejectedMessages = [
+			{
+				message: { ...message, id: "message_2", updatedAt: "2026-07-11T00:05:00.000Z" },
+				recipient: { agentId, sessionId: "wrong-child-session" },
+			},
+			{
+				message: { ...message, id: "message_3", updatedAt: "2026-07-11T00:06:00.000Z" },
+				recipient: { agentId: "wrong-agent", sessionId: "steering-child" },
+			},
+			{
+				message: {
+					...message,
+					fromAgentId: "wrong-sender",
+					id: "message_4",
+					updatedAt: "2026-07-11T00:06:30.000Z",
+				},
+				recipient: { agentId, sessionId: "steering-child" },
+			},
+		];
+		for (const rejected of rejectedMessages) {
+			expect(
+				commitMultiAgentSteeringMutation(controlDbPath, {
+					agentId,
+					body: rejected.message.body,
+					fromAgentId: rejected.message.fromAgentId,
+					owner: { agentId: null, sessionId: "supervisor" },
+					recipient: rejected.recipient,
+					requestedLifecycle: "steering_pending",
+					processIdentity: steeringProcessIdentity,
+					sessionPath,
+					updatedAt: rejected.message.updatedAt,
+				}),
+			).toEqual({ ok: false, error: "mutation_mismatch" });
+		}
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId, sessionId: "steering-child" },
+			steeringProcessIdentity.pid,
+			undefined,
+			{
+				runtimeInstanceId: JSON.stringify({
+					pid: steeringProcessIdentity.pid,
+					startTimeTicks: steeringProcessIdentity.startTimeTicks + 1,
+				}),
+			},
+		);
+		expect(
+			commitMultiAgentSteeringMutation(controlDbPath, {
+				agentId,
+				body: message.body,
+				fromAgentId: message.fromAgentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				recipient: { agentId, sessionId: "steering-child" },
+				requestedLifecycle: "steering_pending",
+				processIdentity: steeringProcessIdentity,
+				sessionPath,
+				updatedAt: "2026-07-11T00:06:45.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId, sessionId: "steering-child" },
+			steeringProcessIdentity.pid + 1,
+			undefined,
+			{ runtimeInstanceId: JSON.stringify(steeringProcessIdentity) },
+		);
+		expect(
+			commitMultiAgentSteeringMutation(controlDbPath, {
+				agentId,
+				body: message.body,
+				fromAgentId: message.fromAgentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				recipient: { agentId, sessionId: "steering-child" },
+				requestedLifecycle: "steering_pending",
+				processIdentity: steeringProcessIdentity,
+				sessionPath,
+				updatedAt: "2026-07-11T00:07:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ lifecycle: "waiting_for_input", revision: 6 }],
+			counters: { nextMessageNumber: 2 },
+			mailboxMessages: [{ id: "message_1" }],
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId, sessionId: "steering-child" },
+			steeringProcessIdentity.pid,
+			undefined,
+			{ runtimeInstanceId: JSON.stringify(steeringProcessIdentity) },
+		);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor" },
+			process.pid,
+			sessionPath,
+			{
+				reconcileRuntimeReplacement: false,
+				runtimeInstanceId: "stale-sender",
+			},
+		);
+		expect(
+			commitMultiAgentSteeringMutation(controlDbPath, {
+				agentId,
+				body: message.body,
+				fromAgentId: message.fromAgentId,
+				owner: { agentId: null, sessionId: "supervisor" },
+				recipient: { agentId, sessionId: "steering-child" },
+				requestedLifecycle: "steering_pending",
+				processIdentity: steeringProcessIdentity,
+				sessionPath,
+				updatedAt: "2026-07-11T00:08:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor" },
+			process.pid,
+			sessionPath,
+		);
 		const lateSteering = commitMultiAgentSteeringMutation(controlDbPath, {
 			agentId,
-			message: { ...message, body: "Wake after idle", id: "message_2", updatedAt: "2026-07-11T00:05:00.000Z" },
+			body: "Wake after idle",
+			fromAgentId: message.fromAgentId,
 			owner: { agentId: null, sessionId: "supervisor" },
+			recipient: { agentId, sessionId: "steering-child" },
 			requestedLifecycle: "steering_pending",
-			processIdentity: testProcessIdentity("steer-runtime"),
+			processIdentity: steeringProcessIdentity,
 			sessionPath,
-			updatedAt: "2026-07-11T00:05:00.000Z",
+			updatedAt: "2026-07-11T00:09:00.000Z",
 		});
-		expect(lateSteering).toMatchObject({ ok: true, agent: { lifecycle: "steering_pending", revision: 7 } });
+		expect(lateSteering).toMatchObject({
+			agent: { lifecycle: "steering_pending", revision: 7 },
+			message: { id: "message_2" },
+			ok: true,
+		});
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.counters.nextMessageNumber).toBe(3);
+	});
+
+	it("rejects steering to a dead recipient without advancing its counter", () => {
+		const sessionPath = "/sessions/dead-steering.jsonl";
+		const agentId = "agent-dead-steer";
+		const deadIdentity = testProcessIdentity("dead-steering-runtime");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			displayName: "Dead steering target",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			transcript: { path: "/sessions/dead-child.jsonl", sessionId: "dead-child" },
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: deadIdentity,
+			sessionPath,
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor" },
+			process.pid,
+			sessionPath,
+		);
+		registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: "dead-child" }, deadIdentity.pid, undefined, {
+			runtimeInstanceId: JSON.stringify(deadIdentity),
+		});
+
+		expect(
+			commitMultiAgentSteeringMutation(controlDbPath, {
+				agentId,
+				body: "Cannot deliver",
+				fromAgentId: "supervisor",
+				owner: { agentId: null, sessionId: "supervisor" },
+				processIdentity: deadIdentity,
+				recipient: { agentId, sessionId: "dead-child" },
+				requestedLifecycle: "steering_pending",
+				sessionPath,
+				updatedAt: "2026-07-11T00:01:00.000Z",
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ lifecycle: "running", revision: 1 }],
+			counters: { nextMessageNumber: 1 },
+			mailboxMessages: [],
+		});
 	});
 
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {

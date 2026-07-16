@@ -376,6 +376,54 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("steers a restored child through the current main session after restart", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Delegate work before restart" });
+			const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				mainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("spawn_agent", {
+						displayName: "Restarted steering target",
+						prompt: "Wait for steering after restart",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Restarted steering target");
+			const interruptedChildRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
+
+			await agent.crash();
+			await agent.restart();
+
+			const restoredChildRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === spawned.id && request.id !== interruptedChildRequest.id,
+			);
+			const restoredMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				restoredMainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("steer_agent", {
+						agentId: spawned.id,
+						message: "Use the restored main session identity",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			await agent.waitForAgent(
+				(candidate) => candidate.id === spawned.id && candidate.lifecycle === "steering_pending",
+			);
+			agent.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Initial restored turn complete"));
+			const steeredChildRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === spawned.id && request.id !== restoredChildRequest.id,
+			);
+			expect(steeredChildRequest.userMessages).toContainEqual(
+				expect.stringContaining("Use the restored main session identity"),
+			);
+			agent.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Restored steering complete"));
+		});
+	});
+
 	it("settles a dead detached Pyrun descendant when restoring its parent agent", async () => {
 		await withHeadlessPi(
 			async (agent) => {

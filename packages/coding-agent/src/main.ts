@@ -17,6 +17,7 @@ import agentsCoreExtension, {
 	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
+	requestAgentSteering,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
@@ -1092,6 +1093,15 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
+			steerMultiAgent: async (agentId, message) => {
+				if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
+				const steered = requestAgentSteering(
+					firstPartyMultiAgentStore,
+					{ agentId, message, targetCheckpoint: "next_model_call" },
+					{ actorAgentId: null, controlDbPath, sessionId: runtime.session.sessionId },
+				);
+				return steered.ok ? { ok: true } : { error: steered.error, ok: false };
+			},
 			cancelMultiAgent: (agentId) =>
 				cancelOwnedAgentRuntime(
 					firstPartyMultiAgentStore,

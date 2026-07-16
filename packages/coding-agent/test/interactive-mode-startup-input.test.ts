@@ -26,10 +26,31 @@ type SubmitContext = {
 	cancelStreamingAndSubmitQueuedMessages: () => Promise<void>;
 	closeResponseCompleteNotification: () => void;
 	flushPendingBashComponents: () => void;
+	handleBashCommand: (command: string, excludeFromContext: boolean) => Promise<void>;
 	handleDebugCommand: () => void;
+	isBashMode: boolean;
+	multiAgentStore?: {
+		getAgent: (agentId: string) =>
+			| {
+					displayName: string;
+					id: string;
+					lifecycle: string;
+					parentId: string;
+					transcript: { sessionId: string };
+			  }
+			| undefined;
+		getSelectedAgentId: () => string | undefined;
+	};
 	onInputCallback?: (text: string) => void;
+	options: {
+		steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+	};
 	pendingUserInputs: string[];
+	showError: (message: string) => void;
 	showSettingsSelector: () => void;
+	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
+	ui: { requestRender: () => void };
+	updateEditorBorderColor: () => void;
 };
 
 type InputContext = {
@@ -45,6 +66,7 @@ type MainLoopContext = {
 
 type InteractiveModePrivate = {
 	setupEditorSubmitHandler(this: SubmitContext): void;
+	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
 	getUserInput(this: InputContext): Promise<string>;
 	submitMainLoopInput(this: MainLoopContext, userInput: string): Promise<void>;
 	processControlMessage(
@@ -80,9 +102,16 @@ function createSubmitContext(): SubmitContext {
 		cancelStreamingAndSubmitQueuedMessages: vi.fn(async () => {}),
 		closeResponseCompleteNotification: vi.fn(),
 		flushPendingBashComponents: vi.fn(),
+		handleBashCommand: vi.fn(async () => {}),
 		handleDebugCommand: vi.fn(),
+		isBashMode: false,
+		options: {},
 		pendingUserInputs: [],
+		showError: vi.fn(),
 		showSettingsSelector: vi.fn(),
+		submitSelectedAgentSteering: interactiveModePrototype.submitSelectedAgentSteering,
+		ui: { requestRender: vi.fn() },
+		updateEditorBorderColor: vi.fn(),
 	};
 }
 
@@ -111,15 +140,123 @@ describe("InteractiveMode startup input", () => {
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("early prompt");
 	});
 
-	it("records built-in slash commands in prompt history", async () => {
+	it("steers the selected active child instead of submitting plain text to the main thread", async () => {
 		const context = createSubmitContext();
+		const steerMultiAgent = vi.fn(async () => ({ ok: true }));
+		context.multiAgentStore = {
+			getAgent: () => ({
+				displayName: "worker",
+				id: "agent_1",
+				lifecycle: "running",
+				parentId: "main",
+				transcript: { sessionId: "child-session" },
+			}),
+			getSelectedAgentId: () => "agent_1",
+		};
+		context.options.steerMultiAgent = steerMultiAgent;
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" redirect this child ");
+
+		expect(steerMultiAgent).toHaveBeenCalledWith("agent_1", "redirect this child");
+		expect(context.pendingUserInputs).toEqual([]);
+		expect(context.session.prompt).not.toHaveBeenCalled();
+		expect(context.editor.addToHistory).toHaveBeenCalledWith("redirect this child");
+		expect(context.editor.setText).toHaveBeenCalledWith("");
+	});
+
+	it("preserves exact editor text when selected-child steering is rejected", async () => {
+		const context = createSubmitContext();
+		context.multiAgentStore = {
+			getAgent: () => ({
+				displayName: "worker",
+				id: "agent_1",
+				lifecycle: "running",
+				parentId: "main",
+				transcript: { sessionId: "child-session" },
+			}),
+			getSelectedAgentId: () => "agent_1",
+		};
+		context.options.steerMultiAgent = vi.fn(async () => ({ error: "child became terminal", ok: false }));
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.("  redirect this child  ");
+
+		expect(context.editor.setText).toHaveBeenCalledWith("  redirect this child  ");
+		expect(context.pendingUserInputs).toEqual([]);
+		expect(context.session.prompt).not.toHaveBeenCalled();
+		expect(context.showError).toHaveBeenCalledWith("child became terminal");
+	});
+
+	it("does not fall back to the main thread when the selected agent is not steerable", async () => {
+		const context = createSubmitContext();
+		context.multiAgentStore = {
+			getAgent: () => ({
+				displayName: "grandchild",
+				id: "agent_2",
+				lifecycle: "running",
+				parentId: "agent_1",
+				transcript: { sessionId: "grandchild-session" },
+			}),
+			getSelectedAgentId: () => "agent_2",
+		};
+		context.options.steerMultiAgent = vi.fn(async () => ({ ok: true }));
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.("keep this scoped");
+
+		expect(context.options.steerMultiAgent).not.toHaveBeenCalled();
+		expect(context.pendingUserInputs).toEqual([]);
+		expect(context.session.prompt).not.toHaveBeenCalled();
+		expect(context.editor.setText).toHaveBeenCalledWith("keep this scoped");
+		expect(context.showError).toHaveBeenCalledWith("Could not steer grandchild: agent is not steerable");
+	});
+
+	it("keeps slash commands on the main thread while a child is selected", async () => {
+		const context = createSubmitContext();
+		const steerMultiAgent = vi.fn(async () => ({ ok: true }));
+		context.multiAgentStore = {
+			getAgent: () => ({
+				displayName: "worker",
+				id: "agent_1",
+				lifecycle: "running",
+				parentId: "main",
+				transcript: { sessionId: "child-session" },
+			}),
+			getSelectedAgentId: () => "agent_1",
+		};
+		context.options.steerMultiAgent = steerMultiAgent;
 		interactiveModePrototype.setupEditorSubmitHandler.call(context);
 
 		await context.defaultEditor.onSubmit?.(" /settings ");
 
+		expect(steerMultiAgent).not.toHaveBeenCalled();
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("/settings");
 		expect(context.showSettingsSelector).toHaveBeenCalledTimes(1);
 		expect(context.editor.setText).toHaveBeenCalledWith("");
+	});
+
+	it("keeps shell commands on the main thread while a child is selected", async () => {
+		const context = createSubmitContext();
+		const steerMultiAgent = vi.fn(async () => ({ ok: true }));
+		context.multiAgentStore = {
+			getAgent: () => ({
+				displayName: "worker",
+				id: "agent_1",
+				lifecycle: "running",
+				parentId: "main",
+				transcript: { sessionId: "child-session" },
+			}),
+			getSelectedAgentId: () => "agent_1",
+		};
+		context.options.steerMultiAgent = steerMultiAgent;
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" ! pwd ");
+
+		expect(steerMultiAgent).not.toHaveBeenCalled();
+		expect(context.handleBashCommand).toHaveBeenCalledWith("pwd", false);
+		expect(context.session.prompt).not.toHaveBeenCalled();
 	});
 
 	it("dispatches /debug through the registered extension command", async () => {

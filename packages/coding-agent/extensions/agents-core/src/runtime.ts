@@ -24,6 +24,7 @@ import {
 } from "../../../src/core/lifecycle-coordinator.ts";
 import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
+	type AgentFileReference,
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
 	type AgentResult,
@@ -2571,60 +2572,105 @@ function contactParent(
 	});
 }
 
+export interface AgentSteeringRuntimeBinding {
+	actorAgentId: string | null;
+	controlDbPath: string;
+	sessionId: string;
+}
+
+export interface AgentSteeringRequest {
+	agentId: string;
+	message: string;
+	fileRefs?: AgentFileReference[];
+	targetCheckpoint?: SteeringCheckpoint;
+}
+
+export type AgentSteeringRequestResult =
+	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
+	| { ok: false; agent: AgentSnapshot; message: AgentMailboxMessage; error: string };
+
+export function requestAgentSteering(
+	store: MultiAgentStore,
+	params: AgentSteeringRequest,
+	binding: AgentSteeringRuntimeBinding,
+): AgentSteeringRequestResult {
+	const senderId = binding.actorAgentId ?? "supervisor";
+	const current = store.getAgent(params.agentId);
+	if (!current) {
+		return {
+			agent: emptyAgent(params.agentId),
+			error: `Could not steer ${params.agentId}: not_found`,
+			message: emptyMessage(params.agentId, params.message),
+			ok: false,
+		};
+	}
+
+	const persistence = store.getPersistenceTarget();
+	const coordinator = createLifecycleCoordinator(store);
+	const ownership = persistence
+		? readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, current.id)
+		: undefined;
+	const expectedActorId = ownership?.owner.agentId ?? null;
+	const targetSessionId = current.transcript?.sessionId;
+	if (
+		!coordinator ||
+		!ownership ||
+		!persistence ||
+		persistence.controlDbPath !== binding.controlDbPath ||
+		binding.actorAgentId !== expectedActorId ||
+		binding.sessionId !== ownership.owner.sessionId ||
+		!targetSessionId
+	) {
+		return {
+			agent: current,
+			error: `Could not steer ${params.agentId}: runtime ownership unavailable`,
+			message: emptyMessage(params.agentId, params.message),
+			ok: false,
+		};
+	}
+	const steered = coordinator.requestSteering({
+		agent: current,
+		body: params.message,
+		fileRefs: params.fileRefs,
+		fromAgentId: senderId,
+		ownership,
+		recipient: { agentId: current.id, sessionId: targetSessionId },
+		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
+	});
+	if (!steered.ok) {
+		return {
+			agent: current,
+			error: `Could not steer ${params.agentId}: ${steered.error}`,
+			message: emptyMessage(params.agentId, params.message),
+			ok: false,
+		};
+	}
+	store.publishLifecycleCoordinatorSteering(steered.agent, steered.message);
+	return { agent: steered.agent, message: steered.message, ok: true };
+}
+
 function steerAgent(
 	store: MultiAgentStore,
 	params: SteerAgentParams,
 	ctx?: ExtensionContext,
 ): AgentToolResult<AgentSteerToolDetails> {
+	const persistence = store.getPersistenceTarget();
+	const controlDbPath = ctx?.controlDbPath ?? persistence?.controlDbPath;
 	const senderId = currentSteeringSenderId(store, ctx);
-	if (!senderId) {
+	if (!ctx || !controlDbPath || !senderId) {
 		return errorResult("Could not steer agent: subagent runtime identity is unavailable.", {
 			agent: emptyAgent(params.agentId),
 			message: emptyMessage(params.agentId, params.message),
 		});
 	}
-	const current = store.getAgent(params.agentId);
-	if (!current) {
-		return errorResult(`Could not steer ${params.agentId}: not_found`, {
-			agent: emptyAgent(params.agentId),
-			message: emptyMessage(params.agentId, params.message),
-		});
-	}
-
-	const persistence = store.getPersistenceTarget();
-	const coordinator = ctx ? createLifecycleCoordinator(store) : undefined;
-	const ownership = persistence
-		? readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, current.id)
-		: undefined;
-	if (!coordinator || !ownership) {
-		return errorResult(`Could not steer ${params.agentId}: runtime ownership unavailable`, {
-			agent: current,
-			message: emptyMessage(params.agentId, params.message),
-		});
-	}
-	const message = store.prepareSteeringMessageForLifecycleCoordinator(params.agentId, {
-		body: params.message,
-		fileRefs: params.fileRefs,
-		fromAgentId: senderId,
-		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
+	const steered = requestAgentSteering(store, params, {
+		actorAgentId: senderId === "supervisor" ? null : senderId,
+		controlDbPath,
+		sessionId: ctx.sessionManager?.getSessionId() ?? persistence?.sessionPath ?? "",
 	});
-	const steered = coordinator.requestSteering({ agent: current, message, ownership });
 	if (!steered.ok) {
-		return errorResult(`Could not steer ${params.agentId}: ${steered.error}`, {
-			agent: current,
-			message: emptyMessage(params.agentId, params.message),
-		});
+		return errorResult(steered.error, { agent: steered.agent, message: steered.message });
 	}
-	store.publishLifecycleCoordinatorSteering(steered.agent, steered.message);
-
-	if (!mirrorRuntimeMailboxMessage(store, steered.message, ctx)) {
-		const failedMessage = markFailedMailboxTransportMessage(store, steered.message);
-		return errorResult("Could not queue steering: runtime mailbox transport is unavailable.", {
-			agent: steered.agent,
-			message: failedMessage,
-		});
-	}
-
 	return result(`Queued steering for ${steered.agent.displayName}.`, {
 		agent: steered.agent,
 		message: steered.message,

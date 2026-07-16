@@ -310,6 +310,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       first and then `next_model_call` steering before the following provider request. Long tool loops must
       not defer `next_model_call` steering until `agent_end`; eligible messages are selected atomically,
       marked delivered, and enqueued as steering, while non-eligible messages remain durable and pending.
+- [x] Interactive selected-child editor steering and the `steer_agent` tool use the exported
+      `requestAgentSteering` path with an explicit scalar `AgentSteeringRuntimeBinding`. The shared path
+      validates the binding against persisted ownership; one repository transaction under `BEGIN IMMEDIATE`
+      verifies the current sender listener, direct-parent relation, recipient session/agent, canonical
+      recipient-listener PID, embedded `(pid, startTimeTicks)` identity, identity liveness, and lifecycle
+      ownership. Only after validation succeeds does that same authority transaction allocate the
+      per-session message number, construct the canonical steering payload, and persist sender/recipient
+      routing metadata, runtime recipient, store reference, and lifecycle together. Recipient or sender
+      mismatches, PID or start-time mismatches, dead recipients, stale sender sessions, non-direct
+      descendants, and invalid lifecycle requests reject atomically without lifecycle/mailbox mutation or
+      counter advancement.
 - [x] Top-level and subagent extension contexts receive the same explicit control-DB path, so canonical mailbox delivery uses one durable database without path fallback.
 - [x] A process that has ever advertised its pid as a runtime mailbox listener keeps a permanent
       no-op SIGUSR2 handler installed: reverting to the OS default disposition would let a stray
@@ -362,6 +373,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       phase-neutral `Working...` label.
 - [x] Escape cancels the currently viewed active child-agent turn before falling back to main-thread
       cancellation or idle Escape behavior.
+- [x] While a direct child with a live transcript and steerable lifecycle is selected, ordinary editor text
+      routes to that child.
+- [x] Slash commands and `!` shell commands remain on the main thread while a child is selected.
+- [x] If the selected target is invalid or selected-child steering is rejected, the exact submitted editor text
+      remains intact and is never submitted to the main thread.
 - [x] TUI controls show stale-revision conflicts and require the user or caller to retry against
       the latest snapshot.
 
@@ -450,9 +466,23 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   while rejecting sibling targets. Higher-level integrations must use registered agent tools or the
   Hostrun/Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
-  aborts a running background child session when the job is cancelled.
+  aborts a running background child session when the job is cancelled. The stale-sender-session regression
+  rejects steering without changing the lifecycle row or mailbox.
+- [`packages/coding-agent/test/session-control-db.test.ts`](../../packages/coding-agent/test/session-control-db.test.ts)
+  asserts atomic steering commit validation of the canonical recipient-listener PID, embedded
+  `(pid, startTimeTicks)` identity, liveness, direct sender/recipient ownership, and lifecycle legality.
+  It covers wrong sender/recipient, PID mismatch, wrong start time, dead recipient, and invalid lifecycle
+  requests, and verifies rejected requests preserve lifecycle/mailbox state and do not advance the message
+  counter; accepted rows retain the persisted sender/recipient routing metadata.
+- [`packages/coding-agent/test/runtime-process.test.ts`](../../packages/coding-agent/test/runtime-process.test.ts)
+  verifies exact process identity and liveness, including changed start time and zombie rejection.
+- [`packages/coding-agent/test/interactive-mode-startup-input.test.ts`](../../packages/coding-agent/test/interactive-mode-startup-input.test.ts)
+  asserts selected-child plain-text steering, exact editor preservation for rejected and invalid targets,
+  and slash-command plus `!` shell-command routing on the main thread.
+- [`packages/coding-agent/test/suite/headless-pi.test.ts`](../../packages/coding-agent/test/suite/headless-pi.test.ts)
+  asserts real-process steering of a restored child through the current main session after supervisor restart.
 - [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)
-  verifies explicit runtime mailbox mirroring and delivery for child completion, waiting-for-input,
+  verifies canonical runtime mailbox delivery for child completion, waiting-for-input,
   steering, and failed detached Pyrun notifications, including `wait_agents({})` delivery marking.
 - [`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`](../../packages/coding-agent/test/suite/agent-session-child-activity.test.ts)
   verifies child sessions publish thinking/tool phase transitions with stable start timestamps and
