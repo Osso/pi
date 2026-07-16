@@ -123,6 +123,7 @@
 
 ### Fixed
 
+- Fixed extension UI reset/reload replacing active `Streaming...` or elapsed `Thinking...` status with a static `Thinking...` label.
 - Fixed child runtimes registering the supervisor lifecycle-notification mirror, which could retain an invalidated child extension context and repeatedly break later terminal-outbox projection.
 - Fixed supervisor restart corrupting an active child's context before its first assistant response: spawned child transcripts are now persisted before the agent becomes recoverable, and recovery rejects missing or session-ID-mismatched transcript files instead of creating a blank replacement session.
 - Fixed idle runtime-mailbox delivery racing a newly started turn and failing with `Agent is already processing`; delivery now rechecks active-turn state under the turn-start lock and steers the message when needed.

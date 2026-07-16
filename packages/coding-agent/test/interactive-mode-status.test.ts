@@ -1699,6 +1699,7 @@ function createResetExtensionUIFixture(isViewingAgentSession: boolean) {
 		hideExtensionEditor: vi.fn(),
 		hideExtensionInput: vi.fn(),
 		hideExtensionSelector: vi.fn(),
+		getWorkingLoaderMessage: () => (isViewingAgentSession ? "Thinking... 12s" : "Streaming..."),
 		isViewingAgentSession: () => isViewingAgentSession,
 		loadingAnimation: { setMessage },
 		setCustomEditorComponent: vi.fn(),
@@ -1790,20 +1791,20 @@ describe("InteractiveMode footer ownership", () => {
 		expect(interactiveModeKeyHandlers.currentFooter.call(fakeThis)).toBe(builtIn);
 	});
 
-	test("reset keeps the main working loader interrupt label", () => {
+	test("reset restores the current main working status", () => {
 		const { fakeThis, setMessage } = createResetExtensionUIFixture(false);
 
 		interactiveModeKeyHandlers.resetExtensionUI.call(fakeThis);
 
-		expect(setMessage).toHaveBeenCalledWith(expect.stringMatching(/^Thinking\.\.\. .* to interrupt\)$/));
+		expect(setMessage).toHaveBeenCalledWith("Streaming...");
 	});
 
-	test("reset keeps a child working loader at the default thinking label", () => {
+	test("reset preserves the selected child elapsed status", () => {
 		const { fakeThis, setMessage } = createResetExtensionUIFixture(true);
 
 		interactiveModeKeyHandlers.resetExtensionUI.call(fakeThis);
 
-		expect(setMessage).toHaveBeenCalledWith("Thinking...");
+		expect(setMessage).toHaveBeenCalledWith("Thinking... 12s");
 	});
 });
 
