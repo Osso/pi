@@ -17,6 +17,7 @@ import {
 import {
 	emptySessionHealth,
 	endSessionHealth,
+	isStickyDead,
 	type SessionCheckStatus,
 	type SessionHealthRecord,
 } from "./session-health.ts";
@@ -3278,74 +3279,161 @@ export function recoverDeadMultiAgentRuntime(
 ): RecoverDeadMultiAgentRuntimeResult {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const { agentId, sessionPath } = input.expectedOwner;
-			if (!registeredSupervisorOwnsSession(db, sessionPath, input.supervisor)) {
+			if (!registeredSupervisorOwnsSession(db, input.expectedOwner.sessionPath, input.supervisor)) {
 				return { ok: false, error: "mutation_mismatch" };
 			}
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(sessionPath, agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
-			if (!runtimeOwnerMatches(owner, input.expectedOwner)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			if (hasActivePersistedDescendant(db, sessionPath, agentId)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			if (isProcessIdentityAlive(input.expectedOwner.processIdentity)) return { ok: false, error: "owner_alive" };
-			const released = db
-				.prepare(
-					`UPDATE multi_agent_runtime_owners
-					 SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
-					 WHERE session_path = ? AND agent_id = ? AND process_identity = ?
-					 AND owner_session_id = ? AND owner_agent_id IS ?`,
-				)
-				.run(
-					sessionPath,
-					agentId,
-					serializeProcessIdentity(input.expectedOwner.processIdentity),
-					input.expectedOwner.owner.sessionId,
-					input.expectedOwner.owner.agentId,
-				);
-			if (released.changes !== 1) return { ok: false, error: "mutation_mismatch" };
-			const terminalRevision = Number(agent.revision) + 1;
-			// A cancelling agent already has a terminal intent; recovery honors it as
-			// aborted instead of reporting a lost runtime failure.
-			const cancelling = agent.lifecycle === "cancelling";
-			const error = {
-				code: "lost_runtime",
-				message: cancelling
-					? "Cancellation requested; agent owner process exited before terminal confirmation."
-					: "Agent owner process exited before terminal confirmation.",
-			};
-			const worker = agent.worker as AgentSnapshot["worker"] | undefined;
-			const result = agent.result as AgentSnapshot["result"] | undefined;
-			const toolCallId = worker?.toolCallId;
-			const updated = {
-				...agent,
-				error,
-				lifecycle: cancelling ? "aborted" : "failed",
-				...(toolCallId === undefined ? {} : { result: { ...result, toolCallId } }),
-				revision: terminalRevision,
-				updatedAt: input.nowIso,
-				worker: undefined,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.nowIso, sessionPath, agentId);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_outbox
-					(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
-				 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
-			).run(sessionPath, agentId, terminalRevision, input.nowIso);
-			return { ok: true, agent: updated, terminalRevision };
+			return recoverDeadMultiAgentRuntimeInTransaction(db, input.expectedOwner, input.nowIso);
 		}),
 	);
+}
+
+interface DeadDetachedRuntimeCandidate {
+	agent_id: string;
+	data: string;
+	owner_agent_id: string | null;
+	owner_session_id: string | null;
+	process_identity: string | null;
+	session_path: string;
+}
+
+export function reconcileDeadDetachedAgentRuntimes(controlDbPath: string, nowIso: string): number {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			let reconciled = 0;
+			for (const candidate of readDeadDetachedRuntimeCandidates(db)) {
+				const expectedOwner = readHistoricalDetachedOwnerForRecovery(db, candidate);
+				if (!expectedOwner) continue;
+				const result = recoverDeadMultiAgentRuntimeInTransaction(db, expectedOwner, nowIso);
+				if (result.ok) reconciled += 1;
+			}
+			return reconciled;
+		}),
+	);
+}
+
+function readDeadDetachedRuntimeCandidates(db: SqliteDatabase): DeadDetachedRuntimeCandidate[] {
+	return db
+		.prepare(
+			`SELECT agents.session_path, agents.agent_id, agents.data, owners.process_identity,
+			 owners.owner_session_id, owners.owner_agent_id
+			 FROM multi_agent_agents AS agents
+			 JOIN multi_agent_runtime_owners AS owners
+			 ON owners.session_path = agents.session_path AND owners.agent_id = agents.agent_id
+			 WHERE json_valid(agents.data)
+			 AND json_extract(agents.data, '$.lifecycle') = 'cancelling'
+			 AND json_extract(agents.data, '$.detached') = 1`,
+		)
+		.all() as DeadDetachedRuntimeCandidate[];
+}
+
+function readHistoricalDetachedOwnerForRecovery(
+	db: SqliteDatabase,
+	candidate: DeadDetachedRuntimeCandidate,
+): MultiAgentRuntimeOwnershipIdentity | undefined {
+	if (!candidate.owner_session_id || !candidate.process_identity) return undefined;
+	const context = `multi_agent_agents:${candidate.session_path}#${candidate.agent_id}`;
+	const agent = parseStoredJsonObject(candidate.data, context);
+	validatePersistedAgentPayload(agent, context);
+	const processIdentity = parseProcessIdentity(candidate.process_identity);
+	const worker = agent.worker as AgentSnapshot["worker"] | undefined;
+	if (worker?.adapter !== "runtime" || worker.handleId !== String(processIdentity.pid)) return undefined;
+	const health = readSessionHealthRow(db, candidate.owner_session_id);
+	if (!health || !isStickyDead(health)) return undefined;
+	if (hasLiveRuntimeMailboxListener(db, candidate.owner_session_id)) return undefined;
+	if (hasTerminalOutboxRecord(db, candidate.session_path, candidate.agent_id)) return undefined;
+	return {
+		agentId: candidate.agent_id,
+		owner: { agentId: candidate.owner_agent_id, sessionId: candidate.owner_session_id },
+		processIdentity,
+		sessionPath: candidate.session_path,
+	};
+}
+
+function hasLiveRuntimeMailboxListener(db: SqliteDatabase, sessionId: string): boolean {
+	const rows = db
+		.prepare("SELECT runtime_instance_id FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")
+		.all(sessionId) as Array<{ runtime_instance_id: string | null }>;
+	return rows.some((row) => {
+		if (!row.runtime_instance_id) return true;
+		try {
+			return isProcessIdentityAlive(parseProcessIdentity(row.runtime_instance_id));
+		} catch {
+			return true;
+		}
+	});
+}
+
+function hasTerminalOutboxRecord(db: SqliteDatabase, sessionPath: string, agentId: string): boolean {
+	return Boolean(
+		db
+			.prepare("SELECT 1 FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? LIMIT 1")
+			.get(sessionPath, agentId),
+	);
+}
+
+function recoverDeadMultiAgentRuntimeInTransaction(
+	db: SqliteDatabase,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	nowIso: string,
+): RecoverDeadMultiAgentRuntimeResult {
+	const { agentId, sessionPath } = expectedOwner;
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as { data: string } | undefined;
+	if (!row) return { ok: false, error: "agent_not_found" };
+	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
+	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_transition" };
+	const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
+	if (!runtimeOwnerMatches(owner, expectedOwner)) return { ok: false, error: "mutation_mismatch" };
+	if (hasActivePersistedDescendant(db, sessionPath, agentId)) return { ok: false, error: "invalid_transition" };
+	if (isProcessIdentityAlive(expectedOwner.processIdentity)) return { ok: false, error: "owner_alive" };
+	const released = db
+		.prepare(
+			`UPDATE multi_agent_runtime_owners
+			 SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
+			 WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+			 AND owner_session_id = ? AND owner_agent_id IS ?`,
+		)
+		.run(
+			sessionPath,
+			agentId,
+			serializeProcessIdentity(expectedOwner.processIdentity),
+			expectedOwner.owner.sessionId,
+			expectedOwner.owner.agentId,
+		);
+	if (released.changes !== 1) return { ok: false, error: "mutation_mismatch" };
+	const terminalRevision = Number(agent.revision) + 1;
+	const cancelling = agent.lifecycle === "cancelling";
+	const error = {
+		code: "lost_runtime",
+		message: cancelling
+			? "Cancellation requested; agent owner process exited before terminal confirmation."
+			: "Agent owner process exited before terminal confirmation.",
+	};
+	const worker = agent.worker as AgentSnapshot["worker"] | undefined;
+	const result = agent.result as AgentSnapshot["result"] | undefined;
+	const toolCallId = worker?.toolCallId;
+	const updated = {
+		...agent,
+		error,
+		lifecycle: cancelling ? "aborted" : "failed",
+		...(toolCallId === undefined ? {} : { result: { ...result, toolCallId } }),
+		revision: terminalRevision,
+		updatedAt: nowIso,
+		worker: undefined,
+	};
+	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
+		JSON.stringify(updated),
+		nowIso,
+		sessionPath,
+		agentId,
+	);
+	db.prepare(
+		`INSERT INTO multi_agent_terminal_outbox
+			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+		 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
+	).run(sessionPath, agentId, terminalRevision, nowIso);
+	return { ok: true, agent: updated, terminalRevision };
 }
 
 export function createFailedMultiAgentChild(

@@ -68,6 +68,7 @@ import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
+import { LifecycleCoordinator } from "./core/lifecycle-coordinator.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
@@ -91,6 +92,7 @@ import {
 	MissingSessionCwdError,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
+import { reconcileSessionRuntimeBindings } from "./core/session-directory.ts";
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
@@ -994,6 +996,8 @@ export async function main(args: string[], options?: MainOptions) {
 		agentDir,
 		sessionManager,
 	});
+	reconcileSessionRuntimeBindings(controlDbPath);
+	LifecycleCoordinator.reconcileHistoricalDetachedCancellations(controlDbPath, new Date().toISOString());
 	debugRepl = new DebugReplServer({
 		agentDir,
 		getRuntime: () => runtime,

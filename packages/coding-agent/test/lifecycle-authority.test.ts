@@ -25,6 +25,7 @@ const repositoryWriterAllowlist = new Map<string, Set<string>>([
 		]),
 	],
 	["recoverDeadMultiAgentRuntime(", new Set(["src/core/lifecycle-coordinator.ts"])],
+	["reconcileDeadDetachedAgentRuntimes(", new Set(["src/core/lifecycle-coordinator.ts"])],
 ]);
 const forbiddenCalls = [
 	".ackSteering(",

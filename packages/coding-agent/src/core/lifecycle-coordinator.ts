@@ -12,6 +12,7 @@ import {
 	createMultiAgentChildWithRuntimeOwnership,
 	type MultiAgentRuntimeOwnership,
 	readMultiAgentAgent,
+	reconcileDeadDetachedAgentRuntimes as reconcileDeadDetachedAgentRuntimesRepository,
 	recoverDeadMultiAgentRuntime,
 } from "./session-control-db.ts";
 
@@ -93,6 +94,10 @@ export interface FinalizeChildCommandInput extends OwnedLifecycleCommandInput {
 
 export class LifecycleCoordinator {
 	private readonly options: LifecycleCoordinatorOptions;
+
+	static reconcileHistoricalDetachedCancellations(controlDbPath: string, nowIso: string): number {
+		return reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
+	}
 
 	constructor(options: LifecycleCoordinatorOptions) {
 		this.options = options;

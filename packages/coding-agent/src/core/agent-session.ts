@@ -200,6 +200,16 @@ function readHeadlessToolAutoDetachAfterMs(env: NodeJS.ProcessEnv = process.env)
 	}
 	return milliseconds;
 }
+
+async function waitForHeadlessSessionStartRelease(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+	const releasePath = env.PI_HEADLESS_SESSION_START_RELEASE_PATH;
+	if (releasePath === undefined) return;
+	if (!releasePath) throw new Error("PI_HEADLESS_SESSION_START_RELEASE_PATH must be non-empty");
+	writeFileSync(`${releasePath}.ready`, "ready");
+	while (!existsSync(releasePath)) {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
 const CODEX_PROVIDER_PAIRS = new Map([
 	["openai-codex", "openai-codex-gc"],
 	["openai-codex-gc", "openai-codex"],
@@ -780,8 +790,8 @@ export class AgentSession {
 			activeToolNames: this._initialActiveToolNames,
 			includeAllExtensionTools: true,
 		});
-		this._startRuntimeMailboxPolling();
 		this._startRuntimeMailboxSignalWake();
+		this._startRuntimeMailboxPolling();
 	}
 
 	/** Model registry for API key resolution and model discovery */
@@ -4074,8 +4084,8 @@ export class AgentSession {
 		if (bindings.controlDbPath !== undefined) {
 			this._extensionControlDbPath = bindings.controlDbPath;
 		}
-		this._startRuntimeMailboxPolling();
 		this._startRuntimeMailboxSignalWake();
+		this._startRuntimeMailboxPolling();
 		if (bindings.commandContextActions !== undefined) {
 			this._extensionCommandContextActions = bindings.commandContextActions;
 		}
@@ -4090,6 +4100,7 @@ export class AgentSession {
 		}
 
 		this._applyExtensionBindings(this._extensionRunner);
+		await waitForHeadlessSessionStartRelease();
 		await this._extensionRunner.emit(this._sessionStartEvent);
 		await this.extendResourcesFromExtensions(this._sessionStartEvent.reason === "reload" ? "reload" : "startup");
 	}

@@ -71,6 +71,11 @@ function newestMetadataBySessionId(metadata: SessionMetadata[]): SessionMetadata
 	});
 }
 
+export function reconcileSessionRuntimeBindings(controlDbPath: string, options: SessionDirectoryOptions = {}): void {
+	const now = resolveNow(options);
+	reconcileCurrentMainSessionBindings(controlDbPath, now, options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive);
+}
+
 function reconcileCurrentMainSessionBindings(
 	controlDbPath: string,
 	now: Date,

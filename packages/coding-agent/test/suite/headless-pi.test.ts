@@ -2,9 +2,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
+import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../src/core/session-control-db.ts";
 import type { CustomEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
 import {
 	cleanupHeadlessPiResources,
+	cleanupHeadlessRuntimeResources,
 	createHeadlessPaths,
 	type HeadlessLlmRequest,
 	type HeadlessPi,
@@ -82,6 +84,28 @@ describe("headless Pi fixture", () => {
 			}),
 		).rejects.toThrow(AggregateError);
 		expect(removeTempDir).toHaveBeenCalledOnce();
+	});
+
+	it("cleans primary fixture resources when shared-session cleanup fails", async () => {
+		const cleanupPrimary = vi.fn(async () => {
+			throw new Error("primary cleanup failed");
+		});
+		await expect(
+			cleanupHeadlessRuntimeResources(
+				[
+					async () => {
+						throw new Error("shared cleanup failed");
+					},
+				],
+				cleanupPrimary,
+			),
+		).rejects.toMatchObject({
+			errors: [
+				expect.objectContaining({ message: "shared cleanup failed" }),
+				expect.objectContaining({ message: "primary cleanup failed" }),
+			],
+		});
+		expect(cleanupPrimary).toHaveBeenCalledOnce();
 	});
 
 	it("preserves undefined scenario and cleanup failures", async () => {
@@ -778,7 +802,7 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("does not resume a cancelling Pyrun tool when restoring its session", async () => {
+	it("reconciles a cancelling Pyrun tool when another session starts", async () => {
 		await withHeadlessPi(
 			async (agent) => {
 				const attemptPath = join(agent.paths.workspaceDir, "attempts-cancelling-pyrun");
@@ -815,23 +839,104 @@ describe("headless Pi fixture", () => {
 					}),
 				);
 				await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
+				const ownership = readMultiAgentRuntimeOwnership(
+					getControlDbPath(agent.paths.agentDir),
+					agent.sessionFile,
+					runner.id,
+				);
+				const ownerSessionId = ownership?.owner.sessionId;
+				if (!ownerSessionId) throw new Error("Pyrun runner has no owner session ID");
 
 				await agent.crash();
-				await agent.restart();
+				const [firstPeer, secondPeer] = await Promise.all([agent.startSharedSession(), agent.startSharedSession()]);
+				try {
+					expect(firstPeer.sessionId).not.toBe(ownerSessionId);
+					expect(secondPeer.sessionId).not.toBe(ownerSessionId);
+					expect(secondPeer.sessionId).not.toBe(firstPeer.sessionId);
+					await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "aborted");
+					expect(readFileSync(attemptPath, "utf8")).toBe("x");
+					expect(
+						agent
+							.listAgents()
+							.filter((candidate) => candidate.id !== runner.id && candidate.displayName === "Pyrun evaluation"),
+					).toHaveLength(0);
+					expect(agent.getPyrunRunnerPids().filter(isProcessAlive)).toHaveLength(0);
+					expect(agent.readTerminalOutboxStatuses(runner.id)).toHaveLength(1);
+					expect(
+						readMultiAgentRuntimeOwnership(getControlDbPath(agent.paths.agentDir), agent.sessionFile, runner.id)
+							?.processIdentity,
+					).toBeUndefined();
+				} finally {
+					await Promise.all([firstPeer.dispose(), secondPeer.dispose()]);
+				}
+			},
+			{ autoDetachTools: true },
+		);
+	});
 
-				await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "aborted");
-				const restoredRequest = await agent.waitForLlmRequest(
-					(request) => request.agentId === null && request.id !== afterDetach.id,
+	it("lets same-session recovery win after listener registration blocks a foreign sweep", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const attemptPath = join(agent.paths.workspaceDir, "attempts-paused-resume-pyrun");
+				const releaseRunnerPath = join(agent.paths.workspaceDir, "release-paused-resume-pyrun");
+				const sessionStartReleasePath = join(agent.paths.workspaceDir, "release-paused-session-start");
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`attempt = Path(${JSON.stringify(attemptPath)})`,
+					`release = Path(${JSON.stringify(releaseRunnerPath)})`,
+					`attempt.write_text((attempt.read_text() if attempt.exists() else "") + "x")`,
+					"while not release.exists(): time.sleep(0.05)",
+				].join("\n");
+				await agent.send({ type: "prompt", message: "Run the paused-resume Pyrun evaluation" });
+				const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
 				);
-				expect(readFileSync(attemptPath, "utf8")).toBe("x");
-				expect(
-					agent
-						.listAgents()
-						.filter((candidate) => candidate.id !== runner.id && candidate.displayName === "Pyrun evaluation"),
-				).toHaveLength(0);
-				expect(agent.getPyrunRunnerPids().filter(isProcessAlive)).toHaveLength(0);
-				agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Pyrun cancellation confirmed"));
-				await agent.waitForEvent((event) => event.type === "agent_end");
+				const afterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== initialRequest.id,
+				);
+				const runner = await agent.waitForAgent(
+					(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
+				);
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				const [runnerPid] = agent.getPyrunRunnerPids();
+				if (!runnerPid) throw new Error("Pyrun runner has no PID");
+				killProcessGroup(runnerPid);
+				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
+				agent.respondToLlmRequest(
+					afterDetach.id,
+					fauxAssistantMessage(fauxToolCall("cancel_agent", { agentId: runner.id, reason: "test cancellation" }), {
+						stopReason: "toolUse",
+					}),
+				);
+				await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
+				await agent.crash();
+
+				const resumePromise = agent.startSharedSession({
+					sessionFile: agent.sessionFile,
+					sessionStartReleasePath,
+				});
+				await waitForFileContent(`${sessionStartReleasePath}.ready`, "ready");
+				const foreign = await agent.startSharedSession();
+				try {
+					expect(agent.listAgents().find((candidate) => candidate.id === runner.id)?.lifecycle).toBe("cancelling");
+					writeFileSync(sessionStartReleasePath, "release");
+					const resumed = await resumePromise;
+					try {
+						await agent.waitForAgent(
+							(candidate) => candidate.id === runner.id && candidate.lifecycle === "aborted",
+						);
+						expect(agent.readTerminalOutboxStatuses(runner.id)).toHaveLength(1);
+					} finally {
+						await resumed.dispose();
+					}
+				} finally {
+					writeFileSync(sessionStartReleasePath, "release");
+					await foreign.dispose();
+					await resumePromise.then((session) => session.dispose()).catch(() => undefined);
+				}
 			},
 			{ autoDetachTools: true },
 		);

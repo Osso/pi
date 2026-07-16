@@ -49,11 +49,12 @@ State meanings:
 
 ## Phase 1 authority and invariants
 
-`LifecycleCoordinator` is the sole authority for lifecycle commands. The coordinator serializes
-control-plane requests and delegates persistence to a repository/SQLite transaction that repeats
-transition legality and authorization checks. Detached runners are execution-plane workers: they may
-submit one exact terminal-finalize command using their in-memory identity, outcome, and output metadata,
-but cannot spawn, dispatch, cancel, recover, or mutate graph state.
+`LifecycleCoordinator` owns lifecycle commands; detached runners have only the narrow exact
+terminal-finalize command described below. The coordinator serializes control-plane requests and
+delegates persistence to a repository/SQLite transaction that repeats transition legality and
+authorization checks. Detached runners are execution-plane workers: they may submit one exact
+terminal-finalize command using their in-memory identity, outcome, and output metadata, but cannot
+spawn, dispatch, cancel, recover, or mutate graph state.
 
 Runtime roles are exclusive:
 
@@ -122,9 +123,9 @@ the same rule, including clear operations. Generic full-row agent upsert is limi
 bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
 every row after runtime ownership exists. Repository transactions read current revision internally and
 re-check exact session/agent/process ownership before lifecycle writes; callers never supply revision.
-Schema-version startup checks reject incompatible runtimes. A source-scan regression also fails if production modules call direct store lifecycle
-methods or the bootstrap writer outside authority modules. SQLite connection access control and
-arbitrary same-UID raw SQL are outside this authority model.
+Schema-version startup checks reject incompatible runtimes. A source-scan test checks the allowlisted
+production call sites for lifecycle writers; it is a static guard, not the runtime authority boundary.
+SQLite connection access control and arbitrary same-UID raw SQL are outside this authority model.
 
 ## What it must do
 
@@ -167,11 +168,17 @@ agent ID. A new job reserves its artifact directory exclusively before launching
 directory is a launch failure, never reusable state. This prevents sessions sharing one cwd/session
 folder from reading stale manifests or output belonging to another supervisor.
 
+- [x] Session startup completes runtime-listener registration before emitting `session_start`; a registration failure aborts startup without emitting that event. A paused same-session recovery listener blocks foreign detached-runtime sweeps, and concurrent foreign peers serialize through the recovery transaction so only one can commit terminal state. Exact live-runner identity and PID-reuse checks prevent recovery while the recorded runner is live or its PID has been reused.
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
-- [x] The session's supervisor binding registers the current lifecycle mailbox listener and reconciles its orphaned
-      active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot
-      strand an earlier parent row. A child runtime does not bind that supervisor lifecycle mirror or perform
+- [x] The session's supervisor binding registers the current lifecycle mailbox listener, refreshes canonical runtime
+      bindings after that registration, and reconciles orphaned active rows through coordinator recovery commands,
+      deepest descendants first so parent graph guards cannot strand an earlier parent row. Startup also globally scans
+      detached `cancelling` rows owned by historical sessions, but only settles a row when the recorded owner session is
+      sticky dead, no live listener is registered for that owner session ID, the exact dead runner identity matches the
+      persisted runtime worker handle, and no terminal outbox row already exists. The sweep uses the candidate row's
+      persisted session path for lookup and the canonical lost-runtime recovery path; it does not prove a current
+      owner-session/path match or reparent the agent, and it cannot mutate a live owner. A child runtime does not bind that supervisor lifecycle mirror or perform
       supervisor-wide recovery; on session start it reconciles only direct persisted descendants identified by
       `multiAgentAgentId`, through the same coordinator recovery commands. Runtime ownership stores the exact
       `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no global
@@ -181,10 +188,10 @@ folder from reading stale manifests or output belonging to another supervisor.
       a stale runner path. Verified administrative restart may terminalize owned work through the coordinator;
       exact owner-process exit resolves as `failed`/`lost_runtime` — or `aborted` when the persisted lifecycle
       already recorded a cancellation intent — never direct JSON rewrite or a result inferred from artifacts. The
-      recorded owner session ID may belong to a dead prior incarnation of the same session file; recovery is
-      authorized by the live registered supervisor binding for the session path plus proof the owner process is dead,
-      not by owner-session equality with the current incarnation. Terminal, current-live, and uncertain
-      process-backed rows follow their explicit recovery policy.
+      recorded owner session ID may belong to a dead prior incarnation of the same session file. Per-session recovery
+      commands additionally require the current registered supervisor binding to assert the target session path and
+      exact process identity; owner-session equality with the current incarnation is not required. Terminal,
+      current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.
 - [x] Any detached `running` or `steering_pending` agent with a transcript is resumed through the same
@@ -231,7 +238,11 @@ folder from reading stale manifests or output belonging to another supervisor.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — dispatch transitions, recovery
   gating, shutdown behavior, cancel/steer tool paths.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — steering/mailbox-driven transitions.
-- `packages/coding-agent/test/suite/headless-pi.test.ts` — real-process supervisor death and exact-session spawned-agent recovery.
+- `packages/coding-agent/test/suite/headless-pi.test.ts` — real-process supervisor death, shared-session startup barriers, foreign-peer recovery serialization, historical detached-cancellation reconciliation, and exact-session spawned-agent recovery.
+- `packages/coding-agent/test/agent-session-registration-failure.test.ts` — listener-registration failure prevents `session_start`.
+- `packages/coding-agent/test/orphaned-detached-reconciliation.test.ts` — active-descendant, live-owner, live-runner,
+  pre-existing-terminal-outbox, PID-reuse, and worker-handle-mismatch recovery guards; successful reconciliation
+  asserts one terminal outbox row and idempotent replay.
 
 ## Known gaps (current cycle)
 

@@ -14,6 +14,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Remove partial fixture files when path creation fails.
 - [ ] Remove fixture files when provider or RPC client startup fails.
 - [x] Remove all fixture files when the test body succeeds or fails.
+- [x] Attempt every shared-session and primary fixture cleanup even when another cleanup fails, and aggregate cleanup failures.
 
 ### Control API
 
@@ -27,6 +28,9 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Wait deterministically for persisted agents and mailbox messages.
 - [x] Reject pending event, provider-request, agent, and mailbox waiters when the fixture disposes.
 - [x] Reject new event, provider-request, agent, and mailbox waiters immediately after disposal.
+- [x] Start additional real RPC sessions against the fixture's shared control/session state, either creating a new session or resuming a specified `sessionFile`.
+- [x] Pause a shared session after runtime-listener registration and before `session_start` using a fixture-only release marker.
+- [x] Verify runtime-listener registration failure aborts startup before `session_start` (`agent-session-registration-failure.test.ts`).
 - [ ] Include child-process stderr in bounded timeout diagnostics.
 
 ### Multi-agent behavior
@@ -37,6 +41,14 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Restart the real supervisor while a child is blocked in its first provider request; verify the
       persisted transcript path/session identity and original assignment survive recovery, then verify
       exactly one completion notification routes to the original parent.
+- [x] Start concurrent real RPC peer sessions after the original supervisor crashes; verify startup refreshes
+      current runtime bindings and globally settles a historical detached cancellation only when its recorded owner
+      session is sticky-dead, no live listener is registered for that owner session ID, its dead runner identity
+      matches the worker handle, and no terminal outbox already exists. The sweep does not prove an owner-session/path
+      match. Two foreign peers serialize to one terminal commit without reparenting or duplicate terminalization.
+- [x] Prove a paused same-session recovery listener blocks the foreign sweep, and cover active descendants,
+      a pre-existing terminal outbox, a live owner, a live runner, PID reuse, and worker-handle mismatch
+      guards (`orphaned-detached-reconciliation.test.ts`).
 - [x] Prove an RPC `interrupt` command during an active real-process turn preserves queued steering and submits it in the replacement LLM request. This test starts below terminal/TUI input routing and does not prove that an Escape key reaches the interrupt command.
 - [x] Prove steering accepted immediately after a real Pyrun tool turn reaches `agent_end` wakes the idle session and produces a new model request instead of remaining queued indefinitely (`headless-pi.test.ts`: `wakes idle steering after completion of a real Pyrun tool turn`).
 - [x] Prove `wait_agents` remains blocked while an active child has pending `steer_agent` input, the steering reaches the child's next LLM request, and the wait returns only after that full child turn completes and terminalizes.
@@ -67,6 +79,8 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - `packages/agent-core/test/agent-loop.test.ts`
 - `packages/coding-agent/test/interactive-mode-resume-continuation.test.ts`
 - `packages/coding-agent/test/suite/headless-pi.test.ts`
+- `packages/coding-agent/test/agent-session-registration-failure.test.ts`
+- `packages/coding-agent/test/orphaned-detached-reconciliation.test.ts`
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/rpc-client-process-exit.test.ts`
 

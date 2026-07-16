@@ -60,10 +60,24 @@ export interface HeadlessPiOptions {
 	autoDetachTools?: boolean;
 }
 
+export interface HeadlessSharedSession {
+	sessionId: string;
+	sessionFile: string;
+	dispose(): Promise<void>;
+}
+
+export interface HeadlessSharedSessionOptions {
+	sessionFile?: string;
+	sessionStartReleasePath?: string;
+}
+
 export interface HeadlessPi {
 	paths: HeadlessPiPaths;
+	sessionId: string;
+	sessionFile: string;
 	crash(): Promise<void>;
 	restart(): Promise<void>;
+	startSharedSession(options?: HeadlessSharedSessionOptions): Promise<HeadlessSharedSession>;
 	send(command: RpcCommandBody): Promise<RpcResponse>;
 	getPyrunRunnerPids(): number[];
 	getRunnerPid(agentId: string): number | undefined;
@@ -216,6 +230,8 @@ function createHeadlessRpcClient(
 	paths: HeadlessRuntimePaths,
 	options: HeadlessPiOptions,
 	sessionFile?: string,
+	providerSocketPath = paths.socketPath,
+	sessionStartReleasePath?: string,
 ): RpcClient {
 	const preloadPath = join(import.meta.dirname, "fixtures", "headless-pi-provider-preload.ts");
 	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
@@ -227,8 +243,9 @@ function createHeadlessRpcClient(
 		env: {
 			PI_CODING_AGENT_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
-			PI_HEADLESS_PROVIDER_SOCKET: paths.socketPath,
+			PI_HEADLESS_PROVIDER_SOCKET: providerSocketPath,
 			...(options.autoDetachTools ? { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "50" } : {}),
+			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
 		},
 		provider: "headless-faux",
 		model: "headless-faux-1",
@@ -243,6 +260,23 @@ interface HeadlessPiCleanupOperations {
 	destroyProviderSocket: () => void;
 	closeProviderServer: () => Promise<void>;
 	removeTempDir: () => void;
+}
+
+export async function cleanupHeadlessRuntimeResources(
+	sharedSessionCleanup: Array<() => Promise<void>>,
+	cleanupPrimary: () => Promise<void>,
+): Promise<void> {
+	const errors: unknown[] = [];
+	const sharedResults = await Promise.allSettled(sharedSessionCleanup.map((cleanup) => cleanup()));
+	for (const result of sharedResults) {
+		if (result.status === "rejected") errors.push(result.reason);
+	}
+	try {
+		await cleanupPrimary();
+	} catch (error) {
+		errors.push(error);
+	}
+	if (errors.length > 0) throw new AggregateError(errors, "Headless Pi runtime cleanup failed");
 }
 
 export async function cleanupHeadlessPiResources(operations: HeadlessPiCleanupOperations): Promise<void> {
@@ -493,6 +527,59 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+async function startSharedHeadlessSession(
+	paths: HeadlessRuntimePaths,
+	fixtureOptions: HeadlessPiOptions,
+	sharedSessions: Set<HeadlessSharedSession>,
+	options: HeadlessSharedSessionOptions = {},
+): Promise<HeadlessSharedSession> {
+	const socketPath = join(paths.tempDir, `provider-${randomUUID()}.sock`);
+	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
+	const provider = await createProviderServer(socketPath, () => {});
+	const client = createHeadlessRpcClient(
+		paths,
+		fixtureOptions,
+		options.sessionFile,
+		socketPath,
+		options.sessionStartReleasePath,
+	);
+	const unsubscribeEvents = subscribeHeadlessRpcOutput(client, {
+		events: [],
+		eventListeners: new Set(),
+		uiRequests: [],
+		uiRequestListeners: new Set(),
+	});
+	const cleanup = () =>
+		cleanupHeadlessPiResources({
+			stopClient: () => client.stop(),
+			destroyProviderSocket: () => provider.getSocket()?.destroy(),
+			closeProviderServer: () => closeServer(provider.server),
+			removeTempDir: () => {},
+		});
+	try {
+		await startRpcClientSession(client, context);
+	} catch (error) {
+		unsubscribeEvents();
+		return runWithCleanup(async () => {
+			throw error;
+		}, cleanup);
+	}
+	let disposed = false;
+	const shared: HeadlessSharedSession = {
+		sessionId: context.mainSessionId,
+		sessionFile: context.sessionFile,
+		async dispose() {
+			if (disposed) return;
+			unsubscribeEvents();
+			await cleanup();
+			disposed = true;
+			sharedSessions.delete(shared);
+		},
+	};
+	sharedSessions.add(shared);
+	return shared;
+}
+
 function createHeadlessRuntime(options: {
 	paths: HeadlessRuntimePaths;
 	fixtureOptions: HeadlessPiOptions;
@@ -542,6 +629,7 @@ function createHeadlessRuntime(options: {
 		disposeSignal: options.disposeController.signal,
 		getStderr: () => options.clientControl.client.getStderr(),
 	});
+	const sharedSessions = new Set<HeadlessSharedSession>();
 
 	return {
 		paths: {
@@ -550,6 +638,8 @@ function createHeadlessRuntime(options: {
 			sessionDir: options.paths.sessionDir,
 			workspaceDir: options.paths.workspaceDir,
 		},
+		sessionId: options.context.mainSessionId,
+		sessionFile: options.context.sessionFile,
 		async restart() {
 			options.clientControl.unsubscribeEvents();
 			await options.clientControl.client.stop();
@@ -575,6 +665,8 @@ function createHeadlessRuntime(options: {
 			await exited;
 			await options.clientControl.client.stop();
 		},
+		startSharedSession: (sharedOptions) =>
+			startSharedHeadlessSession(options.paths, options.fixtureOptions, sharedSessions, sharedOptions),
 		send: (command) => options.clientControl.client.send(command),
 		getPyrunRunnerPids: () =>
 			readdirSync(options.paths.sessionDir, { recursive: true })
@@ -674,14 +766,18 @@ function createHeadlessRuntime(options: {
 		async dispose() {
 			options.disposeController.abort();
 			options.clientControl.unsubscribeEvents();
-			await cleanupHeadlessPiResources({
-				stopClient: () => options.clientControl.client.stop(),
-				terminateDetachedRunners: () =>
-					terminateHeadlessDetachedRunners(options.paths, options.context.sessionFile),
-				destroyProviderSocket: () => options.provider.getSocket()?.destroy(),
-				closeProviderServer: () => closeServer(options.provider.server),
-				removeTempDir: () => rmSync(options.paths.tempDir, { recursive: true, force: true }),
-			});
+			await cleanupHeadlessRuntimeResources(
+				[...sharedSessions].map((shared) => () => shared.dispose()),
+				() =>
+					cleanupHeadlessPiResources({
+						stopClient: () => options.clientControl.client.stop(),
+						terminateDetachedRunners: () =>
+							terminateHeadlessDetachedRunners(options.paths, options.context.sessionFile),
+						destroyProviderSocket: () => options.provider.getSocket()?.destroy(),
+						closeProviderServer: () => closeServer(options.provider.server),
+						removeTempDir: () => rmSync(options.paths.tempDir, { recursive: true, force: true }),
+					}),
+			);
 		},
 	};
 }
