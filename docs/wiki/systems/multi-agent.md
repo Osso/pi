@@ -48,7 +48,8 @@ thinking). User settings can override them with `agents.<type>.model` and
 
 The supervisor is the only orchestration authority. Child runtimes register only their agent-address
 mailbox listener, never a same-PID main listener, and never run supervisor-wide persisted-store
-reconciliation. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agents`
+reconciliation. Their initialized session-start hook reconciles only direct persisted descendants through
+coordinator recovery. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agents`
 calls, the equivalent Hostrun/Pyrun bridge methods, and `/bg`; production child sessions exclude
 those tools as a second boundary.
 

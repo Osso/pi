@@ -169,18 +169,22 @@ folder from reading stale manifests or output belonging to another supervisor.
 
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness.
-- [x] After a runtime registers its current mailbox listener, the one registered supervisor binding for that
-      session path reconciles its orphaned active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot strand an earlier parent row. Runtime ownership
-      stores the exact `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no
-      global recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session
-      relocation moves the assertion, runtime ownership, pending terminal outbox, and runtime transport references transactionally with the store; detached finalization resolves the relocated row by exact agent/process ownership rather than a stale runner path. Verified administrative restart may
-      terminalize owned work through the coordinator; exact owner-process exit resolves as
-      `failed`/`lost_runtime` — or `aborted` when the persisted lifecycle already recorded a cancellation
-      intent — never direct JSON rewrite or a result inferred from artifacts. The recorded owner session
-      ID may belong to a dead prior incarnation of the same session file; recovery is authorized by the
-      live registered supervisor binding for the session path plus proof the owner process is dead, not
-      by owner-session equality with the current incarnation. Terminal, current-live,
-      and uncertain process-backed rows follow their explicit recovery policy.
+- [x] The session's supervisor binding registers the current lifecycle mailbox listener and reconciles its orphaned
+      active rows through coordinator recovery commands, deepest descendants first so parent graph guards cannot
+      strand an earlier parent row. A child runtime does not bind that supervisor lifecycle mirror or perform
+      supervisor-wide recovery; on session start it reconciles only direct persisted descendants identified by
+      `multiAgentAgentId`, through the same coordinator recovery commands. Runtime ownership stores the exact
+      `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no global
+      recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session relocation moves
+      the assertion, runtime ownership, pending terminal outbox, and runtime transport references transactionally
+      with the store; detached finalization resolves the relocated row by exact agent/process ownership rather than
+      a stale runner path. Verified administrative restart may terminalize owned work through the coordinator;
+      exact owner-process exit resolves as `failed`/`lost_runtime` — or `aborted` when the persisted lifecycle
+      already recorded a cancellation intent — never direct JSON rewrite or a result inferred from artifacts. The
+      recorded owner session ID may belong to a dead prior incarnation of the same session file; recovery is
+      authorized by the live registered supervisor binding for the session path plus proof the owner process is dead,
+      not by owner-session equality with the current incarnation. Terminal, current-live, and uncertain
+      process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.
 - [x] Any detached `running` or `steering_pending` agent with a transcript is resumed through the same
@@ -193,7 +197,8 @@ folder from reading stale manifests or output belonging to another supervisor.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
-      same-PID main listener or run supervisor-wide recovery.
+      same-PID main listener or run supervisor-wide recovery. Their session-start hook may reconcile only direct
+      persisted descendants through the normal coordinator recovery path.
 - [x] `wait_agents({})` snapshots active agents at invocation, consumes one pending completion
       notification, and queries current agent rows until one snapshot member is terminal. Notifications
       only wake the query; they are not terminal truth. Detached Bash and Pyrun jobs use a transient

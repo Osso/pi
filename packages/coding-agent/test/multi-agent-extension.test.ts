@@ -809,17 +809,17 @@ describe("multi-agent extension tools", () => {
 			childSession.setMetadataControlDbPath(controlDbPath);
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			store.setPersistenceSessionManager(childSession);
-			const harness = createMultiAgentHarness({
-				ctx: {
-					controlDbPath,
-					multiAgentAgentId: "agent_child",
-					multiAgentParentSessionId: "parent-session",
-					multiAgentRuntimeRole: "child",
-					sessionManager: childSession,
-				} as unknown as ExtensionContext,
-				store,
-			});
+			const childContext = {
+				controlDbPath,
+				multiAgentAgentId: "agent_child",
+				multiAgentParentSessionId: "parent-session",
+				multiAgentRuntimeRole: "child",
+				sessionManager: childSession,
+			} as unknown as ExtensionContext;
+			const harness = createMultiAgentHarness({ ctx: childContext, store });
 			await harness.emit("session_start", { reason: "startup", type: "session_start" });
+			const hostrun = createHostrunMultiAgentRequestHandler({ store });
+			await expect(hostrun({ method: "agents.list", params: {} }, childContext, undefined)).resolves.toBeDefined();
 			const agent = legacyMultiAgentStore(store).spawnAgent({
 				agentType: "background",
 				cwd: "/repo",
@@ -1469,7 +1469,7 @@ describe("multi-agent extension tools", () => {
 		expect(store.getAgent(idle.agent.id)).toMatchObject({ lifecycle: "waiting_for_input" });
 	});
 
-	it("does not run supervisor crash recovery inside child agent runtimes", async () => {
+	it("does not recover agents outside a child runtime's direct descendants", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -3264,7 +3264,6 @@ describe("multi-agent extension tools", () => {
 					const session = result.session;
 					childSession = session;
 					childSessions.push(session);
-					await session.bindExtensions({ mode: "print" });
 					return { session };
 				},
 			}),
@@ -3411,7 +3410,7 @@ describe("multi-agent extension tools", () => {
 		const attachedFactory = createProductionAttachedSessionFactory({
 			createSession: async (options) => {
 				sessionOptions = options;
-				return { session: { messages: [], prompt: async () => {} } };
+				return { session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} } };
 			},
 			multiAgentStore: store,
 		});
@@ -3448,7 +3447,9 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
-		const createSession = vi.fn(async () => ({ session: { messages: [], prompt: async () => {} } }));
+		const createSession = vi.fn(async () => ({
+			session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} },
+		}));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "verifier",
@@ -3484,7 +3485,9 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage({ role: "user", content: "unrelated context", timestamp: 1 });
 		target.appendMessage(fauxAssistantMessage("replacement context"));
 		const transcriptPath = target.getSessionFile() ?? "";
-		const createSession = vi.fn(async () => ({ session: { messages: [], prompt: async () => {} } }));
+		const createSession = vi.fn(async () => ({
+			session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} },
+		}));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "verifier",
@@ -3516,6 +3519,7 @@ describe("multi-agent extension tools", () => {
 
 	it("records production child transcript metadata when the child session is created", async () => {
 		const tmp = mkdtempSync(join(tmpdir(), "pi-child-transcript-"));
+		const bindExtensions = vi.fn(async () => {});
 		try {
 			const parentSessionManager = SessionManager.create("/repo", tmp);
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -3536,6 +3540,7 @@ describe("multi-agent extension tools", () => {
 						});
 						return {
 							session: {
+								bindExtensions,
 								messages: [fauxAssistantMessage("child transcript ready")],
 								prompt: async () => {},
 							},
@@ -3551,6 +3556,7 @@ describe("multi-agent extension tools", () => {
 
 			await waitForTerminalAgent(harness, spawned.details.agent.id);
 			const agent = store.getAgent(spawned.details.agent.id);
+			expect(bindExtensions).toHaveBeenCalledOnce();
 			expect(agent?.transcript?.sessionId).toMatch(/^[0-9a-f-]+$/);
 			expect(agent?.transcript?.path).toContain(tmp);
 			expect(agent?.transcript?.path).toContain(agent?.transcript?.sessionId);
@@ -3580,6 +3586,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							bindExtensions: async () => {},
 							messages: [],
 							prompt: async () => {
 								childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
@@ -3619,6 +3626,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							bindExtensions: async () => {},
 							messages: [],
 							prompt: async () => {
 								childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();

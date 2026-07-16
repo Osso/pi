@@ -352,6 +352,69 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("settles a dead detached Pyrun descendant when restoring its parent agent", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const attemptPath = join(agent.paths.workspaceDir, "attempts-child-dead-pyrun");
+				const releasePath = join(agent.paths.workspaceDir, "release-child-dead-pyrun");
+				await agent.send({ type: "prompt", message: "Delegate a detached evaluation" });
+				const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					mainRequest.id,
+					fauxAssistantMessage(
+						fauxToolCall("spawn_agent", {
+							displayName: "Interrupted detached caller",
+							prompt: "Run a detached Pyrun evaluation until release",
+						}),
+						{ stopReason: "toolUse" },
+					),
+				);
+				const caller = await agent.waitForAgent(
+					(candidate) => candidate.displayName === "Interrupted detached caller",
+				);
+				const callerRequest = await agent.waitForLlmRequest((request) => request.agentId === caller.id);
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`attempt = Path(${JSON.stringify(attemptPath)})`,
+					`release = Path(${JSON.stringify(releasePath)})`,
+					'attempt.write_text("started")',
+					"while not release.exists(): time.sleep(0.05)",
+				].join("\n");
+				agent.respondToLlmRequest(
+					callerRequest.id,
+					fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+				);
+				await agent.waitForLlmRequest(
+					(request) => request.agentId === caller.id && request.id !== callerRequest.id,
+				);
+				await waitForFileContent(attemptPath, "started");
+				const detachedJob = await agent.waitForAgent(
+					(candidate) => candidate.parentId === caller.id && candidate.displayName === "Pyrun evaluation",
+				);
+				const runnerPid = agent.getRunnerPid(detachedJob.id);
+				if (!runnerPid) throw new Error("Child Pyrun runner has no PID");
+
+				await agent.crash();
+				killProcessGroup(runnerPid);
+				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
+				await agent.restart();
+				await agent.waitForLlmRequest(
+					(request) => request.agentId === caller.id && request.id !== callerRequest.id,
+				);
+
+				await expect(
+					agent.waitForAgent((candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "failed"),
+				).resolves.toMatchObject({
+					error: { code: "lost_runtime" },
+					id: detachedJob.id,
+					lifecycle: "failed",
+				});
+			},
+			{ autoDetachTools: true },
+		);
+	});
+
 	it("persists detached tool state and terminal completion in the caller JSONL", async () => {
 		await withHeadlessPi(
 			async (agent) => {

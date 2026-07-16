@@ -210,9 +210,13 @@ export interface AttachedSessionDispatchInput extends ChildAgentDispatchInput {
 
 export type AttachedSessionFactory = (input: AttachedSessionDispatchInput) => Promise<ChildAgentSession>;
 
+interface UnboundChildAgentSession extends ChildAgentSession {
+	bindExtensions(bindings: Record<string, never>): Promise<void>;
+}
+
 export interface ProductionChildAgentSessionFactoryOptions {
 	agentDir?: string;
-	createSession: (options: CreateAgentSessionOptions) => Promise<{ session: ChildAgentSession }>;
+	createSession: (options: CreateAgentSessionOptions) => Promise<{ session: UnboundChildAgentSession }>;
 	createSessionManager: (
 		cwd: string,
 		sessionDir: string | undefined,
@@ -599,6 +603,7 @@ export function createProductionChildAgentSessionFactory(
 			thinkingLevel: profile.thinkingLevel,
 		});
 
+		await result.session.bindExtensions({});
 		sessionManager.persistForRecovery();
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
 		return result.session;
@@ -649,6 +654,7 @@ export function createProductionAttachedSessionFactory(
 			thinkingLevel: profile.thinkingLevel,
 		});
 
+		await result.session.bindExtensions({});
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
 		return result.session;
 	};
@@ -695,7 +701,7 @@ export function createHostrunMultiAgentRequestHandler(
 
 	const handler: HostrunMultiAgentRequestHandler = async (request, ctx, signal) => {
 		if (disposed) throw new Error("Hostrun multi-agent request handler is disposed");
-		runtimeLifecycleMirror.bind(ctx);
+		if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
 			throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
 		}
@@ -1238,10 +1244,11 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRu
 }
 
 function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
-	if (input.ctx.multiAgentAgentId) {
-		return;
-	}
-	for (const agent of orderRecoveryAgents(input.store.listActiveAgents())) {
+	const activeAgents = input.store.listActiveAgents();
+	const recoverableAgents = input.ctx.multiAgentAgentId
+		? activeAgents.filter((agent) => agent.parentId === input.ctx.multiAgentAgentId)
+		: activeAgents;
+	for (const agent of orderRecoveryAgents(recoverableAgents)) {
 		recoverAgent(input, agent);
 	}
 }
@@ -1287,7 +1294,12 @@ function resolveDeadAgentRuntime(
 	const deadOwnership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
 	if (!deadOwnership) return;
 	const ownerSessionId = input.ctx.sessionManager?.getSessionId() ?? persistence.sessionPath;
-	const recovered = coordinator.recoverDeadChild({ agent, ownerSessionId, ownership: deadOwnership });
+	const recovered = coordinator.recoverDeadChild({
+		agent,
+		ownerSessionId,
+		ownership: deadOwnership,
+		supervisorAgentId: input.ctx.multiAgentAgentId,
+	});
 	if (recovered.ok) publishCoordinatorSnapshot(input.store, recovered.agent);
 }
 
@@ -2996,8 +3008,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 
 	pi.on?.("session_start", async (_event, ctx) => {
-		if (isChildAgentRuntime(ctx)) return;
-		runtimeLifecycleMirror.bind(ctx);
+		if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 		recoverAgents({
 			createAttachedSession,
 			ctx,
