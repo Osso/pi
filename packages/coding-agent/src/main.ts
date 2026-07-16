@@ -63,7 +63,7 @@ import {
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage } from "./core/auth-storage.ts";
-import { configureDebugRepl } from "./core/debug-repl.ts";
+import { DebugReplServer } from "./core/debug-repl.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
@@ -591,6 +591,7 @@ let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
 	getRuntimeExtensionFactories: () => ExtensionFactory[],
+	getDebugRepl: () => DebugReplServer,
 ): ExtensionFactory[] {
 	const childAgentSessionFactory = createProductionChildAgentSessionFactory({
 		agentDir: getAgentDir(),
@@ -612,7 +613,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
 		firstPartyExtensionFactory("codex-usage", codexUsageExtension),
 		firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
-		firstPartyExtensionFactory("debug", debugExtension),
+		firstPartyExtensionFactory("debug", (pi) => debugExtension(pi, getDebugRepl)),
 		firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
 		firstPartyExtensionFactory("agents-core", (pi) =>
 			agentsCoreExtension(pi, {
@@ -721,7 +722,14 @@ export async function main(args: string[], options?: MainOptions) {
 		prepareControlDbForSelfRestart(getControlDbPath(agentDir), process.pid);
 	}
 	let extensionFactories: ExtensionFactory[] = [];
-	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(() => extensionFactories);
+	let debugRepl: DebugReplServer | undefined;
+	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(
+		() => extensionFactories,
+		() => {
+			if (!debugRepl) throw new Error("Debug REPL is not available before runtime initialization");
+			return debugRepl;
+		},
+	);
 	extensionFactories = parsed.noExtensions
 		? (options?.extensionFactories ?? [])
 		: [...firstPartyExtensionFactories, ...(options?.extensionFactories ?? [])];
@@ -986,7 +994,7 @@ export async function main(args: string[], options?: MainOptions) {
 		agentDir,
 		sessionManager,
 	});
-	configureDebugRepl({
+	debugRepl = new DebugReplServer({
 		agentDir,
 		getRuntime: () => runtime,
 		getStore: () => firstPartyMultiAgentStore,

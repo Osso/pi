@@ -1,4 +1,3 @@
-import { getConfiguredDebugRepl } from "../../../src/core/debug-repl.ts";
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
 
 interface DebugReplController {
@@ -6,11 +5,11 @@ interface DebugReplController {
 	disable(): Promise<void>;
 }
 
-export default function debugExtension(pi: ExtensionAPI, controller?: DebugReplController): void {
+export default function debugExtension(pi: ExtensionAPI, getController: () => DebugReplController): void {
 	pi.registerCommand("debug", {
 		description: "Enable or disable the privileged live-process debug REPL",
 		handler: async (args, ctx) => {
-			const debugRepl = controller ?? getConfiguredDebugRepl();
+			const debugRepl = getController();
 			const action = args.trim();
 			if (action === "off") {
 				await debugRepl.disable();

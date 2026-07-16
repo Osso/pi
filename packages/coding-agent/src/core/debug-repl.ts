@@ -288,15 +288,3 @@ export class DebugReplServer {
 		if (existsSync(this.socketPath)) rmSync(this.socketPath, { force: true });
 	}
 }
-
-let configuredServer: DebugReplServer | undefined;
-
-export function configureDebugRepl(options: DebugReplServerOptions): DebugReplServer {
-	configuredServer = new DebugReplServer(options);
-	return configuredServer;
-}
-
-export function getConfiguredDebugRepl(): DebugReplServer {
-	if (!configuredServer) throw new Error("Debug REPL is not available before runtime initialization");
-	return configuredServer;
-}
