@@ -22,7 +22,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Advice
 
-- [x] Keep the standard Pi tool set available except Architect-disabled `broadcast`, `ask_architect`, and `contact_supervisor` while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled; Hostrun is opt-in and uses the same runner mode when loaded.
+- [x] Keep the standard Pi tool set available except Architect-disabled `broadcast`, `ask_architect`, and `contact_parent` while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled; Hostrun is opt-in and uses the same runner mode when loaded. The removed `contact_supervisor` name is not a compatibility alias.
 - [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block `broadcast` and global `channel_post` fanout.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 

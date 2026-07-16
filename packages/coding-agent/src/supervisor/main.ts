@@ -29,7 +29,7 @@ export const SUPERVISOR_EXCLUDED_TOOL_NAMES = [
 	"attach_session_agent",
 	"bash",
 	"channel_post",
-	"contact_supervisor",
+	"contact_parent",
 	"loop",
 	"manage_goal",
 	"pyrun_eval",

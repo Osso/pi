@@ -2618,18 +2618,46 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readRuntimeMailboxMessage(controlDbPath, agentMessageId)).toMatchObject({ status: "pending" });
 	});
 
+	it("enforces persisted parent-request targets against the sender's direct parent", () => {
+		const sessionPath = "/sessions/parent-request.jsonl";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-child", {
+			id: "agent-child",
+			lifecycle: "running",
+			parentId: "agent-parent",
+			revision: 1,
+		});
+		const request = {
+			body: "Need scope",
+			fromAgentId: "agent-child",
+			id: "message_1",
+			kind: "parent_request",
+			status: "pending",
+			toAgentId: "supervisor",
+		};
+
+		expect(() => upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", request)).toThrow(
+			/invalid parent request target/i,
+		);
+		expect(() =>
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {
+				...request,
+				toAgentId: "agent-parent",
+			}),
+		).not.toThrow();
+	});
+
 	it("resolves store-referenced runtime mailbox bodies without copying them into transport rows", () => {
 		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
 			fileRefs: [{ label: "Log", path: "/tmp/run.log" }],
-			body: "stored supervisor request",
+			body: "stored mailbox message",
 			fromAgentId: "agent_1",
 			id: "message_1",
-			kind: "supervisor_request",
+			kind: "message",
 			status: "pending",
-			toAgentId: "supervisor",
+			toAgentId: "agent_2",
 		});
 		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "supervisor_request",
+			kind: "message",
 			recipient: { agentId: null, sessionId: "parent-session" },
 			sender: { agentId: "agent_1", sessionId: "child-session" },
 			storeRef: { messageId: "message_1", sessionPath: "/sessions/supervisor.jsonl" },
@@ -2637,14 +2665,14 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({
 			fileRefs: [{ label: "Log", path: "/tmp/run.log" }],
-			body: "stored supervisor request",
-			kind: "supervisor_request",
+			body: "stored mailbox message",
+			kind: "message",
 		});
 		expect(
 			claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" }).map(
 				(message) => message.body,
 			),
-		).toEqual(["stored supervisor request"]);
+		).toEqual(["stored mailbox message"]);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			const runtimeTable = db
@@ -2655,7 +2683,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			};
 			expect(runtimeTable).toBeUndefined();
 			expect(JSON.parse(raw.data)).toMatchObject({
-				body: "stored supervisor request",
+				body: "stored mailbox message",
 				recipientSessionId: "parent-session",
 			});
 		} finally {

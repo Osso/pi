@@ -141,7 +141,7 @@ interface SteerAgentDetails extends Record<string, unknown> {
 	message: AgentMailboxMessage;
 }
 
-interface ContactSupervisorDetails extends Record<string, unknown> {
+interface ContactParentDetails extends Record<string, unknown> {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
 }
@@ -307,6 +307,9 @@ function createMultiAgentHarness(
 	}
 
 	return {
+		setAgentRuntimeIdentity: (agentId: string | undefined) => {
+			ctx.multiAgentAgentId = agentId;
+		},
 		emit: async (eventName: string, event: unknown = {}) => {
 			for (const handler of eventHandlers.get(eventName) ?? []) {
 				await handler(event, ctx);
@@ -469,7 +472,7 @@ describe("multi-agent extension tools", () => {
 			"agent_viewer",
 			"attach_session_agent",
 			"cancel_agent",
-			"contact_supervisor",
+			"contact_parent",
 			"list_agents",
 			"send_agent_message",
 			"spawn_agent",
@@ -496,7 +499,7 @@ describe("multi-agent extension tools", () => {
 			["agent_viewer", false],
 			["attach_session_agent", false],
 			["cancel_agent", false],
-			["contact_supervisor", false],
+			["contact_parent", false],
 			["list_agents", false],
 			["send_agent_message", false],
 			["spawn_agent", false],
@@ -512,7 +515,7 @@ describe("multi-agent extension tools", () => {
 			"agent_viewer",
 			"attach_session_agent",
 			"cancel_agent",
-			"contact_supervisor",
+			"contact_parent",
 			"list_agents",
 			"send_agent_message",
 			"spawn_agent",
@@ -1617,7 +1620,7 @@ describe("multi-agent extension tools", () => {
 		]);
 		expect(collectTools((pi) => agentViewerExtension(pi, { store }))).toEqual(["agent_viewer"]);
 		expect(collectTools((pi) => agentsMailboxExtension(pi, { store }))).toEqual([
-			"contact_supervisor",
+			"contact_parent",
 			"send_agent_message",
 		]);
 	});
@@ -2364,7 +2367,8 @@ describe("multi-agent extension tools", () => {
 		if (!accepted.ok) {
 			throw new Error("expected steering acknowledgement");
 		}
-		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+		harness.setAgentRuntimeIdentity(child.details.agent.id);
+		const contact = await harness.call<ContactParentDetails>("contact_parent", {
 			agentId: child.details.agent.id,
 			expectedRevision: accepted.agent.revision,
 			message: "Need scope",
@@ -2495,7 +2499,7 @@ describe("multi-agent extension tools", () => {
 		]);
 	});
 
-	it("lets a child contact its supervisor without choosing a sibling target", async () => {
+	it("lets a child contact its parent without choosing a sibling target", async () => {
 		const harness = createMultiAgentHarness();
 		const parent = spawnStoreFixture(harness.store, { displayName: "Parent", prompt: "Parent task" });
 		const child = spawnStoreFixture(harness.store, {
@@ -2504,8 +2508,9 @@ describe("multi-agent extension tools", () => {
 			prompt: "Child task",
 		});
 		spawnStoreFixture(harness.store, { displayName: "Sibling", prompt: "Sibling task" });
+		harness.setAgentRuntimeIdentity(child.details.agent.id);
 
-		const contact = await harness.call<ContactSupervisorDetails>("contact_supervisor", {
+		const contact = await harness.call<ContactParentDetails>("contact_parent", {
 			agentId: child.details.agent.id,
 			expectedRevision: child.details.agent.revision,
 			message: "Need auth scope",
@@ -2513,16 +2518,41 @@ describe("multi-agent extension tools", () => {
 
 		expect(contact.details.agent).toMatchObject({
 			id: child.details.agent.id,
-			lastActivity: { description: "Contacted supervisor" },
+			lastActivity: { description: "Contacted parent" },
 			revision: child.details.agent.revision,
 		});
 		expect(contact.details.message).toMatchObject({
 			body: "Need auth scope",
 			fromAgentId: child.details.agent.id,
-			kind: "supervisor_request",
+			kind: "parent_request",
 			status: "failed",
 			toAgentId: parent.details.agent.id,
 		});
+	});
+
+	it("rejects contact_parent when the caller has no agent runtime identity", async () => {
+		const harness = createMultiAgentHarness();
+		const child = spawnStoreFixture(harness.store, {
+			displayName: "Child",
+			parentId: "parent",
+			prompt: "Child task",
+		});
+
+		const contact = await harness.call<ContactParentDetails>("contact_parent", {
+			agentId: child.details.agent.id,
+			message: "Need auth scope",
+		});
+
+		expect(contact.content).toEqual([
+			{ type: "text", text: expect.stringContaining("runtime identity is unavailable") },
+		]);
+		expect(contact.details.message).toMatchObject({
+			fromAgentId: child.details.agent.id,
+			kind: "parent_request",
+			status: "failed",
+			toAgentId: "",
+		});
+		expect(harness.store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("routes persisted detached Pyrun cancellation through exact-owner runtime mailbox control", async () => {
@@ -2812,14 +2842,14 @@ describe("multi-agent extension tools", () => {
 			parentId: "main",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const contacted = store.contactSupervisor(child.agent.id, {
+		const contacted = store.contactParent(child.agent.id, {
 			fileRefs: [{ label: "Test log", path: "/tmp/test.log" }],
 			body: "Review log",
 		});
-		if (!contacted.ok) throw new Error("expected supervisor contact");
+		if (!contacted.ok) throw new Error("expected parent contact");
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("mailbox reply")]);
 		enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "supervisor_request",
+			kind: "parent_request",
 			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
 			sender: { agentId: child.agent.id, sessionId: harness.sessionManager.getSessionId() },
 			storeRef: { messageId: contacted.message.id, sessionPath },

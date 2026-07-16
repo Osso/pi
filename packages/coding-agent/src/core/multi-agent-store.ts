@@ -25,7 +25,7 @@ export type TerminalAgentLifecycleState = "completed" | "failed" | "aborted";
 
 export type SteeringCheckpoint = "next_model_call" | "after_tool_result" | "when_waiting";
 
-export type MailboxMessageKind = "message" | "ask" | "reply" | "steer" | "supervisor_request" | "system";
+export type MailboxMessageKind = "message" | "ask" | "reply" | "steer" | "parent_request" | "system";
 
 export type MailboxMessageStatus = "pending" | "claimed" | "accepted" | "rejected" | "delivered" | "failed";
 
@@ -160,7 +160,7 @@ export interface SendSteeringInput {
 	fileRefs?: AgentFileReference[];
 }
 
-export interface ContactSupervisorInput {
+export interface ContactParentInput {
 	body: string;
 	threadId?: string;
 	fileRefs?: AgentFileReference[];
@@ -192,9 +192,10 @@ export type SpawnChildAgentResult =
 	| { ok: false; error: "parent_not_found"; parentId: string }
 	| { ok: false; error: "permission_broadened"; parent: AgentSnapshot; requested: AgentNode["permission"] };
 
-export type SupervisorContactResult =
+export type ParentContactResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; error: "not_found"; agentId: string }
+	| { ok: false; error: "parent_not_found"; current: AgentSnapshot }
 	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
 
 export type MailboxMessageCommandResult =
@@ -663,10 +664,15 @@ export class MultiAgentStore {
 		return { ok: true, agent: copyAgent(updated) };
 	}
 
-	contactSupervisor(agentId: string, input: ContactSupervisorInput): SupervisorContactResult {
+	contactParent(agentId: string, input: ContactParentInput): ParentContactResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
 			return { ok: false, error: "not_found", agentId };
+		}
+
+		const fileRefs = validateFileRefs(input.fileRefs, "contact_parent");
+		if (!current.parentId) {
+			return { ok: false, error: "parent_not_found", current: copyAgent(current) };
 		}
 
 		const timestamp = this.now();
@@ -674,18 +680,18 @@ export class MultiAgentStore {
 			id: this.createMessageId(),
 			threadId: input.threadId,
 			fromAgentId: current.id,
-			toAgentId: current.parentId ?? "supervisor",
-			kind: "supervisor_request",
+			toAgentId: current.parentId,
+			kind: "parent_request",
 			status: "pending",
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			body: input.body,
-			fileRefs: validateFileRefs(input.fileRefs, "contact_supervisor"),
+			fileRefs,
 		};
 		this.putMailboxMessage(message);
 
 		const updated = this.updateAgentMetadata(current, {
-			lastActivity: { description: "Contacted supervisor" },
+			lastActivity: { description: "Contacted parent" },
 		});
 
 		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
@@ -924,7 +930,9 @@ export class MultiAgentStore {
 	}
 
 	private canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {
-		return this.isAncestor(fromAgentId, toAgentId) || this.isAncestor(toAgentId, fromAgentId);
+		const sender = this.agents.get(fromAgentId);
+		const recipient = this.agents.get(toAgentId);
+		return sender?.parentId === toAgentId || recipient?.parentId === fromAgentId;
 	}
 
 	private isMainThreadChild(agent: AgentNode): boolean {
@@ -945,18 +953,6 @@ export class MultiAgentStore {
 			revision: 0,
 			updatedAt: timestamp,
 		};
-	}
-
-	private isAncestor(ancestorId: string, descendantId: string): boolean {
-		let current = this.agents.get(descendantId);
-		while (current?.parentId) {
-			if (current.parentId === ancestorId) {
-				return true;
-			}
-			current = this.agents.get(current.parentId);
-		}
-
-		return false;
 	}
 
 	private checkRevision(

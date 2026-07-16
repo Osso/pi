@@ -1050,7 +1050,7 @@ describe("MultiAgentStore", () => {
 		expect(store.listDescendants(scout.agent.id).map((agent) => agent.id)).toEqual([scoutChild.agent.id]);
 	});
 
-	it("lets a child contact only its supervisor through the mailbox", () => {
+	it("lets a child contact only its parent through the mailbox", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const supervisor = spawnScout(store);
 		const child = legacyMultiAgentStore(store).spawnAgent({
@@ -1068,26 +1068,45 @@ describe("MultiAgentStore", () => {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 
-		const contact = store.contactSupervisor(child.agent.id, {
+		const contact = store.contactParent(child.agent.id, {
 			body: "Need clarification on auth scope",
 		});
 
 		expect(contact.ok).toBe(true);
 		if (!contact.ok) {
-			throw new Error("expected supervisor contact to succeed");
+			throw new Error("expected parent contact to succeed");
 		}
 		expect(contact.agent).toMatchObject({
 			id: child.agent.id,
-			lastActivity: { description: "Contacted supervisor" },
+			lastActivity: { description: "Contacted parent" },
 			revision: child.agent.revision,
 		});
 		expect(contact.message).toMatchObject({
 			body: "Need clarification on auth scope",
 			fromAgentId: child.agent.id,
-			kind: "supervisor_request",
+			kind: "parent_request",
 			status: "pending",
 			toAgentId: supervisor.agent.id,
 		});
+	});
+
+	it("rejects parent contact when the agent has no direct parent", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const root = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "lead",
+			cwd: "/repo",
+			displayName: "Root",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+
+		const contact = store.contactParent(root.agent.id, { body: "Need clarification" });
+
+		expect(contact).toMatchObject({
+			ok: false,
+			error: "parent_not_found",
+			current: { id: root.agent.id },
+		});
+		expect(store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("sends direct mailbox messages only across parent-child relationships", () => {
@@ -1107,6 +1126,13 @@ describe("MultiAgentStore", () => {
 			parentId: "root",
 			permission: { narrowed: true, policy: "on-request" },
 		});
+		const grandchild = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Grandchild",
+			parentId: child.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+		});
 
 		const sentToChild = store.sendMailboxMessage(parent.agent.id, parent.agent.revision, {
 			body: "Please inspect auth",
@@ -1119,6 +1145,10 @@ describe("MultiAgentStore", () => {
 		const siblingAttempt = store.sendMailboxMessage(child.agent.id, child.agent.revision, {
 			body: "Can I read your state?",
 			toAgentId: sibling.agent.id,
+		});
+		const grandchildAttempt = store.sendMailboxMessage(parent.agent.id, parent.agent.revision, {
+			body: "Skip the direct parent",
+			toAgentId: grandchild.agent.id,
 		});
 
 		expect(sentToChild.message).toMatchObject({
@@ -1138,6 +1168,12 @@ describe("MultiAgentStore", () => {
 			error: "forbidden_target",
 			current: { id: child.agent.id, revision: child.agent.revision },
 			target: { id: sibling.agent.id },
+		});
+		expect(grandchildAttempt).toMatchObject({
+			ok: false,
+			error: "forbidden_target",
+			current: { id: parent.agent.id, revision: parent.agent.revision },
+			target: { id: grandchild.agent.id },
 		});
 		expect(store.listMailboxMessages()).toHaveLength(1);
 	});
@@ -1180,8 +1216,8 @@ describe("MultiAgentStore", () => {
 			now: () => "2026-06-21T00:00:02.000Z",
 		});
 
-		const leftContact = left.contactSupervisor(first.agent.id, { body: "left" });
-		const rightContact = right.contactSupervisor(second.agent.id, { body: "right" });
+		const leftContact = left.contactParent(first.agent.id, { body: "left" });
+		const rightContact = right.contactParent(second.agent.id, { body: "right" });
 		const controlDbPath = session.getMetadataControlDbPath();
 		const sessionPath = session.getSessionFile();
 		if (!controlDbPath || !sessionPath) throw new Error("expected control DB session");

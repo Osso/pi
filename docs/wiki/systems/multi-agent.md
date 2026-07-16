@@ -12,16 +12,18 @@ in-memory identity, outcome, and output metadata; output artifacts are diagnosti
 dispatch, attached-session recovery, cancellation, steering, and waits use the same repository authority.
 
 The first-party agent extensions expose `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`,
-`cancel_agent`, `contact_supervisor`, `send_agent_message`, and `steer_agent`. Orchestration-capable
+`cancel_agent`, `contact_parent`, `send_agent_message`, and `steer_agent`. Orchestration-capable
 main runtimes must receive an issued execution capability before these tools or main-runtime listeners
 are exposed. `spawn_agent` constructs executable child work before persistence: success stores `running`
 revision 1, while construction interruption or failure stores `failed` revision 1. Promptless saved-session
 attachment is a separate operation. Production has no optional dispatcher or dormant-row fallback.
 `list_agents` returns active agents by default and
 can include inactive agents or scope results to descendants below a parent ID, using core store state
-rather than rendered TUI rows. `contact_supervisor` lets a child
-send a pending mailbox request only to its direct parent or root supervisor; it does not accept an
-arbitrary sibling target. Mailbox messages can carry validated absolute `fileRefs` entries with
+rather than rendered TUI rows. `contact_parent` is direct-parent-only: the caller's exact runtime identity
+`(session_id, agent_id)` must match the sending row, persisted `parent_request` rows must target that row's
+current direct parent, parentless runtimes are rejected, and the tool cannot target the resident Supervisor
+or an arbitrary sibling. The old `contact_supervisor` name has no compatibility alias.
+Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
 `wait_agents({})` consumes one pending completion notification, then queries current agent rows for
 agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
@@ -30,8 +32,8 @@ Hostrun/Pyrun `pi.agents.wait()` uses the same query semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
-`send_agent_message` creates direct mailbox messages only across parent-child relationships, so
-siblings cannot target each other directly.
+`send_agent_message` creates direct mailbox messages only across one immediate parent-child edge, so
+siblings and transitive ancestors or descendants cannot target each other directly.
 `agent_viewer` is read-only, requires an agent ID, and returns one agent's snapshot, status,
 transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
 tools and do not mutate agent lifecycle by themselves.
@@ -240,7 +242,7 @@ interface AgentMailboxMessage {
 	threadId?: string;
 	fromAgentId: string;
 	toAgentId: string;
-	kind: "message" | "ask" | "reply" | "steer" | "supervisor_request" | "system";
+	kind: "message" | "ask" | "reply" | "steer" | "parent_request" | "system";
 	status: "pending" | "accepted" | "rejected" | "delivered" | "failed";
 	createdAt: string;
 	updatedAt: string;
@@ -408,7 +410,7 @@ Source: <https://github.com/nicobailon/pi-intercom>
 Useful:
 
 - Direct session messaging, ask/reply threading, pending asks, and child-only
-  `contact_supervisor`.
+  `contact_parent`.
 - Local broker model for routing by session ID/name.
 - Inline rendering plus persisted session-history extension entries.
 

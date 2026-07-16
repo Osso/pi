@@ -48,7 +48,7 @@ describe("resident architect service", () => {
 		expect(ARCHITECT_EXCLUDED_TOOL_NAMES).toEqual([
 			"ask_architect",
 			"broadcast",
-			"contact_supervisor",
+			"contact_parent",
 			...SUPERVISOR_ONLY_TOOL_NAMES,
 		]);
 	});

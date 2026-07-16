@@ -384,12 +384,14 @@ describe("runtime SQLite mailbox delivery", () => {
 			transcript: { sessionId: childSession.getSessionId() },
 		});
 		const tools = collectMultiAgentTools(store);
-		const contactSupervisor = tools.get("contact_supervisor");
-		if (!contactSupervisor) {
-			throw new Error("expected contact_supervisor tool");
+		const contactParent = tools.get("contact_parent");
+		if (!contactParent) {
+			throw new Error("expected contact_parent tool");
 		}
+		expect(tools.has("contact_supervisor")).toBe(false);
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("provider socket closed"));
 
-		await contactSupervisor.execute(
+		await contactParent.execute(
 			"contact",
 			{ agentId: child.agent.id, expectedRevision: child.agent.revision, message: "Need scope" },
 			undefined,
@@ -401,6 +403,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			}),
 		);
 
+		expect(fetchSpy).not.toHaveBeenCalled();
+		fetchSpy.mockRestore();
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 			{
 				body: "Need scope",

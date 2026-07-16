@@ -21,7 +21,7 @@ const ARCHITECT_REQUEST_THREAD_PREFIX = "architect-request:";
 export const ARCHITECT_EXCLUDED_TOOL_NAMES = [
 	"ask_architect",
 	"broadcast",
-	"contact_supervisor",
+	"contact_parent",
 	...SUPERVISOR_ONLY_TOOL_NAMES,
 ];
 

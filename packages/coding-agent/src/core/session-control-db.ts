@@ -30,7 +30,7 @@ export interface IncomingControlMessage {
 	content: string;
 }
 
-export type RuntimeMailboxMessageKind = "message" | "ask" | "reply" | "steer" | "supervisor_request" | "system";
+export type RuntimeMailboxMessageKind = "message" | "ask" | "reply" | "steer" | "parent_request" | "system";
 export type RuntimeMailboxMessageStatus = "pending" | "claimed" | "delivered" | "failed";
 
 export interface RuntimeMailboxAddress {
@@ -1836,7 +1836,7 @@ function toRuntimeMailboxMessageKind(value: string): RuntimeMailboxMessageKind {
 		value === "ask" ||
 		value === "reply" ||
 		value === "steer" ||
-		value === "supervisor_request" ||
+		value === "parent_request" ||
 		value === "system"
 	) {
 		return value;
@@ -3863,6 +3863,7 @@ export function upsertMultiAgentMailboxMessage(
 	withControlDb(controlDbPath, (db) => {
 		db.exec("BEGIN IMMEDIATE");
 		try {
+			validateParentRequestTarget(db, sessionPath, data);
 			let serialized = JSON.stringify(data);
 			const existing = db
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
@@ -3996,6 +3997,21 @@ function updateMultiAgentMailboxMessageStatus(
 		).run(JSON.stringify(updated), now, sessionPath, messageId);
 		return true;
 	});
+}
+
+function validateParentRequestTarget(db: SqliteDatabase, sessionPath: string, data: unknown): void {
+	if (!data || typeof data !== "object" || Array.isArray(data)) return;
+	const payload = data as Record<string, unknown>;
+	if (payload.kind !== "parent_request") return;
+	const fromAgentId = requireStringField(payload, "fromAgentId", "parent_request");
+	const toAgentId = requireStringField(payload, "toAgentId", "parent_request");
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, fromAgentId) as { data: string } | undefined;
+	const sender = row ? parseJsonObject(row.data) : undefined;
+	if (!sender || sender.parentId !== toAgentId) {
+		throw new Error(`Invalid parent request target at ${sessionPath}#${fromAgentId}`);
+	}
 }
 
 function validateMailboxPayload(data: unknown, context: string): void {

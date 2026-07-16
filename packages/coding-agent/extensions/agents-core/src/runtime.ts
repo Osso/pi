@@ -28,7 +28,7 @@ import {
 	type AgentMailboxMessage,
 	type AgentResult,
 	type AgentSnapshot,
-	type ContactSupervisorInput,
+	type ContactParentInput,
 	formatInactiveAgentSelectionMessage,
 	isActiveLifecycle,
 	type MailboxMessageCommandResult,
@@ -105,7 +105,7 @@ const steerAgentSchema = Type.Object({
 	targetCheckpoint: Type.Optional(checkpointSchema),
 });
 
-const contactSupervisorSchema = Type.Object({
+const contactParentSchema = Type.Object({
 	agentId: Type.String(),
 	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
 	message: Type.String(),
@@ -132,7 +132,7 @@ type ListAgentsParams = Static<typeof listAgentsSchema>;
 type AgentViewerParams = Static<typeof agentViewerSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
-type ContactSupervisorParams = Static<typeof contactSupervisorSchema>;
+type ContactParentParams = Static<typeof contactParentSchema>;
 type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
 
 type ChildSessionModel = CreateAgentSessionOptions["model"];
@@ -276,7 +276,7 @@ interface AgentSteerToolDetails {
 	message: AgentMailboxMessage;
 }
 
-interface ContactSupervisorToolDetails {
+interface ContactParentToolDetails {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
 }
@@ -2527,46 +2527,45 @@ async function cancelAgent(
 	);
 }
 
-function contactSupervisor(
+function contactParent(
 	store: MultiAgentStore,
-	params: ContactSupervisorParams,
+	params: ContactParentParams,
 	ctx?: ExtensionContext,
-): AgentToolResult<ContactSupervisorToolDetails> {
+): AgentToolResult<ContactParentToolDetails> {
 	const currentAgentId = ctx?.multiAgentAgentId;
-	const requiresRuntimeIdentity = ctx?.multiAgentRequiresAgentId || ctx?.sessionManager?.isSubagentSession();
-	if (requiresRuntimeIdentity && !currentAgentId) {
-		return errorResult("Could not contact supervisor: subagent runtime identity is unavailable.", {
+	if (!currentAgentId) {
+		return errorResult("Could not contact parent: agent runtime identity is unavailable.", {
 			agent: emptyAgent(params.agentId),
-			message: emptySupervisorRequest(params.agentId, params.message),
+			message: emptyParentRequest(params.agentId, params.message),
 		});
 	}
 	if (currentAgentId && currentAgentId !== params.agentId) {
-		return errorResult(`Could not contact supervisor for ${params.agentId}: sender identity mismatch.`, {
+		return errorResult(`Could not contact parent for ${params.agentId}: sender identity mismatch.`, {
 			agent: emptyAgent(params.agentId),
-			message: emptySupervisorRequest(params.agentId, params.message),
+			message: emptyParentRequest(params.agentId, params.message),
 		});
 	}
-	const contacted = store.contactSupervisor(params.agentId, {
+	const contacted = store.contactParent(params.agentId, {
 		fileRefs: params.fileRefs,
 		body: params.message,
 		threadId: params.threadId,
 	});
 	if (!contacted.ok) {
-		return errorResult(`Could not contact supervisor for ${params.agentId}: ${contacted.error}`, {
+		return errorResult(`Could not contact parent for ${params.agentId}: ${contacted.error}`, {
 			agent: "current" in contacted ? contacted.current : emptyAgent(params.agentId),
-			message: emptySupervisorRequest(params.agentId, params.message),
+			message: emptyParentRequest(params.agentId, params.message),
 		});
 	}
 
 	if (!mirrorRuntimeMailboxMessage(store, contacted.message, ctx)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, contacted.message);
-		return errorResult("Could not contact supervisor: runtime mailbox transport is unavailable.", {
+		return errorResult("Could not contact parent: runtime mailbox transport is unavailable.", {
 			agent: contacted.agent,
 			message: failedMessage,
 		});
 	}
 
-	return result(`Contacted supervisor for ${contacted.agent.displayName}.`, {
+	return result(`Contacted parent for ${contacted.agent.displayName}.`, {
 		agent: contacted.agent,
 		message: contacted.message,
 	});
@@ -2927,16 +2926,16 @@ function emptyMessage(agentId: string, body: string): AgentMailboxMessage {
 	};
 }
 
-function emptySupervisorRequest(agentId: string, body: string): AgentMailboxMessage {
+function emptyParentRequest(agentId: string, body: string): AgentMailboxMessage {
 	const timestamp = new Date(0).toISOString();
 	return {
 		body,
 		createdAt: timestamp,
 		fromAgentId: agentId,
 		id: "",
-		kind: "supervisor_request",
+		kind: "parent_request",
 		status: "failed",
-		toAgentId: "supervisor",
+		toAgentId: "",
 		updatedAt: timestamp,
 	};
 }
@@ -3191,12 +3190,12 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 
 	pi.registerTool(
 		defineTool({
-			name: "contact_supervisor",
-			label: "Contact Supervisor",
-			description: "Send a child-agent mailbox request to its direct supervisor.",
+			name: "contact_parent",
+			label: "Contact Parent",
+			description: "Send a child-agent mailbox request to its direct parent.",
 			approvalRequired: false,
-			parameters: contactSupervisorSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => contactSupervisor(store, params, ctx),
+			parameters: contactParentSchema,
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => contactParent(store, params, ctx),
 		}),
 	);
 }

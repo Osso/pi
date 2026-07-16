@@ -42,6 +42,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       persisted-store reconciliation or lifecycle-notification mirroring. Their bound session-start hook
       reconciles only direct persisted descendants through coordinator recovery, preventing same-PID child
       startup from retiring, mutating, or projecting the supervisor's main-session state.
+- [x] `contact_parent` is direct-parent-only: the caller must have the exact child runtime identity
+      `(session_id, agent_id)`, parentless runtimes are rejected, persisted `parent_request` rows must target
+      that agent's current direct parent, the resident Supervisor and arbitrary siblings cannot be targeted,
+      and the old `contact_supervisor` name has no compatibility alias.
+- [x] `send_agent_message` creates direct mailbox messages only across one immediate parent-child edge;
+      siblings and transitive ancestors or descendants cannot target each other directly.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list descendants without depending on the TUI. `list_agents` visible content identifies each
       returned agent by ID, name, type, active/terminal status, and lifecycle; `agent_viewer` visible
@@ -232,7 +238,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       after a tool result, or while the child is waiting for input.
 - [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
       delivered state.
-- [x] Child agents can contact the supervisor without direct access to sibling internals.
+- [x] Child agents can contact their current direct parent without direct access to sibling internals.
 - [x] Spawned child dispatches perform a final runtime-coordination drain before end-of-turn completion;
       steering that races with turn end is delivered before terminalization and cannot remain pending
       after the child reaches `completed`.
@@ -316,7 +322,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] `agent viewer` is a read-only extension surface for tree/status/transcript inspection plus
       explicit commands such as stop, resume, and steer.
 - [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
-      supervisor contact, and inter-agent messages.
+      direct-parent contact, and inter-agent messages.
 - [x] Background logs remain visible through direct absolute `fileRefs` on active and completed agent state.
 - [x] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.
@@ -394,7 +400,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/extensions/agent-viewer/src/index.ts`](../../packages/coding-agent/extensions/agent-viewer/src/index.ts)
   registers the read-only tree/status/transcript projection tool against the shared store.
 - [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
-  registers inbox/outbox summary, supervisor-contact, and direct-message tools against the shared store.
+  registers inbox/outbox summary, direct-parent-contact, and direct-message tools against the shared store.
 - [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
   owns SQLite schema, exact-owner lifecycle/steering/terminal transactions and runtime ownership,
   terminal agent rows and completion outbox delivery, canonical mailbox delivery, session health, and path
@@ -408,7 +414,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
   core-derived active counts. It also asserts row persistence through the session control DB,
   rehydration after reopening a persisted session, descendant listing below a parent, and
-  child-to-supervisor mailbox contact without sibling targeting. It verifies absolute file
+  child-to-parent mailbox contact without sibling targeting. It verifies absolute file
   references are validated at ingress, covers stable
   agent metadata plus pinned slot updates, and exercises the remaining non-terminal lifecycle
   transitions. It also asserts authoritative projection snapshots and slot resync by agent ID from
@@ -431,8 +437,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
   supports simultaneous and late completion waiters without consuming mailbox delivery. Failed
   agents expose their failure message and `fileRefs`. `list_agents` returns
-  active agents by default and can return descendants below a parent without TUI state, and that `contact_supervisor` routes child messages to the direct parent with validated absolute
-  file references. It verifies `agent_viewer` requires an agent ID, can read an
+  active agents by default and can return descendants below a parent without TUI state, and that `contact_parent` requires the caller's exact agent runtime identity and routes child messages only to the current direct parent with validated absolute
+  file references and persisted target validation. It rejects parentless runtimes, cannot target the resident Supervisor or arbitrary siblings,
+  and has no `contact_supervisor` compatibility alias. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
   agent's read-only snapshot, status, transcript, child IDs, and stop/steer command descriptor details without advancing lifecycle state. The
   read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
@@ -476,7 +483,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       session primitives, without real provider calls in tests.
 - [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
       trees without TUI state.
-- [x] Add and implement child-to-supervisor mailbox contact without sibling access.
+- [x] Add and implement child-to-parent mailbox contact without sibling access.
 - [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
 - [x] Add and implement `wait_agents({})` behavior using one pending completion notification to wake
       agent-row queries; simultaneous and late waiters observe current terminal rows without consuming
@@ -513,7 +520,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       package while keeping lifecycle authority in coordinator/repository transactions.
 - [x] Move read-only tree/status/transcript projection and focus/switch command descriptors into
       an `agent-viewer` first-party extension package.
-- [x] Move inbox/outbox summaries, acknowledgements, supervisor contact, and direct message actions into an
+- [x] Move inbox/outbox summaries, acknowledgements, direct-parent contact, and direct message actions into an
       `agents-mailbox` first-party extension package.
 - [x] Keep compatibility tests proving the split modules share the same `MultiAgentStore` snapshot
       and do not create independent TUI/core state.
