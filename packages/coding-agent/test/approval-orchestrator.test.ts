@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { orchestrateToolApproval } from "../src/core/permissions/orchestrator.ts";
+import { createGrepToolDefinition } from "../src/core/tools/grep.ts";
+import { createReadToolDefinition } from "../src/core/tools/read.ts";
 
 describe("orchestrateToolApproval", () => {
 	it("routes on-request approvals to the hook reviewer", async () => {
@@ -35,6 +37,23 @@ describe("orchestrateToolApproval", () => {
 			orchestrateToolApproval({
 				approvalRequired: true,
 				policy: "auto-approve",
+				reviewer,
+			}),
+		).resolves.toBeUndefined();
+		expect(reviewer).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["read", createReadToolDefinition],
+		["grep", createGrepToolDefinition],
+	])("allows the built-in %s tool without requesting approval", async (_name, createToolDefinition) => {
+		const reviewer = vi.fn().mockResolvedValue({ block: true, reason: "blocked" });
+		const toolDefinition = createToolDefinition(process.cwd());
+
+		await expect(
+			orchestrateToolApproval({
+				approvalRequired: toolDefinition.approvalRequired ?? true,
+				policy: "on-request",
 				reviewer,
 			}),
 		).resolves.toBeUndefined();

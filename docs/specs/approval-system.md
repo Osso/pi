@@ -46,9 +46,11 @@ Implementation details belong in
   decision and must fall through to the configured Supervisor or human reviewer.
 - [x] Do not run the LLM-approved reviewer when the active policy is `never` or
   `auto-approve`.
-- [x] Tools can opt out of generic wrapper approval with `approvalRequired:
-  false` only when they gate their own host effects internally; those calls skip
-  hook, human, and LLM reviewers at the wrapper layer.
+- [x] Read-only tools can opt out of generic wrapper approval with
+  `approvalRequired: false`; built-in `read` and `grep` use this opt-out, so
+  Ask Me (`on-request`) never prompts for those tools. Other opt-out tools must
+  gate their own host effects internally; all such calls skip hook, human, and
+  LLM reviewers at the wrapper layer.
 - [x] Send bounded current-request evidence to the Supervisor without historical
   session transcripts or the retired in-process approval decision history.
 - [x] Escalate Supervisor `error`, timeout, unavailable-service, and invalid-response
