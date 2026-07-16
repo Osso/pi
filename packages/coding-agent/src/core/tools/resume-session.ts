@@ -4,6 +4,11 @@ import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import {
+	findActiveSessionMetadataById,
+	findActiveSessionMetadataByName,
+	type SessionMetadata,
+} from "../session-control-db.ts";
 import type { SessionInfo } from "../session-manager.ts";
 import { SessionManager } from "../session-manager.ts";
 
@@ -30,6 +35,8 @@ interface ResumeSessionParams {
 	path?: string;
 	starterPrompt?: string;
 }
+
+type ResolvableSession = Pick<SessionInfo, "id" | "name" | "path">;
 
 function readNonEmptyString(
 	record: Record<string, unknown>,
@@ -74,10 +81,10 @@ function assertResumeSessionPath(path: string): string {
 }
 
 function findUniqueSessionMatch(
-	sessions: SessionInfo[],
+	sessions: ResolvableSession[],
 	label: string,
-	matches: (session: SessionInfo) => boolean,
-): SessionInfo {
+	matches: (session: ResolvableSession) => boolean,
+): ResolvableSession {
 	const matched = sessions.filter(matches);
 	if (matched.length === 0) {
 		throw new Error(`No session found matching ${label}`);
@@ -113,7 +120,24 @@ async function listAllResolvableSessions(ctx: ExtensionContext): Promise<Session
 	return [...new Map([...scopedSessions, ...defaultSessions].map((session) => [session.path, session])).values()];
 }
 
-function findResumeSessionById(sessions: SessionInfo[], id: string): SessionInfo | undefined {
+function resolvableSessionFromMetadata(metadata: SessionMetadata): ResolvableSession {
+	return { id: metadata.id, name: metadata.name, path: metadata.sessionPath };
+}
+
+function sessionsInCurrentDirectory(sessions: ResolvableSession[], ctx: ExtensionContext): ResolvableSession[] {
+	const sessionDir = resolvePath(ctx.sessionManager.getSessionDir());
+	return sessions.filter((session) => resolvePath(session.path).startsWith(`${sessionDir}/`));
+}
+
+function findMetadataSessions(params: ResumeSessionParams, ctx: ExtensionContext): ResolvableSession[] {
+	if (!ctx.controlDbPath) return [];
+	const metadata = params.name
+		? findActiveSessionMetadataByName(ctx.controlDbPath, params.name)
+		: findActiveSessionMetadataById(ctx.controlDbPath, params.id ?? "");
+	return metadata.map(resolvableSessionFromMetadata);
+}
+
+function findResumeSessionById(sessions: ResolvableSession[], id: string): ResolvableSession | undefined {
 	const exactMatches = sessions.filter((session) => session.id === id);
 	const exactMatch = exactMatches[0];
 	if (exactMatches.length === 1 && exactMatch) return exactMatch;
@@ -131,6 +155,18 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	}
 
 	if (params.name) {
+		const metadataSessions = findMetadataSessions(params, ctx);
+		const scopedMetadata = sessionsInCurrentDirectory(metadataSessions, ctx);
+		if (scopedMetadata.length > 0) {
+			return assertResumeSessionPath(
+				findUniqueSessionMatch(scopedMetadata, `name '${params.name}'`, () => true).path,
+			);
+		}
+		if (metadataSessions.length > 0) {
+			return assertResumeSessionPath(
+				findUniqueSessionMatch(metadataSessions, `name '${params.name}'`, () => true).path,
+			);
+		}
 		const scopedSessions = await listLocalAndSessionDirSessions(ctx);
 		const scopedMatches = scopedSessions.filter((session) => session.name === params.name);
 		if (scopedMatches.length > 0) {
@@ -150,6 +186,11 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	if (!id) {
 		throw new Error("resume_session requires { path }, { id }, or { name }");
 	}
+	const metadataSessions = findMetadataSessions(params, ctx);
+	const scopedMetadataMatch = findResumeSessionById(sessionsInCurrentDirectory(metadataSessions, ctx), id);
+	if (scopedMetadataMatch) return assertResumeSessionPath(scopedMetadataMatch.path);
+	const metadataMatch = findResumeSessionById(metadataSessions, id);
+	if (metadataMatch) return assertResumeSessionPath(metadataMatch.path);
 	const scopedMatch = findResumeSessionById(await listLocalAndSessionDirSessions(ctx), id);
 	if (scopedMatch) return assertResumeSessionPath(scopedMatch.path);
 	const match = findResumeSessionById(await listAllResolvableSessions(ctx), id);

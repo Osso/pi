@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../../../src/core/agent-session.ts";
@@ -13,6 +14,7 @@ import {
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { getControlDbPath, writeSessionMetadata } from "../../../src/core/session-control-db.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
+import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { createResumeSessionToolDefinition } from "../../../src/core/tools/resume-session.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../../../src/index.ts";
 
@@ -283,6 +285,80 @@ describe("resume_session first-party tool", () => {
 		await expect(tool.execute("stale-name", { name: "stale target" }, undefined, undefined, context)).rejects.toThrow(
 			`Session file does not exist: ${stalePath}`,
 		);
+	});
+
+	it("resolves an id without materializing unrelated session metadata", async () => {
+		const root = join(tmpdir(), `pi-resume-session-bounded-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const currentCwd = join(root, "current");
+		const targetCwd = join(root, "target");
+		const sessionDir = join(root, "sessions");
+		mkdirSync(currentCwd, { recursive: true });
+		mkdirSync(targetCwd, { recursive: true });
+		cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+		const current = SessionManager.create(currentCwd, sessionDir, { id: "current-session" });
+		const target = SessionManager.create(targetCwd, sessionDir, { id: "019f7421-2000-7000-8000-000000000001" });
+		target.appendMessage({ role: "user", content: "target", timestamp: 1 });
+		const targetPath = target.getSessionFile();
+		if (!targetPath) throw new Error("Missing target session path");
+		writeFileSync(targetPath, "");
+		const controlDbPath = getControlDbPath(root);
+		writeSessionMetadata(controlDbPath, {
+			allMessagesText: "target",
+			createdAt: "2026-07-16T00:00:00.000Z",
+			cwd: targetCwd,
+			firstMessage: "target",
+			id: target.getSessionId(),
+			messageCount: 1,
+			modifiedAt: "2026-07-16T00:00:00.000Z",
+			name: undefined,
+			parentSessionPath: undefined,
+			sessionPath: targetPath,
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("BEGIN");
+			const insert = db.prepare(`
+				INSERT INTO session_metadata (
+					session_path, id, cwd, name, parent_session_path, archived_at, goal_json,
+					is_subagent, subagent_name, created_at, modified_at, message_count,
+					first_message, all_messages_text, updated_at
+				) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, ?, ?, 1, ?, ?, ?)
+			`);
+			const largeMessage = "x".repeat(8192);
+			for (let index = 0; index < 5_000; index += 1) {
+				const timestamp = "2026-07-15T00:00:00.000Z";
+				insert.run(
+					join(sessionDir, `unrelated-${index}.jsonl`),
+					`unrelated-${index}`,
+					targetCwd,
+					timestamp,
+					timestamp,
+					"unrelated",
+					largeMessage,
+					timestamp,
+				);
+			}
+			db.exec("COMMIT");
+		} finally {
+			db.close();
+		}
+		let switchedPath = "";
+		const context = {
+			controlDbPath,
+			cwd: currentCwd,
+			sessionManager: current,
+			switchSession: async (sessionPath: string) => {
+				switchedPath = sessionPath;
+				return { cancelled: false };
+			},
+		} as unknown as ExtensionContext;
+
+		const startedAt = performance.now();
+		await runtimeToolForTest().execute("bounded-id", { id: "019f7421-2000" }, undefined, undefined, context);
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(switchedPath).toBe(targetPath);
+		expect(elapsedMs).toBeLessThan(100);
 	});
 
 	it("resolves id targets across a custom session directory", async () => {
