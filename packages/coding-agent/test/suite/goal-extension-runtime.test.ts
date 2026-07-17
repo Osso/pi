@@ -15,7 +15,7 @@ function goalTestExtension(pi: ExtensionAPI): void {
 	});
 }
 
-function readStoredGoal(harness: Harness): { objective: string } {
+function readStoredGoal(harness: Harness): { objective: string; pausedAt?: string } {
 	const goalJson = harness.sessionManager.getSessionGoalJson();
 	if (!goalJson) throw new Error("No stored goal");
 	return JSON.parse(goalJson) as { objective: string };
@@ -100,23 +100,35 @@ describe("goal extension runtime", () => {
 		);
 	});
 
-	it("does not continue a goal while an aborted turn has a queued interactive prompt", async () => {
+	it("keeps a goal running when interactive replacement input aborts the active turn", async () => {
 		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("queued user prompt"), fauxAssistantMessage("goal continuation")]);
+		let markRequestStarted: (() => void) | undefined;
+		const requestStarted = new Promise<void>((resolve) => {
+			markRequestStarted = resolve;
+		});
+		harness.setResponses([
+			async (_context, options) => {
+				markRequestStarted?.();
+				await new Promise<void>((resolve) => {
+					options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+				return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
+			},
+			fauxAssistantMessage("queued user prompt"),
+		]);
 		harness.sessionManager.setSessionGoalJson(
 			JSON.stringify({ objective: "keep going", branch: "test", createdAt: new Date().toISOString() }),
 		);
 
-		const releaseQueuedInput = harness.session.reserveExternalUserInput();
-		try {
-			await harness.session.prompt("queued after escape");
-		} finally {
-			releaseQueuedInput();
-		}
+		const activePrompt = harness.session.prompt("initial goal work");
+		await requestStarted;
+		await harness.session.interrupt("queued after escape");
+		await activePrompt;
 
-		expect(harness.faux.state.callCount).toBe(1);
-		expect(getUserTexts(harness)).toEqual(["queued after escape"]);
+		expect(harness.faux.state.callCount).toBeGreaterThanOrEqual(2);
+		expect(getUserTexts(harness)).toEqual(expect.arrayContaining(["initial goal work", "queued after escape"]));
+		expect(readStoredGoal(harness).pausedAt).toBeUndefined();
 	});
 
 	it("does not let a continuation turn replace the active goal with continue", async () => {

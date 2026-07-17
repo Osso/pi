@@ -895,8 +895,23 @@ describe("goal extension", () => {
 		expect(harness.notify).not.toHaveBeenCalled();
 	});
 
-	it("pauses the active goal when the agent turn is aborted", async () => {
+	it("keeps the active goal running when queued steering aborts the current turn", async () => {
 		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
+
+		await harness.runCommand("set continue after steering abort");
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+		await harness.runAgentEnd([createAssistantMessage("", "aborted")]);
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal.objective).toBe("continue after steering abort");
+		expect(goal.pausedAt).toBeUndefined();
+		expect(harness.setStatus).not.toHaveBeenCalledWith("goal", "goal paused: continue after steering abort");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("pauses the active goal when the agent turn is aborted without pending input", async () => {
+		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("set pause on abort");
 		harness.notify.mockClear();

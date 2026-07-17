@@ -60,7 +60,8 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 ### Goal idle review
 
 - [x] Preserve the goal extension's existing `agent_end` trigger and all existing guards exactly: the event already occurs after the tool loop reaches a terminal response with no further tool calls, and no redundant tool-call check may be added.
-- [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after abort, pending-message, error-stop, and empty-response handling.
+- [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after pending-message, abort, error-stop, and empty-response handling.
+- [x] Keep the goal running when queued interactive input interrupts the current turn; only an abort without pending input pauses it.
 - [x] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
 - [x] Return exactly `complete`, `continue`, or generic `error` for goal idle review.
 - [x] Mark the goal complete when the caller receives `complete`.

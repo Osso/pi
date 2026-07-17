@@ -551,13 +551,15 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		const goal = loadRunningGoal(ctx);
 		if (!goal) return;
 
+		if (ctx.hasPendingMessages()) return;
+
 		if (didLastAssistantAbort(event)) {
 			pauseGoal(ctx);
 			updateGoalFooterStatus(ctx);
 			return;
 		}
 
-		if (ctx.hasPendingMessages() || findLastAssistantMessage(event)?.stopReason === "error") return;
+		if (findLastAssistantMessage(event)?.stopReason === "error") return;
 
 		if (didLastAssistantReturnEmpty(event)) {
 			ctx.ui.notify("Goal continuation stopped because the last assistant response was empty", "warning");

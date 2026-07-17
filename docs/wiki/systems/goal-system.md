@@ -121,6 +121,8 @@ Continuation stops without sending a message when:
 - pending messages exist;
 - the last assistant response was empty.
 
+Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. An aborted turn with pending input keeps the goal running; an abort without pending input pauses it.
+
 When an empty response stops continuation, Pi shows a warning explaining the stop reason.
 
 ## Completion Tool Action
