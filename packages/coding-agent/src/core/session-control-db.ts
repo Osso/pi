@@ -553,8 +553,7 @@ export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient
 				const pending: Record<string, unknown> = { ...message, status: "pending", updatedAt: now };
 				delete pending.claimedAt;
 				delete pending.claimantProcessIdentity;
-				writeCanonicalMailboxPayload(db, row.id, pending, now);
-				recovered += 1;
+				if (compareAndWriteCanonicalMailboxPayload(db, row, pending, now)) recovered += 1;
 			}
 			return recovered;
 		}),
@@ -596,17 +595,18 @@ export function claimRuntimeMailboxMessages(
 				canCurrentRuntimeClaimMailboxRow(db, recipient, row),
 			);
 			const now = new Date().toISOString();
-			return rows.map((row) => {
+			const claimed: RuntimeMailboxMessage[] = [];
+			for (const row of rows) {
 				const message = parseCanonicalMailboxPayload(row);
-				if (message.status === "pending") {
-					message.status = "claimed";
-					message.claimedAt = now;
-					message.claimantProcessIdentity = RUNTIME_PROCESS_INSTANCE_ID;
-					message.updatedAt = now;
-					writeCanonicalMailboxPayload(db, row.id, message, now);
+				message.status = "claimed";
+				message.claimedAt = now;
+				message.claimantProcessIdentity = RUNTIME_PROCESS_INSTANCE_ID;
+				message.updatedAt = now;
+				if (compareAndWriteCanonicalMailboxPayload(db, row, message, now)) {
+					claimed.push(runtimeMailboxMessageFromCanonicalRow(row, message));
 				}
-				return runtimeMailboxMessageFromCanonicalRow(row, message);
-			});
+			}
+			return claimed;
 		}),
 	);
 }
@@ -712,6 +712,21 @@ function writeCanonicalMailboxPayload(
 	if (updated.changes !== 1) throw new Error(`Canonical mailbox mutation lost row ${id}`);
 }
 
+function compareAndWriteCanonicalMailboxPayload(
+	db: SqliteDatabase,
+	row: RuntimeMailboxRow,
+	message: Record<string, unknown>,
+	updatedAt: string,
+): boolean {
+	const updated = db
+		.prepare(
+			`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?`,
+		)
+		.run(JSON.stringify(message), updatedAt, row.id, row.session_path, row.message_id, row.data, row.updated_at);
+	return updated.changes === 1;
+}
+
 export function readRuntimeMailboxMessageForDelivery(
 	controlDbPath: string,
 	id: number,
@@ -773,8 +788,7 @@ function updateClaimedCanonicalMailboxMessageInTransaction(
 	delete updated.claimantProcessIdentity;
 	if (status === "delivered") updated.deliveredAt = now;
 	if (status === "failed") updated.error = error;
-	writeCanonicalMailboxPayload(db, id, updated, now);
-	return true;
+	return compareAndWriteCanonicalMailboxPayload(db, row, updated, now);
 }
 
 export function consumeRuntimeMailboxMessageByStoreRef(
@@ -796,8 +810,7 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 			};
 			delete delivered.claimedAt;
 			delete delivered.claimantProcessIdentity;
-			writeCanonicalMailboxPayload(db, row.id, delivered, now);
-			return 1;
+			return compareAndWriteCanonicalMailboxPayload(db, row, delivered, now) ? 1 : 0;
 		}),
 	);
 }
@@ -1738,7 +1751,7 @@ export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: nu
 			};
 			delete delivered.claimedAt;
 			delete delivered.claimantProcessIdentity;
-			writeCanonicalMailboxPayload(db, id, delivered, now);
+			compareAndWriteCanonicalMailboxPayload(db, row, delivered, now);
 		}),
 	);
 }
@@ -5003,7 +5016,9 @@ function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRuntimeMa
 		sender: { agentId: row.sender_agent_id, sessionId: row.sender_session_id ?? "" },
 		storeRef,
 	});
-	const status = row.status === "claimed" ? "pending" : toRuntimeMailboxMessageStatus(row.status);
+	const canonicalStatus = toRuntimeMailboxMessageStatus(requireStringField(routed, "status", context));
+	const legacyStatus = row.status === "claimed" ? "pending" : toRuntimeMailboxMessageStatus(row.status);
+	const status = canonicalStatus === "delivered" || canonicalStatus === "failed" ? canonicalStatus : legacyStatus;
 	const updated: Record<string, unknown> = {
 		...routed,
 		createdAt: typeof routed.createdAt === "string" ? routed.createdAt : row.created_at,
@@ -5012,8 +5027,13 @@ function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRuntimeMa
 	};
 	delete updated.claimedAt;
 	delete updated.claimantProcessIdentity;
-	if (status === "delivered") updated.deliveredAt = row.delivered_at ?? row.updated_at;
-	if (status === "failed" && row.error) updated.error = row.error;
+	if (status === "delivered") {
+		updated.deliveredAt =
+			typeof routed.deliveredAt === "string" ? routed.deliveredAt : (row.delivered_at ?? row.updated_at);
+	}
+	if (status === "failed") {
+		updated.error = typeof routed.error === "string" ? routed.error : row.error;
+	}
 	writeCanonicalMailboxPayload(db, canonical.id, updated, row.updated_at || nowIso);
 }
 

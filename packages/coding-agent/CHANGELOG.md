@@ -136,7 +136,7 @@
 - Cached session-derived footer statistics until session data changes, reducing repeated render work.
 - Coalesced partial tool-output renders within 50ms to reduce terminal redraws during rapid updates.
 - Changed interactive tool execution rendering to use `AgentEvent` start/end timestamps for elapsed durations.
-- Removed per-message `runtime_mailbox_messages` state. Canonical `multi_agent_mailbox_messages` rows now own routing, exact-process claims, failures, and delivery acknowledgments; listener rows only resolve and wake runtimes. Schema v14 migrates legacy routing/status, safely releases legacy claims, and drops the old table without a compatibility path.
+- Removed per-message `runtime_mailbox_messages` state. Canonical `multi_agent_mailbox_messages` rows now own routing, exact-process claims, failures, and delivery acknowledgments; listener rows only resolve and wake runtimes. Schema v14 migrates legacy routing, preserves canonical terminal state, safely releases legacy claims, and drops the old table without a compatibility path.
 
 ### Fixed
 
