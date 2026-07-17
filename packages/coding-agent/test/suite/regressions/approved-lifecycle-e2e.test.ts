@@ -281,8 +281,7 @@ describe("approved multi-agent lifecycle e2e", () => {
 		const abortChildResponse = deferred<void>();
 		let fixture!: SupervisorFixture;
 		const createChildSession: ChildAgentSessionFactory = async (input) => {
-			input.signal?.addEventListener("abort", () => abortChildResponse.resolve(), { once: true });
-			return createFauxChildSession(fixture, input, (child) => {
+			const childSession = await createFauxChildSession(fixture, input, (child) => {
 				child.setResponses([
 					async () => {
 						childStarted.resolve();
@@ -291,6 +290,14 @@ describe("approved multi-agent lifecycle e2e", () => {
 					},
 				]);
 			});
+			const abort = childSession.abort;
+			return {
+				...childSession,
+				abort: () => {
+					abortChildResponse.resolve();
+					abort?.();
+				},
+			};
 		};
 		fixture = await createSupervisorFixture({ createChildSession });
 		fixture.harness.setResponses([
@@ -310,14 +317,14 @@ describe("approved multi-agent lifecycle e2e", () => {
 			}),
 			fauxAssistantMessage("cancel requested"),
 		]);
-		await fixture.harness.session.prompt("cancel worker");
-
-		expect(fixture.store.getAgent(agent.id)).toMatchObject({ lifecycle: "cancelling" });
+		const cancellation = fixture.harness.session.prompt("cancel worker");
+		await abortChildResponse.promise;
 		releaseChildResponse.resolve();
+		await cancellation;
 		await eventually(() => fixture.store.getAgent(agent.id)?.lifecycle === "aborted", "cancellation acknowledgement");
 		expect(fixture.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
 		expect(latestToolResult(fixture.harness, "cancel_agent")?.content).toEqual([
-			{ text: "Cancellation requested for Worker.", type: "text" },
+			{ text: "Cancelled Worker.", type: "text" },
 		]);
 	});
 
@@ -351,6 +358,22 @@ describe("approved multi-agent lifecycle e2e", () => {
 		expect(created.ok).toBe(true);
 		if (!created.ok) throw new Error("expected persisted running agent");
 		fixture.store.publishLifecycleCoordinatorSnapshot(created.agent);
+		fixture.harness.session.sessionManager.appendCustomEntry("agent_start", {
+			agentId: created.agent.id,
+			childSessionId: created.agent.transcript?.sessionId,
+			lifecycle: "running",
+			transcriptPath: created.agent.transcript?.path,
+		});
+		expect(
+			fixture.harness.session.sessionManager
+				.getEntries()
+				.some(
+					(entry) =>
+						entry.type === "custom" &&
+						entry.customType === "agent_start" &&
+						(entry.data as { agentId?: string } | undefined)?.agentId === created.agent.id,
+				),
+		).toBe(true);
 		fixture.store.restoreFromSessionManager(fixture.harness.sessionManager);
 		expect(fixture.runtimeHandles.sessions).toEqual(new Map());
 		expect(fixture.store.getAgent(created.agent.id)).toMatchObject({ lifecycle: "running" });
