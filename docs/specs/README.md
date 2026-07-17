@@ -39,8 +39,8 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Web search tool | [`web-search-tool.md`](web-search-tool.md) | **BUILD** | First-party `web_search` tool backed by OpenAI Responses hosted search; no legacy web-search flag. |
 | Bubblewrap sandbox backend | [`bwrap-sandbox.md`](bwrap-sandbox.md) | **BUILD** | Linux `bwrap` backend for routing tool workers through sandbox profiles while leaving host Pi outside. |
-| Resident Architect service | [`architect-service.md`](architect-service.md) | **BUILD** | Systemd-supervised, event-driven Sol advisor that observes shared Pi state without dispatching or remediating. |
-| Resident Supervisor service | [`supervisor-service.md`](supervisor-service.md) | **BUILD** | Systemd-supervised, event-driven Sol policy engine for LLM approvals and goal completion/continuation decisions. |
+| Resident Architect service | [`architect-service.md`](architect-service.md) | **BUILD** (done) | Systemd-supervised, event-driven Sol advisor that observes shared Pi state without dispatching or remediating. |
+| Resident Supervisor service | [`supervisor-service.md`](supervisor-service.md) | **BUILD** (done) | Systemd-supervised, event-driven Sol policy engine for LLM approvals and goal completion/continuation decisions. |
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
 | PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |
 | Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |

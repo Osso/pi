@@ -121,7 +121,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Replace the approval auto-reviewer call with `approval_review`.
 - [x] Gate explicit goal completion with `goal_completion_review`.
 - [x] Replace the existing `agent_end` continuation decision with `goal_idle_review` without changing its trigger or guards.
-- [ ] Deploy and verify the systemd service.
+- [x] Deploy and verify the systemd service.
 
 ## Out of scope
 
