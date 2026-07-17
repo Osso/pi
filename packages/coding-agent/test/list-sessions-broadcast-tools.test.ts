@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -30,24 +30,98 @@ describe("session coordination tools", () => {
 		expect(tools.channel_post.description).toContain("shared channel");
 	});
 
-	it("persists Architect requests for the current main session", async () => {
+	it("persists Architect requests with an explicit project directory", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-architect-tool-"));
 		try {
 			const controlDbPath = getControlDbPath(agentDir);
 			const tool = createAskArchitectToolDefinition();
-			const result = await tool.execute("ask-architect", { message: "inspect this" }, undefined, undefined, {
-				controlDbPath,
-				cwd: "/repos/project",
-				sessionManager: {
-					getSessionId: () => "main-session",
-				},
-			} as Parameters<typeof tool.execute>[4]);
+			const projectPath = mkdtempSync(join(agentDir, "project-worktree-"));
+			const projectLink = join(agentDir, "active-worktree");
+			symlinkSync(projectPath, projectLink);
+			const result = await tool.execute(
+				"ask-architect",
+				{ message: "inspect this", project_path: projectLink },
+				undefined,
+				undefined,
+				{
+					controlDbPath,
+					cwd: "/repos/canonical",
+					sessionManager: {
+						getSessionId: () => "main-session",
+					},
+				} as Parameters<typeof tool.execute>[4],
+			);
 
 			expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Architect request queued") }]);
 			expect(result.details?.senderSessionId).toBe("main-session");
 			expect(listPendingArchitectRequests(controlDbPath)).toEqual([
-				expect.objectContaining({ projectCwd: "/repos/project" }),
+				expect.objectContaining({ projectCwd: projectPath }),
 			]);
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
+	it("defaults Architect project context to the session cwd", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-architect-default-"));
+		try {
+			const controlDbPath = getControlDbPath(agentDir);
+			const tool = createAskArchitectToolDefinition();
+			await tool.execute("ask-architect", { message: "inspect this" }, undefined, undefined, {
+				controlDbPath,
+				cwd: "/repos/canonical",
+				sessionManager: { getSessionId: () => "main-session" },
+			} as Parameters<typeof tool.execute>[4]);
+
+			expect(listPendingArchitectRequests(controlDbPath)).toEqual([
+				expect.objectContaining({ projectCwd: "/repos/canonical" }),
+			]);
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
+	it("rejects invalid explicit Architect project paths", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-architect-invalid-"));
+		try {
+			const filePath = join(agentDir, "file.txt");
+			writeFileSync(filePath, "not a directory");
+			const tool = createAskArchitectToolDefinition();
+			const context = {
+				controlDbPath: "/unused",
+				cwd: "/repos/canonical",
+				sessionManager: { getSessionId: () => "main-session" },
+			} as Parameters<typeof tool.execute>[4];
+
+			for (const projectPath of ["", "../worktree"]) {
+				await expect(
+					tool.execute(
+						"ask-architect",
+						{ message: "inspect this", project_path: projectPath },
+						undefined,
+						undefined,
+						context,
+					),
+				).rejects.toThrow("project_path must be a non-empty absolute path");
+			}
+			await expect(
+				tool.execute(
+					"ask-architect",
+					{ message: "inspect this", project_path: join(agentDir, "missing") },
+					undefined,
+					undefined,
+					context,
+				),
+			).rejects.toThrow("project_path must reference an existing directory");
+			await expect(
+				tool.execute(
+					"ask-architect",
+					{ message: "inspect this", project_path: filePath },
+					undefined,
+					undefined,
+					context,
+				),
+			).rejects.toThrow("project_path must reference a directory");
 		} finally {
 			rmSync(agentDir, { force: true, recursive: true });
 		}

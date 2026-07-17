@@ -14,7 +14,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
       the model when state is unchanged. The model receives no raw listener or health fields.
       Historical same-PID sessions must not appear in either Architect or global session inventory.
 - [x] Prompt on the initial session snapshot, material session/goal changes, or an atomically claimed request from the dedicated Architect request queue.
-- [x] Persist each new explicit request with its originating project cwd. For project design or behavior questions, prompt policy must use the Architect-only spec reader to resolve the project root from that cwd, read authoritative `docs/specs/README.md` first, then read only the relevant Markdown feature spec instead of requiring copied spec text. Existing queued rows without cwd remain readable and must be reported as lacking project context rather than guessed.
+- [x] Persist each new explicit request with its originating project context path. `ask_architect.project_path` selects an absolute project directory, such as the active worktree, when it differs from the session cwd; omission defaults to the session cwd. For project design or behavior questions, prompt policy must use the Architect-only spec reader to resolve the project root from that cwd, read authoritative `docs/specs/README.md` first, then read only the relevant Markdown feature spec instead of requiring copied spec text. Existing queued rows without cwd remain readable and must be reported as lacking project context rather than guessed.
 - [x] Treat `goal_json.completedAt` as completed-goal state only, not session termination. The
       model uses membership in the prefiltered sessions snapshot, never goal fields, as its only
       liveness evidence.
@@ -40,7 +40,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/tools/ask-architect.ts` — queues explicit requests with sender session and project cwd.
+- `packages/coding-agent/src/core/tools/ask-architect.ts` — queues explicit requests with sender session and a validated absolute directory path, such as an active worktree.
 - `packages/coding-agent/src/core/session-control-db.ts` — persists and migrates durable Architect requests.
 - `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, current-main-session control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy, authoritative-spec discovery, and structured observation prompt.
@@ -55,7 +55,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - `packages/coding-agent/test/session-directory.test.ts` — regression proving Architect and global
   inventory retain only the current main-session binding.
 - `packages/coding-agent/test/architect-service.test.ts` — Architect prompt policy, authoritative-spec discovery, installed-binary unit command, and deployment reload, enable/start, and restart steps.
-- `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — `ask_architect` request persistence with originating project cwd.
+- `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — explicit directory persistence and canonicalization, cwd defaulting, and empty, relative, missing, or non-directory path rejection.
 - `packages/coding-agent/test/session-control-db.test.ts` — durable request persistence, claims, completion, and project-cwd projection.
 
 ## Known gaps (current cycle)

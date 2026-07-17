@@ -1,3 +1,5 @@
+import { realpathSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
@@ -5,6 +7,11 @@ import { postArchitectRequest } from "../session-control-db.ts";
 
 const askArchitectSchema = Type.Object({
 	message: Type.String({ description: "Question or diagnostic request for the resident Architect." }),
+	project_path: Type.Optional(
+		Type.String({
+			description: "Absolute project directory, such as the active worktree. Defaults to the session cwd.",
+		}),
+	),
 });
 
 export type AskArchitectToolInput = Static<typeof askArchitectSchema>;
@@ -22,6 +29,7 @@ export function createAskArchitectToolDefinition(): ToolDefinition<typeof askArc
 		promptSnippet: "Ask the resident Architect",
 		promptGuidelines: [
 			"Use this tool for direct Architect requests; do not use channel_post for Architect requests.",
+			"Set project_path to the project directory, such as the active worktree, when it differs from the session cwd.",
 			"Requests remain queued across Architect restarts until processed.",
 		],
 		parameters: askArchitectSchema,
@@ -37,7 +45,7 @@ export function createAskArchitectToolDefinition(): ToolDefinition<typeof askArc
 			}
 			const requestId = postArchitectRequest(controlDbPath, {
 				senderSessionId,
-				projectCwd: ctx.cwd,
+				projectCwd: resolveProjectPath(params.project_path, ctx.cwd),
 				body: params.message,
 			});
 			return {
@@ -60,6 +68,23 @@ export function createAskArchitectToolDefinition(): ToolDefinition<typeof askArc
 			return text;
 		},
 	};
+}
+
+function resolveProjectPath(projectPath: string | undefined, sessionCwd: string): string {
+	if (projectPath === undefined) return sessionCwd;
+	if (!projectPath.trim() || !isAbsolute(projectPath)) {
+		throw new Error("ask_architect project_path must be a non-empty absolute path");
+	}
+	let canonicalPath: string;
+	try {
+		canonicalPath = realpathSync(projectPath);
+	} catch (error) {
+		throw new Error("ask_architect project_path must reference an existing directory", { cause: error });
+	}
+	if (!statSync(canonicalPath).isDirectory()) {
+		throw new Error("ask_architect project_path must reference a directory");
+	}
+	return canonicalPath;
 }
 
 function requireControlDbPath(ctx: ExtensionContext | undefined): string {
