@@ -88,9 +88,6 @@ function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console
 
 function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResult): string {
 	const lines = [params.code, ""];
-	if (result.error) {
-		lines.push(`Session: ${params.session_id ?? "default"}`);
-	}
 	for (const entry of result.console ?? []) {
 		lines.push(formatConsoleEntry(entry));
 	}
