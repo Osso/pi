@@ -85,7 +85,7 @@ interface ManageGoalContext {
 
 export type GoalSupervisorResponse = Extract<
 	SupervisorResponse,
-	{ kind: "complete" | "continue" | "pause" | "error" }
+	{ kind: "complete" | "continue" | "pause" | "wait" | "error" }
 >;
 
 export type GoalSupervisorReview = (input: {
@@ -451,6 +451,9 @@ async function runCompleteGoalAction(
 	if (decision.kind === "pause") {
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
+	if (decision.kind === "wait") {
+		return textResult(`Goal remains active: ${decision.reason}`);
+	}
 	if (decision.kind !== "complete") {
 		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
 		return textResult(`Goal review failed: ${decision.reason}`);
@@ -514,6 +517,7 @@ async function reviewGoalWithResidentSupervisor(input: {
 		case "complete":
 		case "continue":
 		case "pause":
+		case "wait":
 		case "error":
 			return response;
 		default:
@@ -556,6 +560,8 @@ function applyGoalIdleDecision(
 			return;
 		case "pause":
 			ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
+			return;
+		case "wait":
 			return;
 		case "error":
 			ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");

@@ -799,6 +799,31 @@ describe("goal extension", () => {
 		expect(await harness.runBeforeAgentStart()).toBeUndefined();
 	});
 
+	it("keeps a corrected goal active while asynchronous work is already running", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "wait", reason: "reviewer is running" }),
+		});
+		await harness.runCommand("set original objective");
+		await harness.runCommand("pause");
+		await harness.runCommand("set corrected objective");
+
+		const correctedGoal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(correctedGoal).toMatchObject({ objective: "corrected objective" });
+		expect(correctedGoal.pausedAt).toBeUndefined();
+		expect(harness.setStatus).toHaveBeenLastCalledWith("goal", "goal: corrected objective");
+
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+		await harness.runAgentEnd();
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal).toEqual(correctedGoal);
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.setStatus).not.toHaveBeenCalledWith("goal", expect.stringContaining("goal paused:"));
+		expect(harness.notify).not.toHaveBeenCalledWith("Supervisor returned an invalid goal response", "error");
+		expect(await harness.runBeforeAgentStart()).toBeDefined();
+	});
+
 	it("keeps a running goal active when the Supervisor says no action is currently possible", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for user input" }),

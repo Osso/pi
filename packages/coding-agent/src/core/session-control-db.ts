@@ -100,6 +100,7 @@ export type SupervisorResponse =
 	| { kind: "complete"; reason: string }
 	| { kind: "continue"; instructions: string; reason: string }
 	| { kind: "pause"; reason: string }
+	| { kind: "wait"; reason: string }
 	| { kind: "error"; reason: string };
 
 export interface SupervisorRequest {

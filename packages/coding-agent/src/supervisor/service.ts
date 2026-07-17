@@ -21,9 +21,10 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 		request.kind === "approval_review"
 			? 'Return {"kind":"approve|reject","reason":"..."}.'
 			: [
-					'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
+					'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"wait","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
 					"Continue instructions must give a concrete, actionable next step.",
-					"Return pause instead of continue when progress requires waiting, remaining idle, or external input.",
+					"Return wait when progress is already underway asynchronously and no duplicate continuation should start.",
+					"Return pause only when progress requires user or external input and no active work can advance it.",
 				].join("\n");
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",
@@ -62,7 +63,7 @@ export function parseSupervisorResponse(
 			? { kind: response.kind, reason: response.reason }
 			: undefined;
 	}
-	if (response.kind === "complete" || response.kind === "pause") {
+	if (response.kind === "complete" || response.kind === "pause" || response.kind === "wait") {
 		return { kind: response.kind, reason: response.reason };
 	}
 	if (response.kind === "continue" && typeof response.instructions === "string" && response.instructions.trim()) {

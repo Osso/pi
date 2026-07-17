@@ -151,8 +151,30 @@ describe("resident Supervisor service", () => {
 				reason: "waiting for user input",
 			},
 		);
+		expect(parseSupervisorResponse("goal_idle_review", '{"kind":"wait","reason":"reviewer is running"}')).toEqual({
+			kind: "wait",
+			reason: "reviewer is running",
+		});
 		expect(parseSupervisorResponse("approval_review", '{"kind":"complete","reason":"done"}')).toBeUndefined();
 		expect(parseSupervisorResponse("approval_review", '{"kind":"pause","reason":"wait"}')).toBeUndefined();
+	});
+
+	it("tells goal reviewers to keep goals active while asynchronous work is already running", () => {
+		const prompt = buildSupervisorPrompt({
+			claimToken: "runtime",
+			claimedAt: "2026-07-17T12:00:00.000Z",
+			createdAt: "2026-07-17T12:00:00.000Z",
+			deadlineAt: "2026-07-17T12:03:00.000Z",
+			id: 2,
+			kind: "goal_idle_review",
+			payload: { objective: "finish", terminalTurn: [] },
+			projectId: "pi",
+			senderSessionId: "main",
+			status: "claimed",
+		});
+
+		expect(prompt).toContain('{"kind":"wait","reason":"..."}');
+		expect(prompt).toContain("Return wait when progress is already underway asynchronously");
 	});
 
 	it("builds a bounded prompt without historical transcript retrieval", () => {
