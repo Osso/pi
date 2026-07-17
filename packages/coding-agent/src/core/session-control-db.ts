@@ -2758,15 +2758,15 @@ export function commitMultiAgentSteeringMutation(
 		withImmediateTransaction(db, () => {
 			const agent = readSteeringMutationAgent(db, input);
 			if (!agent) return { ok: false, error: "agent_not_found" };
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!steeringMutationHasAuthority(db, agent, ownership, input)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
 			if (
 				input.requestedLifecycle !== "steering_pending" ||
 				!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)
 			) {
 				return { ok: false, error: "invalid_transition" };
+			}
+			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+			if (!steeringMutationHasAuthority(db, agent, ownership, input)) {
+				return { ok: false, error: "mutation_mismatch" };
 			}
 			return persistSteeringMutation(db, agent, input);
 		}),

@@ -457,7 +457,7 @@ interface ToolDefinitionEntry {
 
 export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
 	const lastMessage = messages[messages.length - 1];
-	if (lastMessage?.role === "toolResult") return true;
+	if (lastMessage?.role === "user" || lastMessage?.role === "toolResult") return true;
 	if (lastMessage?.role !== "assistant") return false;
 	return lastMessage.stopReason === "aborted" || lastMessage.content.some((content) => content.type === "toolCall");
 }
@@ -2793,8 +2793,9 @@ export class AgentSession {
 		message: RuntimeMailboxMessage,
 		options: { checkpoint?: SteeringCheckpoint; includeNextModelCall?: boolean; triggerIfIdle: boolean },
 	): boolean {
-		if (options.checkpoint === "after_tool_result" && message.kind !== "steer") return false;
-		if (message.kind !== "steer") return true;
+		if (message.kind !== "steer") {
+			return options.checkpoint !== "after_tool_result" || options.includeNextModelCall === true;
+		}
 		const checkpoint = message.targetCheckpoint ?? "next_model_call";
 		if (checkpoint === "after_tool_result") return options.checkpoint === "after_tool_result";
 		if (checkpoint === "when_waiting") return options.triggerIfIdle && !this.isStreaming;

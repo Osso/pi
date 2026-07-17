@@ -549,6 +549,9 @@ describe("headless Pi fixture", () => {
 				expect(agent.listAgents().find((candidate) => candidate.id === detachedJob.id)?.result?.toolCallId).toBe(
 					toolCallId,
 				);
+				await agent.waitForEvent(
+					(event) => event.type === "tool_execution_end" && event.toolName === "wait_agents",
+				);
 				const completionRequest = await agent.waitForLlmRequest(
 					(candidate) => candidate.agentId === null && JSON.stringify(candidate.messages).includes(detachedJob.id),
 				);

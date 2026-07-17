@@ -80,8 +80,9 @@ Dispatch and graph invariants:
 - Each spawned or attached child-agent thinking phase has a 15-minute deadline. Tool execution clears the deadline and remains uncapped; when the last active tool finishes or steering starts another model turn, a fresh thinking deadline begins. Expiry aborts the active child turn and finalizes it as `failed` with `Child agent thinking phase exceeded 15 minutes`. Agent end, cancellation, disposal, restoration replacement, and runtime ownership loss clear the prior timer.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. An owned child runtime gets a bounded
-  opportunity to settle after abort; if its dispatch ignores abort past that deadline, the exact owner
-  commits `aborted` and terminal fencing rejects any late dispatch result. Parent cancellation proceeds
+  opportunity to settle after abort; if its dispatch ignores abort past that deadline, it remains
+  `cancelling` until exact-owner exit acknowledgement or dead-owner recovery settles the cancellation.
+  Terminal fencing rejects any late natural dispatch result. Parent cancellation proceeds
   deepest-first, so a parent cannot terminalize before each descendant is terminal. A parent dispatch whose result is ready waits
   without disposing its runtime until every descendant is terminal, then commits its preserved terminal result.
   Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal. Runtime-mailbox
@@ -94,8 +95,8 @@ wall-clock time, or mailbox delivery:
    existing outcome and cannot advance revision or enqueue another completion notification.
 2. An accepted cancellation request wins over a later natural-completion attempt and moves the agent
    to `cancelling`. The exact owner process identity produces `aborted` when the runtime acknowledges
-   exit or when the bounded post-abort settlement deadline expires; terminal fencing rejects a late
-   natural result from the cancelled dispatch.
+   exit; timeout alone leaves the row `cancelling`. Dead-owner recovery settles an existing cancellation
+   intent as `aborted`; terminal fencing rejects a late natural result from the cancelled dispatch.
 3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
    Ownership for one agent cannot authorize another agent even under the same supervisor process. Recovery is
    authorized only after that exact process identity is gone; PID reuse does not match, and zombie/exited states
@@ -140,18 +141,26 @@ SQLite connection access control and arbitrary same-UID raw SQL are outside this
       to `completed`, so steering racing with turn completion is delivered before terminalization and
       cannot remain pending on a terminal agent.
 - [x] Cancelling an agent aborts its live runtime handle and records terminal state through
-      the normal lifecycle path. An owned child dispatch that ignores abort is terminalized as
-      `aborted` after the bounded settlement deadline, and late dispatch completion cannot rewrite it.
-      Detached Pyrun jobs register their handle and terminate the runner process group so spawned
+      the normal lifecycle path. An owned child dispatch that ignores abort remains `cancelling` after
+      the bounded settlement deadline; exact-owner exit acknowledgement or dead-owner recovery settles
+      it as `aborted`, and late dispatch completion cannot rewrite it. Detached Pyrun jobs register their
+      handle and terminate the runner process group so spawned
       commands cannot survive cancellation as orphans.
 
-### Restore and recovery (derived liveness)
+### Restore, restart reconstruction, and recovery (derived liveness)
+
+Parent-session JSONL custom records are authoritative for restart reconstruction. `agent_start` is
+appended only after the child agent's `running` lifecycle commits and records the agent and transcript
+identity. `agent_complete` is appended only after a committed `completed`, `failed`, or `aborted`
+lifecycle. Unmatched `agent_start` records identify restart candidates; a matching `agent_complete`
+record prevents recovery. The control DB remains the source of lifecycle and ownership state, but it is
+not sufficient alone for restart admission. There is no compatibility fallback.
 
 Shutdown ordering is strict. The runtime first stops accepting orchestration work, then invalidates
-the local dispatch generation so late callbacks cannot publish into a rebound store. It locally aborts session runtimes without inventing a terminal result; persisted agents remain
-recoverable regardless of whether their backing session was newly created or selected from an existing
-session. Runtime mailbox polling/heartbeat stops and listener ownership retires only after local abort
-dispatch completes, so no command is accepted under a listener that has already surrendered ownership.
+the local dispatch generation so late callbacks cannot publish into a rebound store. It locally aborts
+session runtimes without inventing a terminal result. Runtime mailbox polling/heartbeat stops and
+listener ownership retires only after local abort dispatch completes, so no command is accepted under a
+listener that has already surrendered ownership.
 
 Detached runner recovery does not reconstruct terminal state from artifacts. The live runner directly
 finalizes from its in-memory identity, outcome, and output metadata. The output artifact is diagnostic
@@ -170,9 +179,11 @@ folder from reading stale manifests or output belonging to another supervisor.
 
 - [x] Session startup completes runtime-listener registration before emitting `session_start`; a registration failure aborts startup without emitting that event. A paused same-session recovery listener blocks foreign detached-runtime sweeps, and concurrent foreign peers serialize through the recovery transaction so only one can commit terminal state. Exact live-runner identity and PID-reuse checks prevent recovery while the recorded runner is live or its PID has been reused.
 - [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
-      and persisted metadata is never proof of liveness.
+      and persisted metadata is never proof of liveness. Restart admission still requires an unmatched
+      parent-session JSONL `agent_start`; control-DB state alone cannot admit recovery.
 - [x] The session's supervisor binding registers the current lifecycle mailbox listener, refreshes canonical runtime
-      bindings after that registration, and reconciles orphaned active rows through coordinator recovery commands,
+      bindings after that registration, and reconciles only orphaned active rows identified by unmatched
+      parent-session JSONL `agent_start` records through coordinator recovery commands,
       deepest descendants first so parent graph guards cannot strand an earlier parent row. Startup also globally scans
       detached `cancelling` rows owned by historical sessions, but only settles a row when the recorded owner session is
       sticky dead, no live listener is registered for that owner session ID, the exact dead runner identity matches the
@@ -194,9 +205,11 @@ folder from reading stale manifests or output belonging to another supervisor.
       current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.
-- [x] Any detached `running` or `steering_pending` agent with a transcript is resumed through the same
-      session dispatch path; the `origin` field records construction provenance and does not select runtime
-      behavior. `cancelling` agents resolve through dead-owner recovery without restarting a prompt.
+- [x] Any agent identified by an unmatched parent-session JSONL `agent_start` record with a valid
+      transcript identity is resumed through the same session dispatch path; the `origin` field records
+      construction provenance and does not select runtime behavior. A matching `agent_complete` record
+      prevents recovery, and `cancelling` agents resolve through dead-owner recovery without restarting
+      a prompt.
 - [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
       `running` while the dispatch and handle are re-established under the new process identity.
 - [x] A detached in-flight agent whose runner died before terminal commit is marked `failed/lost_runtime`

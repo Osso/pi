@@ -639,13 +639,16 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		firstPartyExtensionFactory("pyrun", (pi) => {
-			const hostrunAgentHandler = createHostrunMultiAgentRequestHandler({
-				createAttachedSession: attachedSessionFactory,
-				createChildSession: childAgentSessionFactory,
-				runtimeHandles: firstPartyMultiAgentRuntimeHandles,
-				selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
-				store: firstPartyMultiAgentStore,
-			});
+			const hostrunAgentHandler = createHostrunMultiAgentRequestHandler(
+				{
+					createAttachedSession: attachedSessionFactory,
+					createChildSession: childAgentSessionFactory,
+					runtimeHandles: firstPartyMultiAgentRuntimeHandles,
+					selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
+					store: firstPartyMultiAgentStore,
+				},
+				pi,
+			);
 			pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] });
 		}),
 		firstPartyExtensionFactory("loop", loopExtension),

@@ -1,9 +1,13 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
+import {
+	createHostrunMultiAgentRequestHandler,
+	type ParentAgentJournalWriter,
+} from "../extensions/agents-core/src/runtime.ts";
 import hostrunExtension, { type HostrunExtensionOptions } from "../extensions/hostrun/src/index.ts";
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
@@ -676,10 +680,23 @@ describe("hostrun extension", () => {
 		store.setPersistenceSessionManager(sessionManager);
 		const harness = createHostrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler({
-					dispatcher: async () => ({ lifecycle: "completed", result: { summary: "done" } }),
-					store,
-				}),
+				createHostrunMultiAgentRequestHandler(
+					{
+						createChildSession: async ({ agent }) => ({
+							messages: [fauxAssistantMessage("done")],
+							prompt: async () => {},
+							transcript: {
+								path: join(tempDir, `${agent.id}.jsonl`),
+								sessionId: `session-${agent.id}`,
+							},
+						}),
+						store,
+					},
+					{
+						appendEntry: (customType: string, data?: unknown) =>
+							sessionManager.appendCustomEntry(customType, data),
+					} satisfies ParentAgentJournalWriter,
+				),
 			],
 		});
 		const context = { controlDbPath, sessionManager };
