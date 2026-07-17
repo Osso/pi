@@ -226,9 +226,41 @@ describe("session control DB", () => {
 		}
 	});
 
+	it("migrates legacy Architect requests without inventing project context", () => {
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE architect_requests (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					sender_session_id TEXT NOT NULL,
+					body TEXT NOT NULL,
+					status TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					claimed_at TEXT,
+					claim_token TEXT,
+					completed_at TEXT
+				)
+			`);
+			db.prepare(
+				"INSERT INTO architect_requests (sender_session_id, body, status, created_at) VALUES (?, ?, 'pending', ?)",
+			).run("legacy-session", "inspect legacy request", "2026-07-16T00:00:00.000Z");
+		} finally {
+			db.close();
+		}
+
+		expect(listPendingArchitectRequests(controlDbPath)).toEqual([
+			expect.objectContaining({
+				senderSessionId: "legacy-session",
+				projectCwd: undefined,
+				body: "inspect legacy request",
+			}),
+		]);
+	});
+
 	it("persists Architect requests until the Architect completes them", () => {
 		const requestId = postArchitectRequest(controlDbPath, {
 			senderSessionId: "main-session",
+			projectCwd: "/repos/project",
 			body: "Architect: inspect this request",
 		});
 
@@ -236,6 +268,7 @@ describe("session control DB", () => {
 			expect.objectContaining({
 				id: requestId,
 				senderSessionId: "main-session",
+				projectCwd: "/repos/project",
 				body: "Architect: inspect this request",
 				status: "pending",
 			}),
@@ -251,7 +284,7 @@ describe("session control DB", () => {
 
 	it("rolls back all Architect claim renewals when one renewal fails", () => {
 		const requestIds = ["first", "second"].map((body) =>
-			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", body }),
+			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", projectCwd: "/repos/project", body }),
 		);
 		claimPendingArchitectRequests(controlDbPath, "architect-runtime", 2);
 		const db = createSqliteDatabase(controlDbPath);
@@ -290,7 +323,7 @@ describe("session control DB", () => {
 
 	it("rejects renewal when a claimed Architect request is no longer owned", () => {
 		const requestIds = ["first", "second"].map((body) =>
-			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", body }),
+			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", projectCwd: "/repos/project", body }),
 		);
 		claimPendingArchitectRequests(controlDbPath, "architect-runtime", 2);
 		const db = createSqliteDatabase(controlDbPath);
@@ -320,7 +353,11 @@ describe("session control DB", () => {
 	});
 
 	it("ignores renewal for a request completed during processing", () => {
-		const requestId = postArchitectRequest(controlDbPath, { senderSessionId: "main-session", body: "complete me" });
+		const requestId = postArchitectRequest(controlDbPath, {
+			senderSessionId: "main-session",
+			projectCwd: "/repos/project",
+			body: "complete me",
+		});
 		claimPendingArchitectRequests(controlDbPath, "architect-runtime");
 		completeArchitectRequest(controlDbPath, requestId, "architect-runtime");
 		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId], "architect-runtime")).not.toThrow();

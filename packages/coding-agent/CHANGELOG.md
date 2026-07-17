@@ -141,6 +141,7 @@
 
 ### Fixed
 
+- Fixed explicit Architect requests lacking project context by persisting the sender cwd and directing Architect to read the authoritative relevant project spec.
 - Fixed Supervisor idle loops by adding a typed `pause` goal decision for work that must wait instead of returning a no-op `continue` instruction.
 - Fixed interactive steering during an active goal so queued replacement input takes precedence over abort-driven goal pausing.
 - Fixed idle runtime-mailbox polling repeatedly reopening and initializing `control.sqlite` and running terminal-outbox retention cleanup every three seconds; live sessions retain one process-local connection, run cleanup hourly, and use a thirty-second fallback poll alongside immediate signal wakes.

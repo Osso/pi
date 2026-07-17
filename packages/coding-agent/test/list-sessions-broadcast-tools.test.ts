@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getControlDbPath, writeSessionHealth, writeSessionMetadata } from "../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	listPendingArchitectRequests,
+	writeSessionHealth,
+	writeSessionMetadata,
+} from "../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 import { createAskArchitectToolDefinition } from "../src/core/tools/ask-architect.ts";
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
@@ -32,6 +37,7 @@ describe("session coordination tools", () => {
 			const tool = createAskArchitectToolDefinition();
 			const result = await tool.execute("ask-architect", { message: "inspect this" }, undefined, undefined, {
 				controlDbPath,
+				cwd: "/repos/project",
 				sessionManager: {
 					getSessionId: () => "main-session",
 				},
@@ -39,6 +45,9 @@ describe("session coordination tools", () => {
 
 			expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Architect request queued") }]);
 			expect(result.details?.senderSessionId).toBe("main-session");
+			expect(listPendingArchitectRequests(controlDbPath)).toEqual([
+				expect.objectContaining({ projectCwd: "/repos/project" }),
+			]);
 		} finally {
 			rmSync(agentDir, { force: true, recursive: true });
 		}

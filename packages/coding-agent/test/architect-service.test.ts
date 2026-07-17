@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ import {
 	runArchitectCycle,
 	waitForArchitectInterval,
 } from "../src/architect/main.ts";
+import { readProjectSpec } from "../src/architect/project-spec.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
 import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -29,6 +30,79 @@ describe("resident architect service", () => {
 
 		expect(prompt).not.toContain("list_sessions");
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not call list_sessions");
+	});
+
+	it("directs explicit project requests to authoritative specs", () => {
+		const prompt = buildArchitectPrompt({
+			reason: "architect_request",
+			requests: [
+				{
+					id: 7,
+					senderSessionId: "main-session",
+					projectCwd: "/repos/project",
+					body: "review this design",
+					status: "claimed",
+					createdAt: "2026-07-17T00:00:00.000Z",
+				},
+			],
+			sessions: [],
+		});
+
+		expect(prompt).toContain("/repos/project");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("docs/specs/README.md");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("relevant feature spec");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not ask the sender to copy the spec");
+	});
+
+	it("reads specs from the project root above a nested sender cwd", async () => {
+		const projectDir = mkdtempSync(join(tmpdir(), "pi-architect-project-"));
+		try {
+			const specDir = join(projectDir, "docs", "specs");
+			const nestedCwd = join(projectDir, "packages", "feature");
+			mkdirSync(specDir, { recursive: true });
+			mkdirSync(nestedCwd, { recursive: true });
+			writeFileSync(join(specDir, "README.md"), "spec index");
+			writeFileSync(join(specDir, "feature.md"), "feature contract");
+
+			await expect(readProjectSpec(nestedCwd, "feature.md")).resolves.toBe("feature contract");
+			await expect(readProjectSpec(nestedCwd, "../secret.md")).rejects.toThrow("inside docs/specs");
+		} finally {
+			rmSync(projectDir, { force: true, recursive: true });
+		}
+	});
+
+	it("rejects spec symlinks that escape docs/specs", async () => {
+		const projectDir = mkdtempSync(join(tmpdir(), "pi-architect-project-"));
+		try {
+			const specDir = join(projectDir, "docs", "specs");
+			mkdirSync(specDir, { recursive: true });
+			writeFileSync(join(specDir, "README.md"), "spec index");
+			writeFileSync(join(projectDir, "secret.md"), "secret");
+			symlinkSync(join(projectDir, "secret.md"), join(specDir, "escape.md"));
+
+			await expect(readProjectSpec(projectDir, "escape.md")).rejects.toThrow("inside docs/specs");
+		} finally {
+			rmSync(projectDir, { force: true, recursive: true });
+		}
+	});
+
+	it("marks legacy requests as missing project context", () => {
+		const prompt = buildArchitectPrompt({
+			reason: "architect_request",
+			requests: [
+				{
+					id: 8,
+					senderSessionId: "legacy-session",
+					body: "review this design",
+					status: "claimed",
+					createdAt: "2026-07-17T00:00:00.000Z",
+				},
+			],
+			sessions: [],
+		});
+
+		expect(prompt).not.toContain("projectCwd");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("state that project context is unavailable instead of guessing");
 	});
 
 	it("anchors liveness to prefiltered snapshot membership instead of goal fields", () => {

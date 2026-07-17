@@ -12,6 +12,7 @@ import { SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../core/tool-capabilities.ts";
 import { ArchitectObserver } from "./observer.ts";
+import { registerArchitectProjectSpecTool } from "./project-spec.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "./prompt.ts";
 
 const OBSERVER_INTERVAL_MS = 30_000;
@@ -161,6 +162,7 @@ export async function runArchitectService(): Promise<void> {
 				}),
 			bwrapExtension,
 			(pi) => {
+				registerArchitectProjectSpecTool(pi);
 				pi.on("before_agent_start", (event) => ({
 					systemPrompt: `${event.systemPrompt}\n\n${ARCHITECT_SYSTEM_PROMPT}`,
 				}));

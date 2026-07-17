@@ -37,6 +37,7 @@ export function createAskArchitectToolDefinition(): ToolDefinition<typeof askArc
 			}
 			const requestId = postArchitectRequest(controlDbPath, {
 				senderSessionId,
+				projectCwd: ctx.cwd,
 				body: params.message,
 			});
 			return {

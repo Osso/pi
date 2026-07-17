@@ -77,6 +77,7 @@ export type ArchitectRequestStatus = "pending" | "claimed" | "completed";
 export interface ArchitectRequest {
 	id: number;
 	senderSessionId: string;
+	projectCwd?: string;
 	body: string;
 	status: ArchitectRequestStatus;
 	createdAt: string;
@@ -87,6 +88,7 @@ export interface ArchitectRequest {
 
 export interface PostArchitectRequestInput {
 	senderSessionId: string;
+	projectCwd: string;
 	body: string;
 }
 
@@ -1105,11 +1107,11 @@ export function postArchitectRequest(controlDbPath: string, input: PostArchitect
 		const result = db
 			.prepare(
 				`
-				INSERT INTO architect_requests (sender_session_id, body, status, created_at)
-				VALUES (?, ?, 'pending', ?)
+				INSERT INTO architect_requests (sender_session_id, project_cwd, body, status, created_at)
+				VALUES (?, ?, ?, 'pending', ?)
 				`,
 			)
-			.run(input.senderSessionId, body, now);
+			.run(input.senderSessionId, input.projectCwd, body, now);
 		return Number(result.lastInsertRowid);
 	});
 }
@@ -1117,6 +1119,7 @@ export function postArchitectRequest(controlDbPath: string, input: PostArchitect
 type ArchitectRequestRow = {
 	id: number;
 	sender_session_id: string;
+	project_cwd: string | null;
 	body: string;
 	status: ArchitectRequestStatus;
 	created_at: string;
@@ -1129,6 +1132,7 @@ function architectRequestFromRow(row: ArchitectRequestRow): ArchitectRequest {
 	return {
 		id: row.id,
 		senderSessionId: row.sender_session_id,
+		projectCwd: row.project_cwd ?? undefined,
 		body: row.body,
 		status: row.status,
 		createdAt: row.created_at,
@@ -1143,7 +1147,7 @@ export function listPendingArchitectRequests(controlDbPath: string, limit = 20):
 		(
 			db
 				.prepare(
-					`SELECT id, sender_session_id, body, status, created_at, claimed_at, claim_token, completed_at
+					`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
 					 FROM architect_requests
 					 WHERE status = 'pending'
 					 ORDER BY id ASC
@@ -1170,7 +1174,7 @@ export function claimPendingArchitectRequests(
 			).run(now);
 			const rows = db
 				.prepare(
-					`SELECT id, sender_session_id, body, status, created_at, claimed_at, claim_token, completed_at
+					`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
 					 FROM architect_requests
 					 WHERE status = 'pending'
 					 ORDER BY id ASC
@@ -4600,6 +4604,7 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 		CREATE TABLE IF NOT EXISTS architect_requests (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			sender_session_id TEXT NOT NULL,
+			project_cwd TEXT,
 			body TEXT NOT NULL,
 			status TEXT NOT NULL,
 			created_at TEXT NOT NULL,
@@ -5058,6 +5063,7 @@ function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
 	const columns = new Set(
 		(db.prepare("PRAGMA table_info(architect_requests)").all() as TableInfoRow[]).map((column) => column.name),
 	);
+	if (!columns.has("project_cwd")) db.exec("ALTER TABLE architect_requests ADD COLUMN project_cwd TEXT");
 	if (!columns.has("claimed_at")) db.exec("ALTER TABLE architect_requests ADD COLUMN claimed_at TEXT");
 	if (!columns.has("claim_token")) db.exec("ALTER TABLE architect_requests ADD COLUMN claim_token TEXT");
 }
