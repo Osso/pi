@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
@@ -1347,10 +1348,23 @@ describe("pyrun extension", () => {
 		store.setPersistenceSessionManager(sessionManager);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler({
-					dispatcher: async () => ({ lifecycle: "completed", result: { summary: "done" } }),
-					store,
-				}),
+				createHostrunMultiAgentRequestHandler(
+					{
+						createChildSession: async ({ agent }) => ({
+							messages: [fauxAssistantMessage("done")],
+							prompt: async () => {},
+							transcript: {
+								path: join(tempDir, `${agent.id}.jsonl`),
+								sessionId: `session-${agent.id}`,
+							},
+						}),
+						store,
+					},
+					{
+						appendEntry: (customType: string, data?: unknown) =>
+							sessionManager.appendCustomEntry(customType, data),
+					} as ExtensionAPI,
+				),
 			],
 		});
 

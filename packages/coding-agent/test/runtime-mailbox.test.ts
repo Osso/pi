@@ -65,7 +65,7 @@ function enqueueStoredRuntimeMessage(
 import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
 	type AgentDesktopNotification,
-	type ChildAgentDispatcher,
+	type ChildAgentSessionFactory,
 } from "../src/extensions/multi-agent.ts";
 import type {
 	AgentToolResult,
@@ -88,6 +88,52 @@ type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+	return { promise, resolve };
+}
+
+type FauxChildOutcome =
+	| { lifecycle: "completed"; result?: { summary?: string } }
+	| { lifecycle: "failed" | "aborted"; error?: { message: string } }
+	| { lifecycle: "waiting_for_input" };
+
+type FauxChildRun = (input: Parameters<ChildAgentSessionFactory>[0]) => Promise<FauxChildOutcome>;
+
+function createTranscriptBackedFauxSessionFactory(store: MultiAgentStore, run: FauxChildRun): ChildAgentSessionFactory {
+	return async (input) => {
+		const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+		return {
+			messages,
+			prompt: async () => {
+				const outcome = await run(input);
+				if (outcome.lifecycle === "completed") {
+					if (outcome.result?.summary) messages.push(fauxAssistantMessage(outcome.result.summary));
+					return;
+				}
+				if (outcome.lifecycle === "waiting_for_input") {
+					const current = store.getAgent(input.agent.id) ?? input.agent;
+					const waiting = legacyMultiAgentStore(store).transitionAgent(
+						current.id,
+						current.revision,
+						"waiting_for_input",
+					);
+					if (!waiting.ok) throw new Error(`Could not mark ${current.id} waiting`);
+					await new Promise<void>(() => {});
+				}
+				throw new Error(outcome.error?.message ?? `Child ${outcome.lifecycle}`);
+			},
+			transcript: {
+				path: join(tmpdir(), `${input.agent.id}.jsonl`),
+				sessionId: `session-${input.agent.id}`,
+			},
+		};
+	};
 }
 
 describe("terminal outbox cleanup schedule", () => {
@@ -173,21 +219,22 @@ function finalizeReservedRuntimeAgent(
 function collectMultiAgentTools(
 	store: MultiAgentStore,
 	options: {
+		createChildSession?: ChildAgentSessionFactory;
 		desktopNotifier?: (notification: AgentDesktopNotification) => undefined | { close(): void };
-		dispatcher?: ChildAgentDispatcher;
 		onSessionMessageSent?: (input: { message: AgentMailboxMessage; toSessionId: string }) => void;
 	} = {},
 ): Map<string, RegisteredTool> {
 	const tools = new Map<string, RegisteredTool>();
 	const pi = {
+		appendEntry() {},
 		registerCommand(_name: string, _command: Omit<RegisteredCommand, "name" | "sourceInfo">) {},
 		registerTool(tool: ToolDefinition) {
 			tools.set(tool.name, tool as RegisteredTool);
 		},
 	} as ExtensionAPI;
 	multiAgentExtension(pi, {
+		createChildSession: options.createChildSession,
 		desktopNotifier: options.desktopNotifier,
-		dispatcher: options.dispatcher,
 		onSessionMessageSent: options.onSessionMessageSent,
 		store,
 	});
@@ -702,14 +749,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		const waitingAgents: AgentSnapshot[] = [];
-		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
-			waitingAgents.push(agent);
-			return { lifecycle: "waiting_for_input" };
-		};
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const tools = collectMultiAgentTools(store, { dispatcher });
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async ({ agent }) => {
+			waitingAgents.push(agent);
+			return { lifecycle: "waiting_for_input" };
+		});
+		const tools = collectMultiAgentTools(store, { createChildSession });
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
 			throw new Error("expected spawn_agent tool");
@@ -730,7 +777,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			{
 				body: "Worker is waiting for input.",
 				recipient: { agentId: null, sessionId: "parent-session" },
-				sender: { agentId: "agent_1", sessionId: "parent-session" },
+				sender: { agentId: "agent_1", sessionId: "session-agent_1" },
 				status: "pending",
 			},
 		]);
@@ -850,13 +897,22 @@ describe("runtime SQLite mailbox delivery", () => {
 		let transitionedToWaiting = false;
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const dispatcher: ChildAgentDispatcher = ({ agent }) => {
-			const waiting = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "waiting_for_input");
-			expect(waiting.ok).toBe(true);
-			transitionedToWaiting = true;
-			return new Promise(() => undefined);
-		};
-		const tools = collectMultiAgentTools(store, { dispatcher });
+		const createChildSession: ChildAgentSessionFactory = async ({ agent }) => ({
+			messages: [],
+			prompt: async () => {
+				const current = store.getAgent(agent.id) ?? agent;
+				const waiting = legacyMultiAgentStore(store).transitionAgent(
+					current.id,
+					current.revision,
+					"waiting_for_input",
+				);
+				expect(waiting.ok).toBe(true);
+				transitionedToWaiting = true;
+				await new Promise<void>(() => {});
+			},
+			transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
+		});
+		const tools = collectMultiAgentTools(store, { createChildSession });
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
 			throw new Error("expected spawn_agent tool");
@@ -890,15 +946,17 @@ describe("runtime SQLite mailbox delivery", () => {
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const desktopNotifications: AgentDesktopNotification[] = [];
-		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
+			lifecycle: "waiting_for_input",
+		}));
 		const tools = collectMultiAgentTools(store, {
+			createChildSession,
 			desktopNotifier: (notification) => {
 				desktopNotifications.push(notification);
 				return undefined;
 			},
-			dispatcher,
 		});
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
@@ -933,16 +991,28 @@ describe("runtime SQLite mailbox delivery", () => {
 		const close = vi.fn();
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		let resolveDispatch: ((value: { lifecycle: "completed" }) => void) | undefined;
-		const dispatcher: ChildAgentDispatcher = ({ agent }) =>
-			new Promise<{ lifecycle: "completed" }>((resolve) => {
-				resolveDispatch = resolve;
-				const waiting = legacyMultiAgentStore(store).transitionAgent(agent.id, agent.revision, "waiting_for_input");
-				expect(waiting.ok).toBe(true);
-			});
+		const finishDispatch = deferred<void>();
+		const createChildSession: ChildAgentSessionFactory = async ({ agent }) => {
+			const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+			return {
+				messages,
+				prompt: async () => {
+					const current = store.getAgent(agent.id) ?? agent;
+					const waiting = legacyMultiAgentStore(store).transitionAgent(
+						current.id,
+						current.revision,
+						"waiting_for_input",
+					);
+					expect(waiting.ok).toBe(true);
+					await finishDispatch.promise;
+					messages.push(fauxAssistantMessage("done"));
+				},
+				transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
+			};
+		};
 		const tools = collectMultiAgentTools(store, {
+			createChildSession,
 			desktopNotifier: () => ({ close }),
-			dispatcher,
 		});
 		const spawnAgent = tools.get("spawn_agent");
 		const waitAgents = tools.get("wait_agents");
@@ -960,10 +1030,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await delay(5);
 		expect(close).not.toHaveBeenCalled();
 
-		if (!resolveDispatch) {
-			throw new Error("expected pending waiting agent dispatch");
-		}
-		resolveDispatch({ lifecycle: "completed" });
+		finishDispatch.resolve(undefined);
 		await waitAgents.execute(
 			"wait",
 			{},
@@ -981,12 +1048,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const close = vi.fn();
-		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
+			lifecycle: "waiting_for_input",
+		}));
 		const tools = collectMultiAgentTools(store, {
+			createChildSession,
 			desktopNotifier: () => ({ close }),
-			dispatcher,
 		});
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
@@ -1027,15 +1096,17 @@ describe("runtime SQLite mailbox delivery", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
-		const dispatcher: ChildAgentDispatcher = async () => ({ lifecycle: "waiting_for_input" });
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
+			lifecycle: "waiting_for_input",
+		}));
 		const tools = collectMultiAgentTools(store, {
+			createChildSession,
 			desktopNotifier: () => {
 				throw new Error("notification failed");
 			},
-			dispatcher,
 		});
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
@@ -1072,14 +1143,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		const completedAgents: AgentSnapshot[] = [];
-		const dispatcher: ChildAgentDispatcher = async ({ agent }) => {
-			completedAgents.push(agent);
-			return { lifecycle: "completed", result: { summary: "tests passed" } };
-		};
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const tools = collectMultiAgentTools(store, { dispatcher });
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async ({ agent }) => {
+			completedAgents.push(agent);
+			return { lifecycle: "completed", result: { summary: "tests passed" } };
+		});
+		const tools = collectMultiAgentTools(store, { createChildSession });
 		const spawnAgent = tools.get("spawn_agent");
 		if (!spawnAgent) {
 			throw new Error("expected spawn_agent tool");
@@ -1092,15 +1163,16 @@ describe("runtime SQLite mailbox delivery", () => {
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
-		for (let attempt = 0; attempt < 20 && completedAgents.length === 0; attempt += 1) {
+		for (let attempt = 0; attempt < 20 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}
+		expect(completedAgents).toHaveLength(1);
 
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 			{
 				body: "Worker completed: tests passed",
 				recipient: { agentId: null, sessionId: "parent-session" },
-				sender: { agentId: "agent_1", sessionId: "parent-session" },
+				sender: { agentId: "agent_1", sessionId: "session-agent_1" },
 				status: "pending",
 			},
 		]);
@@ -1110,14 +1182,16 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const dispatcher: ChildAgentDispatcher = async () => ({
-			lifecycle: "completed",
-			result: { summary: "tests passed" },
-		});
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const handler = createHostrunMultiAgentRequestHandler({ dispatcher, store });
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
+			lifecycle: "completed",
+			result: { summary: "tests passed" },
+		}));
+		const handler = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+			appendEntry: (customType: string, data?: unknown) => parentSession.appendCustomEntry(customType, data),
+		} as ExtensionAPI);
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
 		await handler({ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } }, ctx, undefined);
@@ -1136,14 +1210,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const dispatcher: ChildAgentDispatcher = async () => ({
-			lifecycle: "completed",
-			result: { durationMs: 1234, summary: "tests passed" },
-		});
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const tools = collectMultiAgentTools(store, { dispatcher });
+		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
+			lifecycle: "completed",
+			result: { summary: "tests passed" },
+		}));
+		const tools = collectMultiAgentTools(store, { createChildSession });
 		const spawnAgent = tools.get("spawn_agent");
 		const waitAgents = tools.get("wait_agents");
 		if (!spawnAgent || !waitAgents) {
@@ -1159,10 +1233,10 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		const waited = await waitAgents.execute("wait", {}, undefined, undefined, ctx);
 
-		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed. Duration: 1234ms" });
-		expect(waited.details).toMatchObject({ agent: { result: { durationMs: 1234 } } });
+		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed" });
+		expect(waited.details).toMatchObject({ agent: { result: { summary: "tests passed" } } });
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Worker completed: tests passed. Duration: 1234ms", status: "delivered" },
+			{ body: "Worker completed: tests passed", status: "delivered" },
 		]);
 	});
 

@@ -60,6 +60,51 @@ import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-out
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
+const AGENT_START_CUSTOM_TYPE = "agent_start";
+const AGENT_COMPLETE_CUSTOM_TYPE = "agent_complete";
+
+type ParentAgentRecordType = typeof AGENT_START_CUSTOM_TYPE | typeof AGENT_COMPLETE_CUSTOM_TYPE;
+
+interface ParentAgentRecordData {
+	agentId: string;
+	childSessionId: string;
+	lifecycle: AgentLifecycleState;
+	transcriptPath: string;
+}
+
+function isTerminalAgentLifecycle(lifecycle: AgentLifecycleState): boolean {
+	return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "aborted";
+}
+
+function appendParentAgentRecord(pi: ExtensionAPI, customType: ParentAgentRecordType, agent: AgentSnapshot): void {
+	const childSessionId = agent.transcript?.sessionId;
+	const transcriptPath = agent.transcript?.path;
+	if (!childSessionId || !transcriptPath) {
+		throw new Error(`Cannot persist ${customType} for ${agent.id} without transcript identity`);
+	}
+	pi.appendEntry(customType, {
+		agentId: agent.id,
+		childSessionId,
+		lifecycle: agent.lifecycle,
+		transcriptPath,
+	} satisfies ParentAgentRecordData);
+}
+
+function readActiveParentAgentIds(ctx: ExtensionContext): Set<string> {
+	const started = new Set<string>();
+	const completed = new Set<string>();
+	for (const entry of ctx.sessionManager.getEntries()) {
+		if (entry.type !== "custom" || (entry.customType !== AGENT_START_CUSTOM_TYPE && entry.customType !== AGENT_COMPLETE_CUSTOM_TYPE)) {
+			continue;
+		}
+		const data = entry.data as Partial<ParentAgentRecordData> | undefined;
+		if (typeof data?.agentId !== "string") continue;
+		if (entry.customType === AGENT_START_CUSTOM_TYPE) started.add(data.agentId);
+		else completed.add(data.agentId);
+	}
+	for (const agentId of completed) started.delete(agentId);
+	return started;
+}
 
 const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -165,7 +210,6 @@ export interface MultiAgentExtensionOptions {
 	createAttachedSession?: AttachedSessionFactory;
 	createChildSession?: ChildAgentSessionFactory;
 	desktopNotifier?: AgentDesktopNotifier;
-	dispatcher?: ChildAgentDispatcher;
 	runtimeHandles?: MultiAgentRuntimeHandles;
 	selectAgentView?: (agentId: string) => boolean | undefined;
 	onSessionMessageSent?: (input: { message: AgentMailboxMessage; toSessionId: string }) => void;
@@ -178,14 +222,6 @@ export interface ChildAgentDispatchInput {
 	prompt: string;
 	signal?: AbortSignal;
 }
-
-export interface ChildAgentDispatchResult {
-	lifecycle: "completed" | "failed" | "aborted" | "waiting_for_input";
-	error?: { message: string; code?: string };
-	result?: AgentResult;
-}
-
-export type ChildAgentDispatcher = (input: ChildAgentDispatchInput) => Promise<ChildAgentDispatchResult>;
 
 export interface ChildAgentSession {
 	abort?(): void;
@@ -353,7 +389,6 @@ type WaitingDesktopNotificationHandles = Map<string, WaitingDesktopNotificationR
 
 interface BackgroundDispatchContext {
 	createChildSession: ChildAgentSessionFactory | undefined;
-	dispatcher: ChildAgentDispatcher | undefined;
 	dispatches: ActiveAgentDispatches;
 	handles: BackgroundSessionHandles;
 	ownerships: Map<string, OwnedAgentRuntime>;
@@ -453,20 +488,6 @@ function startBackgroundDispatch(
 		return background.store.getAgent(agent.id) ?? agent;
 	}
 
-	if (background.dispatcher) {
-		const promise = trackAgentDispatch(
-			background.store,
-			background.dispatches,
-			agent,
-			runAgentDispatcher(background.store, background.dispatcher, agent, prompt, ctx, runtime),
-			runtime,
-			background.handles,
-		);
-		notifyBackgroundDispatch(promise, background.handles, ctx);
-		void promise.finally(() => background.ownerships.delete(agent.id));
-		return background.store.getAgent(agent.id) ?? agent;
-	}
-
 	return agent;
 }
 
@@ -480,6 +501,10 @@ async function backgroundCommand(
 		return;
 	}
 	const prompt = args.trim();
+	if (!background.createChildSession) {
+		ctx.ui.notify("Background jobs are unavailable: no child session runtime is configured.", "error");
+		return;
+	}
 	if (isProductionChildSessionFactory(background.createChildSession)) {
 		const validation = validateGoalObjective(prompt);
 		if (!validation.ok) {
@@ -692,6 +717,7 @@ function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
 
 export function createHostrunMultiAgentRequestHandler(
 	options: MultiAgentExtensionOptions,
+	pi?: ExtensionAPI,
 ): HostrunMultiAgentRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
@@ -713,14 +739,13 @@ export function createHostrunMultiAgentRequestHandler(
 			const result = await spawnAgent(
 				store,
 				options.createChildSession,
-				options.dispatcher,
 				activeDispatches,
 				ownerships,
 				request.params as SpawnAgentParams,
 				ctx,
 				desktopNotifier,
 				waitingDesktopNotifications,
-				undefined,
+				pi,
 				backgroundSessions,
 			);
 			return result.details;
@@ -737,7 +762,6 @@ export function createHostrunMultiAgentRequestHandler(
 				createAttachedSession: options.createAttachedSession,
 				ctx,
 				desktopNotifier,
-				dispatcher: options.dispatcher,
 				dispatches: activeDispatches,
 				handles: backgroundSessions,
 				params: request.params as AttachSessionAgentParams,
@@ -928,14 +952,13 @@ function createLifecycleCoordinator(store: MultiAgentStore): LifecycleCoordinato
 async function spawnAgent(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory | undefined,
-	dispatcher: ChildAgentDispatcher | undefined,
 	dispatches: ActiveAgentDispatches,
 	ownerships: Map<string, OwnedAgentRuntime>,
 	params: SpawnAgentParams,
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-	pi?: ExtensionAPI,
+	pi: ExtensionAPI | undefined,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	if (isChildAgentRuntime(ctx)) {
@@ -955,8 +978,15 @@ async function spawnAgent(
 			});
 		}
 	}
-	if (!createChildSession && !dispatcher) {
-		return errorResult("spawn_agent is unavailable: no executable runtime is configured.", {
+	if (!createChildSession) {
+		return errorResult("spawn_agent is unavailable: no child session runtime is configured.", {
+			agent: emptyAgent("spawn_agent"),
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
+	if (!pi) {
+		return errorResult("spawn_agent is unavailable: parent session journaling is not configured.", {
 			agent: emptyAgent("spawn_agent"),
 			dispatched: false,
 			prompt: params.prompt,
@@ -1019,6 +1049,7 @@ async function spawnAgent(
 		});
 	}
 	store.publishLifecycleCoordinatorSnapshot(created.agent);
+	appendParentAgentRecord(pi, AGENT_START_CUSTOM_TYPE, created.agent);
 	const lifecycle: OwnedLifecycleCommandInput = { agent: created.agent, ownership: created.ownership };
 	const runtime = { abortController, coordinator, lifecycle };
 	ownerships.set(created.agent.id, runtime);
@@ -1054,26 +1085,7 @@ async function spawnAgent(
 		});
 	}
 
-	if (dispatcher) {
-		const agent = startToolDispatch(
-			store,
-			dispatches,
-			created.agent,
-			() => runAgentDispatcher(store, dispatcher, created.agent, params.prompt, ctx, runtime),
-			desktopNotifier,
-			waitingDesktopNotifications,
-			undefined,
-			runtime,
-		);
-		releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
-		return result(`Spawned ${agent.displayName} (${agent.id})`, {
-			agent,
-			dispatched: true,
-			prompt: params.prompt,
-		});
-	}
-
-	throw new Error("spawn_agent executable runtime invariant violated");
+	throw new Error("spawn_agent child session runtime invariant violated");
 }
 
 function releaseOwnershipAfterDispatch(
@@ -1089,12 +1101,10 @@ interface AttachSessionAgentRuntimeInput {
 	createAttachedSession: AttachedSessionFactory | undefined;
 	ctx: ExtensionContext;
 	desktopNotifier: AgentDesktopNotifier;
-	dispatcher: ChildAgentDispatcher | undefined;
 	dispatches: ActiveAgentDispatches;
 	handles?: BackgroundSessionHandles;
 	params: AttachSessionAgentParams;
 	ownerships: Map<string, OwnedAgentRuntime>;
-	pi?: ExtensionAPI;
 	store: MultiAgentStore;
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
 }
@@ -1117,7 +1127,7 @@ async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promis
 	const resolved = resolution.target;
 
 	const prompt = params.prompt?.trim();
-	if (prompt && !input.createAttachedSession && !input.dispatcher) {
+	if (prompt && !input.createAttachedSession) {
 		return errorResult(`Could not resume session ${resolved.sessionId}: no attached session runtime is configured.`, {
 			agent: emptyAgent("attach_session_agent"),
 			dispatched: false,
@@ -1138,10 +1148,8 @@ async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promis
 				createAttachedSession: input.createAttachedSession,
 				ctx,
 				desktopNotifier: input.desktopNotifier,
-				dispatcher: input.dispatcher,
 				dispatches: input.dispatches,
 				handles: input.handles,
-				pi: input.pi,
 				ownerships: input.ownerships,
 				prompt,
 				store,
@@ -1178,10 +1186,8 @@ interface AttachSessionDispatchInput {
 	createAttachedSession: AttachedSessionFactory | undefined;
 	ctx: ExtensionContext;
 	desktopNotifier: AgentDesktopNotifier;
-	dispatcher: ChildAgentDispatcher | undefined;
 	dispatches: ActiveAgentDispatches;
 	handles?: BackgroundSessionHandles;
-	pi?: ExtensionAPI;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	prompt: string;
 	store: MultiAgentStore;
@@ -1200,32 +1206,15 @@ function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentS
 	input.ownerships.set(target.id, reservedRuntime);
 	input.store.publishLifecycleCoordinatorSnapshot(target);
 	const createAttachedSession = input.createAttachedSession;
-	if (createAttachedSession) {
-		const dispatched = startToolDispatch(
-			input.store,
-			input.dispatches,
-			target,
-			() => dispatchReservedAttachedChildSession(input, createAttachedSession, reservedRuntime),
-			input.desktopNotifier,
-			input.waitingDesktopNotifications,
-			input.handles,
-			reservedRuntime,
-		);
-		releaseOwnershipAfterDispatch(input.dispatches, input.ownerships, target.id);
-		return dispatched;
-	}
-	const dispatcher = input.dispatcher;
-	if (!dispatcher) {
-		return undefined;
-	}
+	if (!createAttachedSession) return undefined;
 	const dispatched = startToolDispatch(
 		input.store,
 		input.dispatches,
 		target,
-		() => dispatchReservedAttachedAgent(input, dispatcher, reservedRuntime),
+		() => dispatchReservedAttachedChildSession(input, createAttachedSession, reservedRuntime),
 		input.desktopNotifier,
 		input.waitingDesktopNotifications,
-		undefined,
+		input.handles,
 		reservedRuntime,
 	);
 	releaseOwnershipAfterDispatch(input.dispatches, input.ownerships, target.id);
@@ -1248,7 +1237,15 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRu
 }
 
 function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
-	const activeAgents = input.store.listActiveAgents();
+	const activeParentAgentIds = input.ctx.sessionManager ? readActiveParentAgentIds(input.ctx) : undefined;
+	const activeAgents = input.store
+		.listActiveAgents()
+		.filter(
+			(agent) =>
+				activeParentAgentIds === undefined ||
+				agent.transcript?.path === undefined ||
+				activeParentAgentIds.has(agent.id),
+		);
 	const recoverableAgents = input.ctx.multiAgentAgentId
 		? activeAgents.filter((agent) => agent.parentId === input.ctx.multiAgentAgentId)
 		: activeAgents;
@@ -1337,24 +1334,6 @@ function dispatchReservedAttachedChildSession(
 		);
 	}
 	return dispatchReservedAgentSession(input.store, factory, reservedRuntime, input.prompt, input.ctx, input.handles);
-}
-
-function dispatchReservedAttachedAgent(
-	input: AttachSessionDispatchInput,
-	dispatcher: ChildAgentDispatcher,
-	reservedRuntime: OwnedAgentRuntime,
-): Promise<AgentSnapshot> {
-	if (reservedRuntime.lifecycle.agent.lifecycle === "running") {
-		return runAgentDispatcher(
-			input.store,
-			dispatcher,
-			reservedRuntime.lifecycle.agent,
-			input.prompt,
-			input.ctx,
-			reservedRuntime,
-		);
-	}
-	return dispatchReservedAgent(input.store, dispatcher, reservedRuntime, input.prompt, input.ctx);
 }
 
 function spawnAttachedSessionAgent(
@@ -1630,7 +1609,13 @@ async function runAgentSession(
 			}));
 		childSession = activeSession;
 		const leaseSignal = reservedRuntime.abortController.signal;
-		const abortForLeaseLoss = () => activeSession.abort?.();
+		const abortForLeaseLoss = () => {
+			try {
+				activeSession.abort?.();
+			} catch (error) {
+				console.error(`Failed to abort child session ${running.agent.id}:`, error);
+			}
+		};
 		leaseSignal.addEventListener("abort", abortForLeaseLoss, { once: true });
 		unregisterLeaseAbort = () => leaseSignal.removeEventListener("abort", abortForLeaseLoss);
 		if (leaseSignal.aborted) activeSession.abort?.();
@@ -1641,7 +1626,7 @@ async function runAgentSession(
 		}
 
 		unregisterAbortHandler = store.registerAgentAbortHandler(running.agent.id, () => {
-			activeSession.abort?.();
+			reservedRuntime.abortController.abort();
 			handles?.delete(running.agent.id);
 		});
 		handles?.set(running.agent.id, activeSession);
@@ -1689,82 +1674,6 @@ async function runAgentSession(
 		unregisterAbortHandler?.();
 		handles?.delete(running.agent.id);
 		childSession?.dispose?.();
-	}
-}
-
-async function dispatchReservedAgent(
-	store: MultiAgentStore,
-	dispatcher: ChildAgentDispatcher,
-	reservedRuntime: OwnedAgentRuntime,
-	prompt: string,
-	ctx: ExtensionContext,
-): Promise<AgentSnapshot> {
-	const running = reservedRuntime.coordinator.confirmChildRuntime(reservedRuntime.lifecycle);
-	if (!running.ok) return reservedRuntime.lifecycle.agent;
-	store.publishLifecycleCoordinatorSnapshot(running.agent);
-	return runAgentDispatcher(store, dispatcher, running.agent, prompt, ctx, {
-		...reservedRuntime,
-		lifecycle: { agent: running.agent, ownership: reservedRuntime.lifecycle.ownership },
-	});
-}
-
-async function runAgentDispatcher(
-	store: MultiAgentStore,
-	dispatcher: ChildAgentDispatcher,
-	runningAgent: AgentSnapshot,
-	prompt: string,
-	ctx: ExtensionContext,
-	reservedRuntime: OwnedAgentRuntime,
-): Promise<AgentSnapshot> {
-	const restoreGeneration = store.getRestoreGeneration();
-	const running = { agent: runningAgent };
-	const unregisterAbortHandler = store.registerAgentAbortHandler(runningAgent.id, () => {
-		reservedRuntime.abortController.abort();
-	});
-	try {
-		const dispatchResult = await dispatcher({
-			agent: running.agent,
-			ctx,
-			prompt,
-			signal: reservedRuntime.abortController.signal,
-		});
-		await waitForActiveDescendants(store, running.agent.id, reservedRuntime.abortController.signal);
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
-		if (cancelled) return cancelled;
-		const current = store.getAgent(running.agent.id) ?? running.agent;
-		if (dispatchResult.lifecycle === "waiting_for_input") {
-			const waiting = reservedRuntime.coordinator.markWaitingForInput({
-				agent: current,
-				ownership: reservedRuntime.lifecycle.ownership,
-			});
-			if (!waiting.ok) return current;
-			store.publishLifecycleCoordinatorSnapshot(waiting.agent);
-			return waiting.agent;
-		}
-		return finalizeReservedRuntime(
-			store,
-			current,
-			dispatchResult.lifecycle,
-			{ error: dispatchResult.error, result: dispatchResult.result },
-			reservedRuntime,
-			restoreGeneration,
-		);
-	} catch (error) {
-		await waitForActiveDescendants(store, running.agent.id);
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
-		if (cancelled) return cancelled;
-		const failure = { message: error instanceof Error ? error.message : String(error) };
-		const current = store.getAgent(running.agent.id) ?? running.agent;
-		return finalizeReservedRuntime(
-			store,
-			current,
-			"failed",
-			{ error: failure },
-			reservedRuntime,
-			restoreGeneration,
-		);
-	} finally {
-		unregisterAbortHandler();
 	}
 }
 
@@ -2269,7 +2178,7 @@ class WaitAgentsWakeWatcher {
 			if (terminal) this.finish({ agent: terminal, kind: "agent" });
 		});
 		this.signal?.addEventListener("abort", this.onAbort, { once: true });
-		this.startRuntimeCoordinationWatch();
+		this.startRuntimeCoordinationWatch(readTrackedTerminal);
 
 		const terminalAgent = readTrackedTerminal();
 		if (terminalAgent) {
@@ -2279,11 +2188,18 @@ class WaitAgentsWakeWatcher {
 		this.checkCoordination();
 	}
 
-	private startRuntimeCoordinationWatch(): void {
-		if (!this.recipient) return;
-		this.pollTimer = setInterval(this.checkCoordination, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
+	private startRuntimeCoordinationWatch(readTrackedTerminal: () => AgentSnapshot | undefined): void {
+		const checkWake = () => {
+			const terminal = readTrackedTerminal();
+			if (terminal) {
+				this.finish({ agent: terminal, kind: "agent" });
+				return;
+			}
+			this.checkCoordination();
+		};
+		this.pollTimer = setInterval(checkWake, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
 		if (process.platform === "win32") return;
-		this.runtimeSignalHandler = this.checkCoordination;
+		this.runtimeSignalHandler = checkWake;
 		process.prependListener("SIGUSR2", this.runtimeSignalHandler);
 	}
 
@@ -2467,10 +2383,6 @@ async function cancelOneOwnedAgentRuntime(
 			dispatch.then(() => true),
 			new Promise<false>((resolve) => setTimeout(() => resolve(false), CANCELLATION_SETTLEMENT_TIMEOUT_MS)),
 		]);
-		if (!settledBeforeTimeout) {
-			const aborted = acknowledgeCancelledRuntime(store, agentId, reservedRuntime);
-			if (aborted) return { ok: true, agent: aborted };
-		}
 	}
 	const settled = store.getAgent(agentId) ?? cancelling.agent;
 	return { ok: true, agent: settled };
@@ -2607,6 +2519,14 @@ export function requestAgentSteering(
 			ok: false,
 		};
 	}
+	if (!isActiveLifecycle(current.lifecycle)) {
+		return {
+			agent: current,
+			error: `Could not steer ${params.agentId}: inactive (${current.lifecycle})`,
+			message: emptyMessage(params.agentId, params.message),
+			ok: false,
+		};
+	}
 
 	const persistence = store.getPersistenceTarget();
 	const coordinator = createLifecycleCoordinator(store);
@@ -2641,9 +2561,10 @@ export function requestAgentSteering(
 		targetCheckpoint: params.targetCheckpoint as SteeringCheckpoint | undefined,
 	});
 	if (!steered.ok) {
+		const error = steered.error === "invalid_transition" ? "inactive" : steered.error;
 		return {
 			agent: current,
-			error: `Could not steer ${params.agentId}: ${steered.error}`,
+			error: `Could not steer ${params.agentId}: ${error}`,
 			message: emptyMessage(params.agentId, params.message),
 			ok: false,
 		};
@@ -3039,7 +2960,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const createAttachedSession = options.createAttachedSession;
 	const createChildSession = options.createChildSession;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
-	const dispatcher = options.dispatcher;
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const backgroundSessions = runtimeHandles.sessions;
 	const activeDispatches = runtimeHandles.dispatches;
@@ -3047,21 +2967,34 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = {
 		createChildSession,
-		dispatcher,
 		dispatches: activeDispatches,
 		handles: backgroundSessions,
 		ownerships,
 		store,
 	};
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
+	let unbindParentAgentJournal: (() => void) | undefined;
 
 	pi.on?.("session_start", async (_event, ctx) => {
-		if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
+		unbindParentAgentJournal?.();
+		if (!isChildAgentRuntime(ctx)) {
+			if (ctx.sessionManager) {
+				unbindParentAgentJournal = store.subscribeAgentTransitions((previous, current) => {
+					if (
+						!isTerminalAgentLifecycle(previous.lifecycle) &&
+						isTerminalAgentLifecycle(current.lifecycle) &&
+						readActiveParentAgentIds(ctx).has(current.id)
+					) {
+						appendParentAgentRecord(pi, AGENT_COMPLETE_CUSTOM_TYPE, current);
+					}
+				});
+			}
+			runtimeLifecycleMirror.bind(ctx);
+		}
 		recoverAgents({
 			createAttachedSession,
 			ctx,
 			desktopNotifier,
-			dispatcher,
 			dispatches: activeDispatches,
 			handles: backgroundSessions,
 			pi,
@@ -3071,6 +3004,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		});
 	});
 	pi.on?.("session_shutdown", async (event) => {
+		unbindParentAgentJournal?.();
+		unbindParentAgentJournal = undefined;
 		runtimeLifecycleMirror.dispose();
 		if (event.reason === "reload") {
 			return;
@@ -3116,7 +3051,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 				return spawnAgent(
 					store,
 					createChildSession,
-					dispatcher,
 					activeDispatches,
 					ownerships,
 					params,
@@ -3154,11 +3088,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					createAttachedSession,
 					ctx,
 					desktopNotifier,
-					dispatcher,
 					dispatches: activeDispatches,
 					handles: backgroundSessions,
 					params,
-					pi,
 					ownerships,
 					store,
 					waitingDesktopNotifications,

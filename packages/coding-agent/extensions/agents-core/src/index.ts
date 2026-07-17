@@ -19,7 +19,6 @@ export type {
 	AgentSteeringRuntimeBinding,
 	AttachedSessionDispatchInput,
 	AttachedSessionFactory,
-	ChildAgentDispatcher,
 	CancelReservedAgentResult,
 	ChildAgentSessionFactory,
 	HostrunMultiAgentRequestHandler,

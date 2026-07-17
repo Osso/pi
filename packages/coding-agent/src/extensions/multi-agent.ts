@@ -3,7 +3,6 @@ export type {
 	AgentDesktopNotifier,
 	AttachedSessionDispatchInput,
 	AttachedSessionFactory,
-	ChildAgentDispatcher,
 	ChildAgentDispatchInput,
 	ChildAgentSessionFactory,
 	MultiAgentExtensionOptions,
