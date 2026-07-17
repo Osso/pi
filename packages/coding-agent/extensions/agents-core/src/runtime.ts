@@ -79,10 +79,12 @@ const spawnAgentSchema = Type.Object({
 	prompt: Type.String(),
 });
 
-const listAgentsSchema = Type.Object({
-	activeOnly: Type.Optional(Type.Boolean()),
-	parentId: Type.Optional(Type.String()),
-});
+const listAgentsSchema = Type.Object(
+	{
+		parentId: Type.Optional(Type.String()),
+	},
+	{ additionalProperties: false },
+);
 
 const attachSessionAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
@@ -1863,7 +1865,7 @@ function agentStatusLabel(agent: AgentSnapshot): "active" | "terminal" {
 
 function listMatchingAgents(store: MultiAgentStore, params: ListAgentsParams): AgentSnapshot[] {
 	const agents = params.parentId ? store.listDescendants(params.parentId) : store.listAgents();
-	return params.activeOnly === false ? agents : agents.filter((agent) => isActiveLifecycle(agent.lifecycle));
+	return agents.filter((agent) => isActiveLifecycle(agent.lifecycle));
 }
 
 function agentViewer(

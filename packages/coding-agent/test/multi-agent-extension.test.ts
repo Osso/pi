@@ -2146,7 +2146,7 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
-	it("renders each listed agent identity and active or terminal status in visible content", async () => {
+	it("renders only active listed-agent identities in visible content", async () => {
 		const harness = createMultiAgentHarness();
 		const active = spawnStoreFixture(harness.store, {
 			displayName: "Active Scout",
@@ -2160,7 +2160,7 @@ describe("multi-agent extension tools", () => {
 		});
 		completeAgent(harness.store, completed.details.agent);
 
-		const listed = await harness.call<ListAgentsDetails>("list_agents", { activeOnly: false });
+		const listed = await harness.call<ListAgentsDetails>("list_agents", {});
 		const content = listed.content[0];
 		if (!content || content.type !== "text") {
 			throw new Error("expected visible text content");
@@ -2169,12 +2169,21 @@ describe("multi-agent extension tools", () => {
 		expect(content.text).toContain(
 			`id=${active.details.agent.id} name="Active Scout" type=explore status=active lifecycle=running`,
 		);
-		expect(content.text).toContain(
-			`id=${completed.details.agent.id} name="Finished Worker" type=implement status=terminal lifecycle=completed`,
-		);
+		expect(content.text).not.toContain(completed.details.agent.id);
 	});
 
-	it("lists only active agents by default while allowing inactive agents when requested", async () => {
+	it("exposes no option for listing terminal agents", () => {
+		const harness = createMultiAgentHarness();
+		const parameters = harness.tools.get("list_agents")?.parameters as {
+			additionalProperties?: unknown;
+			properties?: Record<string, unknown>;
+		};
+
+		expect(parameters.properties).not.toHaveProperty("activeOnly");
+		expect(parameters.additionalProperties).toBe(false);
+	});
+
+	it("always excludes terminal agents", async () => {
 		const harness = createMultiAgentHarness();
 		const active = spawnStoreFixture(harness.store, {
 			displayName: "Active",
@@ -2186,15 +2195,10 @@ describe("multi-agent extension tools", () => {
 		});
 		const terminal = completeAgent(harness.store, completed.details.agent);
 
-		const defaultList = await harness.call<ListAgentsDetails>("list_agents", {});
-		const fullList = await harness.call<ListAgentsDetails>("list_agents", { activeOnly: false });
+		const listed = await harness.call<ListAgentsDetails>("list_agents", {});
 
 		expect(terminal.lifecycle).toBe("completed");
-		expect(defaultList.details.agents.map((agent) => agent.id)).toEqual([active.details.agent.id]);
-		expect(fullList.details.agents.map((agent) => agent.id)).toEqual([
-			active.details.agent.id,
-			completed.details.agent.id,
-		]);
+		expect(listed.details.agents.map((agent) => agent.id)).toEqual([active.details.agent.id]);
 	});
 
 	it("lists descendants for a parent without TUI state", async () => {

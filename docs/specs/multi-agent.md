@@ -51,9 +51,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] `send_agent_message` creates direct mailbox messages only across one immediate parent-child edge;
       siblings and transitive ancestors or descendants cannot target each other directly.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
-      list descendants without depending on the TUI. `list_agents` visible content identifies each
-      returned agent by ID, name, type, active/terminal status, and lifecycle; `agent_viewer` visible
-      content includes the inspected agent's status and terminal result summary or error when present.
+      list active descendants without depending on the TUI. `list_agents` has no terminal-agent option
+      and identifies each returned active agent by ID, name, type, status, and lifecycle; `agent_viewer`
+      remains the direct-ID path for inspecting terminal status, result summaries, and errors.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` requires the issued execution capability and constructs the executable child session
@@ -456,8 +456,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   the production child factory and configured agent profiles select child model/thinking settings for
   `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
   supports simultaneous and late completion waiters without consuming mailbox delivery. Failed
-  agents expose their failure message and `fileRefs`. `list_agents` returns
-  active agents by default and can return descendants below a parent without TUI state, and that `contact_parent` requires the caller's exact agent runtime identity and routes child messages only to the current direct parent with validated absolute
+  agents expose their failure message and `fileRefs`. `list_agents` always returns
+  active agents, can scope them below a parent without TUI state, and exposes no terminal-agent option. `contact_parent` requires the caller's exact agent runtime identity and routes child messages only to the current direct parent with validated absolute
   file references and persisted target validation. It rejects parentless runtimes, cannot target the resident Supervisor or arbitrary siblings,
   and has no `contact_supervisor` compatibility alias. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one

@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Removed the `list_agents.activeOnly` option; `list_agents` now always returns active agents, while terminal agents remain inspectable by ID through `agent_viewer`.
 - Goal creation now requires `/goal set <objective>`; bare `/goal <text>` is rejected, and `manage_goal` cannot persist reserved control words such as `continue` as objectives.
 - Renamed the child mailbox tool `contact_supervisor` to `contact_parent`; it is direct-parent-only, requires the exact caller runtime identity, rejects parentless runtimes, validates persisted `parent_request` targets against the current direct parent, cannot target the resident Supervisor, and has no `contact_supervisor` compatibility alias.
 - Removed `MultiAgentStore.spawnAgent`, `spawnChildAgent`, and `attachSessionAgent`; persisted creation must go through `LifecycleCoordinator`, while `MultiAgentStore` only projects committed snapshots.
