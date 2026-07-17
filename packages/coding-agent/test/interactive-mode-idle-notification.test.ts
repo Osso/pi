@@ -1,3 +1,4 @@
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import { Container, type Loader } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
@@ -6,6 +7,28 @@ import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
+
+const EMPTY_USAGE: Usage = {
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	totalTokens: 0,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+function createAssistantMessage(): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [],
+		api: "test-api",
+		provider: "test-provider",
+		model: "test-model",
+		usage: EMPTY_USAGE,
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+}
 
 vi.mock("../src/core/desktop-notification.ts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/core/desktop-notification.ts")>();
@@ -224,18 +247,24 @@ describe("InteractiveMode idle desktop notifications", () => {
 
 		context.streamingComponent = { updateContent: vi.fn() };
 		context.hideThinkingBlock = true;
+		const assistantMessage = createAssistantMessage();
 		await interactiveModePrototype.handleEvent.call(context, {
 			type: "message_update",
-			message: { role: "assistant", content: [] },
-			assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "hidden", partial: {} },
-		} as AgentSessionEvent);
+			message: assistantMessage,
+			assistantMessageEvent: {
+				type: "thinking_delta",
+				contentIndex: 0,
+				delta: "hidden",
+				partial: assistantMessage,
+			},
+		});
 		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking...");
 
 		await interactiveModePrototype.handleEvent.call(context, {
 			type: "message_update",
-			message: { role: "assistant", content: [] },
-			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "x", partial: {} },
-		} as AgentSessionEvent);
+			message: assistantMessage,
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "x", partial: assistantMessage },
+		});
 		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
 	});
 
