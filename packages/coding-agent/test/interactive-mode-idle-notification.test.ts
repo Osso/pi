@@ -18,6 +18,7 @@ vi.mock("../src/core/desktop-notification.ts", async (importOriginal) => {
 type HandleEventContext = {
 	chatContainer: Container;
 	clearPendingToolComponents(): void;
+	completedToolTimings: Map<string, { startedAt: number; finishedAt: number }>;
 	closeResponseCompleteNotification(): void;
 	defaultEditor: { onEscape?: () => void };
 	defaultStreamingMessage: string;
@@ -25,6 +26,7 @@ type HandleEventContext = {
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
 	footer: { invalidate(): void };
+	hideThinkingBlock: boolean;
 	isInitialized: boolean;
 	currentWorkingDefaultMessage: string;
 	loadingAnimation: Loader | undefined;
@@ -42,13 +44,15 @@ type HandleEventContext = {
 	};
 	shutdownRequested: boolean;
 	setDefaultWorkingMessage(message: string): void;
+	setWorkingMessageForActiveTools(): void;
 	startThinkingTimer(): void;
 	statusContainer: Container;
 	stopThinkingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
 	stopWorkingLoader(): void;
-	streamingComponent: undefined;
-	streamingMessage: undefined;
+	streamingComponent: { updateContent(message: unknown): void } | undefined;
+	streamingMessage: unknown;
+	thinkingFollowsTool: boolean;
 	ui: { requestRender(): void; terminal: { setProgress(progress: boolean): void } };
 	workingVisible: boolean;
 };
@@ -71,6 +75,7 @@ type SubmitContext = {
 		prompt: (text: string, options?: unknown) => Promise<void>;
 	};
 	showSettingsSelector: () => void;
+	submitSelectedAgentSteering: () => Promise<boolean>;
 };
 
 type ModelRequestEvent = { type: "model_request_start" } | { type: "model_request_end" };
@@ -89,12 +94,14 @@ function createContext(): HandleEventContext {
 	context.chatContainer = new Container();
 	context.clearPendingToolComponents = vi.fn();
 	context.closeResponseCompleteNotification = vi.fn();
+	context.completedToolTimings = new Map();
 	context.defaultEditor = {};
 	context.defaultStreamingMessage = "Streaming...";
 	context.defaultWorkingMessage = "Thinking...";
 	context.executingToolNames = new Map();
 	context.executingToolStartedAt = new Map();
 	context.footer = { invalidate: vi.fn() };
+	context.hideThinkingBlock = false;
 	context.isInitialized = true;
 	context.currentWorkingDefaultMessage = "Thinking...";
 	context.loadingAnimation = undefined;
@@ -109,6 +116,7 @@ function createContext(): HandleEventContext {
 	context.setDefaultWorkingMessage = vi.fn((message: string) => {
 		context.currentWorkingDefaultMessage = message;
 	});
+	context.setWorkingMessageForActiveTools = vi.fn();
 	context.shutdownRequested = false;
 	context.startThinkingTimer = vi.fn();
 	context.statusContainer = new Container();
@@ -117,6 +125,7 @@ function createContext(): HandleEventContext {
 	context.stopWorkingLoader = interactiveModePrototype.stopWorkingLoader;
 	context.streamingComponent = undefined;
 	context.streamingMessage = undefined;
+	context.thinkingFollowsTool = false;
 	context.ui = { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } };
 	context.workingVisible = true;
 	return context;
@@ -140,6 +149,7 @@ function createSubmitContext(): SubmitContext {
 			prompt: vi.fn(async () => {}),
 		},
 		showSettingsSelector: vi.fn(),
+		submitSelectedAgentSteering: vi.fn(async () => false),
 	};
 }
 
@@ -188,19 +198,44 @@ describe("InteractiveMode idle desktop notifications", () => {
 		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows Streaming for the active run and Thinking only during model requests", async () => {
+	it("shows Thinking until the first visible post-tool assistant delta", async () => {
 		const context = createContext();
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
 		expect(context.closeResponseCompleteNotification).toHaveBeenCalledTimes(1);
-		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
-		expect(context.startThinkingTimer).not.toHaveBeenCalled();
+		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking...");
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "model_request_start" });
 		expect(context.startThinkingTimer).toHaveBeenCalledTimes(1);
 
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "tool_execution_end",
+			toolCallId: "tool-1",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "done" }] },
+			isError: false,
+			startedAt: 1_000,
+			finishedAt: 2_000,
+		});
+		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking...");
+
 		await interactiveModePrototype.handleEvent.call(context, { type: "model_request_end" });
-		expect(context.stopThinkingTimer).toHaveBeenCalledTimes(2);
+		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking...");
+
+		context.streamingComponent = { updateContent: vi.fn() };
+		context.hideThinkingBlock = true;
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "message_update",
+			message: { role: "assistant", content: [] },
+			assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "hidden", partial: {} },
+		} as AgentSessionEvent);
+		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Thinking...");
+
+		await interactiveModePrototype.handleEvent.call(context, {
+			type: "message_update",
+			message: { role: "assistant", content: [] },
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "x", partial: {} },
+		} as AgentSessionEvent);
 		expect(context.setDefaultWorkingMessage).toHaveBeenLastCalledWith("Streaming...");
 	});
 
@@ -233,7 +268,7 @@ describe("InteractiveMode retry status", () => {
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
 
 		expect(context.statusContainer.children).toEqual([retryLoader]);
-		expect(retryLoader.render(100).join("\n")).toContain("Streaming...");
+		expect(retryLoader.render(100).join("\n")).toContain("Thinking...");
 		expect(context.retryLoader).toBeUndefined();
 		expect(context.loadingAnimation).toBe(retryLoader);
 		expect(stop).not.toHaveBeenCalled();

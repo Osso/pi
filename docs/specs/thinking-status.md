@@ -6,9 +6,9 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 
 ### Default thinking status
 
-- [x] At agent-run start, show `Streaming...` until a provider request begins (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
+- [x] At agent-run and provider-request start, show `Thinking...`; post-tool continuation remains `Thinking...` throughout silent model inference (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
 - [x] While a provider request is active, show elapsed duration beginning as `Thinking... 0s` and formatting longer durations such as `Thinking... 1m 05s` (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
-- [x] Stop the thinking-duration indicator when the provider request ends, returning to `Streaming...` while the agent run remains active (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
+- [x] Switch to `Streaming...` only after the first non-empty visible assistant text delta or visible thinking delta. Empty stream events and hidden thinking do not switch the label, and provider-request end does not imply visible output (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
 
 ### Tool waits
 
@@ -34,6 +34,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/interactive-mode-idle-notification.test.ts` — request/run defaults, post-tool silent inference, first-visible-delta transition, and hidden-thinking behavior.
 - `packages/coding-agent/test/interactive-mode-thinking-timer.test.ts` — elapsed formatting, response-end shutdown, and tool-wait precedence.
 - `packages/coding-agent/test/interactive-mode-tool-timing.test.ts` — hydrated versus unhydrated pending-tool ownership across footer paths.
 - `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — completed model-turn duration placement between consecutive tools.

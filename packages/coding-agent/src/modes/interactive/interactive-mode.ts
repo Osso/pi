@@ -428,7 +428,7 @@ export class InteractiveMode {
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
 	private readonly defaultStreamingMessage = "Streaming...";
 	private readonly defaultWorkingMessage = "Thinking...";
-	private currentWorkingDefaultMessage = this.defaultStreamingMessage;
+	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
 	private thinkingStartedAt: number | undefined;
 	private thinkingTimer: ReturnType<typeof setInterval> | undefined;
 	private childActivityTimer: ReturnType<typeof setInterval> | undefined;
@@ -3913,6 +3913,13 @@ export class InteractiveMode {
 		return component;
 	}
 
+	private isVisibleAssistantDelta(event: Extract<AgentSessionEvent, { type: "message_update" }>): boolean {
+		const update = event.assistantMessageEvent;
+		if (update.type === "text_delta") return update.delta.length > 0;
+		if (update.type === "thinking_delta") return !this.hideThinkingBlock && update.delta.length > 0;
+		return false;
+	}
+
 	private async handleEvent(event: AgentSessionEvent): Promise<void> {
 		if (!this.isInitialized) {
 			await this.init();
@@ -3933,7 +3940,7 @@ export class InteractiveMode {
 				this.executingToolStartedAt.clear();
 				this.stopToolWaitingTimerIfIdle();
 				this.stopThinkingTimer();
-				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
+				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -3965,7 +3972,6 @@ export class InteractiveMode {
 
 			case "model_request_end":
 				this.stopThinkingTimer();
-				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
 				this.ui.requestRender();
 				break;
 
@@ -4017,6 +4023,10 @@ export class InteractiveMode {
 				break;
 
 			case "message_update":
+				if (this.isVisibleAssistantDelta(event)) {
+					this.stopThinkingTimer();
+					this.setDefaultWorkingMessage(this.defaultStreamingMessage);
+				}
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
@@ -4110,7 +4120,7 @@ export class InteractiveMode {
 				this.executingToolStartedAt.delete(event.toolCallId);
 				this.stopToolWaitingTimerIfIdle();
 				this.thinkingFollowsTool = true;
-				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
+				this.setDefaultWorkingMessage(this.defaultWorkingMessage);
 				this.setWorkingMessageForActiveTools();
 				if (component) {
 					this.ui.requestRender();
