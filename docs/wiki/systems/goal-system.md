@@ -61,9 +61,8 @@ The command rejects flags with a visible error and does not write state. Removed
 The `manage_goal` tool exposes an `action` parameter with optional `objective`
 and `reason` parameters. It can set, pause, resume, complete, clear, or view the
 current active goal. The set action rejects reserved goal-control words such as
-`continue`, preventing model-generated continuation instructions from becoming objectives. Paused goals remain visible in `/goal`, startup
-notifications, and footer status, but do not inject prompt context or continue
-automatically until the resume action clears the pause state.
+`continue`, preventing model-generated continuation instructions from becoming objectives. Paused goals remain active and visible in `/goal`, startup
+notifications, and footer status. They can be completed directly without resuming, but do not inject prompt context or continue automatically until the resume action clears the pause state.
 
 `manage_goal` is supervisor-only. The SDK denylist removes that capability from
 spawned, attached/resumed, and `/bg` child sessions, and from the resident
@@ -121,7 +120,7 @@ When an empty response stops continuation, Pi shows a warning explaining the sto
 
 ## Completion Tool Action
 
-Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal running and submits actionable instructions; `pause` writes `pausedAt`; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
+Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state, whether the active goal is running or paused. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal active and submits actionable instructions; `pause` writes `pausedAt`; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
 
 Completed and paused goals do not trigger automatic continuation.
 

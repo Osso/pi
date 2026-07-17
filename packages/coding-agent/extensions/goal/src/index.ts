@@ -455,14 +455,14 @@ async function runCompleteGoalAction(
 	reviewGoal: GoalSupervisorReview,
 	pi: ExtensionAPI,
 ): Promise<AgentToolResult<unknown>> {
-	const runningGoal = loadRunningGoal(ctx);
-	if (!runningGoal) return textResult("No active goal to complete.");
+	const activeGoal = loadActiveGoal(ctx);
+	if (!activeGoal) return textResult("No active goal to complete.");
 
 	const reason = reasonInput?.trim() || "complete";
 	const decision = await reviewGoal({
 		ctx,
 		kind: "goal_completion_review",
-		payload: { objective: runningGoal.objective, proposedCompletionReason: reason },
+		payload: { objective: activeGoal.objective, proposedCompletionReason: reason },
 	});
 	if (decision.kind === "continue") {
 		pi.sendUserMessage(decision.instructions, { deliverAs: "followUp" });

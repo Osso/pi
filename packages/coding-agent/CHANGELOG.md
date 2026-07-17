@@ -141,6 +141,7 @@
 
 ### Fixed
 
+- Fixed `manage_goal complete` incorrectly reporting no active goal when the persisted goal was paused.
 - Fixed detached Pyrun live-agent views hiding submitted source by persisting a permission-locked `script.py` artifact across running and terminal states and rendering it beside the output log in the live-agent view.
 - Fixed explicit Architect requests lacking active-worktree context by accepting a validated absolute directory `project_path` (such as an active worktree), defaulting to the sender cwd, and directing Architect to read the authoritative relevant project spec.
 - Fixed Supervisor idle loops by adding a typed `pause` goal decision for work that must wait instead of returning a no-op `continue` instruction.

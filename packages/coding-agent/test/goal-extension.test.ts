@@ -776,6 +776,19 @@ describe("goal extension", () => {
 		expect(result?.content).toEqual([{ type: "text", text: "No active goal to complete." }]);
 	});
 
+	it("completes a paused active goal through manage_goal", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("set complete while paused");
+		await harness.runPauseGoal();
+		const result = await harness.runGoalComplete("verified while paused");
+
+		const goal = readStoredGoal<{ completedAt?: string; completionReason?: string }>(cwd);
+		expect(goal.completedAt).toEqual(expect.any(String));
+		expect(goal.completionReason).toBe("verified while paused");
+		expect(result?.content).toEqual([{ type: "text", text: "Goal marked complete: verified while paused" }]);
+	});
+
 	it("pauses an active goal through the manage_goal tool", async () => {
 		const harness = createGoalHarness(cwd);
 
