@@ -467,6 +467,8 @@ Pitfalls:
 - Control-DB repository transactions enforce lifecycle transition legality and exact process ownership.
 - Orchestration-capable runtimes require issued execution capability before agent tools/listeners load.
 - Spawn, cancellation, attached recovery, steering, detached Bash/Pyrun finalization, agent-row terminal
-  truth, outbox delivery, and agent-row waits use the durable lifecycle protocol.
+  truth, outbox delivery, and agent-row waits use the durable lifecycle protocol. Cancellation timeout
+  alone leaves an abort-ignoring child `cancelling`; exact-owner exit acknowledgement or dead-owner
+  recovery settles the existing cancellation intent as `aborted`.
 - `MultiAgentStore` remains a projection and metadata surface; direct lifecycle methods are deleted.
 - TUI/view selection and pinned slots remain read-only with respect to lifecycle.

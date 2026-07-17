@@ -160,7 +160,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
   Transcript-backed child-session runtimes register their abort controller as the single store abort handle, so
   cancellation aborts their signal once and waits for actual exit acknowledgement. An abort-ignoring child session
-  remains `cancelling`; timeout alone never fabricates `aborted`. AgentSession constructs detached controllers
+  remains `cancelling`; timeout alone never fabricates `aborted`. Exact-owner exit acknowledgement or dead-owner
+  recovery settles the existing cancellation intent as `aborted`. AgentSession constructs detached controllers
   lazily from the current store/session/control-DB binding, so session switches
   cannot retain an old session path.
 

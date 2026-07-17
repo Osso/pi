@@ -80,8 +80,9 @@ Dispatch and graph invariants:
 - Each spawned or attached child-agent thinking phase has a 15-minute deadline. Tool execution clears the deadline and remains uncapped; when the last active tool finishes or steering starts another model turn, a fresh thinking deadline begins. Expiry aborts the active child turn and finalizes it as `failed` with `Child agent thinking phase exceeded 15 minutes`. Agent end, cancellation, disposal, restoration replacement, and runtime ownership loss clear the prior timer.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. An owned child runtime gets a bounded
-  opportunity to settle after abort; if its dispatch ignores abort past that deadline, the exact owner
-  commits `aborted` and terminal fencing rejects any late dispatch result. Parent cancellation proceeds
+  opportunity to settle after abort; if its dispatch ignores abort past that deadline, it remains
+  `cancelling` until exact-owner exit acknowledgement or dead-owner recovery settles the cancellation.
+  Terminal fencing rejects any late natural dispatch result. Parent cancellation proceeds
   deepest-first, so a parent cannot terminalize before each descendant is terminal. A parent dispatch whose result is ready waits
   without disposing its runtime until every descendant is terminal, then commits its preserved terminal result.
   Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal. Runtime-mailbox
@@ -94,8 +95,8 @@ wall-clock time, or mailbox delivery:
    existing outcome and cannot advance revision or enqueue another completion notification.
 2. An accepted cancellation request wins over a later natural-completion attempt and moves the agent
    to `cancelling`. The exact owner process identity produces `aborted` when the runtime acknowledges
-   exit or when the bounded post-abort settlement deadline expires; terminal fencing rejects a late
-   natural result from the cancelled dispatch.
+   exit; timeout alone leaves the row `cancelling`. Dead-owner recovery settles an existing cancellation
+   intent as `aborted`; terminal fencing rejects a late natural result from the cancelled dispatch.
 3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
    Ownership for one agent cannot authorize another agent even under the same supervisor process. Recovery is
    authorized only after that exact process identity is gone; PID reuse does not match, and zombie/exited states
@@ -140,9 +141,10 @@ SQLite connection access control and arbitrary same-UID raw SQL are outside this
       to `completed`, so steering racing with turn completion is delivered before terminalization and
       cannot remain pending on a terminal agent.
 - [x] Cancelling an agent aborts its live runtime handle and records terminal state through
-      the normal lifecycle path. An owned child dispatch that ignores abort is terminalized as
-      `aborted` after the bounded settlement deadline, and late dispatch completion cannot rewrite it.
-      Detached Pyrun jobs register their handle and terminate the runner process group so spawned
+      the normal lifecycle path. An owned child dispatch that ignores abort remains `cancelling` after
+      the bounded settlement deadline; exact-owner exit acknowledgement or dead-owner recovery settles
+      it as `aborted`, and late dispatch completion cannot rewrite it. Detached Pyrun jobs register their
+      handle and terminate the runner process group so spawned
       commands cannot survive cancellation as orphans.
 
 ### Restore, restart reconstruction, and recovery (derived liveness)
