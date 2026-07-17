@@ -66,15 +66,20 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `documentation-update`, `implement`, and `reviewer` profiles provide default model/thinking
       choices and configured profiles override them.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
-      large child output does not become an unbounded event log. Spawned child construction persists
-      the transcript header and initial context before the agent can become `running`; recovery rejects
-      missing transcript files or a header session ID that differs from persisted transcript metadata.
-- [x] Supervisor session resume restores the persisted multi-agent store into the production
-      first-party store so agent tree, slots, file references, mailbox state, and transcript pointers
-      survive a crash or restart. The selected view is ephemeral UI state and is not persisted.
-- [x] Multi-agent state persists as per-entity rows in the session control DB (one upsert per
-      mutated agent or mailbox message), not as snapshots appended to the session
-      JSONL transcript; transcripts carry conversation history only.
+      large child output does not become an unbounded event log. The parent session JSONL contains
+      authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.
+      `agent_start` is appended only after the child `running` lifecycle commit and includes the agent
+      identity and transcript identity. `agent_complete` is appended only after a committed
+      `completed`, `failed`, or `aborted` lifecycle. Recovery rejects missing transcript files or a
+      header session ID that differs from persisted transcript metadata.
+- [x] Supervisor session resume reconstructs restart candidates from the parent session JSONL:
+      unmatched `agent_start` records identify candidates, while matching `agent_complete` records
+      prevent recovery. The control DB restores lifecycle and ownership state, but is not sufficient
+      alone for restart admission. The selected view is ephemeral UI state and is not persisted.
+- [x] Multi-agent lifecycle and ownership state persists as per-entity rows in the session control DB
+      (one upsert per mutated agent or mailbox message). Parent-session JSONL custom agent records are
+      authoritative for restart reconstruction; there is no compatibility fallback to control-DB-only
+      recovery.
 - [x] A running child publishes its authoritative current activity phase (`thinking` or `tool`),
       phase start timestamp, and tool call ID/name when applicable into its agent row. Each activity write
       must match the agent's exact persisted runtime process and owning supervisor session. Phase transitions,
@@ -94,16 +99,18 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       path and deliberately does not follow forks, so the original and the fork can never both
       auto-restart the same child transcripts.
 - [x] Production multi-agent orchestration requires a persisted supervisor session/control-DB key and
-      fails closed without one. In-memory stores are projection-only test fixtures, not an alternate
-      production lifecycle mode.
-- [x] Restore never rewrites lifecycle state: the last written lifecycle is the truth, and restore
-      only clears stale worker handles (runtime metadata that is never proof of liveness). Detachment
-      is derived at session start from active lifecycle plus the absence of a live dispatch — see
+      a transcript-backed child-session factory, and fails closed without either. There is no custom
+      dispatcher or alternate lifecycle path; every spawned child has transcript identity and writes
+      parent `agent_start` and `agent_complete` restart records.
+- [x] Restore never rewrites lifecycle state: the last committed lifecycle is the truth, and restore
+      only clears stale worker handles. Restart admission requires an unmatched parent-session JSONL
+      `agent_start`; control-DB lifecycle and ownership state alone never admits recovery. See
       [agent-lifecycle.md](agent-lifecycle.md).
-- [x] On supervisor session start, detached in-flight agents with transcript paths restart through
-      exact process-ownership reacquisition, preserving identity and metadata regardless of how their
-      backing session was selected; agents already waiting for input are not auto-prompted. After
-      listener registration, the session's owning supervisor reconciles candidate orphan rows through
+- [x] On supervisor session start, only agents identified by unmatched parent-session JSONL
+      `agent_start` records restart through exact process-ownership reacquisition, preserving agent and
+      transcript identity. A matching `agent_complete` record prevents recovery, including for
+      `completed`, `failed`, or `aborted` lifecycle state; agents already waiting for input are not
+      auto-prompted. After listener registration, the owning supervisor reconciles candidates through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks)` identity.
       Confirmed owner-process exit resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred
       abort. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
@@ -151,9 +158,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   commits the registered row as failed through its exact ownership, and reports the launch error in the same call.
   A live runner retries the same terminal input only for SQLite
   busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
-  Dispatcher runtimes register their abort controller as the single store abort handle, so cancellation aborts
-  their signal once and waits for actual exit acknowledgement. An abort-ignoring dispatcher remains `cancelling`;
-  timeout alone never fabricates `aborted`. AgentSession constructs detached controllers
+  Transcript-backed child-session runtimes register their abort controller as the single store abort handle, so
+  cancellation aborts their signal once and waits for actual exit acknowledgement. An abort-ignoring child session
+  remains `cancelling`; timeout alone never fabricates `aborted`. AgentSession constructs detached controllers
   lazily from the current store/session/control-DB binding, so session switches
   cannot retain an old session path.
 

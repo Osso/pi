@@ -57,8 +57,15 @@ those tools as a second boundary.
 
 At supervisor start, there are no persisted `queued` or `starting` startup rows. Child construction
 happens first; successful construction persists `running` revision 1, while interruption or failure
-persists `failed` revision 1. After the one registered supervisor binding for the session path registers,
-that supervisor reconciles detached active rows through coordinator recovery commands.
+persists `failed` revision 1. After the `running` commit, the parent session appends an `agent_start`
+custom JSONL record containing the agent ID and child transcript identity. A committed `completed`,
+`failed`, or `aborted` transition appends the matching `agent_complete` record. Unmatched starts are
+the authoritative restart candidates; matching completions prevent recovery. Control-DB lifecycle and
+ownership rows remain required, but cannot admit child recovery without the parent record. There is no
+control-DB-only fallback. Detached Bash and Pyrun jobs retain their separate tool-call JSONL and runner
+recovery contract and do not use these child-agent records. After the one registered supervisor binding
+for the session path registers, that supervisor reconstructs eligible active children through coordinator
+recovery commands while preserving agent and transcript identity.
 Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`; recovery
 occurs only after that exact identity is gone and never rewrites lifecycle JSON directly.
 The one registered supervisor binding persists that exact process identity for its asserted session path.
@@ -81,10 +88,11 @@ synchronization, so historical non-current stores cannot retain active ghosts. A
 retain the transcript-backed resume path; attached rows already waiting for input remain idle.
 
 `wait_agents({})` takes no agent ID. Each invocation snapshots active agents, consumes one pending
-completion notification, and queries current agent rows until one snapshot member is terminal. A
-notification only wakes the query; mailbox delivery and acknowledgement are independent. The store
-removes transient worker metadata on restore, but durable lifecycle state remains unchanged until an
-exact-owner command commits.
+completion notification, and polls authoritative control-DB agent rows until one snapshot member is
+terminal. In-process transitions, runtime signals, and notifications only accelerate that query; this
+allows a detached runner in another process to wake a blocked wait after its terminal commit. Mailbox
+delivery and acknowledgement are independent. The store removes transient worker metadata on restore,
+but durable lifecycle state remains unchanged until an exact-owner command commits.
 
 Existing primitives worth reusing:
 
@@ -293,10 +301,13 @@ Rules:
 
 ### Persistence
 
-Persisted multi-agent state lives in per-agent and per-mailbox rows in the session control DB, keyed
-by session path. The session JSONL transcript carries conversation history only. Runtime mailbox transport
-rows reference stored mailbox messages by `(store_session_path, store_message_id)` instead of copying bodies;
-payload bodies and absolute `fileRefs` resolve from `multi_agent_mailbox_messages`.
+Persisted lifecycle, ownership, agent, and mailbox state lives in control-DB rows keyed by session path.
+The parent session JSONL additionally carries `agent_start` and `agent_complete` custom records as the
+restart-admission journal for transcript-backed child agents. These records do not replace control-DB
+lifecycle truth: recovery requires both an unmatched start and valid persisted agent/transcript identity.
+Runtime mailbox transport rows reference stored mailbox messages by
+`(store_session_path, store_message_id)` instead of copying bodies; payload bodies and absolute `fileRefs`
+resolve from `multi_agent_mailbox_messages`.
 
 Agent and message IDs are allocated transactionally. Legacy counter rows are merged by maximum value
 into `multi_agent_counters_v2` during schema initialization, then the legacy counter and artifact tables
@@ -304,9 +315,10 @@ are dropped so relocation cannot resurrect stale state or reuse IDs. Mailbox mes
 only when stored and incoming identities are complete and their sender, recipient, kind, thread, and
 message ID identity match; incomplete or conflicting reuse fails without overwriting the existing row.
 
-Runtime handles are reconstructed from durable state only when an operation requires it. Restarted
-sessions preserve the last committed lifecycle; recovery must acquire exact process ownership or report
-`lost_runtime`, never infer a terminal outcome from a missing in-memory handle.
+Runtime handles for transcript-backed children are reconstructed only for unmatched parent JSONL starts.
+Restart preserves the same agent and transcript identity, then reacquires exact process ownership before
+resuming the child transcript. A matching completion record prevents reconstruction. Missing or mismatched
+transcript identity commits explicit failure; recovery never invents success from a missing handle.
 
 ## Extension audit
 
