@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
+import {
+	createHostrunMultiAgentRequestHandler,
+	type ParentAgentJournalWriter,
+} from "../extensions/agents-core/src/runtime.ts";
 import hostrunExtension, { type HostrunExtensionOptions } from "../extensions/hostrun/src/index.ts";
 import { resolveHostrunRunnerOptions } from "../extensions/hostrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
@@ -692,7 +695,7 @@ describe("hostrun extension", () => {
 					{
 						appendEntry: (customType: string, data?: unknown) =>
 							sessionManager.appendCustomEntry(customType, data),
-					} as ExtensionAPI,
+					} satisfies ParentAgentJournalWriter,
 				),
 			],
 		});

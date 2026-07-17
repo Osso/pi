@@ -68,7 +68,10 @@ function enqueueStoredRuntimeMessage(
 	});
 }
 
-import { createHostrunMultiAgentRequestHandler } from "../extensions/agents-core/src/runtime.ts";
+import {
+	createHostrunMultiAgentRequestHandler,
+	type ParentAgentJournalWriter,
+} from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
 	type AgentDesktopNotification,
 	type ChildAgentSessionFactory,
@@ -130,7 +133,7 @@ function createTranscriptBackedFauxSessionFactory(store: MultiAgentStore, run: F
 						"waiting_for_input",
 					);
 					if (!waiting.ok) throw new Error(`Could not mark ${current.id} waiting`);
-					await new Promise<void>(() => {});
+					return new Promise<never>(() => {});
 				}
 				throw new Error(outcome.error?.message ?? `Child ${outcome.lifecycle}`);
 			},
@@ -243,7 +246,7 @@ function collectMultiAgentTools(
 		registerTool(tool: ToolDefinition) {
 			tools.set(tool.name, tool as RegisteredTool);
 		},
-	} as ExtensionAPI;
+	} as unknown as ExtensionAPI;
 	multiAgentExtension(pi, {
 		createChildSession: options.createChildSession,
 		desktopNotifier: options.desktopNotifier,
@@ -1217,7 +1220,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}));
 		const handler = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
 			appendEntry: (customType: string, data?: unknown) => parentSession.appendCustomEntry(customType, data),
-		} as ExtensionAPI);
+		} satisfies ParentAgentJournalWriter);
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
 		await handler({ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } }, ctx, undefined);

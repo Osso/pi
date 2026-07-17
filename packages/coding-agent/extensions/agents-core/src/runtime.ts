@@ -65,6 +65,8 @@ const AGENT_COMPLETE_CUSTOM_TYPE = "agent_complete";
 
 type ParentAgentRecordType = typeof AGENT_START_CUSTOM_TYPE | typeof AGENT_COMPLETE_CUSTOM_TYPE;
 
+export type ParentAgentJournalWriter = Pick<ExtensionAPI, "appendEntry">;
+
 interface ParentAgentRecordData {
 	agentId: string;
 	childSessionId: string;
@@ -76,7 +78,7 @@ function isTerminalAgentLifecycle(lifecycle: AgentLifecycleState): boolean {
 	return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "aborted";
 }
 
-function appendParentAgentRecord(pi: ExtensionAPI, customType: ParentAgentRecordType, agent: AgentSnapshot): void {
+function appendParentAgentRecord(pi: ParentAgentJournalWriter, customType: ParentAgentRecordType, agent: AgentSnapshot): void {
 	const childSessionId = agent.transcript?.sessionId;
 	const transcriptPath = agent.transcript?.path;
 	if (!childSessionId || !transcriptPath) {
@@ -717,7 +719,7 @@ function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
 
 export function createHostrunMultiAgentRequestHandler(
 	options: MultiAgentExtensionOptions,
-	pi?: ExtensionAPI,
+	pi?: ParentAgentJournalWriter,
 ): HostrunMultiAgentRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
@@ -958,7 +960,7 @@ async function spawnAgent(
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-	pi: ExtensionAPI | undefined,
+	pi: ParentAgentJournalWriter | undefined,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	if (isChildAgentRuntime(ctx)) {
@@ -2997,7 +2999,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			desktopNotifier,
 			dispatches: activeDispatches,
 			handles: backgroundSessions,
-			pi,
 			ownerships,
 			store,
 			waitingDesktopNotifications,

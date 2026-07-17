@@ -11,6 +11,7 @@ import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import {
 	createHostrunMultiAgentRequestHandler,
 	createMultiAgentRuntimeHandles,
+	type ParentAgentJournalWriter,
 	requestAgentSteering,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
@@ -129,10 +130,10 @@ function createTranscriptBackedFauxSessionFactory(run: FauxChildRun): ChildAgent
 	};
 }
 
-function createTestEntryWriter(sessionManager: SessionManager): ExtensionAPI {
+function createTestEntryWriter(sessionManager: SessionManager): ParentAgentJournalWriter {
 	return {
 		appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-	} as ExtensionAPI;
+	};
 }
 
 function ensureTranscriptBackedFactory(
@@ -2052,7 +2053,7 @@ describe("multi-agent extension tools", () => {
 			runtimeHandles,
 			store,
 		});
-		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as ExtensionContext;
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as unknown as ExtensionContext;
 
 		const spawned = (await handler(
 			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "hostrun work" } },
@@ -2096,7 +2097,7 @@ describe("multi-agent extension tools", () => {
 			runtimeHandles,
 			store,
 		});
-		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as ExtensionContext;
+		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as unknown as ExtensionContext;
 
 		const spawned = (await handler(
 			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "hostrun work" } },
