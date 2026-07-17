@@ -76,9 +76,9 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
 	"When a bwrap sandbox profile is active, Pyrun executes inside that sandbox and Pi bridge helpers are unavailable.",
 	"run.<program>(*args) executes immediately, sends stdout/stderr to the tool output by default, and returns ONLY the exit code (int). Example: `exit_code = run.git('status')`.",
-	"cli.<program>(*args) returns a CommandBuilder, which supports chaining and whose `.run()` returns a full CommandResult. Use cli.* when stdout/stderr must be inspected. Example: `result = cli.git('status').run(); print(result.stdout)`.",
+	"cli.<program>(*args) returns a chainable CommandBuilder. cli.* builders forward output and return an exit code by default; use `.capture().run()` only when stdout/stderr or a structured CommandResult must be inspected. Example: `result = cli.git('status').capture().run()`.",
 	"Use tools.ssh({ host, user, port, password }) for SSH commands that need password auth; it wraps sshpass automatically.",
-	"run.* output is displayed through the tool output; do not expect a CommandResult from run.*. Use cli.* for captured stdout/stderr and structured command results.",
+	"run.* and cli.*.run() display output through the tool result and return only the exit code. Use cli.*.capture().run() for captured stdout/stderr and structured command results.",
 	"Agents MUST NOT rerun the same command only to recover logs; inspect the saved CommandResult/full logs instead.",
 	"Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
 ];
