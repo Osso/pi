@@ -145,7 +145,14 @@ describe("resident Supervisor service", () => {
 				'{"kind":"continue","reason":"tests missing","instructions":"Run targeted tests."}',
 			),
 		).toEqual({ kind: "continue", reason: "tests missing", instructions: "Run targeted tests." });
+		expect(parseSupervisorResponse("goal_idle_review", '{"kind":"pause","reason":"waiting for user input"}')).toEqual(
+			{
+				kind: "pause",
+				reason: "waiting for user input",
+			},
+		);
 		expect(parseSupervisorResponse("approval_review", '{"kind":"complete","reason":"done"}')).toBeUndefined();
+		expect(parseSupervisorResponse("approval_review", '{"kind":"pause","reason":"wait"}')).toBeUndefined();
 	});
 
 	it("builds a bounded prompt without historical transcript retrieval", () => {
@@ -165,6 +172,34 @@ describe("resident Supervisor service", () => {
 		expect(prompt).toContain("memory/supervisor/pi.md");
 		expect(prompt).toContain('"toolName": "read"');
 		expect(prompt).toContain("Do not request or reconstruct historical session transcripts");
+		expect(
+			buildSupervisorPrompt({
+				claimToken: "runtime",
+				claimedAt: "2026-07-17T12:00:00.000Z",
+				createdAt: "2026-07-17T12:00:00.000Z",
+				deadlineAt: "2026-07-17T12:03:00.000Z",
+				id: 2,
+				kind: "goal_idle_review",
+				payload: { objective: "finish" },
+				projectId: "pi",
+				senderSessionId: "main",
+				status: "claimed",
+			}),
+		).toContain("concrete, actionable next step");
+		expect(
+			buildSupervisorPrompt({
+				claimToken: "runtime",
+				claimedAt: "2026-07-17T12:00:00.000Z",
+				createdAt: "2026-07-17T12:00:00.000Z",
+				deadlineAt: "2026-07-17T12:03:00.000Z",
+				id: 3,
+				kind: "goal_idle_review",
+				payload: { objective: "finish" },
+				projectId: "pi",
+				senderSessionId: "main",
+				status: "claimed",
+			}),
+		).toContain('"kind":"pause"');
 	});
 
 	it("does not reuse a prior assistant response when the current request produces none", async () => {

@@ -683,6 +683,21 @@ describe("goal extension", () => {
 		expect(readStoredGoal<{ continuationTurns: number }>(cwd).continuationTurns).toBe(0);
 	});
 
+	it("pauses a goal when completion review says progress must wait", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "pause", reason: "waiting for external input" }),
+		});
+		await harness.runCommand("set complete after waiting");
+		harness.sendUserMessage.mockClear();
+
+		const result = await harness.runGoalComplete("done");
+
+		const goal = readStoredGoal<{ pausedAt?: string }>(cwd);
+		expect(goal.pausedAt).toEqual(expect.any(String));
+		expect(result?.content).toEqual([{ type: "text", text: "Goal paused: waiting for external input" }]);
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
 	it("keeps the goal running and follows Supervisor instructions when completion is rejected", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "continue", reason: "proof missing", instructions: "Run npm test." }),
@@ -708,6 +723,21 @@ describe("goal extension", () => {
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(await harness.runBeforeAgentStart()).toBeUndefined();
+	});
+
+	it("pauses a running goal when the Supervisor says no action is currently possible", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "pause", reason: "waiting for user input" }),
+		});
+		await harness.runCommand("set wait without looping");
+		harness.sendUserMessage.mockClear();
+
+		await harness.runAgentEnd();
+
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		expect(goal.pausedAt).toEqual(expect.any(String));
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).toHaveBeenCalledWith("Goal paused: waiting for user input", "info");
 	});
 
 	it("keeps a goal running without continuing automatically after Supervisor error", async () => {

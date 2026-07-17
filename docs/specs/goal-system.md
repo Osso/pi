@@ -48,8 +48,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Queued interactive replacement input, including an external-input reservation after its steering queue entry is consumed, keeps the goal running when the current turn aborts; an abort without pending input pauses the goal.
 - [x] Goal continuation rechecks queued steering and follow-up input after asynchronous Supervisor review; user input queued during review runs before any later goal continuation and does not increment the continuation counter.
 - [x] If the last assistant message has `stopReason: "error"`, goal continuation neither queues a follow-up nor emits the empty-response warning; retry/session error handling owns recovery and leaves the active goal intact.
-- [x] The `manage_goal` completion action requests resident Supervisor review; only a `complete` decision marks the running goal complete, while `continue` keeps it running and injects concrete next-step instructions.
-- [x] Autonomous continuation has no numeric turn cap; a Supervisor `continue` decision submits its concrete instructions as the next follow-up, while `complete` closes the goal and `error` visibly stops automatic continuation without closing it.
+- [x] The `manage_goal` completion action requests resident Supervisor review; `complete` marks the running goal complete, `continue` keeps it running with concrete next-step instructions, and `pause` pauses it when progress must wait.
+- [x] Autonomous continuation has no numeric turn cap; a Supervisor `continue` decision submits actionable instructions as the next follow-up, `complete` closes the goal, `pause` pauses without another turn, and `error` visibly stops automatic continuation without closing it.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
 - [x] Goal start/resume/continuation messages remain in live model context and transcript rendering, but do not appear in the editor's typed prompt history.
 - [x] Compaction excludes goal-generated start/resume/continuation reminders from summarization input while preserving other extension-origin messages and the original session log.

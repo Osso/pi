@@ -88,6 +88,46 @@ describe("Supervisor request repository", () => {
 		expect(claimNextSupervisorRequest(controlDbPath, "replacement-runtime")).toMatchObject({ id: requestId });
 	});
 
+	it("persists a pause response for a waiting goal caller", () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: "2026-07-17T12:03:00.000Z",
+			kind: "goal_idle_review",
+			payload: { objective: "wait for input" },
+			projectId: "pi",
+			senderSessionId: "goal-session",
+		});
+		claimNextSupervisorRequest(controlDbPath, "supervisor-runtime");
+
+		completeSupervisorRequest(controlDbPath, requestId, "supervisor-runtime", {
+			kind: "pause",
+			reason: "waiting for user input",
+		});
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "pause", reason: "waiting for user input" },
+			status: "completed",
+		});
+	});
+
+	it("rejects a pause response for an approval request", () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: "2026-07-17T12:00:30.000Z",
+			kind: "approval_review",
+			payload: { toolName: "read" },
+			projectId: "pi",
+			senderSessionId: "main-session",
+		});
+		claimNextSupervisorRequest(controlDbPath, "supervisor-runtime");
+
+		expect(() =>
+			completeSupervisorRequest(controlDbPath, requestId, "supervisor-runtime", {
+				kind: "pause",
+				reason: "not valid for approval",
+			}),
+		).toThrow("Invalid Supervisor response kind pause for approval_review");
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({ status: "claimed" });
+	});
+
 	it("persists a typed response for the waiting caller", () => {
 		const requestId = postSupervisorRequest(controlDbPath, {
 			deadlineAt: "2026-07-14T12:00:30.000Z",

@@ -52,10 +52,11 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 
 - [x] Intercept `manage_goal complete` before the calling session marks the running goal complete.
 - [x] Send a `goal_completion_review` request containing the objective, current terminal turn evidence, and proposed completion reason.
-- [x] Return exactly `complete`, `continue`, or generic `error` for goal completion review.
+- [x] Return exactly `complete`, `continue`, `pause`, or generic `error` for goal completion review.
 - [x] Mark the goal complete only when the caller receives `complete`.
 - [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
-- [x] Require the Supervisor to make its best judgment between `complete` and `continue` when evidence is uncertain; missing evidence alone is not an error.
+- [x] Pause the goal when progress requires waiting, remaining idle, or external input and the caller receives `pause`.
+- [x] Require the Supervisor to make its best judgment between `complete`, actionable `continue`, and `pause` when evidence is uncertain; missing evidence alone is not an error.
 
 ### Goal idle review
 
@@ -63,10 +64,11 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after pending-message, abort, error-stop, and empty-response handling.
 - [x] Keep the goal running when queued interactive input interrupts the current turn; only an abort without pending input pauses it.
 - [x] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
-- [x] Return exactly `complete`, `continue`, or generic `error` for goal idle review.
+- [x] Return exactly `complete`, `continue`, `pause`, or generic `error` for goal idle review.
 - [x] Mark the goal complete when the caller receives `complete`.
-- [x] Submit the Supervisor's concrete instructions as the follow-up continuation prompt when the caller receives `continue`.
-- [x] Require best judgment between `complete` and `continue` despite uncertainty.
+- [x] Submit the Supervisor's concrete, actionable instructions as the follow-up continuation prompt when the caller receives `continue`.
+- [x] Pause the goal without another continuation turn when the caller receives `pause`.
+- [x] Require best judgment between `complete`, actionable `continue`, and `pause` despite uncertainty.
 - [x] On goal `error`, keep the goal running, stop automatic continuation, and display a visible error without requiring human approval.
 - [x] Enforce a three-minute deadline for goal reviews.
 
@@ -111,6 +113,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/test/supervisor-service.test.ts`
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
 - `packages/coding-agent/test/goal-extension.test.ts`
+- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 
 ## Known gaps (current cycle)

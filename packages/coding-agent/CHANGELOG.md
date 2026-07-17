@@ -127,7 +127,7 @@
 - Changed production-created `spawn_agent` children, `attach_session_agent` runtimes, and `/bg` background jobs to exclude the goal extension and goal-state seeding; attached sessions may retain existing goal metadata, but it is inert. Child prompts remain validated before dispatch and `spawn_agent` rejects blank prompts before creating an agent record.
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
 - Changed LLM-approved tool review to use synchronous resident Supervisor decisions, with service failures escalating to native human review.
-- Changed goal completion and guarded `agent_end` continuation to require resident Supervisor `complete` or `continue` decisions.
+- Changed goal completion and guarded `agent_end` continuation to require resident Supervisor `complete`, actionable `continue`, `pause`, or `error` decisions.
 - Changed `/goal <objective>` to replace the active goal by default and removed the replacement flag.
 - Changed the LLM-approved tool reviewer to allow bounded-risk coding-agent commands, including `/tmp` cleanup, while still denying catastrophic system, credential, irreversible data-loss, or unrelated external-side-effect actions.
 - Changed the `pi -r` and `/resume` session selector default sort to recent sessions.
@@ -141,6 +141,7 @@
 
 ### Fixed
 
+- Fixed Supervisor idle loops by adding a typed `pause` goal decision for work that must wait instead of returning a no-op `continue` instruction.
 - Fixed interactive steering during an active goal so queued replacement input takes precedence over abort-driven goal pausing.
 - Fixed idle runtime-mailbox polling repeatedly reopening and initializing `control.sqlite` and running terminal-outbox retention cleanup every three seconds; live sessions retain one process-local connection, run cleanup hourly, and use a thirty-second fallback poll alongside immediate signal wakes.
 - Fixed foreground Pyrun monitoring synchronously reading `/proc/<pid>/stat` every 25ms; artifact polling remains responsive while fallback runner-liveness checks run every three seconds.

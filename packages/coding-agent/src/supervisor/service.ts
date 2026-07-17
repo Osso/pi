@@ -20,7 +20,11 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	const responseContract =
 		request.kind === "approval_review"
 			? 'Return {"kind":"approve|reject","reason":"..."}.'
-			: 'Return {"kind":"complete","reason":"..."} or {"kind":"continue","reason":"...","instructions":"..."}.';
+			: [
+					'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
+					"Continue instructions must give a concrete, actionable next step.",
+					"Return pause instead of continue when progress requires waiting, remaining idle, or external input.",
+				].join("\n");
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",
 		"Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.",
@@ -58,7 +62,9 @@ export function parseSupervisorResponse(
 			? { kind: response.kind, reason: response.reason }
 			: undefined;
 	}
-	if (response.kind === "complete") return { kind: "complete", reason: response.reason };
+	if (response.kind === "complete" || response.kind === "pause") {
+		return { kind: response.kind, reason: response.reason };
+	}
 	if (response.kind === "continue" && typeof response.instructions === "string" && response.instructions.trim()) {
 		return { instructions: response.instructions, kind: "continue", reason: response.reason };
 	}

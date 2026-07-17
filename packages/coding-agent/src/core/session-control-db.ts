@@ -98,6 +98,7 @@ export type SupervisorResponse =
 	| { kind: "approve" | "reject"; reason: string }
 	| { kind: "complete"; reason: string }
 	| { kind: "continue"; instructions: string; reason: string }
+	| { kind: "pause"; reason: string }
 	| { kind: "error"; reason: string };
 
 export interface SupervisorRequest {
@@ -1389,6 +1390,15 @@ export function requeueSupervisorRequest(controlDbPath: string, requestId: numbe
 	});
 }
 
+function isSupervisorResponseValidForRequest(
+	requestKind: SupervisorRequestKind,
+	responseKind: SupervisorResponse["kind"],
+): boolean {
+	if (responseKind === "error") return true;
+	if (requestKind === "approval_review") return responseKind === "approve" || responseKind === "reject";
+	return responseKind === "complete" || responseKind === "continue" || responseKind === "pause";
+}
+
 export function completeSupervisorRequest(
 	controlDbPath: string,
 	requestId: number,
@@ -1396,6 +1406,13 @@ export function completeSupervisorRequest(
 	response: SupervisorResponse,
 ): void {
 	withControlDb(controlDbPath, (db) => {
+		const request = db
+			.prepare("SELECT kind FROM supervisor_requests WHERE id = ? AND status = 'claimed' AND claim_token = ?")
+			.get(requestId, claimToken) as { kind: SupervisorRequestKind } | undefined;
+		if (!request) throw new Error(`Supervisor request claim lost: ${requestId}`);
+		if (!isSupervisorResponseValidForRequest(request.kind, response.kind)) {
+			throw new Error(`Invalid Supervisor response kind ${response.kind} for ${request.kind}`);
+		}
 		const result = db
 			.prepare(
 				`UPDATE supervisor_requests

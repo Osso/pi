@@ -82,11 +82,16 @@ interface ManageGoalContext {
 	reviewGoal: GoalSupervisorReview;
 }
 
+export type GoalSupervisorResponse = Extract<
+	SupervisorResponse,
+	{ kind: "complete" | "continue" | "pause" | "error" }
+>;
+
 export type GoalSupervisorReview = (input: {
 	kind: "goal_completion_review" | "goal_idle_review";
 	payload: Record<string, unknown>;
 	ctx: ExtensionContext;
-}) => Promise<SupervisorResponse>;
+}) => Promise<GoalSupervisorResponse>;
 
 export interface GoalExtensionOptions {
 	reviewGoal?: GoalSupervisorReview;
@@ -436,6 +441,14 @@ function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentTool
 	return textResult(`Goal resumed: ${goal.objective}`, { objective: goal.objective });
 }
 
+function pauseGoalFromSupervisor(ctx: ExtensionContext, reason: string): boolean {
+	const goal = pauseGoal(ctx);
+	if (!goal) return false;
+	updateGoalFooterStatus(ctx);
+	ctx.ui.notify(`Goal paused: ${reason}`, "info");
+	return true;
+}
+
 async function runCompleteGoalAction(
 	ctx: ExtensionContext,
 	reasonInput: string | undefined,
@@ -454,6 +467,10 @@ async function runCompleteGoalAction(
 	if (decision.kind === "continue") {
 		pi.sendUserMessage(decision.instructions, { deliverAs: "followUp" });
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
+	}
+	if (decision.kind === "pause") {
+		pauseGoalFromSupervisor(ctx, decision.reason);
+		return textResult(`Goal paused: ${decision.reason}`);
 	}
 	if (decision.kind !== "complete") {
 		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
@@ -504,9 +521,9 @@ async function reviewGoalWithResidentSupervisor(input: {
 	kind: "goal_completion_review" | "goal_idle_review";
 	payload: Record<string, unknown>;
 	ctx: ExtensionContext;
-}): Promise<SupervisorResponse> {
+}): Promise<GoalSupervisorResponse> {
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
-	return requestSupervisorDecision({
+	const response = await requestSupervisorDecision({
 		controlDbPath: getControlDbPath(getAgentDir()),
 		kind: input.kind,
 		payload: input.payload,
@@ -514,6 +531,15 @@ async function reviewGoalWithResidentSupervisor(input: {
 		senderSessionId: input.ctx.sessionManager.getSessionId(),
 		timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
 	});
+	switch (response.kind) {
+		case "complete":
+		case "continue":
+		case "pause":
+		case "error":
+			return response;
+		default:
+			return { kind: "error", reason: `Invalid goal review response: ${response.kind}` };
+	}
 }
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}) {
@@ -580,6 +606,10 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 			markGoalComplete(ctx, decision.reason);
 			updateGoalFooterStatus(ctx);
 			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+			return;
+		}
+		if (decision.kind === "pause") {
+			pauseGoalFromSupervisor(ctx, decision.reason);
 			return;
 		}
 		if (decision.kind === "error") {

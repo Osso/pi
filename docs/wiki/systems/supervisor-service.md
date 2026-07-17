@@ -20,6 +20,6 @@ The `llm-approved-deny` and `llm-approved-ask` presets retain their user-facing 
 
 ## Goal integration
 
-Explicit `manage_goal complete` requests `goal_completion_review` before changing goal state. `continue` leaves the goal running and queues the supplied instructions. `complete` marks it complete.
+Explicit `manage_goal complete` requests `goal_completion_review` before changing goal state. `continue` leaves the goal running and queues a concrete next action. `complete` marks it complete. `pause` pauses it when progress requires waiting, remaining idle, or external input.
 
-Idle review remains inside the existing `agent_end` handler after its pending-message, abort, error-stop, and empty-response guards. Pending interactive input takes precedence over abort handling so steering does not pause the goal; an abort without pending input still pauses it. `agent_end` already means the tool loop reached a terminal response with no further tool calls; no additional tool-call check exists or is needed. The previous unconditional continuation message is replaced by `goal_idle_review`.
+Idle review remains inside the existing `agent_end` handler after its pending-message, abort, error-stop, and empty-response guards. Pending interactive input takes precedence over abort handling so steering does not pause the goal; an abort without pending input still pauses it. A Supervisor `pause` decision pauses the goal without submitting another continuation, preventing idle-review loops. `agent_end` already means the tool loop reached a terminal response with no further tool calls; no additional tool-call check exists or is needed. The previous unconditional continuation message is replaced by `goal_idle_review`.

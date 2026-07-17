@@ -107,17 +107,11 @@ never seed or copy goal metadata; any existing target `goal_json` remains inert.
 
 ## Automatic Continuation
 
-The extension listens for `agent_end`. If a goal is active, incomplete, and
-there are no pending messages, the extension increments `continuationTurns` and
-sends:
+The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, it requests `goal_idle_review` from the resident Supervisor. `continue` increments `continuationTurns` and submits the returned actionable instructions. `complete` closes the goal. `pause` pauses it without another turn. `error` leaves it active, reports the failure, and stops automatic continuation.
 
-```text
-Continue working toward this objective until it is achieved: <objective>
-```
+Review does not start when:
 
-Continuation stops without sending a message when:
-
-- the goal has `completedAt`;
+- the goal has `completedAt` or is paused;
 - pending messages exist;
 - the last assistant response was empty.
 
@@ -127,12 +121,9 @@ When an empty response stops continuation, Pi shows a warning explaining the sto
 
 ## Completion Tool Action
 
-Calling `manage_goal` with action `complete` marks the active goal complete by
-writing `completedAt` and `completionReason`, notifies the UI, and returns a
-short text result. If no active goal exists, it returns "No active goal to
-complete."
+Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal running and submits actionable instructions; `pause` writes `pausedAt`; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
 
-Completed goals do not trigger automatic continuation.
+Completed and paused goals do not trigger automatic continuation.
 
 ## Tests
 

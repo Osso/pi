@@ -142,6 +142,24 @@ describe("headless Supervisor goal system", () => {
 		});
 	});
 
+	it("pauses a running goal when the durable Supervisor response says to wait", async () => {
+		await withHeadlessPi(async (agent) => {
+			agent.writeRunningGoal(RUNNING_GOAL);
+			await agent.send({ type: "prompt", message: "Reach a blocked state" });
+			const initial = await agent.waitForLlmRequest();
+			agent.respondToLlmRequest(initial.id, fauxAssistantMessage("Blocked on user input"));
+			const review = await agent.waitForSupervisorRequest("goal_idle_review");
+			agent.respondToSupervisorRequest(review, { kind: "pause", reason: "waiting for user input" });
+			const notification = await agent.waitForExtensionUiRequest(
+				(request) => request.method === "notify" && request.message === "Goal paused: waiting for user input",
+			);
+
+			expect(notification).toMatchObject({ method: "notify", notifyType: "info" });
+			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL, pausedAt: expect.any(String) });
+			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);
+		});
+	});
+
 	it("keeps the goal running and reports an idle Supervisor error without continuing", async () => {
 		await withHeadlessPi(async (agent) => {
 			agent.writeRunningGoal(RUNNING_GOAL);
