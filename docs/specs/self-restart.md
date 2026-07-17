@@ -34,6 +34,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Register a `/restart` slash command from the first-party extension.
 - [x] Register a `restart_self` tool from a first-party extension.
 - [x] Add a user-visible restart notice to the same session when the tool runs.
+- [x] Preserve goal state exactly across restart: running goals remain running, and explicitly paused goals retain their existing `pausedAt` value.
 
 ## How it works
 

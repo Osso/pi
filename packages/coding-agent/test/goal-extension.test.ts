@@ -683,7 +683,7 @@ describe("goal extension", () => {
 		expect(readStoredGoal<{ continuationTurns: number }>(cwd).continuationTurns).toBe(0);
 	});
 
-	it("pauses a goal when completion review says progress must wait", async () => {
+	it("keeps a goal active when completion review says progress must wait", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for external input" }),
 		});
@@ -693,8 +693,8 @@ describe("goal extension", () => {
 		const result = await harness.runGoalComplete("done");
 
 		const goal = readStoredGoal<{ pausedAt?: string }>(cwd);
-		expect(goal.pausedAt).toEqual(expect.any(String));
-		expect(result?.content).toEqual([{ type: "text", text: "Goal paused: waiting for external input" }]);
+		expect(goal.pausedAt).toBeUndefined();
+		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: waiting for external input" }]);
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
@@ -725,7 +725,7 @@ describe("goal extension", () => {
 		expect(await harness.runBeforeAgentStart()).toBeUndefined();
 	});
 
-	it("pauses a running goal when the Supervisor says no action is currently possible", async () => {
+	it("keeps a running goal active when the Supervisor says no action is currently possible", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for user input" }),
 		});
@@ -735,9 +735,9 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 
 		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
-		expect(goal.pausedAt).toEqual(expect.any(String));
+		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith("Goal paused: waiting for user input", "info");
+		expect(harness.notify).toHaveBeenCalledWith("Goal waiting: waiting for user input", "info");
 	});
 
 	it("keeps a goal running without continuing automatically after Supervisor error", async () => {
@@ -953,19 +953,19 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("pauses the active goal when the agent turn is aborted without pending input", async () => {
+	it("keeps the active goal running when the agent turn is aborted without pending input", async () => {
 		const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("set pause on abort");
+		await harness.runCommand("set survive abort");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		harness.setStatus.mockClear();
 		await harness.runAgentEnd([createAssistantMessage("", "aborted")]);
 
 		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
-		expect(goal.objective).toBe("pause on abort");
-		expect(goal.pausedAt).toEqual(expect.any(String));
-		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: pause on abort");
+		expect(goal.objective).toBe("survive abort");
+		expect(goal.pausedAt).toBeUndefined();
+		expect(harness.setStatus).not.toHaveBeenCalledWith("goal", "goal paused: survive abort");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.notify).not.toHaveBeenCalledWith(
 			"Goal continuation stopped because the last assistant response was empty",

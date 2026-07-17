@@ -441,14 +441,6 @@ function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentTool
 	return textResult(`Goal resumed: ${goal.objective}`, { objective: goal.objective });
 }
 
-function pauseGoalFromSupervisor(ctx: ExtensionContext, reason: string): boolean {
-	const goal = pauseGoal(ctx);
-	if (!goal) return false;
-	updateGoalFooterStatus(ctx);
-	ctx.ui.notify(`Goal paused: ${reason}`, "info");
-	return true;
-}
-
 async function runCompleteGoalAction(
 	ctx: ExtensionContext,
 	reasonInput: string | undefined,
@@ -469,8 +461,7 @@ async function runCompleteGoalAction(
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
 	}
 	if (decision.kind === "pause") {
-		pauseGoalFromSupervisor(ctx, decision.reason);
-		return textResult(`Goal paused: ${decision.reason}`);
+		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind !== "complete") {
 		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
@@ -579,11 +570,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 
 		if (ctx.hasPendingMessages()) return;
 
-		if (didLastAssistantAbort(event)) {
-			pauseGoal(ctx);
-			updateGoalFooterStatus(ctx);
-			return;
-		}
+		if (didLastAssistantAbort(event)) return;
 
 		if (findLastAssistantMessage(event)?.stopReason === "error") return;
 
@@ -609,7 +596,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 			return;
 		}
 		if (decision.kind === "pause") {
-			pauseGoalFromSupervisor(ctx, decision.reason);
+			ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
 			return;
 		}
 		if (decision.kind === "error") {

@@ -143,6 +143,7 @@
 
 ### Fixed
 
+- Fixed process restarts, aborted turns, and Supervisor wait decisions incorrectly pausing active goals; only explicit goal pause actions now persist paused state, preexisting explicit pauses survive restart unchanged, and stale session metadata snapshots can no longer overwrite newer goal state.
 - Fixed `manage_goal complete` incorrectly reporting no active goal when the persisted goal was paused.
 - Fixed detached Pyrun live-agent views hiding submitted source by persisting a permission-locked `script.py` artifact across running and terminal states and rendering it beside the output log in the live-agent view.
 - Fixed explicit Architect requests lacking active-worktree context by accepting a validated absolute directory `project_path` (such as an active worktree), defaulting to the sender cwd, and directing Architect to read the authoritative relevant project spec.

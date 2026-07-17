@@ -170,7 +170,7 @@ export interface SessionMetadata {
 	updatedAt: string;
 }
 
-export type WritableSessionMetadata = Omit<SessionMetadata, "updatedAt">;
+export type WritableSessionMetadata = Omit<SessionMetadata, "goalJson" | "updatedAt">;
 
 type IncomingRow = {
 	id: number;
@@ -2166,7 +2166,6 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 		const metadataName = metadata.name ?? readNamedSessionName(db, metadata.sessionPath);
 		const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
 		const archivedAt = metadata.archivedAt ?? preserved?.archived_at ?? null;
-		const goalJson = metadata.goalJson ?? preserved?.goal_json ?? null;
 		const preservedIsSubagent = preserved?.is_subagent === 1;
 		const isSubagent = metadata.isSubagent ?? preservedIsSubagent;
 		const subagentName = metadata.subagentName ?? preserved?.subagent_name ?? null;
@@ -2196,7 +2195,6 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 				name = excluded.name,
 				parent_session_path = excluded.parent_session_path,
 				archived_at = excluded.archived_at,
-				goal_json = excluded.goal_json,
 				is_subagent = excluded.is_subagent,
 				subagent_name = excluded.subagent_name,
 				created_at = excluded.created_at,
@@ -2213,7 +2211,7 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 			metadataName,
 			metadata.parentSessionPath ?? null,
 			archivedAt,
-			goalJson,
+			null,
 			isSubagent ? 1 : 0,
 			subagentName,
 			metadata.createdAt,

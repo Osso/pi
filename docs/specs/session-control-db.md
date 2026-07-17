@@ -28,7 +28,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Session-listing metadata is maintained incrementally: appended entries fold into a
       per-session accumulator (rebuilt only after wholesale entry replacement such as resume,
       branch, or new session), and entries that cannot change session metadata (custom entries,
-      labels, compaction records) do not trigger a metadata write at all.
+      labels, compaction records) do not trigger a metadata write at all. Generic metadata
+      snapshots never write `goal_json`; goal mutations use the dedicated goal writer so stale
+      snapshots cannot overwrite newer active, paused, or completed state.
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_runtime_owners`, `multi_agent_terminal_outbox`,
       `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row upsert per mutation, restore

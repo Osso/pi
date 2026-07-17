@@ -142,7 +142,7 @@ describe("headless Supervisor goal system", () => {
 		});
 	});
 
-	it("pauses a running goal when the durable Supervisor response says to wait", async () => {
+	it("keeps a running goal active when the durable Supervisor response says to wait", async () => {
 		await withHeadlessPi(async (agent) => {
 			agent.writeRunningGoal(RUNNING_GOAL);
 			await agent.send({ type: "prompt", message: "Reach a blocked state" });
@@ -151,12 +151,47 @@ describe("headless Supervisor goal system", () => {
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
 			agent.respondToSupervisorRequest(review, { kind: "pause", reason: "waiting for user input" });
 			const notification = await agent.waitForExtensionUiRequest(
-				(request) => request.method === "notify" && request.message === "Goal paused: waiting for user input",
+				(request) => request.method === "notify" && request.message === "Goal waiting: waiting for user input",
 			);
 
 			expect(notification).toMatchObject({ method: "notify", notifyType: "info" });
-			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL, pausedAt: expect.any(String) });
+			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL });
+			expect(agent.readGoal()).not.toHaveProperty("pausedAt");
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);
+		});
+	});
+
+	it("keeps a running goal active across a real process restart", async () => {
+		await withHeadlessPi(async (agent) => {
+			agent.writeRunningGoal(RUNNING_GOAL);
+			await agent.send({ type: "prompt", message: "Keep working through restart" });
+			await agent.waitForLlmRequest();
+
+			await agent.restart();
+
+			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL });
+			expect(agent.readGoal()).not.toHaveProperty("pausedAt");
+		});
+	});
+
+	it("preserves an explicitly paused goal byte-for-byte across a real process restart", async () => {
+		await withHeadlessPi(async (agent) => {
+			agent.writeRunningGoal(RUNNING_GOAL);
+			await agent.send({ type: "prompt", message: "Pause explicitly" });
+			const request = await agent.waitForLlmRequest();
+			agent.respondToLlmRequest(
+				request.id,
+				fauxAssistantMessage(fauxToolCall("manage_goal", { action: "pause" }), { stopReason: "toolUse" }),
+			);
+			const afterPause = await agent.waitForLlmRequest();
+			agent.respondToLlmRequest(afterPause.id, fauxAssistantMessage("Paused explicitly"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+			const pausedGoal = agent.readGoal();
+			expect(pausedGoal).toMatchObject({ objective: RUNNING_GOAL, pausedAt: expect.any(String) });
+
+			await agent.restart();
+
+			expect(agent.readGoal()).toEqual(pausedGoal);
 		});
 	});
 

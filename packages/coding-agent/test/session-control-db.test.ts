@@ -4071,6 +4071,33 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readSessionGoal(controlDbPath, "/tmp/session-a.jsonl")).toBe('{"objective":"child objective"}');
 	});
 
+	it("does not let a stale metadata snapshot overwrite newer goal state", () => {
+		const metadata = {
+			sessionPath: "/tmp/session-a.jsonl",
+			id: "session-a",
+			cwd: "/repo/a",
+			name: "Alpha",
+			parentSessionPath: undefined,
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+			messageCount: 1,
+			firstMessage: "first",
+			allMessagesText: "first",
+		};
+		writeSessionMetadata(controlDbPath, metadata);
+		writeSessionGoal(
+			controlDbPath,
+			metadata.sessionPath,
+			'{"objective":"current","pausedAt":"2026-07-17T15:33:05.448Z"}',
+		);
+
+		writeSessionMetadata(controlDbPath, { ...metadata, goalJson: '{"objective":"stale"}', messageCount: 2 });
+
+		expect(readSessionGoal(controlDbPath, metadata.sessionPath)).toBe(
+			'{"objective":"current","pausedAt":"2026-07-17T15:33:05.448Z"}',
+		);
+	});
+
 	it("keeps named session APIs compatible while mirroring names into metadata", () => {
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
