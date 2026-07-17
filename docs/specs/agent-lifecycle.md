@@ -150,8 +150,9 @@ SQLite connection access control and arbitrary same-UID raw SQL are outside this
 ### Restore, restart reconstruction, and recovery (derived liveness)
 
 Parent-session JSONL custom records are authoritative for restart reconstruction. `agent_start` is
-appended only after the child agent's `running` lifecycle commits and records the agent and transcript
-identity. `agent_complete` is appended only after a committed `completed`, `failed`, or `aborted`
+appended after the child agent's `running` lifecycle commits but before dispatch begins and records the
+agent and transcript identity. Append failure disposes the unstarted child and compensates the durable row
+to `failed/parent_journal_failed`. `agent_complete` is appended only after a committed `completed`, `failed`, or `aborted`
 lifecycle. Unmatched `agent_start` records identify restart candidates; a matching `agent_complete`
 record prevents recovery. The control DB remains the source of lifecycle and ownership state, but it is
 not sufficient alone for restart admission. There is no compatibility fallback.
@@ -178,9 +179,11 @@ directory is a launch failure, never reusable state. This prevents sessions shar
 folder from reading stale manifests or output belonging to another supervisor.
 
 - [x] Session startup completes runtime-listener registration before emitting `session_start`; a registration failure aborts startup without emitting that event. A paused same-session recovery listener blocks foreign detached-runtime sweeps, and concurrent foreign peers serialize through the recovery transaction so only one can commit terminal state. Exact live-runner identity and PID-reuse checks prevent recovery while the recorded runner is live or its PID has been reused.
-- [x] Restore never rewrites lifecycle state: it clears stale worker handles from active agents,
+- [x] Restore never rewrites lifecycle state directly: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness. Restart admission still requires an unmatched
-      parent-session JSONL `agent_start`; control-DB state alone cannot admit recovery.
+      parent-session JSONL `agent_start`; control-DB state alone cannot admit recovery. Startup submits
+      dead-owned active rows without journal admission through coordinator lost-runtime terminalization,
+      while rows whose exact persisted owner is still live remain untouched.
 - [x] The session's supervisor binding registers the current lifecycle mailbox listener, refreshes canonical runtime
       bindings after that registration, and reconciles only orphaned active rows identified by unmatched
       parent-session JSONL `agent_start` records through coordinator recovery commands,

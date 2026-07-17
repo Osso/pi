@@ -1053,7 +1053,24 @@ async function spawnAgent(
 		});
 	}
 	store.publishLifecycleCoordinatorSnapshot(created.agent);
-	appendParentAgentRecord(pi, AGENT_START_CUSTOM_TYPE, created.agent);
+	try {
+		appendParentAgentRecord(pi, AGENT_START_CUSTOM_TYPE, created.agent);
+	} catch (error) {
+		childSession?.dispose?.();
+		const message = error instanceof Error ? error.message : String(error);
+		const failed = coordinator.finalizeChild({
+			agent: created.agent,
+			error: { code: "parent_journal_failed", message },
+			ownership: created.ownership,
+			terminalLifecycle: "failed",
+		});
+		if (failed.ok) publishCoordinatorSnapshot(store, failed.agent);
+		return errorResult(`spawn_agent failed to persist parent journal: ${message}`, {
+			agent: failed.ok ? failed.agent : created.agent,
+			dispatched: false,
+			prompt: params.prompt,
+		});
+	}
 	const lifecycle: OwnedLifecycleCommandInput = { agent: created.agent, ownership: created.ownership };
 	const runtime = { abortController, coordinator, lifecycle };
 	ownerships.set(created.agent.id, runtime);
@@ -1242,19 +1259,14 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRu
 
 function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
 	const activeParentAgentIds = input.ctx.sessionManager ? readActiveParentAgentIds(input.ctx) : undefined;
-	const activeAgents = input.store
-		.listActiveAgents()
-		.filter(
-			(agent) =>
-				activeParentAgentIds === undefined ||
-				agent.transcript?.path === undefined ||
-				activeParentAgentIds.has(agent.id),
-		);
-	const recoverableAgents = input.ctx.multiAgentAgentId
-		? activeAgents.filter((agent) => agent.parentId === input.ctx.multiAgentAgentId)
-		: activeAgents;
-	for (const agent of orderRecoveryAgents(recoverableAgents)) {
-		recoverAgent(input, agent);
+	const activeAgents = input.ctx.multiAgentAgentId
+		? input.store.listActiveAgents().filter((agent) => agent.parentId === input.ctx.multiAgentAgentId)
+		: input.store.listActiveAgents();
+	for (const agent of orderRecoveryAgents(activeAgents)) {
+		const hasJournalAdmission =
+			activeParentAgentIds === undefined || agent.transcript?.path === undefined || activeParentAgentIds.has(agent.id);
+		if (hasJournalAdmission) recoverAgent(input, agent);
+		else resolveDeadAgentRuntime(input, agent);
 	}
 }
 
@@ -2546,6 +2558,7 @@ export function requestAgentSteering(
 		persistence.controlDbPath !== binding.controlDbPath ||
 		binding.actorAgentId !== expectedActorId ||
 		binding.sessionId !== ownership.owner.sessionId ||
+		!isProcessIdentityAlive(ownership.processIdentity) ||
 		!targetSessionId
 	) {
 		return {

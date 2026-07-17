@@ -68,8 +68,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log. The parent session JSONL contains
       authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.
-      `agent_start` is appended only after the child `running` lifecycle commit and includes the agent
-      identity and transcript identity. `agent_complete` is appended only after a committed
+      `agent_start` is appended after the child `running` lifecycle commit but before dispatch begins and includes
+      the agent identity and transcript identity. Append failure disposes the unstarted child and compensates the
+      durable row to explicit `failed/parent_journal_failed`. `agent_complete` is appended only after a committed
       `completed`, `failed`, or `aborted` lifecycle. Recovery rejects missing transcript files or a
       header session ID that differs from persisted transcript metadata.
 - [x] Supervisor session resume reconstructs restart candidates from the parent session JSONL:
@@ -104,8 +105,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       parent `agent_start` and `agent_complete` restart records.
 - [x] Restore never rewrites lifecycle state: the last committed lifecycle is the truth, and restore
       only clears stale worker handles. Restart admission requires an unmatched parent-session JSONL
-      `agent_start`; control-DB lifecycle and ownership state alone never admits recovery. See
-      [agent-lifecycle.md](agent-lifecycle.md).
+      `agent_start`; control-DB lifecycle and ownership state alone never admits recovery. Dead-owned active rows
+      without journal admission are terminalized as `failed/lost_runtime`, while exact live owners remain untouched.
+      See [agent-lifecycle.md](agent-lifecycle.md).
 - [x] On supervisor session start, only agents identified by unmatched parent-session JSONL
       `agent_start` records restart through exact process-ownership reacquisition, preserving agent and
       transcript identity. A matching `agent_complete` record prevents recovery, including for

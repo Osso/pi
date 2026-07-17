@@ -327,6 +327,7 @@ function spawnStoreFixture(
 
 function createMultiAgentHarness(
 	options: {
+		appendEntry?: (customType: string, data?: unknown) => void;
 		createAttachedSession?: AttachedSessionFactory;
 		createChildSession?: ChildAgentSessionFactory;
 		ctx?: Partial<ExtensionContext>;
@@ -355,7 +356,8 @@ function createMultiAgentHarness(
 			tools.set(tool.name, tool as RegisteredTool);
 		},
 		appendEntry(customType: string, data?: unknown) {
-			(ctx.sessionManager as SessionManager).appendCustomEntry(customType, data);
+			if (options.appendEntry) options.appendEntry(customType, data);
+			else (ctx.sessionManager as SessionManager).appendCustomEntry(customType, data);
 		},
 	} as unknown as ExtensionAPI;
 
@@ -1260,6 +1262,36 @@ describe("multi-agent extension tools", () => {
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
+	});
+
+	it("leaves an unjournaled agent untouched while its exact owner is live", async () => {
+		const session = createControlDbSession();
+		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		source.setPersistenceSessionManager(session);
+		const unjournaled = legacyMultiAgentStore(source).spawnAgent({
+			agentType: "reviewer",
+			cwd: "/repo",
+			displayName: "Live unjournaled child",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/live-unjournaled.jsonl", sessionId: "live-unjournaled" },
+		});
+		const persistence = source.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persistence target");
+		forceRuntimeOwnership(persistence.controlDbPath, {
+			agentId: unjournaled.agent.id,
+			owner: { agentId: null, sessionId: session.getSessionId() },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath: persistence.sessionPath,
+		});
+		const store = MultiAgentStore.fromSessionManager(session);
+		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const harness = createMultiAgentHarness({ createAttachedSession, ctx: { sessionManager: session }, store });
+
+		await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+		expect(store.getAgent(unjournaled.agent.id)).toMatchObject({ lifecycle: "running", revision: 1 });
+		expect(createAttachedSession).not.toHaveBeenCalled();
 	});
 
 	it("resumes steering-pending agents from persisted transcripts regardless of origin", async () => {
@@ -2803,6 +2835,33 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("reports unavailable ownership when steering targets a dead exact owner", () => {
+		const harness = createMultiAgentHarness();
+		const spawned = spawnStoreFixture(harness.store, {
+			displayName: "Dead reviewer",
+			parentId: "main",
+			prompt: "Review auth",
+		});
+		addDeadProcessOwner(harness.store, spawned.details.agent.id);
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persisted multi-agent test store");
+
+		const steered = requestAgentSteering(
+			harness.store,
+			{ agentId: spawned.details.agent.id, message: "Conclude now" },
+			{
+				actorAgentId: null,
+				controlDbPath: persistence.controlDbPath,
+				sessionId: persistence.sessionPath,
+			},
+		);
+
+		expect(steered).toMatchObject({
+			error: `Could not steer ${spawned.details.agent.id}: runtime ownership unavailable`,
+			ok: false,
+		});
+	});
+
 	it("rejects a stale sender session after runtime replacement", () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {
@@ -3328,6 +3387,34 @@ describe("multi-agent extension tools", () => {
 				status: "pending",
 			},
 		});
+	});
+
+	it("fails without dispatch when parent journal persistence fails", async () => {
+		const prompt = vi.fn(async () => {});
+		const dispose = vi.fn();
+		const harness = createMultiAgentHarness({
+			appendEntry: () => {
+				throw new Error("journal disk full");
+			},
+			createChildSession: async ({ agent }) => ({
+				dispose,
+				messages: [],
+				prompt,
+				transcript: { path: `/sessions/${agent.id}.jsonl`, sessionId: `session-${agent.id}` },
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { prompt: "Review without journal" });
+
+		expect(spawned.content).toEqual([
+			{ text: "spawn_agent failed to persist parent journal: journal disk full", type: "text" },
+		]);
+		expect(spawned.details.agent).toMatchObject({
+			error: { code: "parent_journal_failed", message: "journal disk full" },
+			lifecycle: "failed",
+		});
+		expect(prompt).not.toHaveBeenCalled();
+		expect(dispose).toHaveBeenCalledOnce();
 	});
 
 	it("persists a child directly as failed when runtime construction throws", async () => {

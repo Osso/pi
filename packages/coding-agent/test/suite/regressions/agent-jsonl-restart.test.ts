@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { getControlDbPath, readRuntimeMailboxListener } from "../../../src/core/session-control-db.ts";
@@ -38,6 +38,17 @@ function readParentAgentRecord(
 				"agentId" in entry.data &&
 				entry.data.agentId === agentId,
 		);
+}
+
+function removeParentAgentRecords(sessionFile: string, agentId: string): void {
+	const retained = readFileSync(sessionFile, "utf8")
+		.trimEnd()
+		.split("\n")
+		.filter((line) => {
+			const entry = JSON.parse(line) as Partial<ParentAgentRecord>;
+			return !(entry.type === "custom" && entry.data?.agentId === agentId);
+		});
+	writeFileSync(sessionFile, `${retained.join("\n")}\n`, "utf8");
 }
 
 async function waitForParentAgentRecord(
@@ -266,6 +277,34 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				lifecycle: "completed",
 				transcriptPath,
 			});
+		});
+	});
+
+	it("fails a dead-owned child that has no parent restart journal record", async () => {
+		await withHeadlessPi(async (pi) => {
+			await pi.send({ type: "prompt", message: "Start a legacy unjournaled child" });
+			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
+			pi.respondToLlmRequest(
+				mainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("spawn_agent", { displayName: "Unjournaled child", prompt: "Wait for restart" }),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Unjournaled child");
+			await waitForParentAgentRecord(pi.sessionFile, "agent_start", spawned.id);
+			await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
+			await pi.crash();
+			removeParentAgentRecords(pi.sessionFile, spawned.id);
+			await pi.restart();
+
+			const failed = await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "failed");
+			expect(failed.error).toMatchObject({ code: "lost_runtime" });
+			const recovered = await Promise.race([
+				pi.waitForLlmRequest((request) => request.agentId === spawned.id).then(() => true),
+				new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
+			]);
+			expect(recovered).toBe(false);
 		});
 	});
 
