@@ -4091,7 +4091,8 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			'{"objective":"current","pausedAt":"2026-07-17T15:33:05.448Z"}',
 		);
 
-		writeSessionMetadata(controlDbPath, { ...metadata, goalJson: '{"objective":"stale"}', messageCount: 2 });
+		const staleMetadataSnapshot = { ...metadata, goalJson: '{"objective":"stale"}', messageCount: 2 };
+		writeSessionMetadata(controlDbPath, staleMetadataSnapshot);
 
 		expect(readSessionGoal(controlDbPath, metadata.sessionPath)).toBe(
 			'{"objective":"current","pausedAt":"2026-07-17T15:33:05.448Z"}',
