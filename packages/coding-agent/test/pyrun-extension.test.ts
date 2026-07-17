@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -1747,10 +1747,15 @@ describe("pyrun extension", () => {
 		expect(job.lifecycle).toBe("running");
 		expect(logPath ? existsSync(logPath) : false).toBe(true);
 		expect(logPath ? readFileSync(logPath, "utf8") : "").toContain('"kind":"progress"');
-		const [runningFileRef] = store.getAgent(job.id)?.result?.fileRefs ?? [];
-		expect(runningFileRef).toMatchObject({ label: "Pyrun output", path: logPath });
+		const runningFileRefs = store.getAgent(job.id)?.result?.fileRefs ?? [];
+		expect(runningFileRefs[0]).toMatchObject({ label: "Pyrun output", path: logPath });
+		expect(runningFileRefs[1]).toMatchObject({ label: "Pyrun script" });
+		const scriptPath = runningFileRefs[1]?.path;
+		expect(scriptPath ? readFileSync(scriptPath, "utf8") : undefined).toBe("run.slow_detachable()");
+		expect(scriptPath ? statSync(scriptPath).mode & 0o777 : undefined).toBe(0o600);
 
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "completed"), "detached Pyrun completion");
+		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 	});
 
 	it("auto-detaches a running Pyrun evaluation after the registry threshold", async () => {
@@ -1845,7 +1850,10 @@ describe("pyrun extension", () => {
 		await resultPromise;
 
 		const [job] = store.listAgents();
+		const runningFileRefs = store.getAgent(job.id)?.result?.fileRefs;
+		expect(runningFileRefs?.[1]).toMatchObject({ label: "Pyrun script" });
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "failed"), "detached Pyrun failure");
+		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 		expect(store.getAgent(job.id)?.result?.summary).toContain("detached boom");
 		expect(store.getAgent(job.id)?.result?.durationMs).toBeGreaterThanOrEqual(1_000);
 		expect(store.listPendingLifecycleNotificationsForAgent(job.id, "failed")[0]?.body).toMatch(/Duration: \d+ms/);
@@ -1863,9 +1871,12 @@ describe("pyrun extension", () => {
 		await resultPromise;
 
 		const [job] = store.listAgents();
+		const runningFileRefs = store.getAgent(job.id)?.result?.fileRefs;
+		expect(runningFileRefs?.[1]).toMatchObject({ label: "Pyrun script" });
 		expect(store.abortAgentHandle(job.id)).toBe(false);
 		requestDetachedCancellation(store, job.id);
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "aborted"), "detached Pyrun cancellation");
+		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 		expect(store.abortAgentHandle(job.id)).toBe(false);
 	});
 

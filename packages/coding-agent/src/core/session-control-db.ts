@@ -3307,6 +3307,7 @@ function detachedJobReplayResult(
 	eventKind: string,
 ): FinalizeDetachedJobResult {
 	const expectedDetails = detachedJobAgentDetails(
+		terminalAgent,
 		terminal,
 		terminalAgent.lifecycle as "completed" | "failed" | "aborted",
 	);
@@ -3337,7 +3338,7 @@ function persistDetachedJobTerminal(
 ): AgentSnapshot {
 	const updated = {
 		...agent,
-		...detachedJobAgentDetails(terminal, terminalLifecycle),
+		...detachedJobAgentDetails(agent, terminal, terminalLifecycle),
 		currentActivity: undefined,
 		lifecycle: terminalLifecycle,
 		revision: terminalRevision,
@@ -3396,10 +3397,20 @@ function persistDetachedJobTerminalTransport(
 }
 
 function detachedJobAgentDetails(
+	agent: Record<string, unknown>,
 	terminal: DetachedJobTerminalInput,
 	terminalLifecycle: "completed" | "failed" | "aborted",
 ): Record<string, unknown> {
-	const fileRefs = [{ label: terminal.output.label, path: terminal.output.path }];
+	const result = agent.result;
+	const existingFileRefs =
+		result && typeof result === "object" && !Array.isArray(result)
+			? (parseFileRefs((result as Record<string, unknown>).fileRefs, `detached job ${terminal.jobId} result`) ?? [])
+			: [];
+	const outputRef = { label: terminal.output.label, path: terminal.output.path };
+	const fileRefs = [
+		outputRef,
+		...existingFileRefs.filter((fileRef) => fileRef.label !== outputRef.label || fileRef.path !== outputRef.path),
+	];
 	const timing = terminal.durationMs === undefined ? {} : { durationMs: terminal.durationMs };
 	const correlation = terminal.toolCallId === undefined ? {} : { toolCallId: terminal.toolCallId };
 	if (terminalLifecycle === "aborted") return { result: { fileRefs, ...timing, ...correlation } };

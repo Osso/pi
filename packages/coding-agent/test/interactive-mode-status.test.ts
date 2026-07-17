@@ -1316,11 +1316,18 @@ describe("InteractiveMode key handlers", () => {
 		const tmp = mkdtempSync(path.join(tmpdir(), "pi-agent-log-view-"));
 		try {
 			const logPath = path.join(tmp, "agent.log");
+			const scriptPath = path.join(tmp, "script.py");
 			writeFileSync(logPath, "live log output", "utf8");
+			writeFileSync(scriptPath, "run.example()", "utf8");
 			const current = fixture.store.getAgent(fixture.childAgentId);
 			if (!current) throw new Error("Expected child agent");
 			const running = legacyMultiAgentStore(fixture.store).transitionAgent(current.id, current.revision, "running", {
-				result: { fileRefs: [{ label: "Pyrun output", path: logPath }] },
+				result: {
+					fileRefs: [
+						{ label: "Pyrun output", path: logPath },
+						{ label: "Pyrun script", path: scriptPath },
+					],
+				},
 			});
 			expect(running.ok).toBe(true);
 
@@ -1329,9 +1336,36 @@ describe("InteractiveMode key handlers", () => {
 			expect(selected).toBe(true);
 			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
 			expect(output).toContain("Viewing live agent: Scout");
+			expect(output).toContain("Script: ");
+			expect(output).toContain("script.py");
+			expect(output).toContain("run.example()");
 			expect(output).toContain("Log: ");
 			expect(output).toContain("agent.log");
 			expect(output).toContain("live log output");
+		} finally {
+			rmSync(tmp, { force: true, recursive: true });
+			fixture.cleanup();
+		}
+	});
+
+	test("selecting an active child renders a readable custom artifact as its log", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: false });
+		const tmp = mkdtempSync(path.join(tmpdir(), "pi-agent-custom-view-"));
+		try {
+			const artifactPath = path.join(tmp, "custom.log");
+			writeFileSync(artifactPath, "custom artifact output", "utf8");
+			const current = fixture.store.getAgent(fixture.childAgentId);
+			if (!current) throw new Error("Expected child agent");
+			const running = legacyMultiAgentStore(fixture.store).transitionAgent(current.id, current.revision, "running", {
+				result: { fileRefs: [{ label: "Custom artifact", path: artifactPath }] },
+			});
+			expect(running.ok).toBe(true);
+
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
+			expect(output).toContain("Log: ");
+			expect(output).toContain("custom.log");
+			expect(output).toContain("custom artifact output");
 		} finally {
 			rmSync(tmp, { force: true, recursive: true });
 			fixture.cleanup();

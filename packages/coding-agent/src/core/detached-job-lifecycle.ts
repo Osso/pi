@@ -177,7 +177,9 @@ function registerDetachedJob(
 		displayName: input.displayName,
 		parentId: options.ownerAgentId,
 		permission: { narrowed: true, policy: "on-request" },
-		result: { fileRefs: [{ label: outputLabel, path: artifacts.outputPath }] },
+		result: {
+			fileRefs: [{ label: outputLabel, path: artifacts.outputPath }, ...(input.fileRefs ?? [])],
+		},
 		worker: { adapter: "runtime", cwd: input.cwd, handleId: input.workerHandleId, toolCallId: input.toolCallId },
 	});
 	const created = options.coordinator.commitRunningChild(

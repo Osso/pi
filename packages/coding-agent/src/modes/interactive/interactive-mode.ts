@@ -393,6 +393,10 @@ export interface InteractiveModeOptions {
 	verbose?: boolean;
 }
 
+function findReadableAgentFilePath(agent: AgentSnapshot, label: string): string | undefined {
+	return agent.result?.fileRefs?.find((fileRef) => fileRef.label === label && fs.existsSync(fileRef.path))?.path;
+}
+
 export class InteractiveMode {
 	private runtimeHost: AgentSessionRuntime;
 	private ui: TUI;
@@ -3193,8 +3197,11 @@ export class InteractiveMode {
 	}
 
 	private findReadableAgentLogPath(agent: AgentSnapshot): string | undefined {
-		const fileRefs = agent.result?.fileRefs ?? [];
-		return fileRefs.find((fileRef) => fs.existsSync(fileRef.path))?.path;
+		const knownOutput =
+			findReadableAgentFilePath(agent, "Pyrun output") ?? findReadableAgentFilePath(agent, "Bash output");
+		if (knownOutput) return knownOutput;
+		return agent.result?.fileRefs?.find((fileRef) => fileRef.label !== "Pyrun script" && fs.existsSync(fileRef.path))
+			?.path;
 	}
 
 	private readAgentLogPreview(logPath: string): string {
@@ -3239,6 +3246,7 @@ export class InteractiveMode {
 		const transcriptStatus = transcriptPath
 			? `Transcript file has not been written yet: ${transcriptPath}`
 			: "Transcript file has not been assigned yet.";
+		const scriptPath = findReadableAgentFilePath(agent, "Pyrun script");
 		const logPath = this.findReadableAgentLogPath(agent);
 		this.chatContainer.clear();
 		this.chatContainer.addChild(
@@ -3247,6 +3255,11 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("dim", `${agent.id} ${agent.lifecycle}`), 1, 0));
 		this.chatContainer.addChild(new Text(theme.fg("dim", transcriptStatus), 1, 0));
+		if (scriptPath) {
+			this.chatContainer.addChild(new Spacer(1));
+			this.chatContainer.addChild(new Text(theme.fg("dim", `Script: ${scriptPath}`), 1, 0));
+			this.chatContainer.addChild(new Text(this.readAgentLogPreview(scriptPath), 1, 0));
+		}
 		if (logPath) {
 			this.chatContainer.addChild(new Spacer(1));
 			this.chatContainer.addChild(new Text(theme.fg("dim", `Log: ${logPath}`), 1, 0));

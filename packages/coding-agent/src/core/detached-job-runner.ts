@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentSnapshot } from "./multi-agent-store.ts";
+import type { AgentFileReference, AgentSnapshot } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
 import type { MultiAgentRuntimeOwnership } from "./session-control-db.ts";
 
@@ -48,6 +48,8 @@ export interface RegisterDetachedJobInput {
 	toolCallId?: string;
 	/** True when the job is already detached from its waiting tool call at registration. */
 	detached?: boolean;
+	/** Durable input artifacts exposed alongside the output log. */
+	fileRefs?: AgentFileReference[];
 }
 
 export type DetachedJobLifecycleCommandResult =

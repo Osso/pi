@@ -1,4 +1,14 @@
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	fsyncSync,
+	openSync,
+	readFileSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
@@ -129,6 +139,8 @@ async function restoreForegroundPyrunRunner(
 			rmSync(directory, { recursive: true, force: true });
 			return undefined;
 		}
+		const scriptPath = join(directory, "script.py");
+		if (!existsSync(scriptPath)) throw new Error(`Pyrun script artifact is missing: ${scriptPath}`);
 		return {
 			kind: "resume",
 			runner: {
@@ -140,6 +152,7 @@ async function restoreForegroundPyrunRunner(
 				jobId,
 				processIdentity: manifest.runnerProcessIdentity,
 				runnerPid: manifest.runnerProcessIdentity.pid,
+				scriptPath,
 			},
 		};
 	}
@@ -185,6 +198,24 @@ async function settleCancellingPyrunJob(
 	return readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, persisted.id) ?? persisted;
 }
 
+function writeDurablePyrunScript(path: string, code: string): void {
+	const temporaryPath = `${path}.tmp-${process.pid}`;
+	writeFileSync(temporaryPath, code, { encoding: "utf8", mode: 0o600 });
+	fsyncFile(temporaryPath);
+	renameSync(temporaryPath, path);
+	fsyncFile(dirname(path));
+	fsyncFile(dirname(dirname(path)));
+}
+
+function fsyncFile(path: string): void {
+	const descriptor = openSync(path, "r");
+	try {
+		fsyncSync(descriptor);
+	} finally {
+		closeSync(descriptor);
+	}
+}
+
 function launchForegroundPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
@@ -198,6 +229,8 @@ function launchForegroundPyrunRunner(
 	const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");
 	const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
 	const manifestPath = join(artifacts.directory, "launch.json");
+	const scriptPath = join(artifacts.directory, "script.py");
+	writeDurablePyrunScript(scriptPath, input.params.code);
 	const runnerPid = launchDetachedPyrunRunner(manifestPath);
 	const processIdentity = readProcessIdentity(runnerPid);
 	writeDetachedPyrunLaunchManifest(manifestPath, {
@@ -225,6 +258,7 @@ function launchForegroundPyrunRunner(
 		jobId,
 		processIdentity,
 		runnerPid,
+		scriptPath,
 	};
 }
 
@@ -253,6 +287,7 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 			ownership = input.controller.register({
 				agentType: "pyrun",
 				cwd: input.ctx.cwd,
+				fileRefs: [{ label: "Pyrun script", path: input.runner.scriptPath }],
 				detached: true,
 				displayName: "Pyrun evaluation",
 				jobId: input.runner.jobId,
