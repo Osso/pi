@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir } from "../config.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
@@ -18,11 +18,14 @@ import {
 } from "../core/session-control-db.ts";
 import { SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
+import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
 import { runSupervisorRequest } from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
 const REQUEST_POLL_INTERVAL_MS = 100;
+
+export const SUPERVISOR_TOOL_NAMES = ["read", "edit", "write"];
 
 export const SUPERVISOR_EXCLUDED_TOOL_NAMES = [
 	"ask_architect",
@@ -63,7 +66,7 @@ export async function createSupervisorResourceLoader(
 		cwd: kbDir,
 		extensionFactories: [
 			(pi) => {
-				pi.registerToolGate((event) => blockSupervisorMutation(kbDir, event));
+				pi.registerToolGate((event) => blockSupervisorFileAccess(kbDir, event));
 			},
 			openAIRemoteCompactExtension,
 		],
@@ -79,14 +82,18 @@ export async function createSupervisorResourceLoader(
 	return resourceLoader;
 }
 
-export function blockSupervisorMutation(
+export function blockSupervisorFileAccess(
 	kbDir: string,
 	event: { input: unknown; toolName: string },
 ): { block: true; reason: string } | undefined {
-	if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
+	if (!SUPERVISOR_TOOL_NAMES.includes(event.toolName)) return undefined;
 	const path = readToolPath(event.input);
-	if (path && isPathWithinRoot(resolve(kbDir, path), resolve(kbDir))) return undefined;
-	return { block: true, reason: "Pi Supervisor may write only inside the configured KB directory." };
+	if (!path) return supervisorFileAccessBlock();
+	try {
+		const resolvedPath = event.toolName === "read" ? resolveReadPath(path, kbDir) : resolveToCwd(path, kbDir);
+		if (isPathWithinRoot(resolveExistingPath(resolvedPath), resolveExistingPath(kbDir))) return undefined;
+	} catch {}
+	return supervisorFileAccessBlock();
 }
 
 export async function runSupervisorService(): Promise<void> {
@@ -112,7 +119,7 @@ export async function runSupervisorService(): Promise<void> {
 		sessionManager,
 		settingsManager,
 		thinkingLevel: "low",
-		tools: ["read", "edit", "write", "grep", "find", "ls", "outline", "symbol", "references"],
+		tools: SUPERVISOR_TOOL_NAMES,
 	});
 	const claimToken = randomUUID();
 	recoverSupervisorRequests(controlDbPath);
@@ -215,6 +222,22 @@ function readCurrentAssistantText(
 
 function readToolPath(input: unknown): string | undefined {
 	return isRecord(input) && typeof input.path === "string" ? input.path : undefined;
+}
+
+function supervisorFileAccessBlock(): { block: true; reason: string } {
+	return { block: true, reason: "Pi Supervisor may access files only inside the configured KB directory." };
+}
+
+function resolveExistingPath(path: string): string {
+	const suffix: string[] = [];
+	let existingPath = resolve(path);
+	while (!existsSync(existingPath)) {
+		const parent = dirname(existingPath);
+		if (parent === existingPath) return resolve(path);
+		suffix.unshift(basename(existingPath));
+		existingPath = parent;
+	}
+	return resolve(realpathSync(existingPath), ...suffix);
 }
 
 function isPathWithinRoot(path: string, root: string): boolean {

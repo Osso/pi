@@ -17,6 +17,12 @@ import type {
 	SessionStartEvent,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
+import {
+	claimNextSupervisorRequest,
+	completeSupervisorRequest,
+	getControlDbPath,
+	readSupervisorRequest,
+} from "../src/core/session-control-db.ts";
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
@@ -98,6 +104,7 @@ function createGoalHarness(
 		isSubagent?: boolean;
 		subagentName?: string;
 		reviewGoal?: GoalSupervisorReview;
+		useResidentSupervisor?: boolean;
 	},
 ) {
 	let command: RegisteredGoalCommand | undefined;
@@ -136,18 +143,17 @@ function createGoalHarness(
 		sendUserMessage,
 	} as unknown as ExtensionAPI;
 
-	goalExtension(pi, {
-		reviewGoal:
-			options?.reviewGoal ??
-			(async ({ kind, payload }) =>
-				kind === "goal_completion_review"
-					? { kind: "complete", reason: "verified" }
-					: {
-							kind: "continue",
-							reason: "work remains",
-							instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
-						}),
-	});
+	const reviewGoal =
+		options?.reviewGoal ??
+		(async ({ kind, payload }) =>
+			kind === "goal_completion_review"
+				? { kind: "complete" as const, reason: "verified" }
+				: {
+						kind: "continue" as const,
+						reason: "work remains",
+						instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
+					});
+	goalExtension(pi, options?.useResidentSupervisor ? {} : { reviewGoal });
 
 	const ctx = {
 		cwd,
@@ -584,6 +590,41 @@ describe("goal extension", () => {
 
 		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 		expect(result).toBeUndefined();
+	});
+
+	it("gives resident goal reviews a three-minute deadline", async () => {
+		const agentDir = join(cwd, "agent-dir");
+		mkdirSync(agentDir, { recursive: true });
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		try {
+			const harness = createGoalHarness(cwd, { useResidentSupervisor: true });
+			await harness.runCommand("set verify resident deadline");
+			const review = harness.runAgentEnd();
+			const controlDbPath = getControlDbPath(agentDir);
+			let request = readSupervisorRequest(controlDbPath, 1);
+			for (let attempts = 0; !request && attempts < 20; attempts++) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				request = readSupervisorRequest(controlDbPath, 1);
+			}
+			if (!request) throw new Error("expected resident Supervisor request");
+			const deadlineMs = Date.parse(request.deadlineAt) - Date.parse(request.createdAt);
+			const claimed = claimNextSupervisorRequest(controlDbPath, "test-runtime");
+			if (!claimed?.claimToken) throw new Error("expected claimed resident Supervisor request");
+			completeSupervisorRequest(controlDbPath, claimed.id, claimed.claimToken, {
+				kind: "complete",
+				reason: "verified",
+			});
+			await review;
+			expect(deadlineMs).toBeGreaterThanOrEqual(179_000);
+			expect(deadlineMs).toBeLessThanOrEqual(180_000);
+		} finally {
+			if (previousAgentDir === undefined) {
+				delete process.env.PI_CODING_AGENT_DIR;
+			} else {
+				process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			}
+		}
 	});
 
 	it("continues an active goal after agent_end", async () => {

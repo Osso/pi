@@ -5,7 +5,7 @@ After=default.target
 [Service]
 Type=exec
 WorkingDirectory=%h
-ExecStart=@PI_NODE_LAUNCHER@ --tsconfig @PI_TSCONFIG@ @PI_CLI_SOURCE@ supervisor
+ExecStart=@PI_SUPERVISOR_BINARY@ supervisor
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

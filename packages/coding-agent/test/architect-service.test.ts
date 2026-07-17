@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 
 const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
 const serviceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
+const systemdPathValidator = fileURLToPath(new URL("../../../scripts/validate-systemd-exec-path.mjs", import.meta.url));
 
 describe("resident architect service", () => {
 	it("uses the structured observer snapshot instead of list_sessions", () => {
@@ -187,14 +189,38 @@ describe("resident architect service", () => {
 		}
 	});
 
+	it("rejects paths that cannot be inserted safely into systemd ExecStart", () => {
+		const safe = spawnSync(process.execPath, [systemdPathValidator, "/home/osso/.local/bin/pi"], {
+			encoding: "utf8",
+		});
+		const whitespace = spawnSync(process.execPath, [systemdPathValidator, "/tmp/pi bin/pi"], { encoding: "utf8" });
+		const specifier = spawnSync(process.execPath, [systemdPathValidator, "/tmp/pi%h/pi"], { encoding: "utf8" });
+		const singleQuote = spawnSync(process.execPath, [systemdPathValidator, "/tmp/pi'bin/pi"], { encoding: "utf8" });
+		const environment = spawnSync(process.execPath, [systemdPathValidator, "/tmp/pi$HOME/pi"], { encoding: "utf8" });
+		const replacement = spawnSync(process.execPath, [systemdPathValidator, "/tmp/pi&bin/pi"], { encoding: "utf8" });
+
+		expect(safe.status).toBe(0);
+		expect(whitespace.status).toBe(1);
+		expect(whitespace.stderr).toContain("systemd ExecStart");
+		expect(specifier.status).toBe(1);
+		expect(specifier.stderr).toContain("systemd ExecStart");
+		expect(singleQuote.status).toBe(1);
+		expect(singleQuote.stderr).toContain("systemd ExecStart");
+		expect(environment.status).toBe(1);
+		expect(environment.stderr).toContain("systemd ExecStart");
+		expect(replacement.status).toBe(1);
+		expect(replacement.stderr).toContain("systemd ExecStart");
+	});
+
 	it("renders the configured binary path and verifies the restarted Architect service", () => {
 		const deploy = readFileSync(deployScript, "utf8");
 		const unit = readFileSync(serviceUnit, "utf8");
 
-		expect(unit).toContain("ExecStart=@PI_NODE_LAUNCHER@ --tsconfig @PI_TSCONFIG@ @PI_CLI_SOURCE@ architect");
-		expect(deploy).toContain("@PI_NODE_LAUNCHER@");
-		expect(deploy).toContain("@PI_TSCONFIG@");
-		expect(deploy).toContain("@PI_CLI_SOURCE@");
+		expect(unit).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
+		expect(deploy).toContain("@PI_ARCHITECT_BINARY@");
+		expect(deploy).not.toContain("@PI_NODE_LAUNCHER@");
+		expect(deploy).not.toContain("@PI_TSCONFIG@");
+		expect(deploy).not.toContain("@PI_CLI_SOURCE@");
 		expect(deploy).toContain("pi-architect.service");
 		expect(deploy).toContain('XDG_RUNTIME_DIR="');
 		expect(deploy).toContain("/run/user/$(id -u)");

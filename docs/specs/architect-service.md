@@ -28,7 +28,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Service lifecycle
 
-- [x] Run the repository's Node-backed Pi CLI through `tsx` as a systemd user service using `openai-codex/gpt-5.6-sol`.
+- [x] Run the installed Bun-compiled Pi binary as a systemd user service using `openai-codex/gpt-5.6-sol`.
 - [x] Preserve a dedicated Architect session transcript across service restarts while reading normal shared Pi state; persist its metadata with `archived_at` set.
 - [x] Install the compiled `pi` binary and install, enable, start, and restart the user service through deployment.
 
@@ -42,7 +42,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, current-main-session control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy and structured observation prompt.
 - `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the read-only bwrap profile and sandboxed Pyrun runner.
-- `packages/coding-agent/systemd/pi-architect.service` — user-service template for the Node-backed repository CLI.
+- `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed Bun-compiled Pi binary.
 - `deploy.sh` — compiled binary installation and systemd unit deployment.
 
 ## Tests asserting this spec

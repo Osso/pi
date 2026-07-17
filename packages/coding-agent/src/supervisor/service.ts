@@ -23,7 +23,7 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 			: 'Return {"kind":"complete","reason":"..."} or {"kind":"continue","reason":"...","instructions":"..."}.';
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",
-		"Evaluate only this bounded request, selectively reading workspace or KB files when necessary.",
+		"Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.",
 		"Do not request or reconstruct historical session transcripts.",
 		"You may read and write KB memory synchronously. Do not edit workspace files or control sessions, goals, processes, or agents.",
 		`Project memory: memory/supervisor/${request.projectId}.md`,

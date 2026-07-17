@@ -18,8 +18,8 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 ### Authority boundary
 
 - [x] Act as a policy engine whose typed response is enforced by the calling subsystem.
-- [x] Read workspace files without modifying them.
-- [x] Read and write the full shared KB.
+- [x] Read and write only inside the configured shared KB root.
+- [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
 - [x] Exclude cross-session conflict detection, work coordination, and goal compatibility checks from the initial service.
 
@@ -28,7 +28,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Resolve a canonical project family from `KB/memory/supervisor/projects.json` using configured repository roots and owner/repository remote identities.
 - [x] Fall back from configured project mappings to the current repository's remote repository basename, then to the repository directory basename.
 - [x] Support one canonical project family spanning multiple repositories, including GlobalComix, MangaHelpers, and World of Osso, without hardcoding those projects into service logic.
-- [x] Store Supervisor-owned memory under `KB/memory/supervisor/`, with one memory file per canonical project family and optional global memory.
+- [x] Store Supervisor-owned memory under the configured `KB/memory/supervisor/`, with one memory file per canonical project family and optional global memory.
 - [x] Do not inject all Supervisor memory into model context automatically; let the Supervisor selectively read relevant memory files with its read tools.
 - [x] Permit synchronous KB reads and writes during request evaluation, within the request deadline.
 
@@ -37,7 +37,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Give every request the canonical project identity and originating session identity.
 - [x] Keep request evidence bounded and specific to the current decision.
 - [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
-- [x] Let the Supervisor consult KB memory and read-only workspace evidence when current request evidence is insufficient.
+- [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
 - [x] Extract the model response only from the terminal assistant entry produced during the current request; return an error instead of reusing prior or intermediate assistant text when the current request has no non-empty successful terminal response.
 
 ### Approval review
@@ -67,7 +67,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Submit the Supervisor's concrete instructions as the follow-up continuation prompt when the caller receives `continue`.
 - [x] Require best judgment between `complete` and `continue` despite uncertainty.
 - [x] On goal `error`, keep the goal running, stop automatic continuation, and display a visible error without requiring human approval.
-- [x] Enforce a two-minute deadline for goal reviews.
+- [x] Enforce a three-minute deadline for goal reviews.
 
 ### Scheduling and preemption
 
@@ -75,7 +75,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Abort and requeue an active goal review when an approval request arrives.
 - [x] Preserve the original goal request evidence when requeuing it.
 - [x] Process the approval immediately after preemption.
-- [x] Keep the requeued goal review within its original two-minute request deadline.
+- [x] Keep the requeued goal review within its original three-minute request deadline.
 
 ### Failure handling
 
@@ -100,7 +100,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
 - `packages/coding-agent/src/core/agent-session.ts` — LLM-approved preset integration.
 - `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.
-- `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — Node-backed repository CLI service lifecycle.
+- `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — installed Bun-compiled Pi binary service lifecycle.
 
 ## Tests asserting this spec
 

@@ -44,6 +44,7 @@ import {
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
+const GOAL_REVIEW_TIMEOUT_MS = 180_000;
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 interface Goal {
@@ -511,7 +512,7 @@ async function reviewGoalWithResidentSupervisor(input: {
 		payload: input.payload,
 		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
 		senderSessionId: input.ctx.sessionManager.getSessionId(),
-		timeoutMs: 120_000,
+		timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
 	});
 }
 

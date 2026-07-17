@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,11 +12,12 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
-	blockSupervisorMutation,
+	blockSupervisorFileAccess,
 	createSupervisorResourceLoader,
 	createSupervisorSettingsManager,
 	processSupervisorRequest,
 	SUPERVISOR_EXCLUDED_TOOL_NAMES,
+	SUPERVISOR_TOOL_NAMES,
 	validateSupervisorExtensionLoad,
 } from "../src/supervisor/main.ts";
 import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
@@ -66,30 +67,67 @@ describe("resident Supervisor service", () => {
 		).toThrow("Supervisor extension load failed: <openai-remote-compact>: factory failed");
 	});
 
-	it("uses full-access tool routing while blocking mutation outside the KB", () => {
+	it("limits file access to Supervisor KB memory", () => {
 		const settings = createSupervisorSettingsManager();
 		expect(settings.getExplicitSandboxProfile()).toBe("full-access");
 		expect(settings.getApprovalPolicy()).toBe("auto-approve");
+		expect(SUPERVISOR_TOOL_NAMES).toEqual(["read", "edit", "write"]);
 		expect(SUPERVISOR_EXCLUDED_TOOL_NAMES).toEqual(expect.arrayContaining(["bash", "pyrun_eval", "spawn_agent"]));
 		expect(
-			blockSupervisorMutation("/syncthing/Sync/KB", { input: { path: "/worktree/source.ts" }, toolName: "write" }),
+			blockSupervisorFileAccess("/syncthing/Sync/KB", {
+				input: { path: "/worktree/source.ts" },
+				toolName: "read",
+			}),
 		).toMatchObject({ block: true });
 		expect(
-			blockSupervisorMutation("/syncthing/Sync/KB", {
+			blockSupervisorFileAccess("/syncthing/Sync/KB", {
 				input: { path: "/syncthing/Sync/KB/memory/supervisor/pi.md" },
-				toolName: "write",
+				toolName: "read",
 			}),
 		).toBeUndefined();
+		expect(
+			blockSupervisorFileAccess("/syncthing/Sync/KB", { input: { path: "/worktree/source.ts" }, toolName: "write" }),
+		).toMatchObject({ block: true });
 	});
 
-	it("deploys the Node-backed CLI as a resident systemd service", () => {
+	it("blocks normalized and symlinked paths that escape the KB", () => {
+		const kbDir = join(tempDir, "kb");
+		const outsideDir = join(tempDir, "outside");
+		mkdirSync(kbDir);
+		mkdirSync(outsideDir);
+		writeFileSync(join(outsideDir, "outside.txt"), "outside");
+		symlinkSync(outsideDir, join(kbDir, "escape"));
+		symlinkSync(outsideDir, join(kbDir, "escape dir"));
+		symlinkSync(join(outsideDir, "outside.txt"), join(kbDir, "capture’.txt"));
+
+		const sharedEscapePaths = [
+			"file:///etc/passwd",
+			"file://%",
+			"@/etc/passwd",
+			"~/outside.txt",
+			join(kbDir, "escape", "new.txt"),
+			join(kbDir, "escape dir", "new.txt"),
+		];
+		for (const path of sharedEscapePaths) {
+			expect(blockSupervisorFileAccess(kbDir, { input: { path }, toolName: "read" })).toMatchObject({ block: true });
+			expect(blockSupervisorFileAccess(kbDir, { input: { path }, toolName: "write" })).toMatchObject({
+				block: true,
+			});
+		}
+		expect(
+			blockSupervisorFileAccess(kbDir, { input: { path: join(kbDir, "capture'.txt") }, toolName: "read" }),
+		).toMatchObject({ block: true });
+	});
+
+	it("deploys the installed Bun binary as a resident systemd service", () => {
 		const deploy = readFileSync(deployScript, "utf8");
 		const unit = readFileSync(serviceUnit, "utf8");
 
-		expect(unit).toContain("ExecStart=@PI_NODE_LAUNCHER@ --tsconfig @PI_TSCONFIG@ @PI_CLI_SOURCE@ supervisor");
-		expect(deploy).toContain("@PI_NODE_LAUNCHER@");
-		expect(deploy).toContain("@PI_TSCONFIG@");
-		expect(deploy).toContain("@PI_CLI_SOURCE@");
+		expect(unit).toContain("ExecStart=@PI_SUPERVISOR_BINARY@ supervisor");
+		expect(deploy).toContain("@PI_SUPERVISOR_BINARY@");
+		expect(deploy).not.toContain("@PI_NODE_LAUNCHER@");
+		expect(deploy).not.toContain("@PI_TSCONFIG@");
+		expect(deploy).not.toContain("@PI_CLI_SOURCE@");
 		expect(deploy).toContain("pi-supervisor.service");
 		expect(deploy).toContain("systemctl --user enable --now pi-supervisor.service");
 		expect(deploy).toContain("systemctl --user restart pi-supervisor.service");

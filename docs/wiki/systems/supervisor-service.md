@@ -6,13 +6,13 @@ The Supervisor runs as `pi supervisor` under `pi-supervisor.service`. It owns on
 
 `supervisor_requests` stores request identity, sender session, canonical project family, request kind, bounded JSON evidence, original deadline, claim ownership, and typed response. Approval requests sort ahead of goal requests. If an approval arrives during a goal evaluation, the service aborts the model turn, requeues the unchanged goal request, evaluates the approval, then later resumes the goal request within its original deadline.
 
-Callers poll only their durable request row. Approval requests use a 30-second deadline; goal requests use two minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
+Callers poll only their durable request row. Approval requests use a 30-second deadline; goal requests use three minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
 
 ## Project memory
 
 The caller resolves a canonical project family using `/syncthing/Sync/KB/memory/supervisor/projects.json`. Configured repository-root mappings take precedence, followed by configured owner/repository remote identities, the current remote repository basename, and finally the repository directory basename. Owner/repository identity prevents collisions such as the separate GlobalComix and MangaHelpers `ops` repositories.
 
-The Supervisor starts with the KB as its working directory. It may read any workspace but tool gates allow `write` and `edit` only under the KB. Its service-local approval policy is auto-approve because the KB-only gate is the mutation boundary and no human UI exists in the resident process. It receives no historical session transcript payload. Its prompt names `memory/supervisor/global.md` and the current project memory file so it can read or update them selectively.
+The Supervisor starts with the configured KB as its working directory. Its only file tools are `read`, `edit`, and `write`; all normalize and resolve their target through existing symlinks before a tool gate permits access inside that KB root. Bash and Pyrun are unavailable. Its service-local approval policy is auto-approve because the KB-only gate is the file-access boundary and no human UI exists in the resident process. It receives no historical session transcript payload. Its prompt names `memory/supervisor/global.md` and the current project memory file so it can read or update them selectively.
 
 ## Approval integration
 
