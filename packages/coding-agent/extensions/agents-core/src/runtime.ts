@@ -2558,6 +2558,7 @@ export function requestAgentSteering(
 		persistence.controlDbPath !== binding.controlDbPath ||
 		binding.actorAgentId !== expectedActorId ||
 		binding.sessionId !== ownership.owner.sessionId ||
+		!ownership.processIdentity ||
 		!isProcessIdentityAlive(ownership.processIdentity) ||
 		!targetSessionId
 	) {
