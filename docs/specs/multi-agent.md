@@ -34,10 +34,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
-- [x] Only the supervisor runtime can spawn, attach, or wait for agents. Child/subagent runtimes
-      reject `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Hostrun/Pyrun
-      `agents.spawn`, `agents.attachSession`, and `agents.wait` bridge methods before rows are created.
-      Production child sessions also exclude those three tools as defense in depth.
+- [x] Only the supervisor runtime can orchestrate or inspect agents. Child/subagent runtimes reject
+      `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Hostrun/Pyrun `agents.spawn`,
+      `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
+      and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agents`,
+      `list_agents`, `agent_viewer`, `steer_agent`, and `cancel_agent` as defense in depth, while retaining
+      direct child communication through `contact_supervisor` and `send_agent_message`.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
       persisted-store reconciliation or lifecycle-notification mirroring. Their bound session-start hook
       reconciles only direct persisted descendants through coordinator recovery, preventing same-PID child

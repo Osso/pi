@@ -52,7 +52,10 @@ import {
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
-import { SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
+import {
+	CHILD_DISABLED_AGENT_TOOL_NAMES,
+	SUPERVISOR_ONLY_TOOL_NAMES,
+} from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4000;
@@ -590,7 +593,7 @@ export function createProductionChildAgentSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents", ...SUPERVISOR_ONLY_TOOL_NAMES],
+			excludeTools: [...CHILD_DISABLED_AGENT_TOOL_NAMES, ...SUPERVISOR_ONLY_TOOL_NAMES],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -641,7 +644,7 @@ export function createProductionAttachedSessionFactory(
 		const result = await options.createSession({
 			agentDir: options.agentDir,
 			cwd: agent.cwd,
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents", ...SUPERVISOR_ONLY_TOOL_NAMES],
+			excludeTools: [...CHILD_DISABLED_AGENT_TOOL_NAMES, ...SUPERVISOR_ONLY_TOOL_NAMES],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,

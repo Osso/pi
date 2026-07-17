@@ -3349,7 +3349,16 @@ describe("multi-agent extension tools", () => {
 
 		expect(sessionOptions).toMatchObject({
 			cwd: "/repo",
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents", "manage_goal"],
+			excludeTools: [
+				"agent_viewer",
+				"attach_session_agent",
+				"cancel_agent",
+				"list_agents",
+				"spawn_agent",
+				"steer_agent",
+				"wait_agents",
+				"manage_goal",
+			],
 			model: parentHarness.getModel(),
 			modelRegistry: parentHarness.session.modelRegistry,
 		});
@@ -3579,7 +3588,16 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(sessionOptions).toMatchObject({
-			excludeTools: ["attach_session_agent", "spawn_agent", "wait_agents", "manage_goal"],
+			excludeTools: [
+				"agent_viewer",
+				"attach_session_agent",
+				"cancel_agent",
+				"list_agents",
+				"spawn_agent",
+				"steer_agent",
+				"wait_agents",
+				"manage_goal",
+			],
 			multiAgentStore: store,
 		});
 	});
