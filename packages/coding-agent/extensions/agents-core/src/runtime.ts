@@ -400,7 +400,7 @@ export function resolveSelectedSessionMutationTarget(
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
 	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);
-	if (agent.agentType === "background" && agent.worker?.adapter === "runtime") {
+	if (agent.agentType === "background") {
 		throw new Error(`Agent ${selectedAgentId} is detached and not a live child session`);
 	}
 	if (!isActiveLifecycle(agent.lifecycle)) throw new Error(formatInactiveAgentSelectionMessage(agent));

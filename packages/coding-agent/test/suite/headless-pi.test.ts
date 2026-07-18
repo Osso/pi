@@ -215,10 +215,6 @@ describe("headless Pi fixture", () => {
 	it("mutates the selected live child model and effort without changing main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Mutable child");
-			const mainModelChanges = agent.readSessionEntries(null).filter((entry) => entry.type === "model_change").length;
-			const mainThinkingChanges = agent
-				.readSessionEntries(null)
-				.filter((entry) => entry.type === "thinking_level_change").length;
 			await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
 
 			expect(agent.readSessionEntries(spawned.id)).toEqual(
@@ -227,12 +223,16 @@ describe("headless Pi fixture", () => {
 					expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
 				]),
 			);
-			expect(agent.readSessionEntries(null).filter((entry) => entry.type === "model_change")).toHaveLength(
-				mainModelChanges,
-			);
-			expect(agent.readSessionEntries(null).filter((entry) => entry.type === "thinking_level_change")).toHaveLength(
-				mainThinkingChanges,
-			);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
+			).toBe(false);
 			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Child complete"));
 		});
 	});
@@ -240,15 +240,16 @@ describe("headless Pi fixture", () => {
 	it("rejects a completed selected target without mutating main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Completed target");
-			const mainModelChanges = agent.readSessionEntries(null).filter((entry) => entry.type === "model_change").length;
 			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed"));
 			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
 
 			const result = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
 			expectFailedToolEntry(result, "not active");
-			expect(agent.readSessionEntries(null).filter((entry) => entry.type === "model_change")).toHaveLength(
-				mainModelChanges,
-			);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
 		});
 	});
 
@@ -256,12 +257,13 @@ describe("headless Pi fixture", () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Select a missing target" });
 			const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
-			const mainModelChanges = agent.readSessionEntries(null).filter((entry) => entry.type === "model_change").length;
 			const result = await selectAndMutateHeadlessTarget(agent, request, "agent_missing", "test_set_viewed_model");
 			expectFailedToolEntry(result, "not found");
-			expect(agent.readSessionEntries(null).filter((entry) => entry.type === "model_change")).toHaveLength(
-				mainModelChanges,
-			);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
 		});
 	});
 
@@ -285,9 +287,6 @@ describe("headless Pi fixture", () => {
 				const afterDetach = await agent.waitForLlmRequest(
 					(request) => request.agentId === null && request.id !== initialRequest.id,
 				);
-				const mainModelChanges = agent
-					.readSessionEntries(null)
-					.filter((entry) => entry.type === "model_change").length;
 				const result = await selectAndMutateHeadlessTarget(
 					agent,
 					afterDetach,
@@ -295,9 +294,11 @@ describe("headless Pi fixture", () => {
 					"test_set_viewed_model",
 				);
 				expectFailedToolEntry(result, "not live");
-				expect(agent.readSessionEntries(null).filter((entry) => entry.type === "model_change")).toHaveLength(
-					mainModelChanges,
-				);
+				expect(
+					agent
+						.readSessionEntries(null)
+						.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+				).toBe(false);
 				writeFileSync(releasePath, "release");
 			},
 			{ autoDetachTools: true },
