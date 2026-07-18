@@ -58,7 +58,7 @@ function killProcessGroup(pid: number): void {
 	}
 }
 
-async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string) {
+async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string, agentType?: string) {
 	const promptResponse = await agent.send({ type: "prompt", message: `Spawn ${displayName}` });
 	if (!("success" in promptResponse) || !promptResponse.success) {
 		throw new Error(`Initial prompt rejected: ${JSON.stringify(promptResponse)}`);
@@ -70,7 +70,7 @@ async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string)
 		});
 	agent.respondToLlmRequest(
 		initialMainRequest.id,
-		fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName, prompt: `Remain live for ${displayName}` }), {
+		fauxAssistantMessage(fauxToolCall("spawn_agent", { agentType, displayName, prompt: `Remain live for ${displayName}` }), {
 			stopReason: "toolUse",
 		}),
 	);
@@ -276,41 +276,26 @@ describe("headless Pi fixture", () => {
 	});
 
 	it("rejects a detached selected target without mutating main", async () => {
-		await withHeadlessPi(
-			async (agent) => {
-				const releasePath = join(agent.paths.workspaceDir, "release-selected-detached");
-				const code = [
-					"from pathlib import Path",
-					"import time",
-					`release = Path(${JSON.stringify(releasePath)})`,
-					"while not release.exists(): time.sleep(0.05)",
-				].join("\n");
-				await agent.send({ type: "prompt", message: "Create a detached target" });
-				const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-				agent.respondToLlmRequest(
-					initialRequest.id,
-					fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
-				);
-				const detached = await agent.waitForAgent((candidate) => candidate.displayName === "Pyrun evaluation");
-				const afterDetach = await agent.waitForLlmRequest(
-					(request) => request.agentId === null && request.id !== initialRequest.id,
-				);
-				const result = await selectAndMutateHeadlessTarget(
-					agent,
-					afterDetach,
-					detached.id,
-					"test_set_viewed_model",
-				);
-				expectFailedToolEntry(result, "detached and not a live child session");
-				expect(
-					agent
-						.readSessionEntries(null)
-						.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
-				).toBe(false);
-				writeFileSync(releasePath, "release");
-			},
-			{ autoDetachTools: true },
-		);
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(
+				agent,
+				"Detached target",
+				"background",
+			);
+			const result = await selectAndMutateHeadlessTarget(
+				agent,
+				mainAfterSpawn,
+				spawned.id,
+				"test_set_viewed_model",
+			);
+			expectFailedToolEntry(result, "detached and not a live child session");
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Detached child complete"));
+		});
 	});
 
 	it("spawns a child with its instructions and delivers completion to the main mailbox", async () => {
