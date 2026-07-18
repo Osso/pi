@@ -302,7 +302,7 @@ describe("headless Pi fixture", () => {
 					detached.id,
 					"test_set_viewed_model",
 				);
-				expectFailedToolEntry(result, "selection failed");
+				expectFailedToolEntry(result, "not live session mutation targets");
 				expect(
 					agent
 						.readSessionEntries(null)

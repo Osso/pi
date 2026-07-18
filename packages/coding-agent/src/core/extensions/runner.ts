@@ -702,6 +702,9 @@ export class ExtensionRunner {
 	}
 
 	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
+		if (this.getDetachedJobLifecycleFn?.()) {
+			throw new Error("Detached jobs are not live session mutation targets");
+		}
 		const target = this.runtime.sessionMutationTargetResolver?.();
 		if (target) return target;
 		const selectedAgentId = this.getMultiAgentStoreFn?.()?.getSelectedAgentId();
