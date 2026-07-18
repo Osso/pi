@@ -34,6 +34,7 @@ import {
 	failRuntimeMailboxMessage,
 	finalizeDetachedJob,
 	getControlDbPath,
+	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
 	listActiveSessionMetadata,
 	listArchivedSessionMetadata,
@@ -146,6 +147,13 @@ function enqueueStoredRuntimeMessage(
 }
 
 describe("session control DB", () => {
+	it("shares one runtime process incarnation across module initializers", () => {
+		const first = getRuntimeProcessInstanceId();
+		const second = getRuntimeProcessInstanceId();
+
+		expect(second).toBe(first);
+	});
+
 	let tempDir: string;
 	let controlDbPath: string;
 
