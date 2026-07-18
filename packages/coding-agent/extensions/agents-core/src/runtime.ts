@@ -52,6 +52,7 @@ import {
 	type RuntimeMailboxMessage,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
+import type { AgentSession } from "../../../src/core/agent-session.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import {
 	CHILD_DISABLED_AGENT_TOOL_NAMES,
@@ -388,6 +389,12 @@ export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map() };
 }
 
+export interface LiveChildSessionMutationTarget extends SessionMutationTarget {
+	cycleModel: NonNullable<AgentSession["cycleModel"]>;
+	modelRegistry: ExtensionContext["modelRegistry"];
+	scopedModels: AgentSession["scopedModels"];
+}
+
 export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
@@ -419,6 +426,24 @@ export function resolveSelectedSessionMutationTarget(
 		throw new Error(`Agent ${selectedAgentId} does not support live session mutation`);
 	}
 	return mutationTarget as SessionMutationTarget;
+}
+
+export function resolveSelectedLiveChildSessionMutationTarget(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+	selectedAgentId?: string,
+): LiveChildSessionMutationTarget | undefined {
+	const target = resolveSelectedSessionMutationTarget(store, runtimeHandles, selectedAgentId);
+	if (!target || !selectedAgentId) return undefined;
+	const session = runtimeHandles.sessions.get(selectedAgentId) as unknown as Partial<LiveChildSessionMutationTarget>;
+	if (
+		typeof session.cycleModel !== "function" ||
+		!session.modelRegistry ||
+		!Array.isArray(session.scopedModels)
+	) {
+		throw new Error(`Agent ${selectedAgentId} does not support interactive session mutation`);
+	}
+	return session as LiveChildSessionMutationTarget;
 }
 
 interface WaitingDesktopNotificationRegistration {

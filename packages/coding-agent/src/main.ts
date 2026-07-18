@@ -18,6 +18,7 @@ import agentsCoreExtension, {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
+	resolveSelectedLiveChildSessionMutationTarget,
 	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
@@ -1104,7 +1105,7 @@ export async function main(args: string[], options?: MainOptions) {
 			multiAgentStore: firstPartyMultiAgentStore,
 			resolveSessionMutationTarget: (agentId) =>
 				agentId
-					? resolveSelectedSessionMutationTarget(
+					? resolveSelectedLiveChildSessionMutationTarget(
 							firstPartyMultiAgentStore,
 							firstPartyMultiAgentRuntimeHandles,
 							agentId,

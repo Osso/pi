@@ -12,8 +12,8 @@ import {
 	createHostrunMultiAgentRequestHandler,
 	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
-	resolveSelectedSessionMutationTarget,
 	requestAgentSteering,
+	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";

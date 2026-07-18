@@ -133,6 +133,7 @@ export type {
 	SessionCompactEvent,
 	SessionEvent,
 	SessionInfoChangedEvent,
+	SessionMutationTarget,
 	SessionShutdownEvent,
 	// Events - Session
 	SessionStartEvent,

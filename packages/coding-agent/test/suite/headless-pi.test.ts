@@ -70,9 +70,12 @@ async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string,
 		});
 	agent.respondToLlmRequest(
 		initialMainRequest.id,
-		fauxAssistantMessage(fauxToolCall("spawn_agent", { agentType, displayName, prompt: `Remain live for ${displayName}` }), {
-			stopReason: "toolUse",
-		}),
+		fauxAssistantMessage(
+			fauxToolCall("spawn_agent", { agentType, displayName, prompt: `Remain live for ${displayName}` }),
+			{
+				stopReason: "toolUse",
+			},
+		),
 	);
 	const spawned = await agent.waitForAgent((candidate) => candidate.displayName === displayName);
 	const childRequest = await agent
@@ -282,12 +285,7 @@ describe("headless Pi fixture", () => {
 				"Detached target",
 				"background",
 			);
-			const result = await selectAndMutateHeadlessTarget(
-				agent,
-				mainAfterSpawn,
-				spawned.id,
-				"test_set_viewed_model",
-			);
+			const result = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
 			expectFailedToolEntry(result, "detached and not a live child session");
 			expect(
 				agent
