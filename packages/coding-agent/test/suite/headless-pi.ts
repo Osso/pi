@@ -802,8 +802,8 @@ export default function(pi) {
 	pi.registerTool({
 		name: "test_set_viewed_model",
 		description: "Set model through the selected runtime target adapter",
-		parameters: Type.Object({}),
-		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
+		parameters: Type.Object({ agentId: Type.String() }),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			await ctx.setModel({
 				api: "headless-faux",
 				id: "headless-faux-reasoning",
@@ -814,8 +814,8 @@ export default function(pi) {
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 128000,
 				maxTokens: 16384,
-			});
-			ctx.setThinkingLevel("high");
+			}, params.agentId);
+			ctx.setThinkingLevel("high", params.agentId);
 			return { content: [{ type: "text", text: "model and effort set" }], details: {} };
 		},
 	});

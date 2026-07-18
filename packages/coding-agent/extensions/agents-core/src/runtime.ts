@@ -3236,7 +3236,9 @@ export function registerSelectedSessionMutationResolver(
 	const runtimeHandles = options.runtimeHandles;
 	if (!runtimeHandles) return;
 	const store = resolveMultiAgentStore(options);
-	pi.registerSessionMutationTargetResolver(() => resolveSelectedSessionMutationTarget(store, runtimeHandles));
+	pi.registerSessionMutationTargetResolver((agentId) =>
+		resolveSelectedSessionMutationTarget(store, runtimeHandles, agentId),
+	);
 }
 
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {

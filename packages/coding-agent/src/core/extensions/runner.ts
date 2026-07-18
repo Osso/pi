@@ -701,8 +701,8 @@ export class ExtensionRunner {
 		this.shutdownHandler();
 	}
 
-	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
-		const target = this.runtime.sessionMutationTargetResolver?.();
+	private resolveSessionMutationTarget(agentId?: string): SessionMutationTarget | undefined {
+		const target = this.runtime.sessionMutationTargetResolver?.(agentId);
 		if (target) return target;
 		const store = this.getMultiAgentStoreFn?.();
 		const selectedAgentId = store?.getSelectedAgentId();
@@ -784,9 +784,9 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return getModel();
 			},
-			setModel: async (model) => {
+			setModel: async (model, agentId) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget();
+				const target = runner.resolveSessionMutationTarget(agentId);
 				if (!target) return runner.runtime.setModel(model);
 				await target.setModel(model);
 				return true;
@@ -795,9 +795,9 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.getThinkingLevelFn();
 			},
-			setThinkingLevel: (level) => {
+			setThinkingLevel: (level, agentId) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget();
+				const target = runner.resolveSessionMutationTarget(agentId);
 				if (target) target.setThinkingLevel(level);
 				else runner.runtime.setThinkingLevel(level);
 			},
