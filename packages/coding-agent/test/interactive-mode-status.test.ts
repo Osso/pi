@@ -209,6 +209,9 @@ interface InteractiveModeKeyHandlerInternals {
 	cancelSelectedAgentTurn(this: unknown): boolean;
 	cancelStreamingAndSubmitQueuedMessages(this: unknown): Promise<void>;
 	setupKeyHandlers(this: unknown): void;
+	handleModelCommand(this: unknown, searchTerm?: string): Promise<void>;
+	cycleModel(this: unknown, direction: "forward" | "backward"): Promise<void>;
+	showModelSelector(this: unknown, initialSearchInput?: string): void;
 }
 
 const interactiveModeKeyHandlers = InteractiveMode.prototype as unknown as InteractiveModeKeyHandlerInternals;
@@ -489,7 +492,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
-	test("selected-agent banner returns to main thread when selected view becomes inactive", () => {
+	test("selected-agent banner preserves an inactive selected view", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -504,8 +507,8 @@ describe("InteractiveMode key handlers", () => {
 		).toBe(true);
 		const banner = new AgentSelectionBannerComponent(store);
 
-		expect(store.getSelectedAgentId()).toBeUndefined();
-		expect(normalizeRenderedOutput(banner)).toBe("");
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(normalizeRenderedOutput(banner)).toContain(`Agent ${spawned.agent.id}: Scout (completed)`);
 	});
 
 	test("/agents selection updates the visible selected-agent banner", () => {
@@ -2084,6 +2087,132 @@ describe("InteractiveMode.setupAutocompleteProvider", () => {
 
 		const provider = defaultEditor.setAutocompleteProvider.mock.calls[0]?.[0] as AutocompleteProvider;
 		expect(provider.triggerCharacters).toEqual(["$", "!"]);
+	});
+});
+
+describe("InteractiveMode selected-session model routing", () => {
+	beforeAll(() => initTheme("dark"));
+
+	test("routes an exact /model change to the viewed live child without changing main", async () => {
+		const model = { id: "child-model", name: "Child Model", provider: "headless-faux", reasoning: true };
+		const mainSetModel = vi.fn();
+		const childSetModel = vi.fn();
+		const childSession = { setModel: childSetModel };
+		const fakeThis = {
+			childViewAgentId: "agent_1",
+			session: { setModel: mainSetModel },
+			findExactModelMatch: vi.fn().mockResolvedValue(model),
+			resolveViewedSessionTarget: vi.fn().mockReturnValue(childSession),
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+			maybeWarnAboutAnthropicSubscriptionAuth: vi.fn(),
+			checkDaxnutsEasterEgg: vi.fn(),
+			showModelSelector: vi.fn(),
+		};
+
+		await interactiveModeKeyHandlers.handleModelCommand.call(fakeThis, "headless-faux/child-model");
+
+		expect(childSetModel).toHaveBeenCalledWith(model);
+		expect(mainSetModel).not.toHaveBeenCalled();
+	});
+
+	test("keeps /model on main when main is viewed", async () => {
+		const model = { id: "main-model", name: "Main Model", provider: "headless-faux", reasoning: false };
+		const mainSetModel = vi.fn();
+		const fakeThis = {
+			childViewAgentId: undefined,
+			session: { setModel: mainSetModel },
+			findExactModelMatch: vi.fn().mockResolvedValue(model),
+			resolveViewedSessionTarget: vi.fn().mockReturnValue({ setModel: mainSetModel }),
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+			maybeWarnAboutAnthropicSubscriptionAuth: vi.fn(),
+			checkDaxnutsEasterEgg: vi.fn(),
+			showModelSelector: vi.fn(),
+		};
+
+		await interactiveModeKeyHandlers.handleModelCommand.call(fakeThis, "headless-faux/main-model");
+
+		expect(mainSetModel).toHaveBeenCalledWith(model);
+	});
+
+	test("routes model cycling to the viewed live child without changing main", async () => {
+		const result = {
+			model: { id: "child-model", name: "Child Model", provider: "headless-faux", reasoning: true },
+			thinkingLevel: "medium",
+		};
+		const mainCycleModel = vi.fn();
+		const childCycleModel = vi.fn().mockResolvedValue(result);
+		const fakeThis = {
+			childViewAgentId: "agent_1",
+			session: { cycleModel: mainCycleModel, scopedModels: [] },
+			resolveViewedSessionTarget: vi.fn().mockReturnValue({ cycleModel: childCycleModel, scopedModels: [] }),
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+			maybeWarnAboutAnthropicSubscriptionAuth: vi.fn(),
+		};
+
+		await interactiveModeKeyHandlers.cycleModel.call(fakeThis, "forward");
+
+		expect(childCycleModel).toHaveBeenCalledWith("forward");
+		expect(mainCycleModel).not.toHaveBeenCalled();
+	});
+
+	test("routes model selector confirmation to the viewed live child without main fallback", async () => {
+		const model = { id: "child-model", name: "Child Model", provider: "headless-faux", reasoning: true };
+		const mainSetModel = vi.fn();
+		const childSetModel = vi.fn();
+		let selectorComponent: unknown;
+		const fakeThis = {
+			childViewAgentId: "agent_1",
+			session: {
+				model,
+				modelRegistry: {
+					refresh: vi.fn(),
+					getAvailable: vi.fn().mockResolvedValue([model]),
+					getError: vi.fn().mockReturnValue(undefined),
+					find: vi.fn().mockReturnValue(model),
+				},
+				scopedModels: [{ model }],
+				setModel: mainSetModel,
+			},
+			settingsManager: { setDefaultModelAndProvider: vi.fn() },
+			resolveViewedSessionTarget: vi.fn().mockReturnValue({
+				model,
+				modelRegistry: {
+					refresh: vi.fn(),
+					getAvailable: vi.fn().mockResolvedValue([model]),
+					getError: vi.fn().mockReturnValue(undefined),
+					find: vi.fn().mockReturnValue(model),
+				},
+				scopedModels: [{ model }],
+				setModel: childSetModel,
+			}),
+			showSelector: (factory: (done: () => void) => { component: unknown }) => {
+				selectorComponent = factory(vi.fn()).component;
+			},
+			ui: { requestRender: vi.fn() },
+			footer: { invalidate: vi.fn() },
+			updateEditorBorderColor: vi.fn(),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+			maybeWarnAboutAnthropicSubscriptionAuth: vi.fn(),
+			checkDaxnutsEasterEgg: vi.fn(),
+		};
+
+		interactiveModeKeyHandlers.showModelSelector.call(fakeThis);
+		const callback = (selectorComponent as { onSelectCallback: (selected: typeof model) => Promise<void> })
+			.onSelectCallback;
+		await callback(model);
+
+		expect(childSetModel).toHaveBeenCalledWith(model);
+		expect(mainSetModel).not.toHaveBeenCalled();
 	});
 });
 

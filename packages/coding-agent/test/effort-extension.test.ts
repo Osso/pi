@@ -26,6 +26,9 @@ function createCommandHarness(options?: {
 	const notify = vi.fn();
 	const select = vi.fn().mockResolvedValue(options?.selectedEffort);
 	const setEditorText = vi.fn();
+	const setTargetThinkingLevel = vi.fn((level: string) => {
+		thinkingLevel = level;
+	});
 	const ctx = {
 		model: {
 			id: "reasoner",
@@ -34,10 +37,12 @@ function createCommandHarness(options?: {
 			reasoning: options?.reasoning ?? true,
 		},
 		ui: { notify, select, setEditorText },
+		getThinkingLevel: () => thinkingLevel,
+		setThinkingLevel: setTargetThinkingLevel,
 	} as unknown as ExtensionCommandContext;
 
 	if (!command) throw new Error("/effort command was not registered");
-	return { command, ctx, notify, select, setEditorText, setThinkingLevel };
+	return { command, ctx, notify, select, setEditorText, setTargetThinkingLevel, setThinkingLevel };
 }
 
 describe("effort extension", () => {
@@ -52,20 +57,20 @@ describe("effort extension", () => {
 	});
 
 	it("opens a selector of supported efforts when no effort is specified", async () => {
-		const { command, ctx, notify, select, setEditorText, setThinkingLevel } = createCommandHarness({
+		const { command, ctx, notify, select, setEditorText, setTargetThinkingLevel } = createCommandHarness({
 			selectedEffort: "high",
 		});
 
 		await command.handler("", ctx);
 
 		expect(select).toHaveBeenCalledWith("Select effort", expect.arrayContaining(["off", "high"]));
-		expect(setThinkingLevel).toHaveBeenCalledWith("high");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("high");
 		expect(notify).toHaveBeenCalledWith("Effort: high", "info");
 		expect(setEditorText).toHaveBeenCalledWith("");
 	});
 
 	it("only offers efforts supported by the current model", async () => {
-		const { command, ctx, select, setThinkingLevel } = createCommandHarness({
+		const { command, ctx, select, setTargetThinkingLevel } = createCommandHarness({
 			reasoning: false,
 			selectedEffort: "off",
 		});
@@ -73,7 +78,7 @@ describe("effort extension", () => {
 		await command.handler("", ctx);
 
 		expect(select).toHaveBeenCalledWith("Select effort", ["off"]);
-		expect(setThinkingLevel).toHaveBeenCalledWith("off");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("off");
 	});
 
 	it("does not change effort when the selector is cancelled", async () => {
@@ -88,13 +93,24 @@ describe("effort extension", () => {
 	});
 
 	it("sets a valid model-supported effort", async () => {
-		const { command, ctx, notify, setEditorText, setThinkingLevel } = createCommandHarness({ thinkingLevel: "high" });
+		const { command, ctx, notify, setEditorText, setTargetThinkingLevel } = createCommandHarness({
+			thinkingLevel: "high",
+		});
 
 		await command.handler("high", ctx);
 
-		expect(setThinkingLevel).toHaveBeenCalledWith("high");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("high");
 		expect(notify).toHaveBeenCalledWith("Effort: high", "info");
 		expect(setEditorText).toHaveBeenCalledWith("");
+	});
+
+	it("routes /effort through the viewed-session command context without main fallback", async () => {
+		const { command, ctx, setTargetThinkingLevel, setThinkingLevel } = createCommandHarness();
+
+		await command.handler("high", ctx);
+
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("high");
+		expect(setThinkingLevel).not.toHaveBeenCalled();
 	});
 
 	it("rejects effort levels unsupported by the current model", async () => {

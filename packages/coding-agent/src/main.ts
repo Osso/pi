@@ -18,6 +18,7 @@ import agentsCoreExtension, {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
+	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
@@ -55,13 +56,9 @@ import { selectSession } from "./cli/session-picker.ts";
 import { handleSessionsCommand } from "./cli/sessions-command.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
-import { createMultiAgentExecutionCapability } from "./core/agent-session.ts";
+import { bindAgentSessionMutationTargetResolver, createMultiAgentExecutionCapability } from "./core/agent-session.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
-import {
-	type AgentSessionRuntimeDiagnostic,
-	createAgentSessionFromServices,
-	createAgentSessionServices,
-} from "./core/agent-session-services.ts";
+import { type AgentSessionRuntimeDiagnostic, createAgentSessionServices } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage } from "./core/auth-storage.ts";
 import { DebugReplServer } from "./core/debug-repl.ts";
@@ -75,7 +72,11 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-import { type CreateAgentSessionOptions, createAgentSession } from "./core/sdk.ts";
+import {
+	type CreateAgentSessionOptions,
+	createAgentSession,
+	createAgentSessionWithInternalOptions,
+} from "./core/sdk.ts";
 import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
@@ -100,6 +101,7 @@ import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
+import { bindInteractiveModeSessionMutationTargetResolver } from "./modes/interactive/interactive-mode.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
@@ -590,6 +592,8 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
 const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
+const resolveFirstPartySessionMutationTarget = () =>
+	resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles);
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -967,8 +971,13 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
-		const created = await createAgentSessionFromServices({
-			services,
+		const created = await createAgentSessionWithInternalOptions({
+			cwd: services.cwd,
+			agentDir: services.agentDir,
+			authStorage: services.authStorage,
+			settingsManager: services.settingsManager,
+			modelRegistry: services.modelRegistry,
+			resourceLoader: services.resourceLoader,
 			multiAgentRuntimeRole: "orchestrator",
 			multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
 			sessionManager,
@@ -983,6 +992,7 @@ export async function main(args: string[], options?: MainOptions) {
 			multiAgentStore: firstPartyMultiAgentStore,
 			customTools: sessionOptions.customTools,
 		});
+		bindAgentSessionMutationTargetResolver(created.session, resolveFirstPartySessionMutationTarget);
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);
@@ -1114,6 +1124,7 @@ export async function main(args: string[], options?: MainOptions) {
 				),
 			verbose: parsed.verbose,
 		});
+		bindInteractiveModeSessionMutationTargetResolver(interactiveMode, resolveFirstPartySessionMutationTarget);
 		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);
 		if (startupBenchmark) {
 			if (

@@ -337,6 +337,7 @@ export class ExtensionRunner {
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
 	private getFooterData: () => ReadonlyFooterDataProvider | undefined = () => undefined;
+	private internalCommands: ReadonlyMap<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>>;
 
 	constructor(
 		extensions: Extension[],
@@ -345,6 +346,7 @@ export class ExtensionRunner {
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
 		settingsManager?: SettingsManager,
+		internalCommands: ReadonlyMap<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>> = new Map(),
 	) {
 		this.extensions = extensions;
 		this.runtime = runtime;
@@ -353,6 +355,7 @@ export class ExtensionRunner {
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
 		this.settingsManager = settingsManager;
+		this.internalCommands = internalCommands;
 	}
 
 	bindCore(
@@ -692,6 +695,19 @@ export class ExtensionRunner {
 		return this.resolveRegisteredCommands().find((command) => command.invocationName === name);
 	}
 
+	getPromptCommand(name: string): ResolvedCommand | undefined {
+		const command = this.getCommand(name);
+		if (command) return command;
+		const internalHandler = this.internalCommands.get(name);
+		if (!internalHandler) return undefined;
+		return {
+			name,
+			invocationName: name,
+			handler: internalHandler,
+			sourceInfo: { path: "<internal>", source: "internal", scope: "temporary", origin: "top-level" },
+		};
+	}
+
 	/**
 	 * Request a graceful shutdown. Called by extension tools and event handlers.
 	 * The actual shutdown behavior is provided by the mode via bindExtensions().
@@ -772,9 +788,17 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return getModel();
 			},
+			setModel: async (model) => {
+				runner.assertActive();
+				return runner.runtime.setModel(model);
+			},
 			getThinkingLevel: () => {
 				runner.assertActive();
 				return runner.getThinkingLevelFn();
+			},
+			setThinkingLevel: (level) => {
+				runner.assertActive();
+				runner.runtime.setThinkingLevel(level);
 			},
 			getScopedModels: () => {
 				runner.assertActive();

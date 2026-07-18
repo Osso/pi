@@ -133,6 +133,7 @@ export type {
 	SessionCompactEvent,
 	SessionEvent,
 	SessionInfoChangedEvent,
+	SessionMutationTarget,
 	SessionShutdownEvent,
 	// Events - Session
 	SessionStartEvent,
@@ -164,6 +165,7 @@ export type {
 	// Events - User Bash
 	UserBashEvent,
 	UserBashEventResult,
+	ViewedSessionMutationTarget,
 	WidgetPlacement,
 	WorkingIndicatorOptions,
 	WriteToolCallEvent,

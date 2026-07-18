@@ -13,8 +13,10 @@ import {
 	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
 	requestAgentSteering,
+	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
+import effortExtension from "../extensions/effort/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { createDetachedJobArtifacts } from "../src/core/detached-job-runner.ts";
@@ -36,7 +38,11 @@ import {
 	MultiAgentStore,
 } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
-import { type CreateAgentSessionOptions, createAgentSession } from "../src/core/sdk.ts";
+import {
+	type CreateAgentSessionOptions,
+	createAgentSession,
+	createAgentSessionWithInternalOptions,
+} from "../src/core/sdk.ts";
 import {
 	ENV_SELF_RESTART_OLD_PID,
 	ENV_SELF_RESTART_PROMPT,
@@ -1985,14 +1991,85 @@ describe("multi-agent extension tools", () => {
 		expect(result).toMatchObject({ agent: { id: spawned.agent.id, displayName: "Worker" } });
 	});
 
-	it("rejects Hostrun agents.select when the interactive view callback fails", async () => {
+	it("resolves main after a bridge-selected child view returns to main", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const handler = createHostrunMultiAgentRequestHandler({ selectAgentView: () => false, store });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectActiveAgentTarget(spawned.agent.id);
+		store.clearSelectedAgentView();
+
+		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
+	});
+
+	it("rejects a selected live session without viewed model capabilities", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectActiveAgentTarget(spawned.agent.id);
+		runtimeHandles.sessions.set(spawned.agent.id, {
+			messages: [],
+			prompt: async () => {},
+			model: undefined,
+			thinkingLevel: "medium",
+			setModel: async () => {},
+			setThinkingLevel: () => {},
+		} as never);
+
+		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow(
+			`Agent ${spawned.agent.id} does not support live session mutation`,
+		);
+	});
+
+	it("rejects a selected active row without a live session handle persistently", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectActiveAgentTarget(spawned.agent.id);
+
+		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow(
+			`Agent ${spawned.agent.id} is not a live child session`,
+		);
+		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow(
+			`Agent ${spawned.agent.id} is not a live child session`,
+		);
+	});
+
+	it("leaves the current mutation view unchanged when Hostrun agents.select fails", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const handler = createHostrunMultiAgentRequestHandler({
+			runtimeHandles,
+			selectAgentView: () => false,
+			store,
+		});
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		await expect(
-			handler({ method: "agents.select", params: { agentId: "agent_1" } }, ctx, undefined),
-		).rejects.toThrow("Agent view selection failed: agent_1");
+			handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined),
+		).rejects.toThrow(`Agent view selection failed: ${spawned.agent.id}`);
+		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
 	});
 
 	it("lets Hostrun agents.wait return immediately when no agents are active", async () => {
@@ -3684,6 +3761,88 @@ describe("multi-agent extension tools", () => {
 
 		expect(attachedSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
 		expect(attachedSession?.getActiveToolNames()).not.toContain("manage_goal");
+	});
+
+	it("keeps attached-session model and effort commands isolated from the viewed sibling", async () => {
+		const parentHarness = await createHarness({
+			models: [
+				{ id: "faux-1", reasoning: true },
+				{ id: "faux-2", reasoning: true },
+			],
+		});
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const viewedModel = parentHarness.getModel("faux-1");
+		const viewedSetModel = vi.fn(async () => {});
+		const viewedSetThinkingLevel = vi.fn();
+		const viewedAgent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Viewed sibling",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		store.selectActiveAgentTarget(viewedAgent.id);
+		runtimeHandles.sessions.set(viewedAgent.id, {
+			messages: [],
+			prompt: async () => {},
+			model: viewedModel,
+			thinkingLevel: "medium",
+			setModel: viewedSetModel,
+			setThinkingLevel: viewedSetThinkingLevel,
+		} as never);
+
+		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-isolation-target" });
+		target.persistForRecovery();
+		const attachedAgent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Attached session",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: target.getSessionFile(), sessionId: target.getSessionId() },
+		}).agent;
+		let attachedSession: Harness["session"] | undefined;
+		const attachedFactory = createProductionAttachedSessionFactory({
+			agentDir: parentHarness.tempDir,
+			extensionFactories: [effortExtension],
+			multiAgentStore: store,
+			createSession: async (options) => {
+				const result = await createAgentSessionWithInternalOptions({
+					...options,
+					authStorage: parentHarness.authStorage,
+				});
+				attachedSession = result.session;
+				childSessions.push(result.session);
+				return { session: result.session };
+			},
+		});
+
+		await attachedFactory({
+			agent: attachedAgent,
+			ctx: {
+				cwd: "/repo",
+				hasUI: false,
+				mode: "print",
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			} as unknown as ExtensionContext,
+			prompt: "resume",
+			sessionPath: target.getSessionFile() ?? "",
+		});
+		if (!attachedSession) throw new Error("expected attached session");
+
+		await attachedSession.prompt("/model faux/faux-2");
+		await attachedSession.prompt("/effort high");
+
+		expect(viewedSetModel).not.toHaveBeenCalled();
+		expect(viewedSetThinkingLevel).not.toHaveBeenCalled();
+		expect(attachedSession.sessionManager.getEntries()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: "model_change", modelId: "faux-2" }),
+				expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
+			]),
+		);
 	});
 
 	it("propagates custom main extension factories into production child sessions", async () => {

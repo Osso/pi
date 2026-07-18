@@ -11,6 +11,7 @@ export {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
+	resolveSelectedSessionMutationTarget,
 } from "./runtime.ts";
 export { createHostrunMultiAgentRequestHandler } from "./runtime.ts";
 export type {

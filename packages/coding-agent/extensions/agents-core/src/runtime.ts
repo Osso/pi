@@ -9,6 +9,7 @@ import {
 	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	type ViewedSessionMutationTarget,
 } from "../../../src/core/extensions/types.ts";
 import {
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -382,6 +383,34 @@ export interface MultiAgentRuntimeHandles {
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map() };
+}
+
+export function resolveSelectedSessionMutationTarget(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+): ViewedSessionMutationTarget | undefined {
+	const selectedAgentId = store.getSelectedAgentId();
+	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
+	const agent = store.getAgent(selectedAgentId);
+	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);
+	if (agent.agentType === "background") {
+		throw new Error(`Agent ${selectedAgentId} is detached and not a live child session`);
+	}
+	if (!isActiveLifecycle(agent.lifecycle)) throw new Error(formatInactiveAgentSelectionMessage(agent));
+	const session = runtimeHandles.sessions.get(selectedAgentId);
+	if (!session) throw new Error(`Agent ${selectedAgentId} is not a live child session`);
+	const mutationTarget = session as unknown as Partial<ViewedSessionMutationTarget>;
+	if (
+		!("model" in mutationTarget) ||
+		typeof mutationTarget.setModel !== "function" ||
+		typeof mutationTarget.setThinkingLevel !== "function" ||
+		typeof mutationTarget.thinkingLevel !== "string" ||
+		!mutationTarget.modelRegistry ||
+		!Array.isArray(mutationTarget.scopedModels)
+	) {
+		throw new Error(`Agent ${selectedAgentId} does not support live session mutation`);
+	}
+	return mutationTarget as ViewedSessionMutationTarget;
 }
 
 interface WaitingDesktopNotificationRegistration {
@@ -825,24 +854,20 @@ function selectAgent(
 	const agentId = normalizeSelectAgentId(params);
 	const rendered = selectAgentView?.(agentId);
 	if (rendered === true) {
+		if (agentId === MAIN_THREAD_AGENT_ID) return { agent: createMainThreadSnapshot() };
+		const selected = store.getAgent(agentId);
+		if (selected) return { agent: selected };
 		return selectCurrentAgent(store);
 	}
-	if (rendered === false) {
-		throw new Error(`Agent view selection failed: ${agentId}`);
-	}
+	if (rendered === false) throw new Error(`Agent view selection failed: ${agentId}`);
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();
 		return { agent: createMainThreadSnapshot() };
 	}
 
-	const result = store.selectActiveAgentTargetWithStatus(agentId);
-	if (result.ok) {
-		return { agent: result.agent };
-	}
-	if (result.error === "inactive") {
-		throw new Error(formatInactiveAgentSelectionMessage(result.agent));
-	}
+	const result = store.selectAgentViewWithStatus(agentId);
+	if (result.ok) return { agent: result.agent };
 	throw new Error(`Agent not found: ${agentId}`);
 }
 

@@ -77,6 +77,7 @@ import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
 	type ContextUsage,
+	type ExtensionCommandContext,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
 	type ExtensionMode,
@@ -100,6 +101,7 @@ import {
 	type TreePreparation,
 	type TurnEndEvent,
 	type TurnStartEvent,
+	type ViewedSessionMutationTarget,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
@@ -108,7 +110,7 @@ import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
-import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
+import { findExactModelReferenceMatch, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type {
 	AgentCurrentActivityOwner,
 	AgentLifecycleState,
@@ -395,6 +397,16 @@ export interface AgentSessionConfig {
 	sessionStartEvent?: SessionStartEvent;
 	/** Override the child-agent thinking-phase deadline for deterministic tests. */
 	childThinkingPhaseTimeoutMs?: number;
+}
+
+type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
+const sessionMutationTargetResolvers = new WeakMap<AgentSession, SessionMutationTargetResolver>();
+
+export function bindAgentSessionMutationTargetResolver(
+	session: AgentSession,
+	resolver: SessionMutationTargetResolver,
+): void {
+	sessionMutationTargetResolvers.set(session, resolver);
 }
 
 export interface ExtensionBindings {
@@ -2491,14 +2503,11 @@ export class AgentSession {
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
 
-		const command = this._extensionRunner.getCommand(commandName);
+		const command = this._extensionRunner.getPromptCommand(commandName);
 		if (!command) return false;
 
-		// Get command context from extension runner (includes session control methods)
-		const ctx = this._extensionRunner.createCommandContext();
-
 		try {
-			await command.handler(args, ctx);
+			await command.handler(args, this._createCommandContext(commandName));
 			return true;
 		} catch (err) {
 			// Emit error via extension runner
@@ -2516,6 +2525,57 @@ export class AgentSession {
 	 * Returns the expanded text, or the original text if not a skill command or skill not found.
 	 * Emits errors via extension runner if file read fails.
 	 */
+	private _createCommandContext(commandName: string): ExtensionCommandContext {
+		const context = this._extensionRunner.createCommandContext();
+		if (this._multiAgentAgentId || (commandName !== "model" && commandName !== "effort")) return context;
+		return this._createViewedSessionCommandContext(context);
+	}
+
+	private _createViewedSessionCommandContext(context: ExtensionCommandContext): ExtensionCommandContext {
+		const owningModel = context.model;
+		const owningModelRegistry = context.modelRegistry;
+		const owningScopedModels = context.getScopedModels;
+		const owningGetThinkingLevel = context.getThinkingLevel;
+		const owningSetModel = context.setModel;
+		const owningSetThinkingLevel = context.setThinkingLevel;
+		const resolveViewedTarget = (): ViewedSessionMutationTarget | undefined =>
+			sessionMutationTargetResolvers.get(this)?.();
+
+		Object.defineProperty(context, "model", {
+			configurable: true,
+			enumerable: true,
+			get: () => {
+				const target = resolveViewedTarget();
+				return target ? target.model : owningModel;
+			},
+		});
+		Object.defineProperty(context, "modelRegistry", {
+			configurable: true,
+			enumerable: true,
+			get: () => {
+				const target = resolveViewedTarget();
+				return target ? target.modelRegistry : owningModelRegistry;
+			},
+		});
+		context.getScopedModels = () => {
+			const target = resolveViewedTarget();
+			return target ? target.scopedModels : (owningScopedModels?.() ?? []);
+		};
+		context.getThinkingLevel = () => resolveViewedTarget()?.thinkingLevel ?? owningGetThinkingLevel();
+		context.setModel = async (model) => {
+			const target = resolveViewedTarget();
+			if (!target) return owningSetModel(model);
+			await target.setModel(model);
+			return true;
+		};
+		context.setThinkingLevel = (level) => {
+			const target = resolveViewedTarget();
+			if (target) target.setThinkingLevel(level);
+			else owningSetThinkingLevel(level);
+		};
+		return context;
+	}
+
 	private _expandSkillCommand(text: string): string {
 		if (!text.startsWith("/skill:")) return text;
 
@@ -4219,6 +4279,31 @@ export class AgentSession {
 		this.agent.state.model = refreshedModel;
 	}
 
+	private _createInternalCommands(): ReadonlyMap<
+		string,
+		(args: string, ctx: ExtensionCommandContext) => Promise<void>
+	> {
+		return new Map([
+			[
+				"model",
+				async (args: string, ctx: ExtensionCommandContext) => {
+					const modelReference = args.trim();
+					if (!modelReference) return;
+					const scopedModels = ctx.getScopedModels?.() ?? [];
+					const models =
+						scopedModels.length > 0
+							? scopedModels.map((scoped) => scoped.model)
+							: ctx.modelRegistry.getAvailable();
+					const model = findExactModelReferenceMatch(modelReference, models);
+					if (!model) throw new Error(`Model not found or not authenticated: ${modelReference}`);
+					if (!(await ctx.setModel(model))) {
+						throw new Error(`No API key for ${model.provider}/${model.id}`);
+					}
+				},
+			],
+		]);
+	}
+
 	private _bindExtensionCore(runner: ExtensionRunner): void {
 		const getCommands = (): SlashCommandInfo[] => {
 			const extensionCommands: SlashCommandInfo[] = runner.getRegisteredCommands().map((command) => ({
@@ -4246,9 +4331,9 @@ export class AgentSession {
 		};
 
 		const callCommand = async (name: string, args?: string): Promise<unknown> => {
-			const command = runner.getCommand(name);
+			const command = runner.getPromptCommand(name);
 			if (!command) throw new Error(`Command not found: ${name}`);
-			return command.handler(args ?? "", runner.createCommandContext());
+			return command.handler(args ?? "", this._createCommandContext(name));
 		};
 
 		runner.bindCore(
@@ -4500,6 +4585,7 @@ export class AgentSession {
 			this.sessionManager,
 			this._modelRegistry,
 			this.settingsManager,
+			this._createInternalCommands(),
 		);
 		if (this._extensionRunnerRef) {
 			this._extensionRunnerRef.current = this._extensionRunner;

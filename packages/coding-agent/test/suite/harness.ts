@@ -14,9 +14,14 @@ import type {
 	Model,
 } from "@earendil-works/pi-ai/compat";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { AgentSession, type AgentSessionConfig, type AgentSessionEvent } from "../../src/core/agent-session.ts";
+import {
+	AgentSession,
+	type AgentSessionConfig,
+	type AgentSessionEvent,
+	bindAgentSessionMutationTargetResolver,
+} from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
-import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
+import type { ExtensionRunner, ViewedSessionMutationTarget } from "../../src/core/extensions/index.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
 import { ModelRegistry } from "../../src/core/model-registry.ts";
 import type { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
@@ -81,6 +86,8 @@ export interface HarnessOptions {
 	multiAgentAgentId?: string;
 	/** Exact owning supervisor session for persisted child activity updates. */
 	multiAgentParentSessionId?: string;
+	/** Viewed-session mutation resolver used by command-routing regressions. */
+	resolveSessionMutationTarget?: () => ViewedSessionMutationTarget | undefined;
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
 	childThinkingPhaseTimeoutMs?: AgentSessionConfig["childThinkingPhaseTimeoutMs"];
 }
@@ -208,6 +215,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 			options.supervisorDecisionRequester ?? (async () => ({ kind: "approve", reason: "test approval" })),
 		childThinkingPhaseTimeoutMs: options.childThinkingPhaseTimeoutMs,
 	});
+	if (options.resolveSessionMutationTarget) {
+		bindAgentSessionMutationTargetResolver(session, options.resolveSessionMutationTarget);
+	}
 
 	const events: AgentSessionEvent[] = [];
 	session.subscribe((event) => {

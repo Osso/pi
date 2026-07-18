@@ -53,6 +53,87 @@ function killProcessGroup(pid: number): void {
 	}
 }
 
+async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string, agentType?: string) {
+	const promptResponse = await agent.send({ type: "prompt", message: `Spawn ${displayName}` });
+	if (!("success" in promptResponse) || !promptResponse.success) {
+		throw new Error(`Initial prompt rejected: ${JSON.stringify(promptResponse)}`);
+	}
+	const initialMainRequest = await agent
+		.waitForLlmRequest((request) => request.agentId === null)
+		.catch((error: unknown) => {
+			throw new Error(`Initial main request missing: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	agent.respondToLlmRequest(
+		initialMainRequest.id,
+		fauxAssistantMessage(
+			fauxToolCall("spawn_agent", { agentType, displayName, prompt: `Remain live for ${displayName}` }),
+			{
+				stopReason: "toolUse",
+			},
+		),
+	);
+	const spawned = await agent.waitForAgent((candidate) => candidate.displayName === displayName);
+	const childRequest = await agent
+		.waitForLlmRequest((request) => request.agentId === spawned.id)
+		.catch((error: unknown) => {
+			throw new Error(`Child request missing: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	const mainAfterSpawn = await agent
+		.waitForLlmRequest((request) => request.agentId === null && request.id !== initialMainRequest.id)
+		.catch((error: unknown) => {
+			throw new Error(`Post-spawn main request missing: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	return { childRequest, mainAfterSpawn, spawned };
+}
+
+async function selectHeadlessView(
+	agent: HeadlessPi,
+	request: HeadlessLlmRequest,
+	agentId: string,
+): Promise<SessionMessageEntry> {
+	const selectionToolCallId = `select-${agentId}-${agent.readSessionEntries(null).length}`;
+	agent.respondToLlmRequest(
+		request.id,
+		fauxAssistantMessage(
+			fauxToolCall(
+				"pyrun_eval",
+				{ code: `print(pi.agents.select(${JSON.stringify(agentId)}))` },
+				{ id: selectionToolCallId },
+			),
+			{ stopReason: "toolUse" },
+		),
+	);
+	const selectionEntry = await agent.waitForSessionEntry(
+		null,
+		(candidate) =>
+			candidate.type === "message" &&
+			candidate.message.role === "toolResult" &&
+			candidate.message.toolCallId === selectionToolCallId,
+	);
+	if (selectionEntry.type !== "message") throw new Error("Expected Pyrun selection result entry");
+	const afterSelection = await agent
+		.waitForLlmRequest((candidate) => candidate.agentId === null && candidate.id !== request.id)
+		.catch((error: unknown) => {
+			throw new Error(`Selection did not continue: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	agent.respondToLlmRequest(afterSelection.id, fauxAssistantMessage("Selection complete"));
+	await agent.waitForEvent((event) => event.type === "agent_end");
+	return selectionEntry;
+}
+
+async function selectAndRunHeadlessCommand(
+	agent: HeadlessPi,
+	request: HeadlessLlmRequest,
+	agentId: string,
+	command: string,
+): Promise<void> {
+	await selectHeadlessView(agent, request, agentId);
+	const response = await agent.send({ type: "prompt", message: command });
+	if (!("success" in response) || !response.success) {
+		throw new Error(`Command prompt rejected: ${JSON.stringify(response)}`);
+	}
+}
+
 describe("headless Pi fixture", () => {
 	it("removes partial fixture state when path setup fails", () => {
 		const removeTempDir = vi.fn();
@@ -144,6 +225,178 @@ describe("headless Pi fixture", () => {
 			],
 		});
 	});
+	it("mutates the selected live child model and effort without changing main", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Mutable child");
+			await selectAndRunHeadlessCommand(
+				agent,
+				mainAfterSpawn,
+				spawned.id,
+				"/model headless-faux/headless-faux-reasoning",
+			);
+			const effortResponse = await agent.send({ type: "prompt", message: "/effort high" });
+			expect(effortResponse).toMatchObject({ success: true });
+
+			expect(agent.readSessionEntries(spawned.id)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
+					expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
+				]),
+			);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
+			).toBe(false);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Child complete"));
+		});
+	});
+
+	it("keeps child slash-command mutations local after main selects another child", async () => {
+		await withHeadlessPi(async (agent) => {
+			const {
+				childRequest,
+				mainAfterSpawn,
+				spawned: selectedChild,
+			} = await spawnPendingHeadlessChild(agent, "Selected child");
+			await selectHeadlessView(agent, mainAfterSpawn, selectedChild.id);
+
+			await agent.send({ type: "prompt", message: "Spawn command child" });
+			const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			const spawnToolCallId = "spawn-command-child";
+			agent.respondToLlmRequest(
+				initialMainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall(
+						"spawn_agent",
+						{ displayName: "Command child", prompt: "/model headless-faux/headless-faux-reasoning" },
+						{ id: spawnToolCallId },
+					),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const commandChild = await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Command child" && candidate.lifecycle === "completed",
+			);
+			const mainAfterCommand = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialMainRequest.id,
+			);
+			agent.respondToLlmRequest(mainAfterCommand.id, fauxAssistantMessage("Command child complete"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+
+			expect(
+				agent
+					.readSessionEntries(selectedChild.id)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			expect(agent.readSessionEntries(commandChild.id)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
+				]),
+			);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Selected child complete"));
+		});
+	});
+
+	it("rejects a completed selected target persistently without mutating main", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Completed target");
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed"));
+			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
+
+			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
+			await agent.waitForExtensionError((error) => error.error.includes("not active"));
+			const secondResponse = await agent.send({ type: "prompt", message: "/effort high" });
+			expect(secondResponse).toMatchObject({ success: true });
+			await agent.waitForExtensionError((error) => error.error.includes("not active"));
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
+			).toBe(false);
+		});
+	});
+
+	it("leaves the current view unchanged when selecting a nonexistent target", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Selection target");
+			await selectHeadlessView(agent, mainAfterSpawn, spawned.id);
+
+			const missingSelectionResponse = await agent.send({ type: "prompt", message: "Select a missing target" });
+			expect(missingSelectionResponse).toMatchObject({ success: true });
+			const missingSelectionRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			const selectionEntry = await selectHeadlessView(agent, missingSelectionRequest, "agent_missing");
+			expect(JSON.stringify(selectionEntry.message)).toContain("not found");
+			expect(agent.listAgents().find((candidate) => candidate.id === "agent_missing")).toBeUndefined();
+
+			const childModelResponse = await agent.send({
+				type: "prompt",
+				message: "/model headless-faux/headless-faux-reasoning",
+			});
+			expect(childModelResponse).toMatchObject({ success: true });
+			await agent.waitForSessionEntry(
+				spawned.id,
+				(entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning",
+			);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+
+			const restoreSelectionResponse = await agent.send({ type: "prompt", message: "Restore main selection" });
+			expect(restoreSelectionResponse).toMatchObject({ success: true });
+			const restoreSelectionRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			await selectHeadlessView(agent, restoreSelectionRequest, "main");
+			const mainModelResponse = await agent.send({
+				type: "prompt",
+				message: "/model headless-faux/headless-faux-1",
+			});
+			expect(mainModelResponse).toMatchObject({ success: true });
+			await agent.waitForSessionEntry(
+				null,
+				(entry) => entry.type === "model_change" && entry.modelId === "headless-faux-1",
+			);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Selection test complete"));
+		});
+	});
+
+	it("rejects a detached selected target persistently without mutating main", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(
+				agent,
+				"Detached target",
+				"background",
+			);
+			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
+			await agent.waitForExtensionError((error) => error.error.includes("detached"));
+			const secondResponse = await agent.send({ type: "prompt", message: "/effort high" });
+			expect(secondResponse).toMatchObject({ success: true });
+			await agent.waitForExtensionError((error) => error.error.includes("detached"));
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			expect(
+				agent
+					.readSessionEntries(null)
+					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
+			).toBe(false);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Detached child complete"));
+		});
+	});
+
 	it("spawns a child with its instructions and delivers completion to the main mailbox", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Delegate the investigation" });

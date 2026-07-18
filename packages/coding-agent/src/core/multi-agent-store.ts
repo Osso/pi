@@ -380,7 +380,6 @@ export class MultiAgentStore {
 		if (!previous) return;
 		this.notifyAgentUpdateListeners(previous, current);
 		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
-		if (this.selectedAgentId === current.id) this.selectedAgentId = undefined;
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {

@@ -78,7 +78,10 @@ function waitForParentResponse(context: Context, options: StreamOptions | undefi
 const provider = registerFauxProvider({
 	api: "headless-faux",
 	provider: "headless-faux",
-	models: [{ id: "headless-faux-1", name: "Headless Faux" }],
+	models: [
+		{ id: "headless-faux-1", name: "Headless Faux" },
+		{ id: "headless-faux-reasoning", name: "Headless Faux Reasoning", reasoning: true },
+	],
 });
 async function receiveResponse(context: Context, options: StreamOptions | undefined): Promise<AssistantMessage> {
 	provider.appendResponses([receiveResponse]);

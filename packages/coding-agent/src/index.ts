@@ -123,6 +123,7 @@ export type {
 	SessionBeforeTreeEvent,
 	SessionCompactEvent,
 	SessionInfoChangedEvent,
+	SessionMutationTarget,
 	SessionShutdownEvent,
 	SessionStartEvent,
 	SessionTreeEvent,

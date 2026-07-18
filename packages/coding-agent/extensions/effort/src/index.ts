@@ -18,9 +18,9 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 	ctx.ui.setEditorText("");
 }
 
-function setEffort(ctx: ExtensionCommandContext, pi: ExtensionAPI, effort: ThinkingLevel): void {
-	pi.setThinkingLevel(effort);
-	ctx.ui.notify(`Effort: ${pi.getThinkingLevel()}`, "info");
+function setEffort(ctx: ExtensionCommandContext, effort: ThinkingLevel): void {
+	ctx.setThinkingLevel(effort);
+	ctx.ui.notify(`Effort: ${ctx.getThinkingLevel()}`, "info");
 	clearEditor(ctx);
 }
 
@@ -53,7 +53,7 @@ export default function effortExtension(pi: ExtensionAPI) {
 					return;
 				}
 
-				setEffort(ctx, pi, supportedEffort);
+				setEffort(ctx, supportedEffort);
 				return;
 			}
 
@@ -64,7 +64,7 @@ export default function effortExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			setEffort(ctx, pi, selectedEffort);
+			setEffort(ctx, selectedEffort);
 		},
 	});
 }

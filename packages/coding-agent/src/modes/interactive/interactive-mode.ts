@@ -74,6 +74,7 @@ import {
 } from "../../core/desktop-notification.ts";
 import type {
 	AutocompleteProviderFactory,
+	SessionMutationTarget as CoreSessionMutationTarget,
 	EditorFactory,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -366,6 +367,35 @@ function formatFollowUpPreview(message: string): string {
 /**
  * Options for InteractiveMode initialization.
  */
+type InteractiveSessionMutationTarget = CoreSessionMutationTarget &
+	Pick<AgentSession, "cycleModel" | "modelRegistry" | "scopedModels">;
+
+function isInteractiveSessionMutationTarget(
+	target: CoreSessionMutationTarget,
+): target is InteractiveSessionMutationTarget {
+	return (
+		"cycleModel" in target &&
+		typeof target.cycleModel === "function" &&
+		"modelRegistry" in target &&
+		target.modelRegistry !== undefined &&
+		"scopedModels" in target &&
+		Array.isArray(target.scopedModels)
+	);
+}
+
+type InteractiveSessionMutationTargetResolver = () => CoreSessionMutationTarget | undefined;
+const interactiveSessionMutationTargetResolvers = new WeakMap<
+	InteractiveMode,
+	InteractiveSessionMutationTargetResolver
+>();
+
+export function bindInteractiveModeSessionMutationTargetResolver(
+	mode: InteractiveMode,
+	resolver: InteractiveSessionMutationTargetResolver,
+): void {
+	interactiveSessionMutationTargetResolvers.set(mode, resolver);
+}
+
 export interface InteractiveModeOptions {
 	/** Providers that were migrated to auth.json (shows warning) */
 	migratedProviders?: string[];
@@ -552,6 +582,16 @@ export class InteractiveMode {
 	}
 	private get settingsManager() {
 		return this.session.settingsManager;
+	}
+
+	private resolveViewedSessionTarget(): InteractiveSessionMutationTarget {
+		if (!this.childViewAgentId) return this.session;
+		const target = interactiveSessionMutationTargetResolvers.get(this)?.();
+		if (!target) throw new Error(`Agent ${this.childViewAgentId} is not a live session mutation target`);
+		if (!isInteractiveSessionMutationTarget(target)) {
+			throw new Error(`Agent ${this.childViewAgentId} does not support interactive session mutation`);
+		}
+		return target;
 	}
 
 	constructor(runtimeHost: AgentSessionRuntime, options: InteractiveModeOptions = {}) {
@@ -3004,7 +3044,6 @@ export class InteractiveMode {
 	}
 
 	private selectAgentView(agentId: string): boolean {
-		const previousSelectedAgentId = this.multiAgentStore?.getSelectedAgentId();
 		if (agentId === "main") {
 			this.multiAgentStore?.clearSelectedAgentView();
 			this.clearChildAgentView();
@@ -3017,19 +3056,11 @@ export class InteractiveMode {
 			return true;
 		}
 
-		const selected = this.multiAgentStore?.selectActiveAgentTargetWithStatus(agentId);
-		if (!selected) {
+		const selected = this.multiAgentStore?.getAgent(agentId);
+		if (!selected || !this.openChildAgentView(selected)) {
 			return false;
 		}
-		if (!selected.ok) {
-			this.showInactiveAgentSelectionStatus(selected);
-			return false;
-		}
-		if (!this.openChildAgentView(selected.agent)) {
-			this.restorePreviousAgentSelection(previousSelectedAgentId);
-			return false;
-		}
-
+		this.multiAgentStore?.selectAgentViewWithStatus(agentId);
 		this.loadedResourcesContainer.clear();
 		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();
@@ -3322,16 +3353,6 @@ export class InteractiveMode {
 
 		this.unsubscribeMultiAgentUpdates = this.multiAgentStore.subscribeAgentUpdates((_previous, current) => {
 			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
-				return;
-			}
-			if (current.lifecycle === "completed" || current.lifecycle === "failed" || current.lifecycle === "aborted") {
-				this.clearChildAgentView();
-				this.multiAgentStore.clearSelectedAgentView();
-				this.chatContainer.clear();
-				this.renderInitialMessages();
-				this.syncWorkingLoaderVisibility();
-				this.updateSelectedAgentSelectionWidgets();
-				this.ui.requestRender();
 				return;
 			}
 			const transcriptPath = current.transcript?.path;
@@ -4900,9 +4921,10 @@ export class InteractiveMode {
 
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {
 		try {
-			const result = await this.session.cycleModel(direction);
+			const target = this.resolveViewedSessionTarget();
+			const result = await target.cycleModel(direction);
 			if (result === undefined) {
-				const msg = this.session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
+				const msg = target.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
 				this.footer.invalidate();
@@ -5421,7 +5443,7 @@ export class InteractiveMode {
 		const model = await this.findExactModelMatch(searchTerm);
 		if (model) {
 			try {
-				await this.session.setModel(model);
+				await this.resolveViewedSessionTarget().setModel(model);
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				this.showStatus(`Model: ${model.id}`);
@@ -5442,13 +5464,14 @@ export class InteractiveMode {
 	}
 
 	private async getModelCandidates(): Promise<Model<any>[]> {
-		if (this.session.scopedModels.length > 0) {
-			return this.session.scopedModels.map((scoped) => scoped.model);
+		const target = this.resolveViewedSessionTarget();
+		if (target.scopedModels.length > 0) {
+			return target.scopedModels.map((scoped) => scoped.model);
 		}
 
-		this.session.modelRegistry.refresh();
+		target.modelRegistry.refresh();
 		try {
-			return await this.session.modelRegistry.getAvailable();
+			return await target.modelRegistry.getAvailable();
 		} catch {
 			return [];
 		}
@@ -5598,15 +5621,16 @@ export class InteractiveMode {
 
 	private showModelSelector(initialSearchInput?: string): void {
 		this.showSelector((done) => {
+			const target = this.resolveViewedSessionTarget();
 			const selector = new ModelSelectorComponent(
 				this.ui,
-				this.session.model,
+				target.model,
 				this.settingsManager,
-				this.session.modelRegistry,
-				this.session.scopedModels,
+				target.modelRegistry,
+				target.scopedModels,
 				async (model) => {
 					try {
-						await this.session.setModel(model);
+						await this.resolveViewedSessionTarget().setModel(model);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 						done();

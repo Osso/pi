@@ -73,6 +73,7 @@
 - Added extension entry renderers for persisted display-only session entries that are rendered in interactive mode without being sent to the model context.
 - Added `/continue` to continue the current transcript without adding a user message.
 - Added `/effort`: without an argument, it opens a selector of thinking levels supported by the current model; `/effort <level>` sets a supported level directly.
+- Added viewed-session `/model` and `/effort` targeting: the main session remains the target when main is viewed, while a viewed live subagent receives the change; completed, detached/background, missing, or otherwise non-live viewed agents are explicitly rejected without main-session fallback, and unrelated extension, tool, and event contexts remain session-local.
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and default Pyrun runners through explicitly selected sandbox profiles.
@@ -93,7 +94,7 @@
 - Runtime mailbox messages now enter active turns through steering at safe checkpoints instead of accumulating as follow-ups between model calls; non-eligible messages remain durable until an eligible checkpoint or idle delivery.
 - Shared-channel follow-up turns now retain extension provenance instead of entering the interactive editor's typed prompt history.
 - Pyrun now renders submitted Python immediately in the tool call instead of emitting it as a synthetic tool result update.
-- User rules now support runtime-scoped `rules/supervisor/` and `rules/child/` directories; shared top-level rules still load everywhere, while observer runtimes receive only shared rules.
+- User rules now support runtime-scoped `rules/main/` and `rules/child/` directories; the public `createAgentSession({ rulesScope })` override takes precedence over runtime-role defaults, ordinary observer runtimes receive only shared rules, and the resident Architect explicitly loads main-thread rules.
 - Compaction now excludes goal-generated start, resume, and continuation reminders from summarization input while preserving them in the session log.
 - Increased the selected background-agent log preview limit from 32 KiB to 64 KiB.
 - The default system prompt now tells models to emit known independent tool calls together and serialize only calls with result dependencies.
@@ -143,6 +144,7 @@
 
 ### Fixed
 
+- Fixed Node development extension loading in clean worktrees by resolving workspace package aliases to source entries when built `dist` artifacts are absent.
 - Fixed silent model inference, including post-tool continuation, being mislabeled as `Streaming...`; interactive status now remains `Thinking...` until the first visible assistant delta.
 - Fixed process restarts, aborted turns, and Supervisor wait decisions incorrectly pausing active goals; only explicit goal pause actions now persist paused state, preexisting explicit pauses survive restart unchanged, and stale session metadata snapshots can no longer overwrite newer goal state.
 - Fixed `manage_goal complete` incorrectly reporting no active goal when the persisted goal was paused.

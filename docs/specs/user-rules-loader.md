@@ -9,9 +9,10 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 ### Directory discovery
 - [x] Returns no content (does not error) when the global agent `rules/` directory does not exist.
 - [x] Loads top-level `rules/*.md` for every runtime.
-- [x] Loads `rules/supervisor/*.md` only for standalone and orchestrator runtimes.
+- [x] Loads `rules/main/*.md` for standalone and orchestrator runtimes.
 - [x] Loads `rules/child/*.md` only for child runtimes.
-- [x] Observer runtimes load only shared top-level rules.
+- [x] Observer runtimes load only shared top-level rules unless a caller explicitly overrides rule discovery; the resident Architect uses the `main` scope while retaining its observer execution role.
+- [x] Public SDK callers may set `createAgentSession({ rulesScope })`; this optional override takes precedence over the runtime-role-derived default.
 - [x] Returns no content when the directory exists but contains no non-empty `*.md` files.
 - [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
 - [x] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
@@ -42,14 +43,17 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/resource-loader.ts` (existing) — Add `loadRulesFromDir(dirPath: string): string | undefined` helper and call it for global and project-local rules directories within `DefaultResourceLoader`. Expose result via new accessor.
-- `packages/coding-agent/src/core/system-prompt.ts` (existing) — Extend `BuildSystemPromptOptions` with optional `rulesContent?: string` and inject it as `<user_rules>` block in `buildSystemPrompt()`.
-- `packages/coding-agent/src/core/agent-session-services.ts` (planned change) — Pass `rulesContent` from `ResourceLoader` into `buildSystemPrompt` options.
+- `packages/coding-agent/src/core/resource-loader.ts` — Loads shared rules plus the selected `main` or `child` scope.
+- `packages/coding-agent/src/core/sdk.ts` — Maps runtime roles to rule scopes by default and accepts an explicit rule-scope override.
+- `packages/coding-agent/src/core/system-prompt.ts` — Injects loaded rules as a `<user_rules>` block.
+- `packages/coding-agent/src/core/agent-session-services.ts` — Passes `rulesContent` from `ResourceLoader` into `buildSystemPrompt` options.
+- `packages/coding-agent/src/architect/main.ts` — Selects `main` rules without changing the Architect's observer execution role.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/resource-loader.test.ts` — sorted global rules, markdown-only filtering, empty-file skip, global/project merge order, and project trust gating.
+- `packages/coding-agent/test/resource-loader.test.ts` — sorted global rules, scoped loading, markdown-only filtering, empty-file skip, global/project merge order, and project trust gating.
 - `packages/coding-agent/test/system-prompt.test.ts` — `<user_rules>` injection after project context and no empty tags when no rules content exists.
+- `packages/coding-agent/test/architect-service.test.ts` — resident Architect `main`-scope override and ordinary observer shared-only behavior.
 
 ## Known gaps (current cycle)
 
@@ -67,4 +71,4 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - TOML, YAML, or non-markdown rule file formats.
 - Watching the rules directory for live changes (reload on file change); `reload()` on demand is sufficient.
 - Per-extension or per-skill rule scoping.
-- Additional runtime scopes beyond shared, supervisor, and child rules.
+- Additional runtime scopes beyond shared, main, and child rules.

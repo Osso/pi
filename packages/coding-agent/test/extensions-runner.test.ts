@@ -491,6 +491,37 @@ describe("ExtensionRunner", () => {
 			expect(ctx.signal?.aborted).toBe(true);
 		});
 
+		it("keeps ordinary and command context mutations session-local", async () => {
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const ownSetModel = vi.fn(async () => true);
+			const ownSetThinkingLevel = vi.fn();
+			const mainModel = { id: "main-model" } as NonNullable<ReturnType<ExtensionContextActions["getModel"]>>;
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			runner.bindCore(
+				{
+					...extensionActions,
+					setModel: ownSetModel,
+					setThinkingLevel: ownSetThinkingLevel,
+				},
+				{
+					...extensionContextActions,
+					getModel: () => mainModel,
+				},
+			);
+
+			expect(runner.createCommandContext().model).toBe(mainModel);
+			const context = runner.createContext();
+			expect(context.setModel).toBeDefined();
+			expect(context.setThinkingLevel).toBeDefined();
+			await context.setModel?.(mainModel);
+			context.setThinkingLevel?.("high");
+			await runner.createCommandContext().setModel(mainModel);
+			runner.createCommandContext().setThinkingLevel("high");
+
+			expect(ownSetModel).toHaveBeenCalledTimes(2);
+			expect(ownSetThinkingLevel).toHaveBeenCalledTimes(2);
+		});
+
 		it("exposes print mode and hasUI false by default", async () => {
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);

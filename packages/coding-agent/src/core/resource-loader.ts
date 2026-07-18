@@ -194,7 +194,7 @@ export function loadRulesFromDir(dirPath: string): string | undefined {
 	return contents.length > 0 ? contents.join("\n\n") : undefined;
 }
 
-export type RulesScope = "shared" | "supervisor" | "child";
+export type RulesScope = "shared" | "main" | "child";
 
 export interface DefaultResourceLoaderOptions {
 	cwd: string;
@@ -211,7 +211,7 @@ export interface DefaultResourceLoaderOptions {
 	noPromptTemplates?: boolean;
 	noThemes?: boolean;
 	noContextFiles?: boolean;
-	/** Rule directories to load in addition to shared top-level rules. Defaults to supervisor. */
+	/** Rule directories to load in addition to shared top-level rules. Defaults to main. */
 	rulesScope?: RulesScope;
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
@@ -313,7 +313,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
 		this.noThemes = options.noThemes ?? false;
 		this.noContextFiles = options.noContextFiles ?? false;
-		this.rulesScope = options.rulesScope ?? "supervisor";
+		this.rulesScope = options.rulesScope ?? "main";
 		this.systemPromptSource = options.systemPrompt;
 		this.appendSystemPromptSource = options.appendSystemPrompt;
 		this.extensionsOverride = options.extensionsOverride;
