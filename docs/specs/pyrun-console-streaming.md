@@ -14,7 +14,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] Partial console text delivered by explicit flush or evaluation completion remains visible.
 - [x] A `print`, delay, `print` evaluation exposes the first line while the evaluation is still active.
 - [x] The final tool result retains console history without duplicating entries inside the rendered final output.
-- [x] Streaming output accumulation remains capped to the configured console line limit.
+- [x] Streaming output accumulation remains capped to the configured console line and text limits, preserving recent output even when a single line is very large.
 - [x] Foreground streamed and buffered results use the shared tool lifecycle start/end timestamps for elapsed rendering.
 - [x] Foreground results, including immediate failures, render elapsed durations below one second in milliseconds.
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
@@ -29,7 +29,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/pyrun/src/runner.ts` — parses ordered JSONL progress and terminal messages from the canonical runner.
-- `packages/coding-agent/extensions/pyrun/src/eval-tool.ts` — requests console streaming and converts console events into cumulative tool updates.
+- `packages/coding-agent/extensions/pyrun/src/eval-tool.ts` — requests console streaming and converts console events into cumulative tool updates capped by recent-line and text limits.
 - `packages/agent-core/src/agent-loop.ts` — captures one invocation start timestamp and passes it through lifecycle events and tool execution context.
 - `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` — exposes the shared invocation start timestamp to extension tool context.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — registers `pyrun_eval` and renders live and final tool output.

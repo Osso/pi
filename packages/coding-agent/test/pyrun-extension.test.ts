@@ -383,6 +383,13 @@ async function resultFor(request) {
     }
     return { type: "completed", executed: request.code, console: ["tick 1", "tick 2"], value: "done" };
   }
+  if (request.code === "print.giant_stream()") {
+    if (request.stream_console === true) {
+      const text = "prefix-" + "x".repeat(10 * 1024 * 1024) + "-suffix";
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text }) + "\\n");
+    }
+    return { type: "completed", executed: request.code, value: "done" };
+  }
   if (request.code === "print.interleaved_streams()") {
     if (request.stream_console === true) {
       process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "out 1\\n" }) + "\\n");
@@ -1113,6 +1120,18 @@ describe("pyrun extension", () => {
 			type: "completed",
 			value: "done",
 		});
+	});
+
+	it("caps a giant newline-free streamed console chunk while preserving its tail", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		await harness.evaluate({ code: "print.giant_stream()" }, (update) => updates.push(update));
+
+		const streamedText = readToolText(updates.at(-1) ?? (() => { throw new Error("Expected streamed update"); })());
+		expect(Buffer.byteLength(streamedText, "utf8")).toBeLessThanOrEqual(1_048_576);
+		expect(streamedText).toContain("-suffix");
+		expect(streamedText).not.toContain("prefix-");
 	});
 
 	it("uses the same visible progress formatting for durable foreground evaluations", async () => {
