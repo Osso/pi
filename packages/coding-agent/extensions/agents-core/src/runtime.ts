@@ -379,6 +379,7 @@ export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
+	pendingRejectedMutationTargetId?: string;
 	selectedMutationTargetId?: string;
 }
 
@@ -389,8 +390,13 @@ export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
-	selectedAgentId = store.getSelectedAgentId() ?? runtimeHandles.selectedMutationTargetId,
+	selectedAgentId = runtimeHandles.pendingRejectedMutationTargetId ??
+		store.getSelectedAgentId() ??
+		runtimeHandles.selectedMutationTargetId,
 ): SessionMutationTarget | undefined {
+	if (runtimeHandles.pendingRejectedMutationTargetId === selectedAgentId) {
+		runtimeHandles.pendingRejectedMutationTargetId = undefined;
+	}
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
 	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);
@@ -853,24 +859,35 @@ function selectAgent(
 	const agentId = normalizeSelectAgentId(params);
 	const rendered = selectAgentView?.(agentId);
 	if (rendered === true) {
-		if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
+		if (runtimeHandles) {
+			runtimeHandles.pendingRejectedMutationTargetId = undefined;
+			runtimeHandles.selectedMutationTargetId = agentId;
+		}
 		return selectCurrentAgent(store);
 	}
 	if (rendered === false) {
+		if (runtimeHandles) runtimeHandles.pendingRejectedMutationTargetId = agentId;
 		throw new Error(`Agent view selection failed: ${agentId}`);
 	}
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();
-		if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
+		if (runtimeHandles) {
+			runtimeHandles.pendingRejectedMutationTargetId = undefined;
+			runtimeHandles.selectedMutationTargetId = agentId;
+		}
 		return { agent: createMainThreadSnapshot() };
 	}
 
 	const result = store.selectActiveAgentTargetWithStatus(agentId);
 	if (result.ok) {
-		if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
+		if (runtimeHandles) {
+			runtimeHandles.pendingRejectedMutationTargetId = undefined;
+			runtimeHandles.selectedMutationTargetId = agentId;
+		}
 		return { agent: result.agent };
 	}
+	if (runtimeHandles) runtimeHandles.pendingRejectedMutationTargetId = agentId;
 	if (result.error === "inactive") {
 		throw new Error(formatInactiveAgentSelectionMessage(result.agent));
 	}

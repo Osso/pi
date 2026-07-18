@@ -12,6 +12,7 @@ import {
 	createHostrunMultiAgentRequestHandler,
 	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
+	resolveSelectedSessionMutationTarget,
 	requestAgentSteering,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
@@ -1999,6 +2000,9 @@ describe("multi-agent extension tools", () => {
 			handler({ method: "agents.select", params: { agentId: "agent_1" } }, ctx, undefined),
 		).rejects.toThrow("Agent view selection failed: agent_1");
 		expect(runtimeHandles.selectedMutationTargetId).toBeUndefined();
+		expect(runtimeHandles.pendingRejectedMutationTargetId).toBe("agent_1");
+		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow("Agent not found: agent_1");
+		expect(runtimeHandles.pendingRejectedMutationTargetId).toBeUndefined();
 	});
 
 	it("lets Hostrun agents.wait return immediately when no agents are active", async () => {
