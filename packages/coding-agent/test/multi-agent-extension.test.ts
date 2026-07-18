@@ -191,6 +191,8 @@ interface ListAgentsDetails extends Record<string, unknown> {
 }
 
 interface WaitAgentsDetails extends Record<string, unknown> {
+	agents?: AgentSnapshot[];
+	messages?: AgentMailboxMessage[];
 	message?: AgentMailboxMessage;
 }
 
@@ -3092,6 +3094,41 @@ describe("multi-agent extension tools", () => {
 		await waitForTerminalAgent(harness, child.details.agent.id);
 		const completedParent = await waitForTerminalAgent(harness, parent.details.agent.id);
 		expect(completedParent).toMatchObject({ lifecycle: "completed", result: { summary: "Parent done" } });
+	});
+
+	it("wait_agents drains every terminal notification already waiting in the mailbox", async () => {
+		const finishGate = deferred<void>();
+		const createChildSession = createTranscriptBackedFauxSessionFactory(async ({ agent }) => {
+			await finishGate.promise;
+			return { lifecycle: "completed", result: { summary: `${agent.displayName} done` } };
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+		const first = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "First",
+			prompt: "First task",
+		});
+		const second = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Second",
+			prompt: "Second task",
+		});
+
+		finishGate.resolve(undefined);
+		await Promise.all([
+			waitForAgentLifecycle(harness, first.details.agent.id, "completed"),
+			waitForAgentLifecycle(harness, second.details.agent.id, "completed"),
+		]);
+		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+
+		expect(waited.content).toEqual([
+			{ text: "First completed: First done\nSecond completed: Second done", type: "text" },
+		]);
+		expect(waited.details.agents?.map((agent) => agent.id)).toEqual([
+			first.details.agent.id,
+			second.details.agent.id,
+		]);
+		expect(waited.details.messages).toHaveLength(2);
+		expect(waited.details.messages?.every((message) => message.status === "pending")).toBe(true);
+		expect(harness.store.listMailboxMessages().every((message) => message.status === "delivered")).toBe(true);
 	});
 
 	it("wait_agents returns when any active agent reaches a terminal state", async () => {

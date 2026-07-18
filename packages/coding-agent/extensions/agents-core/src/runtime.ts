@@ -328,7 +328,9 @@ interface ContactParentToolDetails {
 
 interface WaitAgentsToolDetails {
 	agent?: AgentSnapshot;
+	agents?: AgentSnapshot[];
 	message?: AgentMailboxMessage;
+	messages?: AgentMailboxMessage[];
 }
 interface AgentViewerToolDetails {
 	agent?: AgentSnapshot;
@@ -2292,7 +2294,7 @@ async function waitAgents(
 	if (ctx) mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return errorResult("wait_agents requires a persisted supervisor session.", {});
-	const pending = takePendingTerminalNotification(store, persistence.controlDbPath, persistence.sessionPath);
+	const pending = takePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
 	if (pending) return pending;
 	const wake = await waitForAgentOrCoordination(
 		store,
@@ -2309,7 +2311,7 @@ async function waitAgents(
 	}
 	if (wake.kind === "none") return emptyResult();
 	return (
-		takePendingTerminalNotification(store, persistence.controlDbPath, persistence.sessionPath) ??
+		takePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath) ??
 		result(formatAgentStatus(wake.agent), { agent: wake.agent })
 	);
 }
@@ -2321,21 +2323,25 @@ function runtimeCoordinationRecipient(ctx: ExtensionContext | undefined): Runtim
 	return { address, controlDbPath: ctx.controlDbPath };
 }
 
-function takePendingTerminalNotification(
+function takePendingTerminalNotifications(
 	store: MultiAgentStore,
 	controlDbPath: string,
 	sessionPath: string,
 ): AgentToolResult<WaitAgentsToolDetails> | undefined {
-	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
-	for (const agent of agents) {
+	const persistedAgents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
+	const pending = persistedAgents.flatMap((agent) => {
 		const lifecycle = agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
-		if (!lifecycle) continue;
+		if (!lifecycle) return [];
 		const message = store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
-		if (!message) continue;
-		store.markMailboxMessageDelivered(message.id);
-		return result(message.body ?? formatAgentStatus(agent), { agent, message });
-	}
-	return undefined;
+		return message ? [{ agent, message }] : [];
+	});
+	if (pending.length === 0) return undefined;
+
+	for (const { message } of pending) store.markMailboxMessageDelivered(message.id);
+	const agents = pending.map(({ agent }) => agent);
+	const messages = pending.map(({ message }) => message);
+	const text = pending.map(({ agent, message }) => message.body ?? formatAgentStatus(agent)).join("\n");
+	return result(text, { agent: agents[0], agents, message: messages[0], messages });
 }
 
 async function waitForAgentOrCoordination(
@@ -3146,7 +3152,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "wait_agents",
 			label: "Wait Agents",
 			description:
-				"Wait until any active agent reaches a terminal state or coordination input arrives, then consume the winning agent completion notification.",
+				"Wait until any active agent reaches a terminal state or coordination input arrives, then consume all pending terminal notifications.",
 			approvalRequired: false,
 			parameters: waitAgentsSchema,
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
