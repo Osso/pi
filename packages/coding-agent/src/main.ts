@@ -1103,14 +1103,7 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
-			resolveSessionMutationTarget: (agentId) =>
-				agentId
-					? resolveSelectedLiveChildSessionMutationTarget(
-							firstPartyMultiAgentStore,
-							firstPartyMultiAgentRuntimeHandles,
-							agentId,
-						)
-					: undefined,
+			resolveSessionMutationTarget: resolveFirstPartySessionMutationTarget,
 			steerMultiAgent: async (agentId, message) => {
 				if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
 				const steered = requestAgentSteering(

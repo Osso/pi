@@ -372,8 +372,8 @@ type SessionMutationTarget = Pick<
 >;
 
 export interface InteractiveModeOptions {
-	/** Resolve a viewed child to its live mutable session; undefined selects main. */
-	resolveSessionMutationTarget?: (agentId: string | undefined) => SessionMutationTarget | undefined;
+	/** Resolve the currently viewed live child to its mutable session. */
+	resolveSessionMutationTarget?: () => SessionMutationTarget | undefined;
 	/** Providers that were migrated to auth.json (shows warning) */
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
@@ -563,7 +563,7 @@ export class InteractiveMode {
 
 	private resolveViewedSessionTarget(): SessionMutationTarget {
 		if (!this.childViewAgentId) return this.session;
-		const target = this.options.resolveSessionMutationTarget?.(this.childViewAgentId);
+		const target = this.options.resolveSessionMutationTarget?.();
 		if (!target) throw new Error(`Agent ${this.childViewAgentId} is not a live session mutation target`);
 		return target;
 	}

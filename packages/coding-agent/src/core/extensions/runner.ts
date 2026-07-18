@@ -789,10 +789,7 @@ export class ExtensionRunner {
 			},
 			setModel: async (model) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget();
-				if (!target) return runner.runtime.setModel(model);
-				await target.setModel(model);
-				return true;
+				return runner.runtime.setModel(model);
 			},
 			getThinkingLevel: () => {
 				runner.assertActive();
@@ -800,9 +797,7 @@ export class ExtensionRunner {
 			},
 			setThinkingLevel: (level) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget();
-				if (target) target.setThinkingLevel(level);
-				else runner.runtime.setThinkingLevel(level);
+				runner.runtime.setThinkingLevel(level);
 			},
 			getScopedModels: () => {
 				runner.assertActive();
@@ -872,6 +867,19 @@ export class ExtensionRunner {
 		context.getThinkingLevel = () => {
 			this.assertActive();
 			return this.resolveSessionMutationTarget()?.thinkingLevel ?? this.runtime.getThinkingLevel();
+		};
+		context.setModel = async (model) => {
+			this.assertActive();
+			const target = this.resolveSessionMutationTarget();
+			if (!target) return this.runtime.setModel(model);
+			await target.setModel(model);
+			return true;
+		};
+		context.setThinkingLevel = (level) => {
+			this.assertActive();
+			const target = this.resolveSessionMutationTarget();
+			if (target) target.setThinkingLevel(level);
+			else this.runtime.setThinkingLevel(level);
 		};
 		context.showApprovalSelector = () => {
 			this.assertActive();
