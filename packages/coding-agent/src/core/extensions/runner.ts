@@ -95,6 +95,11 @@ const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS = [
 
 type BuiltInKeyBindings = Partial<Record<KeyId, { keybinding: string; restrictOverride: boolean }>>;
 
+type CommandMutationTarget = SessionMutationTarget & {
+	modelRegistry?: ModelRegistry;
+	scopedModels?: ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+};
+
 const buildBuiltinKeybindings = (resolvedKeybindings: KeybindingsConfig): BuiltInKeyBindings => {
 	const builtinKeybindings = {} as BuiltInKeyBindings;
 	for (const [keybinding, keys] of Object.entries(resolvedKeybindings)) {
@@ -339,6 +344,10 @@ export class ExtensionRunner {
 	private staleMessage: string | undefined;
 	private getFooterData: () => ReadonlyFooterDataProvider | undefined = () => undefined;
 	private sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
+	private internalCommands: ReadonlyMap<
+		string,
+		(args: string, ctx: ExtensionCommandContext) => Promise<void>
+	>;
 
 	constructor(
 		extensions: Extension[],
@@ -348,6 +357,7 @@ export class ExtensionRunner {
 		modelRegistry: ModelRegistry,
 		settingsManager?: SettingsManager,
 		sessionMutationTargetResolver?: () => SessionMutationTarget | undefined,
+		internalCommands: ReadonlyMap<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>> = new Map(),
 	) {
 		this.extensions = extensions;
 		this.runtime = runtime;
@@ -357,6 +367,7 @@ export class ExtensionRunner {
 		this.modelRegistry = modelRegistry;
 		this.settingsManager = settingsManager;
 		this.sessionMutationTargetResolver = sessionMutationTargetResolver;
+		this.internalCommands = internalCommands;
 	}
 
 	bindCore(
@@ -696,6 +707,19 @@ export class ExtensionRunner {
 		return this.resolveRegisteredCommands().find((command) => command.invocationName === name);
 	}
 
+	getPromptCommand(name: string): ResolvedCommand | undefined {
+		const command = this.getCommand(name);
+		if (command) return command;
+		const internalHandler = this.internalCommands.get(name);
+		if (!internalHandler) return undefined;
+		return {
+			name,
+			invocationName: name,
+			handler: internalHandler,
+			sourceInfo: { path: "<internal>", source: "internal", scope: "temporary", origin: "top-level" },
+		};
+	}
+
 	/**
 	 * Request a graceful shutdown. Called by extension tools and event handlers.
 	 * The actual shutdown behavior is provided by the mode via bindExtensions().
@@ -705,14 +729,7 @@ export class ExtensionRunner {
 	}
 
 	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
-		const target = this.sessionMutationTargetResolver?.();
-		if (target) return target;
-		const store = this.getMultiAgentStoreFn?.();
-		const selectedAgentId = store?.getSelectedAgentId();
-		if (selectedAgentId) {
-			throw new Error(`Agent ${selectedAgentId} is not a live session mutation target`);
-		}
-		return undefined;
+		return this.sessionMutationTargetResolver?.();
 	}
 
 	/**
@@ -859,25 +876,44 @@ export class ExtensionRunner {
 			Object.getOwnPropertyDescriptors(this.createContext()),
 		) as ExtensionCommandContext;
 		const owningModel = context.model;
+		const owningModelRegistry = context.modelRegistry;
+		const owningScopedModels = context.getScopedModels;
+		const resolveCommandMutationTarget = (): CommandMutationTarget | undefined =>
+			this.resolveSessionMutationTarget() as CommandMutationTarget | undefined;
 		Object.defineProperty(context, "model", {
 			configurable: true,
 			enumerable: true,
-			get: () => this.resolveSessionMutationTarget()?.model ?? owningModel,
+			get: () => {
+				const target = this.resolveSessionMutationTarget();
+				return target ? target.model : owningModel;
+			},
 		});
+		Object.defineProperty(context, "modelRegistry", {
+			configurable: true,
+			enumerable: true,
+			get: () => {
+				const target = resolveCommandMutationTarget();
+				return target ? target.modelRegistry : owningModelRegistry;
+			},
+		});
+		context.getScopedModels = () => {
+			const target = resolveCommandMutationTarget();
+			return target ? (target.scopedModels ?? []) : (owningScopedModels?.() ?? []);
+		};
 		context.getThinkingLevel = () => {
 			this.assertActive();
-			return this.resolveSessionMutationTarget()?.thinkingLevel ?? this.runtime.getThinkingLevel();
+			return resolveCommandMutationTarget()?.thinkingLevel ?? this.runtime.getThinkingLevel();
 		};
 		context.setModel = async (model) => {
 			this.assertActive();
-			const target = this.resolveSessionMutationTarget();
+			const target = resolveCommandMutationTarget();
 			if (!target) return this.runtime.setModel(model);
 			await target.setModel(model);
 			return true;
 		};
 		context.setThinkingLevel = (level) => {
 			this.assertActive();
-			const target = this.resolveSessionMutationTarget();
+			const target = resolveCommandMutationTarget();
 			if (target) target.setThinkingLevel(level);
 			else this.runtime.setThinkingLevel(level);
 		};

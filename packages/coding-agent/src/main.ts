@@ -60,7 +60,6 @@ import { createMultiAgentExecutionCapability } from "./core/agent-session.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
 	type AgentSessionRuntimeDiagnostic,
-	createAgentSessionFromServices,
 	createAgentSessionServices,
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
@@ -76,7 +75,10 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-import { type CreateAgentSessionOptions, createAgentSession } from "./core/sdk.ts";
+import {
+	type CreateAgentSessionOptions,
+	createAgentSessionWithInternalOptions,
+} from "./core/sdk.ts";
 import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
@@ -593,8 +595,8 @@ const firstPartyMultiAgentStore = new MultiAgentStore();
 const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
 const resolveFirstPartySessionMutationTarget = () =>
 	resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles);
-const createFirstPartyAgentSession = (options: Parameters<typeof createAgentSession>[0]) =>
-	createAgentSession({ ...options, sessionMutationTargetResolver: resolveFirstPartySessionMutationTarget });
+const createFirstPartyAgentSession = (options: CreateAgentSessionOptions) =>
+	createAgentSessionWithInternalOptions(options, resolveFirstPartySessionMutationTarget);
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -972,23 +974,30 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
-		const created = await createAgentSessionFromServices({
-			services,
-			sessionMutationTargetResolver: resolveFirstPartySessionMutationTarget,
-			multiAgentRuntimeRole: "orchestrator",
-			multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
-			sessionManager,
-			sessionStartEvent,
-			model: sessionOptions.model,
-			thinkingLevel: sessionOptions.thinkingLevel,
-			scopedModels: sessionOptions.scopedModels,
-			tools: sessionOptions.tools,
-			excludeTools: sessionOptions.excludeTools,
-			noTools: sessionOptions.noTools,
-			permissionPromptTool: sessionOptions.permissionPromptTool,
-			multiAgentStore: firstPartyMultiAgentStore,
-			customTools: sessionOptions.customTools,
-		});
+		const created = await createAgentSessionWithInternalOptions(
+			{
+				cwd: services.cwd,
+				agentDir: services.agentDir,
+				authStorage: services.authStorage,
+				settingsManager: services.settingsManager,
+				modelRegistry: services.modelRegistry,
+				resourceLoader: services.resourceLoader,
+				multiAgentRuntimeRole: "orchestrator",
+				multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
+				sessionManager,
+				sessionStartEvent,
+				model: sessionOptions.model,
+				thinkingLevel: sessionOptions.thinkingLevel,
+				scopedModels: sessionOptions.scopedModels,
+				tools: sessionOptions.tools,
+				excludeTools: sessionOptions.excludeTools,
+				noTools: sessionOptions.noTools,
+				permissionPromptTool: sessionOptions.permissionPromptTool,
+				multiAgentStore: firstPartyMultiAgentStore,
+				customTools: sessionOptions.customTools,
+			},
+			resolveFirstPartySessionMutationTarget,
+		);
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);

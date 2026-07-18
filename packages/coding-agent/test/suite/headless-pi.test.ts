@@ -35,11 +35,6 @@ function expectSingleFailedToolResult(request: HeadlessLlmRequest, expectedOutpu
 	expect(JSON.stringify(results[0])).toContain(expectedOutput);
 }
 
-function expectFailedToolEntry(entry: SessionMessageEntry, expectedOutput: string): void {
-	expect(entry.message).toMatchObject({ isError: true, role: "toolResult" });
-	expect(JSON.stringify(entry.message)).toContain(expectedOutput);
-}
-
 function isProcessAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -91,11 +86,10 @@ async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string,
 	return { childRequest, mainAfterSpawn, spawned };
 }
 
-async function selectAndMutateHeadlessTarget(
+async function selectHeadlessView(
 	agent: HeadlessPi,
 	request: HeadlessLlmRequest,
 	agentId: string,
-	toolName: "test_set_viewed_model" | "test_set_viewed_effort",
 ): Promise<SessionMessageEntry> {
 	agent.respondToLlmRequest(
 		request.id,
@@ -117,19 +111,22 @@ async function selectAndMutateHeadlessTarget(
 		.catch((error: unknown) => {
 			throw new Error(`Selection did not continue: ${error instanceof Error ? error.message : String(error)}`);
 		});
-	agent.respondToLlmRequest(
-		afterSelection.id,
-		fauxAssistantMessage(fauxToolCall(toolName, {}), { stopReason: "toolUse" }),
-	);
-	const entry = await agent.waitForSessionEntry(
-		null,
-		(candidate) =>
-			candidate.type === "message" &&
-			candidate.message.role === "toolResult" &&
-			candidate.message.toolName === toolName,
-	);
-	if (entry.type !== "message") throw new Error(`Expected ${toolName} result entry`);
-	return entry;
+	agent.respondToLlmRequest(afterSelection.id, fauxAssistantMessage("Selection complete"));
+	await agent.waitForEvent((event) => event.type === "agent_end");
+	return selectionEntry;
+}
+
+async function selectAndRunHeadlessCommand(
+	agent: HeadlessPi,
+	request: HeadlessLlmRequest,
+	agentId: string,
+	command: string,
+): Promise<void> {
+	await selectHeadlessView(agent, request, agentId);
+	const response = await agent.send({ type: "prompt", message: command });
+	if (!("success" in response) || !response.success) {
+		throw new Error(`Command prompt rejected: ${JSON.stringify(response)}`);
+	}
 }
 
 describe("headless Pi fixture", () => {
@@ -226,7 +223,9 @@ describe("headless Pi fixture", () => {
 	it("mutates the selected live child model and effort without changing main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Mutable child");
-			await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
+			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/model headless-faux/headless-faux-reasoning");
+			const effortResponse = await agent.send({ type: "prompt", message: "/effort high" });
+			expect(effortResponse).toMatchObject({ success: true });
 
 			expect(agent.readSessionEntries(spawned.id)).toEqual(
 				expect.arrayContaining([
@@ -248,14 +247,17 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("rejects a completed selected target without mutating main", async () => {
+	it("rejects a completed selected target persistently without mutating main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Completed target");
 			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed"));
 			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
 
-			const result = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
-			expectFailedToolEntry(result, "not active");
+			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
+			await agent.waitForEvent((event) => event.type === "extension_error" && event.error.includes("not active"));
+			const secondResponse = await agent.send({ type: "prompt", message: "/effort high" });
+			expect(secondResponse).toMatchObject({ success: true });
+			await agent.waitForEvent((event) => event.type === "extension_error" && event.error.includes("not active"));
 			expect(
 				agent
 					.readSessionEntries(null)
@@ -264,12 +266,13 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("rejects a nonexistent selected target without mutating main", async () => {
+	it("leaves the current view unchanged when selecting a nonexistent target", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Select a missing target" });
 			const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
-			const result = await selectAndMutateHeadlessTarget(agent, request, "agent_missing", "test_set_viewed_model");
-			expectFailedToolEntry(result, "not found");
+			const selectionEntry = await selectHeadlessView(agent, request, "agent_missing");
+			expect(JSON.stringify(selectionEntry.message)).toContain("not found");
+			expect(agent.listAgents().find((candidate) => candidate.id === "agent_missing")).toBeUndefined();
 			expect(
 				agent
 					.readSessionEntries(null)
@@ -278,15 +281,18 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("rejects a detached selected target without mutating main", async () => {
+	it("rejects a detached selected target persistently without mutating main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(
 				agent,
 				"Detached target",
 				"background",
 			);
-			const result = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
-			expectFailedToolEntry(result, "detached and not a live child session");
+			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
+			await agent.waitForEvent((event) => event.type === "extension_error" && event.error.includes("detached"));
+			const secondResponse = await agent.send({ type: "prompt", message: "/effort high" });
+			expect(secondResponse).toMatchObject({ success: true });
+			await agent.waitForEvent((event) => event.type === "extension_error" && event.error.includes("detached"));
 			expect(
 				agent
 					.readSessionEntries(null)

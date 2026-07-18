@@ -518,9 +518,13 @@ describe("ExtensionRunner", () => {
 					setModel: ownSetModel,
 					setThinkingLevel: ownSetThinkingLevel,
 				},
-				extensionContextActions,
+				{
+					...extensionContextActions,
+					getModel: () => ({ id: "main-model" } as NonNullable<ReturnType<ExtensionContextActions["getModel"]>>),
+				},
 			);
 
+			expect(runner.createCommandContext().model).toBeUndefined();
 			await runner.createContext().setModel(undefined);
 			runner.createContext().setThinkingLevel("high");
 			await runner.createCommandContext().setModel(undefined);

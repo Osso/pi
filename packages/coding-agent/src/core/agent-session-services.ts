@@ -67,7 +67,6 @@ export interface CreateAgentSessionFromServicesOptions {
 	multiAgentStore?: MultiAgentStore;
 	multiAgentRuntimeRole?: CreateAgentSessionOptions["multiAgentRuntimeRole"];
 	multiAgentExecutionCapability?: CreateAgentSessionOptions["multiAgentExecutionCapability"];
-	sessionMutationTargetResolver?: CreateAgentSessionOptions["sessionMutationTargetResolver"];
 	customTools?: ToolDefinition[];
 }
 
@@ -211,7 +210,6 @@ export async function createAgentSessionFromServices(
 		multiAgentStore: options.multiAgentStore,
 		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
 		multiAgentExecutionCapability: options.multiAgentExecutionCapability,
-		sessionMutationTargetResolver: options.sessionMutationTargetResolver,
 		customTools: options.customTools,
 		sessionStartEvent: options.sessionStartEvent,
 	});

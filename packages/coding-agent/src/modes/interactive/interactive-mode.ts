@@ -3018,7 +3018,6 @@ export class InteractiveMode {
 	}
 
 	private selectAgentView(agentId: string): boolean {
-		const previousSelectedAgentId = this.multiAgentStore?.getSelectedAgentId();
 		if (agentId === "main") {
 			this.multiAgentStore?.clearSelectedAgentView();
 			this.clearChildAgentView();
@@ -3031,19 +3030,11 @@ export class InteractiveMode {
 			return true;
 		}
 
-		const selected = this.multiAgentStore?.selectActiveAgentTargetWithStatus(agentId);
-		if (!selected) {
+		const selected = this.multiAgentStore?.getAgent(agentId);
+		if (!selected || !this.openChildAgentView(selected)) {
 			return false;
 		}
-		if (!selected.ok) {
-			this.showInactiveAgentSelectionStatus(selected);
-			return false;
-		}
-		if (!this.openChildAgentView(selected.agent)) {
-			this.restorePreviousAgentSelection(previousSelectedAgentId);
-			return false;
-		}
-
+		this.multiAgentStore?.selectAgentViewWithStatus(agentId);
 		this.loadedResourcesContainer.clear();
 		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();
@@ -3336,16 +3327,6 @@ export class InteractiveMode {
 
 		this.unsubscribeMultiAgentUpdates = this.multiAgentStore.subscribeAgentUpdates((_previous, current) => {
 			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
-				return;
-			}
-			if (current.lifecycle === "completed" || current.lifecycle === "failed" || current.lifecycle === "aborted") {
-				this.clearChildAgentView();
-				this.multiAgentStore.clearSelectedAgentView();
-				this.chatContainer.clear();
-				this.renderInitialMessages();
-				this.syncWorkingLoaderVisibility();
-				this.updateSelectedAgentSelectionWidgets();
-				this.ui.requestRender();
 				return;
 			}
 			const transcriptPath = current.transcript?.path;

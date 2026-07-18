@@ -77,6 +77,7 @@ import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
 	type ContextUsage,
+	type ExtensionCommandContext,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
 	type ExtensionMode,
@@ -109,7 +110,7 @@ import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
-import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
+import { findExactModelReferenceMatch, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type {
 	AgentCurrentActivityOwner,
 	AgentLifecycleState,
@@ -383,8 +384,6 @@ export interface AgentSessionConfig {
 	agentDir?: string;
 	/** Override resident Supervisor transport for isolated tests. */
 	supervisorDecisionRequester?: SupervisorDecisionRequester;
-	/** Process-owned resolver for the currently selected live session mutation target. */
-	sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 	/**
 	 * Override base tools (useful for custom runtimes).
 	 *
@@ -761,7 +760,7 @@ export class AgentSession {
 	private _systemPromptOverride?: string;
 	private readonly _sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 
-	constructor(config: AgentSessionConfig) {
+	constructor(config: AgentSessionConfig, sessionMutationTargetResolver?: () => SessionMutationTarget | undefined) {
 		validateMultiAgentRuntimeRole(config);
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
@@ -772,7 +771,7 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._modelRegistry = config.modelRegistry;
 		this._extensionRunnerRef = config.extensionRunnerRef;
-		this._sessionMutationTargetResolver = config.sessionMutationTargetResolver;
+		this._sessionMutationTargetResolver = sessionMutationTargetResolver;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
@@ -2496,7 +2495,7 @@ export class AgentSession {
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
 
-		const command = this._extensionRunner.getCommand(commandName);
+		const command = this._extensionRunner.getPromptCommand(commandName);
 		if (!command) return false;
 
 		// Get command context from extension runner (includes session control methods)
@@ -4224,6 +4223,29 @@ export class AgentSession {
 		this.agent.state.model = refreshedModel;
 	}
 
+	private _createInternalCommands(): ReadonlyMap<
+		string,
+		(args: string, ctx: ExtensionCommandContext) => Promise<void>
+	> {
+		return new Map([
+			[
+				"model",
+				async (args: string, ctx: ExtensionCommandContext) => {
+					const modelReference = args.trim();
+					if (!modelReference) return;
+					const scopedModels = ctx.getScopedModels?.() ?? [];
+					const models =
+						scopedModels.length > 0 ? scopedModels.map((scoped) => scoped.model) : ctx.modelRegistry.getAvailable();
+					const model = findExactModelReferenceMatch(modelReference, models);
+					if (!model) throw new Error(`Model not found or not authenticated: ${modelReference}`);
+					if (!(await ctx.setModel(model))) {
+						throw new Error(`No API key for ${model.provider}/${model.id}`);
+					}
+				},
+			],
+		]);
+	}
+
 	private _bindExtensionCore(runner: ExtensionRunner): void {
 		const getCommands = (): SlashCommandInfo[] => {
 			const extensionCommands: SlashCommandInfo[] = runner.getRegisteredCommands().map((command) => ({
@@ -4506,6 +4528,7 @@ export class AgentSession {
 			this._modelRegistry,
 			this.settingsManager,
 			this._sessionMutationTargetResolver,
+			this._createInternalCommands(),
 		);
 		if (this._extensionRunnerRef) {
 			this._extensionRunnerRef.current = this._extensionRunner;

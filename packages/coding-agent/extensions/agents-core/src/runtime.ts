@@ -52,7 +52,6 @@ import {
 	type RuntimeMailboxMessage,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
-import type { AgentSession } from "../../../src/core/agent-session.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import {
 	CHILD_DISABLED_AGENT_TOOL_NAMES,
@@ -380,31 +379,17 @@ export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
-	pendingRejectedMutationTargetError?: string;
-	pendingRejectedMutationTargetId?: string;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map() };
 }
 
-export interface LiveChildSessionMutationTarget extends SessionMutationTarget {
-	cycleModel: NonNullable<AgentSession["cycleModel"]>;
-	modelRegistry: ExtensionContext["modelRegistry"];
-	scopedModels: AgentSession["scopedModels"];
-}
-
 export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
-	selectedAgentId = runtimeHandles.pendingRejectedMutationTargetId ?? store.getSelectedAgentId(),
 ): SessionMutationTarget | undefined {
-	if (runtimeHandles.pendingRejectedMutationTargetId === selectedAgentId) {
-		const pendingError = runtimeHandles.pendingRejectedMutationTargetError;
-		runtimeHandles.pendingRejectedMutationTargetError = undefined;
-		runtimeHandles.pendingRejectedMutationTargetId = undefined;
-		if (pendingError) throw new Error(pendingError);
-	}
+	const selectedAgentId = store.getSelectedAgentId();
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
 	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);
@@ -423,24 +408,6 @@ export function resolveSelectedSessionMutationTarget(
 		throw new Error(`Agent ${selectedAgentId} does not support live session mutation`);
 	}
 	return mutationTarget as SessionMutationTarget;
-}
-
-export function resolveSelectedLiveChildSessionMutationTarget(
-	store: MultiAgentStore,
-	runtimeHandles: MultiAgentRuntimeHandles,
-	selectedAgentId?: string,
-): LiveChildSessionMutationTarget | undefined {
-	const target = resolveSelectedSessionMutationTarget(store, runtimeHandles, selectedAgentId);
-	if (!target || !selectedAgentId) return undefined;
-	const session = runtimeHandles.sessions.get(selectedAgentId) as unknown as Partial<LiveChildSessionMutationTarget>;
-	if (
-		typeof session.cycleModel !== "function" ||
-		!session.modelRegistry ||
-		!Array.isArray(session.scopedModels)
-	) {
-		throw new Error(`Agent ${selectedAgentId} does not support interactive session mutation`);
-	}
-	return session as LiveChildSessionMutationTarget;
 }
 
 interface WaitingDesktopNotificationRegistration {
@@ -846,7 +813,7 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.select") {
-			return selectAgent(store, request.params, options.selectAgentView, options.runtimeHandles);
+			return selectAgent(store, request.params, options.selectAgentView);
 		}
 
 		if (request.method === "messages.last") {
@@ -880,54 +847,24 @@ function selectAgent(
 	store: MultiAgentStore,
 	params: unknown,
 	selectAgentView: MultiAgentExtensionOptions["selectAgentView"],
-	runtimeHandles: MultiAgentRuntimeHandles | undefined,
 ): AgentSelectionDetails {
 	const agentId = normalizeSelectAgentId(params);
 	const rendered = selectAgentView?.(agentId);
 	if (rendered === true) {
-		const selected = selectCurrentAgent(store);
-		if (runtimeHandles) {
-			const unresolvedSelection = agentId !== MAIN_THREAD_AGENT_ID && selected.agent.id === MAIN_THREAD_AGENT_ID;
-			runtimeHandles.pendingRejectedMutationTargetError = unresolvedSelection
-				? `Agent ${agentId} is detached or otherwise not a live session mutation target`
-				: undefined;
-			runtimeHandles.pendingRejectedMutationTargetId = unresolvedSelection ? agentId : undefined;
-		}
-		return selected;
+		if (agentId === MAIN_THREAD_AGENT_ID) return { agent: createMainThreadSnapshot() };
+		const selected = store.getAgent(agentId);
+		if (selected) return { agent: selected };
+		return selectCurrentAgent(store);
 	}
-	if (rendered === false) {
-		const error = `Agent view selection failed: ${agentId}`;
-		if (runtimeHandles) {
-			runtimeHandles.pendingRejectedMutationTargetError = error;
-			runtimeHandles.pendingRejectedMutationTargetId = agentId;
-		}
-		throw new Error(error);
-	}
+	if (rendered === false) throw new Error(`Agent view selection failed: ${agentId}`);
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();
-		if (runtimeHandles) {
-			runtimeHandles.pendingRejectedMutationTargetError = undefined;
-			runtimeHandles.pendingRejectedMutationTargetId = undefined;
-		}
 		return { agent: createMainThreadSnapshot() };
 	}
 
-	const result = store.selectActiveAgentTargetWithStatus(agentId);
-	if (result.ok) {
-		if (runtimeHandles) {
-			runtimeHandles.pendingRejectedMutationTargetError = undefined;
-			runtimeHandles.pendingRejectedMutationTargetId = undefined;
-		}
-		return { agent: result.agent };
-	}
-	if (runtimeHandles) {
-		runtimeHandles.pendingRejectedMutationTargetError = undefined;
-		runtimeHandles.pendingRejectedMutationTargetId = agentId;
-	}
-	if (result.error === "inactive") {
-		throw new Error(formatInactiveAgentSelectionMessage(result.agent));
-	}
+	const result = store.selectAgentViewWithStatus(agentId);
+	if (result.ok) return { agent: result.agent };
 	throw new Error(`Agent not found: ${agentId}`);
 }
 

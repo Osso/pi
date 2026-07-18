@@ -16,6 +16,7 @@ import type {
 	ExtensionFactory,
 	ExtensionRunner,
 	LoadExtensionsResult,
+	SessionMutationTarget,
 	SessionStartEvent,
 	ToolDefinition,
 } from "./extensions/index.ts";
@@ -115,8 +116,6 @@ export interface CreateAgentSessionOptions {
 	sessionStartEvent?: SessionStartEvent;
 	/** Override resident Supervisor transport for isolated tests. */
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
-	/** Process-owned resolver for the currently selected live session mutation target. */
-	sessionMutationTargetResolver?: AgentSessionConfig["sessionMutationTargetResolver"];
 }
 
 function rulesScopeForRuntimeRole(role: MultiAgentRuntimeRole | undefined): RulesScope {
@@ -210,6 +209,20 @@ function getDefaultAgentDir(): string {
  * ```
  */
 export async function createAgentSession(options: CreateAgentSessionOptions = {}): Promise<CreateAgentSessionResult> {
+	return createAgentSessionInternal(options);
+}
+
+export async function createAgentSessionWithInternalOptions(
+	options: CreateAgentSessionOptions,
+	resolveSessionMutationTarget: () => SessionMutationTarget | undefined,
+): Promise<CreateAgentSessionResult> {
+	return createAgentSessionInternal(options, resolveSessionMutationTarget);
+}
+
+async function createAgentSessionInternal(
+	options: CreateAgentSessionOptions,
+	resolveSessionMutationTarget?: () => SessionMutationTarget | undefined,
+): Promise<CreateAgentSessionResult> {
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();
 	let resourceLoader = options.resourceLoader;
@@ -453,8 +466,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 		supervisorDecisionRequester: options.supervisorDecisionRequester,
-		sessionMutationTargetResolver: options.sessionMutationTargetResolver,
-	});
+	}, resolveSessionMutationTarget);
 	sessionRef.current = session;
 	const extensionsResult = resourceLoader.getExtensions();
 

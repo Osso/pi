@@ -795,53 +795,7 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 	const paths = createHeadlessPaths();
 	const testExtensionDir = join(paths.agentDir, "extensions");
 	mkdirSync(testExtensionDir, { recursive: true });
-	writeFileSync(
-		join(testExtensionDir, "selected-runtime-target.ts"),
-		`import { Type } from "typebox";
-export default function(pi) {
-	pi.registerCommand("test_set_viewed_model_command", {
-		description: "Set model and effort through the selected runtime target command context",
-		handler: async (_args, ctx) => {
-			await ctx.setModel({
-				api: "headless-faux",
-				id: "headless-faux-reasoning",
-				name: "Headless Faux Reasoning",
-				provider: "headless-faux",
-				reasoning: true,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16384,
-			});
-			ctx.setThinkingLevel("high");
-		},
-	});
-	pi.registerCommand("test_set_viewed_effort_command", {
-		description: "Set effort through the selected runtime target command context",
-		handler: async (_args, ctx) => {
-			ctx.setThinkingLevel("high");
-		},
-	});
-	pi.registerTool({
-		name: "test_set_viewed_model",
-		description: "Set model through the selected runtime target adapter",
-		parameters: Type.Object({}),
-		execute: async () => {
-			await pi.callCommand("test_set_viewed_model_command");
-			return { content: [{ type: "text", text: "model and effort set" }], details: {} };
-		},
-	});
-	pi.registerTool({
-		name: "test_set_viewed_effort",
-		description: "Set effort through the selected runtime target adapter",
-		parameters: Type.Object({}),
-		execute: async () => {
-			await pi.callCommand("test_set_viewed_effort_command");
-			return { content: [{ type: "text", text: "effort set" }], details: {} };
-		},
-	});
-}`,
-	);
+
 	const approvalPreset = fixtureOptions.approvalPreset ?? "auto-approve";
 	const approval = findApprovalPreset(approvalPreset);
 	writeFileSync(
