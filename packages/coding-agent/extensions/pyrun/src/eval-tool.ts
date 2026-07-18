@@ -98,6 +98,22 @@ function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console
 	return `${entry.level}: ${entry.message}`;
 }
 
+function capConsoleHistory(entries: NonNullable<CanonicalPyrunEvalResult["console"]>): NonNullable<CanonicalPyrunEvalResult["console"]> {
+	let remainingCharacters = STREAMED_CONSOLE_CHAR_LIMIT;
+	const boundedEntries: NonNullable<CanonicalPyrunEvalResult["console"]> = [];
+	for (let index = entries.length - 1; index >= 0 && remainingCharacters > 0; index -= 1) {
+		const entry = entries[index];
+		const text = capConsoleText(formatConsoleEntry(entry)).slice(-remainingCharacters);
+		remainingCharacters -= text.length;
+		boundedEntries.unshift(typeof entry === "string" ? text : { ...entry, message: text });
+	}
+	return boundedEntries;
+}
+
+function boundConsoleResult(result: CanonicalPyrunEvalResult): CanonicalPyrunEvalResult {
+	return result.console ? { ...result, console: capConsoleHistory(result.console) } : result;
+}
+
 function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResult): string {
 	const lines = [params.code, ""];
 	for (const entry of result.console ?? []) {
@@ -168,10 +184,11 @@ export function formatCanonicalPyrunEvalResult(
 	params: PyrunEvalParams,
 	result: CanonicalPyrunEvalResult,
 ): AgentToolResult<CanonicalPyrunEvalResult> {
+	const boundedResult = boundConsoleResult(result);
 	return {
-		content: [{ type: "text", text: formatToolText(params, result) }],
-		details: result,
-		isError: result.error !== undefined,
+		content: [{ type: "text", text: formatToolText(params, boundedResult) }],
+		details: boundedResult,
+		isError: boundedResult.error !== undefined,
 	};
 }
 
