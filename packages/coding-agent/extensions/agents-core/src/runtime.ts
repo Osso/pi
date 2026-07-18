@@ -849,8 +849,8 @@ function selectAgent(
 	runtimeHandles: MultiAgentRuntimeHandles | undefined,
 ): AgentSelectionDetails {
 	const agentId = normalizeSelectAgentId(params);
-	if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 	const rendered = selectAgentView?.(agentId);
+	if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 	if (rendered === true) {
 		return selectCurrentAgent(store);
 	}
