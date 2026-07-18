@@ -91,12 +91,15 @@ function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console
 	return `${entry.level}: ${entry.message}`;
 }
 
-function capConsoleHistory(entries: NonNullable<CanonicalPyrunEvalResult["console"]>): NonNullable<CanonicalPyrunEvalResult["console"]> {
+function capConsoleHistory(
+	entries: NonNullable<CanonicalPyrunEvalResult["console"]>,
+): NonNullable<CanonicalPyrunEvalResult["console"]> {
 	let remainingCharacters = STREAMED_CONSOLE_CHAR_LIMIT;
 	const boundedEntries: NonNullable<CanonicalPyrunEvalResult["console"]> = [];
 	for (let index = entries.length - 1; index >= 0 && remainingCharacters > 0; index -= 1) {
 		const entry = entries[index];
-		const text = capConsoleText(formatConsoleEntry(entry)).slice(-remainingCharacters);
+		const entryText = typeof entry === "string" ? entry : entry.message;
+		const text = capConsoleText(entryText).slice(-remainingCharacters);
 		remainingCharacters -= text.length;
 		boundedEntries.unshift(typeof entry === "string" ? text : { ...entry, message: text });
 	}
