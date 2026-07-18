@@ -18,7 +18,6 @@ import agentsCoreExtension, {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
-	resolveSelectedLiveChildSessionMutationTarget,
 	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";

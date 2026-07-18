@@ -502,9 +502,7 @@ describe("ExtensionRunner", () => {
 				setModel: childSetModel,
 				setThinkingLevel: childSetThinkingLevel,
 				thinkingLevel: "medium",
-			} as unknown as NonNullable<
-				ReturnType<NonNullable<ConstructorParameters<typeof ExtensionRunner>[6]>>
-			>;
+			} as unknown as NonNullable<ReturnType<NonNullable<ConstructorParameters<typeof ExtensionRunner>[6]>>>;
 			const runner = new ExtensionRunner(
 				result.extensions,
 				result.runtime,
