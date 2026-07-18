@@ -143,6 +143,7 @@
 
 ### Fixed
 
+- Fixed Node development extension loading in clean worktrees by resolving workspace package aliases to source entries when built `dist` artifacts are absent.
 - Fixed silent model inference, including post-tool continuation, being mislabeled as `Streaming...`; interactive status now remains `Thinking...` until the first visible assistant delta.
 - Fixed process restarts, aborted turns, and Supervisor wait decisions incorrectly pausing active goals; only explicit goal pause actions now persist paused state, preexisting explicit pauses survive restart unchanged, and stale session metadata snapshots can no longer overwrite newer goal state.
 - Fixed `manage_goal complete` incorrectly reporting no active goal when the persisted goal was paused.

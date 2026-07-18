@@ -82,7 +82,8 @@ function getAliases(): Record<string, string> {
 	if (_aliases) return _aliases;
 
 	const __dirname = path.dirname(fileURLToPath(import.meta.url));
-	const packageIndex = path.resolve(__dirname, "../..", "index.js");
+	const packageIndexJs = path.resolve(__dirname, "../..", "index.js");
+	const packageIndex = fs.existsSync(packageIndexJs) ? packageIndexJs : path.resolve(__dirname, "../..", "index.ts");
 
 	const typeboxEntry = require.resolve("typebox");
 	const typeboxCompileEntry = require.resolve("typebox/compile");
@@ -101,8 +102,11 @@ function getAliases(): Record<string, string> {
 	};
 
 	const piCodingAgentEntry = packageIndex;
-	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@earendil-works/pi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
+	const piAgentCoreEntry = resolveWorkspaceOrImport(
+		["agent-core/dist/index.js", "agent-core/src/index.ts"],
+		"@earendil-works/pi-agent-core",
+	);
+	const piTuiEntry = resolveWorkspaceOrImport(["tui/dist/index.js", "tui/src/index.ts"], "@earendil-works/pi-tui");
 	const piAiBaseEntry = resolveWorkspaceOrImport(["ai/dist/base.js", "ai/src/base.ts"], "@earendil-works/pi-ai");
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
@@ -111,7 +115,10 @@ function getAliases(): Record<string, string> {
 		["ai/dist/compat.js", "ai/src/compat.ts"],
 		"@earendil-works/pi-ai/compat",
 	);
-	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@earendil-works/pi-ai/oauth");
+	const piAiOauthEntry = resolveWorkspaceOrImport(
+		["ai/dist/oauth.js", "ai/src/oauth.ts"],
+		"@earendil-works/pi-ai/oauth",
+	);
 
 	_aliases = {
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
