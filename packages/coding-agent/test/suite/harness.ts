@@ -16,7 +16,7 @@ import type {
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { AgentSession, type AgentSessionConfig, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
-import type { ExtensionRunner, SessionMutationTarget } from "../../src/core/extensions/index.ts";
+import type { ExtensionRunner, ViewedSessionMutationTarget } from "../../src/core/extensions/index.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
 import { ModelRegistry } from "../../src/core/model-registry.ts";
 import type { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
@@ -82,7 +82,7 @@ export interface HarnessOptions {
 	/** Exact owning supervisor session for persisted child activity updates. */
 	multiAgentParentSessionId?: string;
 	/** Viewed-session mutation resolver used by command-routing regressions. */
-	resolveSessionMutationTarget?: () => SessionMutationTarget | undefined;
+	resolveSessionMutationTarget?: () => ViewedSessionMutationTarget | undefined;
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
 	childThinkingPhaseTimeoutMs?: AgentSessionConfig["childThinkingPhaseTimeoutMs"];
 }
@@ -189,27 +189,31 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const resourceLoader =
 		options.resourceLoader ?? createTestResourceLoader(extensionsResult ? { extensionsResult } : undefined);
 
-	const session = new AgentSession({
-		agent,
-		sessionManager,
-		settingsManager,
-		cwd: tempDir,
-		agentDir: tempDir,
-		modelRegistry,
-		resourceLoader,
-		baseToolsOverride: toolMap,
-		initialActiveToolNames: options.initialActiveToolNames,
-		allowedToolNames: options.allowedToolNames,
-		excludedToolNames: options.excludedToolNames,
-		extensionRunnerRef,
-		multiAgentStore: options.multiAgentStore,
-		multiAgentAgentId: options.multiAgentAgentId,
-		multiAgentParentSessionId:
-			options.multiAgentParentSessionId ?? (options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
-		supervisorDecisionRequester:
-			options.supervisorDecisionRequester ?? (async () => ({ kind: "approve", reason: "test approval" })),
-		childThinkingPhaseTimeoutMs: options.childThinkingPhaseTimeoutMs,
-	}, options.resolveSessionMutationTarget);
+	const session = new AgentSession(
+		{
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			agentDir: tempDir,
+			modelRegistry,
+			resourceLoader,
+			baseToolsOverride: toolMap,
+			initialActiveToolNames: options.initialActiveToolNames,
+			allowedToolNames: options.allowedToolNames,
+			excludedToolNames: options.excludedToolNames,
+			extensionRunnerRef,
+			multiAgentStore: options.multiAgentStore,
+			multiAgentAgentId: options.multiAgentAgentId,
+			multiAgentParentSessionId:
+				options.multiAgentParentSessionId ??
+				(options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
+			supervisorDecisionRequester:
+				options.supervisorDecisionRequester ?? (async () => ({ kind: "approve", reason: "test approval" })),
+			childThinkingPhaseTimeoutMs: options.childThinkingPhaseTimeoutMs,
+		},
+		options.resolveSessionMutationTarget,
+	);
 
 	const events: AgentSessionEvent[] = [];
 	session.subscribe((event) => {

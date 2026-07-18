@@ -16,9 +16,9 @@ import type {
 	ExtensionFactory,
 	ExtensionRunner,
 	LoadExtensionsResult,
-	SessionMutationTarget,
 	SessionStartEvent,
 	ToolDefinition,
+	ViewedSessionMutationTarget,
 } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
@@ -214,14 +214,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 export async function createAgentSessionWithInternalOptions(
 	options: CreateAgentSessionOptions,
-	resolveSessionMutationTarget: () => SessionMutationTarget | undefined,
+	resolveSessionMutationTarget: () => ViewedSessionMutationTarget | undefined,
 ): Promise<CreateAgentSessionResult> {
 	return createAgentSessionInternal(options, resolveSessionMutationTarget);
 }
 
 async function createAgentSessionInternal(
 	options: CreateAgentSessionOptions,
-	resolveSessionMutationTarget?: () => SessionMutationTarget | undefined,
+	resolveSessionMutationTarget?: () => ViewedSessionMutationTarget | undefined,
 ): Promise<CreateAgentSessionResult> {
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();

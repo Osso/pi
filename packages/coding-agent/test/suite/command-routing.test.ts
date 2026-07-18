@@ -1,6 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import effortExtension from "../../extensions/effort/src/index.ts";
+import type { ViewedSessionMutationTarget } from "../../src/core/extensions/index.ts";
 import type { ExtensionFactory } from "../../src/index.ts";
 import { createHarness } from "./harness.ts";
 
@@ -20,17 +21,20 @@ describe("literal viewed-session command routing", () => {
 				},
 			});
 		};
-		const harness = await createHarness({
+		let harness: Awaited<ReturnType<typeof createHarness>>;
+		harness = await createHarness({
 			models: [
 				{ id: "faux-1", reasoning: true },
 				{ id: "faux-2", reasoning: true },
 			],
 			extensionFactories: [effortExtension, helperExtension],
-			resolveSessionMutationTarget: () => ({
+			resolveSessionMutationTarget: (): ViewedSessionMutationTarget => ({
 				model: harnessModel,
 				thinkingLevel: "medium",
 				setModel: viewedSetModel,
 				setThinkingLevel: viewedSetThinkingLevel,
+				modelRegistry: harness.session.modelRegistry,
+				scopedModels: harness.session.scopedModels,
 			}),
 		});
 		try {

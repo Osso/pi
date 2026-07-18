@@ -9,7 +9,7 @@ import {
 	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
-	type SessionMutationTarget,
+	type ViewedSessionMutationTarget,
 } from "../../../src/core/extensions/types.ts";
 import {
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -388,7 +388,7 @@ export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
-): SessionMutationTarget | undefined {
+): ViewedSessionMutationTarget | undefined {
 	const selectedAgentId = store.getSelectedAgentId();
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
@@ -399,15 +399,18 @@ export function resolveSelectedSessionMutationTarget(
 	if (!isActiveLifecycle(agent.lifecycle)) throw new Error(formatInactiveAgentSelectionMessage(agent));
 	const session = runtimeHandles.sessions.get(selectedAgentId);
 	if (!session) throw new Error(`Agent ${selectedAgentId} is not a live child session`);
-	const mutationTarget = session as unknown as Partial<SessionMutationTarget>;
+	const mutationTarget = session as unknown as Partial<ViewedSessionMutationTarget>;
 	if (
+		!("model" in mutationTarget) ||
 		typeof mutationTarget.setModel !== "function" ||
 		typeof mutationTarget.setThinkingLevel !== "function" ||
-		typeof mutationTarget.thinkingLevel !== "string"
+		typeof mutationTarget.thinkingLevel !== "string" ||
+		!mutationTarget.modelRegistry ||
+		!Array.isArray(mutationTarget.scopedModels)
 	) {
 		throw new Error(`Agent ${selectedAgentId} does not support live session mutation`);
 	}
-	return mutationTarget as SessionMutationTarget;
+	return mutationTarget as ViewedSessionMutationTarget;
 }
 
 interface WaitingDesktopNotificationRegistration {

@@ -50,6 +50,7 @@ import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
+import type { ScopedModel } from "../model-resolver.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
 import type { RuntimeMailboxMessage } from "../session-control-db.ts";
 import type {
@@ -1725,6 +1726,11 @@ export interface SessionMutationTarget {
 	thinkingLevel: ThinkingLevel;
 	setModel(model: Model<any>): Promise<void>;
 	setThinkingLevel(level: ThinkingLevel): void;
+}
+
+export interface ViewedSessionMutationTarget extends SessionMutationTarget {
+	modelRegistry: ModelRegistry;
+	scopedModels: ReadonlyArray<ScopedModel>;
 }
 
 export interface ExtensionRuntimeState {

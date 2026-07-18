@@ -89,7 +89,6 @@ import {
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
 	type SessionBeforeTreeResult,
-	type SessionMutationTarget,
 	type SessionStartEvent,
 	type ShutdownHandler,
 	type ToolCallEvent,
@@ -102,6 +101,7 @@ import {
 	type TreePreparation,
 	type TurnEndEvent,
 	type TurnStartEvent,
+	type ViewedSessionMutationTarget,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
@@ -457,11 +457,6 @@ interface ToolDefinitionEntry {
 	sourceInfo: SourceInfo;
 }
 
-type ViewedSessionMutationTarget = SessionMutationTarget & {
-	modelRegistry?: ModelRegistry;
-	scopedModels?: ReadonlyArray<ScopedModel>;
-};
-
 export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
 	const lastMessage = messages[messages.length - 1];
 	if (lastMessage?.role === "user" || lastMessage?.role === "toolResult") return true;
@@ -763,9 +758,12 @@ export class AgentSession {
 	private _childThinkingPhaseTimeoutError: Error | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
 	private _systemPromptOverride?: string;
-	private readonly _sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
+	private readonly _sessionMutationTargetResolver?: () => ViewedSessionMutationTarget | undefined;
 
-	constructor(config: AgentSessionConfig, sessionMutationTargetResolver?: () => SessionMutationTarget | undefined) {
+	constructor(
+		config: AgentSessionConfig,
+		sessionMutationTargetResolver?: () => ViewedSessionMutationTarget | undefined,
+	) {
 		validateMultiAgentRuntimeRole(config);
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
@@ -2536,7 +2534,7 @@ export class AgentSession {
 		const owningSetModel = context.setModel;
 		const owningSetThinkingLevel = context.setThinkingLevel;
 		const resolveViewedTarget = (): ViewedSessionMutationTarget | undefined =>
-			this._sessionMutationTargetResolver?.() as ViewedSessionMutationTarget | undefined;
+			this._sessionMutationTargetResolver?.();
 
 		Object.defineProperty(context, "model", {
 			configurable: true,
@@ -2551,12 +2549,12 @@ export class AgentSession {
 			enumerable: true,
 			get: () => {
 				const target = resolveViewedTarget();
-				return target?.modelRegistry ?? owningModelRegistry;
+				return target ? target.modelRegistry : owningModelRegistry;
 			},
 		});
 		context.getScopedModels = () => {
 			const target = resolveViewedTarget();
-			return target ? (target.scopedModels ?? []) : (owningScopedModels?.() ?? []);
+			return target ? target.scopedModels : (owningScopedModels?.() ?? []);
 		};
 		context.getThinkingLevel = () => resolveViewedTarget()?.thinkingLevel ?? owningGetThinkingLevel();
 		context.setModel = async (model) => {

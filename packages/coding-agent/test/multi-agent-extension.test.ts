@@ -7,7 +7,6 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
-import effortExtension from "../extensions/effort/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import {
 	createHostrunMultiAgentRequestHandler,
@@ -17,6 +16,7 @@ import {
 	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
+import effortExtension from "../extensions/effort/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { createDetachedJobArtifacts } from "../src/core/detached-job-runner.ts";
@@ -2006,6 +2006,30 @@ describe("multi-agent extension tools", () => {
 		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
 	});
 
+	it("rejects a selected live session without viewed model capabilities", () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		store.selectActiveAgentTarget(spawned.agent.id);
+		runtimeHandles.sessions.set(spawned.agent.id, {
+			messages: [],
+			prompt: async () => {},
+			model: undefined,
+			thinkingLevel: "medium",
+			setModel: async () => {},
+			setThinkingLevel: () => {},
+		} as never);
+
+		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow(
+			`Agent ${spawned.agent.id} does not support live session mutation`,
+		);
+	});
+
 	it("rejects a selected active row without a live session handle persistently", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
@@ -3759,17 +3783,14 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 		}).agent;
 		store.selectActiveAgentTarget(viewedAgent.id);
-		runtimeHandles.sessions.set(
-			viewedAgent.id,
-			{
-				messages: [],
-				prompt: async () => {},
-				model: viewedModel,
-				thinkingLevel: "medium",
-				setModel: viewedSetModel,
-				setThinkingLevel: viewedSetThinkingLevel,
-			} as never,
-		);
+		runtimeHandles.sessions.set(viewedAgent.id, {
+			messages: [],
+			prompt: async () => {},
+			model: viewedModel,
+			thinkingLevel: "medium",
+			setModel: viewedSetModel,
+			setThinkingLevel: viewedSetThinkingLevel,
+		} as never);
 
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-isolation-target" });
 		target.persistForRecovery();

@@ -495,24 +495,8 @@ describe("ExtensionRunner", () => {
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 			const ownSetModel = vi.fn(async () => true);
 			const ownSetThinkingLevel = vi.fn();
-			const childSetModel = vi.fn(async () => {});
-			const childSetThinkingLevel = vi.fn();
-			const childTarget = {
-				model: undefined,
-				setModel: childSetModel,
-				setThinkingLevel: childSetThinkingLevel,
-				thinkingLevel: "medium",
-			} as unknown as NonNullable<ReturnType<NonNullable<ConstructorParameters<typeof ExtensionRunner>[6]>>>;
 			const mainModel = { id: "main-model" } as NonNullable<ReturnType<ExtensionContextActions["getModel"]>>;
-			const runner = new ExtensionRunner(
-				result.extensions,
-				result.runtime,
-				tempDir,
-				sessionManager,
-				modelRegistry,
-				undefined,
-				() => childTarget,
-			);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
 			runner.bindCore(
 				{
 					...extensionActions,
@@ -536,8 +520,6 @@ describe("ExtensionRunner", () => {
 
 			expect(ownSetModel).toHaveBeenCalledTimes(2);
 			expect(ownSetThinkingLevel).toHaveBeenCalledTimes(2);
-			expect(childSetModel).not.toHaveBeenCalled();
-			expect(childSetThinkingLevel).not.toHaveBeenCalled();
 		});
 
 		it("exposes print mode and hasUI false by default", async () => {
