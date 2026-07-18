@@ -227,10 +227,20 @@ export interface RuntimeMailboxRegistrationOptions {
 	runtimeInstanceId?: string;
 }
 
-const RUNTIME_PROCESS_INSTANCE_ID = JSON.stringify({
-	...readProcessIdentity(process.pid),
-	incarnation: randomUUID(),
-});
+const RUNTIME_PROCESS_INSTANCE_ID_KEY = Symbol.for("@earendil-works/pi/runtime-process-instance-id");
+
+export function getRuntimeProcessInstanceId(): string {
+	const existing = Reflect.get(globalThis, RUNTIME_PROCESS_INSTANCE_ID_KEY);
+	if (typeof existing === "string") return existing;
+	const created = JSON.stringify({
+		...readProcessIdentity(process.pid),
+		incarnation: randomUUID(),
+	});
+	Reflect.set(globalThis, RUNTIME_PROCESS_INSTANCE_ID_KEY, created);
+	return created;
+}
+
+const RUNTIME_PROCESS_INSTANCE_ID = getRuntimeProcessInstanceId();
 
 const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL = `
 	INSERT INTO runtime_mailbox_listeners (
