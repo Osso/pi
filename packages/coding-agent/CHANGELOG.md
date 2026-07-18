@@ -93,7 +93,7 @@
 - Runtime mailbox messages now enter active turns through steering at safe checkpoints instead of accumulating as follow-ups between model calls; non-eligible messages remain durable until an eligible checkpoint or idle delivery.
 - Shared-channel follow-up turns now retain extension provenance instead of entering the interactive editor's typed prompt history.
 - Pyrun now renders submitted Python immediately in the tool call instead of emitting it as a synthetic tool result update.
-- User rules now support runtime-scoped `rules/main/` and `rules/child/` directories; shared top-level rules still load everywhere, ordinary observer runtimes receive only shared rules, and the resident Architect explicitly loads main-thread rules.
+- User rules now support runtime-scoped `rules/main/` and `rules/child/` directories; the public `createAgentSession({ rulesScope })` override takes precedence over runtime-role defaults, ordinary observer runtimes receive only shared rules, and the resident Architect explicitly loads main-thread rules.
 - Compaction now excludes goal-generated start, resume, and continuation reminders from summarization input while preserving them in the session log.
 - Increased the selected background-agent log preview limit from 32 KiB to 64 KiB.
 - The default system prompt now tells models to emit known independent tool calls together and serialize only calls with result dependencies.

@@ -12,6 +12,7 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 - [x] Loads `rules/main/*.md` for standalone and orchestrator runtimes.
 - [x] Loads `rules/child/*.md` only for child runtimes.
 - [x] Observer runtimes load only shared top-level rules unless a caller explicitly overrides rule discovery; the resident Architect uses the `main` scope while retaining its observer execution role.
+- [x] Public SDK callers may set `createAgentSession({ rulesScope })`; this optional override takes precedence over the runtime-role-derived default.
 - [x] Returns no content when the directory exists but contains no non-empty `*.md` files.
 - [x] Project-local `.pi/rules/` is only read when the project is trusted (`settingsManager.isProjectTrusted()`); no content is loaded from it for untrusted projects.
 - [x] Project-local `.pi/rules/` is silently skipped (not an error) when the directory does not exist or the project is untrusted.
