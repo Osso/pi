@@ -387,6 +387,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       cancellation or idle Escape behavior.
 - [x] While a direct child with a live transcript and steerable lifecycle is selected, ordinary editor text
       routes to that child.
+- [x] `/model` and `/effort` target the currently viewed live child session when one is selected; with no
+      child selected, they target the main session.
+- [x] Selecting a live child for `/model` or `/effort` leaves the main session unchanged.
+- [x] Missing, completed, detached, or otherwise non-live `/model` and `/effort` targets are rejected without
+      falling back to the main session.
 - [x] Slash commands and `!` shell commands remain on the main thread while a child is selected.
 - [x] If the selected target is invalid or selected-child steering is rejected, the exact submitted editor text
       remains intact and is never submitted to the main thread.
