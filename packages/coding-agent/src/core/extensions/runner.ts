@@ -10,6 +10,7 @@ import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
+import { isActiveLifecycle } from "../multi-agent-store.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -702,14 +703,19 @@ export class ExtensionRunner {
 	}
 
 	private resolveSessionMutationTarget(rejectDetached = false): SessionMutationTarget | undefined {
-		if (rejectDetached && this.getDetachedJobLifecycleFn?.()) {
-			throw new Error("Detached jobs are not live session mutation targets");
-		}
 		const target = this.runtime.sessionMutationTargetResolver?.();
 		if (target) return target;
-		const selectedAgentId = this.getMultiAgentStoreFn?.()?.getSelectedAgentId();
+		const store = this.getMultiAgentStoreFn?.();
+		const selectedAgentId = store?.getSelectedAgentId();
 		if (selectedAgentId) {
 			throw new Error(`Agent ${selectedAgentId} is not a live session mutation target`);
+		}
+		if (
+			rejectDetached &&
+			this.getDetachedJobLifecycleFn?.() &&
+			store?.listAgents().some((agent) => agent.agentType === "background" && isActiveLifecycle(agent.lifecycle))
+		) {
+			throw new Error("Detached jobs are not live session mutation targets");
 		}
 		return undefined;
 	}
