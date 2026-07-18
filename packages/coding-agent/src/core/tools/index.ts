@@ -96,6 +96,12 @@ export {
 	type ResumeSessionToolInput,
 } from "./resume-session.ts";
 export {
+	createSearchCurrentSessionHistoryToolDefinition,
+	type SearchCurrentSessionHistoryToolDetails,
+	type SearchCurrentSessionHistoryToolInput,
+	type SessionHistorySearchEntry,
+} from "./search-current-session-history.ts";
+export {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	formatSize,
@@ -136,6 +142,7 @@ import { createListSessionsToolDefinition } from "./list-sessions.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
 import { createResumeSessionToolDefinition } from "./resume-session.ts";
+import { createSearchCurrentSessionHistoryToolDefinition } from "./search-current-session-history.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
@@ -153,6 +160,7 @@ export type ToolName =
 	| "symbol"
 	| "references"
 	| "resume_session"
+	| "search_current_session_history"
 	| "list_sessions"
 	| "broadcast"
 	| "channel_post"
@@ -170,6 +178,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"symbol",
 	"references",
 	"resume_session",
+	"search_current_session_history",
 	"list_sessions",
 	"broadcast",
 	"channel_post",
@@ -188,6 +197,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"symbol",
 	"references",
 	"resume_session",
+	"search_current_session_history",
 	"list_sessions",
 	"broadcast",
 	"channel_post",
@@ -230,6 +240,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createReferencesToolDefinition(cwd, options?.codeIndex);
 		case "resume_session":
 			return createResumeSessionToolDefinition();
+		case "search_current_session_history":
+			return createSearchCurrentSessionHistoryToolDefinition();
 		case "list_sessions":
 			return createListSessionsToolDefinition();
 		case "broadcast":
@@ -269,6 +281,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createReferencesTool(cwd, options?.codeIndex);
 		case "resume_session":
 			return wrapToolDefinition(createResumeSessionToolDefinition());
+		case "search_current_session_history":
+			return wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition());
 		case "list_sessions":
 			return wrapToolDefinition(createListSessionsToolDefinition());
 		case "broadcast":
@@ -318,6 +332,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		symbol: createSymbolToolDefinition(cwd, options?.codeIndex),
 		references: createReferencesToolDefinition(cwd, options?.codeIndex),
 		resume_session: createResumeSessionToolDefinition(),
+		search_current_session_history: createSearchCurrentSessionHistoryToolDefinition(),
 		list_sessions: createListSessionsToolDefinition(),
 		broadcast: createBroadcastToolDefinition(),
 		channel_post: createChannelPostToolDefinition(),
@@ -360,6 +375,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		symbol: createSymbolTool(cwd, options?.codeIndex),
 		references: createReferencesTool(cwd, options?.codeIndex),
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
+		search_current_session_history: wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition()),
 		list_sessions: wrapToolDefinition(createListSessionsToolDefinition()),
 		broadcast: wrapToolDefinition(createBroadcastToolDefinition()),
 		channel_post: wrapToolDefinition(createChannelPostToolDefinition()),
