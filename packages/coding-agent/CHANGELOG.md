@@ -73,7 +73,7 @@
 - Added extension entry renderers for persisted display-only session entries that are rendered in interactive mode without being sent to the model context.
 - Added `/continue` to continue the current transcript without adding a user message.
 - Added `/effort`: without an argument, it opens a selector of thinking levels supported by the current model; `/effort <level>` sets a supported level directly.
-- Added selected-child `/model` and `/effort` targeting: a viewed live child receives the change while the main session remains unchanged; missing, completed, detached, or otherwise non-live targets reject without main-session fallback.
+- Added viewed-session `/model` and `/effort` targeting: the main session remains the target when main is viewed, while a viewed live subagent receives the change; completed, detached/background, missing, or otherwise non-live viewed agents are explicitly rejected without main-session fallback, and unrelated extension, tool, and event contexts remain session-local.
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and default Pyrun runners through explicitly selected sandbox profiles.
