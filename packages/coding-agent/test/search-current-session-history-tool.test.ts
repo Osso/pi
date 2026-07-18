@@ -83,6 +83,25 @@ describe("search_current_session_history", () => {
 		expect(result.content).toEqual([{ type: "text", text: "No matches found in current session history." }]);
 	});
 
+	it("matches literal multiline and escaped characters in message content", async () => {
+		const sessionManager = createSessionManager();
+		const content = `alpha
+beta says "quoted" at C:\\tmp`;
+		sessionManager.appendMessage({ role: "user", content, timestamp: 1 });
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+
+		const result = await tool.execute(
+			"search-history",
+			{ query: content },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+
+		expect(result.details?.totalMatches).toBe(1);
+		expect(result.details?.entries[0]).toEqual(expect.objectContaining({ content, matched: true }));
+	});
+
 	it("paginates matches while returning full matching content", async () => {
 		const sessionManager = createSessionManager();
 		sessionManager.appendMessage({ role: "user", content: "needle one", timestamp: 1 });

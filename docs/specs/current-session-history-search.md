@@ -2,15 +2,15 @@
 
 Module boundary: core built-in tool + session manager.
 
-`search_current_session_history` lets the model recover full information from the current persisted session's active branch after lossy context compaction.
+`search_current_session_history` lets the model recover full matching conversational content from the current persisted session's active branch after lossy context compaction.
 
 ## What it must do
 
 ### Search surface
 
 - [x] Register `search_current_session_history` as a built-in tool active by default.
-- [x] Search case-insensitively across searchable entries on the current active branch.
-- [x] Include full matching content that compaction omitted from the model context and mark omitted entries as compacted.
+- [x] Search case-insensitively across message, custom-message, compaction-summary, and branch-summary entries on the current active branch.
+- [x] Include full matching entry content that compaction omitted from the model context and mark omitted entries as compacted.
 - [x] Exclude entries that belong only to inactive branches.
 - [x] Include a configurable number of neighboring searchable entries around each match.
 - [x] Bound matching results with a limit and cursor-based pagination.

@@ -15,7 +15,7 @@
 
 ### Added
 
-- Added built-in `search_current_session_history` for searching full active-branch session history, including entries omitted from model context by compaction.
+- Added built-in `search_current_session_history` for searching full conversational entry content on the active branch, including entries omitted from model context by compaction.
 - Added parent-journal admission enforcement for spawned agents: dispatch starts only after `agent_start` persists, append failures terminalize explicitly without running the child, and restart cleanup fails dead-owned unjournaled rows instead of leaving active ghosts.
 - Added an explicitly enabled privileged live-process JavaScript REPL: `/debug` opens an owner-only Unix socket, `pi debug attach <session-id>` attaches from another terminal, `/debug off` closes it, and the live `pi` root follows session replacement without captured stale runtime state.
 - Added `pi control restart --session-id <session-id>` to resolve a live session through the control DB and request an immediate same-session `SIGHUP` restart without manually finding its PID.

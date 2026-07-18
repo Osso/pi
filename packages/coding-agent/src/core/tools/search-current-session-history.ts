@@ -44,29 +44,38 @@ interface SearchableSessionEntry {
 	entry: SessionEntry;
 	role: string;
 	content: unknown;
-	searchText: string;
+	searchTexts: string[];
+}
+
+function collectSearchTexts(value: unknown): string[] {
+	if (typeof value === "string") return [value];
+	if (Array.isArray(value)) return value.flatMap(collectSearchTexts);
+	if (value && typeof value === "object") return Object.values(value).flatMap(collectSearchTexts);
+	return [];
 }
 
 function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefined {
 	switch (entry.type) {
-		case "message":
+		case "message": {
+			const content = "content" in entry.message ? entry.message.content : entry.message;
 			return {
 				entry,
 				role: entry.message.role,
-				content: "content" in entry.message ? entry.message.content : entry.message,
-				searchText: JSON.stringify(entry.message),
+				content,
+				searchTexts: collectSearchTexts(content),
 			};
+		}
 		case "custom_message":
 			return {
 				entry,
 				role: "custom",
 				content: entry.content,
-				searchText: JSON.stringify(entry.content),
+				searchTexts: collectSearchTexts(entry.content),
 			};
 		case "compaction":
-			return { entry, role: "compaction", content: entry.summary, searchText: entry.summary };
+			return { entry, role: "compaction", content: entry.summary, searchTexts: [entry.summary] };
 		case "branch_summary":
-			return { entry, role: "branchSummary", content: entry.summary, searchText: entry.summary };
+			return { entry, role: "branchSummary", content: entry.summary, searchTexts: [entry.summary] };
 		default:
 			return undefined;
 	}
@@ -129,7 +138,7 @@ export function createSearchCurrentSessionHistoryToolDefinition(): ToolDefinitio
 			});
 			const normalizedQuery = query.toLocaleLowerCase();
 			const allMatchIndexes = searchableEntries.flatMap((entry, index) =>
-				entry.searchText.toLocaleLowerCase().includes(normalizedQuery) ? [index] : [],
+				entry.searchTexts.some((text) => text.toLocaleLowerCase().includes(normalizedQuery)) ? [index] : [],
 			);
 			const cursor = parseCursor(params.cursor);
 			const limit = params.limit ?? DEFAULT_LIMIT;
