@@ -1128,7 +1128,9 @@ describe("pyrun extension", () => {
 
 		await harness.evaluate({ code: "print.giant_stream()" }, (update) => updates.push(update));
 
-		const streamedText = readToolText(updates.at(-1) ?? (() => { throw new Error("Expected streamed update"); })());
+		const lastUpdate = updates.at(-1);
+		if (!lastUpdate) throw new Error("Expected streamed update");
+		const streamedText = readToolText(lastUpdate);
 		expect(Buffer.byteLength(streamedText, "utf8")).toBeLessThanOrEqual(1_048_576);
 		expect(streamedText).toContain("-suffix");
 		expect(streamedText).not.toContain("prefix-");
