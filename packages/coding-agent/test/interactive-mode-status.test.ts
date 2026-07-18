@@ -2125,7 +2125,7 @@ describe("InteractiveMode selected-session model routing", () => {
 			childViewAgentId: undefined,
 			session: { setModel: mainSetModel },
 			findExactModelMatch: vi.fn().mockResolvedValue(model),
-			resolveViewedSessionTarget: vi.fn().mockReturnValue({ setModel: vi.fn() }),
+			resolveViewedSessionTarget: vi.fn().mockReturnValue({ setModel: mainSetModel }),
 			footer: { invalidate: vi.fn() },
 			updateEditorBorderColor: vi.fn(),
 			showStatus: vi.fn(),
@@ -2183,7 +2183,17 @@ describe("InteractiveMode selected-session model routing", () => {
 				setModel: mainSetModel,
 			},
 			settingsManager: { setDefaultModelAndProvider: vi.fn() },
-			resolveViewedSessionTarget: vi.fn().mockReturnValue({ setModel: childSetModel }),
+			resolveViewedSessionTarget: vi.fn().mockReturnValue({
+				model,
+				modelRegistry: {
+					refresh: vi.fn(),
+					getAvailable: vi.fn().mockResolvedValue([model]),
+					getError: vi.fn().mockReturnValue(undefined),
+					find: vi.fn().mockReturnValue(model),
+				},
+				scopedModels: [{ model }],
+				setModel: childSetModel,
+			}),
 			showSelector: (factory: (done: () => void) => { component: unknown }) => {
 				selectorComponent = factory(vi.fn()).component;
 			},
