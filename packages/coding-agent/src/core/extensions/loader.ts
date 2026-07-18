@@ -207,7 +207,6 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		setThinkingLevel: notInitialized,
 		flagValues: new Map(),
 		pendingProviderRegistrations: [],
-		sessionMutationTargetResolver: undefined,
 		assertActive,
 		invalidate: (message) => {
 			state.staleMessage ??=
@@ -381,29 +380,19 @@ function createExtensionAPI(
 			return runtime.getCommands();
 		},
 
-		registerSessionMutationTargetResolver(resolver) {
-			runtime.assertActive();
-			runtime.sessionMutationTargetResolver = resolver;
-		},
-
 		async setModel(model) {
 			runtime.assertActive();
-			const target = runtime.sessionMutationTargetResolver?.();
-			if (!target) return runtime.setModel(model);
-			await target.setModel(model);
-			return true;
+			return runtime.setModel(model);
 		},
 
 		getThinkingLevel() {
 			runtime.assertActive();
-			return runtime.sessionMutationTargetResolver?.()?.thinkingLevel ?? runtime.getThinkingLevel();
+			return runtime.getThinkingLevel();
 		},
 
 		setThinkingLevel(level) {
 			runtime.assertActive();
-			const target = runtime.sessionMutationTargetResolver?.();
-			if (target) target.setThinkingLevel(level);
-			else runtime.setThinkingLevel(level);
+			runtime.setThinkingLevel(level);
 		},
 
 		registerProvider(name: string, config: ProviderConfig) {

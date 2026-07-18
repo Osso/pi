@@ -115,6 +115,8 @@ export interface CreateAgentSessionOptions {
 	sessionStartEvent?: SessionStartEvent;
 	/** Override resident Supervisor transport for isolated tests. */
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
+	/** Process-owned resolver for the currently selected live session mutation target. */
+	sessionMutationTargetResolver?: AgentSessionConfig["sessionMutationTargetResolver"];
 }
 
 function rulesScopeForRuntimeRole(role: MultiAgentRuntimeRole | undefined): RulesScope {
@@ -451,6 +453,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 		supervisorDecisionRequester: options.supervisorDecisionRequester,
+		sessionMutationTargetResolver: options.sessionMutationTargetResolver,
 	});
 	sessionRef.current = session;
 	const extensionsResult = resourceLoader.getExtensions();

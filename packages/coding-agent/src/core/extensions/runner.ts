@@ -338,6 +338,7 @@ export class ExtensionRunner {
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
 	private getFooterData: () => ReadonlyFooterDataProvider | undefined = () => undefined;
+	private sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 
 	constructor(
 		extensions: Extension[],
@@ -346,6 +347,7 @@ export class ExtensionRunner {
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
 		settingsManager?: SettingsManager,
+		sessionMutationTargetResolver?: () => SessionMutationTarget | undefined,
 	) {
 		this.extensions = extensions;
 		this.runtime = runtime;
@@ -354,6 +356,7 @@ export class ExtensionRunner {
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
 		this.settingsManager = settingsManager;
+		this.sessionMutationTargetResolver = sessionMutationTargetResolver;
 	}
 
 	bindCore(
@@ -701,8 +704,8 @@ export class ExtensionRunner {
 		this.shutdownHandler();
 	}
 
-	private resolveSessionMutationTarget(agentId?: string): SessionMutationTarget | undefined {
-		const target = this.runtime.sessionMutationTargetResolver?.(agentId);
+	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
+		const target = this.sessionMutationTargetResolver?.();
 		if (target) return target;
 		const store = this.getMultiAgentStoreFn?.();
 		const selectedAgentId = store?.getSelectedAgentId();
@@ -784,9 +787,9 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return getModel();
 			},
-			setModel: async (model, agentId) => {
+			setModel: async (model) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget(agentId);
+				const target = runner.resolveSessionMutationTarget();
 				if (!target) return runner.runtime.setModel(model);
 				await target.setModel(model);
 				return true;
@@ -795,9 +798,9 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.getThinkingLevelFn();
 			},
-			setThinkingLevel: (level, agentId) => {
+			setThinkingLevel: (level) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget(agentId);
+				const target = runner.resolveSessionMutationTarget();
 				if (target) target.setThinkingLevel(level);
 				else runner.runtime.setThinkingLevel(level);
 			},

@@ -1,12 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	registerAgentsCoreTools,
-	registerSelectedSessionMutationResolver,
-	type MultiAgentExtensionOptions,
-} from "./runtime.ts";
+import { registerAgentsCoreTools, type MultiAgentExtensionOptions } from "./runtime.ts";
 
 export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
-	registerSelectedSessionMutationResolver(pi, options);
 	registerAgentsCoreTools(pi, options);
 }
 

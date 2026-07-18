@@ -116,7 +116,7 @@ async function selectAndMutateHeadlessTarget(
 		});
 	agent.respondToLlmRequest(
 		afterSelection.id,
-		fauxAssistantMessage(fauxToolCall(toolName, { agentId }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall(toolName, {}), { stopReason: "toolUse" }),
 	);
 	const entry = await agent.waitForSessionEntry(
 		null,

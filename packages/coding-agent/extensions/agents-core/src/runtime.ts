@@ -3229,22 +3229,9 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 	);
 }
 
-export function registerSelectedSessionMutationResolver(
-	pi: ExtensionAPI,
-	options: MultiAgentExtensionOptions,
-): void {
-	const runtimeHandles = options.runtimeHandles;
-	if (!runtimeHandles) return;
-	const store = resolveMultiAgentStore(options);
-	pi.registerSessionMutationTargetResolver((agentId) =>
-		resolveSelectedSessionMutationTarget(store, runtimeHandles, agentId),
-	);
-}
-
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
 	const sharedOptions = { ...options, store };
-	registerSelectedSessionMutationResolver(pi, sharedOptions);
 
 	registerAgentsCoreTools(pi, sharedOptions);
 	registerAgentViewerTools(pi, sharedOptions);

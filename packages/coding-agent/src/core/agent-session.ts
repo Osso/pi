@@ -88,6 +88,7 @@ import {
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
 	type SessionBeforeTreeResult,
+	type SessionMutationTarget,
 	type SessionStartEvent,
 	type ShutdownHandler,
 	type ToolCallEvent,
@@ -382,6 +383,8 @@ export interface AgentSessionConfig {
 	agentDir?: string;
 	/** Override resident Supervisor transport for isolated tests. */
 	supervisorDecisionRequester?: SupervisorDecisionRequester;
+	/** Process-owned resolver for the currently selected live session mutation target. */
+	sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 	/**
 	 * Override base tools (useful for custom runtimes).
 	 *
@@ -4500,6 +4503,7 @@ export class AgentSession {
 			this.sessionManager,
 			this._modelRegistry,
 			this.settingsManager,
+			this._config.sessionMutationTargetResolver,
 		);
 		if (this._extensionRunnerRef) {
 			this._extensionRunnerRef.current = this._extensionRunner;

@@ -591,6 +591,10 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 
 const firstPartyMultiAgentStore = new MultiAgentStore();
 const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
+const resolveFirstPartySessionMutationTarget = () =>
+	resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles);
+const createFirstPartyAgentSession = (options: Parameters<typeof createAgentSession>[0]) =>
+	createAgentSession({ ...options, sessionMutationTargetResolver: resolveFirstPartySessionMutationTarget });
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -599,14 +603,14 @@ function createFirstPartyExtensionFactories(
 ): ExtensionFactory[] {
 	const childAgentSessionFactory = createProductionChildAgentSessionFactory({
 		agentDir: getAgentDir(),
-		createSession: createAgentSession,
+		createSession: createFirstPartyAgentSession,
 		createSessionManager: SessionManager.create,
 		extensionFactories: getRuntimeExtensionFactories,
 		multiAgentStore: firstPartyMultiAgentStore,
 	});
 	const attachedSessionFactory = createProductionAttachedSessionFactory({
 		agentDir: getAgentDir(),
-		createSession: createAgentSession,
+		createSession: createFirstPartyAgentSession,
 		extensionFactories: getRuntimeExtensionFactories,
 		multiAgentStore: firstPartyMultiAgentStore,
 	});
@@ -970,6 +974,7 @@ export async function main(args: string[], options?: MainOptions) {
 
 		const created = await createAgentSessionFromServices({
 			services,
+			sessionMutationTargetResolver: resolveFirstPartySessionMutationTarget,
 			multiAgentRuntimeRole: "orchestrator",
 			multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
 			sessionManager,

@@ -350,11 +350,11 @@ export interface ExtensionContext {
 	/** Current model for the selected mutable session target, when available. */
 	model: Model<any> | undefined;
 	/** Set the model on the currently selected mutable session target, when supported. */
-	setModel?: (model: Model<any>, agentId?: string) => Promise<boolean>;
+	setModel?: (model: Model<any>) => Promise<boolean>;
 	/** Current thinking/effort level for the selected mutable session target, when available. */
 	getThinkingLevel?: () => ThinkingLevel;
 	/** Set thinking level on the currently selected mutable session target, when supported. */
-	setThinkingLevel?: (level: ThinkingLevel, agentId?: string) => void;
+	setThinkingLevel?: (level: ThinkingLevel) => void;
 	/** Current scoped models used for model cycling, when available. */
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
@@ -390,11 +390,11 @@ export interface ExtensionContext {
  */
 export interface ExtensionCommandContext extends ExtensionContext {
 	/** Set the model on the currently selected mutable session target. */
-	setModel(model: Model<any>, agentId?: string): Promise<boolean>;
+	setModel(model: Model<any>): Promise<boolean>;
 	/** Read thinking level from the currently selected mutable session target. */
 	getThinkingLevel(): ThinkingLevel;
 	/** Set thinking level on the currently selected mutable session target. */
-	setThinkingLevel(level: ThinkingLevel, agentId?: string): void;
+	setThinkingLevel(level: ThinkingLevel): void;
 	/** Show the first-party approval preset selector. */
 	showApprovalSelector(): void;
 
@@ -1489,9 +1489,6 @@ export interface ExtensionAPI {
 	// Model and Thinking Level
 	// =========================================================================
 
-	/** Register the selected-session mutation resolver used by model and thinking operations. */
-	registerSessionMutationTargetResolver(resolver: (agentId?: string) => SessionMutationTarget | undefined): void;
-
 	/** Set the current model. Returns false if no API key available. */
 	setModel(model: Model<any>): Promise<boolean>;
 
@@ -1732,7 +1729,6 @@ export interface SessionMutationTarget {
 
 export interface ExtensionRuntimeState {
 	flagValues: Map<string, boolean | string>;
-	sessionMutationTargetResolver?: (agentId?: string) => SessionMutationTarget | undefined;
 	/** Provider registrations queued during extension loading, processed when runner binds */
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;
 	/** Throws when this extension instance is stale after runtime replacement. */
