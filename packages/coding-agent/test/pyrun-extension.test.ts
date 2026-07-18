@@ -9,7 +9,7 @@ import {
 	createHostrunMultiAgentRequestHandler,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
-import { createPyrunEvalExecutor } from "../extensions/pyrun/src/eval-tool.ts";
+import { createPyrunEvalExecutor, formatCanonicalPyrunEvalResult } from "../extensions/pyrun/src/eval-tool.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
@@ -729,6 +729,54 @@ describe("pyrun extension", () => {
 		}
 	});
 
+	it("does not resolve a replacement request with stale output from the old runner generation", async () => {
+		const counterPath = join(tempDir, "runner-generation.txt");
+		const runnerPath = join(tempDir, "generation-race-runner.mjs");
+		writeFileSync(counterPath, "0");
+		writeFileSync(
+			runnerPath,
+			`import { readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+
+const counterPath = process.env.COUNTER_PATH;
+if (!counterPath) throw new Error("COUNTER_PATH is required");
+const generation = Number(readFileSync(counterPath, "utf8"));
+writeFileSync(counterPath, String(generation + 1));
+
+for await (const line of createInterface({ input: process.stdin })) {
+  const request = JSON.parse(line);
+  if (generation === 0) {
+    process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, value: "old" }) + "\\n");
+    spawn(
+      process.execPath,
+      ["-e", "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'completed', executed: 'stale', value: 'stale-old' }) + '\\\\n'), 100)"],
+      { stdio: ["ignore", "inherit", "ignore"] },
+    );
+  } else {
+    setTimeout(() => {
+      process.stderr.write("replacement failed\\n");
+      process.exit(23);
+    }, 250);
+  }
+}
+`,
+		);
+		const runner = new PyrunRunnerClient({
+			args: [runnerPath],
+			command: process.execPath,
+			detached: false,
+			env: { COUNTER_PATH: counterPath },
+		});
+		try {
+			await expect(runner.evaluate({ code: "old" })).resolves.toMatchObject({ value: "old" });
+			runner.dispose();
+			await expect(runner.evaluate({ code: "replacement" })).rejects.toThrow(/exit code 23/);
+		} finally {
+			runner.dispose();
+		}
+	});
+
 	it("runs Pyrun inside bwrap without host environment or Pi bridge access", async () => {
 		const previousPythonPath = process.env.PYTHONPATH;
 		const previousSecret = process.env.PI_TEST_SECRET;
@@ -1145,6 +1193,26 @@ describe("pyrun extension", () => {
 		expect(Buffer.byteLength(finalConsole)).toBeLessThanOrEqual(1_048_576);
 		expect(finalConsole).toContain("-suffix");
 		expect(finalConsole).not.toContain("prefix-");
+	});
+
+	it("bounds final console history by actual newline lines", () => {
+		const result = formatCanonicalPyrunEvalResult(
+			{ code: "history" },
+			{
+				console: Array.from({ length: 200 }, (_, index) => `old-${index}\nnew-${index}`),
+				type: "completed",
+			},
+		);
+		const entries = result.details?.console ?? [];
+		const lineCount = entries.reduce((count, entry) => {
+			const text = typeof entry === "string" ? entry : entry.message;
+			return count + (text.endsWith("\n") ? text.slice(0, -1).split("\n").length : text.split("\n").length);
+		}, 0);
+
+		expect(lineCount).toBe(300);
+		expect(readToolText(result)).toContain("old-50\nnew-50");
+		expect(readToolText(result)).not.toContain("old-49\nnew-49");
+		expect(readToolText(result)).toContain("old-199\nnew-199");
 	});
 
 	it("uses the same visible progress formatting for durable foreground evaluations", async () => {
