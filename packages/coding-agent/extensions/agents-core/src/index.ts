@@ -11,6 +11,7 @@ export {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
+	resolveSelectedLiveChildSessionMutationTarget,
 	resolveSelectedSessionMutationTarget,
 } from "./runtime.ts";
 export { createHostrunMultiAgentRequestHandler } from "./runtime.ts";
@@ -23,6 +24,7 @@ export type {
 	CancelReservedAgentResult,
 	ChildAgentSessionFactory,
 	HostrunMultiAgentRequestHandler,
+	LiveChildSessionMutationTarget,
 	MultiAgentExtensionOptions,
 	MultiAgentRuntimeHandles,
 } from "./runtime.ts";
