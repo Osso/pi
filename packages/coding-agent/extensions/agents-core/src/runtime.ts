@@ -228,7 +228,7 @@ export interface ChildAgentDispatchInput {
 	signal?: AbortSignal;
 }
 
-export interface ChildAgentSession extends SessionMutationTarget {
+export interface ChildAgentSession {
 	abort?(): void;
 	dispose?(): void;
 	drainRuntimeCoordination?(): Promise<void>;
@@ -406,7 +406,15 @@ export function resolveSelectedSessionMutationTarget(
 	if (!isActiveLifecycle(agent.lifecycle)) throw new Error(formatInactiveAgentSelectionMessage(agent));
 	const session = runtimeHandles.sessions.get(selectedAgentId);
 	if (!session) throw new Error(`Agent ${selectedAgentId} is not a live child session`);
-	return session;
+	const mutationTarget = session as unknown as Partial<SessionMutationTarget>;
+	if (
+		typeof mutationTarget.setModel !== "function" ||
+		typeof mutationTarget.setThinkingLevel !== "function" ||
+		typeof mutationTarget.thinkingLevel !== "string"
+	) {
+		throw new Error(`Agent ${selectedAgentId} does not support live session mutation`);
+	}
+	return mutationTarget as SessionMutationTarget;
 }
 
 interface WaitingDesktopNotificationRegistration {

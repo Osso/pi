@@ -349,12 +349,12 @@ export interface ExtensionContext {
 	toolDetachRegistry?: ToolDetachRegistry;
 	/** Current model for the selected mutable session target, when available. */
 	model: Model<any> | undefined;
-	/** Set the model on the currently selected mutable session target. */
-	setModel(model: Model<any>): Promise<boolean>;
-	/** Current thinking/effort level for the selected mutable session target. */
-	getThinkingLevel(): ThinkingLevel;
-	/** Set thinking level on the currently selected mutable session target. */
-	setThinkingLevel(level: ThinkingLevel): void;
+	/** Set the model on the currently selected mutable session target, when supported. */
+	setModel?: (model: Model<any>) => Promise<boolean>;
+	/** Current thinking/effort level for the selected mutable session target, when available. */
+	getThinkingLevel?: () => ThinkingLevel;
+	/** Set thinking level on the currently selected mutable session target, when supported. */
+	setThinkingLevel?: (level: ThinkingLevel) => void;
 	/** Current scoped models used for model cycling, when available. */
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
@@ -389,6 +389,12 @@ export interface ExtensionContext {
  * Includes session control methods only safe in user-initiated commands.
  */
 export interface ExtensionCommandContext extends ExtensionContext {
+	/** Set the model on the currently selected mutable session target. */
+	setModel(model: Model<any>): Promise<boolean>;
+	/** Read thinking level from the currently selected mutable session target. */
+	getThinkingLevel(): ThinkingLevel;
+	/** Set thinking level on the currently selected mutable session target. */
+	setThinkingLevel(level: ThinkingLevel): void;
 	/** Show the first-party approval preset selector. */
 	showApprovalSelector(): void;
 
@@ -1718,7 +1724,7 @@ export type SetLabelHandler = (entryId: string, label: string | undefined) => vo
  * Contains flag values (defaults set during registration, CLI values set after).
  */
 export interface SessionMutationTarget {
-	model: Model<any>;
+	model: Model<any> | undefined;
 	thinkingLevel: ThinkingLevel;
 	setModel(model: Model<any>): Promise<void>;
 	setThinkingLevel(level: ThinkingLevel): void;
