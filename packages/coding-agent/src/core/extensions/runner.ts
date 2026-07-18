@@ -701,8 +701,8 @@ export class ExtensionRunner {
 		this.shutdownHandler();
 	}
 
-	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
-		if (this.getDetachedJobLifecycleFn?.()) {
+	private resolveSessionMutationTarget(rejectDetached = false): SessionMutationTarget | undefined {
+		if (rejectDetached && this.getDetachedJobLifecycleFn?.()) {
 			throw new Error("Detached jobs are not live session mutation targets");
 		}
 		const target = this.runtime.sessionMutationTargetResolver?.();
@@ -788,7 +788,7 @@ export class ExtensionRunner {
 			},
 			setModel: async (model) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget();
+				const target = runner.resolveSessionMutationTarget(true);
 				if (!target) return runner.runtime.setModel(model);
 				await target.setModel(model);
 				return true;
@@ -799,7 +799,7 @@ export class ExtensionRunner {
 			},
 			setThinkingLevel: (level) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget();
+				const target = runner.resolveSessionMutationTarget(true);
 				if (target) target.setThinkingLevel(level);
 				else runner.runtime.setThinkingLevel(level);
 			},
