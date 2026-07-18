@@ -54,13 +54,11 @@ import {
 	getControlDbPath,
 	listRuntimeMailboxMessages,
 	readMultiAgentAgent,
-	reconcileDeadDetachedAgentRuntimes,
 	registerRuntimeMailboxListener,
 	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
-import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
 	type ChildAgentSessionFactory,
@@ -410,13 +408,17 @@ function createMultiAgentHarness(
 				await handler(event, ctx);
 			}
 		},
-		call: async <TDetails extends Record<string, unknown>>(name: string, params: Record<string, unknown>) => {
+		call: async <TDetails extends Record<string, unknown>>(
+			name: string,
+			params: Record<string, unknown>,
+			signal?: AbortSignal,
+		) => {
 			const tool = tools.get(name);
 			if (!tool) {
 				throw new Error(`tool not registered: ${name}`);
 			}
 
-			return (await tool.execute(`${name}-call`, params, undefined, undefined, ctx)) as AgentToolResult<TDetails>;
+			return (await tool.execute(`${name}-call`, params, signal, undefined, ctx)) as AgentToolResult<TDetails>;
 		},
 		command: async (name: string, args: string, commandCtx: TestCommandContext = {}) => {
 			const command = commands.get(name);
@@ -3179,21 +3181,18 @@ describe("multi-agent extension tools", () => {
 		if (!created.ok) throw new Error(`Could not create detached child: ${created.error}`);
 		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
 
-		releaseParent.resolve();
-		await delay(10);
+		const waitAbort = new AbortController();
+		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {}, waitAbort.signal);
+		const didResolve = await resolvesWithin(waitPromise, 250);
+		if (!didResolve) waitAbort.abort();
+		expect(didResolve).toBe(true);
+		const waited = await waitPromise;
+		expect(waited.details).toMatchObject({
+			agent: { id: "pyrun_dead", lifecycle: "failed", error: { code: "lost_runtime" } },
+		});
 		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "running" });
 
-		expect(reconcileDeadDetachedAgentRuntimes(persistence.controlDbPath, "2026-07-18T12:00:01.000Z")).toBe(1);
-		expect(listRuntimeMailboxMessages(persistence.controlDbPath)).toMatchObject([
-			{ recipient: { agentId: parent.details.agent.id, sessionId: harness.getSessionId() }, status: "pending" },
-		]);
-		deliverTerminalOutboxProjections({
-			claimId: "live-parent-dead-detached-child",
-			controlDbPath: persistence.controlDbPath,
-			now: () => "2026-07-18T12:00:01.000Z",
-			store: harness.store,
-		});
-
+		releaseParent.resolve();
 		const completedParent = await waitForTerminalAgent(harness, parent.details.agent.id);
 		expect(readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, "pyrun_dead")).toMatchObject({
 			error: { code: "lost_runtime" },

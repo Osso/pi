@@ -53,6 +53,7 @@ import {
 	readSessionMetadata,
 	readSharedChannelCursor,
 	readSharedChannelTail,
+	reconcileDeadDetachedAgentRuntimes,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
@@ -2231,6 +2232,7 @@ class WaitAgentsWakeWatcher {
 		});
 		this.signal?.addEventListener("abort", this.onAbort, { once: true });
 		this.startRuntimeCoordinationWatch(readTrackedTerminal);
+		this.reconcileDeadDetachedRuntimes();
 
 		const terminalAgent = readTrackedTerminal();
 		if (terminalAgent) {
@@ -2240,8 +2242,20 @@ class WaitAgentsWakeWatcher {
 		this.checkCoordination();
 	}
 
+	private reconcileDeadDetachedRuntimes(): void {
+		const nowIso = new Date().toISOString();
+		if (reconcileDeadDetachedAgentRuntimes(this.controlDbPath, nowIso) === 0) return;
+		deliverTerminalOutboxProjections({
+			claimId: randomUUID(),
+			controlDbPath: this.controlDbPath,
+			now: () => nowIso,
+			store: this.store,
+		});
+	}
+
 	private startRuntimeCoordinationWatch(readTrackedTerminal: () => AgentSnapshot | undefined): void {
 		const checkWake = () => {
+			this.reconcileDeadDetachedRuntimes();
 			const terminal = readTrackedTerminal();
 			if (terminal) {
 				this.finish({ agent: terminal, kind: "agent" });
