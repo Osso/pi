@@ -492,7 +492,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
-	test("selected-agent banner returns to main thread when selected view becomes inactive", () => {
+	test("selected-agent banner preserves an inactive selected view", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -507,8 +507,8 @@ describe("InteractiveMode key handlers", () => {
 		).toBe(true);
 		const banner = new AgentSelectionBannerComponent(store);
 
-		expect(store.getSelectedAgentId()).toBeUndefined();
-		expect(normalizeRenderedOutput(banner)).toBe("");
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
+		expect(normalizeRenderedOutput(banner)).toContain(`Agent ${spawned.agent.id}: Scout (completed)`);
 	});
 
 	test("/agents selection updates the visible selected-agent banner", () => {
