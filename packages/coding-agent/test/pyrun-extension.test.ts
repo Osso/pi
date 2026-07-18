@@ -1502,7 +1502,7 @@ describe("pyrun extension", () => {
 		expect(store.getSelectedAgentId()).toBeUndefined();
 	});
 
-	it("rejects inactive agents from Pyrun pi.agents.select", async () => {
+	it("selects completed agents for persistent read-only viewing from Pyrun", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "scout",
@@ -1519,8 +1519,10 @@ describe("pyrun extension", () => {
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
 
-		expect(selected.details.error).toBe("Agent is not active: Scout (completed)");
-		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(selected.details.value).toMatchObject({
+			agent: { id: spawned.agent.id, displayName: "Scout", lifecycle: "completed" },
+		});
+		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
 		expect(store.selectAgentView(spawned.agent.id)).toMatchObject({ id: spawned.agent.id, lifecycle: "completed" });
 	});
 
