@@ -139,7 +139,7 @@ describe("resident architect service", () => {
 				settingsManager: createArchitectSettingsManager(),
 			});
 			try {
-				expect(session.systemPrompt).toContain(`<user_rules>${sentinel}</user_rules>`);
+				expect(session.systemPrompt).toContain(`<user_rules>\n${sentinel}\n</user_rules>`);
 			} finally {
 				session.dispose();
 			}
@@ -167,7 +167,7 @@ describe("resident architect service", () => {
 				settingsManager: createArchitectSettingsManager(),
 			});
 			try {
-				expect(session.systemPrompt).toContain("<user_rules>OBSERVER_SHARED_RULE</user_rules>");
+				expect(session.systemPrompt).toContain("<user_rules>\nOBSERVER_SHARED_RULE\n</user_rules>");
 				expect(session.systemPrompt).not.toContain("OBSERVER_MAIN_RULE");
 			} finally {
 				session.dispose();
