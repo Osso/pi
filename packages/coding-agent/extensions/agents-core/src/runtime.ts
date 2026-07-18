@@ -896,11 +896,12 @@ function selectAgent(
 		return selected;
 	}
 	if (rendered === false) {
+		const error = `Agent view selection failed: ${agentId}`;
 		if (runtimeHandles) {
-			runtimeHandles.pendingRejectedMutationTargetError = undefined;
+			runtimeHandles.pendingRejectedMutationTargetError = error;
 			runtimeHandles.pendingRejectedMutationTargetId = agentId;
 		}
-		throw new Error(`Agent view selection failed: ${agentId}`);
+		throw new Error(error);
 	}
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {

@@ -2001,9 +2001,15 @@ describe("multi-agent extension tools", () => {
 		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
 	});
 
-	it("rejects Hostrun agents.select without retaining the failed mutation target", async () => {
+	it("rejects Hostrun agents.select without retaining a live failed mutation target", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const spawned = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
 		const handler = createHostrunMultiAgentRequestHandler({
 			runtimeHandles,
 			selectAgentView: () => false,
@@ -2012,11 +2018,12 @@ describe("multi-agent extension tools", () => {
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		await expect(
-			handler({ method: "agents.select", params: { agentId: "agent_1" } }, ctx, undefined),
-		).rejects.toThrow("Agent view selection failed: agent_1");
-		expect(runtimeHandles.pendingRejectedMutationTargetId).toBe("agent_1");
-		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow("Agent not found: agent_1");
-		expect(runtimeHandles.pendingRejectedMutationTargetId).toBeUndefined();
+			handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined),
+		).rejects.toThrow(`Agent view selection failed: ${spawned.agent.id}`);
+		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow(
+			`Agent view selection failed: ${spawned.agent.id}`,
+		);
+		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
 	});
 
 	it("lets Hostrun agents.wait return immediately when no agents are active", async () => {
