@@ -379,6 +379,7 @@ export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
+	pendingRejectedMutationTargetError?: string;
 	pendingRejectedMutationTargetId?: string;
 	selectedMutationTargetId?: string;
 }
@@ -395,7 +396,10 @@ export function resolveSelectedSessionMutationTarget(
 		runtimeHandles.selectedMutationTargetId,
 ): SessionMutationTarget | undefined {
 	if (runtimeHandles.pendingRejectedMutationTargetId === selectedAgentId) {
+		const pendingError = runtimeHandles.pendingRejectedMutationTargetError;
+		runtimeHandles.pendingRejectedMutationTargetError = undefined;
 		runtimeHandles.pendingRejectedMutationTargetId = undefined;
+		if (pendingError) throw new Error(pendingError);
 	}
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
@@ -859,22 +863,29 @@ function selectAgent(
 	const agentId = normalizeSelectAgentId(params);
 	const rendered = selectAgentView?.(agentId);
 	if (rendered === true) {
+		const selected = selectCurrentAgent(store);
 		if (runtimeHandles) {
-			const selectedAgent = store.getAgent(agentId);
-			runtimeHandles.pendingRejectedMutationTargetId =
-				selectedAgent?.agentType === "background" ? agentId : undefined;
+			const unresolvedSelection = agentId !== MAIN_THREAD_AGENT_ID && selected.agent.id === MAIN_THREAD_AGENT_ID;
+			runtimeHandles.pendingRejectedMutationTargetError = unresolvedSelection
+				? `Agent ${agentId} is detached or otherwise not a live session mutation target`
+				: undefined;
+			runtimeHandles.pendingRejectedMutationTargetId = unresolvedSelection ? agentId : undefined;
 			runtimeHandles.selectedMutationTargetId = agentId;
 		}
-		return selectCurrentAgent(store);
+		return selected;
 	}
 	if (rendered === false) {
-		if (runtimeHandles) runtimeHandles.pendingRejectedMutationTargetId = agentId;
+		if (runtimeHandles) {
+			runtimeHandles.pendingRejectedMutationTargetError = undefined;
+			runtimeHandles.pendingRejectedMutationTargetId = agentId;
+		}
 		throw new Error(`Agent view selection failed: ${agentId}`);
 	}
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();
 		if (runtimeHandles) {
+			runtimeHandles.pendingRejectedMutationTargetError = undefined;
 			runtimeHandles.pendingRejectedMutationTargetId = undefined;
 			runtimeHandles.selectedMutationTargetId = agentId;
 		}
@@ -884,12 +895,16 @@ function selectAgent(
 	const result = store.selectActiveAgentTargetWithStatus(agentId);
 	if (result.ok) {
 		if (runtimeHandles) {
+			runtimeHandles.pendingRejectedMutationTargetError = undefined;
 			runtimeHandles.pendingRejectedMutationTargetId = undefined;
 			runtimeHandles.selectedMutationTargetId = agentId;
 		}
 		return { agent: result.agent };
 	}
-	if (runtimeHandles) runtimeHandles.pendingRejectedMutationTargetId = agentId;
+	if (runtimeHandles) {
+		runtimeHandles.pendingRejectedMutationTargetError = undefined;
+		runtimeHandles.pendingRejectedMutationTargetId = agentId;
+	}
 	if (result.error === "inactive") {
 		throw new Error(formatInactiveAgentSelectionMessage(result.agent));
 	}
