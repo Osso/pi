@@ -109,7 +109,6 @@ async function selectAndMutateHeadlessTarget(
 			candidate.message.toolName === "pyrun_eval",
 	);
 	if (selectionEntry.type !== "message") throw new Error("Expected Pyrun selection result entry");
-	if (selectionEntry.message.role === "toolResult" && selectionEntry.message.isError) return selectionEntry;
 	const afterSelection = await agent
 		.waitForLlmRequest((candidate) => candidate.agentId === null && candidate.id !== request.id)
 		.catch((error: unknown) => {
@@ -302,7 +301,7 @@ describe("headless Pi fixture", () => {
 					detached.id,
 					"test_set_viewed_model",
 				);
-				expectFailedToolEntry(result, "not live session mutation targets");
+				expectFailedToolEntry(result, "detached and not a live child session");
 				expect(
 					agent
 						.readSessionEntries(null)
