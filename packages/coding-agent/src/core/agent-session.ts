@@ -759,6 +759,7 @@ export class AgentSession {
 	private _childThinkingPhaseTimeoutError: Error | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
 	private _systemPromptOverride?: string;
+	private readonly _sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 
 	constructor(config: AgentSessionConfig) {
 		validateMultiAgentRuntimeRole(config);
@@ -771,6 +772,7 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._modelRegistry = config.modelRegistry;
 		this._extensionRunnerRef = config.extensionRunnerRef;
+		this._sessionMutationTargetResolver = config.sessionMutationTargetResolver;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
@@ -4503,7 +4505,7 @@ export class AgentSession {
 			this.sessionManager,
 			this._modelRegistry,
 			this.settingsManager,
-			this._config.sessionMutationTargetResolver,
+			this._sessionMutationTargetResolver,
 		);
 		if (this._extensionRunnerRef) {
 			this._extensionRunnerRef.current = this._extensionRunner;
