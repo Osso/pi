@@ -4235,7 +4235,9 @@ export class AgentSession {
 					if (!modelReference) return;
 					const scopedModels = ctx.getScopedModels?.() ?? [];
 					const models =
-						scopedModels.length > 0 ? scopedModels.map((scoped) => scoped.model) : ctx.modelRegistry.getAvailable();
+						scopedModels.length > 0
+							? scopedModels.map((scoped) => scoped.model)
+							: ctx.modelRegistry.getAvailable();
 					const model = findExactModelReferenceMatch(modelReference, models);
 					if (!model) throw new Error(`Model not found or not authenticated: ${modelReference}`);
 					if (!(await ctx.setModel(model))) {

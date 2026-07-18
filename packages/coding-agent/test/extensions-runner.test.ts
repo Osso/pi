@@ -503,6 +503,7 @@ describe("ExtensionRunner", () => {
 				setThinkingLevel: childSetThinkingLevel,
 				thinkingLevel: "medium",
 			} as unknown as NonNullable<ReturnType<NonNullable<ConstructorParameters<typeof ExtensionRunner>[6]>>>;
+			const mainModel = { id: "main-model" } as NonNullable<ReturnType<ExtensionContextActions["getModel"]>>;
 			const runner = new ExtensionRunner(
 				result.extensions,
 				result.runtime,
@@ -520,14 +521,17 @@ describe("ExtensionRunner", () => {
 				},
 				{
 					...extensionContextActions,
-					getModel: () => ({ id: "main-model" } as NonNullable<ReturnType<ExtensionContextActions["getModel"]>>),
+					getModel: () => mainModel,
 				},
 			);
 
 			expect(runner.createCommandContext().model).toBeUndefined();
-			await runner.createContext().setModel(undefined);
-			runner.createContext().setThinkingLevel("high");
-			await runner.createCommandContext().setModel(undefined);
+			const context = runner.createContext();
+			expect(context.setModel).toBeDefined();
+			expect(context.setThinkingLevel).toBeDefined();
+			await context.setModel?.(mainModel);
+			context.setThinkingLevel?.("high");
+			await runner.createCommandContext().setModel(mainModel);
 			runner.createCommandContext().setThinkingLevel("high");
 
 			expect(ownSetModel).toHaveBeenCalledOnce();

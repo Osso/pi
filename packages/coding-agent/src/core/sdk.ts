@@ -442,31 +442,34 @@ async function createAgentSessionInternal(
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
 	}
 
-	const session = new AgentSession({
-		agent,
-		sessionManager,
-		settingsManager,
-		cwd,
-		agentDir,
-		scopedModels: options.scopedModels,
-		resourceLoader,
-		customTools: options.customTools,
-		modelRegistry,
-		initialActiveToolNames,
-		allowedToolNames,
-		excludedToolNames,
-		permissionPromptTool: options.permissionPromptTool,
-		multiAgentAgentId: options.multiAgentAgentId,
-		multiAgentParentSessionId: options.multiAgentParentSessionId,
-		multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
-		disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
-		multiAgentStore: options.multiAgentStore,
-		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
-		multiAgentExecutionCapability: options.multiAgentExecutionCapability,
-		extensionRunnerRef,
-		sessionStartEvent: options.sessionStartEvent,
-		supervisorDecisionRequester: options.supervisorDecisionRequester,
-	}, resolveSessionMutationTarget);
+	const session = new AgentSession(
+		{
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd,
+			agentDir,
+			scopedModels: options.scopedModels,
+			resourceLoader,
+			customTools: options.customTools,
+			modelRegistry,
+			initialActiveToolNames,
+			allowedToolNames,
+			excludedToolNames,
+			permissionPromptTool: options.permissionPromptTool,
+			multiAgentAgentId: options.multiAgentAgentId,
+			multiAgentParentSessionId: options.multiAgentParentSessionId,
+			multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
+			disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
+			multiAgentStore: options.multiAgentStore,
+			multiAgentRuntimeRole: options.multiAgentRuntimeRole,
+			multiAgentExecutionCapability: options.multiAgentExecutionCapability,
+			extensionRunnerRef,
+			sessionStartEvent: options.sessionStartEvent,
+			supervisorDecisionRequester: options.supervisorDecisionRequester,
+		},
+		resolveSessionMutationTarget,
+	);
 	sessionRef.current = session;
 	const extensionsResult = resourceLoader.getExtensions();
 

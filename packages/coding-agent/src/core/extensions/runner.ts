@@ -344,10 +344,7 @@ export class ExtensionRunner {
 	private staleMessage: string | undefined;
 	private getFooterData: () => ReadonlyFooterDataProvider | undefined = () => undefined;
 	private sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
-	private internalCommands: ReadonlyMap<
-		string,
-		(args: string, ctx: ExtensionCommandContext) => Promise<void>
-	>;
+	private internalCommands: ReadonlyMap<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>>;
 
 	constructor(
 		extensions: Extension[],

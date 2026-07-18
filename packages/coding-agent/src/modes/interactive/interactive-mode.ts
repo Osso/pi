@@ -74,6 +74,7 @@ import {
 } from "../../core/desktop-notification.ts";
 import type {
 	AutocompleteProviderFactory,
+	SessionMutationTarget as CoreSessionMutationTarget,
 	EditorFactory,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -366,14 +367,25 @@ function formatFollowUpPreview(message: string): string {
 /**
  * Options for InteractiveMode initialization.
  */
-type SessionMutationTarget = Pick<
-	AgentSession,
-	"cycleModel" | "model" | "modelRegistry" | "scopedModels" | "setModel" | "setThinkingLevel" | "thinkingLevel"
->;
+type InteractiveSessionMutationTarget = CoreSessionMutationTarget &
+	Pick<AgentSession, "cycleModel" | "modelRegistry" | "scopedModels">;
+
+function isInteractiveSessionMutationTarget(
+	target: CoreSessionMutationTarget,
+): target is InteractiveSessionMutationTarget {
+	return (
+		"cycleModel" in target &&
+		typeof target.cycleModel === "function" &&
+		"modelRegistry" in target &&
+		target.modelRegistry !== undefined &&
+		"scopedModels" in target &&
+		Array.isArray(target.scopedModels)
+	);
+}
 
 export interface InteractiveModeOptions {
 	/** Resolve the currently viewed live child to its mutable session. */
-	resolveSessionMutationTarget?: () => SessionMutationTarget | undefined;
+	resolveSessionMutationTarget?: () => CoreSessionMutationTarget | undefined;
 	/** Providers that were migrated to auth.json (shows warning) */
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
@@ -561,10 +573,13 @@ export class InteractiveMode {
 		return this.session.settingsManager;
 	}
 
-	private resolveViewedSessionTarget(): SessionMutationTarget {
+	private resolveViewedSessionTarget(): InteractiveSessionMutationTarget {
 		if (!this.childViewAgentId) return this.session;
 		const target = this.options.resolveSessionMutationTarget?.();
 		if (!target) throw new Error(`Agent ${this.childViewAgentId} is not a live session mutation target`);
+		if (!isInteractiveSessionMutationTarget(target)) {
+			throw new Error(`Agent ${this.childViewAgentId} does not support interactive session mutation`);
+		}
 		return target;
 	}
 

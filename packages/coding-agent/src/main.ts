@@ -58,10 +58,7 @@ import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { createMultiAgentExecutionCapability } from "./core/agent-session.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
-import {
-	type AgentSessionRuntimeDiagnostic,
-	createAgentSessionServices,
-} from "./core/agent-session-services.ts";
+import { type AgentSessionRuntimeDiagnostic, createAgentSessionServices } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage } from "./core/auth-storage.ts";
 import { DebugReplServer } from "./core/debug-repl.ts";
@@ -75,10 +72,7 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-import {
-	type CreateAgentSessionOptions,
-	createAgentSessionWithInternalOptions,
-} from "./core/sdk.ts";
+import { type CreateAgentSessionOptions, createAgentSessionWithInternalOptions } from "./core/sdk.ts";
 import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,

@@ -60,6 +60,13 @@ export interface HeadlessPiOptions {
 	autoDetachTools?: boolean;
 }
 
+export interface HeadlessRpcExtensionError {
+	type: "extension_error";
+	extensionPath: string;
+	event: string;
+	error: string;
+}
+
 export interface HeadlessSharedSession {
 	sessionId: string;
 	sessionFile: string;
@@ -92,6 +99,7 @@ export interface HeadlessPi {
 	countExtensionUiRequests(predicate?: (request: RpcExtensionUIRequest) => boolean): number;
 	waitForSessionEntry(agentId: string | null, predicate: (entry: SessionEntry) => boolean): Promise<SessionEntry>;
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
+	waitForExtensionError(predicate?: (error: HeadlessRpcExtensionError) => boolean): Promise<HeadlessRpcExtensionError>;
 	waitForExtensionUiRequest(predicate?: (request: RpcExtensionUIRequest) => boolean): Promise<RpcExtensionUIRequest>;
 	waitForLlmRequest(predicate?: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest>;
 	waitForSupervisorRequest(kind: SupervisorRequestKind): Promise<SupervisorRequest>;
@@ -512,6 +520,8 @@ function subscribeHeadlessRpcOutput(
 	options: {
 		events: AgentEvent[];
 		eventListeners: Set<() => void>;
+		extensionErrors: HeadlessRpcExtensionError[];
+		extensionErrorListeners: Set<() => void>;
 		uiRequests: RpcExtensionUIRequest[];
 		uiRequestListeners: Set<() => void>;
 	},
@@ -523,9 +533,24 @@ function subscribeHeadlessRpcOutput(
 			for (const listener of options.uiRequestListeners) listener();
 			return;
 		}
+		if (isExtensionError(output)) {
+			options.extensionErrors.push(output);
+			for (const listener of options.extensionErrorListeners) listener();
+			return;
+		}
 		options.events.push(event);
 		for (const listener of options.eventListeners) listener();
 	});
+}
+
+function isExtensionError(value: unknown): value is HeadlessRpcExtensionError {
+	return (
+		isRecord(value) &&
+		value.type === "extension_error" &&
+		typeof value.extensionPath === "string" &&
+		typeof value.event === "string" &&
+		typeof value.error === "string"
+	);
 }
 
 function isExtensionUiRequest(value: unknown): value is RpcExtensionUIRequest {
@@ -557,6 +582,8 @@ async function startSharedHeadlessSession(
 		eventListeners: new Set(),
 		uiRequests: [],
 		uiRequestListeners: new Set(),
+		extensionErrors: [],
+		extensionErrorListeners: new Set(),
 	});
 	const cleanup = () =>
 		cleanupHeadlessPiResources({
@@ -597,6 +624,8 @@ function createHeadlessRuntime(options: {
 	disposeController: AbortController;
 	events: AgentEvent[];
 	eventListeners: Set<() => void>;
+	extensionErrors: HeadlessRpcExtensionError[];
+	extensionErrorListeners: Set<() => void>;
 	uiRequests: RpcExtensionUIRequest[];
 	uiRequestListeners: Set<() => void>;
 	requests: HeadlessLlmRequest[];
@@ -611,6 +640,17 @@ function createHeadlessRuntime(options: {
 			disposeSignal: options.disposeController.signal,
 			timeoutError: () =>
 				new Error(`Timed out waiting for RPC event. Stderr: ${options.clientControl.client.getStderr()}`),
+		});
+	const waitForExtensionError = (
+		predicate: (error: HeadlessRpcExtensionError) => boolean,
+	): Promise<HeadlessRpcExtensionError> =>
+		waitForBufferedItem({
+			items: options.extensionErrors,
+			listeners: options.extensionErrorListeners,
+			predicate,
+			disposeSignal: options.disposeController.signal,
+			timeoutError: () =>
+				new Error(`Timed out waiting for RPC extension error. Stderr: ${options.clientControl.client.getStderr()}`),
 		});
 	const waitForRequest = (predicate: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest> =>
 		waitForBufferedItem({
@@ -653,6 +693,7 @@ function createHeadlessRuntime(options: {
 			options.clientControl.unsubscribeEvents();
 			await options.clientControl.client.stop();
 			options.events.length = 0;
+			options.extensionErrors.length = 0;
 			options.uiRequests.length = 0;
 			options.requests.length = 0;
 			const client = createHeadlessRpcClient(options.paths, options.fixtureOptions, options.context.sessionFile);
@@ -746,6 +787,7 @@ function createHeadlessRuntime(options: {
 			throw new Error(`Timed out waiting for session entry. Stderr: ${options.clientControl.client.getStderr()}`);
 		},
 		waitForEvent,
+		waitForExtensionError: (predicate = () => true) => waitForExtensionError(predicate),
 		waitForExtensionUiRequest: (predicate = () => true) => waitForUiRequest(predicate),
 		waitForLlmRequest: (predicate = () => true) => waitForRequest(predicate),
 		async waitForSupervisorRequest(kind) {
@@ -806,6 +848,8 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 	const disposeController = new AbortController();
 	const events: AgentEvent[] = [];
 	const eventListeners = new Set<() => void>();
+	const extensionErrors: HeadlessRpcExtensionError[] = [];
+	const extensionErrorListeners = new Set<() => void>();
 	const uiRequests: RpcExtensionUIRequest[] = [];
 	const uiRequestListeners = new Set<() => void>();
 	const requests: HeadlessLlmRequest[] = [];
@@ -828,6 +872,8 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 		unsubscribeEvents = subscribeHeadlessRpcOutput(client, {
 			events,
 			eventListeners,
+			extensionErrors,
+			extensionErrorListeners,
 			uiRequests,
 			uiRequestListeners,
 		});
@@ -851,6 +897,8 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 		disposeController,
 		events,
 		eventListeners,
+		extensionErrors,
+		extensionErrorListeners,
 		uiRequests,
 		uiRequestListeners,
 		requests,
