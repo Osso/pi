@@ -3807,10 +3807,10 @@ describe("multi-agent extension tools", () => {
 			extensionFactories: [effortExtension],
 			multiAgentStore: store,
 			createSession: async (options) => {
-				const result = await createAgentSessionWithInternalOptions(
-					{ ...options, authStorage: parentHarness.authStorage },
-					() => resolveSelectedSessionMutationTarget(store, runtimeHandles),
-				);
+				const result = await createAgentSessionWithInternalOptions({
+					...options,
+					authStorage: parentHarness.authStorage,
+				});
 				attachedSession = result.session;
 				childSessions.push(result.session);
 				return { session: result.session };

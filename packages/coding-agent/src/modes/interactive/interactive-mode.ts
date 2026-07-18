@@ -383,9 +383,20 @@ function isInteractiveSessionMutationTarget(
 	);
 }
 
+type InteractiveSessionMutationTargetResolver = () => CoreSessionMutationTarget | undefined;
+const interactiveSessionMutationTargetResolvers = new WeakMap<
+	InteractiveMode,
+	InteractiveSessionMutationTargetResolver
+>();
+
+export function bindInteractiveModeSessionMutationTargetResolver(
+	mode: InteractiveMode,
+	resolver: InteractiveSessionMutationTargetResolver,
+): void {
+	interactiveSessionMutationTargetResolvers.set(mode, resolver);
+}
+
 export interface InteractiveModeOptions {
-	/** Resolve the currently viewed live child to its mutable session. */
-	resolveSessionMutationTarget?: () => CoreSessionMutationTarget | undefined;
 	/** Providers that were migrated to auth.json (shows warning) */
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
@@ -575,7 +586,7 @@ export class InteractiveMode {
 
 	private resolveViewedSessionTarget(): InteractiveSessionMutationTarget {
 		if (!this.childViewAgentId) return this.session;
-		const target = this.options.resolveSessionMutationTarget?.();
+		const target = interactiveSessionMutationTargetResolvers.get(this)?.();
 		if (!target) throw new Error(`Agent ${this.childViewAgentId} is not a live session mutation target`);
 		if (!isInteractiveSessionMutationTarget(target)) {
 			throw new Error(`Agent ${this.childViewAgentId} does not support interactive session mutation`);

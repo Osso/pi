@@ -399,6 +399,16 @@ export interface AgentSessionConfig {
 	childThinkingPhaseTimeoutMs?: number;
 }
 
+type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
+const sessionMutationTargetResolvers = new WeakMap<AgentSession, SessionMutationTargetResolver>();
+
+export function bindAgentSessionMutationTargetResolver(
+	session: AgentSession,
+	resolver: SessionMutationTargetResolver,
+): void {
+	sessionMutationTargetResolvers.set(session, resolver);
+}
+
 export interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
 	footerData?: ReadonlyFooterDataProvider;
@@ -758,12 +768,8 @@ export class AgentSession {
 	private _childThinkingPhaseTimeoutError: Error | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
 	private _systemPromptOverride?: string;
-	private readonly _sessionMutationTargetResolver?: () => ViewedSessionMutationTarget | undefined;
 
-	constructor(
-		config: AgentSessionConfig,
-		sessionMutationTargetResolver?: () => ViewedSessionMutationTarget | undefined,
-	) {
+	constructor(config: AgentSessionConfig) {
 		validateMultiAgentRuntimeRole(config);
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
@@ -774,7 +780,6 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._modelRegistry = config.modelRegistry;
 		this._extensionRunnerRef = config.extensionRunnerRef;
-		this._sessionMutationTargetResolver = sessionMutationTargetResolver;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
@@ -2534,7 +2539,7 @@ export class AgentSession {
 		const owningSetModel = context.setModel;
 		const owningSetThinkingLevel = context.setThinkingLevel;
 		const resolveViewedTarget = (): ViewedSessionMutationTarget | undefined =>
-			this._sessionMutationTargetResolver?.();
+			sessionMutationTargetResolvers.get(this)?.();
 
 		Object.defineProperty(context, "model", {
 			configurable: true,

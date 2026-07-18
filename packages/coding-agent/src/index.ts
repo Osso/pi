@@ -143,7 +143,6 @@ export type {
 	TurnStartEvent,
 	UserBashEvent,
 	UserBashEventResult,
-	ViewedSessionMutationTarget,
 	WidgetPlacement,
 	WorkingIndicatorOptions,
 	WriteToolCallEvent,

@@ -18,7 +18,6 @@ import type {
 	LoadExtensionsResult,
 	SessionStartEvent,
 	ToolDefinition,
-	ViewedSessionMutationTarget,
 } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
@@ -214,15 +213,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 export async function createAgentSessionWithInternalOptions(
 	options: CreateAgentSessionOptions,
-	resolveSessionMutationTarget: () => ViewedSessionMutationTarget | undefined,
 ): Promise<CreateAgentSessionResult> {
-	return createAgentSessionInternal(options, resolveSessionMutationTarget);
+	return createAgentSessionInternal(options);
 }
 
-async function createAgentSessionInternal(
-	options: CreateAgentSessionOptions,
-	resolveSessionMutationTarget?: () => ViewedSessionMutationTarget | undefined,
-): Promise<CreateAgentSessionResult> {
+async function createAgentSessionInternal(options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> {
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();
 	let resourceLoader = options.resourceLoader;
@@ -442,34 +437,31 @@ async function createAgentSessionInternal(
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
 	}
 
-	const session = new AgentSession(
-		{
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd,
-			agentDir,
-			scopedModels: options.scopedModels,
-			resourceLoader,
-			customTools: options.customTools,
-			modelRegistry,
-			initialActiveToolNames,
-			allowedToolNames,
-			excludedToolNames,
-			permissionPromptTool: options.permissionPromptTool,
-			multiAgentAgentId: options.multiAgentAgentId,
-			multiAgentParentSessionId: options.multiAgentParentSessionId,
-			multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
-			disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
-			multiAgentStore: options.multiAgentStore,
-			multiAgentRuntimeRole: options.multiAgentRuntimeRole,
-			multiAgentExecutionCapability: options.multiAgentExecutionCapability,
-			extensionRunnerRef,
-			sessionStartEvent: options.sessionStartEvent,
-			supervisorDecisionRequester: options.supervisorDecisionRequester,
-		},
-		resolveSessionMutationTarget,
-	);
+	const session = new AgentSession({
+		agent,
+		sessionManager,
+		settingsManager,
+		cwd,
+		agentDir,
+		scopedModels: options.scopedModels,
+		resourceLoader,
+		customTools: options.customTools,
+		modelRegistry,
+		initialActiveToolNames,
+		allowedToolNames,
+		excludedToolNames,
+		permissionPromptTool: options.permissionPromptTool,
+		multiAgentAgentId: options.multiAgentAgentId,
+		multiAgentParentSessionId: options.multiAgentParentSessionId,
+		multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
+		disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
+		multiAgentStore: options.multiAgentStore,
+		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
+		multiAgentExecutionCapability: options.multiAgentExecutionCapability,
+		extensionRunnerRef,
+		sessionStartEvent: options.sessionStartEvent,
+		supervisorDecisionRequester: options.supervisorDecisionRequester,
+	});
 	sessionRef.current = session;
 	const extensionsResult = resourceLoader.getExtensions();
 

@@ -56,7 +56,7 @@ import { selectSession } from "./cli/session-picker.ts";
 import { handleSessionsCommand } from "./cli/sessions-command.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
-import { createMultiAgentExecutionCapability } from "./core/agent-session.ts";
+import { bindAgentSessionMutationTargetResolver, createMultiAgentExecutionCapability } from "./core/agent-session.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import { type AgentSessionRuntimeDiagnostic, createAgentSessionServices } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
@@ -101,6 +101,7 @@ import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
+import { bindInteractiveModeSessionMutationTargetResolver } from "./modes/interactive/interactive-mode.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
@@ -970,30 +971,28 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
-		const created = await createAgentSessionWithInternalOptions(
-			{
-				cwd: services.cwd,
-				agentDir: services.agentDir,
-				authStorage: services.authStorage,
-				settingsManager: services.settingsManager,
-				modelRegistry: services.modelRegistry,
-				resourceLoader: services.resourceLoader,
-				multiAgentRuntimeRole: "orchestrator",
-				multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
-				sessionManager,
-				sessionStartEvent,
-				model: sessionOptions.model,
-				thinkingLevel: sessionOptions.thinkingLevel,
-				scopedModels: sessionOptions.scopedModels,
-				tools: sessionOptions.tools,
-				excludeTools: sessionOptions.excludeTools,
-				noTools: sessionOptions.noTools,
-				permissionPromptTool: sessionOptions.permissionPromptTool,
-				multiAgentStore: firstPartyMultiAgentStore,
-				customTools: sessionOptions.customTools,
-			},
-			resolveFirstPartySessionMutationTarget,
-		);
+		const created = await createAgentSessionWithInternalOptions({
+			cwd: services.cwd,
+			agentDir: services.agentDir,
+			authStorage: services.authStorage,
+			settingsManager: services.settingsManager,
+			modelRegistry: services.modelRegistry,
+			resourceLoader: services.resourceLoader,
+			multiAgentRuntimeRole: "orchestrator",
+			multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
+			sessionManager,
+			sessionStartEvent,
+			model: sessionOptions.model,
+			thinkingLevel: sessionOptions.thinkingLevel,
+			scopedModels: sessionOptions.scopedModels,
+			tools: sessionOptions.tools,
+			excludeTools: sessionOptions.excludeTools,
+			noTools: sessionOptions.noTools,
+			permissionPromptTool: sessionOptions.permissionPromptTool,
+			multiAgentStore: firstPartyMultiAgentStore,
+			customTools: sessionOptions.customTools,
+		});
+		bindAgentSessionMutationTargetResolver(created.session, resolveFirstPartySessionMutationTarget);
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);
@@ -1107,7 +1106,6 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
-			resolveSessionMutationTarget: resolveFirstPartySessionMutationTarget,
 			steerMultiAgent: async (agentId, message) => {
 				if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
 				const steered = requestAgentSteering(
@@ -1126,6 +1124,7 @@ export async function main(args: string[], options?: MainOptions) {
 				),
 			verbose: parsed.verbose,
 		});
+		bindInteractiveModeSessionMutationTargetResolver(interactiveMode, resolveFirstPartySessionMutationTarget);
 		interactiveAgentViewSelector = (agentId) => interactiveMode.selectAgentViewFromBridge(agentId);
 		if (startupBenchmark) {
 			if (
