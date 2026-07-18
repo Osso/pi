@@ -3,9 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import {
 	ARCHITECT_EXCLUDED_TOOL_NAMES,
+	ARCHITECT_RULES_SCOPE,
 	blockArchitectGlobalBroadcast,
 	completeSentArchitectRequest,
 	createArchitectMultiAgentStore,
@@ -16,6 +18,7 @@ import {
 } from "../src/architect/main.ts";
 import { readProjectSpec } from "../src/architect/project-spec.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
+import { createAgentSession } from "../src/core/sdk.ts";
 import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
@@ -114,6 +117,64 @@ describe("resident architect service", () => {
 			"The bounded sessions list already represents main-listener and fresh-health filtering.",
 		);
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Use session membership, never goal fields, as liveness evidence.");
+	});
+
+	it("loads main-thread rules into the resident Architect prompt", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-rules-"));
+		const sentinel = "ARCHITECT_MAIN_RULE_SENTINEL";
+		try {
+			const rulesDir = join(agentDir, "rules", "main");
+			mkdirSync(rulesDir, { recursive: true });
+			writeFileSync(join(rulesDir, "sentinel.md"), sentinel);
+			const model = getModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Expected test model");
+
+			const { session } = await createAgentSession({
+				agentDir,
+				cwd: agentDir,
+				model,
+				multiAgentRuntimeRole: "observer",
+				rulesScope: ARCHITECT_RULES_SCOPE,
+				sessionManager: SessionManager.inMemory(agentDir),
+				settingsManager: createArchitectSettingsManager(),
+			});
+			try {
+				expect(session.systemPrompt).toContain(`<user_rules>${sentinel}</user_rules>`);
+			} finally {
+				session.dispose();
+			}
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
+	it("keeps ordinary observer sessions shared-only", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-observer-rules-"));
+		try {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(join(rulesDir, "main"), { recursive: true });
+			writeFileSync(join(rulesDir, "shared.md"), "OBSERVER_SHARED_RULE");
+			writeFileSync(join(rulesDir, "main", "sentinel.md"), "OBSERVER_MAIN_RULE");
+			const model = getModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Expected test model");
+
+			const { session } = await createAgentSession({
+				agentDir,
+				cwd: agentDir,
+				model,
+				multiAgentRuntimeRole: "observer",
+				sessionManager: SessionManager.inMemory(agentDir),
+				settingsManager: createArchitectSettingsManager(),
+			});
+			try {
+				expect(session.systemPrompt).toContain("<user_rules>OBSERVER_SHARED_RULE</user_rules>");
+				expect(session.systemPrompt).not.toContain("OBSERVER_MAIN_RULE");
+			} finally {
+				session.dispose();
+			}
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
 	});
 
 	it("uses the read-only Bubblewrap profile", () => {

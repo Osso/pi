@@ -101,6 +101,8 @@ export interface CreateAgentSessionOptions {
 
 	/** Resource loader. When omitted, DefaultResourceLoader is used. */
 	resourceLoader?: ResourceLoader;
+	/** Override runtime-role rule discovery when creating the default resource loader. */
+	rulesScope?: RulesScope;
 	/** Inline extension factories to load when creating the default resource loader. */
 	extensionFactories?: ExtensionFactory[];
 
@@ -118,7 +120,7 @@ export interface CreateAgentSessionOptions {
 function rulesScopeForRuntimeRole(role: MultiAgentRuntimeRole | undefined): RulesScope {
 	if (role === "child") return "child";
 	if (role === "observer") return "shared";
-	return "supervisor";
+	return "main";
 }
 
 /** Result from createAgentSession */
@@ -225,7 +227,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			agentDir,
 			settingsManager,
 			extensionFactories: options.extensionFactories,
-			rulesScope: rulesScopeForRuntimeRole(options.multiAgentRuntimeRole),
+			rulesScope: options.rulesScope ?? rulesScopeForRuntimeRole(options.multiAgentRuntimeRole),
 		});
 		await resourceLoader.reload();
 		time("resourceLoader.reload");
