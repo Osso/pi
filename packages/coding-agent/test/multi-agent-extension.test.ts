@@ -7,6 +7,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
+import effortExtension from "../extensions/effort/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import {
 	createHostrunMultiAgentRequestHandler,
@@ -37,7 +38,11 @@ import {
 	MultiAgentStore,
 } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
-import { type CreateAgentSessionOptions, createAgentSession } from "../src/core/sdk.ts";
+import {
+	type CreateAgentSessionOptions,
+	createAgentSession,
+	createAgentSessionWithInternalOptions,
+} from "../src/core/sdk.ts";
 import {
 	ENV_SELF_RESTART_OLD_PID,
 	ENV_SELF_RESTART_PROMPT,
@@ -3732,6 +3737,91 @@ describe("multi-agent extension tools", () => {
 
 		expect(attachedSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
 		expect(attachedSession?.getActiveToolNames()).not.toContain("manage_goal");
+	});
+
+	it("keeps attached-session model and effort commands isolated from the viewed sibling", async () => {
+		const parentHarness = await createHarness({
+			models: [
+				{ id: "faux-1", reasoning: true },
+				{ id: "faux-2", reasoning: true },
+			],
+		});
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const viewedModel = parentHarness.getModel("faux-1");
+		const viewedSetModel = vi.fn(async () => {});
+		const viewedSetThinkingLevel = vi.fn();
+		const viewedAgent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Viewed sibling",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		store.selectActiveAgentTarget(viewedAgent.id);
+		runtimeHandles.sessions.set(
+			viewedAgent.id,
+			{
+				messages: [],
+				prompt: async () => {},
+				model: viewedModel,
+				thinkingLevel: "medium",
+				setModel: viewedSetModel,
+				setThinkingLevel: viewedSetThinkingLevel,
+			} as never,
+		);
+
+		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-isolation-target" });
+		target.persistForRecovery();
+		const attachedAgent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "resumed-session",
+			cwd: "/repo",
+			displayName: "Attached session",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: target.getSessionFile(), sessionId: target.getSessionId() },
+		}).agent;
+		let attachedSession: Harness["session"] | undefined;
+		const attachedFactory = createProductionAttachedSessionFactory({
+			agentDir: parentHarness.tempDir,
+			extensionFactories: [effortExtension],
+			multiAgentStore: store,
+			createSession: async (options) => {
+				const result = await createAgentSessionWithInternalOptions(
+					{ ...options, authStorage: parentHarness.authStorage },
+					() => resolveSelectedSessionMutationTarget(store, runtimeHandles),
+				);
+				attachedSession = result.session;
+				childSessions.push(result.session);
+				return { session: result.session };
+			},
+		});
+
+		await attachedFactory({
+			agent: attachedAgent,
+			ctx: {
+				cwd: "/repo",
+				hasUI: false,
+				mode: "print",
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			} as unknown as ExtensionContext,
+			prompt: "resume",
+			sessionPath: target.getSessionFile() ?? "",
+		});
+		if (!attachedSession) throw new Error("expected attached session");
+
+		await attachedSession.prompt("/model faux/faux-2");
+		await attachedSession.prompt("/effort high");
+
+		expect(viewedSetModel).not.toHaveBeenCalled();
+		expect(viewedSetThinkingLevel).not.toHaveBeenCalled();
+		expect(attachedSession.sessionManager.getEntries()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: "model_change", modelId: "faux-2" }),
+				expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
+			]),
+		);
 	});
 
 	it("propagates custom main extension factories into production child sessions", async () => {

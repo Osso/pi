@@ -491,7 +491,7 @@ describe("ExtensionRunner", () => {
 			expect(ctx.signal?.aborted).toBe(true);
 		});
 
-		it("keeps ordinary context mutations session-local while command mutations use the viewed session", async () => {
+		it("keeps ordinary and command context mutations session-local", async () => {
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 			const ownSetModel = vi.fn(async () => true);
 			const ownSetThinkingLevel = vi.fn();
@@ -525,7 +525,7 @@ describe("ExtensionRunner", () => {
 				},
 			);
 
-			expect(runner.createCommandContext().model).toBeUndefined();
+			expect(runner.createCommandContext().model).toBe(mainModel);
 			const context = runner.createContext();
 			expect(context.setModel).toBeDefined();
 			expect(context.setThinkingLevel).toBeDefined();
@@ -534,10 +534,10 @@ describe("ExtensionRunner", () => {
 			await runner.createCommandContext().setModel(mainModel);
 			runner.createCommandContext().setThinkingLevel("high");
 
-			expect(ownSetModel).toHaveBeenCalledOnce();
-			expect(ownSetThinkingLevel).toHaveBeenCalledOnce();
-			expect(childSetModel).toHaveBeenCalledOnce();
-			expect(childSetThinkingLevel).toHaveBeenCalledOnce();
+			expect(ownSetModel).toHaveBeenCalledTimes(2);
+			expect(ownSetThinkingLevel).toHaveBeenCalledTimes(2);
+			expect(childSetModel).not.toHaveBeenCalled();
+			expect(childSetThinkingLevel).not.toHaveBeenCalled();
 		});
 
 		it("exposes print mode and hasUI false by default", async () => {

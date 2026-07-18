@@ -61,7 +61,6 @@ import type {
 	SessionBeforeSwitchResult,
 	SessionBeforeTreeResult,
 	SessionCompactionSourceResult,
-	SessionMutationTarget,
 	SessionShutdownEvent,
 	ToolCallEvent,
 	ToolCallEventResult,
@@ -94,11 +93,6 @@ const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS = [
 ] as const;
 
 type BuiltInKeyBindings = Partial<Record<KeyId, { keybinding: string; restrictOverride: boolean }>>;
-
-type CommandMutationTarget = SessionMutationTarget & {
-	modelRegistry?: ModelRegistry;
-	scopedModels?: ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
-};
 
 const buildBuiltinKeybindings = (resolvedKeybindings: KeybindingsConfig): BuiltInKeyBindings => {
 	const builtinKeybindings = {} as BuiltInKeyBindings;
@@ -343,7 +337,6 @@ export class ExtensionRunner {
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
 	private getFooterData: () => ReadonlyFooterDataProvider | undefined = () => undefined;
-	private sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 	private internalCommands: ReadonlyMap<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>>;
 
 	constructor(
@@ -353,7 +346,6 @@ export class ExtensionRunner {
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
 		settingsManager?: SettingsManager,
-		sessionMutationTargetResolver?: () => SessionMutationTarget | undefined,
 		internalCommands: ReadonlyMap<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>> = new Map(),
 	) {
 		this.extensions = extensions;
@@ -363,7 +355,6 @@ export class ExtensionRunner {
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
 		this.settingsManager = settingsManager;
-		this.sessionMutationTargetResolver = sessionMutationTargetResolver;
 		this.internalCommands = internalCommands;
 	}
 
@@ -725,10 +716,6 @@ export class ExtensionRunner {
 		this.shutdownHandler();
 	}
 
-	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
-		return this.sessionMutationTargetResolver?.();
-	}
-
 	/**
 	 * Create an ExtensionContext for use in event handlers and tool execution.
 	 * Context values are resolved at call time, so changes via bindCore/bindUI are reflected.
@@ -872,48 +859,6 @@ export class ExtensionRunner {
 			{},
 			Object.getOwnPropertyDescriptors(this.createContext()),
 		) as ExtensionCommandContext;
-		const owningModel = context.model;
-		const owningModelRegistry = context.modelRegistry;
-		const owningScopedModels = context.getScopedModels;
-		const resolveCommandMutationTarget = (): CommandMutationTarget | undefined =>
-			this.resolveSessionMutationTarget() as CommandMutationTarget | undefined;
-		Object.defineProperty(context, "model", {
-			configurable: true,
-			enumerable: true,
-			get: () => {
-				const target = this.resolveSessionMutationTarget();
-				return target ? target.model : owningModel;
-			},
-		});
-		Object.defineProperty(context, "modelRegistry", {
-			configurable: true,
-			enumerable: true,
-			get: () => {
-				const target = resolveCommandMutationTarget();
-				return target ? target.modelRegistry : owningModelRegistry;
-			},
-		});
-		context.getScopedModels = () => {
-			const target = resolveCommandMutationTarget();
-			return target ? (target.scopedModels ?? []) : (owningScopedModels?.() ?? []);
-		};
-		context.getThinkingLevel = () => {
-			this.assertActive();
-			return resolveCommandMutationTarget()?.thinkingLevel ?? this.runtime.getThinkingLevel();
-		};
-		context.setModel = async (model) => {
-			this.assertActive();
-			const target = resolveCommandMutationTarget();
-			if (!target) return this.runtime.setModel(model);
-			await target.setModel(model);
-			return true;
-		};
-		context.setThinkingLevel = (level) => {
-			this.assertActive();
-			const target = resolveCommandMutationTarget();
-			if (target) target.setThinkingLevel(level);
-			else this.runtime.setThinkingLevel(level);
-		};
 		context.showApprovalSelector = () => {
 			this.assertActive();
 			this.showApprovalSelectorHandler();
