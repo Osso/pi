@@ -57,20 +57,20 @@ describe("effort extension", () => {
 	});
 
 	it("opens a selector of supported efforts when no effort is specified", async () => {
-		const { command, ctx, notify, select, setEditorText, setThinkingLevel } = createCommandHarness({
+		const { command, ctx, notify, select, setEditorText, setTargetThinkingLevel } = createCommandHarness({
 			selectedEffort: "high",
 		});
 
 		await command.handler("", ctx);
 
 		expect(select).toHaveBeenCalledWith("Select effort", expect.arrayContaining(["off", "high"]));
-		expect(setThinkingLevel).toHaveBeenCalledWith("high");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("high");
 		expect(notify).toHaveBeenCalledWith("Effort: high", "info");
 		expect(setEditorText).toHaveBeenCalledWith("");
 	});
 
 	it("only offers efforts supported by the current model", async () => {
-		const { command, ctx, select, setThinkingLevel } = createCommandHarness({
+		const { command, ctx, select, setTargetThinkingLevel } = createCommandHarness({
 			reasoning: false,
 			selectedEffort: "off",
 		});
@@ -78,7 +78,7 @@ describe("effort extension", () => {
 		await command.handler("", ctx);
 
 		expect(select).toHaveBeenCalledWith("Select effort", ["off"]);
-		expect(setThinkingLevel).toHaveBeenCalledWith("off");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("off");
 	});
 
 	it("does not change effort when the selector is cancelled", async () => {
@@ -93,11 +93,13 @@ describe("effort extension", () => {
 	});
 
 	it("sets a valid model-supported effort", async () => {
-		const { command, ctx, notify, setEditorText, setThinkingLevel } = createCommandHarness({ thinkingLevel: "high" });
+		const { command, ctx, notify, setEditorText, setTargetThinkingLevel } = createCommandHarness({
+			thinkingLevel: "high",
+		});
 
 		await command.handler("high", ctx);
 
-		expect(setThinkingLevel).toHaveBeenCalledWith("high");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("high");
 		expect(notify).toHaveBeenCalledWith("Effort: high", "info");
 		expect(setEditorText).toHaveBeenCalledWith("");
 	});

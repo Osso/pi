@@ -790,7 +790,7 @@ export class ExtensionRunner {
 			},
 			get model() {
 				runner.assertActive();
-				return runner.resolveSessionMutationTarget()?.model ?? getModel();
+				return getModel();
 			},
 			setModel: async (model) => {
 				runner.assertActive();
@@ -801,7 +801,7 @@ export class ExtensionRunner {
 			},
 			getThinkingLevel: () => {
 				runner.assertActive();
-				return runner.resolveSessionMutationTarget()?.thinkingLevel ?? runner.getThinkingLevelFn();
+				return runner.getThinkingLevelFn();
 			},
 			setThinkingLevel: (level) => {
 				runner.assertActive();
@@ -874,6 +874,10 @@ export class ExtensionRunner {
 			enumerable: true,
 			get: () => this.resolveSessionMutationTarget()?.model ?? owningModel,
 		});
+		context.getThinkingLevel = () => {
+			this.assertActive();
+			return this.resolveSessionMutationTarget()?.thinkingLevel ?? this.runtime.getThinkingLevel();
+		};
 		context.showApprovalSelector = () => {
 			this.assertActive();
 			this.showApprovalSelectorHandler();

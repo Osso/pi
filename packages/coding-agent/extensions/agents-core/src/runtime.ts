@@ -858,8 +858,8 @@ function selectAgent(
 ): AgentSelectionDetails {
 	const agentId = normalizeSelectAgentId(params);
 	const rendered = selectAgentView?.(agentId);
-	if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 	if (rendered === true) {
+		if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 		return selectCurrentAgent(store);
 	}
 	if (rendered === false) {
@@ -868,11 +868,13 @@ function selectAgent(
 
 	if (agentId === MAIN_THREAD_AGENT_ID) {
 		store.clearSelectedAgentView();
+		if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 		return { agent: createMainThreadSnapshot() };
 	}
 
 	const result = store.selectActiveAgentTargetWithStatus(agentId);
 	if (result.ok) {
+		if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 		return { agent: result.agent };
 	}
 	if (result.error === "inactive") {

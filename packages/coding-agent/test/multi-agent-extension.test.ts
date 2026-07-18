@@ -1985,14 +1985,20 @@ describe("multi-agent extension tools", () => {
 		expect(result).toMatchObject({ agent: { id: spawned.agent.id, displayName: "Worker" } });
 	});
 
-	it("rejects Hostrun agents.select when the interactive view callback fails", async () => {
+	it("rejects Hostrun agents.select without retaining the failed mutation target", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const handler = createHostrunMultiAgentRequestHandler({ selectAgentView: () => false, store });
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const handler = createHostrunMultiAgentRequestHandler({
+			runtimeHandles,
+			selectAgentView: () => false,
+			store,
+		});
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		await expect(
 			handler({ method: "agents.select", params: { agentId: "agent_1" } }, ctx, undefined),
 		).rejects.toThrow("Agent view selection failed: agent_1");
+		expect(runtimeHandles.selectedMutationTargetId).toBeUndefined();
 	});
 
 	it("lets Hostrun agents.wait return immediately when no agents are active", async () => {
