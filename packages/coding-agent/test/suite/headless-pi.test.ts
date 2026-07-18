@@ -101,6 +101,15 @@ async function selectAndMutateHeadlessTarget(
 			{ stopReason: "toolUse" },
 		),
 	);
+	const selectionEntry = await agent.waitForSessionEntry(
+		null,
+		(candidate) =>
+			candidate.type === "message" &&
+			candidate.message.role === "toolResult" &&
+			candidate.message.toolName === "pyrun_eval",
+	);
+	if (selectionEntry.type !== "message") throw new Error("Expected Pyrun selection result entry");
+	if (selectionEntry.message.role === "toolResult" && selectionEntry.message.isError) return selectionEntry;
 	const afterSelection = await agent
 		.waitForLlmRequest((candidate) => candidate.agentId === null && candidate.id !== request.id)
 		.catch((error: unknown) => {
@@ -293,7 +302,7 @@ describe("headless Pi fixture", () => {
 					detached.id,
 					"test_set_viewed_model",
 				);
-				expectFailedToolEntry(result, "not live");
+				expectFailedToolEntry(result, "selection failed");
 				expect(
 					agent
 						.readSessionEntries(null)
