@@ -235,12 +235,6 @@ export interface ChildAgentSession {
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
 	transcript?: AgentSnapshot["transcript"];
-	cycleModel(direction: "forward" | "backward"): Promise<
-		| { model: ChildSessionModel; thinkingLevel: ThinkingLevel }
-		| undefined
-	>;
-	scopedModels: ReadonlyArray<{ model: ChildSessionModel; thinkingLevel?: ThinkingLevel }>;
-	modelRegistry: ExtensionContext["modelRegistry"];
 }
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
@@ -396,7 +390,7 @@ export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	selectedAgentId = store.getSelectedAgentId() ?? runtimeHandles.selectedMutationTargetId,
-): ChildAgentSession | undefined {
+): SessionMutationTarget | undefined {
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
 	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);

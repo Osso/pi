@@ -10,7 +10,6 @@ import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
-import { isActiveLifecycle } from "../multi-agent-store.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -702,20 +701,13 @@ export class ExtensionRunner {
 		this.shutdownHandler();
 	}
 
-	private resolveSessionMutationTarget(rejectDetached = false): SessionMutationTarget | undefined {
+	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
 		const target = this.runtime.sessionMutationTargetResolver?.();
 		if (target) return target;
 		const store = this.getMultiAgentStoreFn?.();
 		const selectedAgentId = store?.getSelectedAgentId();
 		if (selectedAgentId) {
 			throw new Error(`Agent ${selectedAgentId} is not a live session mutation target`);
-		}
-		if (
-			rejectDetached &&
-			this.getDetachedJobLifecycleFn?.() &&
-			store?.listAgents().some((agent) => agent.agentType === "background" && isActiveLifecycle(agent.lifecycle))
-		) {
-			throw new Error("Detached jobs are not live session mutation targets");
 		}
 		return undefined;
 	}
@@ -794,7 +786,7 @@ export class ExtensionRunner {
 			},
 			setModel: async (model) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget(true);
+				const target = runner.resolveSessionMutationTarget();
 				if (!target) return runner.runtime.setModel(model);
 				await target.setModel(model);
 				return true;
@@ -805,7 +797,7 @@ export class ExtensionRunner {
 			},
 			setThinkingLevel: (level) => {
 				runner.assertActive();
-				const target = runner.resolveSessionMutationTarget(true);
+				const target = runner.resolveSessionMutationTarget();
 				if (target) target.setThinkingLevel(level);
 				else runner.runtime.setThinkingLevel(level);
 			},

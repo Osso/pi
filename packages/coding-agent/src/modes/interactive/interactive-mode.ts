@@ -562,7 +562,10 @@ export class InteractiveMode {
 	}
 
 	private resolveViewedSessionTarget(): SessionMutationTarget {
-		return this.options.resolveSessionMutationTarget?.(this.childViewAgentId) ?? this.session;
+		if (!this.childViewAgentId) return this.session;
+		const target = this.options.resolveSessionMutationTarget?.(this.childViewAgentId);
+		if (!target) throw new Error(`Agent ${this.childViewAgentId} is not a live session mutation target`);
+		return target;
 	}
 
 	constructor(runtimeHost: AgentSessionRuntime, options: InteractiveModeOptions = {}) {
