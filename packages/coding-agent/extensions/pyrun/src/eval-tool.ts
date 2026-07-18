@@ -95,20 +95,31 @@ function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console
 	return `${entry.level}: ${entry.message}`;
 }
 
+function countConsoleLines(text: string): number {
+	return (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").length;
+}
+
+function capConsoleLines(text: string, lineLimit: number): string {
+	const hasTrailingNewline = text.endsWith("\n");
+	const lines = text.split("\n");
+	if (hasTrailingNewline) lines.pop();
+	if (lines.length <= lineLimit) return text;
+	const cappedText = lines.slice(-lineLimit).join("\n");
+	return hasTrailingNewline ? `${cappedText}\n` : cappedText;
+}
+
 function capConsoleHistory(
 	entries: NonNullable<CanonicalPyrunEvalResult["console"]>,
 ): NonNullable<CanonicalPyrunEvalResult["console"]> {
 	let remainingBytes = STREAMED_CONSOLE_BYTE_LIMIT;
+	let remainingLines = STREAMED_CONSOLE_LINE_LIMIT;
 	const boundedEntries: NonNullable<CanonicalPyrunEvalResult["console"]> = [];
-	for (
-		let index = entries.length - 1;
-		index >= 0 && boundedEntries.length < STREAMED_CONSOLE_LINE_LIMIT && remainingBytes > 0;
-		index -= 1
-	) {
+	for (let index = entries.length - 1; index >= 0 && remainingLines > 0 && remainingBytes > 0; index -= 1) {
 		const entry = entries[index];
 		const entryText = typeof entry === "string" ? entry : entry.message;
-		const text = capConsoleText(entryText, remainingBytes);
+		const text = capConsoleLines(capConsoleText(entryText, remainingBytes), remainingLines);
 		remainingBytes -= Buffer.byteLength(text);
+		remainingLines -= countConsoleLines(text);
 		boundedEntries.push(typeof entry === "string" ? text : { ...entry, message: text });
 	}
 	return boundedEntries.reverse();

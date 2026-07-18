@@ -42,8 +42,16 @@ export interface CanonicalPyrunProgressUpdate {
 export type CanonicalPyrunRunnerMessage = CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate;
 export type PyrunPiRequestHandler = (request: { method: string; params: unknown }) => Promise<unknown>;
 
+interface RunnerGeneration {
+	buffer: string;
+	child: ChildProcessWithoutNullStreams;
+	generation: number;
+	stderr: string[];
+}
+
 interface PendingRequest {
 	cleanup?: () => void;
+	generation: RunnerGeneration;
 	onPiRequest?: PyrunPiRequestHandler;
 	onProgress?: (update: CanonicalPyrunProgressUpdate) => void;
 	reject: (error: Error) => void;
@@ -113,11 +121,10 @@ function terminateRunnerTree(
 }
 
 export class PyrunRunnerClient {
-	private buffer = "";
+	private nextGeneration = 0;
 	private readonly options: PyrunRunnerOptions;
-	private process: ChildProcessWithoutNullStreams | undefined;
+	private process: RunnerGeneration | undefined;
 	private readonly pending: PendingRequest[] = [];
-	private readonly stderr: string[] = [];
 
 	constructor(options: PyrunRunnerOptions = {}) {
 		this.options = options;
@@ -132,22 +139,22 @@ export class PyrunRunnerClient {
 		if (signal?.aborted) {
 			return Promise.reject(new Error("Pyrun evaluation aborted"));
 		}
-		const child = this.ensureProcess();
+		const generation = this.ensureProcess();
 		const payload = JSON.stringify(params);
 		return new Promise((resolve, reject) => {
-			const pending: PendingRequest = { onPiRequest, onProgress, reject, resolve };
+			const pending: PendingRequest = { generation, onPiRequest, onProgress, reject, resolve };
 			if (signal) {
 				const onAbort = () => {
-					this.terminateProcess();
-					this.rejectAll(new Error("Pyrun evaluation aborted"));
+					this.terminateGeneration(generation);
+					this.rejectPending(pending, new Error("Pyrun evaluation aborted"));
 				};
 				signal.addEventListener("abort", onAbort, { once: true });
 				pending.cleanup = () => signal.removeEventListener("abort", onAbort);
 			}
 			this.pending.push(pending);
-			child.stdin.write(`${payload}\n`, (error) => {
+			generation.child.stdin.write(`${payload}\n`, (error) => {
 				if (error) {
-					this.rejectNext(error);
+					this.rejectPending(pending, error);
 				}
 			});
 		});
@@ -158,16 +165,22 @@ export class PyrunRunnerClient {
 	}
 
 	private terminateProcess(): void {
-		const child = this.process;
-		this.process = undefined;
-		if (child) terminateRunnerTree(child, this.shouldDetachProcess());
+		const generation = this.process;
+		if (generation) this.terminateGeneration(generation);
+	}
+
+	private terminateGeneration(generation: RunnerGeneration): void {
+		if (this.process === generation) {
+			this.process = undefined;
+		}
+		terminateRunnerTree(generation.child, this.shouldDetachProcess());
 	}
 
 	private shouldDetachProcess(): boolean {
 		return this.options.detached ?? process.platform !== "win32";
 	}
 
-	private ensureProcess(): ChildProcessWithoutNullStreams {
+	private ensureProcess(): RunnerGeneration {
 		if (this.process) {
 			return this.process;
 		}
@@ -183,54 +196,57 @@ export class PyrunRunnerClient {
 			env: options.inheritEnv === false ? options.env : { ...process.env, ...options.env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
-		this.process = child;
+		const generation: RunnerGeneration = {
+			buffer: "",
+			child,
+			generation: ++this.nextGeneration,
+			stderr: [],
+		};
+		this.process = generation;
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
-		child.stdout.on("data", (chunk: string) => this.handleStdout(chunk));
-		child.stderr.on("data", (chunk: string) => this.stderr.push(chunk));
-		child.on("error", (error) => this.rejectAll(error));
+		child.stdout.on("data", (chunk: string) => this.handleStdout(generation, chunk));
+		child.stderr.on("data", (chunk: string) => generation.stderr.push(chunk));
+		child.on("error", (error) => this.rejectGeneration(generation, error));
 		child.on("exit", (code, signal) => {
 			if (detached && process.platform !== "win32" && child.pid !== undefined) {
 				signalProcessGroup(child.pid, "SIGTERM");
 			}
-			const hasReplacementProcess = this.process !== undefined && this.process !== child;
-			if (hasReplacementProcess) {
-				return;
-			}
-			if (this.process === child) {
+			if (this.process === generation) {
 				this.process = undefined;
 			}
-			if (this.pending.length === 0) {
+			if (!this.hasPendingGeneration(generation)) {
 				return;
 			}
-			const stderr = this.stderr.join("").trim();
+			const stderr = generation.stderr.join("").trim();
 			const reason = signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`;
-			this.rejectAll(new Error(`Pyrun runner exited with ${reason}${stderr ? `${EOL}${stderr}` : ""}`));
+			this.rejectGeneration(generation, new Error(`Pyrun runner exited with ${reason}${stderr ? `${EOL}${stderr}` : ""}`));
 		});
-		return child;
+		return generation;
 	}
 
-	private handleStdout(chunk: string): void {
-		this.buffer += chunk;
-		const lines = this.buffer.split("\n");
-		this.buffer = lines.pop() ?? "";
+	private handleStdout(generation: RunnerGeneration, chunk: string): void {
+		generation.buffer += chunk;
+		const lines = generation.buffer.split("\n");
+		generation.buffer = lines.pop() ?? "";
 		for (const line of lines) {
 			if (line.trim().length === 0) {
 				continue;
 			}
-			this.resolveNext(line);
+			this.resolveNext(generation, line);
 		}
 	}
 
-	private resolveNext(line: string): void {
-		const pending = this.pending[0];
+	private resolveNext(generation: RunnerGeneration, line: string): void {
+		const pendingIndex = this.pending.findIndex((request) => request.generation === generation);
+		const pending = pendingIndex === -1 ? undefined : this.pending[pendingIndex];
 		if (!pending) {
 			return;
 		}
 		try {
 			const message = JSON.parse(line) as CanonicalPyrunRunnerMessage;
 			if (isFinalEvalResult(message)) {
-				this.pending.shift();
+				this.pending.splice(pendingIndex, 1);
 				pending.cleanup?.();
 				pending.resolve(message);
 				return;
@@ -241,35 +257,43 @@ export class PyrunRunnerClient {
 			}
 			pending.onProgress?.(message);
 		} catch (error) {
-			this.pending.shift();
+			this.pending.splice(pendingIndex, 1);
 			pending.cleanup?.();
 			pending.reject(error instanceof Error ? error : new Error(String(error)));
 		}
 	}
 
 	private async respondToPiRequest(message: CanonicalPyrunProgressUpdate, pending: PendingRequest): Promise<void> {
-		const child = this.process;
+		const child = pending.generation.child;
 		const method = typeof message.method === "string" ? message.method : "";
 		try {
 			const result = await pending.onPiRequest?.({ method, params: message.params });
-			child?.stdin.write(`${JSON.stringify({ result })}\n`);
+			child.stdin.write(`${JSON.stringify({ result })}\n`);
 		} catch (error) {
 			const text = error instanceof Error ? error.message : String(error);
-			child?.stdin.write(`${JSON.stringify({ error: text })}\n`);
+			child.stdin.write(`${JSON.stringify({ error: text })}\n`);
 		}
 	}
 
-	private rejectNext(error: Error): void {
-		const pending = this.pending.shift();
-		if (pending) {
+	private hasPendingGeneration(generation: RunnerGeneration): boolean {
+		return this.pending.some((request) => request.generation === generation);
+	}
+
+	private rejectPending(pending: PendingRequest, error: Error): void {
+		const index = this.pending.indexOf(pending);
+		if (index === -1) return;
+		this.pending.splice(index, 1);
+		pending.cleanup?.();
+		pending.reject(error);
+	}
+
+	private rejectGeneration(generation: RunnerGeneration, error: Error): void {
+		for (let index = this.pending.length - 1; index >= 0; index -= 1) {
+			const pending = this.pending[index];
+			if (pending?.generation !== generation) continue;
+			this.pending.splice(index, 1);
 			pending.cleanup?.();
 			pending.reject(error);
-		}
-	}
-
-	private rejectAll(error: Error): void {
-		while (this.pending.length > 0) {
-			this.rejectNext(error);
 		}
 	}
 }

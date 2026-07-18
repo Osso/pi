@@ -147,7 +147,7 @@
 - Fixed Node development extension loading in clean worktrees by resolving workspace package aliases to source entries when built `dist` artifacts are absent.
 - Fixed silent model inference, including post-tool continuation, being mislabeled as `Streaming...`; interactive status now remains `Thinking...` until the first visible assistant delta.
 - Fixed process restarts, aborted turns, and Supervisor wait decisions incorrectly pausing active goals; only explicit goal pause actions now persist paused state, preexisting explicit pauses survive restart unchanged, and stale session metadata snapshots can no longer overwrite newer goal state.
-- Fixed Pyrun streamed console progress retaining unbounded newline-free output by capping recent text to 1 MiB (1,048,576 characters) in addition to the existing 300-line limit, preserving its tail.
+- Fixed Pyrun console progress and final history retaining output beyond 300 actual newline lines or the 1 MiB UTF-8 byte limit (1,048,576 bytes), preserving its tail.
 - Fixed `manage_goal complete` incorrectly reporting no active goal when the persisted goal was paused.
 - Fixed detached Pyrun live-agent views hiding submitted source by persisting a permission-locked `script.py` artifact across running and terminal states and rendering it beside the output log in the live-agent view.
 - Fixed explicit Architect requests lacking active-worktree context by accepting a validated absolute directory `project_path` (such as an active worktree), defaulting to the sender cwd, and directing Architect to read the authoritative relevant project spec.
