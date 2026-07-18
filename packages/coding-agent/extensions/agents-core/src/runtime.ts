@@ -860,7 +860,9 @@ function selectAgent(
 	const rendered = selectAgentView?.(agentId);
 	if (rendered === true) {
 		if (runtimeHandles) {
-			runtimeHandles.pendingRejectedMutationTargetId = undefined;
+			const selectedAgent = store.getAgent(agentId);
+			runtimeHandles.pendingRejectedMutationTargetId =
+				selectedAgent?.agentType === "background" ? agentId : undefined;
 			runtimeHandles.selectedMutationTargetId = agentId;
 		}
 		return selectCurrentAgent(store);
