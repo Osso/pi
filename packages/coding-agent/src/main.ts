@@ -72,7 +72,7 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-import { type CreateAgentSessionOptions, createAgentSessionWithInternalOptions } from "./core/sdk.ts";
+import { createAgentSession, type CreateAgentSessionOptions, createAgentSessionWithInternalOptions } from "./core/sdk.ts";
 import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
@@ -589,8 +589,6 @@ const firstPartyMultiAgentStore = new MultiAgentStore();
 const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
 const resolveFirstPartySessionMutationTarget = () =>
 	resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles);
-const createFirstPartyAgentSession = (options: CreateAgentSessionOptions) =>
-	createAgentSessionWithInternalOptions(options, resolveFirstPartySessionMutationTarget);
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -599,14 +597,14 @@ function createFirstPartyExtensionFactories(
 ): ExtensionFactory[] {
 	const childAgentSessionFactory = createProductionChildAgentSessionFactory({
 		agentDir: getAgentDir(),
-		createSession: createFirstPartyAgentSession,
+		createSession: createAgentSession,
 		createSessionManager: SessionManager.create,
 		extensionFactories: getRuntimeExtensionFactories,
 		multiAgentStore: firstPartyMultiAgentStore,
 	});
 	const attachedSessionFactory = createProductionAttachedSessionFactory({
 		agentDir: getAgentDir(),
-		createSession: createFirstPartyAgentSession,
+		createSession: createAgentSession,
 		extensionFactories: getRuntimeExtensionFactories,
 		multiAgentStore: firstPartyMultiAgentStore,
 	});

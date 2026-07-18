@@ -257,6 +257,51 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("keeps child slash-command mutations local after main selects another child", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned: selectedChild } = await spawnPendingHeadlessChild(
+				agent,
+				"Selected child",
+			);
+			await selectHeadlessView(agent, mainAfterSpawn, selectedChild.id);
+
+			await agent.send({ type: "prompt", message: "Spawn command child" });
+			const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			const spawnToolCallId = "spawn-command-child";
+			agent.respondToLlmRequest(
+				initialMainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall(
+						"spawn_agent",
+						{ displayName: "Command child", prompt: "/model headless-faux/headless-faux-reasoning" },
+						{ id: spawnToolCallId },
+					),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const commandChild = await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Command child" && candidate.lifecycle === "completed",
+			);
+			const mainAfterCommand = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialMainRequest.id,
+			);
+			agent.respondToLlmRequest(mainAfterCommand.id, fauxAssistantMessage("Command child complete"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+
+			expect(
+				agent
+					.readSessionEntries(selectedChild.id)
+					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
+			).toBe(false);
+			expect(agent.readSessionEntries(commandChild.id)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
+				]),
+			);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Selected child complete"));
+		});
+	});
+
 	it("rejects a completed selected target persistently without mutating main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Completed target");
