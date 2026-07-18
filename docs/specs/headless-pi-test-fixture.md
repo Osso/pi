@@ -45,9 +45,11 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
       post-restart main-session `steer_agent` request reaches the restored child and appears in its next
       provider request (`headless-pi.test.ts`: `steers a restored child through the current main session after restart`).
 - [x] Start concurrent real RPC peer sessions after the original supervisor crashes; verify startup refreshes
-      current runtime bindings and globally settles a detached cancellation only when its exact dead runner identity
-      matches the worker handle and no terminal outbox already exists, regardless of parent-session liveness. Two
-      peers serialize to one terminal commit without reparenting or duplicate terminalization.
+      current runtime bindings and globally settles detached `running` or `cancelling` rows only when the exact recorded
+      runner identity is dead, matches the worker handle, has no active descendant, still matches the current ownership row,
+      and no terminal outbox already exists, including a detached child whose logical parent remains live. The sweep does
+      not require owner-session liveness or listener absence, prove an owner-session/path match, reparent the agent, or
+      duplicate terminalization. Two foreign peers serialize to one terminal commit without reparenting.
 - [x] Prove a foreign startup settles an exact dead detached runner while same-session startup is paused, and cover
       active descendants, a pre-existing terminal outbox, an exact live/replacement owner, PID reuse, and
       worker-handle mismatch guards (`headless-pi.test.ts`, `orphaned-detached-reconciliation.test.ts`).

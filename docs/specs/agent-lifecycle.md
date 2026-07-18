@@ -168,7 +168,7 @@ listener that has already surrendered ownership.
 
 Detached runner recovery does not reconstruct terminal state from artifacts. The live runner directly
 finalizes from its in-memory identity, outcome, and output metadata. The output artifact is diagnostic
-only. If the runner dies before its terminal commit, the owning supervisor uses the exact persisted
+only. If the runner dies before its terminal commit, dead-owner recovery uses the exact persisted
 process identity to mark a `running` agent `failed/lost_runtime`; it does not replay or infer a terminal
 result from the output file. If the persisted lifecycle already recorded a cancellation intent
 (`cancelling`), dead-owner recovery settles that intent as `aborted/lost_runtime` — still without replaying
@@ -191,12 +191,12 @@ folder from reading stale manifests or output belonging to another supervisor.
       bindings after that registration, and reconciles only orphaned active rows identified by unmatched
       parent-session JSONL `agent_start` records through coordinator recovery commands,
       deepest descendants first so parent graph guards cannot strand an earlier parent row. Startup also globally scans
-      detached `running` and `cancelling` rows, but only settles a row when the exact recorded runner identity is dead,
-      matches the persisted runtime worker handle, has no active descendant, still matches the exact current ownership row, and has no
-      terminal outbox row already. Parent-session liveness does not prove runner liveness. The sweep uses the candidate row's
-      persisted session path for lookup and the canonical lost-runtime recovery path; it does not prove a current
-      owner-session/path match or reparent the agent, and it cannot mutate a live owner. A child runtime does not bind that supervisor lifecycle mirror or perform
-      supervisor-wide recovery; on session start it reconciles only direct persisted descendants identified by
+      detached `running` and `cancelling` rows across persisted sessions, but only settles a row when the exact recorded
+      runner identity is dead, matches the persisted runtime worker handle, has no active descendant, still matches the exact
+      current ownership row, and has no terminal outbox row already. Parent-session liveness does not prove runner liveness.
+      The sweep does not require recorded owner-session liveness or listener absence, does not prove an owner-session/path
+      match or reparent the agent, and never mutates the persisted owner agent row. A child runtime does not bind that
+      supervisor lifecycle mirror or perform supervisor-wide recovery; on session start it reconciles only direct persisted descendants identified by
       `multiAgentAgentId`, through the same coordinator recovery commands. Runtime ownership stores the exact
       `(pid, startTimeTicks)` identity. A different live process identity rejects replacement. There is no global
       recovery leader: unrelated supervisor sessions never coordinate lifecycle recovery. Session relocation moves
