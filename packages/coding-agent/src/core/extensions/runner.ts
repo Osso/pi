@@ -62,6 +62,7 @@ import type {
 	SessionBeforeTreeResult,
 	SessionCompactionSourceResult,
 	SessionShutdownEvent,
+	SessionMutationTarget,
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolResultEvent,
@@ -700,6 +701,16 @@ export class ExtensionRunner {
 		this.shutdownHandler();
 	}
 
+	private resolveSessionMutationTarget(): SessionMutationTarget | undefined {
+		const target = this.runtime.sessionMutationTargetResolver?.();
+		if (target) return target;
+		const selectedAgentId = this.getMultiAgentStoreFn?.()?.getSelectedAgentId();
+		if (selectedAgentId) {
+			throw new Error(`Agent ${selectedAgentId} is not a live session mutation target`);
+		}
+		return undefined;
+	}
+
 	/**
 	 * Create an ExtensionContext for use in event handlers and tool execution.
 	 * Context values are resolved at call time, so changes via bindCore/bindUI are reflected.
@@ -770,22 +781,22 @@ export class ExtensionRunner {
 			},
 			get model() {
 				runner.assertActive();
-				return runner.runtime.sessionMutationTargetResolver?.()?.model ?? getModel();
+				return runner.resolveSessionMutationTarget()?.model ?? getModel();
 			},
 			setModel: async (model) => {
 				runner.assertActive();
-				const target = runner.runtime.sessionMutationTargetResolver?.();
+				const target = runner.resolveSessionMutationTarget();
 				if (!target) return runner.runtime.setModel(model);
 				await target.setModel(model);
 				return true;
 			},
 			getThinkingLevel: () => {
 				runner.assertActive();
-				return runner.runtime.sessionMutationTargetResolver?.()?.thinkingLevel ?? runner.getThinkingLevelFn();
+				return runner.resolveSessionMutationTarget()?.thinkingLevel ?? runner.getThinkingLevelFn();
 			},
 			setThinkingLevel: (level) => {
 				runner.assertActive();
-				const target = runner.runtime.sessionMutationTargetResolver?.();
+				const target = runner.resolveSessionMutationTarget();
 				if (target) target.setThinkingLevel(level);
 				else runner.runtime.setThinkingLevel(level);
 			},
@@ -852,25 +863,8 @@ export class ExtensionRunner {
 		Object.defineProperty(context, "model", {
 			configurable: true,
 			enumerable: true,
-			get: () => this.runtime.sessionMutationTargetResolver?.()?.model ?? owningModel,
+			get: () => this.resolveSessionMutationTarget()?.model ?? owningModel,
 		});
-		context.setModel = async (model) => {
-			this.assertActive();
-			const target = this.runtime.sessionMutationTargetResolver?.();
-			if (!target) return this.runtime.setModel(model);
-			await target.setModel(model);
-			return true;
-		};
-		context.getThinkingLevel = () => {
-			this.assertActive();
-			return this.runtime.sessionMutationTargetResolver?.()?.thinkingLevel ?? this.runtime.getThinkingLevel();
-		};
-		context.setThinkingLevel = (level) => {
-			this.assertActive();
-			const target = this.runtime.sessionMutationTargetResolver?.();
-			if (target) target.setThinkingLevel(level);
-			else this.runtime.setThinkingLevel(level);
-		};
 		context.showApprovalSelector = () => {
 			this.assertActive();
 			this.showApprovalSelectorHandler();
