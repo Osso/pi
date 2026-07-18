@@ -1131,12 +1131,17 @@ describe("pyrun extension", () => {
 		const lastUpdate = updates.at(-1);
 		if (!lastUpdate) throw new Error("Expected streamed update");
 		const streamedText = readToolText(lastUpdate);
-		expect(streamedText.length).toBeLessThanOrEqual(1_048_576);
+		expect(Buffer.byteLength(streamedText)).toBeLessThanOrEqual(1_048_576);
 		expect(streamedText).toContain("-suffix");
 		expect(streamedText).not.toContain("prefix-");
+		const progressText = lastUpdate.details;
+		if (progressText.type !== "console" || typeof progressText.text !== "string") {
+			throw new Error("Expected bounded console progress details");
+		}
+		expect(Buffer.byteLength(progressText.text)).toBeLessThanOrEqual(1_048_576);
 		const finalConsole = result.details?.console?.[0];
 		if (typeof finalConsole !== "string") throw new Error("Expected bounded final console text");
-		expect(finalConsole.length).toBeLessThanOrEqual(1_048_576);
+		expect(Buffer.byteLength(finalConsole)).toBeLessThanOrEqual(1_048_576);
 		expect(finalConsole).toContain("-suffix");
 		expect(finalConsole).not.toContain("prefix-");
 	});

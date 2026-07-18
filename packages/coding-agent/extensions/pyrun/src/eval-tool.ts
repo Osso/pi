@@ -40,10 +40,14 @@ export interface PyrunPiRequestDispatcher {
 }
 
 const STREAMED_CONSOLE_LINE_LIMIT = 300;
-const STREAMED_CONSOLE_CHAR_LIMIT = 1_048_576;
+const STREAMED_CONSOLE_BYTE_LIMIT = 1_048_576;
 
-function capConsoleText(text: string): string {
-	return text.length <= STREAMED_CONSOLE_CHAR_LIMIT ? text : text.slice(-STREAMED_CONSOLE_CHAR_LIMIT);
+function capConsoleText(text: string, byteLimit = STREAMED_CONSOLE_BYTE_LIMIT): string {
+	const bytes = Buffer.from(text);
+	if (bytes.length <= byteLimit) return text;
+	let start = bytes.length - byteLimit;
+	while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
+	return bytes.subarray(start).toString("utf8");
 }
 
 function appendCappedConsoleText(existingText: string, newText: string): string {
@@ -94,16 +98,20 @@ function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console
 function capConsoleHistory(
 	entries: NonNullable<CanonicalPyrunEvalResult["console"]>,
 ): NonNullable<CanonicalPyrunEvalResult["console"]> {
-	let remainingCharacters = STREAMED_CONSOLE_CHAR_LIMIT;
+	let remainingBytes = STREAMED_CONSOLE_BYTE_LIMIT;
 	const boundedEntries: NonNullable<CanonicalPyrunEvalResult["console"]> = [];
-	for (let index = entries.length - 1; index >= 0 && remainingCharacters > 0; index -= 1) {
+	for (
+		let index = entries.length - 1;
+		index >= 0 && boundedEntries.length < STREAMED_CONSOLE_LINE_LIMIT && remainingBytes > 0;
+		index -= 1
+	) {
 		const entry = entries[index];
 		const entryText = typeof entry === "string" ? entry : entry.message;
-		const text = capConsoleText(entryText).slice(-remainingCharacters);
-		remainingCharacters -= text.length;
-		boundedEntries.unshift(typeof entry === "string" ? text : { ...entry, message: text });
+		const text = capConsoleText(entryText, remainingBytes);
+		remainingBytes -= Buffer.byteLength(text);
+		boundedEntries.push(typeof entry === "string" ? text : { ...entry, message: text });
 	}
-	return boundedEntries;
+	return boundedEntries.reverse();
 }
 
 function boundConsoleResult(result: CanonicalPyrunEvalResult): CanonicalPyrunEvalResult {
@@ -196,22 +204,28 @@ export type PyrunProgressUpdateCallback = (
 	partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>,
 ) => void;
 
+function boundProgressUpdate(update: CanonicalPyrunProgressUpdate): CanonicalPyrunProgressUpdate {
+	if (update.type !== "console" || typeof update.text !== "string") return update;
+	return { ...update, text: capConsoleText(update.text) };
+}
+
 export function createPyrunProgressReporter(
 	onUpdate: PyrunProgressUpdateCallback | undefined,
 ): (update: CanonicalPyrunProgressUpdate) => void {
 	let streamedConsoleText = "";
 	return (update) => {
-		const formattedProgressText = formatProgressText(update);
+		const boundedUpdate = boundProgressUpdate(update);
+		const formattedProgressText = formatProgressText(boundedUpdate);
 		const progressText =
-			update.type === "console"
+			boundedUpdate.type === "console"
 				? appendCappedConsoleText(streamedConsoleText, formattedProgressText)
 				: formattedProgressText;
-		if (update.type === "console") {
+		if (boundedUpdate.type === "console") {
 			streamedConsoleText = progressText;
 		}
 		onUpdate?.({
 			content: [{ type: "text", text: progressText }],
-			details: update,
+			details: boundedUpdate,
 		});
 	};
 }
