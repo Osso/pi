@@ -193,7 +193,13 @@ export class PyrunRunnerClient {
 			if (detached && process.platform !== "win32" && child.pid !== undefined) {
 				signalProcessGroup(child.pid, "SIGTERM");
 			}
-			if (this.process === child) this.process = undefined;
+			const hasReplacementProcess = this.process !== undefined && this.process !== child;
+			if (hasReplacementProcess) {
+				return;
+			}
+			if (this.process === child) {
+				this.process = undefined;
+			}
 			if (this.pending.length === 0) {
 				return;
 			}

@@ -72,6 +72,7 @@ interface PyrunEvalDetails {
 interface PyrunProgressDetails {
 	executed?: string;
 	message?: string;
+	text?: string;
 	type: string;
 }
 
@@ -382,6 +383,13 @@ async function resultFor(request) {
       process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text: "tick 2\\n" }) + "\\n");
     }
     return { type: "completed", executed: request.code, console: ["tick 1", "tick 2"], value: "done" };
+  }
+  if (request.code === "print.giant_stream()") {
+    const text = "prefix-" + "x".repeat(10 * 1024 * 1024) + "-suffix";
+    if (request.stream_console === true) {
+      process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text }) + "\\n");
+    }
+    return { type: "completed", executed: request.code, console: [text], value: "done" };
   }
   if (request.code === "print.interleaved_streams()") {
     if (request.stream_console === true) {
@@ -1113,6 +1121,30 @@ describe("pyrun extension", () => {
 			type: "completed",
 			value: "done",
 		});
+	});
+
+	it("caps a giant newline-free streamed console chunk while preserving its tail", async () => {
+		const harness = createPyrunHarness();
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "print.giant_stream()" }, (update) => updates.push(update));
+
+		const lastUpdate = updates.at(-1);
+		if (!lastUpdate) throw new Error("Expected streamed update");
+		const streamedText = readToolText(lastUpdate);
+		expect(Buffer.byteLength(streamedText)).toBeLessThanOrEqual(1_048_576);
+		expect(streamedText).toContain("-suffix");
+		expect(streamedText).not.toContain("prefix-");
+		const progressText = lastUpdate.details;
+		if (progressText.type !== "console" || typeof progressText.text !== "string") {
+			throw new Error("Expected bounded console progress details");
+		}
+		expect(Buffer.byteLength(progressText.text)).toBeLessThanOrEqual(1_048_576);
+		const finalConsole = result.details?.console?.[0];
+		if (typeof finalConsole !== "string") throw new Error("Expected bounded final console text");
+		expect(Buffer.byteLength(finalConsole)).toBeLessThanOrEqual(1_048_576);
+		expect(finalConsole).toContain("-suffix");
+		expect(finalConsole).not.toContain("prefix-");
 	});
 
 	it("uses the same visible progress formatting for durable foreground evaluations", async () => {

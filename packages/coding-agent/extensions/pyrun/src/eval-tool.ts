@@ -40,16 +40,25 @@ export interface PyrunPiRequestDispatcher {
 }
 
 const STREAMED_CONSOLE_LINE_LIMIT = 300;
+const STREAMED_CONSOLE_BYTE_LIMIT = 1_048_576;
+
+function capConsoleText(text: string, byteLimit = STREAMED_CONSOLE_BYTE_LIMIT): string {
+	const bytes = Buffer.from(text);
+	if (bytes.length <= byteLimit) return text;
+	let start = bytes.length - byteLimit;
+	while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
+	return bytes.subarray(start).toString("utf8");
+}
 
 function appendCappedConsoleText(existingText: string, newText: string): string {
-	const text = `${existingText}${newText}`;
+	const text = `${capConsoleText(existingText)}${capConsoleText(newText)}`;
 	const hasTrailingNewline = text.endsWith("\n");
 	const lines = text.split("\n");
 	if (hasTrailingNewline) {
 		lines.pop();
 	}
 	const cappedText = lines.slice(-STREAMED_CONSOLE_LINE_LIMIT).join("\n");
-	return hasTrailingNewline ? `${cappedText}\n` : cappedText;
+	return capConsoleText(hasTrailingNewline ? `${cappedText}\n` : cappedText);
 }
 
 function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined {
@@ -84,6 +93,29 @@ function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console
 		return entry;
 	}
 	return `${entry.level}: ${entry.message}`;
+}
+
+function capConsoleHistory(
+	entries: NonNullable<CanonicalPyrunEvalResult["console"]>,
+): NonNullable<CanonicalPyrunEvalResult["console"]> {
+	let remainingBytes = STREAMED_CONSOLE_BYTE_LIMIT;
+	const boundedEntries: NonNullable<CanonicalPyrunEvalResult["console"]> = [];
+	for (
+		let index = entries.length - 1;
+		index >= 0 && boundedEntries.length < STREAMED_CONSOLE_LINE_LIMIT && remainingBytes > 0;
+		index -= 1
+	) {
+		const entry = entries[index];
+		const entryText = typeof entry === "string" ? entry : entry.message;
+		const text = capConsoleText(entryText, remainingBytes);
+		remainingBytes -= Buffer.byteLength(text);
+		boundedEntries.push(typeof entry === "string" ? text : { ...entry, message: text });
+	}
+	return boundedEntries.reverse();
+}
+
+function boundConsoleResult(result: CanonicalPyrunEvalResult): CanonicalPyrunEvalResult {
+	return result.console ? { ...result, console: capConsoleHistory(result.console) } : result;
 }
 
 function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResult): string {
@@ -156,10 +188,11 @@ export function formatCanonicalPyrunEvalResult(
 	params: PyrunEvalParams,
 	result: CanonicalPyrunEvalResult,
 ): AgentToolResult<CanonicalPyrunEvalResult> {
+	const boundedResult = boundConsoleResult(result);
 	return {
-		content: [{ type: "text", text: formatToolText(params, result) }],
-		details: result,
-		isError: result.error !== undefined,
+		content: [{ type: "text", text: formatToolText(params, boundedResult) }],
+		details: boundedResult,
+		isError: boundedResult.error !== undefined,
 	};
 }
 
@@ -171,22 +204,28 @@ export type PyrunProgressUpdateCallback = (
 	partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>,
 ) => void;
 
+function boundProgressUpdate(update: CanonicalPyrunProgressUpdate): CanonicalPyrunProgressUpdate {
+	if (update.type !== "console" || typeof update.text !== "string") return update;
+	return { ...update, text: capConsoleText(update.text) };
+}
+
 export function createPyrunProgressReporter(
 	onUpdate: PyrunProgressUpdateCallback | undefined,
 ): (update: CanonicalPyrunProgressUpdate) => void {
 	let streamedConsoleText = "";
 	return (update) => {
-		const formattedProgressText = formatProgressText(update);
+		const boundedUpdate = boundProgressUpdate(update);
+		const formattedProgressText = formatProgressText(boundedUpdate);
 		const progressText =
-			update.type === "console"
+			boundedUpdate.type === "console"
 				? appendCappedConsoleText(streamedConsoleText, formattedProgressText)
 				: formattedProgressText;
-		if (update.type === "console") {
+		if (boundedUpdate.type === "console") {
 			streamedConsoleText = progressText;
 		}
 		onUpdate?.({
 			content: [{ type: "text", text: progressText }],
-			details: update,
+			details: boundedUpdate,
 		});
 	};
 }
