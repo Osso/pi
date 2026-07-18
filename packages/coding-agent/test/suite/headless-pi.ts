@@ -803,8 +803,8 @@ export default function(pi) {
 		name: "test_set_viewed_model",
 		description: "Set model through the selected runtime target adapter",
 		parameters: Type.Object({}),
-		execute: async () => {
-			await pi.setModel({
+		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
+			await ctx.setModel({
 				api: "headless-faux",
 				id: "headless-faux-reasoning",
 				name: "Headless Faux Reasoning",
@@ -815,7 +815,7 @@ export default function(pi) {
 				contextWindow: 128000,
 				maxTokens: 16384,
 			});
-			pi.setThinkingLevel("high");
+			ctx.setThinkingLevel("high");
 			return { content: [{ type: "text", text: "model and effort set" }], details: {} };
 		},
 	});
@@ -823,8 +823,8 @@ export default function(pi) {
 		name: "test_set_viewed_effort",
 		description: "Set effort through the selected runtime target adapter",
 		parameters: Type.Object({}),
-		execute: async () => {
-			pi.setThinkingLevel("high");
+		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
+			ctx.setThinkingLevel("high");
 			return { content: [{ type: "text", text: "effort set" }], details: {} };
 		},
 	});
