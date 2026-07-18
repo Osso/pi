@@ -40,17 +40,10 @@ export interface PyrunPiRequestDispatcher {
 }
 
 const STREAMED_CONSOLE_LINE_LIMIT = 300;
-const STREAMED_CONSOLE_BYTE_LIMIT = 1_048_576;
+const STREAMED_CONSOLE_CHAR_LIMIT = 1_048_576;
 
 function capConsoleText(text: string): string {
-	if (Buffer.byteLength(text, "utf8") <= STREAMED_CONSOLE_BYTE_LIMIT) {
-		return text;
-	}
-	let cappedText = Buffer.from(text).subarray(-STREAMED_CONSOLE_BYTE_LIMIT).toString("utf8");
-	while (Buffer.byteLength(cappedText, "utf8") > STREAMED_CONSOLE_BYTE_LIMIT) {
-		cappedText = cappedText.slice(1);
-	}
-	return cappedText;
+	return text.length <= STREAMED_CONSOLE_CHAR_LIMIT ? text : text.slice(-STREAMED_CONSOLE_CHAR_LIMIT);
 }
 
 function appendCappedConsoleText(existingText: string, newText: string): string {
