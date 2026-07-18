@@ -3390,26 +3390,49 @@ function persistDetachedJobTerminalTransport(
 	terminalRevision: number,
 	eventKind: string,
 ): void {
-	const ownerSessionId = ownership.owner_session_id;
-	if (!ownerSessionId) throw new Error(`Detached job ${terminal.jobId} ownership has no owner session`);
-	const messageId = `terminal:${terminal.jobId}:${terminalRevision}:${eventKind}`;
-	const body = JSON.stringify({ agentId: terminal.jobId, eventKind, terminalRevision, type: "multi_agent_terminal" });
+	persistDetachedAgentTerminalTransport(
+		db,
+		sessionPath,
+		terminal.jobId,
+		{
+			agentId: ownership.owner_agent_id,
+			sessionId: ownership.owner_session_id ?? undefined,
+		},
+		terminalRevision,
+		eventKind,
+		terminal.terminalAt,
+	);
+}
+
+function persistDetachedAgentTerminalTransport(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	owner: { agentId: string | null; sessionId?: string },
+	terminalRevision: number,
+	eventKind: string,
+	terminalAt: string,
+): void {
+	const ownerSessionId = owner.sessionId;
+	if (!ownerSessionId) throw new Error(`Detached job ${agentId} ownership has no owner session`);
+	const messageId = `terminal:${agentId}:${terminalRevision}:${eventKind}`;
+	const body = JSON.stringify({ agentId, eventKind, terminalRevision, type: "multi_agent_terminal" });
 	persistStoredRuntimeMailboxMessage(db, {
 		kind: "system",
 		message: {
 			body,
-			createdAt: terminal.terminalAt,
-			fromAgentId: terminal.jobId,
+			createdAt: terminalAt,
+			fromAgentId: agentId,
 			id: messageId,
 			kind: "system",
 			status: "pending",
-			toAgentId: ownership.owner_agent_id ?? "main",
-			updatedAt: terminal.terminalAt,
+			toAgentId: owner.agentId ?? "main",
+			updatedAt: terminalAt,
 		},
-		recipient: { agentId: ownership.owner_agent_id, sessionId: ownerSessionId },
-		sender: { agentId: terminal.jobId, sessionId: ownerSessionId },
+		recipient: { agentId: owner.agentId, sessionId: ownerSessionId },
+		sender: { agentId, sessionId: ownerSessionId },
 		storeRef: { messageId, sessionPath },
-		updatedAt: terminal.terminalAt,
+		updatedAt: terminalAt,
 	});
 }
 
@@ -3586,6 +3609,17 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 		 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
 	).run(sessionPath, agentId, terminalRevision, nowIso);
+	if (agent.detached === true) {
+		persistDetachedAgentTerminalTransport(
+			db,
+			sessionPath,
+			agentId,
+			expectedOwner.owner,
+			terminalRevision,
+			"lost_runtime",
+			nowIso,
+		);
+	}
 	return { ok: true, agent: updated, terminalRevision };
 }
 

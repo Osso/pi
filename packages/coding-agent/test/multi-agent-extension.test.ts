@@ -49,14 +49,18 @@ import {
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
 import {
+	createMultiAgentChildWithRuntimeOwnership,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
+	readMultiAgentAgent,
+	reconcileDeadDetachedAgentRuntimes,
 	registerRuntimeMailboxListener,
 	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
 	type ChildAgentSessionFactory,
@@ -3131,6 +3135,72 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listMailboxMessages().every((message) => message.status === "delivered")).toBe(true);
 	});
 
+	it("reconciles a dead detached child so its live parent can complete", async () => {
+		const parentPromptStarted = deferred<void>();
+		const releaseParent = deferred<void>();
+		const createChildSession = createTranscriptBackedFauxSessionFactory(async ({ agent }) => {
+			if (agent.displayName === "Parent") {
+				parentPromptStarted.resolve();
+				await releaseParent.promise;
+			}
+			return { lifecycle: "completed", result: { summary: `${agent.displayName} done` } };
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Parent",
+			prompt: "parent",
+		});
+		await parentPromptStarted.promise;
+
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted store fixture");
+		const deadWorker = testProcessIdentity("live-parent-dead-detached-child");
+		const created = createMultiAgentChildWithRuntimeOwnership(persistence.controlDbPath, {
+			agent: {
+				agentType: "background",
+				createdAt: "2026-07-18T12:00:00.000Z",
+				cwd: "/repo",
+				detached: true,
+				displayName: "Pyrun evaluation",
+				id: "pyrun_dead",
+				lifecycle: "running",
+				parentId: parent.details.agent.id,
+				permission: parent.details.agent.permission,
+				revision: 1,
+				updatedAt: "2026-07-18T12:00:00.000Z",
+				worker: { adapter: "runtime", handleId: String(deadWorker.pid), toolCallId: "tool_dead" },
+			},
+			agentId: "pyrun_dead",
+			nowIso: "2026-07-18T12:00:00.000Z",
+			owner: { agentId: parent.details.agent.id, sessionId: harness.getSessionId() },
+			processIdentity: deadWorker,
+			sessionPath: persistence.sessionPath,
+		});
+		if (!created.ok) throw new Error(`Could not create detached child: ${created.error}`);
+		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
+
+		releaseParent.resolve();
+		await delay(10);
+		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "running" });
+
+		expect(reconcileDeadDetachedAgentRuntimes(persistence.controlDbPath, "2026-07-18T12:00:01.000Z")).toBe(1);
+		expect(listRuntimeMailboxMessages(persistence.controlDbPath)).toMatchObject([
+			{ recipient: { agentId: parent.details.agent.id, sessionId: harness.getSessionId() }, status: "pending" },
+		]);
+		deliverTerminalOutboxProjections({
+			claimId: "live-parent-dead-detached-child",
+			controlDbPath: persistence.controlDbPath,
+			now: () => "2026-07-18T12:00:01.000Z",
+			store: harness.store,
+		});
+
+		const completedParent = await waitForTerminalAgent(harness, parent.details.agent.id);
+		expect(readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, "pyrun_dead")).toMatchObject({
+			error: { code: "lost_runtime" },
+			lifecycle: "failed",
+		});
+		expect(completedParent).toMatchObject({ lifecycle: "completed", result: { summary: "Parent done" } });
+	});
 	it("wait_agents returns when any active agent reaches a terminal state", async () => {
 		const firstGate = deferred<void>();
 		const secondGate = deferred<void>();
