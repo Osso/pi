@@ -770,11 +770,24 @@ export class ExtensionRunner {
 			},
 			get model() {
 				runner.assertActive();
-				return getModel();
+				return runner.runtime.sessionMutationTargetResolver?.()?.model ?? getModel();
+			},
+			setModel: async (model) => {
+				runner.assertActive();
+				const target = runner.runtime.sessionMutationTargetResolver?.();
+				if (!target) return runner.runtime.setModel(model);
+				await target.setModel(model);
+				return true;
 			},
 			getThinkingLevel: () => {
 				runner.assertActive();
-				return runner.getThinkingLevelFn();
+				return runner.runtime.sessionMutationTargetResolver?.()?.thinkingLevel ?? runner.getThinkingLevelFn();
+			},
+			setThinkingLevel: (level) => {
+				runner.assertActive();
+				const target = runner.runtime.sessionMutationTargetResolver?.();
+				if (target) target.setThinkingLevel(level);
+				else runner.runtime.setThinkingLevel(level);
 			},
 			getScopedModels: () => {
 				runner.assertActive();

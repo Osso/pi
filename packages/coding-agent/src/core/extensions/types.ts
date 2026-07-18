@@ -347,10 +347,14 @@ export interface ExtensionContext {
 	multiAgentStore?: MultiAgentStore;
 	/** Shared detach registry for in-flight tools that can move to background. */
 	toolDetachRegistry?: ToolDetachRegistry;
-	/** Current model (may be undefined) */
+	/** Current model for the selected mutable session target, when available. */
 	model: Model<any> | undefined;
-	/** Current thinking/effort level for the selected model, when available. */
-	getThinkingLevel?: () => ThinkingLevel;
+	/** Set the model on the currently selected mutable session target. */
+	setModel(model: Model<any>): Promise<boolean>;
+	/** Current thinking/effort level for the selected mutable session target. */
+	getThinkingLevel(): ThinkingLevel;
+	/** Set thinking level on the currently selected mutable session target. */
+	setThinkingLevel(level: ThinkingLevel): void;
 	/** Current scoped models used for model cycling, when available. */
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
@@ -385,12 +389,6 @@ export interface ExtensionContext {
  * Includes session control methods only safe in user-initiated commands.
  */
 export interface ExtensionCommandContext extends ExtensionContext {
-	/** Set the model on the currently selected mutable session target. */
-	setModel(model: Model<any>): Promise<boolean>;
-	/** Read thinking level from the currently selected mutable session target. */
-	getThinkingLevel(): ThinkingLevel;
-	/** Set thinking level on the currently selected mutable session target. */
-	setThinkingLevel(level: ThinkingLevel): void;
 	/** Show the first-party approval preset selector. */
 	showApprovalSelector(): void;
 
