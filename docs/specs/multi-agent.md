@@ -117,7 +117,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       Confirmed owner-process exit resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred
       abort. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
-- [x] `wait_agents({})` snapshots agents active at invocation, consumes one pending completion notification,
+- [x] `wait_agents({})` snapshots agents active at invocation, consumes every pending terminal notification already waiting,
       and queries current agent rows until any snapshot member is terminal. Notifications only wake the query;
       the agent row is terminal truth. It does not consume shared mailbox delivery. Restore clears transient
       `runtime` worker metadata without rewriting
@@ -238,8 +238,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   confirmed abort.
 - Each terminal transition updates the agent row and enqueues exactly one pending completion or failure
   notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
-  delivery queue. Redelivery and retries affect notification delivery only. `wait_agents` consumes one
-  pending completion notification and queries the current agent rows for agents active at invocation;
+  delivery queue. Redelivery and retries affect notification delivery only. `wait_agents` consumes every
+  pending terminal notification already waiting and queries the current agent rows for agents active at invocation;
   notifications only wake that query; the agent row remains the sole terminal source of truth.
 
 ### Mailbox and steering
@@ -313,7 +313,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agents({})` consumes one pending completion notification and queries agent rows for agents
+- [x] `wait_agents({})` consumes every pending terminal notification already waiting and queries agent rows for agents
       active at invocation until one reaches a terminal state. Notifications only wake the query; the agent
       row is terminal truth. It does not consume runtime-mailbox transport rows; Hostrun/Pyrun uses the same
       operation.
