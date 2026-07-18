@@ -799,11 +799,9 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 		join(testExtensionDir, "selected-runtime-target.ts"),
 		`import { Type } from "typebox";
 export default function(pi) {
-	pi.registerTool({
-		name: "test_set_viewed_model",
-		description: "Set model through the selected runtime target adapter",
-		parameters: Type.Object({}),
-		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
+	pi.registerCommand("test_set_viewed_model_command", {
+		description: "Set model and effort through the selected runtime target command context",
+		handler: async (_args, ctx) => {
 			await ctx.setModel({
 				api: "headless-faux",
 				id: "headless-faux-reasoning",
@@ -816,6 +814,20 @@ export default function(pi) {
 				maxTokens: 16384,
 			});
 			ctx.setThinkingLevel("high");
+		},
+	});
+	pi.registerCommand("test_set_viewed_effort_command", {
+		description: "Set effort through the selected runtime target command context",
+		handler: async (_args, ctx) => {
+			ctx.setThinkingLevel("high");
+		},
+	});
+	pi.registerTool({
+		name: "test_set_viewed_model",
+		description: "Set model through the selected runtime target adapter",
+		parameters: Type.Object({}),
+		execute: async () => {
+			await pi.callCommand("test_set_viewed_model_command");
 			return { content: [{ type: "text", text: "model and effort set" }], details: {} };
 		},
 	});
@@ -823,8 +835,8 @@ export default function(pi) {
 		name: "test_set_viewed_effort",
 		description: "Set effort through the selected runtime target adapter",
 		parameters: Type.Object({}),
-		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
-			ctx.setThinkingLevel("high");
+		execute: async () => {
+			await pi.callCommand("test_set_viewed_effort_command");
 			return { content: [{ type: "text", text: "effort set" }], details: {} };
 		},
 	});
