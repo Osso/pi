@@ -395,7 +395,7 @@ export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
-	selectedAgentId = runtimeHandles.selectedMutationTargetId ?? store.getSelectedAgentId(),
+	selectedAgentId = store.getSelectedAgentId() ?? runtimeHandles.selectedMutationTargetId,
 ): ChildAgentSession | undefined {
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	const agent = store.getAgent(selectedAgentId);
