@@ -72,6 +72,7 @@ interface PyrunEvalDetails {
 interface PyrunProgressDetails {
 	executed?: string;
 	message?: string;
+	text?: string;
 	type: string;
 }
 
