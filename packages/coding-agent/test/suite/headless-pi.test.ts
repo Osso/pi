@@ -259,10 +259,11 @@ describe("headless Pi fixture", () => {
 
 	it("keeps child slash-command mutations local after main selects another child", async () => {
 		await withHeadlessPi(async (agent) => {
-			const { childRequest, mainAfterSpawn, spawned: selectedChild } = await spawnPendingHeadlessChild(
-				agent,
-				"Selected child",
-			);
+			const {
+				childRequest,
+				mainAfterSpawn,
+				spawned: selectedChild,
+			} = await spawnPendingHeadlessChild(agent, "Selected child");
 			await selectHeadlessView(agent, mainAfterSpawn, selectedChild.id);
 
 			await agent.send({ type: "prompt", message: "Spawn command child" });

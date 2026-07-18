@@ -72,7 +72,11 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-import { createAgentSession, type CreateAgentSessionOptions, createAgentSessionWithInternalOptions } from "./core/sdk.ts";
+import {
+	type CreateAgentSessionOptions,
+	createAgentSession,
+	createAgentSessionWithInternalOptions,
+} from "./core/sdk.ts";
 import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
