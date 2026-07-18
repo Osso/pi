@@ -382,7 +382,6 @@ export interface MultiAgentRuntimeHandles {
 	sessions: BackgroundSessionHandles;
 	pendingRejectedMutationTargetError?: string;
 	pendingRejectedMutationTargetId?: string;
-	selectedMutationTargetId?: string;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
@@ -398,9 +397,7 @@ export interface LiveChildSessionMutationTarget extends SessionMutationTarget {
 export function resolveSelectedSessionMutationTarget(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
-	selectedAgentId = runtimeHandles.pendingRejectedMutationTargetId ??
-		store.getSelectedAgentId() ??
-		runtimeHandles.selectedMutationTargetId,
+	selectedAgentId = runtimeHandles.pendingRejectedMutationTargetId ?? store.getSelectedAgentId(),
 ): SessionMutationTarget | undefined {
 	if (runtimeHandles.pendingRejectedMutationTargetId === selectedAgentId) {
 		const pendingError = runtimeHandles.pendingRejectedMutationTargetError;
@@ -895,7 +892,6 @@ function selectAgent(
 				? `Agent ${agentId} is detached or otherwise not a live session mutation target`
 				: undefined;
 			runtimeHandles.pendingRejectedMutationTargetId = unresolvedSelection ? agentId : undefined;
-			runtimeHandles.selectedMutationTargetId = agentId;
 		}
 		return selected;
 	}
@@ -912,7 +908,6 @@ function selectAgent(
 		if (runtimeHandles) {
 			runtimeHandles.pendingRejectedMutationTargetError = undefined;
 			runtimeHandles.pendingRejectedMutationTargetId = undefined;
-			runtimeHandles.selectedMutationTargetId = agentId;
 		}
 		return { agent: createMainThreadSnapshot() };
 	}
@@ -922,7 +917,6 @@ function selectAgent(
 		if (runtimeHandles) {
 			runtimeHandles.pendingRejectedMutationTargetError = undefined;
 			runtimeHandles.pendingRejectedMutationTargetId = undefined;
-			runtimeHandles.selectedMutationTargetId = agentId;
 		}
 		return { agent: result.agent };
 	}
