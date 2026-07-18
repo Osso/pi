@@ -18,6 +18,7 @@ import agentsCoreExtension, {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
+	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
@@ -1096,6 +1097,14 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
+			resolveSessionMutationTarget: (agentId) =>
+				agentId
+					? resolveSelectedSessionMutationTarget(
+							firstPartyMultiAgentStore,
+							firstPartyMultiAgentRuntimeHandles,
+							agentId,
+						)
+					: undefined,
 			steerMultiAgent: async (agentId, message) => {
 				if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
 				const steered = requestAgentSteering(

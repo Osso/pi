@@ -366,7 +366,14 @@ function formatFollowUpPreview(message: string): string {
 /**
  * Options for InteractiveMode initialization.
  */
+type SessionMutationTarget = Pick<
+	AgentSession,
+	"cycleModel" | "model" | "modelRegistry" | "scopedModels" | "setModel" | "setThinkingLevel" | "thinkingLevel"
+>;
+
 export interface InteractiveModeOptions {
+	/** Resolve a viewed child to its live mutable session; undefined selects main. */
+	resolveSessionMutationTarget?: (agentId: string | undefined) => SessionMutationTarget | undefined;
 	/** Providers that were migrated to auth.json (shows warning) */
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
@@ -552,6 +559,10 @@ export class InteractiveMode {
 	}
 	private get settingsManager() {
 		return this.session.settingsManager;
+	}
+
+	private resolveViewedSessionTarget(): SessionMutationTarget {
+		return this.options.resolveSessionMutationTarget?.(this.childViewAgentId) ?? this.session;
 	}
 
 	constructor(runtimeHost: AgentSessionRuntime, options: InteractiveModeOptions = {}) {
@@ -4900,9 +4911,10 @@ export class InteractiveMode {
 
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {
 		try {
-			const result = await this.session.cycleModel(direction);
+			const target = this.resolveViewedSessionTarget();
+			const result = await target.cycleModel(direction);
 			if (result === undefined) {
-				const msg = this.session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
+				const msg = target.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
 				this.footer.invalidate();
@@ -5421,7 +5433,7 @@ export class InteractiveMode {
 		const model = await this.findExactModelMatch(searchTerm);
 		if (model) {
 			try {
-				await this.session.setModel(model);
+				await this.resolveViewedSessionTarget().setModel(model);
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				this.showStatus(`Model: ${model.id}`);
@@ -5442,13 +5454,14 @@ export class InteractiveMode {
 	}
 
 	private async getModelCandidates(): Promise<Model<any>[]> {
-		if (this.session.scopedModels.length > 0) {
-			return this.session.scopedModels.map((scoped) => scoped.model);
+		const target = this.resolveViewedSessionTarget();
+		if (target.scopedModels.length > 0) {
+			return target.scopedModels.map((scoped) => scoped.model);
 		}
 
-		this.session.modelRegistry.refresh();
+		target.modelRegistry.refresh();
 		try {
-			return await this.session.modelRegistry.getAvailable();
+			return await target.modelRegistry.getAvailable();
 		} catch {
 			return [];
 		}
@@ -5598,15 +5611,16 @@ export class InteractiveMode {
 
 	private showModelSelector(initialSearchInput?: string): void {
 		this.showSelector((done) => {
+			const target = this.resolveViewedSessionTarget();
 			const selector = new ModelSelectorComponent(
 				this.ui,
-				this.session.model,
+				target.model,
 				this.settingsManager,
-				this.session.modelRegistry,
-				this.session.scopedModels,
+				target.modelRegistry,
+				target.scopedModels,
 				async (model) => {
 					try {
-						await this.session.setModel(model);
+						await this.resolveViewedSessionTarget().setModel(model);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 						done();

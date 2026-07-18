@@ -385,6 +385,12 @@ export interface ExtensionContext {
  * Includes session control methods only safe in user-initiated commands.
  */
 export interface ExtensionCommandContext extends ExtensionContext {
+	/** Set the model on the currently selected mutable session target. */
+	setModel(model: Model<any>): Promise<boolean>;
+	/** Read thinking level from the currently selected mutable session target. */
+	getThinkingLevel(): ThinkingLevel;
+	/** Set thinking level on the currently selected mutable session target. */
+	setThinkingLevel(level: ThinkingLevel): void;
 	/** Show the first-party approval preset selector. */
 	showApprovalSelector(): void;
 
@@ -1479,6 +1485,9 @@ export interface ExtensionAPI {
 	// Model and Thinking Level
 	// =========================================================================
 
+	/** Register the selected-session mutation resolver used by model and thinking operations. */
+	registerSessionMutationTargetResolver(resolver: () => SessionMutationTarget | undefined): void;
+
 	/** Set the current model. Returns false if no API key available. */
 	setModel(model: Model<any>): Promise<boolean>;
 
@@ -1710,8 +1719,16 @@ export type SetLabelHandler = (entryId: string, label: string | undefined) => vo
  * Shared state created by loader, used during registration and runtime.
  * Contains flag values (defaults set during registration, CLI values set after).
  */
+export interface SessionMutationTarget {
+	model: Model<any>;
+	thinkingLevel: ThinkingLevel;
+	setModel(model: Model<any>): Promise<void>;
+	setThinkingLevel(level: ThinkingLevel): void;
+}
+
 export interface ExtensionRuntimeState {
 	flagValues: Map<string, boolean | string>;
+	sessionMutationTargetResolver?: () => SessionMutationTarget | undefined;
 	/** Provider registrations queued during extension loading, processed when runner binds */
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;
 	/** Throws when this extension instance is stale after runtime replacement. */

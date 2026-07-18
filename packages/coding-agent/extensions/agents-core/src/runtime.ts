@@ -9,6 +9,7 @@ import {
 	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	type SessionMutationTarget,
 } from "../../../src/core/extensions/types.ts";
 import {
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -227,13 +228,19 @@ export interface ChildAgentDispatchInput {
 	signal?: AbortSignal;
 }
 
-export interface ChildAgentSession {
+export interface ChildAgentSession extends SessionMutationTarget {
 	abort?(): void;
 	dispose?(): void;
 	drainRuntimeCoordination?(): Promise<void>;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
 	transcript?: AgentSnapshot["transcript"];
+	cycleModel(direction: "forward" | "backward"): Promise<
+		| { model: ChildSessionModel; thinkingLevel: ThinkingLevel }
+		| undefined
+	>;
+	scopedModels: ReadonlyArray<{ model: ChildSessionModel; thinkingLevel?: ThinkingLevel }>;
+	modelRegistry: ExtensionContext["modelRegistry"];
 }
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
@@ -378,10 +385,25 @@ export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
+	selectedMutationTargetId?: string;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
 	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map() };
+}
+
+export function resolveSelectedSessionMutationTarget(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+	selectedAgentId = runtimeHandles.selectedMutationTargetId ?? store.getSelectedAgentId(),
+): ChildAgentSession | undefined {
+	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
+	const agent = store.getAgent(selectedAgentId);
+	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);
+	if (!isActiveLifecycle(agent.lifecycle)) throw new Error(formatInactiveAgentSelectionMessage(agent));
+	const session = runtimeHandles.sessions.get(selectedAgentId);
+	if (!session) throw new Error(`Agent ${selectedAgentId} is not a live child session`);
+	return session;
 }
 
 interface WaitingDesktopNotificationRegistration {
@@ -787,7 +809,7 @@ export function createHostrunMultiAgentRequestHandler(
 		}
 
 		if (request.method === "agents.select") {
-			return selectAgent(store, request.params, options.selectAgentView);
+			return selectAgent(store, request.params, options.selectAgentView, options.runtimeHandles);
 		}
 
 		if (request.method === "messages.last") {
@@ -821,8 +843,10 @@ function selectAgent(
 	store: MultiAgentStore,
 	params: unknown,
 	selectAgentView: MultiAgentExtensionOptions["selectAgentView"],
+	runtimeHandles: MultiAgentRuntimeHandles | undefined,
 ): AgentSelectionDetails {
 	const agentId = normalizeSelectAgentId(params);
+	if (runtimeHandles) runtimeHandles.selectedMutationTargetId = agentId;
 	const rendered = selectAgentView?.(agentId);
 	if (rendered === true) {
 		return selectCurrentAgent(store);
@@ -3198,9 +3222,20 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 	);
 }
 
+export function registerSelectedSessionMutationResolver(
+	pi: ExtensionAPI,
+	options: MultiAgentExtensionOptions,
+): void {
+	const runtimeHandles = options.runtimeHandles;
+	if (!runtimeHandles) return;
+	const store = resolveMultiAgentStore(options);
+	pi.registerSessionMutationTargetResolver(() => resolveSelectedSessionMutationTarget(store, runtimeHandles));
+}
+
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
 	const sharedOptions = { ...options, store };
+	registerSelectedSessionMutationResolver(pi, sharedOptions);
 
 	registerAgentsCoreTools(pi, sharedOptions);
 	registerAgentViewerTools(pi, sharedOptions);

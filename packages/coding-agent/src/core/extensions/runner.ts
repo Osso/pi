@@ -835,6 +835,29 @@ export class ExtensionRunner {
 			{},
 			Object.getOwnPropertyDescriptors(this.createContext()),
 		) as ExtensionCommandContext;
+		const owningModel = context.model;
+		Object.defineProperty(context, "model", {
+			configurable: true,
+			enumerable: true,
+			get: () => this.runtime.sessionMutationTargetResolver?.()?.model ?? owningModel,
+		});
+		context.setModel = async (model) => {
+			this.assertActive();
+			const target = this.runtime.sessionMutationTargetResolver?.();
+			if (!target) return this.runtime.setModel(model);
+			await target.setModel(model);
+			return true;
+		};
+		context.getThinkingLevel = () => {
+			this.assertActive();
+			return this.runtime.sessionMutationTargetResolver?.()?.thinkingLevel ?? this.runtime.getThinkingLevel();
+		};
+		context.setThinkingLevel = (level) => {
+			this.assertActive();
+			const target = this.runtime.sessionMutationTargetResolver?.();
+			if (target) target.setThinkingLevel(level);
+			else this.runtime.setThinkingLevel(level);
+		};
 		context.showApprovalSelector = () => {
 			this.assertActive();
 			this.showApprovalSelectorHandler();

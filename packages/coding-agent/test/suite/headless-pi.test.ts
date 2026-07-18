@@ -35,6 +35,11 @@ function expectSingleFailedToolResult(request: HeadlessLlmRequest, expectedOutpu
 	expect(JSON.stringify(results[0])).toContain(expectedOutput);
 }
 
+function expectFailedToolEntry(entry: SessionMessageEntry, expectedOutput: string): void {
+	expect(entry.message).toMatchObject({ isError: true, role: "toolResult" });
+	expect(JSON.stringify(entry.message)).toContain(expectedOutput);
+}
+
 function isProcessAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -51,6 +56,69 @@ function killProcessGroup(pid: number): void {
 		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 		process.kill(pid, "SIGKILL");
 	}
+}
+
+async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string) {
+	const promptResponse = await agent.send({ type: "prompt", message: `Spawn ${displayName}` });
+	if (!("success" in promptResponse) || !promptResponse.success) {
+		throw new Error(`Initial prompt rejected: ${JSON.stringify(promptResponse)}`);
+	}
+	const initialMainRequest = await agent
+		.waitForLlmRequest((request) => request.agentId === null)
+		.catch((error: unknown) => {
+			throw new Error(`Initial main request missing: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	agent.respondToLlmRequest(
+		initialMainRequest.id,
+		fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName, prompt: `Remain live for ${displayName}` }), {
+			stopReason: "toolUse",
+		}),
+	);
+	const spawned = await agent.waitForAgent((candidate) => candidate.displayName === displayName);
+	const childRequest = await agent
+		.waitForLlmRequest((request) => request.agentId === spawned.id)
+		.catch((error: unknown) => {
+			throw new Error(`Child request missing: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	const mainAfterSpawn = await agent
+		.waitForLlmRequest((request) => request.agentId === null && request.id !== initialMainRequest.id)
+		.catch((error: unknown) => {
+			throw new Error(`Post-spawn main request missing: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	return { childRequest, mainAfterSpawn, spawned };
+}
+
+async function selectAndMutateHeadlessTarget(
+	agent: HeadlessPi,
+	request: HeadlessLlmRequest,
+	agentId: string,
+	toolName: "test_set_viewed_model" | "test_set_viewed_effort",
+): Promise<SessionMessageEntry> {
+	agent.respondToLlmRequest(
+		request.id,
+		fauxAssistantMessage(
+			fauxToolCall("pyrun_eval", { code: `print(pi.agents.select(${JSON.stringify(agentId)}))` }),
+			{ stopReason: "toolUse" },
+		),
+	);
+	const afterSelection = await agent
+		.waitForLlmRequest((candidate) => candidate.agentId === null && candidate.id !== request.id)
+		.catch((error: unknown) => {
+			throw new Error(`Selection did not continue: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	agent.respondToLlmRequest(
+		afterSelection.id,
+		fauxAssistantMessage(fauxToolCall(toolName, {}), { stopReason: "toolUse" }),
+	);
+	const entry = await agent.waitForSessionEntry(
+		null,
+		(candidate) =>
+			candidate.type === "message" &&
+			candidate.message.role === "toolResult" &&
+			candidate.message.toolName === toolName,
+	);
+	if (entry.type !== "message") throw new Error(`Expected ${toolName} result entry`);
+	return entry;
 }
 
 describe("headless Pi fixture", () => {
@@ -144,6 +212,79 @@ describe("headless Pi fixture", () => {
 			],
 		});
 	});
+	it("mutates the selected live child model and effort without changing main", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Mutable child");
+			await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
+
+			expect(agent.readSessionEntries(spawned.id)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
+					expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
+				]),
+			);
+			expect(agent.readSessionEntries(null).some((entry) => entry.type === "model_change")).toBe(false);
+			expect(agent.readSessionEntries(null).some((entry) => entry.type === "thinking_level_change")).toBe(false);
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Child complete"));
+		});
+	});
+
+	it("rejects a completed selected target without mutating main", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Completed target");
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed"));
+			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
+
+			const result = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id, "test_set_viewed_model");
+			expectFailedToolEntry(result, "not live");
+			expect(agent.readSessionEntries(null).some((entry) => entry.type === "model_change")).toBe(false);
+		});
+	});
+
+	it("rejects a nonexistent selected target without mutating main", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Select a missing target" });
+			const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			const result = await selectAndMutateHeadlessTarget(agent, request, "agent_missing", "test_set_viewed_model");
+			expectFailedToolEntry(result, "not found");
+			expect(agent.readSessionEntries(null).some((entry) => entry.type === "model_change")).toBe(false);
+		});
+	});
+
+	it("rejects a detached selected target without mutating main", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const releasePath = join(agent.paths.workspaceDir, "release-selected-detached");
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`release = Path(${JSON.stringify(releasePath)})`,
+					"while not release.exists(): time.sleep(0.05)",
+				].join("\n");
+				await agent.send({ type: "prompt", message: "Create a detached target" });
+				const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+				);
+				const detached = await agent.waitForAgent((candidate) => candidate.displayName === "Pyrun evaluation");
+				const afterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== initialRequest.id,
+				);
+				const result = await selectAndMutateHeadlessTarget(
+					agent,
+					afterDetach,
+					detached.id,
+					"test_set_viewed_model",
+				);
+				expectFailedToolEntry(result, "not live");
+				expect(agent.readSessionEntries(null).some((entry) => entry.type === "model_change")).toBe(false);
+				writeFileSync(releasePath, "release");
+			},
+			{ autoDetachTools: true },
+		);
+	});
+
 	it("spawns a child with its instructions and delivers completion to the main mailbox", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Delegate the investigation" });

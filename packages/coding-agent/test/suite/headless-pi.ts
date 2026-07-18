@@ -122,6 +122,15 @@ function createModelsJson(): string {
 						contextWindow: 128000,
 						maxTokens: 16384,
 					},
+					{
+						id: "headless-faux-reasoning",
+						name: "Headless Faux Reasoning",
+						reasoning: true,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 128000,
+						maxTokens: 16384,
+					},
 				],
 			},
 		},
@@ -784,6 +793,43 @@ function createHeadlessRuntime(options: {
 
 async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<HeadlessPiRuntime> {
 	const paths = createHeadlessPaths();
+	const testExtensionDir = join(paths.agentDir, "extensions");
+	mkdirSync(testExtensionDir, { recursive: true });
+	writeFileSync(
+		join(testExtensionDir, "selected-runtime-target.ts"),
+		`import { Type } from "typebox";
+export default function(pi) {
+	pi.registerTool({
+		name: "test_set_viewed_model",
+		description: "Set model through the selected runtime target adapter",
+		parameters: Type.Object({}),
+		execute: async () => {
+			await pi.setModel({
+				api: "headless-faux",
+				id: "headless-faux-reasoning",
+				name: "Headless Faux Reasoning",
+				provider: "headless-faux",
+				reasoning: true,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 128000,
+				maxTokens: 16384,
+			});
+			pi.setThinkingLevel("high");
+			return { content: [{ type: "text", text: "model and effort set" }], details: {} };
+		},
+	});
+	pi.registerTool({
+		name: "test_set_viewed_effort",
+		description: "Set effort through the selected runtime target adapter",
+		parameters: Type.Object({}),
+		execute: async () => {
+			pi.setThinkingLevel("high");
+			return { content: [{ type: "text", text: "effort set" }], details: {} };
+		},
+	});
+}`,
+	);
 	const approvalPreset = fixtureOptions.approvalPreset ?? "auto-approve";
 	const approval = findApprovalPreset(approvalPreset);
 	writeFileSync(
