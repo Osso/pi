@@ -3179,7 +3179,7 @@ describe("multi-agent extension tools", () => {
 			sessionPath: persistence.sessionPath,
 		});
 		if (!created.ok) throw new Error(`Could not create detached child: ${created.error}`);
-		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
+		harness.store.publishLifecycleCoordinatorSnapshot(created.agent as AgentSnapshot);
 
 		const waitAbort = new AbortController();
 		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {}, waitAbort.signal);
