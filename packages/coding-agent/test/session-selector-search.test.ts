@@ -78,6 +78,24 @@ describe("session selector search", () => {
 		expect(result.map((s) => s.id)).toEqual(["newer", "older"]);
 	});
 
+	it("ranks literal matches before subsequence-only matches in recent mode", () => {
+		const sessions: SessionInfo[] = [
+			makeSession({
+				id: "newer-fuzzy",
+				modified: new Date("2026-01-03T00:00:00.000Z"),
+				allMessagesText: "could help arrange indexing results",
+			}),
+			makeSession({
+				id: "older-literal",
+				modified: new Date("2026-01-01T00:00:00.000Z"),
+				allMessagesText: "my computer chair broke",
+			}),
+		];
+
+		const result = filterAndSortSessions(sessions, "chair", "recent");
+		expect(result.map((s) => s.id)).toEqual(["older-literal", "newer-fuzzy"]);
+	});
+
 	it("relevance sort orders by score and tie-breaks by modified desc", () => {
 		const sessions: SessionInfo[] = [
 			makeSession({

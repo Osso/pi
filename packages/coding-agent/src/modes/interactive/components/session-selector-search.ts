@@ -15,6 +15,8 @@ export interface ParsedSearchQuery {
 
 export interface MatchResult {
 	matches: boolean;
+	/** True when every token matched as a literal substring rather than only as a subsequence. */
+	literal: boolean;
 	/** Lower is better; only meaningful when matches === true */
 	score: number;
 }
@@ -120,21 +122,23 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
 
 export function matchSession(session: SessionInfo, parsed: ParsedSearchQuery): MatchResult {
 	const text = getSessionSearchText(session);
+	const lowerText = text.toLowerCase();
 
 	if (parsed.mode === "regex") {
 		if (!parsed.regex) {
-			return { matches: false, score: 0 };
+			return { matches: false, literal: false, score: 0 };
 		}
 		const idx = text.search(parsed.regex);
-		if (idx < 0) return { matches: false, score: 0 };
-		return { matches: true, score: idx * 0.1 };
+		if (idx < 0) return { matches: false, literal: false, score: 0 };
+		return { matches: true, literal: true, score: idx * 0.1 };
 	}
 
 	if (parsed.tokens.length === 0) {
-		return { matches: true, score: 0 };
+		return { matches: true, literal: true, score: 0 };
 	}
 
 	let totalScore = 0;
+	let literal = true;
 	let normalizedText: string | null = null;
 
 	for (const token of parsed.tokens) {
@@ -145,17 +149,18 @@ export function matchSession(session: SessionInfo, parsed: ParsedSearchQuery): M
 			const phrase = normalizeWhitespaceLower(token.value);
 			if (!phrase) continue;
 			const idx = normalizedText.indexOf(phrase);
-			if (idx < 0) return { matches: false, score: 0 };
+			if (idx < 0) return { matches: false, literal: false, score: 0 };
 			totalScore += idx * 0.1;
 			continue;
 		}
 
 		const m = fuzzyMatch(token.value, text);
-		if (!m.matches) return { matches: false, score: 0 };
+		if (!m.matches) return { matches: false, literal: false, score: 0 };
 		totalScore += m.score;
+		literal = literal && lowerText.includes(token.value.toLowerCase());
 	}
 
-	return { matches: true, score: totalScore };
+	return { matches: true, literal, score: totalScore };
 }
 
 export function filterAndSortSessions(
@@ -171,25 +176,29 @@ export function filterAndSortSessions(
 	const parsed = parseSearchQuery(query);
 	if (parsed.error) return [];
 
-	// Recent mode: filter only, keep incoming order.
+	// Recent mode: literal matches first, preserving incoming order within each group.
 	if (sortMode === "recent") {
-		const filtered: SessionInfo[] = [];
-		for (const s of nameFiltered) {
-			const res = matchSession(s, parsed);
-			if (res.matches) filtered.push(s);
+		const literalMatches: SessionInfo[] = [];
+		const fuzzyMatches: SessionInfo[] = [];
+		for (const session of nameFiltered) {
+			const result = matchSession(session, parsed);
+			if (!result.matches) continue;
+			const destination = result.literal ? literalMatches : fuzzyMatches;
+			destination.push(session);
 		}
-		return filtered;
+		return [...literalMatches, ...fuzzyMatches];
 	}
 
-	// Relevance mode: sort by score, tie-break by modified desc.
-	const scored: { session: SessionInfo; score: number }[] = [];
-	for (const s of nameFiltered) {
-		const res = matchSession(s, parsed);
-		if (!res.matches) continue;
-		scored.push({ session: s, score: res.score });
+	// Relevance mode: literal matches first, then score, then modified date.
+	const scored: { session: SessionInfo; literal: boolean; score: number }[] = [];
+	for (const session of nameFiltered) {
+		const result = matchSession(session, parsed);
+		if (!result.matches) continue;
+		scored.push({ session, literal: result.literal, score: result.score });
 	}
 
 	scored.sort((a, b) => {
+		if (a.literal !== b.literal) return a.literal ? -1 : 1;
 		if (a.score !== b.score) return a.score - b.score;
 		return b.session.modified.getTime() - a.session.modified.getTime();
 	});
