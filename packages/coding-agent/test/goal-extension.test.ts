@@ -944,15 +944,15 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("cancels an empty-response retry when the goal is replaced", async () => {
+	it("cancels an empty-response retry when the goal is replaced with identical content", async () => {
 		vi.useFakeTimers();
 		try {
 			const harness = createGoalHarness(cwd);
-			await harness.runCommand("set original goal");
+			await harness.runCommand("set repeated goal");
 			harness.sendUserMessage.mockClear();
 			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
 
-			await harness.runCommand("set replacement goal");
+			await harness.runCommand("set repeated goal");
 			harness.sendUserMessage.mockClear();
 			await vi.advanceTimersByTimeAsync(1_000);
 

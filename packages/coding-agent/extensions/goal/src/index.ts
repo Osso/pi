@@ -66,6 +66,7 @@ interface SetGoalParams {
 	objective: string;
 	ctx: ExtensionContext;
 	pi: ExtensionAPI;
+	beforeSave?: () => void;
 }
 
 type ManageGoalAction = "set" | "pause" | "resume" | "complete" | "clear" | "status";
@@ -81,6 +82,7 @@ interface ManageGoalContext {
 	params: ManageGoalParams;
 	pi: ExtensionAPI;
 	reviewGoal: GoalSupervisorReview;
+	beforeGoalSave?: () => void;
 }
 
 export type GoalSupervisorResponse = Extract<
@@ -381,6 +383,7 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 		};
 	}
 
+	params.beforeSave?.();
 	const goal: Goal = {
 		objective,
 		branch: currentBranch(ctx.cwd),
@@ -403,13 +406,13 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	};
 }
 
-function runSetGoalAction({ ctx, params, pi }: Omit<ManageGoalContext, "reviewGoal">): AgentToolResult<unknown> {
+function runSetGoalAction({ ctx, params, pi, beforeGoalSave }: Omit<ManageGoalContext, "reviewGoal">): AgentToolResult<unknown> {
 	const objective = params.objective?.trim() ?? "";
 	if (!objective) {
 		return textResult("Objective is required.");
 	}
 
-	const result = setGoal({ objective, ctx, pi });
+	const result = setGoal({ objective, ctx, pi, beforeSave: beforeGoalSave });
 	ctx.ui.notify(result.message, result.severity);
 	const details = result.goal ? { objective: result.goal.objective } : {};
 	return textResult(result.ok ? `Goal set: ${objective}` : result.message, details);
@@ -492,10 +495,10 @@ function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 	return textResult(message, details);
 }
 
-async function manageGoal({ ctx, params, pi, reviewGoal }: ManageGoalContext): Promise<AgentToolResult<unknown>> {
+async function manageGoal({ ctx, params, pi, reviewGoal, beforeGoalSave }: ManageGoalContext): Promise<AgentToolResult<unknown>> {
 	switch (params.action) {
 		case "set":
-			return runSetGoalAction({ ctx, params, pi });
+			return runSetGoalAction({ ctx, params, pi, beforeGoalSave });
 		case "pause":
 			return runPauseGoalAction(ctx);
 		case "resume":
@@ -580,7 +583,14 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 			objective: Type.Optional(Type.String()),
 			reason: Type.Optional(Type.String()),
 		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => manageGoal({ ctx, params, pi, reviewGoal }),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+			manageGoal({
+				ctx,
+				params,
+				pi,
+				reviewGoal,
+				beforeGoalSave: () => clearEmptyResponseRetry(ctx.sessionManager.getSessionId()),
+			}),
 	});
 
 	// Notify on session start if an objective is active.
@@ -690,7 +700,12 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 				return;
 			}
 			if (parsedArgs.action !== "set") return;
-			const result = setGoal({ objective: parsedArgs.objective, ctx, pi });
+			const result = setGoal({
+				objective: parsedArgs.objective,
+				ctx,
+				pi,
+				beforeSave: () => clearEmptyResponseRetry(ctx.sessionManager.getSessionId()),
+			});
 			ctx.ui.notify(result.message, result.severity);
 		},
 	});

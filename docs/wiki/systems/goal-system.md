@@ -116,7 +116,7 @@ Review does not start when:
 - pending messages exist;
 - the last assistant response was empty.
 
-Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. An aborted turn with pending input keeps the goal running; an abort without pending input pauses it.
+Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. Aborted turns do not change persisted goal state; only explicit pause actions set `pausedAt`.
 
 ## Completion Tool Action
 
