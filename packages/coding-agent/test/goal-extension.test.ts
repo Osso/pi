@@ -962,6 +962,24 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("does not retry an empty response when user input becomes pending during backoff", async () => {
+		vi.useFakeTimers();
+		try {
+			let hasPendingMessages = false;
+			const harness = createGoalHarness(cwd, { hasPendingMessages: () => hasPendingMessages });
+			await harness.runCommand("set prefer pending input");
+			harness.sendUserMessage.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
+
+			hasPendingMessages = true;
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("does not retry an empty response while another turn is active", async () => {
 		vi.useFakeTimers();
 		try {

@@ -277,7 +277,7 @@
 - Fixed child-agent completion notifications to use completed lifecycle mailbox messages instead of `waiting_for_input` idle notices.
 - Fixed pending lifecycle notifications being stranded after startup or a transient mailbox enqueue failure: startup and `wait_agents({})` now retry mirroring before notification consumption.
 - Fixed default extension footers to detach before session replacement invalidates their extension context.
-- Fixed goal continuation to remove the numeric turn cap and stop only on completion, budgets, or pending queued work; non-error empty final assistant responses now schedule one continuation after a 1-second bounded delay when the same goal remains active, the session is idle, and no messages are pending, with shutdown canceling retry timers.
+- Fixed goal continuation to remove the numeric turn cap and stop only on completion or pending queued work; non-error empty final assistant responses now schedule one continuation after a 1-second bounded delay when the same goal remains active, the session is idle, and no messages are pending, with shutdown canceling retry timers.
 - Fixed prompt history persistence to use the shared control SQLite database so concurrent Pi sessions append entries instead of overwriting each other.
 - Fixed `Alt+1` through `Alt+9` agent slot switching to work while non-editor UI components have focus.
 - Fixed startup model selection to skip unauthenticated saved defaults so configured local custom models can be selected instead ([#6231](https://github.com/earendil-works/pi/issues/6231)).
