@@ -96,7 +96,7 @@ export interface FinalizeChildCommandInput extends OwnedLifecycleCommandInput {
 export class LifecycleCoordinator {
 	private readonly options: LifecycleCoordinatorOptions;
 
-	static reconcileHistoricalDetachedCancellations(controlDbPath: string, nowIso: string): number {
+	static reconcileDeadDetachedRuntimes(controlDbPath: string, nowIso: string): number {
 		return reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
 	}
 

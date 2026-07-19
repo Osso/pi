@@ -1011,7 +1011,7 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionManager,
 	});
 	reconcileSessionRuntimeBindings(controlDbPath);
-	LifecycleCoordinator.reconcileHistoricalDetachedCancellations(controlDbPath, new Date().toISOString());
+	LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString());
 	debugRepl = new DebugReplServer({
 		agentDir,
 		getRuntime: () => runtime,

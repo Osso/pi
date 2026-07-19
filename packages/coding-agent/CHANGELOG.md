@@ -145,6 +145,7 @@
 
 ### Fixed
 
+- Fixed dead detached `running` jobs remaining active forever when their exact runner process exited while the parent session stayed live; reconciliation now commits `failed/lost_runtime` and its terminal outbox notification atomically.
 - Fixed `wait_agents({})` to return and deliver every terminal notification already waiting instead of requiring one call per notification.
 - Fixed Node development extension loading in clean worktrees by resolving workspace package aliases to source entries when built `dist` artifacts are absent.
 - Fixed silent model inference, including post-tool continuation, being mislabeled as `Streaming...`; interactive status now remains `Thinking...` until the first visible assistant delta.

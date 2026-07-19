@@ -17,7 +17,6 @@ import {
 import {
 	emptySessionHealth,
 	endSessionHealth,
-	isStickyDead,
 	type SessionCheckStatus,
 	type SessionHealthRecord,
 } from "./session-health.ts";
@@ -3462,7 +3461,7 @@ export function reconcileDeadDetachedAgentRuntimes(controlDbPath: string, nowIso
 		withImmediateTransaction(db, () => {
 			let reconciled = 0;
 			for (const candidate of readDeadDetachedRuntimeCandidates(db)) {
-				const expectedOwner = readHistoricalDetachedOwnerForRecovery(db, candidate);
+				const expectedOwner = readDetachedOwnerForRecovery(db, candidate);
 				if (!expectedOwner) continue;
 				const result = recoverDeadMultiAgentRuntimeInTransaction(db, expectedOwner, nowIso);
 				if (result.ok) reconciled += 1;
@@ -3481,13 +3480,13 @@ function readDeadDetachedRuntimeCandidates(db: SqliteDatabase): DeadDetachedRunt
 			 JOIN multi_agent_runtime_owners AS owners
 			 ON owners.session_path = agents.session_path AND owners.agent_id = agents.agent_id
 			 WHERE json_valid(agents.data)
-			 AND json_extract(agents.data, '$.lifecycle') = 'cancelling'
+			 AND json_extract(agents.data, '$.lifecycle') IN ('running', 'cancelling')
 			 AND json_extract(agents.data, '$.detached') = 1`,
 		)
 		.all() as DeadDetachedRuntimeCandidate[];
 }
 
-function readHistoricalDetachedOwnerForRecovery(
+function readDetachedOwnerForRecovery(
 	db: SqliteDatabase,
 	candidate: DeadDetachedRuntimeCandidate,
 ): MultiAgentRuntimeOwnershipIdentity | undefined {
@@ -3498,9 +3497,6 @@ function readHistoricalDetachedOwnerForRecovery(
 	const processIdentity = parseProcessIdentity(candidate.process_identity);
 	const worker = agent.worker as AgentSnapshot["worker"] | undefined;
 	if (worker?.adapter !== "runtime" || worker.handleId !== String(processIdentity.pid)) return undefined;
-	const health = readSessionHealthRow(db, candidate.owner_session_id);
-	if (!health || !isStickyDead(health)) return undefined;
-	if (hasLiveRuntimeMailboxListener(db, candidate.owner_session_id)) return undefined;
 	if (hasTerminalOutboxRecord(db, candidate.session_path, candidate.agent_id)) return undefined;
 	return {
 		agentId: candidate.agent_id,
@@ -3508,20 +3504,6 @@ function readHistoricalDetachedOwnerForRecovery(
 		processIdentity,
 		sessionPath: candidate.session_path,
 	};
-}
-
-function hasLiveRuntimeMailboxListener(db: SqliteDatabase, sessionId: string): boolean {
-	const rows = db
-		.prepare("SELECT runtime_instance_id FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")
-		.all(sessionId) as Array<{ runtime_instance_id: string | null }>;
-	return rows.some((row) => {
-		if (!row.runtime_instance_id) return true;
-		try {
-			return isProcessIdentityAlive(parseProcessIdentity(row.runtime_instance_id));
-		} catch {
-			return true;
-		}
-	});
 }
 
 function hasTerminalOutboxRecord(db: SqliteDatabase, sessionPath: string, agentId: string): boolean {
