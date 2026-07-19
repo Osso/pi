@@ -1,4 +1,4 @@
-import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 
 const SUPERVISOR_INSTRUCTION_OPEN = "<supervisor-instruction>";
@@ -6,6 +6,22 @@ const SUPERVISOR_INSTRUCTION_CLOSE = "</supervisor-instruction>";
 
 export function supervisorInstructionContent(instructions: string): string {
 	return `${SUPERVISOR_INSTRUCTION_OPEN}\n${instructions}\n${SUPERVISOR_INSTRUCTION_CLOSE}`;
+}
+
+function supervisorMessage(content: string): { customType: string; content: string; display: true } {
+	return {
+		customType: "supervisor",
+		content: supervisorInstructionContent(content),
+		display: true,
+	};
+}
+
+export function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string): void {
+	pi.sendMessage(supervisorMessage(instructions), { deliverAs: "followUp", triggerTurn: true });
+}
+
+export function sendSupervisorWait(pi: ExtensionAPI, reason: string): void {
+	pi.sendMessage(supervisorMessage(`Waiting: ${reason}`));
 }
 
 function supervisorInstructionBody(content: string): string {

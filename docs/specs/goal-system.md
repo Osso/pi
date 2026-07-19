@@ -65,7 +65,10 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and `manage_goal`, persists goal JSON through the session manager into `session_metadata.goal_json`, injects active unpaused goals through `before_agent_start`, shows the active goal in the footer status, starts work when a goal is set while idle, pauses/resumes goals on request, and continues active unpaused goals from `agent_end`.
+- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and goal lifecycle hooks, persists goal state, injects active objectives, and coordinates Supervisor decisions.
+- `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — preserves decisions across transient pending input, waits for active agents, and schedules five-minute Supervisor re-review.
+- `packages/coding-agent/extensions/goal/src/empty-response-scheduling.ts` — owns bounded empty-response retry timers.
+- `packages/coding-agent/extensions/goal/src/goal-tool.ts` — registers and types `manage_goal`.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — preserves tagged Supervisor model content while rendering one visible `[Supervisor]` header and plain instruction body.
 - `packages/coding-agent/extensions/goal/src/goal-args.ts` — parses supported `/goal` command actions and rejects removed flags.
 - `packages/coding-agent/src/core/tool-capabilities.ts` — defines the supervisor-only tool capability list used by non-supervisor runtimes.
