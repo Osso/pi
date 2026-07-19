@@ -78,22 +78,71 @@ describe("session selector search", () => {
 		expect(result.map((s) => s.id)).toEqual(["newer", "older"]);
 	});
 
-	it("ranks literal matches before subsequence-only matches in recent mode", () => {
+	it("ranks literal matches first while preserving recent order within each group", () => {
 		const sessions: SessionInfo[] = [
 			makeSession({
-				id: "newer-fuzzy",
-				modified: new Date("2026-01-03T00:00:00.000Z"),
+				id: "candidate-a",
+				modified: new Date("2026-01-04T00:00:00.000Z"),
 				allMessagesText: "could help arrange indexing results",
 			}),
 			makeSession({
-				id: "older-literal",
-				modified: new Date("2026-01-01T00:00:00.000Z"),
+				id: "candidate-b",
+				modified: new Date("2026-01-03T00:00:00.000Z"),
 				allMessagesText: "my computer chair broke",
+			}),
+			makeSession({
+				id: "candidate-c",
+				modified: new Date("2026-01-02T00:00:00.000Z"),
+				allMessagesText: "could help arrange internal records",
+			}),
+			makeSession({
+				id: "candidate-d",
+				modified: new Date("2026-01-01T00:00:00.000Z"),
+				allMessagesText: "replacement chair ordered",
 			}),
 		];
 
 		const result = filterAndSortSessions(sessions, "chair", "recent");
-		expect(result.map((s) => s.id)).toEqual(["older-literal", "newer-fuzzy"]);
+		expect(result.map((session) => session.id)).toEqual(["candidate-b", "candidate-d", "candidate-a", "candidate-c"]);
+	});
+
+	it("ranks the complete plain query before separated literal tokens", () => {
+		const sessions: SessionInfo[] = [
+			makeSession({
+				id: "separated-tokens",
+				modified: new Date("2026-01-03T00:00:00.000Z"),
+				allMessagesText: "foo elsewhere bar",
+			}),
+			makeSession({
+				id: "complete-query",
+				modified: new Date("2026-01-01T00:00:00.000Z"),
+				allMessagesText: "xxxxxxxxxxxxxxxx foo bar",
+			}),
+		];
+
+		const recent = filterAndSortSessions(sessions, "foo bar", "recent");
+		expect(recent.map((session) => session.id)).toEqual(["complete-query", "separated-tokens"]);
+
+		const relevance = filterAndSortSessions(sessions, "foo bar", "relevance");
+		expect(relevance.map((session) => session.id)).toEqual(["complete-query", "separated-tokens"]);
+	});
+
+	it("preserves recent ordering for mixed phrase and fuzzy-token queries", () => {
+		const sessions: SessionInfo[] = [
+			makeSession({
+				id: "candidate-a",
+				modified: new Date("2026-01-03T00:00:00.000Z"),
+				allMessagesText: "alpha could help arrange indexing results",
+			}),
+			makeSession({
+				id: "candidate-b",
+				modified: new Date("2026-01-01T00:00:00.000Z"),
+				allMessagesText: "alpha chair",
+			}),
+		];
+
+		const result = filterAndSortSessions(sessions, '"alpha" chair', "recent");
+		expect(result.map((session) => session.id)).toEqual(["candidate-a", "candidate-b"]);
 	});
 
 	it("relevance sort orders by score and tie-breaks by modified desc", () => {

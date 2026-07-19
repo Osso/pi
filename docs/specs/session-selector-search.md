@@ -10,9 +10,11 @@ The resume-session picker searches loaded session metadata and conversation text
 
 - [x] Search session IDs, names, user and assistant message text, and working directories.
 - [x] Treat unquoted terms as case-insensitive fuzzy subsequence tokens.
-- [x] Rank literal substring matches before subsequence-only fuzzy matches in Recent and Fuzzy sort modes.
+- [x] Rank literal substring matches before subsequence-only fuzzy matches in Recent sort mode.
+- [x] Rank literal substring matches before subsequence-only fuzzy matches in Fuzzy (relevance) sort mode.
 - [x] Preserve existing order within the literal and fuzzy groups in Recent sort mode.
 - [x] Treat quoted text as an exact phrase after whitespace normalization.
+- [x] Preserve Recent ordering for mixed quoted-phrase and fuzzy-token queries.
 - [x] Support case-insensitive `re:<pattern>` regular-expression searches and reject invalid expressions.
 
 ### Session filtering

@@ -120,25 +120,19 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
 	return { mode: "tokens", tokens, regex: null };
 }
 
-export function matchSession(session: SessionInfo, parsed: ParsedSearchQuery): MatchResult {
-	const text = getSessionSearchText(session);
-	const lowerText = text.toLowerCase();
+function isLiteralTokenQueryMatch(parsed: ParsedSearchQuery, text: string): boolean {
+	const allPhrases = parsed.tokens.every((token) => token.kind === "phrase");
+	if (allPhrases) return true;
 
-	if (parsed.mode === "regex") {
-		if (!parsed.regex) {
-			return { matches: false, literal: false, score: 0 };
-		}
-		const idx = text.search(parsed.regex);
-		if (idx < 0) return { matches: false, literal: false, score: 0 };
-		return { matches: true, literal: true, score: idx * 0.1 };
-	}
+	const allFuzzy = parsed.tokens.every((token) => token.kind === "fuzzy");
+	if (!allFuzzy) return false;
 
-	if (parsed.tokens.length === 0) {
-		return { matches: true, literal: true, score: 0 };
-	}
+	const query = normalizeWhitespaceLower(parsed.tokens.map((token) => token.value).join(" "));
+	return normalizeWhitespaceLower(text).includes(query);
+}
 
+function matchTokenQuery(text: string, parsed: ParsedSearchQuery): MatchResult {
 	let totalScore = 0;
-	let literal = true;
 	let normalizedText: string | null = null;
 
 	for (const token of parsed.tokens) {
@@ -154,13 +148,31 @@ export function matchSession(session: SessionInfo, parsed: ParsedSearchQuery): M
 			continue;
 		}
 
-		const m = fuzzyMatch(token.value, text);
-		if (!m.matches) return { matches: false, literal: false, score: 0 };
-		totalScore += m.score;
-		literal = literal && lowerText.includes(token.value.toLowerCase());
+		const match = fuzzyMatch(token.value, text);
+		if (!match.matches) return { matches: false, literal: false, score: 0 };
+		totalScore += match.score;
 	}
 
-	return { matches: true, literal, score: totalScore };
+	return { matches: true, literal: isLiteralTokenQueryMatch(parsed, text), score: totalScore };
+}
+
+export function matchSession(session: SessionInfo, parsed: ParsedSearchQuery): MatchResult {
+	const text = getSessionSearchText(session);
+
+	if (parsed.mode === "regex") {
+		if (!parsed.regex) {
+			return { matches: false, literal: false, score: 0 };
+		}
+		const idx = text.search(parsed.regex);
+		if (idx < 0) return { matches: false, literal: false, score: 0 };
+		return { matches: true, literal: true, score: idx * 0.1 };
+	}
+
+	if (parsed.tokens.length === 0) {
+		return { matches: true, literal: true, score: 0 };
+	}
+
+	return matchTokenQuery(text, parsed);
 }
 
 export function filterAndSortSessions(
