@@ -170,7 +170,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
   Detached runner ownership is direct and in-memory. A live runner submits its terminal outcome once
   from the exact identity it holds; a duplicate exact submission is idempotent. If the runner dies before
-  commit, the owning supervisor records `failed/lost_runtime` and never reassigns or replays the job.
+  commit, reconciliation records `failed/lost_runtime` from `running` or `aborted/lost_runtime` from
+  `cancelling`, and never reassigns or replays the job.
   Cancellation commit order remains authoritative when payload exit races finalization: a committed
   `cancelling` state cannot be replaced by a late natural result, and `aborted` still requires exact-owner
   exit acknowledgement. Detachment returns a handle only after the durable job identity, runtime ownership,

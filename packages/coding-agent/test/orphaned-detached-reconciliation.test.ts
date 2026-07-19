@@ -182,6 +182,27 @@ describe("orphaned detached runtime reconciliation", () => {
 		expect(countTerminalOutboxRows(controlDbPath)).toBe(1);
 	});
 
+	it("settles a dead detached cancellation while its logical parent session is live", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
+		const currentProcess = readProcessIdentity(process.pid);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: OWNER_SESSION_ID },
+			process.pid,
+			SESSION_PATH,
+			{ runtimeInstanceId: JSON.stringify(currentProcess) },
+		);
+
+		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(1);
+		expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)).toMatchObject({
+			error: { code: "lost_runtime" },
+			lifecycle: "aborted",
+			revision: 3,
+		});
+		expect(countTerminalOutboxRows(controlDbPath)).toBe(1);
+	});
+
 	it("does not settle a running job while its exact replacement runner identity is alive", () => {
 		createRunningDetachedJob(controlDbPath);
 		const currentProcess = readProcessIdentity(process.pid);
