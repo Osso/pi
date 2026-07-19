@@ -2,7 +2,7 @@
 
 Module boundary: core resident SDK service.
 
-The resident Architect is a systemd-supervised Sol advisor that preserves a dedicated cross-session transcript and sends evidence-backed coordination advice only to the affected session. It is not a dispatcher or remediation agent. Its transcript is persisted as an archived non-subagent session under `<agent-dir>/architect-sessions/`, so it remains available through Archived even though it is outside the Current Folder directory scope. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
+The resident Architect is a systemd-supervised Sol advisor that preserves a dedicated cross-session transcript and sends advisory hypotheses about evidence-backed coordination issues only to the affected session. It is not a dispatcher or remediation agent. Its transcript is persisted as an archived non-subagent session under `<agent-dir>/architect-sessions/`, so it remains available through Archived even though it is outside the Current Folder directory scope. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
 
 ## What it must do
 
@@ -23,9 +23,10 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 ### Advice
 
-- [x] Load shared and `rules/main/*.md` user rules through an explicit rule-scope override while retaining the Architect's `observer` execution role; ordinary observers remain shared-only.
+- [x] Load shared and `rules/architect/*.md` user rules through an explicit rule-scope override while retaining the Architect's `observer` execution role; ordinary observers remain shared-only.
 - [x] Keep the standard Pi tool set available except Architect-disabled `broadcast`, `ask_architect`, and `contact_parent` while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled. The removed `contact_supervisor` name is not a compatibility alias.
 - [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block `broadcast` and global `channel_post` fanout.
+- [x] Frame findings as advisory hypotheses for the receiving session to verify, accept, reject, or defer; never issue commands, execution gates, stop conditions, operational sequencing, mandatory next steps, or reinterpret goal completion.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 
 ### Service lifecycle
@@ -46,7 +47,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, current-main-session control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy, authoritative-spec discovery, and structured observation prompt.
 - `packages/coding-agent/src/architect/project-spec.ts` — Architect-only, canonical-path-constrained reader for Markdown files under the originating project's `docs/specs/` tree.
-- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the `main` user-rule scope, observer execution role, read-only bwrap profile, and sandboxed Pyrun runner.
+- `packages/coding-agent/src/architect/main.ts` — 30-second resident SDK process with the `architect` user-rule scope, observer execution role, read-only bwrap profile, and sandboxed Pyrun runner.
 - `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed Bun-compiled Pi binary.
 - `deploy.sh` — compiled binary installation and systemd unit deployment.
 
@@ -55,7 +56,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - `packages/coding-agent/test/architect-observer.test.ts` — initial/material snapshots, completed-goal stability, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, and explicit main-session architect-request filtering.
 - `packages/coding-agent/test/session-directory.test.ts` — regression proving Architect and global
   inventory retain only the current main-session binding.
-- `packages/coding-agent/test/architect-service.test.ts` — Architect prompt policy, `main`-scope user rules, ordinary observer isolation, authoritative-spec discovery, installed-binary unit command, and deployment reload, enable/start, and restart steps.
+- `packages/coding-agent/test/architect-service.test.ts` — Architect prompt policy, advisory boundary, `architect`-scope user rules, ordinary observer isolation, authoritative-spec discovery, installed-binary unit command, and deployment reload, enable/start, and restart steps.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — explicit directory persistence and canonicalization, cwd defaulting, and empty, relative, missing, or non-directory path rejection.
 - `packages/coding-agent/test/session-control-db.test.ts` — durable request persistence, claims, completion, and project-cwd projection.
 

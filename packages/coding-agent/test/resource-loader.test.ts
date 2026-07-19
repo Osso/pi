@@ -572,6 +572,20 @@ Content`,
 			expect(loader.getRulesContent()).toBe("Shared rule.\n\nChild rule.");
 		});
 
+		it("should load shared and Architect rules without main rules", async () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(join(rulesDir, "main"), { recursive: true });
+			mkdirSync(join(rulesDir, "architect"), { recursive: true });
+			writeFileSync(join(rulesDir, "shared.md"), "Shared rule.");
+			writeFileSync(join(rulesDir, "main", "coordination.md"), "Main rule.");
+			writeFileSync(join(rulesDir, "architect", "review.md"), "Architect rule.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir, rulesScope: "architect" });
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("Shared rule.\n\nArchitect rule.");
+		});
+
 		it("should return no rules content when the rules directory is missing", () => {
 			expect(loadRulesFromDir(join(agentDir, "rules"))).toBeUndefined();
 		});

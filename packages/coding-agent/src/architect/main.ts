@@ -19,7 +19,7 @@ const OBSERVER_INTERVAL_MS = 30_000;
 const REQUEST_CLAIM_RENEW_INTERVAL_MS = 30_000;
 const ARCHITECT_SESSION_ID = "architect";
 const ARCHITECT_REQUEST_THREAD_PREFIX = "architect-request:";
-export const ARCHITECT_RULES_SCOPE = "main" as const;
+export const ARCHITECT_RULES_SCOPE = "architect" as const;
 export const ARCHITECT_EXCLUDED_TOOL_NAMES = [
 	"ask_architect",
 	"broadcast",

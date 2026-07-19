@@ -108,6 +108,12 @@ describe("resident architect service", () => {
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("state that project context is unavailable instead of guessing");
 	});
 
+	it("keeps Architect findings advisory instead of issuing supervisor directives", () => {
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Findings are advisory hypotheses");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not issue commands, execution gates, stop conditions");
+		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Do not reinterpret or add goal completion criteria");
+	});
+
 	it("anchors liveness to prefiltered snapshot membership instead of goal fields", () => {
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain(
 			"Goal completion does not end a live session or require it to disappear from observations.",
@@ -119,13 +125,17 @@ describe("resident architect service", () => {
 		expect(ARCHITECT_SYSTEM_PROMPT).toContain("Use session membership, never goal fields, as liveness evidence.");
 	});
 
-	it("loads main-thread rules into the resident Architect prompt", async () => {
+	it("loads Architect rules without supervisor rules", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-rules-"));
-		const sentinel = "ARCHITECT_MAIN_RULE_SENTINEL";
+		const architectSentinel = "ARCHITECT_RULE_SENTINEL";
+		const supervisorSentinel = "SUPERVISOR_RULE_SENTINEL";
 		try {
-			const rulesDir = join(agentDir, "rules", "main");
-			mkdirSync(rulesDir, { recursive: true });
-			writeFileSync(join(rulesDir, "sentinel.md"), sentinel);
+			const architectRulesDir = join(agentDir, "rules", "architect");
+			const mainRulesDir = join(agentDir, "rules", "main");
+			mkdirSync(architectRulesDir, { recursive: true });
+			mkdirSync(mainRulesDir, { recursive: true });
+			writeFileSync(join(architectRulesDir, "sentinel.md"), architectSentinel);
+			writeFileSync(join(mainRulesDir, "sentinel.md"), supervisorSentinel);
 			const model = getModel("anthropic", "claude-sonnet-4-5");
 			if (!model) throw new Error("Expected test model");
 
@@ -139,7 +149,8 @@ describe("resident architect service", () => {
 				settingsManager: createArchitectSettingsManager(),
 			});
 			try {
-				expect(session.systemPrompt).toContain(`<user_rules>\n${sentinel}\n</user_rules>`);
+				expect(session.systemPrompt).toContain(`<user_rules>\n${architectSentinel}\n</user_rules>`);
+				expect(session.systemPrompt).not.toContain(supervisorSentinel);
 			} finally {
 				session.dispose();
 			}

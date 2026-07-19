@@ -194,7 +194,7 @@ export function loadRulesFromDir(dirPath: string): string | undefined {
 	return contents.length > 0 ? contents.join("\n\n") : undefined;
 }
 
-export type RulesScope = "shared" | "main" | "child";
+export type RulesScope = "shared" | "main" | "child" | "architect";
 
 export interface DefaultResourceLoaderOptions {
 	cwd: string;
