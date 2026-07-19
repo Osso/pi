@@ -281,7 +281,8 @@ async function grep() {
 }
 
 async function readTextFile() {
-	return { text: await fs.readFile(resolveWorkspacePathWithFilesystemChecks(payload.path), "utf8") };
+	const filePath = await resolveWorkspacePathWithFilesystemChecks(payload.path);
+	return { text: await fs.readFile(filePath, "utf8") };
 }
 
 const operations = {
