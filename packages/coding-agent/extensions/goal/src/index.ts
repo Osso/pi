@@ -33,7 +33,6 @@ import type {
 	ExtensionContext,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { getAgentDir } from "../../../src/config.ts";
 import { getControlDbPath, type SupervisorResponse } from "../../../src/core/session-control-db.ts";
@@ -42,13 +41,13 @@ import {
 	DEFAULT_SUPERVISOR_KB_DIR,
 	resolveSupervisorProjectForCwd,
 } from "../../../src/supervisor/project-resolver.ts";
+import { parseGoalArgs } from "./goal-args.ts";
+import { renderSupervisorMessage, supervisorInstructionContent } from "./rendering.ts";
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
 const GOAL_REVIEW_TIMEOUT_MS = 180_000;
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
-const SUPERVISOR_INSTRUCTION_OPEN = "<supervisor-instruction>";
-const SUPERVISOR_INSTRUCTION_CLOSE = "</supervisor-instruction>";
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 interface Goal {
@@ -60,10 +59,6 @@ interface Goal {
 	continuationTurns?: number;
 	pausedAt?: string;
 }
-
-type ParsedGoalArgs =
-	| { action: "view" | "pause" | "resume" | "clear" }
-	| { action: "set"; objective: string };
 
 interface SetGoalParams {
 	objective: string;
@@ -257,31 +252,6 @@ function updateGoalFooterStatus(ctx: ExtensionContext): void {
 	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
 }
 
-function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
-	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
-	for (const part of parts) {
-		if (part === "--token-budget" || part.startsWith("--token-budget=")) {
-			return { error: "/goal --token-budget is no longer supported" };
-		}
-		if (part === "--wall-clock-minutes" || part.startsWith("--wall-clock-minutes=")) {
-			return { error: "/goal --wall-clock-minutes is no longer supported" };
-		}
-		if (part.startsWith("--")) {
-			return { error: "Goal flags are no longer supported" };
-		}
-	}
-	if (parts.length === 0) return { action: "view" };
-	const [action, ...objectiveParts] = parts;
-	if (action === "set") {
-		const objective = objectiveParts.join(" ");
-		return objective ? { action: "set", objective } : { error: "Use /goal set <objective> to set a goal" };
-	}
-	if ((action === "pause" || action === "resume" || action === "clear") && objectiveParts.length === 0) {
-		return { action };
-	}
-	return { error: "Use /goal set <objective> to set a goal" };
-}
-
 function goalStateLines(goal: Goal): string[] {
 	return [`Continuation turns used: ${goal.continuationTurns ?? 0}`];
 }
@@ -373,21 +343,11 @@ function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string): voi
 	pi.sendMessage(
 		{
 			customType: "supervisor",
-			content: `${SUPERVISOR_INSTRUCTION_OPEN}\n${instructions}\n${SUPERVISOR_INSTRUCTION_CLOSE}`,
+			content: supervisorInstructionContent(instructions),
 			display: true,
 		},
 		{ deliverAs: "followUp", triggerTurn: true },
 	);
-}
-
-function supervisorInstructionBody(content: string): string {
-	if (!content.startsWith(SUPERVISOR_INSTRUCTION_OPEN) || !content.endsWith(SUPERVISOR_INSTRUCTION_CLOSE)) {
-		return content;
-	}
-	let body = content.slice(SUPERVISOR_INSTRUCTION_OPEN.length, -SUPERVISOR_INSTRUCTION_CLOSE.length);
-	if (body.startsWith("\n")) body = body.slice(1);
-	if (body.endsWith("\n")) body = body.slice(0, -1);
-	return body;
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
@@ -561,17 +521,156 @@ async function reviewGoalWithResidentSupervisor(input: {
 	}
 }
 
+function goalForIdleReview(
+	event: AgentEndEvent,
+	ctx: ExtensionContext,
+	clearRetry: (sessionId: string) => void,
+	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
+): Goal | null {
+	const goal = loadRunningGoal(ctx);
+	if (!goal || ctx.hasPendingMessages()) return null;
+	const sessionId = ctx.sessionManager.getSessionId();
+	if (didLastAssistantAbort(event) || findLastAssistantMessage(event)?.stopReason === "error") {
+		clearRetry(sessionId);
+		return null;
+	}
+	if (didLastAssistantReturnEmpty(event)) {
+		scheduleRetry(ctx, goal);
+		return null;
+	}
+	clearRetry(sessionId);
+	return goal;
+}
+
+function applyGoalIdleDecision(
+	decision: GoalSupervisorResponse,
+	goal: Goal,
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+): void {
+	switch (decision.kind) {
+		case "complete":
+			markGoalComplete(ctx, decision.reason);
+			updateGoalFooterStatus(ctx);
+			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+			return;
+		case "pause":
+			ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
+			return;
+		case "error":
+			ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
+			return;
+		case "continue": {
+			const continuationTurns = goal.continuationTurns ?? 0;
+			saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
+			sendSupervisorInstructions(pi, decision.instructions);
+			return;
+		}
+	}
+}
+
+async function handleGoalAgentEnd(
+	event: AgentEndEvent,
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	reviewGoal: GoalSupervisorReview,
+	clearRetry: (sessionId: string) => void,
+	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
+): Promise<void> {
+	const goal = goalForIdleReview(event, ctx, clearRetry, scheduleRetry);
+	if (!goal) return;
+	const decision = await reviewGoal({
+		ctx,
+		kind: "goal_idle_review",
+		payload: { objective: goal.objective, terminalTurn: event.messages },
+	});
+	if (!ctx.hasPendingMessages()) applyGoalIdleDecision(decision, goal, ctx, pi);
+}
+
+function handleGoalCommand(
+	args: string,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	clearRetry: (sessionId: string) => void,
+): void {
+	const parsedArgs = parseGoalArgs(args);
+	if ("error" in parsedArgs) {
+		ctx.ui.notify(parsedArgs.error, "error");
+		return;
+	}
+	switch (parsedArgs.action) {
+		case "view": {
+			const goal = loadActiveGoal(ctx);
+			ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>", "info");
+			return;
+		}
+		case "pause": {
+			const goal = pauseGoal(ctx);
+			ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
+			updateGoalFooterStatus(ctx);
+			return;
+		}
+		case "resume": {
+			const goal = resumeGoal(ctx);
+			ctx.ui.notify(goal ? `Goal resumed: ${goal.objective}` : "No paused goal to resume", "info");
+			updateGoalFooterStatus(ctx);
+			if (goal && ctx.isIdle()) pi.sendUserMessage("Continue working toward the active goal.");
+			return;
+		}
+		case "clear":
+			ctx.ui.notify(clearGoal(ctx) ? "Goal cleared" : "No active goal", "info");
+			updateGoalFooterStatus(ctx);
+			return;
+		case "set": {
+			const result = setGoal({
+				objective: parsedArgs.objective,
+				ctx,
+				pi,
+				beforeSave: () => clearRetry(ctx.sessionManager.getSessionId()),
+			});
+			ctx.ui.notify(result.message, result.severity);
+		}
+	}
+}
+
+function registerManageGoalTool(
+	pi: ExtensionAPI,
+	reviewGoal: GoalSupervisorReview,
+	clearRetry: (sessionId: string) => void,
+): void {
+	pi.registerTool({
+		name: "manage_goal",
+		label: "Manage Goal",
+		description: "Manage the active long-running /goal objective.",
+		promptGuidelines: [],
+		approvalRequired: false,
+		parameters: Type.Object({
+			action: Type.Union([
+				Type.Literal("set"),
+				Type.Literal("pause"),
+				Type.Literal("resume"),
+				Type.Literal("complete"),
+				Type.Literal("clear"),
+				Type.Literal("status"),
+			]),
+			objective: Type.Optional(Type.String()),
+			reason: Type.Optional(Type.String()),
+		}),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+			manageGoal({
+				ctx,
+				params,
+				pi,
+				reviewGoal,
+				beforeGoalSave: () => clearRetry(ctx.sessionManager.getSessionId()),
+			}),
+	});
+}
+
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}) {
 	const reviewGoal = options.reviewGoal ?? reviewGoalWithResidentSupervisor;
 
-	pi.registerMessageRenderer("supervisor", (message, _rendererOptions, theme) => {
-		const content = typeof message.content === "string" ? message.content : "";
-		const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-		box.addChild(new Text(theme.fg("customMessageLabel", theme.bold("[Supervisor]")), 0, 0));
-		box.addChild(new Spacer(1));
-		box.addChild(new Text(theme.fg("customMessageText", supervisorInstructionBody(content)), 0, 0));
-		return box;
-	});
+	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
 
 	const emptyResponseRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -599,33 +698,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		emptyResponseRetryTimers.set(sessionId, timer);
 	}
 
-	pi.registerTool({
-		name: "manage_goal",
-		label: "Manage Goal",
-		description: "Manage the active long-running /goal objective.",
-		promptGuidelines: [],
-		approvalRequired: false,
-		parameters: Type.Object({
-			action: Type.Union([
-				Type.Literal("set"),
-				Type.Literal("pause"),
-				Type.Literal("resume"),
-				Type.Literal("complete"),
-				Type.Literal("clear"),
-				Type.Literal("status"),
-			]),
-			objective: Type.Optional(Type.String()),
-			reason: Type.Optional(Type.String()),
-		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-			manageGoal({
-				ctx,
-				params,
-				pi,
-				reviewGoal,
-				beforeGoalSave: () => clearEmptyResponseRetry(ctx.sessionManager.getSessionId()),
-			}),
-	});
+	registerManageGoalTool(pi, reviewGoal, clearEmptyResponseRetry);
 
 	// Notify on session start if an objective is active.
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
@@ -644,59 +717,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	});
 
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
-		const goal = loadRunningGoal(ctx);
-		if (!goal) return;
-
-		if (ctx.hasPendingMessages()) return;
-
-		const sessionId = ctx.sessionManager.getSessionId();
-		if (didLastAssistantAbort(event)) {
-			clearEmptyResponseRetry(sessionId);
-			return;
-		}
-
-		if (findLastAssistantMessage(event)?.stopReason === "error") {
-			clearEmptyResponseRetry(sessionId);
-			return;
-		}
-
-		if (didLastAssistantReturnEmpty(event)) {
-			scheduleEmptyResponseRetry(ctx, goal);
-			return;
-		}
-		clearEmptyResponseRetry(sessionId);
-
-		const decision = await reviewGoal({
-			ctx,
-			kind: "goal_idle_review",
-			payload: {
-				objective: goal.objective,
-				terminalTurn: event.messages,
-			},
-		});
-		if (ctx.hasPendingMessages()) return;
-
-		if (decision.kind === "complete") {
-			markGoalComplete(ctx, decision.reason);
-			updateGoalFooterStatus(ctx);
-			ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
-			return;
-		}
-		if (decision.kind === "pause") {
-			ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
-			return;
-		}
-		if (decision.kind === "error") {
-			ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
-			return;
-		}
-		if (decision.kind !== "continue") {
-			ctx.ui.notify("Supervisor returned an invalid goal response", "error");
-			return;
-		}
-		const continuationTurns = goal.continuationTurns ?? 0;
-		saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
-		sendSupervisorInstructions(pi, decision.instructions);
+		await handleGoalAgentEnd(event, ctx, pi, reviewGoal, clearEmptyResponseRetry, scheduleEmptyResponseRetry);
 	});
 
 	// Inject the active objective into the system prompt every turn.
@@ -710,42 +731,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	pi.registerCommand("goal", {
 		description: "Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const parsedArgs = parseGoalArgs(args);
-			if ("error" in parsedArgs) {
-				ctx.ui.notify(parsedArgs.error, "error");
-				return;
-			}
-			if (parsedArgs.action === "view") {
-				const goal = loadActiveGoal(ctx);
-				ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>", "info");
-				return;
-			}
-			if (parsedArgs.action === "pause") {
-				const goal = pauseGoal(ctx);
-				ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
-				updateGoalFooterStatus(ctx);
-				return;
-			}
-			if (parsedArgs.action === "resume") {
-				const goal = resumeGoal(ctx);
-				ctx.ui.notify(goal ? `Goal resumed: ${goal.objective}` : "No paused goal to resume", "info");
-				updateGoalFooterStatus(ctx);
-				if (goal && ctx.isIdle()) pi.sendUserMessage("Continue working toward the active goal.");
-				return;
-			}
-			if (parsedArgs.action === "clear") {
-				ctx.ui.notify(clearGoal(ctx) ? "Goal cleared" : "No active goal", "info");
-				updateGoalFooterStatus(ctx);
-				return;
-			}
-			if (parsedArgs.action !== "set") return;
-			const result = setGoal({
-				objective: parsedArgs.objective,
-				ctx,
-				pi,
-				beforeSave: () => clearEmptyResponseRetry(ctx.sessionManager.getSessionId()),
-			});
-			ctx.ui.notify(result.message, result.severity);
+			handleGoalCommand(args, ctx, pi, clearEmptyResponseRetry);
 		},
 	});
 }
