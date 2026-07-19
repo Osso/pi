@@ -52,7 +52,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] The `manage_goal` completion action requests resident Supervisor review for active goals, including paused goals; `complete` marks the goal complete, `continue` keeps it active with concrete next-step instructions, and `pause` leaves it active without scheduling another turn.
 - [x] Autonomous continuation has no numeric turn cap; a Supervisor `continue` decision submits actionable instructions as a visible `supervisor` custom follow-up wrapped in explicit Supervisor provenance for model context, while its renderer shows one `[Supervisor]` header and a plain instruction body without exposing the XML wrapper; `complete` closes the goal, and `pause` or `error` visibly stops automatic continuation without changing active/paused persistence.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
-- [x] Goal start/resume/continuation messages remain in live model context and transcript rendering, but do not appear in the editor's typed prompt history.
+- [x] Goal start/resume/continuation messages remain unchanged in persisted transcript and live model context; Supervisor XML provenance is hidden only by TUI rendering, and generated messages do not appear in the editor's typed prompt history.
 - [x] Compaction excludes goal-generated start/resume/continuation reminders from summarization input while preserving other extension-origin messages and the original session log.
 
 ## How it works

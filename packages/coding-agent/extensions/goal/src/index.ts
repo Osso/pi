@@ -384,7 +384,10 @@ function supervisorInstructionBody(content: string): string {
 	if (!content.startsWith(SUPERVISOR_INSTRUCTION_OPEN) || !content.endsWith(SUPERVISOR_INSTRUCTION_CLOSE)) {
 		return content;
 	}
-	return content.slice(SUPERVISOR_INSTRUCTION_OPEN.length, -SUPERVISOR_INSTRUCTION_CLOSE.length).trim();
+	let body = content.slice(SUPERVISOR_INSTRUCTION_OPEN.length, -SUPERVISOR_INSTRUCTION_CLOSE.length);
+	if (body.startsWith("\n")) body = body.slice(1);
+	if (body.endsWith("\n")) body = body.slice(0, -1);
+	return body;
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {

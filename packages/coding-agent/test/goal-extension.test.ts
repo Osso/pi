@@ -665,9 +665,7 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 		const [message] = harness.sendMessage.mock.calls.at(-1) ?? [];
 
-		expect(message?.content).toBe(
-			"<supervisor-instruction>\nRun the exact regression.\n</supervisor-instruction>",
-		);
+		expect(message?.content).toBe("<supervisor-instruction>\nRun the exact regression.\n</supervisor-instruction>");
 		const renderer = harness.getSupervisorRenderer();
 		if (!renderer || !message) throw new Error("Supervisor renderer was not registered");
 		const identityTheme = {
@@ -675,17 +673,11 @@ describe("goal extension", () => {
 			bold: (text: string) => text,
 			fg: (_color: string, text: string) => text,
 		} as Parameters<MessageRenderer>[2];
-		const component = renderer(
-			{ role: "custom", ...message, timestamp: 1 },
-			{ expanded: false },
-			identityTheme,
-		);
-		const rendered = component?.render(120).join("\n") ?? "";
+		const component = renderer({ role: "custom", ...message, timestamp: 1 }, { expanded: false }, identityTheme);
+		const renderedLines = component?.render(120).map((line) => line.trim()).filter(Boolean) ?? [];
 
-		expect(rendered.match(/Supervisor/g)).toHaveLength(1);
-		expect(rendered).toContain("[Supervisor]");
-		expect(rendered).toContain("Run the exact regression.");
-		expect(rendered).not.toContain("supervisor-instruction");
+		expect(renderedLines).toEqual(["[Supervisor]", "Run the exact regression."]);
+		expect(renderedLines.join("\n")).not.toContain("supervisor-instruction");
 	});
 
 	it("continues an active goal after agent_end", async () => {
