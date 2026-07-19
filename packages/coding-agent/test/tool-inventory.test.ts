@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { formatExtensionInventory } from "../src/cli/list-extensions.ts";
@@ -63,6 +65,16 @@ describe("tool inventory", () => {
 		const output = formatToolInventory(tools, ["bash"]);
 		expect(output).toContain("Execute a bash command in the current working direc...");
 		expect(output.split("\n").every((line) => line.length <= 100)).toBe(true);
+	});
+
+	it("keeps Hostrun out of serialized public package and tool inventory metadata", () => {
+		const packageJson = readFileSync(resolve(__dirname, "../../../package.json"), "utf8");
+		const packageLockJson = readFileSync(resolve(__dirname, "../../../package-lock.json"), "utf8");
+		const publicPackageMetadata = JSON.stringify({ packageJson, packageLockJson });
+
+		expect(publicPackageMetadata).not.toContain("packages/coding-agent/extensions/hostrun");
+		expect(publicPackageMetadata).not.toContain("@earendil-works/pi-hostrun-extension");
+		expect(publicPackageMetadata).not.toContain("hostrun_eval");
 	});
 
 	it("shows an explicit empty state when no tools are available", () => {

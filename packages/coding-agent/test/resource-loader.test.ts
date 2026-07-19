@@ -302,10 +302,10 @@ export default function(pi) {
 
 		it("should skip disabled inline extension factories", async () => {
 			const storage = new InMemorySettingsStorage();
-			storage.withLock("global", () => JSON.stringify({ disabledExtensions: ["hostrun"] }));
+			storage.withLock("global", () => JSON.stringify({ disabledExtensions: ["disabled"] }));
 			const settingsManager = SettingsManager.fromStorage(storage);
-			const hostrunFactory = () => {};
-			Object.defineProperty(hostrunFactory, "extensionPath", { value: "<first-party:hostrun>" });
+			const disabledFactory = () => {};
+			Object.defineProperty(disabledFactory, "extensionPath", { value: "<first-party:disabled>" });
 			const goalFactory = () => {};
 			Object.defineProperty(goalFactory, "extensionPath", { value: "<first-party:goal>" });
 
@@ -313,7 +313,7 @@ export default function(pi) {
 				cwd,
 				agentDir,
 				settingsManager,
-				extensionFactories: [hostrunFactory, goalFactory],
+				extensionFactories: [disabledFactory, goalFactory],
 			});
 			await loader.reload();
 

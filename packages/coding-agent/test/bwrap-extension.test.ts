@@ -5,11 +5,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	assertBwrapAvailable,
 	buildBwrapInvocation,
 	createBwrapRunnerCommand,
 	createBwrapRunnerEnvironment,
 	resolveBwrapSandboxProfile,
+	runBwrapAvailabilityCheck,
 } from "../extensions/bwrap/src/backend.ts";
 import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -312,12 +312,40 @@ console.log(JSON.stringify({
 		}
 	});
 
+	it("grep skips inaccessible files and returns readable matches", () => {
+		const readablePath = join(workspaceDir, "readable.txt");
+		const inaccessiblePath = join(workspaceDir, "inaccessible.txt");
+		writeFileSync(readablePath, "needle\n", "utf8");
+		symlinkSync(join(workspaceDir, "missing.txt"), inaccessiblePath);
+
+		const result = spawnSync(
+			process.execPath,
+			[
+				FS_WORKER_PATH,
+				"grep",
+				JSON.stringify({
+					literal: true,
+					path: workspaceDir,
+					pattern: "needle",
+					workspace: workspaceDir,
+				}),
+			],
+			{ encoding: "utf8" },
+		);
+
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			details: {},
+			text: "readable.txt:1: needle",
+		});
+	});
+
 	it("bypasses sandboxing for full-access", () => {
 		expect(resolveBwrapSandboxProfile("full-access")).toBeUndefined();
 	});
 
 	it("fails closed when a sandboxed profile requires bwrap and bwrap is unavailable", () => {
-		expect(() => assertBwrapAvailable("/definitely/missing/bwrap")).toThrow(/bubblewrap.*required/i);
+		expect(() => runBwrapAvailabilityCheck("/definitely/missing/bwrap")).toThrow(/bubblewrap.*required/i);
 	});
 
 	it.each(["read-only", "workspace-write"] as const)(
@@ -352,13 +380,9 @@ console.log(JSON.stringify({
 
 	it.each([
 		["read-only", "pyrun_eval"],
-		["read-only", "hostrun_eval"],
 		["workspace-write", "pyrun_eval"],
-		["workspace-write", "hostrun_eval"],
 		["full-access", "pyrun_eval"],
-		["full-access", "hostrun_eval"],
 		[undefined, "pyrun_eval"],
-		[undefined, "hostrun_eval"],
 	] as const)("does not block %s %s", (profile, toolName) => {
 		const { toolGates } = createBwrapHarness("/bin/true");
 		const settingsManager = profile

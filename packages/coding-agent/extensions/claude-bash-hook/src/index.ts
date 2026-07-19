@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
@@ -41,7 +41,7 @@ export async function reviewToolWithClaudeBashHook(
 		return { action: "unavailable" };
 	}
 
-	const hookCommand = resolveClaudeBashHookCommand();
+	const hookCommand = readClaudeBashHookCommand();
 	if (!hookCommand) {
 		return { action: "unavailable" };
 	}
@@ -68,7 +68,7 @@ function toClaudeBashHookToolName(toolName: string): string | undefined {
 	if (toolName === "bash") {
 		return "Bash";
 	}
-	if (toolName === "hostrun_eval" || toolName === "pyrun_eval") {
+	if (toolName === "pyrun_eval") {
 		return toolName;
 	}
 	return undefined;
@@ -99,7 +99,7 @@ function mapHookOutput(hookOutput: HookSpecificOutput): ClaudeBashHookReviewResu
 	return { action: "unavailable" };
 }
 
-function resolveClaudeBashHookCommand(): string | undefined {
+function readClaudeBashHookCommand(): string | undefined {
 	const configuredCommand = process.env.PI_CLAUDE_BASH_HOOK;
 	if (configuredCommand) {
 		return configuredCommand;
@@ -120,31 +120,47 @@ function runHookProcess(command: string, input: unknown): Promise<HookProcessRes
 			signal: abortController.signal,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
-		let stdout = "";
-		let stderr = "";
+		const output = { stdout: "", stderr: "" };
 
-		child.stdout.setEncoding("utf8");
-		child.stdout.on("data", (chunk: string) => {
-			stdout += chunk;
-		});
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
-		child.on("error", (error) => {
-			clearTimeout(timeout);
-			if (isMissingHookError(error)) {
-				resolve({ stdout: "", stderr: "" });
-				return;
-			}
-			reject(error);
-		});
-		child.on("close", () => {
-			clearTimeout(timeout);
-			resolve({ stdout, stderr });
-		});
+		attachHookOutputListeners(child, output);
+		child.on("error", (error) => settleHookProcessError(error, timeout, resolve, reject));
+		child.on("close", () => settleHookProcessClose(timeout, output, resolve));
 		child.stdin.end(JSON.stringify(input));
 	});
+}
+
+function attachHookOutputListeners(child: ChildProcessWithoutNullStreams, output: HookProcessResult): void {
+	child.stdout.setEncoding("utf8");
+	child.stdout.on("data", (chunk: string) => {
+		output.stdout += chunk;
+	});
+	child.stderr.setEncoding("utf8");
+	child.stderr.on("data", (chunk: string) => {
+		output.stderr += chunk;
+	});
+}
+
+function settleHookProcessError(
+	error: Error,
+	timeout: NodeJS.Timeout,
+	resolve: (result: HookProcessResult) => void,
+	reject: (reason?: unknown) => void,
+): void {
+	clearTimeout(timeout);
+	if (isMissingHookError(error)) {
+		resolve({ stdout: "", stderr: "" });
+		return;
+	}
+	reject(error);
+}
+
+function settleHookProcessClose(
+	timeout: NodeJS.Timeout,
+	output: HookProcessResult,
+	resolve: (result: HookProcessResult) => void,
+): void {
+	clearTimeout(timeout);
+	resolve(output);
 }
 
 function parseHookSpecificOutput(stdout: string): HookSpecificOutput | undefined {

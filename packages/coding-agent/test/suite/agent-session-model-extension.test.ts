@@ -18,7 +18,6 @@ vi.mock("../../src/core/desktop-notification.ts", async (importOriginal) => {
 });
 
 import claudeBashHookExtension from "../../extensions/claude-bash-hook/src/index.ts";
-import hostrunExtension from "../../extensions/hostrun/src/index.ts";
 import safeExtension from "../../extensions/safe/src/index.ts";
 import {
 	type BuildSystemPromptOptions,
@@ -654,37 +653,6 @@ describe("AgentSession model and extension characterization", () => {
 		expect(select).toHaveBeenCalledTimes(1);
 		expect(confirm).not.toHaveBeenCalled();
 		expect(toolExecutions).toBe(0);
-		expect(
-			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
-		).toBeDefined();
-	});
-
-	it("asks for wrapper approval before delegating hostrun_eval to the canonical adapter", async () => {
-		const confirm = vi.fn(async () => false);
-		const select = vi.fn(async () => "Deny");
-		const harness = await createHarness({
-			extensionFactories: [hostrunExtension],
-			settings: { approvalPolicy: "on-request", approvalPreset: "ask-me" },
-			uiContext: createConfirmUiContext(confirm, select),
-		});
-		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("hostrun_eval", { code: "1 + 1" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
-
-		await harness.session.prompt("hi");
-
-		expect(select).toHaveBeenCalledTimes(1);
-		expect(select).toHaveBeenCalledWith(expect.stringContaining("Approve hostrun_eval?"), [
-			"Allow once",
-			"Allow always",
-			"Deny",
-		]);
-		expect(confirm).not.toHaveBeenCalled();
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 		).toBeDefined();
