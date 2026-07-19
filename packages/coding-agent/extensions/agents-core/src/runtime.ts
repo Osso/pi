@@ -39,17 +39,25 @@ import {
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
+import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "../../../src/core/runtime-coordination-format.ts";
 import {
+	advanceSharedChannelCursor,
 	enqueueRuntimeMailboxMessage,
 	hasPendingRuntimeCoordinationMessage,
+	isRuntimeCoordinationMailboxMessage,
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
+	listSharedChannelMessagesAfter,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSessionMetadata,
+	readSharedChannelCursor,
+	readSharedChannelTail,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
+	type SharedChannelMessage,
+	takeRuntimeMailboxMessagesForDelivery,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
@@ -2304,7 +2312,10 @@ async function waitAgents(
 		runtimeCoordinationRecipient(ctx),
 	);
 	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
-	if (wake.kind === "coordination") return result("Mailbox or shared-channel message received.", {});
+	if (wake.kind === "coordination") {
+		const coordination = takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
+		return coordination ? result(coordination, {}) : result("Coordination input changed before delivery.", {});
+	}
 	if (wake.kind === "error") {
 		const message = wake.error instanceof Error ? wake.error.message : String(wake.error);
 		return errorResult(`Wait failed: ${message}`, {});
@@ -2321,6 +2332,61 @@ function runtimeCoordinationRecipient(ctx: ExtensionContext | undefined): Runtim
 	const address = resolveOwnMainRuntimeCoordinationRecipient(ctx.controlDbPath);
 	if (!address) return undefined;
 	return { address, controlDbPath: ctx.controlDbPath };
+}
+
+function takePendingWaitCoordination(
+	store: MultiAgentStore,
+	recipient: RuntimeCoordinationRecipient | undefined,
+): string | undefined {
+	if (!recipient) return undefined;
+	const mailboxMessages = takeRuntimeMailboxMessagesForDelivery(
+		recipient.controlDbPath,
+		recipient.address,
+		isRuntimeCoordinationMailboxMessage,
+	);
+	for (const message of mailboxMessages) markWaitMailboxStoreMessageDelivered(store, message);
+	const channelMessages = takePendingWaitSharedChannelMessages(recipient);
+	const sections = [
+		...mailboxMessages.map((message) => formatRuntimeMailboxPrompt(message, recipient.address.sessionId)),
+		...(channelMessages.length > 0
+			? [formatSharedChannelPrompt(channelMessages, recipient.address.sessionId)]
+			: []),
+	];
+	return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
+function markWaitMailboxStoreMessageDelivered(store: MultiAgentStore, message: RuntimeMailboxMessage): void {
+	if (store.getPersistenceTarget()?.sessionPath !== message.storeRef.sessionPath) return;
+	store.markMailboxMessageDelivered(message.storeRef.messageId);
+}
+
+function takePendingWaitSharedChannelMessages(recipient: RuntimeCoordinationRecipient): SharedChannelMessage[] {
+	if (recipient.address.agentId !== null) return [];
+	const cursor = readSharedChannelCursor(recipient.controlDbPath, recipient.address);
+	if (cursor === undefined) return [];
+	const lastMessageId = readSharedChannelTail(recipient.controlDbPath);
+	const messages = readSharedChannelMessagesThrough(recipient.controlDbPath, cursor, lastMessageId);
+	advanceSharedChannelCursor(recipient.controlDbPath, recipient.address, lastMessageId);
+	return messages.filter(
+		(message) => message.sender.agentId === null && message.sender.sessionId !== recipient.address.sessionId,
+	);
+}
+
+function readSharedChannelMessagesThrough(
+	controlDbPath: string,
+	cursor: number,
+	lastMessageId: number,
+): SharedChannelMessage[] {
+	const messages: SharedChannelMessage[] = [];
+	let pageCursor = cursor;
+	while (pageCursor < lastMessageId) {
+		const page = listSharedChannelMessagesAfter(controlDbPath, pageCursor, undefined, lastMessageId);
+		const lastPageMessage = page.at(-1);
+		if (!lastPageMessage) break;
+		messages.push(...page);
+		pageCursor = lastPageMessage.id;
+	}
+	return messages;
 }
 
 function takePendingTerminalNotifications(

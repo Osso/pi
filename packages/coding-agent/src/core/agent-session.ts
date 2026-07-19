@@ -124,6 +124,7 @@ import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
 import { readProcessIdentity } from "./runtime-process.ts";
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
@@ -519,22 +520,6 @@ function estimateCompactedContextTokens(input: CompactedContextEstimateInput): C
 	};
 }
 
-function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSessionId: string): string {
-	const senderSession = message.sender.sessionId || "unknown-session";
-	const senderAgent = message.sender.agentId || "main";
-	const body = message.body.trim() || "No message body.";
-	const senderLines =
-		senderSession === recipientSessionId
-			? [`- agent: ${senderAgent}`]
-			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
-	const sections = ["From:", ...senderLines, "", "Message:", body];
-	return [...sections, ...formatRuntimeMailboxFileReferences(message)].join("\n");
-}
-
-function formatSharedChannelPrompt(messages: SharedChannelMessage[], recipientSessionId: string): string {
-	return messages.map((message) => formatSharedChannelMessage(message, recipientSessionId)).join("\n\n");
-}
-
 function readSharedChannelMessageSnapshot(
 	controlDbPath: string,
 	lastSeenId: number,
@@ -557,33 +542,12 @@ function readSharedChannelMessageSnapshot(
 	return { lastMessageId, messages };
 }
 
-function formatSharedChannelMessage(message: SharedChannelMessage, recipientSessionId: string): string {
-	const senderSession = message.sender.sessionId || "unknown-session";
-	const senderAgent = message.sender.agentId || "main";
-	const body = message.body.trim() || "No message body.";
-	const senderLines =
-		senderSession === recipientSessionId
-			? [`- agent: ${senderAgent}`]
-			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
-	return ["From shared channel:", ...senderLines, "", "Message:", body].join("\n");
-}
-
 function isOwnSharedChannelMessage(message: SharedChannelMessage, recipient: RuntimeMailboxAddress): boolean {
 	return message.sender.sessionId === recipient.sessionId && message.sender.agentId === recipient.agentId;
 }
 
 function isSubagentSharedChannelMessage(message: SharedChannelMessage): boolean {
 	return message.sender.agentId !== null;
-}
-
-function formatRuntimeMailboxFileReferences(message: RuntimeMailboxMessage): string[] {
-	const fileRefs = message.fileRefs?.map(formatRuntimeMailboxFileReference) ?? [];
-	return fileRefs.length > 0 ? ["Attached files:", ...fileRefs] : [];
-}
-
-function formatRuntimeMailboxFileReference(ref: NonNullable<RuntimeMailboxMessage["fileRefs"]>[number]): string {
-	const label = ref.label ? `${ref.label} — ` : "";
-	return `- ${label}${ref.path}`;
 }
 
 function errorMessage(error: unknown): string {

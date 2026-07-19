@@ -24,9 +24,10 @@ or an arbitrary sibling. The old `contact_supervisor` name has no compatibility 
 Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
 `wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
-rows for agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
-terminal truth. It never consumes the shared runtime-mailbox delivery row as its source of truth.
-Pyrun `pi.agents.wait()` uses the same query semantics.
+rows for agents active at invocation until one is terminal. On a coordination wake, it instead returns and consumes
+all currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting;
+mailbox rows become `delivered` and the shared-channel cursor advances. Each distinct coordination message is visible
+exactly once. The agent row remains terminal truth, and Pyrun `pi.agents.wait()` uses the same semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -85,12 +86,13 @@ Startup reconciliation scans persisted detached runtimes after listener/path bin
 dead runners whose logical parent session remains live. Attached-session rows retain the transcript-backed
 resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. Each invocation snapshots active agents, consumes every pending
-terminal notification already waiting, and polls authoritative control-DB agent rows until one snapshot member is
-terminal. In-process transitions, runtime signals, and notifications only accelerate that query; this
-allows a detached runner in another process to wake a blocked wait after its terminal commit. Mailbox
-delivery and acknowledgement are independent. The store removes transient worker metadata on restore,
-but durable lifecycle state remains unchanged until an exact-owner command commits.
+`wait_agents({})` takes no agent ID. Each invocation snapshots active agents and consumes every pending terminal
+notification already waiting, then polls authoritative control-DB agent rows until one snapshot member is terminal.
+A coordination wake returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs,
+preserving sender/body formatting; mailbox rows become `delivered` and the shared-channel cursor advances. Each
+distinct coordination message is visible exactly once. Terminal notifications still accelerate the agent-row query,
+so a detached runner in another process can wake a blocked wait after its terminal commit. The store removes transient
+worker metadata on restore, but durable lifecycle state remains unchanged until an exact-owner command commits.
 
 Existing primitives worth reusing:
 

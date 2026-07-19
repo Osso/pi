@@ -98,6 +98,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       `pending` and does not read their payloads into runtime memory. Once ready, one immediate
       transaction selects eligible pending rows and marks those same rows `delivered`; selected
       payloads proceed directly to active session input without an intermediate volatile queue.
+      `wait_agents({})` uses the same delivery boundary on a coordination wake and returns all
+      currently pending deliverable runtime-mailbox inputs, preserving sender/body formatting.
       Restart before this transaction leaves the messages pending and recoverable. If another turn
       starts while idle delivery waits for the turn-start lock, delivery rechecks the active state
       under that lock and steers the message instead of attempting a conflicting prompt. Terminal

@@ -27,6 +27,9 @@ once needed.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
 - [x] Messages posted by subagents are skipped and marked seen, preventing old-process subagent traffic from flooding main sessions.
 - [x] Busy/streaming sessions do not drain channel messages until a later idle drain.
+- [x] When `wait_agents({})` wakes on coordination input for a main-thread recipient, it returns and consumes all
+      currently pending deliverable shared-channel inputs, preserving each sender/body format and advancing the
+      recipient cursor so each distinct channel message is visible exactly once.
 
 ### Tool surface
 

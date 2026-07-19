@@ -118,8 +118,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       from `cancelling`, never direct JSON rewrite or inferred result. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
 - [x] `wait_agents({})` snapshots agents active at invocation, consumes every pending terminal notification already waiting,
-      and queries current agent rows until any snapshot member is terminal. Notifications only wake the query;
-      the agent row is terminal truth. It does not consume shared mailbox delivery. Restore clears transient
+      and queries current agent rows until any snapshot member is terminal. Terminal notifications only wake the query;
+      the agent row is terminal truth. A coordination wake returns and consumes all currently pending deliverable
+      runtime-mailbox and shared-channel inputs so each message is visible exactly once. Restore clears transient
       `runtime` worker metadata without rewriting
       durable lifecycle.
 
@@ -240,9 +241,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   confirmed abort.
 - Each terminal transition updates the agent row and enqueues exactly one pending completion or failure
   notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
-  delivery queue. Redelivery and retries affect notification delivery only. `wait_agents` consumes every
+  delivery queue. Redelivery and retries affect terminal-notification delivery only. `wait_agents` consumes every
   pending terminal notification already waiting and queries the current agent rows for agents active at invocation;
-  notifications only wake that query; the agent row remains the sole terminal source of truth.
+  terminal notifications only wake that query, while coordination wakes return and consume currently pending
+  deliverable mailbox and shared-channel input. The agent row remains the sole terminal source of truth.
 
 ### Mailbox and steering
 
@@ -316,9 +318,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
 - [x] `wait_agents({})` consumes every pending terminal notification already waiting and queries agent rows for agents
-      active at invocation until one reaches a terminal state. Notifications only wake the query; the agent
-      row is terminal truth. It does not consume runtime-mailbox transport rows; Pyrun uses the same
-      operation.
+      active at invocation until one reaches a terminal state. Terminal notifications only wake the query; the agent
+      row is terminal truth. A coordination wake returns and consumes all currently pending deliverable runtime-mailbox
+      and shared-channel inputs; Pyrun uses the same operation.
 - [x] While an agent turn is active, ordinary polling leaves pending messages unread and unchanged.
       After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
       first and then `next_model_call` steering before the following provider request. Long tool loops must
@@ -474,7 +476,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the production child factory and configured agent profiles select child model/thinking settings for
   `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
-  supports simultaneous and late completion waiters without consuming mailbox delivery. Failed
+  supports simultaneous and late completion waiters while returning and consuming coordination delivery. Failed
   agents expose their failure message and `fileRefs`. `list_agents` always returns
   active agents, can scope them below a parent without TUI state, and exposes no terminal-agent option. `contact_parent` requires the caller's exact agent runtime identity and routes child messages only to the current direct parent with validated absolute
   file references and persisted target validation. It rejects parentless runtimes, cannot target the resident Supervisor or arbitrary siblings,

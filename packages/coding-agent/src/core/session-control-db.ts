@@ -1529,6 +1529,10 @@ function hasDeliverableRuntimeMailboxMessage(db: SqliteDatabase, recipient: Runt
 	});
 }
 
+export function isRuntimeCoordinationMailboxMessage(message: RuntimeMailboxMessage): boolean {
+	return !isLifecycleNotificationPayload(message as unknown as Record<string, unknown>);
+}
+
 function isLifecycleNotificationPayload(message: Record<string, unknown>): boolean {
 	if (message.kind !== "system") return false;
 	if (typeof message.id === "string" && message.id.startsWith("terminal:")) return true;

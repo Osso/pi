@@ -1405,8 +1405,10 @@ describe("runtime SQLite mailbox delivery", () => {
 
 			const waited = await waiting;
 
-			expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
-			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
+			expect(waited.content[0]).toMatchObject({
+				text: expect.stringContaining("Need parent review"),
+			});
+			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 		},
 	);
 
@@ -1511,9 +1513,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		await vi.advanceTimersByTimeAsync(30_000);
 
 		const waited = await waiting;
-		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
-		// Neither transport row is consumed by the wake.
-		expect(readRuntimeMailboxMessage(controlDbPath, inboundMessageId)).toMatchObject({ status: "pending" });
+		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Need parent review") });
+		expect(readRuntimeMailboxMessage(controlDbPath, inboundMessageId)).toMatchObject({ status: "delivered" });
 		expect(readRuntimeMailboxMessage(controlDbPath, steerMessageId)).toMatchObject({ status: "pending" });
 	});
 
@@ -1564,10 +1565,51 @@ describe("runtime SQLite mailbox delivery", () => {
 		await vi.advanceTimersByTimeAsync(30_000);
 
 		const waited = await waiting;
-		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
+		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Need parent review") });
 	});
 
-	it("wait_agents wakes for an eligible shared-channel message without advancing its cursor", async () => {
+	it("wait_agents returns each distinct coordination message exactly once", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		if (!waitAgents) throw new Error("expected wait_agents tool");
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		const firstId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "First coordination message",
+			kind: "message",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: runtime.agent.id, sessionId: "child-session" },
+		});
+		const first = await waitAgents.execute("wait", {}, undefined, undefined, context);
+
+		const secondId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Second coordination message",
+			kind: "message",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: runtime.agent.id, sessionId: "child-session" },
+		});
+		const second = await waitAgents.execute("wait", {}, undefined, undefined, context);
+
+		expect(first.content[0]).toMatchObject({ text: expect.stringContaining("First coordination message") });
+		expect(first.content[0]).not.toMatchObject({ text: expect.stringContaining("Second coordination message") });
+		expect(second.content[0]).toMatchObject({ text: expect.stringContaining("Second coordination message") });
+		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "delivered" });
+	});
+
+	it("wait_agents returns an eligible shared-channel message and advances its cursor", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -1597,8 +1639,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		await vi.advanceTimersByTimeAsync(30_000);
 		const waited = await waiting;
 
-		expect(waited.content[0]).toMatchObject({ text: "Mailbox or shared-channel message received." });
-		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
+		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Coordination changed") });
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(messageId);
 		expect(messageId).toBeGreaterThan(initialCursor);
 	});
 

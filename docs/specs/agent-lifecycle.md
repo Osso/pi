@@ -114,8 +114,11 @@ Every terminal transition updates the agent row and revision and enqueues exactl
 or failure notification in the same SQLite transaction. The agent row is terminal truth; the outbox is
 only a delivery queue. Notification delivery may retry or expire, but it never creates or replaces
 terminal state. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and
-Pyrun handlers. `wait_agents` snapshots active agents, consumes every pending terminal notification
-already waiting, and uses notifications only to wake a query of the current agent rows. The canonical mailbox row is the sole delivery state; no separate runtime transport lifecycle exists.
+Pyrun handlers. `wait_agents` snapshots active agents and consumes every pending terminal notification
+already waiting, then queries current agent rows. A coordination wake instead returns and consumes all
+currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting;
+mailbox rows become `delivered` and the shared-channel cursor advances so each distinct message is visible
+exactly once. The canonical mailbox row is the sole delivery state; no separate runtime transport lifecycle exists.
 Runtime transcript metadata updates merge into the latest persisted agent snapshot inside an immediate
 transaction and cannot rewrite lifecycle or revision from a stale in-memory projection; restore never
 writes its runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata
@@ -222,10 +225,12 @@ folder from reading stale manifests or output belonging to another supervisor.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
       same-PID main listener or run supervisor-wide recovery. Their session-start hook may reconcile only direct
       persisted descendants through the normal coordinator recovery path.
-- [x] `wait_agents({})` snapshots active agents at invocation, consumes every pending terminal
-      notification already waiting, and queries current agent rows until one snapshot member is terminal. Notifications
-      only wake the query; they are not terminal truth. Detached Bash and Pyrun jobs use a transient
-      `runtime` worker marker; restore clears it without rewriting durable lifecycle.
+- [x] `wait_agents({})` snapshots active agents at invocation and consumes every pending terminal
+      notification already waiting, then queries current agent rows until one snapshot member is terminal. A coordination
+      wake returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs, preserving
+      sender/body formatting; mailbox rows become `delivered` and the shared-channel cursor advances. Each distinct
+      coordination message is visible exactly once. Detached Bash and Pyrun jobs use a transient `runtime` worker marker;
+      restore clears it without rewriting durable lifecycle.
 
 ## How it works
 
