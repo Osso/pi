@@ -26,8 +26,8 @@ process.stdin.on("data", chunk => input += chunk);
 process.stdin.on("end", () => {
   const payload = JSON.parse(input);
   const code = payload.tool_input?.code;
-  const expectedCode = payload.tool_name === "pyrun_eval" ? "print(1 + 1)" : "run.sleep('1')";
-  if (!["pyrun_eval", "hostrun_eval"].includes(payload.tool_name) || code !== expectedCode) {
+  const expectedCode = "print(1 + 1)";
+  if (payload.tool_name !== "pyrun_eval" || code !== expectedCode) {
     console.error(JSON.stringify(payload));
     process.exit(2);
   }
@@ -60,14 +60,6 @@ describe("claude-bash-hook extension", () => {
 
 	it("reviews pyrun_eval code with claude-bash-hook", async () => {
 		const event = makeToolCallEvent("pyrun_eval", { code: "print(1 + 1)" });
-
-		const result = await reviewToolWithClaudeBashHook(event, "/repo");
-
-		expect(result).toEqual({ action: "allow" });
-	});
-
-	it("reviews hostrun_eval code with claude-bash-hook", async () => {
-		const event = makeToolCallEvent("hostrun_eval", { code: "run.sleep('1')" });
 
 		const result = await reviewToolWithClaudeBashHook(event, "/repo");
 

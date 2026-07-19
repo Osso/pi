@@ -17,7 +17,6 @@
 		"packages/coding-agent/extensions/default-footer",
 		"packages/coding-agent/extensions/agents-mailbox",
 		"packages/coding-agent/extensions/goal",
-		"packages/coding-agent/extensions/hostrun",
 		"packages/coding-agent/extensions/pyrun",
 		"packages/coding-agent/extensions/loop",
 		"packages/coding-agent/extensions/run-plan",

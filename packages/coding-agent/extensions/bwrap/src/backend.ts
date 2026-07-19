@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
 import { existsSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { BashOperations } from "../../../src/index.ts";
@@ -32,7 +33,7 @@ export function resolveBwrapSandboxProfile(profile: SandboxProfileName): BwrapSa
 	return profile === "full-access" ? undefined : profile;
 }
 
-export function assertBwrapAvailable(bwrapCommand: string): void {
+export function runBwrapAvailabilityCheck(bwrapCommand: string): void {
 	const result = spawnSync(bwrapCommand, ["--version"], { encoding: "utf8" });
 	if (result.error) {
 		throw new Error(`bubblewrap is required for sandbox profile but is unavailable: ${result.error.message}`);
@@ -46,27 +47,53 @@ export function assertBwrapAvailable(bwrapCommand: string): void {
 export function buildBwrapInvocation(options: BwrapInvocationOptions): BwrapInvocation {
 	const cwd = resolve(options.cwd);
 	const sandboxEnv = buildSandboxEnv(options.env);
-	const argv = ["--die-with-parent", "--unshare-all", "--share-net", "--clearenv"];
-	for (const [key, value] of Object.entries(sandboxEnv)) {
-		if (value !== undefined) argv.push("--setenv", key, value);
-	}
-	for (const systemPath of READ_ONLY_SYSTEM_PATHS) {
-		if (existsSync(systemPath)) argv.push("--ro-bind", systemPath, systemPath);
-	}
-	argv.push("--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--dir", SANDBOX_HOME);
-
-	for (const readOnlyPath of options.extraReadOnlyPaths ?? []) {
-		appendReadOnlyMount(argv, readOnlyPath, cwd);
-	}
-
-	appendWorkspaceMount(argv, cwd, options.profile);
-
-	argv.push("--chdir", cwd, "--", ...options.command);
 	return {
-		argv,
+		argv: buildBwrapArguments(options, cwd, sandboxEnv),
 		command: options.bwrapCommand,
 		env: sandboxEnv,
 	};
+}
+
+function buildBwrapArguments(options: BwrapInvocationOptions, cwd: string, sandboxEnv: NodeJS.ProcessEnv): string[] {
+	const environmentArguments = Object.entries(sandboxEnv).flatMap(([key, value]) =>
+		value === undefined ? [] : ["--setenv", key, value],
+	);
+	const systemPathArguments = READ_ONLY_SYSTEM_PATHS.flatMap((systemPath) =>
+		existsSync(systemPath) ? ["--ro-bind", systemPath, systemPath] : [],
+	);
+	const readOnlyPathArguments = (options.extraReadOnlyPaths ?? []).flatMap((path) =>
+		buildReadOnlyMountArguments(path, cwd),
+	);
+	const workspaceArguments = buildWorkspaceMountArguments(cwd, options.profile);
+
+	return [
+		...buildBwrapBaseArguments(),
+		...environmentArguments,
+		...systemPathArguments,
+		...readOnlyPathArguments,
+		...workspaceArguments,
+		"--chdir",
+		cwd,
+		"--",
+		...options.command,
+	];
+}
+
+function buildBwrapBaseArguments(): string[] {
+	return [
+		"--die-with-parent",
+		"--unshare-all",
+		"--share-net",
+		"--clearenv",
+		"--dev",
+		"/dev",
+		"--proc",
+		"/proc",
+		"--tmpfs",
+		"/tmp",
+		"--dir",
+		SANDBOX_HOME,
+	];
 }
 
 export function createSandboxedBashOperations(options: {
@@ -80,7 +107,7 @@ export function createSandboxedBashOperations(options: {
 	return {
 		exec: async (command, cwd, execOptions) => {
 			if (execOptions.signal?.aborted) throw new Error("aborted");
-			assertBwrapAvailable(options.bwrapCommand);
+			runBwrapAvailabilityCheck(options.bwrapCommand);
 			const shellPath = options.shellPath ?? "/bin/sh";
 			const invocation = buildBwrapInvocation({
 				bwrapCommand: options.bwrapCommand,
@@ -116,8 +143,8 @@ export function createBwrapRunnerCommand(options: {
 	runnerCommand: string;
 	runnerEnv?: NodeJS.ProcessEnv;
 }): { args: string[]; command: string; env: NodeJS.ProcessEnv } {
-	assertBwrapAvailable(options.bwrapCommand);
-	const runnerCommand = resolveRunnerExecutable(options.runnerCommand, options.runnerEnv);
+	runBwrapAvailabilityCheck(options.bwrapCommand);
+	const runnerCommand = findRunnerExecutable(options.runnerCommand, options.runnerEnv);
 	const invocation = buildBwrapInvocation({
 		bwrapCommand: options.bwrapCommand,
 		command: [runnerCommand, ...options.runnerArgs],
@@ -132,7 +159,7 @@ export function createBwrapRunnerCommand(options: {
 	return { args: invocation.argv, command: invocation.command, env: invocation.env };
 }
 
-function resolveRunnerExecutable(command: string, env: NodeJS.ProcessEnv | undefined): string {
+function findRunnerExecutable(command: string, env: NodeJS.ProcessEnv | undefined): string {
 	if (isAbsolute(command)) return command;
 	const searchPath = env?.PATH ?? process.env.PATH ?? DEFAULT_PATH;
 	for (const directory of searchPath.split(delimiter)) {
@@ -149,109 +176,150 @@ function runnerReadOnlyPaths(
 	cwd: string,
 ): string[] {
 	const workspace = resolve(cwd);
-	const paths = new Set<string>();
-	const addPath = (path: string) => {
-		const resolvedPath = isAbsolute(path) ? resolve(path) : resolve(workspace, path);
-		if (isProvidedByExistingSandboxMount(resolvedPath, workspace)) return;
-		paths.add(resolvedPath);
-	};
-	if (isAbsolute(command)) addPath(command);
-	for (const arg of args) {
-		if (isAbsolute(arg)) addPath(arg);
-	}
-	for (const path of env?.PYTHONPATH?.split(delimiter) ?? []) {
-		if (path) addPath(path);
-	}
-	return [...paths];
+	const candidatePaths = [
+		...(isAbsolute(command) ? [command] : []),
+		...args.filter(isAbsolute),
+		...(env?.PYTHONPATH?.split(delimiter) ?? []).filter(Boolean),
+	];
+	const resolvedPaths = candidatePaths
+		.map((path) => resolveSandboxPath(path, workspace))
+		.filter((path) => !isSandboxMountUnnecessary(path, workspace));
+	return [...new Set(resolvedPaths)];
 }
 
-function isProvidedByExistingSandboxMount(path: string, workspace: string): boolean {
+function resolveSandboxPath(path: string, workspace: string): string {
+	return isAbsolute(path) ? resolve(path) : resolve(workspace, path);
+}
+
+function isSandboxMountUnnecessary(path: string, workspace: string): boolean {
 	if (!existsSync(path)) return true;
 	if (path === workspace || path.startsWith(`${workspace}/`)) return true;
 	return READ_ONLY_SYSTEM_PATHS.some((systemPath) => path === systemPath || path.startsWith(`${systemPath}/`));
 }
 
-function appendReadOnlyMount(argv: string[], path: string, workspace: string): void {
+function buildReadOnlyMountArguments(path: string, workspace: string): string[] {
 	const resolvedPath = resolve(path);
-	if (!existsSync(resolvedPath) || resolvedPath === workspace) return;
-	appendParentDirectories(argv, resolvedPath);
-	argv.push("--ro-bind", resolvedPath, resolvedPath);
+	if (!existsSync(resolvedPath) || resolvedPath === workspace) return [];
+	return [
+		...createParentDirectoryArguments(resolvedPath),
+		"--ro-bind",
+		resolvedPath,
+		resolvedPath,
+	];
 }
 
-function appendWorkspaceMount(argv: string[], workspace: string, profile: BwrapSandboxProfile): void {
-	if (!existsSync(workspace)) return;
-	appendParentDirectories(argv, workspace);
+function buildWorkspaceMountArguments(workspace: string, profile: BwrapSandboxProfile): string[] {
+	if (!existsSync(workspace)) return [];
 	const bindMode = profile === "workspace-write" ? "--bind" : "--ro-bind";
-	argv.push(bindMode, workspace, workspace);
+	return [...createParentDirectoryArguments(workspace), bindMode, workspace, workspace];
 }
 
-function appendParentDirectories(argv: string[], path: string): void {
-	for (const parent of parentDirectories(path)) argv.push("--dir", parent);
+function createParentDirectoryArguments(path: string): string[] {
+	return deriveParentDirectories(path).flatMap((parent) => ["--dir", parent]);
 }
 
 function buildSandboxEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
-	const sandboxEnv: NodeJS.ProcessEnv = {
+	return {
 		HOME: SANDBOX_HOME,
 		LANG: env?.LANG ?? DEFAULT_LANG,
 		PATH: env?.PATH ?? DEFAULT_PATH,
 		TMPDIR: "/tmp",
 		XDG_CONFIG_HOME: join(SANDBOX_HOME, ".config"),
+		...(env?.PYTHONPATH ? { PYTHONPATH: env.PYTHONPATH } : {}),
+		...(env?.TERM ? { TERM: env.TERM } : {}),
+		USER: env?.USER ?? process.env.USER,
 	};
-	if (env?.PYTHONPATH) sandboxEnv.PYTHONPATH = env.PYTHONPATH;
-	if (env?.TERM) sandboxEnv.TERM = env.TERM;
-	sandboxEnv.USER = env?.USER ?? process.env.USER;
-	return sandboxEnv;
 }
 
-function parentDirectories(path: string): string[] {
+function deriveParentDirectories(path: string): string[] {
 	const parts = path.split("/").filter((part) => part.length > 0);
-	const parents: string[] = [];
-	for (let index = 1; index < parts.length; index += 1) {
-		parents.push(`/${parts.slice(0, index).join("/")}`);
-	}
-	return parents;
+	return Array.from({ length: Math.max(parts.length - 1, 0) }, (_, index) =>
+		`/${parts.slice(0, index + 1).join("/")}`,
+	);
 }
+
+type BwrapExecOptions = Parameters<BashOperations["exec"]>[2];
+type BwrapChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 function executeBwrapCommand(
 	invocation: BwrapInvocation,
-	options: Parameters<BashOperations["exec"]>[2],
+	options: BwrapExecOptions,
 ): Promise<{ exitCode: number | null }> {
 	return new Promise((resolvePromise, reject) => {
-		const child = spawn(invocation.command, invocation.argv, {
-			detached: process.platform !== "win32",
-			env: invocation.env,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
+		const child = spawnBwrapProcess(invocation);
 		let timedOut = false;
-		const timeoutMs = options.timeout && options.timeout > 0 ? options.timeout * 1000 : undefined;
-		const timer = timeoutMs
-			? setTimeout(() => {
-					timedOut = true;
-					killChild(child.pid);
-				}, timeoutMs)
-			: undefined;
-		const onAbort = () => killChild(child.pid);
-		child.stdout.on("data", options.onData);
-		child.stderr.on("data", options.onData);
-		child.on("error", (error) => {
-			if (timer) clearTimeout(timer);
-			reject(error);
+		const timer = scheduleBwrapTimeout(child, options, () => {
+			timedOut = true;
 		});
-		if (options.signal) {
-			if (options.signal.aborted) onAbort();
-			else options.signal.addEventListener("abort", onAbort, { once: true });
-		}
-		child.on("close", (code) => {
-			if (timer) clearTimeout(timer);
-			options.signal?.removeEventListener("abort", onAbort);
-			if (options.signal?.aborted) reject(new Error("aborted"));
-			else if (timedOut) reject(new Error(`timeout:${options.timeout}`));
-			else resolvePromise({ exitCode: code });
-		});
+		const onAbort = () => terminateChildProcess(child.pid);
+		forwardBwrapOutput(child, options);
+		child.on("error", (error) => rejectBwrapExecution(error, timer, reject));
+		registerBwrapAbortHandler(options.signal, onAbort);
+		child.on("close", (code) =>
+			settleBwrapExecution(code, options, timer, onAbort, timedOut, resolvePromise, reject),
+		);
 	});
 }
 
-function killChild(pid: number | undefined): void {
+function spawnBwrapProcess(invocation: BwrapInvocation): BwrapChildProcess {
+	return spawn(invocation.command, invocation.argv, {
+		detached: process.platform !== "win32",
+		env: invocation.env,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+}
+
+function scheduleBwrapTimeout(
+	child: BwrapChildProcess,
+	options: BwrapExecOptions,
+	markTimedOut: () => void,
+): NodeJS.Timeout | undefined {
+	const timeoutMs = options.timeout && options.timeout > 0 ? options.timeout * 1000 : undefined;
+	return timeoutMs
+		? setTimeout(() => {
+				markTimedOut();
+				terminateChildProcess(child.pid);
+			}, timeoutMs)
+		: undefined;
+}
+
+function forwardBwrapOutput(child: BwrapChildProcess, options: BwrapExecOptions): void {
+	child.stdout.on("data", options.onData);
+	child.stderr.on("data", options.onData);
+}
+
+function registerBwrapAbortHandler(signal: AbortSignal | undefined, onAbort: () => void): void {
+	if (!signal) return;
+	if (signal.aborted) onAbort();
+	else signal.addEventListener("abort", onAbort, { once: true });
+}
+
+function rejectBwrapExecution(
+	error: Error,
+	timer: NodeJS.Timeout | undefined,
+	reject: (reason?: unknown) => void,
+): void {
+	if (timer) clearTimeout(timer);
+	reject(error);
+}
+
+function settleBwrapExecution(
+	code: number | null,
+	options: BwrapExecOptions,
+	timer: NodeJS.Timeout | undefined,
+	onAbort: () => void,
+	timedOut: boolean,
+	resolvePromise: (value: { exitCode: number | null }) => void,
+	reject: (reason?: unknown) => void,
+): void {
+	if (timer) clearTimeout(timer);
+	options.signal?.removeEventListener("abort", onAbort);
+	if (options.signal?.aborted) reject(new Error("aborted"));
+	else if (timedOut) reject(new Error(`timeout:${options.timeout}`));
+	else resolvePromise({ exitCode: code });
+}
+
+function terminateChildProcess(pid: number | undefined): void {
 	if (!pid) return;
 	try {
 		process.kill(-pid, "SIGKILL");

@@ -30,7 +30,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `wait_agents({})` snapshots active background jobs, consumes every pending terminal notification already
   waiting, and queries current agent rows until the first snapshot member is terminal. Notifications only wake the
   query, so simultaneous and late waiters read current agent-row truth without changing runtime-mailbox
-  delivery state. Hostrun/Pyrun uses the same wait operation.
+  delivery state. Pyrun uses the same wait operation.
 
 ## Implementation inventory
 

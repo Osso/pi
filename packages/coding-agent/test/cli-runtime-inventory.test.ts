@@ -91,7 +91,6 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -137,7 +136,6 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -153,7 +151,6 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -168,7 +165,6 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
 		expect(result.stdout).toContain("goal");
-		expect(result.stdout).not.toContain("hostrun");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
 		expect(result.stdout).toContain("agents-mailbox");
@@ -184,7 +180,6 @@ describe("runtime inventory CLI", () => {
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toMatch(/^yes\s+find\s+first-party\s+/m);
 		expect(result.stdout).toMatch(/^yes\s+grep\s+first-party\s+/m);
-		expect(result.stdout).not.toContain("hostrun_eval");
 		expect(result.stdout).toMatch(/^yes\s+ls\s+first-party\s+/m);
 		expect(result.stdout).toContain("manage_goal");
 		expect(result.stdout).not.toContain("set_goal");

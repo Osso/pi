@@ -26,7 +26,7 @@ optional labels, so logs and diffs remain direct file references rather than reg
 `wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
 rows for agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
 terminal truth. It never consumes the shared runtime-mailbox delivery row as its source of truth.
-Hostrun/Pyrun `pi.agents.wait()` uses the same query semantics.
+Pyrun `pi.agents.wait()` uses the same query semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -35,7 +35,7 @@ siblings and transitive ancestors or descendants cannot target each other direct
 `agent_viewer` is read-only, requires an agent ID, and returns one agent's snapshot, status,
 transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
 tools and do not mutate agent lifecycle by themselves.
-Higher-level workflow extensions must invoke the registered agent tools or Hostrun/Pyrun request handler;
+Higher-level workflow extensions must invoke the registered agent tools or Pyrun request handler;
 they cannot create dormant agent rows or call store lifecycle mutators. Coordinator child creation
 inherits parent model/account budget metadata and rejects permission broadening.
 Production child sessions also resolve agent-type profiles from settings. The built-in profiles are
@@ -50,7 +50,7 @@ The supervisor is the only orchestration authority. Child runtimes register only
 mailbox listener, never a same-PID main listener, and never run supervisor-wide persisted-store
 reconciliation. Their initialized session-start hook reconciles only direct persisted descendants through
 coordinator recovery. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agents`
-calls, the equivalent Hostrun/Pyrun bridge methods, and `/bg`; production child sessions exclude
+calls, the equivalent Pyrun bridge methods, and `/bg`; production child sessions exclude
 those tools as a second boundary.
 
 At supervisor start, there are no persisted `queued` or `starting` startup rows. Child construction

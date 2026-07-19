@@ -8,7 +8,7 @@
 - Goal creation now requires `/goal set <objective>`; bare `/goal <text>` is rejected, and `manage_goal` cannot persist reserved control words such as `continue` as objectives.
 - Renamed the child mailbox tool `contact_supervisor` to `contact_parent`; it is direct-parent-only, requires the exact caller runtime identity, rejects parentless runtimes, validates persisted `parent_request` targets against the current direct parent, cannot target the resident Supervisor, and has no `contact_supervisor` compatibility alias.
 - Removed `MultiAgentStore.spawnAgent`, `spawnChildAgent`, and `attachSessionAgent`; persisted creation must go through `LifecycleCoordinator`, while `MultiAgentStore` only projects committed snapshots.
-- Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Hostrun/Pyrun request handler so executable spawning remains coordinator-owned.
+- Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Pyrun request handler so executable spawning remains coordinator-owned.
 - Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unowned bootstrap/migration rows.
 - Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` exact-owner commands.
 - Removed the in-process LLM approval reviewer, `approvalReviewerModel`, recent approval-decision prompt history, and `approval-memory.jsonl`; LLM-approved presets now use the resident Supervisor and its KB memory.
@@ -50,8 +50,8 @@
 - Added a generic Pyrun `pi.tools.call(name, params)` bridge for active Pi tools, with `pi.web_search(query)` as a convenience wrapper for `web_search`.
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
 - Added first-party OpenAI remote compaction through `/responses/compact` for OpenAI and OpenAI Codex Responses models.
-- Added `pi.compact(...)` to Hostrun's Pi runtime bridge for triggering session compaction.
-- Added `pi.restart(...)` to Hostrun's Pi runtime bridge for restarting and resuming the current session.
+- Added `pi.compact(...)` to Pyrun's Pi runtime bridge for triggering session compaction.
+- Added `pi.restart(...)` to Pyrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
 - Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles.
@@ -106,7 +106,7 @@
 - Replaced renewable dispatch reservations with exact Linux process ownership; lifecycle recovery checks `(pid, /proc/<pid>/stat startTimeTicks)` immediately, including PID-reuse protection, with no renewal timer or expiry takeover. Runtime ownership APIs and schema now use ownership terminology instead of lease/reservation terminology, and schema v12 migrates v11 exact identities without losing ownership.
 - Renamed generic full-row agent upsert to the explicit `bootstrapMultiAgentAgent` API and made it reject owned lifecycle rows, restricting it to unowned bootstrap/migration data after production command families acquire process ownership.
 - Transcript, mailbox/contact activity, and pinned-slot metadata now merge transactionally into the latest persisted agent snapshot without rewriting lifecycle/revision from stale store state; metadata updates no longer advance the lifecycle revision token, and restore no longer persists runtime worker-handle cleanup.
-- Terminal completion and failure notifications now come from the delivery outbox after the agent row commits. Runtime transport uses canonical session-bound mailbox rows shared by direct tools and Hostrun/Pyrun handlers instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` consumes every pending terminal notification already waiting only to wake agent-row queries, supports simultaneous and late waiters, and no longer consumes runtime transport rows as terminal truth.
+- Terminal completion and failure notifications now come from the delivery outbox after the agent row commits. Runtime transport uses canonical session-bound mailbox rows shared by direct tools and the Pyrun handler instead of duplicate per-dispatch and session-global mirrors. Outbox claims now expire and retry the same deduplicated notification, poison exhausted attempts, require claim-scoped acknowledgement, and clean retained delivered/poisoned rows after seven days. `wait_agents` consumes every pending terminal notification already waiting only to wake agent-row queries, supports simultaneous and late waiters, and no longer consumes runtime transport rows as terminal truth.
 - Lifecycle and terminal transactions now read/increment revision internally and validate exact process ownership. Tools no longer supply mutable revisions; duplicate transitions are idempotent.
 - Removed attached-session recovery's direct `cancelling` to `aborted` rewrite; without exact-owner exit acknowledgement the row remains nonterminal for later ownership recovery.
 - Routed selected-agent Escape, descendant cascade, and reserved-runtime shutdown cancellation through the same coordinator operation as `cancel_agent`; InteractiveMode no longer directly terminalizes or aborts store state. SQLite now rejects parent terminalization while any persisted descendant remains nonterminal.
@@ -126,7 +126,7 @@
 
 - Changed Codex remote compaction to always use `gpt-5.6-terra`, allowing Luna and other Codex models to retain native compaction history across long sessions.
 - Changed interactive tool result display to retain the first and last 50 logical output lines with an omission marker while preserving full model context, and to hide successful `grep` results while keeping calls and errors visible.
-- Replaced `wait_agent({ agentId })` with zero-argument `wait_agents({})`. It immediately consumes every pending terminal notification already waiting or waits for any agent active at invocation to reach terminal state; the direct tool returns the drained completion/status set while Hostrun/Pyrun `pi.agents.wait()` returns `null`.
+- Replaced `wait_agent({ agentId })` with zero-argument `wait_agents({})`. It immediately consumes every pending terminal notification already waiting or waits for any agent active at invocation to reach terminal state; the direct tool returns the drained completion/status set while Pyrun `pi.agents.wait()` returns `null`.
 - Changed the default interactive `Thinking...` working ticker to show elapsed duration and leave active tool-wait messages in control of the working row.
 - Changed production-created `spawn_agent` children, `attach_session_agent` runtimes, and `/bg` background jobs to exclude the goal extension and goal-state seeding; attached sessions may retain existing goal metadata, but it is inert. Child prompts remain validated before dispatch and `spawn_agent` rejects blank prompts before creating an agent record.
 - Split the `/approvals` LLM preset into `LLM Approved (and deny)` for autonomous denial and `LLM Approved (and ask)` for supervised human escalation.
@@ -205,7 +205,7 @@
 - Fixed terminal-outbox projection failures aborting unrelated canonical mailbox delivery.
 - Fixed selected child-agent views showing a static thinking indicator without exact-runtime-owner-scoped thinking/tool phase timing.
 - Fixed idle shared-channel delivery racing a newly started agent turn and logging an `Agent is already processing` coordination-drain error.
-- Fixed Hostrun lifecycle mirroring retaining a stale extension context after `/reload` replaces the session runtime.
+- Fixed Pyrun multi-agent lifecycle mirroring retaining a stale extension context after `/reload` replaces the session runtime.
 - Fixed `RpcClient` startup/shutdown races so startup rejects when stop begins, stop rejects in-flight requests and waits for confirmed child exit, and failed forced termination retains the live child handle for safe cleanup retry.
 - Fixed headless fixture cleanup to roll back partial startup, remove state even when process/server shutdown fails, preserve both scenario and cleanup errors, and reject waiters during or immediately after disposal instead of timing out or reading removed state.
 - Fixed `deploy.sh` failing outside login shells when `USER`, `XDG_RUNTIME_DIR`, or `DBUS_SESSION_BUS_ADDRESS` are absent.
@@ -247,7 +247,7 @@
 - Fixed active tool elapsed timers disappearing when pending tool components are reconstructed.
 - Fixed concurrent `./test.sh` runs destroying global Pi OAuth credentials by isolating each run with a unique temporary `PI_CODING_AGENT_DIR` instead of moving `auth.json` through a shared backup path.
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
-- Fixed bwrap sandbox profiles to run Pyrun, and opt-in Hostrun when loaded, through the shared bwrap runner backend rather than blocking either runtime; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
+- Fixed bwrap sandbox profiles to run Pyrun through the shared bwrap runner backend; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
 - Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
 - Fixed installed Pi silently preferring a mutable local Pyrun checkout over the deployed `pyrun-jsonl`; local runner use now requires the explicit command/PYTHONPATH override.
 - Fixed cancelled detached Pyrun jobs leaving the evaluation and spawned commands running: background jobs now register abort handles, and runner shutdown terminates the full process group.
@@ -265,7 +265,7 @@
 - Fixed `/continue` to submit completed assistant-ending transcripts for continuation and avoid errors on empty transcripts.
 - Fixed compacted session context replay to drop retained orphan tool results when their tool-call messages were removed by the pre-compaction suffix byte cap.
 - Fixed `/model` selector filtering matching unrelated models (e.g. typing `gpt-5.5` returning `gpt-5.4`, `gemini`, and `glm`): each query token is now scored against distinct candidate fields instead of one search string that duplicated the provider and id, so a token can no longer match by spanning repeated copies. Provider-priority ranking and space-separated fragment queries are preserved.
-- Fixed the bwrap sandbox backend to avoid mounting host `/`, clear inherited environments, enforce workspace containment in file workers, run Pyrun and opt-in Hostrun inside bwrap without Pi bridge capabilities, and fail closed with a tool gate when `bwrap` is unavailable.
+- Fixed the bwrap sandbox backend to avoid mounting host `/`, clear inherited environments, enforce workspace containment in file workers, run Pyrun inside bwrap without Pi bridge capabilities, and fail closed with a tool gate when `bwrap` is unavailable.
 - Fixed `web_search` to use OpenAI's hosted search tool in the main Responses request, request live results, and abort stalled fallback requests with a clear timeout error while preserving user cancellation.
 - Fixed auth migration to merge legacy `oauth.json` and `settings.json` credentials into an existing `auth.json` without overwriting current provider entries.
 - Fixed self-restart in Bun binaries so the virtual `/$bunfs/root/pi` entrypoint is not replayed as a startup message.
@@ -290,7 +290,7 @@
 - Fixed custom session entries appended during assistant streaming to render before the live assistant message, matching persisted session order.
 - Fixed oversized bash tool timeouts to fail with a clear validation error instead of being clamped to an immediate timeout ([#6181](https://github.com/earendil-works/pi/issues/6181)).
 - Fixed the edit tool schema to allow model-invented extra replacement fields instead of rejecting otherwise valid edits ([#6278](https://github.com/earendil-works/pi/issues/6278)).
-- Fixed Pyrun and Hostrun evaluation output to omit noisy `Result:` labels and null result values.
+- Fixed Pyrun evaluation output to omit noisy `Result:` labels and null result values.
 - Fixed Pyrun error tool output to omit the redundant `Session: default` label.
 - Fixed `wait_agents({})` to observe terminal transitions from detached tool jobs that update the multi-agent store without a child dispatch.
 - Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
@@ -301,6 +301,7 @@
 
 ### Removed
 
+- Removed the Hostrun extension and its Pi documentation.
 - Removed default attribution headers from Vercel AI Gateway requests.
 
 ## [0.80.3] - 2026-06-30

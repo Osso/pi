@@ -95,10 +95,6 @@ describe("safe extension", () => {
 			block: true,
 			reason: "Safe mode blocks tool: pyrun_eval",
 		});
-		expect(await harness.runToolCall(toolCall("hostrun_eval"))).toEqual({
-			block: true,
-			reason: "Safe mode blocks tool: hostrun_eval",
-		});
 		expect(await harness.runToolCall(toolCall("custom_tool"))).toEqual({
 			block: true,
 			reason: "Safe mode blocks tool: custom_tool",

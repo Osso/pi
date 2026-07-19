@@ -24,6 +24,30 @@
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
 - For private extensions that need exhaustive expected error handling around Node/platform APIs, using Effect internally is acceptable, especially `@effect/platform` wrappers that convert native failures into typed `PlatformError`s. Keep public `pi` extension boundaries plain TypeScript types, not Effect-specific APIs, unless explicitly requested.
 - Prefer building new behavior as an extension. If core support is needed, add or use hooks in the core instead of embedding one-off feature logic there.
+- Hard completion gate for canonical first-party maintained extensions: when a change affects any listed directory under `packages/coding-agent/extensions/`, run the `ts-readability` audit on every TypeScript/JavaScript/QML source file in each affected listed extension, not only changed files. Completion is blocked until every violation is resolved, including the 750-line file threshold. Exclude examples, tests, generated/dist, vendored, and private/external extensions. The post-removal canonical directory list is:
+  - `packages/coding-agent/extensions/agent-viewer`
+  - `packages/coding-agent/extensions/agents-core`
+  - `packages/coding-agent/extensions/agents-mailbox`
+  - `packages/coding-agent/extensions/approval-controls`
+  - `packages/coding-agent/extensions/bwrap`
+  - `packages/coding-agent/extensions/claude-bash-hook`
+  - `packages/coding-agent/extensions/claude-memory-enrich`
+  - `packages/coding-agent/extensions/claude-memory-session-end`
+  - `packages/coding-agent/extensions/codex-usage`
+  - `packages/coding-agent/extensions/codex-web-search`
+  - `packages/coding-agent/extensions/debug`
+  - `packages/coding-agent/extensions/default-footer`
+  - `packages/coding-agent/extensions/docs-tree-context`
+  - `packages/coding-agent/extensions/effort`
+  - `packages/coding-agent/extensions/goal`
+  - `packages/coding-agent/extensions/loop`
+  - `packages/coding-agent/extensions/openai-remote-compact`
+  - `packages/coding-agent/extensions/pyrun`
+  - `packages/coding-agent/extensions/run-plan`
+  - `packages/coding-agent/extensions/safe`
+  - `packages/coding-agent/extensions/self-restart`
+  - `packages/coding-agent/extensions/session-archive`
+  - `packages/coding-agent/extensions/session-id`
 
 ## Commands
 
