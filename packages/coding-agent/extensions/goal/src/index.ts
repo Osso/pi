@@ -48,6 +48,8 @@ import { renderSupervisorMessage, supervisorInstructionContent } from "./renderi
 const MAX_OBJECTIVE_CHARS = 4000;
 const GOAL_REVIEW_TIMEOUT_MS = 180_000;
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
+const PENDING_DECISION_RETRY_DELAY_MS = 1_000;
+const WAIT_REVIEW_DELAY_MS = 5 * 60 * 1_000;
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 interface Goal {
@@ -339,15 +341,20 @@ function textResult(text: string, details: Record<string, unknown> = {}): AgentT
 	return { content: [{ type: "text", text }], details };
 }
 
+function supervisorMessage(content: string): { customType: string; content: string; display: true } {
+	return {
+		customType: "supervisor",
+		content: supervisorInstructionContent(content),
+		display: true,
+	};
+}
+
 function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string): void {
-	pi.sendMessage(
-		{
-			customType: "supervisor",
-			content: supervisorInstructionContent(instructions),
-			display: true,
-		},
-		{ deliverAs: "followUp", triggerTurn: true },
-	);
+	pi.sendMessage(supervisorMessage(instructions), { deliverAs: "followUp", triggerTurn: true });
+}
+
+function sendSupervisorWait(pi: ExtensionAPI, reason: string): void {
+	pi.sendMessage(supervisorMessage(`Waiting: ${reason}`));
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
@@ -546,12 +553,13 @@ function goalForIdleReview(
 	return goal;
 }
 
-function applyGoalIdleDecision(
+async function applyGoalIdleDecision(
 	decision: GoalSupervisorResponse,
 	goal: Goal,
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
-): void {
+	onWait: (reason: string) => Promise<void>,
+): Promise<void> {
 	switch (decision.kind) {
 		case "complete":
 			markGoalComplete(ctx, decision.reason);
@@ -562,6 +570,8 @@ function applyGoalIdleDecision(
 			ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
 			return;
 		case "wait":
+			sendSupervisorWait(pi, decision.reason);
+			await onWait(decision.reason);
 			return;
 		case "error":
 			ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
@@ -578,10 +588,21 @@ function applyGoalIdleDecision(
 async function handleGoalAgentEnd(
 	event: AgentEndEvent,
 	ctx: ExtensionContext,
-	pi: ExtensionAPI,
 	reviewGoal: GoalSupervisorReview,
 	clearRetry: (sessionId: string) => void,
 	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
+	applyDecision: (
+		decision: GoalSupervisorResponse,
+		goal: Goal,
+		ctx: ExtensionContext,
+		terminalTurn: AgentEndEvent["messages"],
+	) => Promise<void>,
+	deferDecision: (
+		decision: GoalSupervisorResponse,
+		goal: Goal,
+		ctx: ExtensionContext,
+		terminalTurn: AgentEndEvent["messages"],
+	) => void,
 ): Promise<void> {
 	const goal = goalForIdleReview(event, ctx, clearRetry, scheduleRetry);
 	if (!goal) return;
@@ -590,7 +611,11 @@ async function handleGoalAgentEnd(
 		kind: "goal_idle_review",
 		payload: { objective: goal.objective, terminalTurn: event.messages },
 	});
-	if (!ctx.hasPendingMessages()) applyGoalIdleDecision(decision, goal, ctx, pi);
+	if (ctx.hasPendingMessages()) {
+		deferDecision(decision, goal, ctx, event.messages);
+		return;
+	}
+	await applyDecision(decision, goal, ctx, event.messages);
 }
 
 function handleGoalCommand(
@@ -679,6 +704,25 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
 
 	const emptyResponseRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	const pendingDecisionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	const waitReviewTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	function sameRunningGoal(ctx: ExtensionContext, goal: Goal): boolean {
+		const activeGoal = loadRunningGoal(ctx);
+		return activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
+	}
+
+	function clearTimer(timers: Map<string, ReturnType<typeof setTimeout>>, sessionId: string): void {
+		const timer = timers.get(sessionId);
+		if (timer) clearTimeout(timer);
+		timers.delete(sessionId);
+	}
+
+	function clearGoalSchedules(sessionId: string): void {
+		clearEmptyResponseRetry(sessionId);
+		clearTimer(pendingDecisionTimers, sessionId);
+		clearTimer(waitReviewTimers, sessionId);
+	}
 
 	function clearEmptyResponseRetry(sessionId: string): void {
 		const timer = emptyResponseRetryTimers.get(sessionId);
@@ -686,9 +730,11 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		emptyResponseRetryTimers.delete(sessionId);
 	}
 
-	function clearAllEmptyResponseRetries(): void {
-		for (const timer of emptyResponseRetryTimers.values()) clearTimeout(timer);
-		emptyResponseRetryTimers.clear();
+	function clearAllGoalSchedules(): void {
+		for (const timers of [emptyResponseRetryTimers, pendingDecisionTimers, waitReviewTimers]) {
+			for (const timer of timers.values()) clearTimeout(timer);
+			timers.clear();
+		}
 	}
 
 	function scheduleEmptyResponseRetry(ctx: ExtensionContext, goal: Goal): void {
@@ -704,7 +750,82 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		emptyResponseRetryTimers.set(sessionId, timer);
 	}
 
-	registerManageGoalTool(pi, reviewGoal, clearEmptyResponseRetry);
+	async function reviewAndApplyGoal(ctx: ExtensionContext, goal: Goal, terminalTurn: AgentEndEvent["messages"]): Promise<void> {
+		if (!sameRunningGoal(ctx, goal) || ctx.hasPendingMessages()) return;
+		const decision = await reviewGoal({
+			ctx,
+			kind: "goal_idle_review",
+			payload: { objective: goal.objective, terminalTurn },
+		});
+		if (ctx.hasPendingMessages()) {
+			schedulePendingDecision(decision, goal, ctx, terminalTurn);
+			return;
+		}
+		await applyDecision(decision, goal, ctx, terminalTurn);
+	}
+
+	function scheduleWaitReview(ctx: ExtensionContext, goal: Goal, terminalTurn: AgentEndEvent["messages"]): void {
+		const sessionId = ctx.sessionManager.getSessionId();
+		clearTimer(waitReviewTimers, sessionId);
+		const timer = setTimeout(() => {
+			waitReviewTimers.delete(sessionId);
+			if (!ctx.isIdle()) {
+				scheduleWaitReview(ctx, goal, terminalTurn);
+				return;
+			}
+			void reviewAndApplyGoal(ctx, goal, terminalTurn);
+		}, WAIT_REVIEW_DELAY_MS);
+		waitReviewTimers.set(sessionId, timer);
+	}
+
+	async function waitForAgentsOrScheduleReview(
+		ctx: ExtensionContext,
+		goal: Goal,
+		terminalTurn: AgentEndEvent["messages"],
+	): Promise<void> {
+		const listResult = await pi.callTool("list_agents", { parentId: "main" });
+		const activeCount = isRecord(listResult.details) ? listResult.details.activeCount : undefined;
+		if (typeof activeCount === "number" && activeCount > 0) {
+			await pi.callTool("wait_agents", {});
+			await reviewAndApplyGoal(ctx, goal, terminalTurn);
+			return;
+		}
+		scheduleWaitReview(ctx, goal, terminalTurn);
+	}
+
+	async function applyDecision(
+		decision: GoalSupervisorResponse,
+		goal: Goal,
+		ctx: ExtensionContext,
+		terminalTurn: AgentEndEvent["messages"],
+	): Promise<void> {
+		clearGoalSchedules(ctx.sessionManager.getSessionId());
+		await applyGoalIdleDecision(decision, goal, ctx, pi, async () => {
+			await waitForAgentsOrScheduleReview(ctx, goal, terminalTurn);
+		});
+	}
+
+	function schedulePendingDecision(
+		decision: GoalSupervisorResponse,
+		goal: Goal,
+		ctx: ExtensionContext,
+		terminalTurn: AgentEndEvent["messages"],
+	): void {
+		const sessionId = ctx.sessionManager.getSessionId();
+		clearTimer(pendingDecisionTimers, sessionId);
+		const timer = setTimeout(() => {
+			pendingDecisionTimers.delete(sessionId);
+			if (!sameRunningGoal(ctx, goal) || !ctx.isIdle()) return;
+			if (ctx.hasPendingMessages()) {
+				schedulePendingDecision(decision, goal, ctx, terminalTurn);
+				return;
+			}
+			void applyDecision(decision, goal, ctx, terminalTurn);
+		}, PENDING_DECISION_RETRY_DELAY_MS);
+		pendingDecisionTimers.set(sessionId, timer);
+	}
+
+	registerManageGoalTool(pi, reviewGoal, clearGoalSchedules);
 
 	// Notify on session start if an objective is active.
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
@@ -715,20 +836,28 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	});
 
 	pi.on("session_shutdown", async () => {
-		clearAllEmptyResponseRetries();
+		clearAllGoalSchedules();
 	});
 
 	pi.on("input", async (_event, ctx: ExtensionContext) => {
-		clearEmptyResponseRetry(ctx.sessionManager.getSessionId());
+		clearGoalSchedules(ctx.sessionManager.getSessionId());
 	});
 
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
-		await handleGoalAgentEnd(event, ctx, pi, reviewGoal, clearEmptyResponseRetry, scheduleEmptyResponseRetry);
+		await handleGoalAgentEnd(
+			event,
+			ctx,
+			reviewGoal,
+			clearEmptyResponseRetry,
+			scheduleEmptyResponseRetry,
+			applyDecision,
+			schedulePendingDecision,
+		);
 	});
 
 	// Inject the active objective into the system prompt every turn.
 	pi.on("before_agent_start", async (event, ctx) => {
-		clearEmptyResponseRetry(ctx.sessionManager.getSessionId());
+		clearGoalSchedules(ctx.sessionManager.getSessionId());
 		const goal = loadRunningGoal(ctx);
 		if (!goal) return;
 		return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
@@ -737,7 +866,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	pi.registerCommand("goal", {
 		description: "Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			handleGoalCommand(args, ctx, pi, clearEmptyResponseRetry);
+			handleGoalCommand(args, ctx, pi, clearGoalSchedules);
 		},
 	});
 }

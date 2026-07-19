@@ -103,6 +103,7 @@ function createGoalHarness(
 	options?: {
 		idle?: boolean;
 		contextUsage?: ContextUsage;
+		callTool?: (name: string, params: unknown) => Promise<{ content: []; details: unknown }>;
 		hasPendingMessages?: boolean | (() => boolean);
 		sessionId?: string;
 		isSubagent?: boolean;
@@ -121,6 +122,9 @@ function createGoalHarness(
 	let input: ExtensionHandler<InputEvent, InputEventResult> | undefined;
 	let supervisorRenderer: MessageRenderer | undefined;
 	const notify = vi.fn();
+	const callTool = vi.fn(
+		options?.callTool ?? (async () => ({ content: [], details: { activeCount: 0, agents: [] } })),
+	);
 	const sendMessage = vi.fn();
 	const sendUserMessage = vi.fn();
 	const setStatus = vi.fn();
@@ -143,6 +147,7 @@ function createGoalHarness(
 				input = handler as ExtensionHandler<InputEvent, InputEventResult>;
 			}
 		},
+		callTool,
 		registerCommand(name: string, options: RegisteredGoalCommand) {
 			if (name === "goal") {
 				command = options;
@@ -253,6 +258,7 @@ function createGoalHarness(
 		getSupervisorRenderer: () => supervisorRenderer,
 		hasGoalCommand: () => command !== undefined,
 		hasManageGoalTool: () => manageGoalTool !== undefined,
+		callTool,
 		notify,
 		setStatus,
 		sendMessage,
@@ -720,34 +726,108 @@ describe("goal extension", () => {
 		);
 	});
 
-	it("does not queue a goal continuation when user input arrives during Supervisor review", async () => {
-		let hasPendingMessages = false;
-		let finishReview: (() => void) | undefined;
-		let markReviewStarted: (() => void) | undefined;
-		const reviewStarted = new Promise<void>((resolve) => {
-			markReviewStarted = resolve;
-		});
+	it("delivers a Supervisor continue decision after transient pending input drains", async () => {
+		vi.useFakeTimers();
+		try {
+			let hasPendingMessages = false;
+			let finishReview: (() => void) | undefined;
+			let markReviewStarted: (() => void) | undefined;
+			const reviewStarted = new Promise<void>((resolve) => {
+				markReviewStarted = resolve;
+			});
+			const harness = createGoalHarness(cwd, {
+				hasPendingMessages: () => hasPendingMessages,
+				reviewGoal: async () => {
+					markReviewStarted?.();
+					await new Promise<void>((resolve) => {
+						finishReview = resolve;
+					});
+					return { kind: "continue", reason: "work remains", instructions: "goal continuation" };
+				},
+			});
+
+			await harness.runCommand("set preserve reviewed continuation");
+			harness.sendMessage.mockClear();
+			const agentEnd = harness.runAgentEnd();
+			await reviewStarted;
+			hasPendingMessages = true;
+			finishReview?.();
+			await agentEnd;
+			expect(harness.sendMessage).not.toHaveBeenCalled();
+
+			hasPendingMessages = false;
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(harness.sendMessage).toHaveBeenCalledWith(
+				{
+					customType: "supervisor",
+					content: "<supervisor-instruction>\ngoal continuation\n</supervisor-instruction>",
+					display: true,
+				},
+				{ deliverAs: "followUp", triggerTurn: true },
+			);
+			expect(readStoredGoal<{ continuationTurns: number }>(cwd).continuationTurns).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("shows a durable wait message, waits for active agents, and re-reviews", async () => {
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValueOnce({ kind: "wait", reason: "child still running" })
+			.mockResolvedValueOnce({ kind: "continue", reason: "child finished", instructions: "Inspect child result." });
 		const harness = createGoalHarness(cwd, {
-			hasPendingMessages: () => hasPendingMessages,
-			reviewGoal: async () => {
-				markReviewStarted?.();
-				await new Promise<void>((resolve) => {
-					finishReview = resolve;
-				});
-				return { kind: "continue", reason: "work remains", instructions: "goal continuation" };
-			},
+			callTool: async (name) =>
+				name === "list_agents"
+					? { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } }
+					: { content: [], details: { agent: { id: "child", status: "completed" } } },
+			reviewGoal,
 		});
+		await harness.runCommand("set wait for child");
+		harness.sendMessage.mockClear();
 
-		await harness.runCommand("set wait for queued user input");
-		harness.sendUserMessage.mockClear();
-		const agentEnd = harness.runAgentEnd();
-		await reviewStarted;
-		hasPendingMessages = true;
-		finishReview?.();
-		await agentEnd;
+		await harness.runAgentEnd();
 
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(readStoredGoal<{ continuationTurns: number }>(cwd).continuationTurns).toBe(0);
+		expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
+		expect(harness.callTool).toHaveBeenNthCalledWith(2, "wait_agents", {});
+		expect(harness.sendMessage.mock.calls[0]?.[0]).toEqual({
+			customType: "supervisor",
+			content: "<supervisor-instruction>\nWaiting: child still running\n</supervisor-instruction>",
+			display: true,
+		});
+		expect(harness.sendMessage.mock.calls[1]?.[0]).toEqual({
+			customType: "supervisor",
+			content: "<supervisor-instruction>\nInspect child result.\n</supervisor-instruction>",
+			display: true,
+		});
+		expect(reviewGoal).toHaveBeenCalledTimes(2);
+	});
+
+	it("re-reviews a wait decision after five minutes when no agents are active", async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "retry later" })
+				.mockResolvedValueOnce({ kind: "continue", reason: "retry now", instructions: "Retry the check." });
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set timed wait");
+			harness.sendMessage.mockClear();
+			await harness.runAgentEnd();
+			expect(reviewGoal).toHaveBeenCalledTimes(1);
+
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
+				customType: "supervisor",
+				content: "<supervisor-instruction>\nRetry the check.\n</supervisor-instruction>",
+				display: true,
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("keeps a goal active when completion review says progress must wait", async () => {
