@@ -106,7 +106,9 @@ never seed or copy goal metadata; any existing target `goal_json` remains inert.
 
 ## Automatic Continuation
 
-The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, it requests `goal_idle_review` from the resident Supervisor. `continue` increments `continuationTurns` and submits the returned actionable instructions. `complete` closes the goal. `pause` pauses it without another turn. `error` leaves it active, reports the failure, and stops automatic continuation.
+The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, a non-empty response requests `goal_idle_review` from the resident Supervisor. `continue` increments `continuationTurns` and submits the returned actionable instructions. `complete` closes the goal. `pause` leaves it active without another turn. `error` leaves it active, reports the failure, and stops automatic continuation.
+
+A non-error empty assistant response no longer stops an active goal or emits the empty-response warning. It schedules one continuation after a 1-second bounded delay. The timer sends that continuation only if the same goal remains active, the session is idle, and no messages are pending. Session shutdown cancels pending empty-response retry timers.
 
 Review does not start when:
 
@@ -114,13 +116,11 @@ Review does not start when:
 - pending messages exist;
 - the last assistant response was empty.
 
-Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. An aborted turn with pending input keeps the goal running; an abort without pending input pauses it.
-
-When an empty response stops continuation, Pi shows a warning explaining the stop reason.
+Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. Aborted turns do not change persisted goal state; only explicit pause actions set `pausedAt`.
 
 ## Completion Tool Action
 
-Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state, whether the active goal is running or paused. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal active and submits actionable instructions; `pause` writes `pausedAt`; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
+Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state, whether the active goal is running or paused. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal active and submits actionable instructions; `pause` leaves the goal active without another continuation; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
 
 Completed and paused goals do not trigger automatic continuation.
 
@@ -130,8 +130,9 @@ Completed and paused goals do not trigger automatic continuation.
 behavior: first-party registration, explicit `/goal set`, bare-objective and reserved-control-word rejection, `manage_goal`, view/clear, replacement, removed replacement flag rejection, objective length rejection,
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
-handling, automatic continuation, busy guard, per-session isolation, budget flag
-rejection, and legacy budget field ignorance. Production child exclusion,
+handling, automatic continuation, empty-response retry eligibility and shutdown
+cancellation, busy guard, per-session isolation, budget flag rejection, and legacy
+budget field ignorance. Production child exclusion,
 external-tool denial for spawned and attached sessions, inactive Pyrun calls,
 supervisor retention, and no-continuation behavior are covered by
 `packages/coding-agent/test/multi-agent-extension.test.ts`; the Architect policy

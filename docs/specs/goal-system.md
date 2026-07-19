@@ -44,7 +44,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ### Starting and continuing work
 
 - [x] Setting a goal or resuming a paused goal while the session is idle submits exactly `Continue working toward the active goal.`; generated user messages never restate goal-setting syntax or objective text.
-- [x] When an `agent_end` event fires for a running goal, Pi checks pending input before abort, error-stop, and empty-response handling, then requests resident Supervisor review at the existing continuation point.
+- [x] When an `agent_end` event fires for a running goal, Pi checks pending input before abort, error-stop, and empty-response handling; non-error empty assistant responses schedule one continuation after a 1-second bounded delay only if the same goal remains active, the session remains idle, and no messages are pending, while other eligible responses request resident Supervisor review.
+- [x] Empty-response continuation timers are canceled during session shutdown.
 - [x] Agent aborts never persist paused state, including restart teardown and steering replacement; only explicit `/goal pause` or `manage_goal pause` actions may pause a goal.
 - [x] Goal continuation rechecks queued steering and follow-up input after asynchronous Supervisor review; user input queued during review runs before any later goal continuation and does not increment the continuation counter.
 - [x] If the last assistant message has `stopReason: "error"`, goal continuation neither queues a follow-up nor emits the empty-response warning; retry/session error handling owns recovery and leaves the active goal intact.
@@ -70,7 +71,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/src/architect/main.ts` — excludes supervisor-only tools from the resident Architect service.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
-- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, explicit `/goal set`, bare-objective rejection, reserved control-word rejection, `manage_goal`, paused-goal completion, view/pause/resume/clear, per-session goal isolation, replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering and aborts preserving the running goal, queued input arriving during Supervisor review, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
+- `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, explicit `/goal set`, bare-objective rejection, reserved control-word rejection, `manage_goal`, paused-goal completion, view/pause/resume/clear, per-session goal isolation, replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering and aborts preserving the running goal, queued input arriving during Supervisor review, busy and pending-input guards, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process coverage that active goals remain active across restart and Supervisor wait decisions while explicit paused state survives restart byte-for-byte.
 - `packages/coding-agent/test/suite/regressions/goal-messages-prompt-history.test.ts` — extension-origin goal messages remain excluded from editor prompt-history population.
 - `packages/coding-agent/test/compaction.test.ts` — goal reminders are excluded from compaction summarization input without removing unrelated extension messages.
@@ -78,7 +79,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, per-session goal isolation, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering versus abort-only pause behavior, busy guard, error-stop suppression, no numeric turn cap, empty-response stop, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, per-session goal isolation, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering versus abort-only pause behavior, busy guard, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, and legacy budget field ignorance.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
@@ -89,7 +90,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Replace the active goal by default when setting a new goal while one is already active.
 - [x] Implement autonomous continue-when-idle on `agent_end`.
 - [x] Add a tool completion signal and stop continuation when it is called.
-- [x] Remove numeric continuation turn-cap handling and stop only on completion, pending queued work, or a non-error empty final assistant response.
+- [x] Remove numeric continuation turn-cap handling and stop only on completion or pending queued work; non-error empty final assistant responses schedule one bounded retry when the goal remains eligible.
 - [x] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
 - [x] Write `docs/wiki/systems/goal-system.md`.
 
