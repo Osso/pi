@@ -972,6 +972,8 @@ describe("goal extension", () => {
 			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
 
 			hasPendingMessages = true;
+			await harness.runBeforeAgentStart();
+			hasPendingMessages = false;
 			await vi.advanceTimersByTimeAsync(1_000);
 
 			expect(harness.sendUserMessage).not.toHaveBeenCalled();

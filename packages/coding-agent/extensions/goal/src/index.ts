@@ -663,6 +663,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 
 	// Inject the active objective into the system prompt every turn.
 	pi.on("before_agent_start", async (event, ctx) => {
+		clearEmptyResponseRetry(ctx.sessionManager.getSessionId());
 		const goal = loadRunningGoal(ctx);
 		if (!goal) return;
 		return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
