@@ -366,6 +366,17 @@ function textResult(text: string, details: Record<string, unknown> = {}): AgentT
 	return { content: [{ type: "text", text }], details };
 }
 
+function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string): void {
+	pi.sendMessage(
+		{
+			customType: "supervisor",
+			content: `<supervisor-instruction>\n${instructions}\n</supervisor-instruction>`,
+			display: true,
+		},
+		{ deliverAs: "followUp", triggerTurn: true },
+	);
+}
+
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
 	const { objective, ctx, pi } = params;
 	if (RESERVED_GOAL_OBJECTIVES.has(objective.toLowerCase())) {
@@ -461,7 +472,7 @@ async function runCompleteGoalAction(
 		payload: { objective: activeGoal.objective, proposedCompletionReason: reason },
 	});
 	if (decision.kind === "continue") {
-		pi.sendUserMessage(decision.instructions, { deliverAs: "followUp" });
+		sendSupervisorInstructions(pi, decision.instructions);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
 	}
 	if (decision.kind === "pause") {
@@ -662,7 +673,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		}
 		const continuationTurns = goal.continuationTurns ?? 0;
 		saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
-		pi.sendUserMessage(decision.instructions, { deliverAs: "followUp" });
+		sendSupervisorInstructions(pi, decision.instructions);
 	});
 
 	// Inject the active objective into the system prompt every turn.

@@ -145,6 +145,7 @@
 
 ### Fixed
 
+- Fixed Supervisor goal continuation instructions being rendered and delivered as unmarked user-authored input; they now carry visible and model-readable Supervisor provenance.
 - Fixed literal resume-picker searches being buried among subsequence-only fuzzy matches; exact substring matches now appear first in Recent and Fuzzy sort modes.
 - Fixed mixed quoted-phrase and fuzzy-token resume-picker searches to preserve Recent ordering.
 - Fixed dead detached `running` jobs remaining active forever when their exact runner process exited while the parent session stayed live; reconciliation now commits `failed/lost_runtime` and its terminal outbox notification atomically.

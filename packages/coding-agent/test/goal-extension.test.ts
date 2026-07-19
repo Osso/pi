@@ -119,6 +119,7 @@ function createGoalHarness(
 	let sessionShutdown: ExtensionHandler<SessionShutdownEvent, undefined> | undefined;
 	let input: ExtensionHandler<InputEvent, InputEventResult> | undefined;
 	const notify = vi.fn();
+	const sendMessage = vi.fn();
 	const sendUserMessage = vi.fn();
 	const setStatus = vi.fn();
 
@@ -151,6 +152,7 @@ function createGoalHarness(
 				manageGoalTool = tool;
 			}
 		},
+		sendMessage,
 		sendUserMessage,
 	} as unknown as ExtensionAPI;
 
@@ -245,6 +247,7 @@ function createGoalHarness(
 		hasManageGoalTool: () => manageGoalTool !== undefined,
 		notify,
 		setStatus,
+		sendMessage,
 		sendUserMessage,
 	};
 }
@@ -649,9 +652,14 @@ describe("goal extension", () => {
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Continue working toward this objective until it is achieved: continue this objective",
-			{ deliverAs: "followUp" },
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			{
+				customType: "supervisor",
+				content:
+					"<supervisor-instruction>\nContinue working toward this objective until it is achieved: continue this objective\n</supervisor-instruction>",
+				display: true,
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
 		);
 	});
 
@@ -662,9 +670,14 @@ describe("goal extension", () => {
 		harness.sendUserMessage.mockClear();
 		await harness.runAgentEnd();
 
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Continue working toward this objective until it is achieved: continue from agent_end",
-			{ deliverAs: "followUp" },
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			{
+				customType: "supervisor",
+				content:
+					"<supervisor-instruction>\nContinue working toward this objective until it is achieved: continue from agent_end\n</supervisor-instruction>",
+				display: true,
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
 		);
 	});
 
@@ -723,7 +736,14 @@ describe("goal extension", () => {
 		const result = await harness.runGoalComplete("done");
 
 		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: proof missing" }]);
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Run npm test.", { deliverAs: "followUp" });
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			{
+				customType: "supervisor",
+				content: "<supervisor-instruction>\nRun npm test.\n</supervisor-instruction>",
+				display: true,
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
 		expect(await harness.runBeforeAgentStart()).toBeDefined();
 	});
 
@@ -918,7 +938,7 @@ describe("goal extension", () => {
 			await harness.runAgentEnd();
 		}
 
-		expect(harness.sendUserMessage).toHaveBeenCalledTimes(100);
+		expect(harness.sendMessage).toHaveBeenCalledTimes(100);
 		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("turn cap"), "warning");
 	});
 
@@ -1128,9 +1148,14 @@ describe("goal extension", () => {
 
 		await harness.runAgentEnd();
 
-		expect(harness.sendUserMessage).toHaveBeenCalledWith(
-			"Continue working toward this objective until it is achieved: legacy budget objective",
-			{ deliverAs: "followUp" },
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			{
+				customType: "supervisor",
+				content:
+					"<supervisor-instruction>\nContinue working toward this objective until it is achieved: legacy budget objective\n</supervisor-instruction>",
+				display: true,
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
 		);
 		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("budget"), "warning");
 	});
