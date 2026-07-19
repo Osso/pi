@@ -65,6 +65,8 @@
 
 ## Pi Control CLI
 
+Pi session restarts are safe; incomplete goals alone never block restart. Active foreground operations may delay timing to preserve output.
+
 Prefer the control CLI for the SQLite control channel. Do not type into tmux panes to steer a running Pi unless explicitly asked.
 
 From a repo checkout, use `./pi-test.sh control ...`; installed builds use `pi control ...`.
