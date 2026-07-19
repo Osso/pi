@@ -674,7 +674,11 @@ describe("goal extension", () => {
 			fg: (_color: string, text: string) => text,
 		} as Parameters<MessageRenderer>[2];
 		const component = renderer({ role: "custom", ...message, timestamp: 1 }, { expanded: false }, identityTheme);
-		const renderedLines = component?.render(120).map((line) => line.trim()).filter(Boolean) ?? [];
+		const renderedLines =
+			component
+				?.render(120)
+				.map((line) => line.trim())
+				.filter(Boolean) ?? [];
 
 		expect(renderedLines).toEqual(["[Supervisor]", "Run the exact regression."]);
 		expect(renderedLines.join("\n")).not.toContain("supervisor-instruction");
