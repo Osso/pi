@@ -45,13 +45,12 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
       post-restart main-session `steer_agent` request reaches the restored child and appears in its next
       provider request (`headless-pi.test.ts`: `steers a restored child through the current main session after restart`).
 - [x] Start concurrent real RPC peer sessions after the original supervisor crashes; verify startup refreshes
-      current runtime bindings and globally settles a historical detached cancellation only when its recorded owner
-      session is sticky-dead, no live listener is registered for that owner session ID, its dead runner identity
-      matches the worker handle, and no terminal outbox already exists. The sweep does not prove an owner-session/path
-      match. Two foreign peers serialize to one terminal commit without reparenting or duplicate terminalization.
-- [x] Prove a paused same-session recovery listener blocks the foreign sweep, and cover active descendants,
-      a pre-existing terminal outbox, a live owner, a live runner, PID reuse, and worker-handle mismatch
-      guards (`orphaned-detached-reconciliation.test.ts`).
+      current runtime bindings and globally settles a detached cancellation only when its exact dead runner identity
+      matches the worker handle and no terminal outbox already exists, regardless of parent-session liveness. Two
+      peers serialize to one terminal commit without reparenting or duplicate terminalization.
+- [x] Prove a foreign startup settles an exact dead detached runner while same-session startup is paused, and cover
+      active descendants, a pre-existing terminal outbox, an exact live/replacement owner, PID reuse, and
+      worker-handle mismatch guards (`headless-pi.test.ts`, `orphaned-detached-reconciliation.test.ts`).
 - [x] Prove an RPC `interrupt` command during an active real-process turn preserves queued steering and submits it in the replacement LLM request. This test starts below terminal/TUI input routing and does not prove that an Escape key reaches the interrupt command.
 - [x] Prove steering accepted immediately after a real Pyrun tool turn reaches `agent_end` wakes the idle session and produces a new model request instead of remaining queued indefinitely (`headless-pi.test.ts`: `wakes idle steering after completion of a real Pyrun tool turn`).
 - [x] Prove `wait_agents` remains blocked while an active child has pending `steer_agent` input, the steering reaches the child's next LLM request, and the wait returns only after that full child turn completes and terminalizes.

@@ -538,9 +538,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       trees without TUI state.
 - [x] Add and implement child-to-parent mailbox contact without sibling access.
 - [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
-- [x] Add and implement `wait_agents({})` behavior using one pending completion notification to wake
-      agent-row queries; simultaneous and late waiters observe current terminal rows without consuming
-      mailbox delivery.
+- [x] Add and implement `wait_agents({})` behavior draining every pending terminal notification already
+      waiting before agent-row queries; simultaneous and late waiters observe current terminal rows without
+      consuming runtime-mailbox delivery as terminal truth.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID

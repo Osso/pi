@@ -1178,7 +1178,7 @@ describe("headless Pi fixture", () => {
 		);
 	});
 
-	it("lets same-session recovery win after listener registration blocks a foreign sweep", async () => {
+	it("lets a foreign startup settle an exact dead detached runner while same-session startup is paused", async () => {
 		await withHeadlessPi(
 			async (agent) => {
 				const attemptPath = join(agent.paths.workspaceDir, "attempts-paused-resume-pyrun");
@@ -1225,14 +1225,14 @@ describe("headless Pi fixture", () => {
 				await waitForFileContent(`${sessionStartReleasePath}.ready`, "ready");
 				const foreign = await agent.startSharedSession();
 				try {
-					expect(agent.listAgents().find((candidate) => candidate.id === runner.id)?.lifecycle).toBe("cancelling");
+					await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "aborted");
+					expect(agent.readTerminalOutboxStatuses(runner.id)).toHaveLength(1);
 					writeFileSync(sessionStartReleasePath, "release");
 					const resumed = await resumePromise;
 					try {
-						await agent.waitForAgent(
-							(candidate) => candidate.id === runner.id && candidate.lifecycle === "aborted",
-						);
+						expect(agent.listAgents().find((candidate) => candidate.id === runner.id)?.lifecycle).toBe("aborted");
 						expect(agent.readTerminalOutboxStatuses(runner.id)).toHaveLength(1);
+						expect(readFileSync(attemptPath, "utf8")).toBe("x");
 					} finally {
 						await resumed.dispose();
 					}
