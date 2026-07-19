@@ -284,7 +284,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Registering a main-session listener retires other main-session bindings on the same PID, so a
       process has one current main-session identity even if historical listener rows remain. Listener
       rows persist the exact `(pid, startTimeTicks)` process identity; same-PID replacement advances the
-      inventory-only session health generation and reconciles stale spawned rows without disturbing attached agents.
+      inventory-only session health generation without mutating lifecycle rows.
       `list_sessions` and `broadcast` never create listeners or write caller PID health; ownership is
       maintained only by the runtime listener lifecycle. Fresh
       heartbeats are not accepted as PID ownership proof: inventory and signal delivery verify the PID

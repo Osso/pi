@@ -178,7 +178,7 @@ agent ID. A new job reserves its artifact directory exclusively before launching
 directory is a launch failure, never reusable state. This prevents sessions sharing one cwd/session
 folder from reading stale manifests or output belonging to another supervisor.
 
-- [x] Session startup completes runtime-listener registration before emitting `session_start`; a registration failure aborts startup without emitting that event. A paused same-session recovery listener blocks foreign detached-runtime sweeps, and concurrent foreign peers serialize through the recovery transaction so only one can commit terminal state. Exact live-runner identity and PID-reuse checks prevent recovery while the recorded runner is live or its PID has been reused.
+- [x] Session startup completes runtime-listener registration before emitting `session_start`; a registration failure aborts startup without emitting that event. Concurrent startup peers serialize through the detached-runtime recovery transaction so only one can commit terminal state. Exact live-runner identity prevents recovery while the recorded runner is live; PID reuse with different start ticks proves the recorded identity is dead.
 - [x] Restore never rewrites lifecycle state directly: it clears stale worker handles from active agents,
       and persisted metadata is never proof of liveness. Restart admission still requires an unmatched
       parent-session JSONL `agent_start`; control-DB state alone cannot admit recovery. Startup submits
@@ -189,7 +189,7 @@ folder from reading stale manifests or output belonging to another supervisor.
       parent-session JSONL `agent_start` records through coordinator recovery commands,
       deepest descendants first so parent graph guards cannot strand an earlier parent row. Startup also globally scans
       detached `running` and `cancelling` rows, but only settles a row when the exact recorded runner identity is dead,
-      matches the persisted runtime worker handle, has no active descendant or authorized replacement owner, and has no
+      matches the persisted runtime worker handle, has no active descendant, still matches the exact current ownership row, and has no
       terminal outbox row already. Parent-session liveness does not prove runner liveness. The sweep uses the candidate row's
       persisted session path for lookup and the canonical lost-runtime recovery path; it does not prove a current
       owner-session/path match or reparent the agent, and it cannot mutate a live owner. A child runtime does not bind that supervisor lifecycle mirror or perform

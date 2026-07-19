@@ -68,7 +68,7 @@ Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat st
 occurs only after that exact identity is gone and never rewrites lifecycle JSON directly.
 The one registered supervisor binding persists that exact process identity for its asserted session path.
 If a new Pi runtime reuses the same PID, registration advances the inventory-only session health generation
-and aborts active spawned rows in that exact store; attached rows remain recoverable. A different PID cannot
+without mutating lifecycle rows. A different PID cannot
 replace the binding while its predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or
 write caller PID health; only the runtime listener lifecycle owns those rows. Heartbeat freshness
 alone is not PID ownership: inventory preserves uncertain live processes to avoid unsafe mutation,
