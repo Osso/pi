@@ -17,7 +17,7 @@ Safe mode is a session-local Pi extension at `packages/coding-agent/extensions/s
 
 - [x] Keep safe mode session-local and disabled by default.
 - [x] When enabled, allow only `web_search` and `ask_questions` tool calls.
-- [x] When enabled, block all other tools, including built-in shell/file/search tools, `pyrun_eval`, `hostrun_eval`, and arbitrary custom tools.
+- [x] When enabled, block all other tools, including built-in shell/file/search tools, `pyrun_eval`, and arbitrary custom tools.
 - [x] Enforce the restriction before approval policy shortcuts, approval reviewers, permission-prompt tools, and ordinary `tool_call` handlers.
 - [x] When disabled, stop blocking tool calls.
 

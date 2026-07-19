@@ -26,8 +26,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - [x] Route built-in `read`, `write`, `edit`, `ls`, `find`, and `grep` through the bwrap backend when sandboxed.
 - [x] Route built-in `bash` and interactive `user_bash` through the bwrap backend when sandboxed.
 - [x] Keep default-loaded `pyrun_eval` available: run its runner inside bwrap for sandbox-required profiles, with the Pi bridge disabled.
-- [x] Support the same sandboxed runner mode for opt-in `hostrun_eval`, with its Pi bridge disabled.
-- [x] Do not hard-block either runtime merely because a sandbox-required profile is active.
+- [x] Do not hard-block Pyrun merely because a sandbox-required profile is active.
 - [x] Register a hard tool gate so sandbox-required profiles cannot silently proceed unsandboxed when `bwrap` is unavailable.
 
 ## How it works
@@ -39,13 +38,11 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - `packages/coding-agent/extensions/bwrap/src/backend.ts` — builds bubblewrap invocations for sandbox-required profiles, including runner commands.
 - `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; routes file tools and bash/user_bash.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — default-loaded Pyrun extension; selects local or bwrap runner execution by profile.
-- `packages/coding-agent/extensions/hostrun/src/index.ts` — opt-in Hostrun extension; supports the same runner selection when loaded.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, runner-path validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — sandboxed Pyrun runner and disabled Pi bridge.
-- `packages/coding-agent/test/hostrun-extension.test.ts` — sandboxed Hostrun runner and disabled Pi bridge.
 
 ## Known gaps (current cycle)
 

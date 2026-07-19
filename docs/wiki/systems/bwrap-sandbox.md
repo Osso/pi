@@ -24,10 +24,8 @@ The extension overrides the built-in file tools with same-name tool registration
 
 Pyrun remains a default-loaded first-party extension. Under a sandbox-required profile, `pyrun_eval` starts its canonical runner through the bwrap backend rather than being blocked. Its Pi bridge is disabled: it receives no Pi capability snapshot and cannot make bridge requests. Outside a sandbox-required profile it retains normal local runner and Pi bridge behavior.
 
-Hostrun uses the same runner path when its extension is loaded, but Hostrun is not default-loaded. It is an opt-in extension. Under a sandbox-required profile, `hostrun_eval` starts its canonical runner through bwrap with its Pi bridge disabled; otherwise it retains normal local runner and bridge behavior. The bwrap backend does not hard-block either runtime solely because sandboxing is selected.
-
 ## Loading
 
-The bwrap and Pyrun packages are default first-party extensions, but enforcement is inactive until `sandboxProfile` is explicitly set in global or project settings. Systems without `bwrap` still start normally unless the user has selected `read-only` or `workspace-write`. Selecting `full-access` explicitly disables bwrap enforcement. Hostrun can use the same backend only after the user loads its extension.
+The bwrap and Pyrun packages are default first-party extensions, but enforcement is inactive until `sandboxProfile` is explicitly set in global or project settings. Systems without `bwrap` still start normally unless the user has selected `read-only` or `workspace-write`. Selecting `full-access` explicitly disables bwrap enforcement.
 
 Enabled host-side extension tools and hooks remain trusted capabilities outside this selected worker-routing boundary.

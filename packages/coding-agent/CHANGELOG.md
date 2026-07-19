@@ -301,6 +301,7 @@
 
 ### Removed
 
+- Removed the Hostrun extension and its Pi documentation.
 - Removed default attribution headers from Vercel AI Gateway requests.
 
 ## [0.80.3] - 2026-06-30

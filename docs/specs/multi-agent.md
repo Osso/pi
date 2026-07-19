@@ -35,7 +35,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
 - [x] Only the supervisor runtime can orchestrate or inspect agents. Child/subagent runtimes reject
-      `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Hostrun/Pyrun `agents.spawn`,
+      `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Pyrun `agents.spawn`,
       `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agents`,
       `list_agents`, `agent_viewer`, `steer_agent`, and `cancel_agent` as defense in depth, while retaining
@@ -317,7 +317,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       failure is reported explicitly rather than silently falling back.
 - [x] `wait_agents({})` consumes every pending terminal notification already waiting and queries agent rows for agents
       active at invocation until one reaches a terminal state. Notifications only wake the query; the agent
-      row is terminal truth. It does not consume runtime-mailbox transport rows; Hostrun/Pyrun uses the same
+      row is terminal truth. It does not consume runtime-mailbox transport rows; Pyrun uses the same
       operation.
 - [x] While an agent turn is active, ordinary polling leaves pending messages unread and unchanged.
       After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
@@ -485,7 +485,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of
   accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
   while rejecting sibling targets. Higher-level integrations must use registered agent tools or the
-  Hostrun/Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
+  Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
   aborts a running background child session when the job is cancelled. The stale-sender-session regression
   rejects steering without changing the lifecycle row or mailbox.

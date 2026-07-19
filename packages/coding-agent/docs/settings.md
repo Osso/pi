@@ -238,7 +238,7 @@ Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in
 |---------|------|---------|-------------|
 | `packages` | array | `[]` | npm/git packages to load resources from |
 | `extensions` | string[] | `[]` | Local extension file paths or directories |
-| `disabledExtensions` | string[] | `[]` | Extension names or paths to skip, e.g. `["hostrun"]` |
+| `disabledExtensions` | string[] | `[]` | Extension names or paths to skip, e.g. `["pyrun"]` |
 | `skills` | string[] | `[]` | Local skill file paths or directories |
 | `prompts` | string[] | `[]` | Local prompt template paths or directories |
 | `themes` | string[] | `[]` | Local theme file paths or directories |
@@ -250,7 +250,7 @@ Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+pa
 
 ```json
 {
-  "disabledExtensions": ["hostrun"]
+  "disabledExtensions": ["pyrun"]
 }
 ```
 

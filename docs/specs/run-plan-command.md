@@ -7,7 +7,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 ## What it must do
 
 ### Command registration
-- [x] `run-plan` is implemented as a first-party extension package under `packages/coding-agent/extensions/run-plan`, matching the `/goal` and Hostrun extension boundary.
+- [x] `run-plan` is implemented as a first-party extension package under `packages/coding-agent/extensions/run-plan`, matching the `/goal` extension boundary.
 - [x] The `run-plan` command is registered via `pi.registerCommand("run-plan", { description, handler, getArgumentCompletions })` and appears in the `/` command list when the first-party extension is loaded.
 - [x] An optional inline filename argument is accepted; when absent, `PLAN.md` in the session cwd is used.
 - [x] `getArgumentCompletions` completes `.md` filenames from the session cwd.

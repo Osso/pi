@@ -28,7 +28,6 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Worktree startup (`-w/--worktree`) | [`worktree-startup-option.md`](worktree-startup-option.md) | **BUILD** | New CLI flag; create/reuse sibling git worktree. |
 | MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
 | Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | Core `on-request`/`never`/`auto-approve` enforcement plus first-party `approval-controls` extension for `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
-| Hostrun (`hostrun_eval`) | [`hostrun.md`](hostrun.md) | **BUILD** | Stateful QuickJS host tool ported as a Pi extension; approval-gated; optional stdio MCP server. |
 | Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
 | Slash-command dispatch | [`slash-commands.md`](slash-commands.md) | **NATIVE** | Built-in, extension, skill, and prompt-template command resolution, including unknown-command rejection. |
 | Safe mode (`/safe`) | [`safe-mode.md`](safe-mode.md) | **BUILD** (done) | First-party session-local tool-call allowlist allowing only `web_search` and `ask_questions` while enabled. |
@@ -62,7 +61,6 @@ codex's hook-style features, so each transposed feature falls into one of three 
 2. **user-rules-loader**, **worktree-startup** — small, high-value, low-risk.
 3. **permission-prompt-tool** + **approval-system** — needed to reuse the existing
    `claude-bash-hook-approval` MCP approval flow; build together (shared `core/permissions/`).
-4. **hostrun** — larger; port once the extension/tool surface is comfortable.
 
 `loop` is already native and specced; remaining work is test coverage for unverified contract bullets.
 
