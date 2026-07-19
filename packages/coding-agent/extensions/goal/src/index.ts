@@ -605,6 +605,10 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		clearAllEmptyResponseRetries();
 	});
 
+	pi.on("input", async (_event, ctx: ExtensionContext) => {
+		clearEmptyResponseRetry(ctx.sessionManager.getSessionId());
+	});
+
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		const goal = loadRunningGoal(ctx);
 		if (!goal) return;

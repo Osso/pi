@@ -13,6 +13,8 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionHandler,
+	InputEvent,
+	InputEventResult,
 	RegisteredCommand,
 	SessionShutdownEvent,
 	SessionStartEvent,
@@ -27,8 +29,8 @@ import {
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
-type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | SessionShutdownEvent | SessionStartEvent;
-type GoalEventResult = BeforeAgentStartEventResult | undefined;
+type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | InputEvent | SessionShutdownEvent | SessionStartEvent;
+type GoalEventResult = BeforeAgentStartEventResult | InputEventResult | undefined;
 
 const model = getModel("anthropic", "claude-sonnet-4-5");
 if (!model) throw new Error("Test model not found");
@@ -115,6 +117,7 @@ function createGoalHarness(
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
 	let sessionShutdown: ExtensionHandler<SessionShutdownEvent, undefined> | undefined;
+	let input: ExtensionHandler<InputEvent, InputEventResult> | undefined;
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
 	const setStatus = vi.fn();
@@ -132,6 +135,9 @@ function createGoalHarness(
 			}
 			if (event === "session_shutdown") {
 				sessionShutdown = handler as ExtensionHandler<SessionShutdownEvent, undefined>;
+			}
+			if (event === "input") {
+				input = handler as ExtensionHandler<InputEvent, InputEventResult>;
 			}
 		},
 		registerCommand(name: string, options: RegisteredGoalCommand) {
@@ -205,6 +211,8 @@ function createGoalHarness(
 			sessionStart?.({ type: "session_start", reason, previousSessionFile }, ctx as ExtensionContext),
 		runSessionShutdown: async () =>
 			sessionShutdown?.({ type: "session_shutdown", reason: "restart" }, ctx as ExtensionContext),
+		runInput: async (text: string) =>
+			input?.({ type: "input", text, source: "interactive" }, ctx as ExtensionContext),
 		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
@@ -972,7 +980,7 @@ describe("goal extension", () => {
 			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
 
 			hasPendingMessages = true;
-			await harness.runBeforeAgentStart();
+			await harness.runInput("user takes priority");
 			hasPendingMessages = false;
 			await vi.advanceTimersByTimeAsync(1_000);
 
