@@ -97,7 +97,9 @@ describe("headless Supervisor goal system", () => {
 			expectRunningGoal(agent.readGoal());
 			agent.respondToLlmRequest(afterTool.id, fauxAssistantMessage("Waiting for follow-up"));
 			const continuation = await agent.waitForLlmRequest();
-			expect(continuation.userMessages).toContain("Run the missing headless proof.");
+			expect(continuation.userMessages).toContain(
+				"<supervisor-instruction>\nRun the missing headless proof.\n</supervisor-instruction>",
+			);
 		});
 	});
 
@@ -124,7 +126,9 @@ describe("headless Supervisor goal system", () => {
 				instructions: "Continue from the idle gate.",
 			});
 			const continuation = await agent.waitForLlmRequest();
-			expect(continuation.userMessages).toContain("Continue from the idle gate.");
+			expect(continuation.userMessages).toContain(
+				"<supervisor-instruction>\nContinue from the idle gate.\n</supervisor-instruction>",
+			);
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);
 		});
 	});
