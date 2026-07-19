@@ -114,8 +114,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `completed`, `failed`, or `aborted` lifecycle state; agents already waiting for input are not
       auto-prompted. After listener registration, the owning supervisor reconciles candidates through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks)` identity.
-      Confirmed owner-process exit resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred
-      abort. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
+      Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
+      from `cancelling`, never direct JSON rewrite or inferred result. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
 - [x] `wait_agents({})` snapshots agents active at invocation, consumes every pending terminal notification already waiting,
       and queries current agent rows until any snapshot member is terminal. Notifications only wake the query;
@@ -163,8 +163,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
   Transcript-backed child-session runtimes register their abort controller as the single store abort handle, so
   cancellation aborts their signal once and waits for actual exit acknowledgement. An abort-ignoring child session
-  remains `cancelling`; timeout alone never fabricates `aborted`. Exact-owner exit acknowledgement or dead-owner
-  recovery settles the existing cancellation intent as `aborted`. AgentSession constructs detached controllers
+  remains `cancelling`; timeout alone never fabricates `aborted`. Exact-owner exit acknowledgement settles the
+  existing cancellation intent as `aborted`; dead-owner recovery settles it as `aborted/lost_runtime`. AgentSession constructs detached controllers
   lazily from the current store/session/control-DB binding, so session switches
   cannot retain an old session path.
 
