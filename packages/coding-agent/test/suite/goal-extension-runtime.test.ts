@@ -1,5 +1,5 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import goalExtension from "../../extensions/goal/src/index.ts";
 import type { ExtensionAPI, ExtensionUIContext } from "../../src/core/extensions/index.ts";
 import { type Theme, theme } from "../../src/modes/interactive/theme/theme.ts";
@@ -78,6 +78,7 @@ describe("goal extension runtime", () => {
 	const harnesses: Harness[] = [];
 
 	afterEach(() => {
+		vi.useRealTimers();
 		while (harnesses.length > 0) {
 			harnesses.pop()?.cleanup();
 		}
@@ -98,6 +99,37 @@ describe("goal extension runtime", () => {
 		expect(getUserTexts(harness)).toContain(
 			"Continue working toward this objective until it is achieved: say hello twice in two different rounds",
 		);
+	});
+
+	it("cancels an empty-response retry when interactive input arrives before expiry", async () => {
+		vi.useFakeTimers();
+		const stopAfterInteractiveInput = (pi: ExtensionAPI): void => {
+			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
+		};
+		const harness = await createHarness({
+			extensionFactories: [stopAfterInteractiveInput],
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "keep going", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "stop" }),
+			fauxAssistantMessage("interactive response"),
+			fauxAssistantMessage("stale timer continuation"),
+		]);
+
+		await harness.session.prompt("initial work");
+		expect(harness.faux.state.callCount).toBe(1);
+
+		await vi.advanceTimersByTimeAsync(999);
+		await harness.session.prompt("interactive input");
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(getUserTexts(harness)).toEqual(["initial work", "interactive input"]);
+
+		await vi.advanceTimersByTimeAsync(1);
+		expect(harness.faux.state.callCount).toBe(2);
 	});
 
 	it("keeps a goal running when interactive replacement input aborts the active turn", async () => {
