@@ -48,7 +48,7 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
       reconciliation for candidate persisted stores. Health/path metadata selects candidates only;
       lifecycle changes require the exact persisted owner process identity `(pid, startTimeTicks)`;
       repository transactions manage revision internally. Confirmed dead owners resolve as
-      `failed/lost_runtime`, while uncertain live processes remain unchanged.
+      `failed/lost_runtime` from `running` or `aborted/lost_runtime` from `cancelling`, while uncertain live processes remain unchanged.
 
 ### Broadcast surface
 

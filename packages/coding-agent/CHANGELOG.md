@@ -117,7 +117,7 @@
 - Added typed multi-agent runtime roles and constructor-entry capability validation: orchestrators require an issued execution capability, while child and non-orchestrator runtimes reject it.
 - Added exact-process-owner nonterminal lifecycle transactions with legal transition checks and serialized SQLite contention semantics.
 - Added an atomic exact-owner terminal lifecycle transaction that updates the agent row and inserts its pending delivery outbox row together.
-- Added deterministic construction-failure and dead-owner recovery: interrupted construction persists `failed` revision 1, while a runner that dies before terminal commit becomes `failed/lost_runtime`.
+- Added deterministic construction-failure and dead-owner recovery: interrupted construction persists `failed` revision 1, while a runner that dies before terminal commit becomes `failed/lost_runtime` from `running` or `aborted/lost_runtime` from `cancelling`.
 - Added atomic terminal-outbox claim, retry, failure, and delivery transitions independent from agent-row wait queries.
 - Added multi-agent terminal delivery outbox storage keyed by agent and terminal revision; the agent row remains the terminal source of truth.
 - Added durable multi-agent runtime ownership keyed by session/agent and exact `(pid, startTimeTicks)` identity, with atomic compare-and-release and no lease ID, expiry, renewal, fencing epoch, or recovery-owner field.
