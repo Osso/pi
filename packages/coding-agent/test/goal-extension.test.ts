@@ -14,6 +14,7 @@ import type {
 	ExtensionContext,
 	ExtensionHandler,
 	RegisteredCommand,
+	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
@@ -26,7 +27,7 @@ import {
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
-type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | SessionStartEvent;
+type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | SessionShutdownEvent | SessionStartEvent;
 type GoalEventResult = BeforeAgentStartEventResult | undefined;
 
 const model = getModel("anthropic", "claude-sonnet-4-5");
@@ -113,6 +114,7 @@ function createGoalHarness(
 	let agentEnd: ExtensionHandler<AgentEndEvent, undefined> | undefined;
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
+	let sessionShutdown: ExtensionHandler<SessionShutdownEvent, undefined> | undefined;
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
 	const setStatus = vi.fn();
@@ -127,6 +129,9 @@ function createGoalHarness(
 			}
 			if (event === "session_start") {
 				sessionStart = handler as ExtensionHandler<SessionStartEvent, undefined>;
+			}
+			if (event === "session_shutdown") {
+				sessionShutdown = handler as ExtensionHandler<SessionShutdownEvent, undefined>;
 			}
 		},
 		registerCommand(name: string, options: RegisteredGoalCommand) {
@@ -198,6 +203,8 @@ function createGoalHarness(
 		runBeforeAgentStart: async () => beforeAgentStart?.(event, ctx as ExtensionContext),
 		runSessionStart: async (reason: SessionStartEvent["reason"], previousSessionFile?: string) =>
 			sessionStart?.({ type: "session_start", reason, previousSessionFile }, ctx as ExtensionContext),
+		runSessionShutdown: async () =>
+			sessionShutdown?.({ type: "session_shutdown", reason: "restart" }, ctx as ExtensionContext),
 		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
@@ -907,18 +914,84 @@ describe("goal extension", () => {
 		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("turn cap"), "warning");
 	});
 
-	it("stops continuation when the last assistant response is empty", async () => {
-		const harness = createGoalHarness(cwd);
+	it("preserves the active goal and retries an empty non-error response after bounded backoff", async () => {
+		vi.useFakeTimers();
+		try {
+			const harness = createGoalHarness(cwd);
 
-		await harness.runCommand("set empty response bounded");
-		harness.sendUserMessage.mockClear();
-		await harness.runAgentEnd([createAssistantMessage("   ")]);
+			await harness.runCommand("set retry transient empty response");
+			harness.sendUserMessage.mockClear();
+			harness.notify.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("   ", "stop")]);
 
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith(
-			"Goal continuation stopped because the last assistant response was empty",
-			"warning",
-		);
+			const goal = readStoredGoal<{ objective: string; pausedAt?: string; completedAt?: string }>(cwd);
+			expect(goal).toMatchObject({ objective: "retry transient empty response" });
+			expect(goal.pausedAt).toBeUndefined();
+			expect(goal.completedAt).toBeUndefined();
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+			expect(harness.notify).not.toHaveBeenCalledWith(
+				"Goal continuation stopped because the last assistant response was empty",
+				"warning",
+			);
+
+			await vi.advanceTimersByTimeAsync(999);
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+
+			await vi.advanceTimersByTimeAsync(1);
+			expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels an empty-response retry when the goal is replaced", async () => {
+		vi.useFakeTimers();
+		try {
+			const harness = createGoalHarness(cwd);
+			await harness.runCommand("set original goal");
+			harness.sendUserMessage.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
+
+			await harness.runCommand("set replacement goal");
+			harness.sendUserMessage.mockClear();
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not retry an empty response while another turn is active", async () => {
+		vi.useFakeTimers();
+		try {
+			const harness = createGoalHarness(cwd, { idle: false });
+			await harness.runCommand("set wait for idle");
+			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
+
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels an empty-response retry when the session shuts down", async () => {
+		vi.useFakeTimers();
+		try {
+			const harness = createGoalHarness(cwd);
+			await harness.runCommand("set survive restart");
+			harness.sendUserMessage.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
+
+			await harness.runSessionShutdown();
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("does not continue or warn when the last assistant response is an error", async () => {

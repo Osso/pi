@@ -45,6 +45,7 @@ import {
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
 const GOAL_REVIEW_TIMEOUT_MS = 180_000;
+const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 interface Goal {
@@ -535,6 +536,32 @@ async function reviewGoalWithResidentSupervisor(input: {
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}) {
 	const reviewGoal = options.reviewGoal ?? reviewGoalWithResidentSupervisor;
+	const emptyResponseRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	function clearEmptyResponseRetry(sessionId: string): void {
+		const timer = emptyResponseRetryTimers.get(sessionId);
+		if (timer) clearTimeout(timer);
+		emptyResponseRetryTimers.delete(sessionId);
+	}
+
+	function clearAllEmptyResponseRetries(): void {
+		for (const timer of emptyResponseRetryTimers.values()) clearTimeout(timer);
+		emptyResponseRetryTimers.clear();
+	}
+
+	function scheduleEmptyResponseRetry(ctx: ExtensionContext, goal: Goal): void {
+		const sessionId = ctx.sessionManager.getSessionId();
+		clearEmptyResponseRetry(sessionId);
+		const timer = setTimeout(() => {
+			emptyResponseRetryTimers.delete(sessionId);
+			const activeGoal = loadRunningGoal(ctx);
+			const sameGoal = activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
+			if (!sameGoal || ctx.hasPendingMessages() || !ctx.isIdle()) return;
+			pi.sendUserMessage("Continue working toward the active goal.");
+		}, EMPTY_RESPONSE_RETRY_DELAY_MS);
+		emptyResponseRetryTimers.set(sessionId, timer);
+	}
+
 	pi.registerTool({
 		name: "manage_goal",
 		label: "Manage Goal",
@@ -564,20 +591,32 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		if (goal) ctx.ui.notify(goalStartupMessage(goal), "info");
 	});
 
+	pi.on("session_shutdown", async () => {
+		clearAllEmptyResponseRetries();
+	});
+
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		const goal = loadRunningGoal(ctx);
 		if (!goal) return;
 
 		if (ctx.hasPendingMessages()) return;
 
-		if (didLastAssistantAbort(event)) return;
-
-		if (findLastAssistantMessage(event)?.stopReason === "error") return;
-
-		if (didLastAssistantReturnEmpty(event)) {
-			ctx.ui.notify("Goal continuation stopped because the last assistant response was empty", "warning");
+		const sessionId = ctx.sessionManager.getSessionId();
+		if (didLastAssistantAbort(event)) {
+			clearEmptyResponseRetry(sessionId);
 			return;
 		}
+
+		if (findLastAssistantMessage(event)?.stopReason === "error") {
+			clearEmptyResponseRetry(sessionId);
+			return;
+		}
+
+		if (didLastAssistantReturnEmpty(event)) {
+			scheduleEmptyResponseRetry(ctx, goal);
+			return;
+		}
+		clearEmptyResponseRetry(sessionId);
 
 		const decision = await reviewGoal({
 			ctx,
