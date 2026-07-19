@@ -2344,6 +2344,7 @@ function takePendingWaitCoordination(
 		recipient.controlDbPath,
 		recipient.address,
 		isRuntimeCoordinationMailboxMessage,
+		Number.MAX_SAFE_INTEGER,
 	);
 	for (const message of mailboxMessages) markWaitMailboxStoreMessageDelivered(store, message);
 	const channelMessages = takePendingWaitSharedChannelMessages(recipient);

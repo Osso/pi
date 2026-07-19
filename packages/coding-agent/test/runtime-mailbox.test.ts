@@ -1645,6 +1645,40 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("wait_agents returns every coordination message pending at wake", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
+		registerRuntimeMailboxListener(controlDbPath, recipient, process.pid, parentSession.getSessionFile());
+		const messageIds = Array.from({ length: 21 }, (_, index) =>
+			enqueueStoredRuntimeMessage(controlDbPath, {
+				body: `Pending coordination ${index}`,
+				kind: "message",
+				recipient,
+				sender: { agentId: `child_${index}`, sessionId: "child-session" },
+			}),
+		);
+
+		const waited = await waitAgents.execute(
+			"wait",
+			{},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+
+		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Pending coordination 20") });
+		for (const messageId of messageIds) {
+			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		}
+	});
+
 	it("wait_agents returns an eligible shared-channel message and advances its cursor", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
