@@ -13,8 +13,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Detached Pyrun evaluations create a background job, complete independently, expose final output through an absolute log file reference, persist the submitted source as a permission-locked `script.py` file reference for the full running and terminal lifecycle, and record elapsed time in the agent result's `durationMs` field.
 - [x] The live-agent TUI view renders the detached Pyrun script and output log without fabricating a child transcript.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
-- [x] `wait_agents({})` consumes one pending completion notification before querying detached tool jobs
-      active at invocation for a terminal agent row. Notifications only wake the query; the agent row is
+- [x] `wait_agents({})` consumes every pending terminal notification already waiting before querying detached
+      tool jobs active at invocation for a terminal agent row. Notifications only wake the query; the agent row is
       terminal truth. It does not consume shared mailbox delivery; failed jobs expose their failure message
       and direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
@@ -27,8 +27,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
-- `wait_agents({})` snapshots active background jobs, consumes one pending completion notification, and
-  queries current agent rows until the first snapshot member is terminal. Notifications only wake the
+- `wait_agents({})` snapshots active background jobs, consumes every pending terminal notification already
+  waiting, and queries current agent rows until the first snapshot member is terminal. Notifications only wake the
   query, so simultaneous and late waiters read current agent-row truth without changing runtime-mailbox
   delivery state. Hostrun/Pyrun uses the same wait operation.
 

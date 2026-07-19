@@ -23,8 +23,8 @@ current direct parent, parentless runtimes are rejected, and the tool cannot tar
 or an arbitrary sibling. The old `contact_supervisor` name has no compatibility alias.
 Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
-`wait_agents({})` consumes one pending completion notification, then queries current agent rows for
-agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
+`wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
+rows for agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
 terminal truth. It never consumes the shared runtime-mailbox delivery row as its source of truth.
 Hostrun/Pyrun `pi.agents.wait()` uses the same query semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and

@@ -96,7 +96,7 @@ wall-clock time, or mailbox delivery:
 2. An accepted cancellation request wins over a later natural-completion attempt and moves the agent
    to `cancelling`. The exact owner process identity produces `aborted` when the runtime acknowledges
    exit; timeout alone leaves the row `cancelling`. Dead-owner recovery settles an existing cancellation
-   intent as `aborted`; terminal fencing rejects a late natural result from the cancelled dispatch.
+   intent as `aborted/lost_runtime`; terminal fencing rejects a late natural result from the cancelled dispatch.
 3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
    Ownership for one agent cannot authorize another agent even under the same supervisor process. Recovery is
    authorized only after that exact process identity is gone; PID reuse does not match, and zombie/exited states
@@ -114,8 +114,8 @@ Every terminal transition updates the agent row and revision and enqueues exactl
 or failure notification in the same SQLite transaction. The agent row is terminal truth; the outbox is
 only a delivery queue. Notification delivery may retry or expire, but it never creates or replaces
 terminal state. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and
-Hostrun/Pyrun handlers. `wait_agents` snapshots active agents, consumes one pending completion
-notification, and uses that notification only to wake a query of the current agent rows. The canonical mailbox row is the sole delivery state; no separate runtime transport lifecycle exists.
+Hostrun/Pyrun handlers. `wait_agents` snapshots active agents, consumes every pending terminal notification
+already waiting, and uses notifications only to wake a query of the current agent rows. The canonical mailbox row is the sole delivery state; no separate runtime transport lifecycle exists.
 Runtime transcript metadata updates merge into the latest persisted agent snapshot inside an immediate
 transaction and cannot rewrite lifecycle or revision from a stale in-memory projection; restore never
 writes its runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata
@@ -142,8 +142,8 @@ SQLite connection access control and arbitrary same-UID raw SQL are outside this
       cannot remain pending on a terminal agent.
 - [x] Cancelling an agent aborts its live runtime handle and records terminal state through
       the normal lifecycle path. An owned child dispatch that ignores abort remains `cancelling` after
-      the bounded settlement deadline; exact-owner exit acknowledgement or dead-owner recovery settles
-      it as `aborted`, and late dispatch completion cannot rewrite it. Detached Pyrun jobs register their
+      the bounded settlement deadline; exact-owner exit acknowledgement settles it as `aborted`, while
+      dead-owner recovery settles it as `aborted/lost_runtime`; late dispatch completion cannot rewrite it. Detached Pyrun jobs register their
       handle and terminate the runner process group so spawned
       commands cannot survive cancellation as orphans.
 
