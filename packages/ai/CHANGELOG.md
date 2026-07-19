@@ -26,6 +26,7 @@
 
 ### Added
 
+- Added `EventStream.fail(error)` so producers can reject both final results and active async iterators instead of leaving consumers pending.
 - Added an optional `onRetry` stream option that reports provider-internal retries and transport fallbacks. The OpenAI Codex API emits it for HTTP retries, WebSocket connection-limit reconnects, and WebSocket-to-SSE fallback.
 - Added optional `Model.autoCompactionThreshold` metadata for models with an exact preferred automatic-compaction boundary.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
