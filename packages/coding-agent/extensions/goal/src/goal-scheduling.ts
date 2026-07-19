@@ -15,6 +15,7 @@ interface GoalSchedulingOptions<TGoal, TDecision> {
 		terminalTurn: TerminalTurn,
 	) => Promise<void>;
 	isSameRunningGoal: (ctx: ExtensionContext, goal: TGoal) => boolean;
+	reportError: (error: unknown) => void;
 }
 
 export interface GoalScheduler<TGoal, TDecision> {
@@ -32,6 +33,7 @@ function activeAgentCount(details: unknown): number {
 class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecision> {
 	private readonly options: GoalSchedulingOptions<TGoal, TDecision>;
 	private readonly pendingDecisionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly waitControllers = new Map<string, AbortController>();
 	private readonly waitReviewTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(options: GoalSchedulingOptions<TGoal, TDecision>) {
@@ -41,11 +43,14 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	clearSession(sessionId: string): void {
 		this.clearTimer(this.pendingDecisionTimers, sessionId);
 		this.clearTimer(this.waitReviewTimers, sessionId);
+		this.clearWait(sessionId);
 	}
 
 	clearAll(): void {
 		this.clearTimers(this.pendingDecisionTimers);
 		this.clearTimers(this.waitReviewTimers);
+		for (const controller of this.waitControllers.values()) controller.abort();
+		this.waitControllers.clear();
 	}
 
 	deferDecision(decision: TDecision, goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void {
@@ -59,13 +64,16 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	}
 
 	async waitForAgentsOrScheduleReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void> {
-		const listResult = await this.options.pi.callTool("list_agents", { parentId: "main" });
-		if (activeAgentCount(listResult.details) === 0) {
-			this.scheduleWaitReview(ctx, goal, terminalTurn);
-			return;
+		try {
+			const listResult = await this.options.pi.callTool("list_agents", { parentId: "main" });
+			if (activeAgentCount(listResult.details) === 0) {
+				this.scheduleWaitReview(ctx, goal, terminalTurn);
+				return;
+			}
+			this.startAgentWait(ctx, goal, terminalTurn);
+		} catch (error) {
+			this.options.reportError(error);
 		}
-		await this.options.pi.callTool("wait_agents", {});
-		await this.reviewAndApply(ctx, goal, terminalTurn);
 	}
 
 	private clearTimer(timers: Map<string, ReturnType<typeof setTimeout>>, sessionId: string): void {
@@ -79,9 +87,15 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		timers.clear();
 	}
 
+	private clearWait(sessionId: string): void {
+		this.waitControllers.get(sessionId)?.abort();
+		this.waitControllers.delete(sessionId);
+	}
+
 	private async reviewAndApply(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void> {
 		if (!this.options.isSameRunningGoal(ctx, goal) || ctx.hasPendingMessages()) return;
 		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn);
+		if (!this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
 			this.deferDecision(decision, goal, ctx, terminalTurn);
 			return;
@@ -98,9 +112,31 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 				this.scheduleWaitReview(ctx, goal, terminalTurn);
 				return;
 			}
-			void this.reviewAndApply(ctx, goal, terminalTurn);
+			void this.reviewAndApply(ctx, goal, terminalTurn).catch((error: unknown) => this.options.reportError(error));
 		}, WAIT_REVIEW_DELAY_MS);
 		this.waitReviewTimers.set(sessionId, timer);
+	}
+
+	private startAgentWait(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): void {
+		const sessionId = ctx.sessionManager.getSessionId();
+		this.clearWait(sessionId);
+		const controller = new AbortController();
+		this.waitControllers.set(sessionId, controller);
+		void this.waitForAgentWake(ctx, goal, terminalTurn, controller).catch((error: unknown) => {
+			if (!controller.signal.aborted) this.options.reportError(error);
+		});
+	}
+
+	private async waitForAgentWake(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		controller: AbortController,
+	): Promise<void> {
+		await this.options.pi.callTool("wait_agents", {}, controller.signal);
+		if (controller.signal.aborted) return;
+		this.waitControllers.delete(ctx.sessionManager.getSessionId());
+		await this.reviewAndApply(ctx, goal, terminalTurn);
 	}
 
 	private applyDeferredDecision(

@@ -55,8 +55,8 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal completion review.
 - [x] Mark the goal complete only when the caller receives `complete`.
 - [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
-- [x] Keep the goal active without duplicate continuation when asynchronous work is already running and the caller receives `wait`.
-- [x] Pause the goal only when progress requires user or external input and no active work can advance it and the caller receives `pause`.
+- [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agents` and re-review after wake, otherwise re-review after five minutes.
+- [x] Leave the goal active without another continuation only when progress requires user or external input and no active work can advance it and the caller receives `pause`.
 - [x] Require the Supervisor to make its best judgment between `complete`, actionable `continue`, and `pause` when evidence is uncertain; missing evidence alone is not an error.
 
 ### Goal idle review
@@ -68,10 +68,11 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal idle review.
 - [x] Mark the goal complete when the caller receives `complete`.
 - [x] Submit the Supervisor's concrete, actionable instructions as the follow-up continuation prompt when the caller receives `continue`.
-- [x] Keep the goal active without another continuation turn when the caller receives `wait` because asynchronous work is already running.
-- [x] Pause the goal without another continuation turn when the caller receives `pause` because no active work can advance without user or external input.
+- [x] Keep the goal active on `wait`, append a durable status entry, and re-run review after agent wake or five minutes.
+- [x] Leave the goal active without another continuation when the caller receives `pause` because no active work can advance without user or external input.
 - [x] Require best judgment between `complete`, actionable `continue`, and `pause` despite uncertainty.
-- [x] On goal `error`, keep the goal running, stop automatic continuation, and display a visible error without requiring human approval.
+- [x] On goal `error` or rejected scheduled work, keep the goal running, stop automatic continuation, and append visible durable error status without requiring human approval.
+- [x] Preserve reviewed decisions across transient pending-message state, but cancel deferred decisions, waits, and timers on input, new turns, goal lifecycle changes, and shutdown; recheck goal identity after asynchronous review before applying a decision.
 - [x] Enforce a three-minute deadline for goal reviews.
 
 ### Scheduling and preemption

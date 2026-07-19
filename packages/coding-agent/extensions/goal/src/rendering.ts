@@ -1,4 +1,4 @@
-import type { ExtensionAPI, MessageRenderer } from "@earendil-works/pi-coding-agent";
+import type { EntryRenderer, ExtensionAPI, MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 
 const SUPERVISOR_INSTRUCTION_OPEN = "<supervisor-instruction>";
@@ -20,8 +20,8 @@ export function sendSupervisorInstructions(pi: ExtensionAPI, instructions: strin
 	pi.sendMessage(supervisorMessage(instructions), { deliverAs: "followUp", triggerTurn: true });
 }
 
-export function sendSupervisorWait(pi: ExtensionAPI, reason: string): void {
-	pi.sendMessage(supervisorMessage(`Waiting: ${reason}`));
+export function appendSupervisorStatus(pi: ExtensionAPI, message: string): void {
+	pi.appendEntry("supervisor-status", { message });
 }
 
 function supervisorInstructionBody(content: string): string {
@@ -33,6 +33,16 @@ function supervisorInstructionBody(content: string): string {
 	if (body.endsWith("\n")) body = body.slice(0, -1);
 	return body;
 }
+
+export const renderSupervisorStatusEntry: EntryRenderer = (entry, _rendererOptions, theme) => {
+	const details = entry.data as { message?: unknown } | undefined;
+	const message = typeof details?.message === "string" ? details.message : "Supervisor status unavailable";
+	const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+	box.addChild(new Text(theme.fg("customMessageLabel", theme.bold("[Supervisor]")), 0, 0));
+	box.addChild(new Spacer(1));
+	box.addChild(new Text(theme.fg("customMessageText", message), 0, 0));
+	return box;
+};
 
 export const renderSupervisorMessage: MessageRenderer = (message, _rendererOptions, theme) => {
 	const content = typeof message.content === "string" ? message.content : "";

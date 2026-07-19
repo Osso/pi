@@ -14,6 +14,7 @@ import type {
 	ExtensionContext,
 	ExtensionHandler,
 	InputEvent,
+	EntryRenderer,
 	InputEventResult,
 	MessageRenderer,
 	RegisteredCommand,
@@ -121,6 +122,8 @@ function createGoalHarness(
 	let sessionShutdown: ExtensionHandler<SessionShutdownEvent, undefined> | undefined;
 	let input: ExtensionHandler<InputEvent, InputEventResult> | undefined;
 	let supervisorRenderer: MessageRenderer | undefined;
+	let supervisorStatusRenderer: EntryRenderer | undefined;
+	const appendEntry = vi.fn();
 	const notify = vi.fn();
 	const callTool = vi.fn(
 		options?.callTool ?? (async () => ({ content: [], details: { activeCount: 0, agents: [] } })),
@@ -130,6 +133,7 @@ function createGoalHarness(
 	const setStatus = vi.fn();
 
 	const pi = {
+		appendEntry,
 		on(event: string, handler: ExtensionHandler<GoalEvent, GoalEventResult>) {
 			if (event === "agent_end") {
 				agentEnd = handler as ExtensionHandler<AgentEndEvent, undefined>;
@@ -151,6 +155,11 @@ function createGoalHarness(
 		registerCommand(name: string, options: RegisteredGoalCommand) {
 			if (name === "goal") {
 				command = options;
+			}
+		},
+		registerEntryRenderer(customType: string, renderer: EntryRenderer) {
+			if (customType === "supervisor-status") {
+				supervisorStatusRenderer = renderer;
 			}
 		},
 		registerMessageRenderer(customType: string, renderer: MessageRenderer) {
@@ -255,9 +264,11 @@ function createGoalHarness(
 			),
 		getManageGoalTool: () => manageGoalTool,
 		getRegisteredToolNames: () => registeredToolNames,
+		getSupervisorStatusRenderer: () => supervisorStatusRenderer,
 		getSupervisorRenderer: () => supervisorRenderer,
 		hasGoalCommand: () => command !== undefined,
 		hasManageGoalTool: () => manageGoalTool !== undefined,
+		appendEntry,
 		callTool,
 		notify,
 		setStatus,
@@ -772,16 +783,21 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("shows a durable wait message, waits for active agents, and re-reviews", async () => {
+	it("persists a wait message, waits in the background for active agents, and re-reviews", async () => {
+		let finishWait: (() => void) | undefined;
+		const waitFinished = new Promise<void>((resolve) => {
+			finishWait = resolve;
+		});
 		const reviewGoal = vi
 			.fn<GoalSupervisorReview>()
 			.mockResolvedValueOnce({ kind: "wait", reason: "child still running" })
 			.mockResolvedValueOnce({ kind: "continue", reason: "child finished", instructions: "Inspect child result." });
 		const harness = createGoalHarness(cwd, {
-			callTool: async (name) =>
-				name === "list_agents"
-					? { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } }
-					: { content: [], details: { agent: { id: "child", status: "completed" } } },
+			callTool: async (name) => {
+				if (name === "list_agents") return { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } };
+				await waitFinished;
+				return { content: [], details: { agent: { id: "child", status: "completed" } } };
+			},
 			reviewGoal,
 		});
 		await harness.runCommand("set wait for child");
@@ -790,18 +806,45 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 
 		expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
-		expect(harness.callTool).toHaveBeenNthCalledWith(2, "wait_agents", {});
-		expect(harness.sendMessage.mock.calls[0]?.[0]).toEqual({
-			customType: "supervisor",
-			content: "<supervisor-instruction>\nWaiting: child still running\n</supervisor-instruction>",
-			display: true,
+		expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agents", {}]);
+		expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Waiting: child still running",
 		});
-		expect(harness.sendMessage.mock.calls[1]?.[0]).toEqual({
+		expect(reviewGoal).toHaveBeenCalledTimes(1);
+
+		finishWait?.();
+		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
+		expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
 			customType: "supervisor",
 			content: "<supervisor-instruction>\nInspect child result.\n</supervisor-instruction>",
 			display: true,
 		});
-		expect(reviewGoal).toHaveBeenCalledTimes(2);
+	});
+
+	it("cancels a background agent wait when user input arrives", async () => {
+		let finishWait: (() => void) | undefined;
+		const waitFinished = new Promise<void>((resolve) => {
+			finishWait = resolve;
+		});
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "wait", reason: "child running" });
+		const harness = createGoalHarness(cwd, {
+			callTool: async (name) => {
+				if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
+				await waitFinished;
+				return { content: [], details: {} };
+			},
+			reviewGoal,
+		});
+		await harness.runCommand("set cancellable wait");
+		await harness.runAgentEnd();
+
+		await harness.runInput("new user work");
+		finishWait?.();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(reviewGoal).toHaveBeenCalledTimes(1);
 	});
 
 	it("re-reviews a wait decision after five minutes when no agents are active", async () => {
@@ -816,6 +859,9 @@ describe("goal extension", () => {
 			harness.sendMessage.mockClear();
 			await harness.runAgentEnd();
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
+			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+				message: "Waiting: retry later",
+			});
 
 			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
 
@@ -825,6 +871,38 @@ describe("goal extension", () => {
 				content: "<supervisor-instruction>\nRetry the check.\n</supervisor-instruction>",
 				display: true,
 			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not apply a five-minute review after the goal is replaced", async () => {
+		vi.useFakeTimers();
+		try {
+			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "retry later" })
+				.mockImplementationOnce(
+					async () =>
+						new Promise<GoalSupervisorResponse>((resolve) => {
+							finishReview = resolve;
+						}),
+				);
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set original goal");
+			await harness.runAgentEnd();
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await harness.runCommand("set replacement goal");
+			finishReview?.({ kind: "continue", reason: "stale", instructions: "Run stale work." });
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(readStoredGoal<{ objective: string }>(cwd).objective).toBe("replacement goal");
+			expect(harness.sendMessage).not.toHaveBeenCalledWith(
+				expect.objectContaining({ content: expect.stringContaining("Run stale work.") }),
+				expect.anything(),
+			);
 		} finally {
 			vi.useRealTimers();
 		}

@@ -26,7 +26,12 @@ import { createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
-import { renderSupervisorMessage, sendSupervisorInstructions, sendSupervisorWait } from "./rendering.ts";
+import {
+	appendSupervisorStatus,
+	renderSupervisorMessage,
+	renderSupervisorStatusEntry,
+	sendSupervisorInstructions,
+} from "./rendering.ts";
 
 /** codex caps the objective at 4000 characters. */
 const MAX_OBJECTIVE_CHARS = 4000;
@@ -527,7 +532,7 @@ async function applyGoalIdleDecision(
 			ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
 			return;
 		case "wait":
-			sendSupervisorWait(pi, decision.reason);
+			appendSupervisorStatus(pi, `Waiting: ${decision.reason}`);
 			await onWait(decision.reason);
 			return;
 		case "error":
@@ -621,15 +626,21 @@ function handleGoalCommand(
 	}
 }
 
+function sameRunningGoal(ctx: ExtensionContext, goal: Goal): boolean {
+	const activeGoal = loadRunningGoal(ctx);
+	return activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
+}
+
+function appendGoalSchedulingError(pi: ExtensionAPI, error: unknown): void {
+	const message = error instanceof Error ? error.message : String(error);
+	appendSupervisorStatus(pi, `Goal wait failed: ${message}`);
+}
+
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}) {
 	const reviewGoal = options.reviewGoal ?? reviewGoalWithResidentSupervisor;
 
+	pi.registerEntryRenderer("supervisor-status", renderSupervisorStatusEntry);
 	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
-
-	function sameRunningGoal(ctx: ExtensionContext, goal: Goal): boolean {
-		const activeGoal = loadRunningGoal(ctx);
-		return activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
-	}
 
 	const emptyResponseScheduler = createEmptyResponseScheduler<Goal>({
 		pi,
@@ -652,6 +663,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		pi,
 		applyDecision,
 		isSameRunningGoal: sameRunningGoal,
+		reportError: appendGoalSchedulingError.bind(undefined, pi),
 		reviewGoal: async (ctx, goal, terminalTurn) =>
 			reviewGoal({
 				ctx,

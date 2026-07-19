@@ -106,7 +106,7 @@ never seed or copy goal metadata; any existing target `goal_json` remains inert.
 
 ## Automatic Continuation
 
-The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, a non-empty response requests `goal_idle_review` from the resident Supervisor. `continue` increments `continuationTurns` and submits the returned actionable instructions. `complete` closes the goal. `wait` keeps it active without starting duplicate work while asynchronous work is already running. `pause` leaves it active without another turn. `error` leaves it active, reports the failure, and stops automatic continuation.
+The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, a non-empty response requests `goal_idle_review` from the resident Supervisor. `continue` increments `continuationTurns` and submits the returned actionable instructions. `complete` closes the goal. `wait` appends a durable Supervisor status entry, starts a cancellable background `wait_agents` when agents are active, and re-reviews after wake; without active agents it re-reviews after five minutes. `pause` leaves the goal active without another turn. `error` leaves it active, appends durable failure status, and stops automatic continuation.
 
 A non-error empty assistant response no longer stops an active goal or emits the empty-response warning. It schedules one continuation after a 1-second bounded delay. The timer sends that continuation only if the same goal remains active, the session is idle, and no messages are pending. Session shutdown cancels pending empty-response retry timers.
 
@@ -116,11 +116,11 @@ Review does not start when:
 - pending messages exist;
 - the last assistant response was empty.
 
-Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. Aborted turns do not change persisted goal state; only explicit pause actions set `pausedAt`.
+Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. A decision returned while pending state exists is retained and applied if that state drains without starting a turn. Input, a new turn, goal replacement/pause/completion/clear, or shutdown cancels deferred decisions, background waits, and review timers. Every asynchronous review rechecks goal identity before applying its decision. Aborted turns do not change persisted goal state; only explicit pause actions set `pausedAt`.
 
 ## Completion Tool Action
 
-Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state, whether the active goal is running or paused. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal active and submits actionable instructions; `wait` keeps it active without duplicate continuation while asynchronous work runs; `pause` leaves the goal active without another continuation; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
+Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state, whether the active goal is running or paused. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal active and submits actionable instructions; `wait` appends durable status and schedules agent wake or five-minute re-review; `pause` leaves the goal active without another continuation; `error` leaves the goal active and reports the failure. If no active goal exists, the tool returns "No active goal to complete."
 
 Completed and paused goals do not trigger automatic continuation.
 
