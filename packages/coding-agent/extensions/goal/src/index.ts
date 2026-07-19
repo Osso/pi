@@ -33,6 +33,7 @@ import type {
 	ExtensionContext,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { getAgentDir } from "../../../src/config.ts";
 import { getControlDbPath, type SupervisorResponse } from "../../../src/core/session-control-db.ts";
@@ -46,6 +47,8 @@ import {
 const MAX_OBJECTIVE_CHARS = 4000;
 const GOAL_REVIEW_TIMEOUT_MS = 180_000;
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
+const SUPERVISOR_INSTRUCTION_OPEN = "<supervisor-instruction>";
+const SUPERVISOR_INSTRUCTION_CLOSE = "</supervisor-instruction>";
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 interface Goal {
@@ -370,11 +373,18 @@ function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string): voi
 	pi.sendMessage(
 		{
 			customType: "supervisor",
-			content: `<supervisor-instruction>\n${instructions}\n</supervisor-instruction>`,
+			content: `${SUPERVISOR_INSTRUCTION_OPEN}\n${instructions}\n${SUPERVISOR_INSTRUCTION_CLOSE}`,
 			display: true,
 		},
 		{ deliverAs: "followUp", triggerTurn: true },
 	);
+}
+
+function supervisorInstructionBody(content: string): string {
+	if (!content.startsWith(SUPERVISOR_INSTRUCTION_OPEN) || !content.endsWith(SUPERVISOR_INSTRUCTION_CLOSE)) {
+		return content;
+	}
+	return content.slice(SUPERVISOR_INSTRUCTION_OPEN.length, -SUPERVISOR_INSTRUCTION_CLOSE.length).trim();
 }
 
 function setGoal(params: SetGoalParams): { ok: boolean; message: string; severity: "error" | "info" | "warning"; goal?: Goal } {
@@ -550,6 +560,16 @@ async function reviewGoalWithResidentSupervisor(input: {
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}) {
 	const reviewGoal = options.reviewGoal ?? reviewGoalWithResidentSupervisor;
+
+	pi.registerMessageRenderer("supervisor", (message, _rendererOptions, theme) => {
+		const content = typeof message.content === "string" ? message.content : "";
+		const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+		box.addChild(new Text(theme.fg("customMessageLabel", theme.bold("[Supervisor]")), 0, 0));
+		box.addChild(new Spacer(1));
+		box.addChild(new Text(theme.fg("customMessageText", supervisorInstructionBody(content)), 0, 0));
+		return box;
+	});
+
 	const emptyResponseRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	function clearEmptyResponseRetry(sessionId: string): void {

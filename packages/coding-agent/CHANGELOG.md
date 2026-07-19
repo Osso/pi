@@ -145,6 +145,7 @@
 
 ### Fixed
 
+- Fixed Supervisor goal continuations displaying both the visible provenance header and model-only XML wrapper; the TUI now shows one `[Supervisor]` header with a plain instruction body while retaining tagged model content.
 - Fixed Supervisor goal continuation instructions being rendered and delivered as unmarked user-authored input; they now carry visible and model-readable Supervisor provenance.
 - Fixed literal resume-picker searches being buried among subsequence-only fuzzy matches; exact substring matches now appear first in Recent and Fuzzy sort modes.
 - Fixed mixed quoted-phrase and fuzzy-token resume-picker searches to preserve Recent ordering.

@@ -15,6 +15,7 @@ import type {
 	ExtensionHandler,
 	InputEvent,
 	InputEventResult,
+	MessageRenderer,
 	RegisteredCommand,
 	SessionShutdownEvent,
 	SessionStartEvent,
@@ -118,6 +119,7 @@ function createGoalHarness(
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
 	let sessionShutdown: ExtensionHandler<SessionShutdownEvent, undefined> | undefined;
 	let input: ExtensionHandler<InputEvent, InputEventResult> | undefined;
+	let supervisorRenderer: MessageRenderer | undefined;
 	const notify = vi.fn();
 	const sendMessage = vi.fn();
 	const sendUserMessage = vi.fn();
@@ -144,6 +146,11 @@ function createGoalHarness(
 		registerCommand(name: string, options: RegisteredGoalCommand) {
 			if (name === "goal") {
 				command = options;
+			}
+		},
+		registerMessageRenderer(customType: string, renderer: MessageRenderer) {
+			if (customType === "supervisor") {
+				supervisorRenderer = renderer;
 			}
 		},
 		registerTool(tool: GoalTool) {
@@ -243,6 +250,7 @@ function createGoalHarness(
 			),
 		getManageGoalTool: () => manageGoalTool,
 		getRegisteredToolNames: () => registeredToolNames,
+		getSupervisorRenderer: () => supervisorRenderer,
 		hasGoalCommand: () => command !== undefined,
 		hasManageGoalTool: () => manageGoalTool !== undefined,
 		notify,
@@ -643,6 +651,41 @@ describe("goal extension", () => {
 				process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 			}
 		}
+	});
+
+	it("renders one Supervisor header while preserving tagged model content", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({
+				kind: "continue",
+				reason: "proof missing",
+				instructions: "Run the exact regression.",
+			}),
+		});
+		await harness.runCommand("set render Supervisor provenance");
+		await harness.runAgentEnd();
+		const [message] = harness.sendMessage.mock.calls.at(-1) ?? [];
+
+		expect(message?.content).toBe(
+			"<supervisor-instruction>\nRun the exact regression.\n</supervisor-instruction>",
+		);
+		const renderer = harness.getSupervisorRenderer();
+		if (!renderer || !message) throw new Error("Supervisor renderer was not registered");
+		const identityTheme = {
+			bg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+			fg: (_color: string, text: string) => text,
+		} as Parameters<MessageRenderer>[2];
+		const component = renderer(
+			{ role: "custom", ...message, timestamp: 1 },
+			{ expanded: false },
+			identityTheme,
+		);
+		const rendered = component?.render(120).join("\n") ?? "";
+
+		expect(rendered.match(/Supervisor/g)).toHaveLength(1);
+		expect(rendered).toContain("[Supervisor]");
+		expect(rendered).toContain("Run the exact regression.");
+		expect(rendered).not.toContain("supervisor-instruction");
 	});
 
 	it("continues an active goal after agent_end", async () => {
