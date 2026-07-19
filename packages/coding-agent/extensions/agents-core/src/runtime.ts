@@ -2217,7 +2217,8 @@ class WaitAgentsWakeWatcher {
 	private start(): void {
 		const trackedAgentIds = new Set(this.activeAgents.map((agent) => agent.id));
 		if (trackedAgentIds.size === 0) {
-			this.finish({ kind: "none" });
+			this.checkCoordination();
+			if (!this.settled) this.finish({ kind: "none" });
 			return;
 		}
 		const readTrackedTerminal = (): AgentSnapshot | undefined => {

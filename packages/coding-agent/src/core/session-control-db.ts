@@ -580,18 +580,21 @@ export function takeRuntimeMailboxMessagesForDelivery(
 ): RuntimeMailboxMessage[] {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit).filter((row) =>
-				canCurrentRuntimeClaimMailboxRow(db, recipient, row),
+			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER).filter(
+				(row) => canCurrentRuntimeClaimMailboxRow(db, recipient, row),
 			);
 			const now = new Date().toISOString();
-			return rows.flatMap((row) => {
+			const deliveredMessages: RuntimeMailboxMessage[] = [];
+			for (const row of rows) {
 				const data = parseCanonicalMailboxPayload(row);
 				const message = runtimeMailboxMessageFromCanonicalRow(row, data);
-				if (!isEligible(message)) return [];
+				if (!isEligible(message)) continue;
 				const delivered = { ...data, status: "delivered", deliveredAt: now, updatedAt: now };
 				writeCanonicalMailboxPayload(db, row.id, delivered, now);
-				return [runtimeMailboxMessageFromCanonicalRow(row, delivered)];
-			});
+				deliveredMessages.push(runtimeMailboxMessageFromCanonicalRow(row, delivered));
+				if (deliveredMessages.length === limit) break;
+			}
+			return deliveredMessages;
 		}),
 	);
 }

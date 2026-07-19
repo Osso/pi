@@ -1542,17 +1542,19 @@ describe("runtime SQLite mailbox delivery", () => {
 			return result;
 		});
 		await Promise.resolve();
-		enqueueStoredRuntimeMessage(controlDbPath, {
-			body: JSON.stringify({
-				agentId: "background_1",
-				eventKind: "detached_job_completed",
-				type: "multi_agent_terminal",
-			}),
-			kind: "system",
-			messageId: "terminal:background_1:2:detached_job_completed",
-			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
-			sender: { agentId: "background_1", sessionId: "child-session" },
-		});
+		for (let index = 0; index < 20; index += 1) {
+			enqueueStoredRuntimeMessage(controlDbPath, {
+				body: JSON.stringify({
+					agentId: `background_${index}`,
+					eventKind: "detached_job_completed",
+					type: "multi_agent_terminal",
+				}),
+				kind: "system",
+				messageId: `terminal:background_${index}:2:detached_job_completed`,
+				recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+				sender: { agentId: `background_${index}`, sessionId: "child-session" },
+			});
+		}
 
 		await vi.advanceTimersByTimeAsync(30_000);
 		expect(settled).toBe(false);
@@ -1566,6 +1568,40 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		const waited = await waiting;
 		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Need parent review") });
+	});
+
+	it("wait_agents returns coordination input when no agents are active", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		if (!waitAgents) throw new Error("expected wait_agents tool");
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Coordination without active agents",
+			kind: "message",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: "completed-child", sessionId: "child-session" },
+		});
+
+		const waited = await waitAgents.execute(
+			"wait",
+			{},
+			undefined,
+			undefined,
+			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+		);
+
+		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Coordination without active agents") });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
 	it("wait_agents returns each distinct coordination message exactly once", async () => {
