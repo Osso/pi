@@ -79,8 +79,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       and exact listener-path assertions identify the one owning supervisor; unrelated sessions do not
       elect or share a recovery leader. Mutations use the persisted owner session/agent plus exact process
       identity; revision is repository-managed and never supplied by tools. Verified administrative restart
-      may commit an explicit interruption; confirmed exact owner-process exit commits
-      `failed/lost_runtime`, never a direct JSON rewrite or inferred abort. Attached, terminal, current-live,
+      may commit an explicit interruption; confirmed exact owner-process exit commits `failed/lost_runtime`
+      from `running` or `aborted/lost_runtime` from `cancelling`, never a direct JSON rewrite or inferred result. Attached, terminal, current-live,
       and uncertain process-backed rows follow their explicit recovery policy.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health

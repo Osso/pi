@@ -166,10 +166,10 @@ listener that has already surrendered ownership.
 Detached runner recovery does not reconstruct terminal state from artifacts. The live runner directly
 finalizes from its in-memory identity, outcome, and output metadata. The output artifact is diagnostic
 only. If the runner dies before its terminal commit, the owning supervisor uses the exact persisted
-process identity to mark the agent `failed/lost_runtime`; it does not replay or infer a terminal result
-from the output file. If the persisted lifecycle already recorded a cancellation intent (`cancelling`),
-dead-owner recovery settles that intent as `aborted` instead of reporting a lost-runtime failure — still
-without replaying or inferring a result. A cancellation committed before a pending natural-result
+process identity to mark a `running` agent `failed/lost_runtime`; it does not replay or infer a terminal
+result from the output file. If the persisted lifecycle already recorded a cancellation intent
+(`cancelling`), dead-owner recovery settles that intent as `aborted/lost_runtime` — still without replaying
+or inferring a result. A cancellation committed before a pending natural-result
 finalizer still wins by transaction order; outside dead-owner recovery, `aborted` requires the exact
 runner's exit acknowledgement.
 
@@ -188,9 +188,9 @@ folder from reading stale manifests or output belonging to another supervisor.
       bindings after that registration, and reconciles only orphaned active rows identified by unmatched
       parent-session JSONL `agent_start` records through coordinator recovery commands,
       deepest descendants first so parent graph guards cannot strand an earlier parent row. Startup also globally scans
-      detached `cancelling` rows owned by historical sessions, but only settles a row when the recorded owner session is
-      sticky dead, no live listener is registered for that owner session ID, the exact dead runner identity matches the
-      persisted runtime worker handle, and no terminal outbox row already exists. The sweep uses the candidate row's
+      detached `running` and `cancelling` rows, but only settles a row when the exact recorded runner identity is dead,
+      matches the persisted runtime worker handle, has no active descendant or authorized replacement owner, and has no
+      terminal outbox row already. Parent-session liveness does not prove runner liveness. The sweep uses the candidate row's
       persisted session path for lookup and the canonical lost-runtime recovery path; it does not prove a current
       owner-session/path match or reparent the agent, and it cannot mutate a live owner. A child runtime does not bind that supervisor lifecycle mirror or perform
       supervisor-wide recovery; on session start it reconciles only direct persisted descendants identified by
@@ -200,8 +200,8 @@ folder from reading stale manifests or output belonging to another supervisor.
       the assertion, runtime ownership, pending terminal outbox, and runtime transport references transactionally
       with the store; detached finalization resolves the relocated row by exact agent/process ownership rather than
       a stale runner path. Verified administrative restart may terminalize owned work through the coordinator;
-      exact owner-process exit resolves as `failed`/`lost_runtime` — or `aborted` when the persisted lifecycle
-      already recorded a cancellation intent — never direct JSON rewrite or a result inferred from artifacts. The
+      exact owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime` when the
+      persisted lifecycle already recorded a cancellation intent — never direct JSON rewrite or a result inferred from artifacts. The
       recorded owner session ID may belong to a dead prior incarnation of the same session file. Per-session recovery
       commands additionally require the current registered supervisor binding to assert the target session path and
       exact process identity; owner-session equality with the current incarnation is not required. Terminal,
@@ -216,14 +216,14 @@ folder from reading stale manifests or output belonging to another supervisor.
 - [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
       `running` while the dispatch and handle are re-established under the new process identity.
 - [x] A detached in-flight agent whose runner died before terminal commit is marked `failed/lost_runtime`
-      with an explicit recovery error; output artifacts remain diagnostic and are not replayed as lifecycle proof.
+      from `running` or `aborted/lost_runtime` from `cancelling`; output artifacts remain diagnostic and are not replayed as lifecycle proof.
 - [x] Session shutdown invalidates in-flight dispatches before aborting handles so
       abort-induced rejections cannot persist agents as `failed`.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
       same-PID main listener or run supervisor-wide recovery. Their session-start hook may reconcile only direct
       persisted descendants through the normal coordinator recovery path.
-- [x] `wait_agents({})` snapshots active agents at invocation, consumes one pending completion
-      notification, and queries current agent rows until one snapshot member is terminal. Notifications
+- [x] `wait_agents({})` snapshots active agents at invocation, consumes every pending terminal
+      notification already waiting, and queries current agent rows until one snapshot member is terminal. Notifications
       only wake the query; they are not terminal truth. Detached Bash and Pyrun jobs use a transient
       `runtime` worker marker; restore clears it without rewriting durable lifecycle.
 
