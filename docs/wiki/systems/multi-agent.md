@@ -23,8 +23,8 @@ current direct parent, parentless runtimes are rejected, and the tool cannot tar
 or an arbitrary sibling. The old `contact_supervisor` name has no compatibility alias.
 Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
-`wait_agents({})` consumes one pending completion notification, then queries current agent rows for
-agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
+`wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
+rows for agents active at invocation until one is terminal. Notifications only wake the query; the agent row is
 terminal truth. It never consumes the shared runtime-mailbox delivery row as its source of truth.
 Hostrun/Pyrun `pi.agents.wait()` uses the same query semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
@@ -68,7 +68,7 @@ Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat st
 occurs only after that exact identity is gone and never rewrites lifecycle JSON directly.
 The one registered supervisor binding persists that exact process identity for its asserted session path.
 If a new Pi runtime reuses the same PID, registration advances the inventory-only session health generation
-and aborts active spawned rows in that exact store; attached rows remain recoverable. A different PID cannot
+without mutating lifecycle rows. A different PID cannot
 replace the binding while its predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or
 write caller PID health; only the runtime listener lifecycle owns those rows. Heartbeat freshness
 alone is not PID ownership: inventory preserves uncertain live processes to avoid unsafe mutation,
@@ -77,16 +77,16 @@ The path assertion is trusted only while its assertion
 timestamp matches the listener heartbeat; pathless or legacy timestamp-only heartbeats invalidate it.
 Session-path relocation moves the assertion in the same transaction as the store. Verified
 administrative shutdown/restart may terminalize owned work through an exact-owner coordinator command.
-Confirmed exact owner-process exit records `failed/lost_runtime`, while
-attached, terminal, current-live, and uncertain process-backed rows follow their explicit recovery
-policies. Runtime-process verification recognizes
+Confirmed exact owner-process exit records `failed/lost_runtime` from `running` or
+`aborted/lost_runtime` from `cancelling`, while attached, terminal, current-live, and uncertain
+process-backed rows follow their explicit recovery policies. Runtime-process verification recognizes
 Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
-`list_sessions` invokes the same reconciliation immediately after listener/health
-synchronization, so historical non-current stores cannot retain active ghosts. Attached-session rows
-retain the transcript-backed resume path; attached rows already waiting for input remain idle.
+Startup reconciliation scans persisted detached runtimes after listener/path binding, including exact
+dead runners whose logical parent session remains live. Attached-session rows retain the transcript-backed
+resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. Each invocation snapshots active agents, consumes one pending
-completion notification, and polls authoritative control-DB agent rows until one snapshot member is
+`wait_agents({})` takes no agent ID. Each invocation snapshots active agents, consumes every pending
+terminal notification already waiting, and polls authoritative control-DB agent rows until one snapshot member is
 terminal. In-process transitions, runtime signals, and notifications only accelerate that query; this
 allows a detached runner in another process to wake a blocked wait after its terminal commit. Mailbox
 delivery and acknowledgement are independent. The store removes transient worker metadata on restore,
@@ -467,6 +467,6 @@ Pitfalls:
 - Spawn, cancellation, attached recovery, steering, detached Bash/Pyrun finalization, agent-row terminal
   truth, outbox delivery, and agent-row waits use the durable lifecycle protocol. Cancellation timeout
   alone leaves an abort-ignoring child `cancelling`; exact-owner exit acknowledgement or dead-owner
-  recovery settles the existing cancellation intent as `aborted`.
+  recovery settles the existing cancellation intent as `aborted/lost_runtime`.
 - `MultiAgentStore` remains a projection and metadata surface; direct lifecycle methods are deleted.
 - TUI/view selection and pinned slots remain read-only with respect to lifecycle.

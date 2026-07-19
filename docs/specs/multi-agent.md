@@ -114,8 +114,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `completed`, `failed`, or `aborted` lifecycle state; agents already waiting for input are not
       auto-prompted. After listener registration, the owning supervisor reconciles candidates through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks)` identity.
-      Confirmed owner-process exit resolves as `failed/lost_runtime`, never direct JSON rewrite or inferred
-      abort. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
+      Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
+      from `cancelling`, never direct JSON rewrite or inferred result. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
 - [x] `wait_agents({})` snapshots agents active at invocation, consumes every pending terminal notification already waiting,
       and queries current agent rows until any snapshot member is terminal. Notifications only wake the query;
@@ -152,9 +152,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   through dead-owner recovery; a runner waiting for activation also exits when the exact supervisor process dies.
   Detached Bash and Pyrun runners directly call the narrowly scoped repository terminal-finalize transaction using their in-memory identity, outcome, and output metadata.
   The output file is a diagnostic artifact, not terminal lifecycle proof. Status attachment, cancellation,
-  bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a runner dies
-  before its terminal commit, the owning supervisor marks the agent `failed/lost_runtime` from the exact
-  persisted process identity; it does not replay output or reconstruct a terminal result. Coordinator
+  bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a detached
+  `running` or `cancelling` runner dies before its terminal commit, reconciliation marks it `failed/lost_runtime`
+  or `aborted/lost_runtime` from the exact persisted process identity, regardless of parent-session liveness;
+  an exact live replacement identity remains untouched. It does not replay output or reconstruct a terminal result. Coordinator
   cancellation and its durable store/transport rows commit in one SQLite transaction; transport insertion
   failure rolls the lifecycle mutation back. Bash manifest persistence failure kills the unactivated runner,
   commits the registered row as failed through its exact ownership, and reports the launch error in the same call.
@@ -162,14 +163,15 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   busy/locked contention; disk-full, readonly, I/O, path, programming, and validation errors fail explicitly.
   Transcript-backed child-session runtimes register their abort controller as the single store abort handle, so
   cancellation aborts their signal once and waits for actual exit acknowledgement. An abort-ignoring child session
-  remains `cancelling`; timeout alone never fabricates `aborted`. Exact-owner exit acknowledgement or dead-owner
-  recovery settles the existing cancellation intent as `aborted`. AgentSession constructs detached controllers
+  remains `cancelling`; timeout alone never fabricates `aborted`. Exact-owner exit acknowledgement settles the
+  existing cancellation intent as `aborted`; dead-owner recovery settles it as `aborted/lost_runtime`. AgentSession constructs detached controllers
   lazily from the current store/session/control-DB binding, so session switches
   cannot retain an old session path.
 
   Detached runner ownership is direct and in-memory. A live runner submits its terminal outcome once
   from the exact identity it holds; a duplicate exact submission is idempotent. If the runner dies before
-  commit, the owning supervisor records `failed/lost_runtime` and never reassigns or replays the job.
+  commit, reconciliation records `failed/lost_runtime` from `running` or `aborted/lost_runtime` from
+  `cancelling`, and never reassigns or replays the job.
   Cancellation commit order remains authoritative when payload exit races finalization: a committed
   `cancelling` state cannot be replaced by a late natural result, and `aborted` still requires exact-owner
   exit acknowledgement. Detachment returns a handle only after the durable job identity, runtime ownership,
@@ -282,7 +284,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Registering a main-session listener retires other main-session bindings on the same PID, so a
       process has one current main-session identity even if historical listener rows remain. Listener
       rows persist the exact `(pid, startTimeTicks)` process identity; same-PID replacement advances the
-      inventory-only session health generation and reconciles stale spawned rows without disturbing attached agents.
+      inventory-only session health generation without mutating lifecycle rows.
       `list_sessions` and `broadcast` never create listeners or write caller PID health; ownership is
       maintained only by the runtime listener lifecycle. Fresh
       heartbeats are not accepted as PID ownership proof: inventory and signal delivery verify the PID
@@ -536,9 +538,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       trees without TUI state.
 - [x] Add and implement child-to-parent mailbox contact without sibling access.
 - [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
-- [x] Add and implement `wait_agents({})` behavior using one pending completion notification to wake
-      agent-row queries; simultaneous and late waiters observe current terminal rows without consuming
-      mailbox delivery.
+- [x] Add and implement `wait_agents({})` behavior draining every pending terminal notification already
+      waiting before agent-row queries; simultaneous and late waiters observe current terminal rows without
+      consuming runtime-mailbox delivery as terminal truth.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
       transitions before marking core runtime bullets.
 - [x] Add focused tests for authoritative snapshot projection and stale-slot resync by agent ID

@@ -42,7 +42,7 @@ owned by a replacement process.
    stores. Health and exact path assertions select candidates but do not authorize lifecycle writes.
    The session's sole supervisor commits through coordinator/repository transactions using the exact
    persisted `(pid, startTimeTicks)` owner identity. Confirmed owner-process exit resolves as
-   `failed/lost_runtime`; uncertain process-backed, attached, terminal, and current-live rows follow
+   `failed/lost_runtime` from `running` or `aborted/lost_runtime` from `cancelling`; uncertain process-backed, attached, terminal, and current-live rows follow
    their explicit recovery policy.
 7. Exclude every ended row when `includeEnded` is `false`.
 

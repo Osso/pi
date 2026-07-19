@@ -25,7 +25,7 @@ const OWNER_SESSION_ID = "dead-owner-session";
 const SESSION_PATH = "/sessions/dead-owner.jsonl";
 const JOB_ID = "pyrun_1";
 
-function createCancellingDetachedJob(controlDbPath: string): void {
+function createOwnerSession(controlDbPath: string): void {
 	writeSessionMetadata(controlDbPath, {
 		allMessagesText: "owner",
 		createdAt: CREATED_AT,
@@ -42,6 +42,9 @@ function createCancellingDetachedJob(controlDbPath: string): void {
 		checkedGeneration: 1,
 		checkStatus: "dead",
 	});
+}
+
+function createRunningDetachedJob(controlDbPath: string): void {
 	const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
 		agent: {
 			agentType: "background",
@@ -65,6 +68,9 @@ function createCancellingDetachedJob(controlDbPath: string): void {
 		sessionPath: SESSION_PATH,
 	});
 	if (!created.ok) throw new Error(`Could not create detached test job: ${created.error}`);
+}
+
+function requestDetachedCancellation(controlDbPath: string): void {
 	const cancelling = commitMultiAgentLifecycleMutation(controlDbPath, {
 		agentId: JOB_ID,
 		detachedCancellation: { outputLabel: "Pyrun output", reason: "test cancellation" },
@@ -122,7 +128,7 @@ describe("orphaned detached runtime reconciliation", () => {
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-orphaned-detached-"));
 		controlDbPath = getControlDbPath(tempDir);
-		createCancellingDetachedJob(controlDbPath);
+		createOwnerSession(controlDbPath);
 	});
 
 	afterEach(() => {
@@ -130,6 +136,9 @@ describe("orphaned detached runtime reconciliation", () => {
 	});
 
 	it("settles a dead-runner cancellation owned by a sticky-dead historical session", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
+
 		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(1);
 		const reconciled = readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID);
 		expect(reconciled).toMatchObject({
@@ -147,7 +156,8 @@ describe("orphaned detached runtime reconciliation", () => {
 		expect(countTerminalOutboxRows(controlDbPath)).toBe(1);
 	});
 
-	it("does not settle a historical cancellation while its logical owner session is live", () => {
+	it("settles a dead detached running job while its logical parent session is live", () => {
+		createRunningDetachedJob(controlDbPath);
 		const currentProcess = readProcessIdentity(process.pid);
 		registerRuntimeMailboxListener(
 			controlDbPath,
@@ -157,14 +167,65 @@ describe("orphaned detached runtime reconciliation", () => {
 			{ runtimeInstanceId: JSON.stringify(currentProcess) },
 		);
 
-		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(0);
+		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(1);
 		expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)).toMatchObject({
-			lifecycle: "cancelling",
+			error: { code: "lost_runtime" },
+			lifecycle: "failed",
+			result: { toolCallId: "tool_1" },
 			revision: 2,
 		});
+		expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)?.worker).toBeUndefined();
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, SESSION_PATH, JOB_ID)).toMatchObject({
+			owner: { agentId: null, sessionId: undefined },
+			processIdentity: undefined,
+		});
+		expect(countTerminalOutboxRows(controlDbPath)).toBe(1);
+	});
+
+	it("settles a dead detached cancellation while its logical parent session is live", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
+		const currentProcess = readProcessIdentity(process.pid);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: OWNER_SESSION_ID },
+			process.pid,
+			SESSION_PATH,
+			{ runtimeInstanceId: JSON.stringify(currentProcess) },
+		);
+
+		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(1);
+		expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)).toMatchObject({
+			error: { code: "lost_runtime" },
+			lifecycle: "aborted",
+			revision: 3,
+		});
+		expect(countTerminalOutboxRows(controlDbPath)).toBe(1);
+	});
+
+	it("does not settle a running job while its exact replacement runner identity is alive", () => {
+		createRunningDetachedJob(controlDbPath);
+		const currentProcess = readProcessIdentity(process.pid);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: OWNER_SESSION_ID },
+			process.pid,
+			SESSION_PATH,
+			{ runtimeInstanceId: JSON.stringify(currentProcess) },
+		);
+		replaceRunnerIdentity(controlDbPath, currentProcess);
+
+		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(0);
+		expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)).toMatchObject({
+			lifecycle: "running",
+			revision: 1,
+		});
+		expect(countTerminalOutboxRows(controlDbPath)).toBe(0);
 	});
 
 	it("does not settle a cancellation while its exact runner process is alive", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
 		replaceRunnerIdentity(controlDbPath, readProcessIdentity(process.pid));
 
 		expect(reconcileDeadDetachedAgentRuntimes(controlDbPath, RECONCILED_AT)).toBe(0);
@@ -175,6 +236,8 @@ describe("orphaned detached runtime reconciliation", () => {
 	});
 
 	it("does not confuse a reused PID with the dead recorded runner identity", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
 		const current = readProcessIdentity(process.pid);
 		replaceRunnerIdentity(controlDbPath, { pid: current.pid, startTimeTicks: current.startTimeTicks - 1 });
 
@@ -184,6 +247,8 @@ describe("orphaned detached runtime reconciliation", () => {
 	});
 
 	it("does not settle a cancellation while it has an active descendant", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
 		const child = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
 			agent: {
 				agentType: "worker",
@@ -210,6 +275,8 @@ describe("orphaned detached runtime reconciliation", () => {
 	});
 
 	it("does not duplicate a cancellation that already has a terminal outbox record", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.prepare(
@@ -230,6 +297,8 @@ describe("orphaned detached runtime reconciliation", () => {
 	});
 
 	it("does not settle a cancellation whose worker handle does not identify the recorded runner", () => {
+		createRunningDetachedJob(controlDbPath);
+		requestDetachedCancellation(controlDbPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			const row = db
