@@ -365,9 +365,9 @@ function createExtensionAPI(
 			runtime.setActiveTools(toolNames);
 		},
 
-		callTool(name: string, params: unknown, signal?: AbortSignal) {
+		callTool(name: string, params: unknown, signal?: AbortSignal, toolCallId?: string) {
 			runtime.assertActive();
-			return runtime.callTool(name, params, signal);
+			return runtime.callTool(name, params, signal, toolCallId);
 		},
 
 		callCommand(name: string, args?: string) {

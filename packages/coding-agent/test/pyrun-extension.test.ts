@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createHostrunMultiAgentRequestHandler,
@@ -30,6 +31,7 @@ import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { createHarness } from "./suite/harness.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 interface PyrunEvalParams {
@@ -1412,6 +1414,52 @@ for await (const line of createInterface({ input: process.stdin })) {
 			},
 		});
 	});
+
+	it.runIf(hasLocalPyrunRunner && hasPython3)(
+		"forwards the enclosing Pyrun tool-call identity through ExtensionAPI.callTool",
+		async () => {
+			delete process.env.PI_PYRUN_RUNNER_COMMAND;
+			delete process.env.PI_PYRUN_RUNNER;
+			delete process.env.PI_PYRUN_RUNNER_ARGS;
+			let nestedToolCallId: string | undefined;
+			const harness = await createHarness({
+				extensionFactories: [pyrunExtension],
+				tools: [
+					{
+						name: "spawn_agent",
+						description: "Capture inherited spawn identity",
+						parameters: Type.Object({ context: Type.Literal("inherit"), prompt: Type.String() }),
+						execute: async (toolCallId) => {
+							nestedToolCallId = toolCallId;
+							return { content: [{ type: "text", text: "captured" }], details: {} };
+						},
+					},
+				],
+			});
+			await harness.session.bindExtensions({});
+			harness.setResponses([
+				fauxAssistantMessage(
+					fauxToolCall(
+						"pyrun_eval",
+						{
+							code: "pi.tools.call('spawn_agent', {'prompt': 'Child assignment', 'context': 'inherit'})",
+						},
+						{ id: "enclosing-pyrun-call" },
+					),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("done"),
+			]);
+
+			try {
+				await harness.session.prompt("Run nested inherited spawn");
+
+				expect(nestedToolCallId).toBe("enclosing-pyrun-call");
+			} finally {
+				harness.cleanup();
+			}
+		},
+	);
 
 	it("lists slash commands from Pyrun pi.commands.list", async () => {
 		const harness = createPyrunHarness();

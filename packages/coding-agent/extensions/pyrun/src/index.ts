@@ -295,7 +295,7 @@ async function dispatchBuiltinPyrunRequest(
 		case "models.set":
 			return { handled: true, result: await setSessionModel(request.params, pi, ctx) };
 		case "tools.call":
-			return { handled: true, result: await callActiveTool(request.params, pi, signal, activeToolCallId) }; 
+			return { handled: true, result: await callActiveTool(request.params, pi, signal, activeToolCallId) };
 		case "commands.list":
 			return { handled: true, result: pi.getCommands() };
 		case "commands.run":

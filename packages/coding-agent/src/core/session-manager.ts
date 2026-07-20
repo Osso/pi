@@ -2015,7 +2015,7 @@ export class SessionManager {
 		targetCwd: string,
 		sessionDir?: string,
 		options?: NewSessionOptions,
-		fromEntryId?: string,
+		fromEntryId?: string | null,
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
@@ -2055,7 +2055,8 @@ export class SessionManager {
 		writeFileSync(newSessionFile, `${JSON.stringify(newHeader)}\n`, { flag: "wx" });
 
 		const sessionEntries = sourceEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
-		const entriesToCopy = fromEntryId ? buildSessionPath(sessionEntries, fromEntryId) : sessionEntries;
+		const entriesToCopy =
+			fromEntryId === null ? [] : fromEntryId ? buildSessionPath(sessionEntries, fromEntryId) : sessionEntries;
 		for (const entry of entriesToCopy) {
 			appendFileSync(newSessionFile, `${JSON.stringify(entry)}\n`);
 		}

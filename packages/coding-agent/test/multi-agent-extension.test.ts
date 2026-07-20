@@ -4054,6 +4054,59 @@ describe("multi-agent extension tools", () => {
 		expect(parentHarness.sessionManager.buildSessionContext().messages).toEqual(parentMessagesBefore);
 	});
 
+	it("starts a first-turn inherited child with only its assignment", async () => {
+		let parentHarness!: Harness;
+		let childSession: Harness["session"] | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-07-20T00:00:00.000Z" });
+		const createChildSession = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			multiAgentStore: store,
+			createSession: async (options) => {
+				const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
+				childSession = result.session;
+				childSessions.push(result.session);
+				return { session: result.session };
+			},
+		});
+		parentHarness = await createHarness({
+			extensionFactories: [(pi) => multiAgentExtension(pi, { createChildSession, store })],
+			multiAgentStore: store,
+			persistedSession: true,
+		});
+		childHarnesses.push(parentHarness);
+		const controlDbPath = getControlDbPath(parentHarness.tempDir);
+		parentHarness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(parentHarness.sessionManager);
+		await parentHarness.session.bindExtensions({ controlDbPath });
+		const response = (context: { messages: Array<{ role: string; content?: unknown }> }) => {
+			if (
+				context.messages.some(
+					(message) => message.role === "user" && getMessageText(message) === "Child assignment",
+				)
+			) {
+				return fauxAssistantMessage("Child completed");
+			}
+			if (context.messages.some((message) => message.role === "toolResult")) {
+				return fauxAssistantMessage("Parent completed");
+			}
+			return fauxAssistantMessage(
+				fauxToolCall("spawn_agent", {
+					context: "inherit",
+					displayName: "Inherited child",
+					prompt: "Child assignment",
+				}),
+				{ stopReason: "toolUse" },
+			);
+		};
+		parentHarness.setResponses([response, response, response]);
+
+		await parentHarness.session.prompt("Unresolved first parent turn");
+		if (!childSession) throw new Error("expected child session");
+		await childSession.agent.waitForIdle();
+
+		expect(childSession.messages.map(getMessageText)).toEqual(["Child assignment", "Child completed"]);
+	});
+
 	it("inherits context through a real tool loop without copying the active spawn call", async () => {
 		let parentHarness!: Harness;
 		let childSession: Harness["session"] | undefined;

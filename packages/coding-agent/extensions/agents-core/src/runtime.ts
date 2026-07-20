@@ -654,40 +654,43 @@ function getSessionTranscriptMetadata(
 	};
 }
 
+function findActiveToolCallEntry(branch: SessionEntry[], activeToolCallId: string): SessionEntry | undefined {
+	return [...branch].reverse().find(
+		(entry) =>
+			entry.type === "message" &&
+			entry.message.role === "assistant" &&
+			entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId),
+	);
+}
+
+function findUnresolvedTurnParentId(branch: SessionEntry[], activeToolEntry: SessionEntry): string | null {
+	let ancestorId = activeToolEntry.parentId;
+	while (ancestorId) {
+		const ancestor = branch.find((entry) => entry.id === ancestorId);
+		if (!ancestor) break;
+		if (ancestor.type === "message" && ancestor.message.role === "user") return ancestor.parentId;
+		ancestorId = ancestor.parentId;
+	}
+	return activeToolEntry.parentId;
+}
+
 function resolveInheritedLeafId(
 	context: SpawnAgentParams["context"],
 	activeToolCallId: string | undefined,
-	sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]>,
-): string | undefined {
+	sessionManager: ExtensionContext["sessionManager"],
+): string | null | undefined {
 	if (activeToolCallId !== undefined && activeToolCallId.trim() === "") {
 		throw new Error("Cannot inherit context: active tool call identity must be non-empty");
 	}
 	if (!activeToolCallId) return sessionManager.getLeafId() ?? undefined;
 
 	const branch = sessionManager.getBranch();
-	const activeToolEntry = [...branch]
-		.reverse()
-		.find(
-			(entry) =>
-				entry.type === "message" &&
-				entry.message.role === "assistant" &&
-				entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId),
-		);
-	if (!activeToolEntry) {
-		if (context === "inherit") {
-			throw new Error(`Cannot inherit context: active tool call ${activeToolCallId} is not in the parent branch`);
-		}
-		return sessionManager.getLeafId() ?? undefined;
+	const activeToolEntry = findActiveToolCallEntry(branch, activeToolCallId);
+	if (activeToolEntry) return findUnresolvedTurnParentId(branch, activeToolEntry);
+	if (context === "inherit") {
+		throw new Error(`Cannot inherit context: active tool call ${activeToolCallId} is not in the parent branch`);
 	}
-
-	let ancestorId = activeToolEntry.parentId;
-	while (ancestorId) {
-		const ancestor = branch.find((entry) => entry.id === ancestorId);
-		if (!ancestor) break;
-		if (ancestor.type === "message" && ancestor.message.role === "user") return ancestor.parentId ?? undefined;
-		ancestorId = ancestor.parentId;
-	}
-	return activeToolEntry.parentId ?? undefined;
+	return sessionManager.getLeafId() ?? undefined;
 }
 
 export function createProductionChildAgentSessionFactory(
