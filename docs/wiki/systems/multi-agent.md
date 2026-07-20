@@ -45,6 +45,11 @@ Production child sessions also resolve agent-type profiles from settings. The bu
 thinking). User settings can override them with `agents.<type>.model` and
 `agents.<type>.thinkingLevel`.
 
+Model execution guidance and verifier proof scope are specified in the
+[model execution and proof contract](../../specs/multi-agent.md#model-execution-and-proof): known
+independent tool calls are emitted together, while dependent calls wait for their inputs, and
+applicable command and artifact verification checks form one proof union.
+
 ## Runtime ownership and recovery
 
 The supervisor is the only orchestration authority. Child runtimes register only their agent-address

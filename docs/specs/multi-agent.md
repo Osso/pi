@@ -9,6 +9,15 @@ first-party extension modules: an agents-core tool surface, an agent-viewer proj
 an agents-mailbox coordination surface. The runtime contract belongs here; implementation details will live in
 [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) once the first slice lands.
 
+## Model execution and proof
+
+- [x] When multiple tools are available, the system prompt instructs the model to emit all
+      known independent calls together and serialize only calls whose inputs depend on an
+      earlier result.
+- [x] Before completion claims, orchestration-capable runtimes require a `verifier` agent when
+      delegation is available. The verifier proof scope is the union of applicable command and
+      artifact checks; documentation work does not replace verification.
+
 ## What it must do
 
 ### Core runtime
