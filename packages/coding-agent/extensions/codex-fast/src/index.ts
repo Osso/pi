@@ -24,16 +24,37 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 	ctx.ui.setEditorText("");
 }
 
-function updateFastStatus(ctx: ExtensionContext, state: FastModeState, model = ctx.model): void {
+function updateFastStatus(ctx: ExtensionContext, state: FastModeAuthority, model = ctx.model): void {
 	ctx.ui.setStatus(FAST_STATUS_KEY, state.enabled && supportsFastMode(model) ? "fast" : undefined);
 }
 
-interface FastModeState {
+export interface FastModeAuthority {
 	enabled: boolean;
 }
 
-async function handleFastCommand(args: string, ctx: ExtensionCommandContext, state: FastModeState): Promise<void> {
-	const requested = requestedFastMode(args, state.enabled);
+export interface CodexFastOptions {
+	authority: FastModeAuthority;
+}
+
+function isChildRuntime(ctx: ExtensionContext): boolean {
+	return (
+		ctx.multiAgentAgentId !== undefined ||
+		ctx.multiAgentRequiresAgentId === true ||
+		ctx.sessionManager?.isSubagentSession?.() === true
+	);
+}
+
+async function handleFastCommand(
+	args: string,
+	ctx: ExtensionCommandContext,
+	authority: FastModeAuthority,
+): Promise<void> {
+	if (isChildRuntime(ctx)) {
+		ctx.ui.notify("Fast mode is controlled by the main thread", "warning");
+		clearEditor(ctx);
+		return;
+	}
+	const requested = requestedFastMode(args, authority.enabled);
 	if (requested === undefined) {
 		ctx.ui.notify("Usage: /fast [on|off]", "warning");
 		clearEditor(ctx);
@@ -45,23 +66,27 @@ async function handleFastCommand(args: string, ctx: ExtensionCommandContext, sta
 		return;
 	}
 
-	state.enabled = requested;
-	updateFastStatus(ctx, state);
-	ctx.ui.notify(`Fast mode: ${state.enabled ? "on" : "off"}`, "info");
+	authority.enabled = requested;
+	updateFastStatus(ctx, authority);
+	ctx.ui.notify(`Fast mode: ${authority.enabled ? "on" : "off"}`, "info");
 	clearEditor(ctx);
 }
 
-export default function codexFastExtension(pi: ExtensionAPI): void {
-	const state: FastModeState = { enabled: false };
+export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFastOptions): void {
+	const authority = options?.authority ?? { enabled: false };
 	pi.registerCommand("fast", {
-		description: "Toggle Codex priority processing for this runtime",
-		handler: (args, ctx) => handleFastCommand(args, ctx, state),
+		description: "Toggle Codex priority processing from the main thread",
+		handler: (args, ctx) => handleFastCommand(args, ctx, authority),
+	});
+	pi.on("session_start", (_event, ctx) => {
+		if (!isChildRuntime(ctx)) authority.enabled = false;
+		updateFastStatus(ctx, authority);
 	});
 	pi.on("model_select", (event, ctx) => {
-		updateFastStatus(ctx, state, event.model);
+		updateFastStatus(ctx, authority, event.model);
 	});
 	pi.on("before_provider_request", (event, ctx) => {
-		if (!state.enabled || !supportsFastMode(ctx.model)) return undefined;
+		if (!authority.enabled || !supportsFastMode(ctx.model)) return undefined;
 		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) {
 			ctx.ui.notify("Fast mode skipped: provider payload is not an object", "warning");
 			return undefined;

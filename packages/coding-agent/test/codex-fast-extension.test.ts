@@ -11,23 +11,30 @@ import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
 type BeforeProviderRequestHandler = (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => unknown;
 type ModelSelectHandler = (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => void;
+type SessionStartHandler = (event: { type: "session_start" }, ctx: ExtensionContext) => void;
 
-function createHarness(provider = "openai-codex") {
+interface FastModeAuthority {
+	enabled: boolean;
+}
+
+function createHarness(provider = "openai-codex", authority?: FastModeAuthority, child = false) {
 	let command: Omit<RegisteredCommand, "name" | "sourceInfo"> | undefined;
 	let commandName: string | undefined;
 	let beforeProviderRequest: BeforeProviderRequestHandler | undefined;
 	let modelSelect: ModelSelectHandler | undefined;
+	let sessionStart: SessionStartHandler | undefined;
 	const pi = {
-		on: (event: string, handler: BeforeProviderRequestHandler | ModelSelectHandler) => {
+		on: (event: string, handler: BeforeProviderRequestHandler | ModelSelectHandler | SessionStartHandler) => {
 			if (event === "before_provider_request") beforeProviderRequest = handler as BeforeProviderRequestHandler;
 			if (event === "model_select") modelSelect = handler as ModelSelectHandler;
+			if (event === "session_start") sessionStart = handler as SessionStartHandler;
 		},
 		registerCommand: (name: string, value: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
 			commandName = name;
 			command = value;
 		},
 	} as unknown as ExtensionAPI;
-	codexFastExtension(pi);
+	codexFastExtension(pi, authority ? { authority } : undefined);
 
 	const notify = vi.fn();
 	const setEditorText = vi.fn();
@@ -38,12 +45,13 @@ function createHarness(provider = "openai-codex") {
 			id: "test-model",
 			provider,
 		},
+		multiAgentAgentId: child ? "child-agent" : undefined,
 		ui: { notify, setEditorText, setStatus },
 	} as unknown as ExtensionCommandContext;
 	if (!command) throw new Error("/fast command was not registered");
 	if (!beforeProviderRequest) throw new Error("before_provider_request handler was not registered");
 	if (!modelSelect) throw new Error("model_select handler was not registered");
-	return { beforeProviderRequest, command, commandName, ctx, modelSelect, notify, setEditorText, setStatus };
+	return { beforeProviderRequest, command, commandName, ctx, modelSelect, notify, sessionStart, setEditorText, setStatus };
 }
 
 describe("Codex fast mode extension", () => {
@@ -136,7 +144,50 @@ describe("Codex fast mode extension", () => {
 		expect(beforeProviderRequest(validEvent, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 	});
 
-	it("starts disabled when the runtime extension is recreated", async () => {
+	it("shares live main-thread fast mode with child runtimes", async () => {
+		const authority = { enabled: false };
+		const main = createHarness("openai-codex", authority);
+		const child = createHarness("openai-codex", authority, true);
+		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+
+		expect(child.beforeProviderRequest(event, child.ctx)).toBeUndefined();
+		await main.command.handler("on", main.ctx);
+		expect(child.beforeProviderRequest(event, child.ctx)).toEqual({
+			model: "test-model",
+			service_tier: "priority",
+		});
+		await main.command.handler("off", main.ctx);
+		expect(child.beforeProviderRequest(event, child.ctx)).toBeUndefined();
+	});
+
+	it("prevents child commands from changing main-thread fast mode", async () => {
+		const authority = { enabled: true };
+		const main = createHarness("openai-codex", authority);
+		const child = createHarness("openai-codex", authority, true);
+		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+
+		await child.command.handler("off", child.ctx);
+
+		expect(child.notify).toHaveBeenLastCalledWith("Fast mode is controlled by the main thread", "warning");
+		expect(main.beforeProviderRequest(event, main.ctx)).toEqual({
+			model: "test-model",
+			service_tier: "priority",
+		});
+	});
+
+	it("resets shared fast mode when the main session starts without letting child startup reset it", async () => {
+		const authority = { enabled: true };
+		const main = createHarness("openai-codex", authority);
+		const child = createHarness("openai-codex", authority, true);
+		if (!main.sessionStart || !child.sessionStart) throw new Error("session_start handler was not registered");
+
+		child.sessionStart({ type: "session_start" }, child.ctx);
+		expect(authority.enabled).toBe(true);
+		main.sessionStart({ type: "session_start" }, main.ctx);
+		expect(authority.enabled).toBe(false);
+	});
+
+	it("starts disabled when the runtime extension is recreated without shared authority", async () => {
 		const first = createHarness();
 		await first.command.handler("on", first.ctx);
 		const second = createHarness();

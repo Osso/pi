@@ -26,7 +26,7 @@ import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
-import codexFastExtension from "../extensions/codex-fast/src/index.ts";
+import codexFastExtension, { type FastModeAuthority } from "../extensions/codex-fast/src/index.ts";
 import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
 import codexWebSearchExtension from "../extensions/codex-web-search/src/index.ts";
 import debugExtension from "../extensions/debug/src/index.ts";
@@ -601,6 +601,7 @@ let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 function createFirstPartyExtensionFactories(
 	getRuntimeExtensionFactories: () => ExtensionFactory[],
 	getDebugRepl: () => DebugReplServer,
+	fastModeAuthority: FastModeAuthority,
 ): ExtensionFactory[] {
 	const childAgentSessionFactory = createProductionChildAgentSessionFactory({
 		agentDir: getAgentDir(),
@@ -620,7 +621,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
 		firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
-		firstPartyExtensionFactory("codex-fast", codexFastExtension),
+		firstPartyExtensionFactory("codex-fast", (pi) => codexFastExtension(pi, { authority: fastModeAuthority })),
 		firstPartyExtensionFactory("codex-usage", codexUsageExtension),
 		firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
 		firstPartyExtensionFactory("debug", (pi) => debugExtension(pi, getDebugRepl)),
@@ -737,12 +738,14 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	let extensionFactories: ExtensionFactory[] = [];
 	let debugRepl: DebugReplServer | undefined;
+	const fastModeAuthority: FastModeAuthority = { enabled: false };
 	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(
 		() => extensionFactories,
 		() => {
 			if (!debugRepl) throw new Error("Debug REPL is not available before runtime initialization");
 			return debugRepl;
 		},
+		fastModeAuthority,
 	);
 	extensionFactories = parsed.noExtensions
 		? (options?.extensionFactories ?? [])

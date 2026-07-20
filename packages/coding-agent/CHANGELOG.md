@@ -16,7 +16,7 @@
 ### Added
 
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
-- Added runtime-only `/fast` mode for `openai-codex` and `openai-codex-gc`, applying priority processing until disabled and resetting on restart or resume.
+- Added runtime-only `/fast` mode for `openai-codex` and `openai-codex-gc`, with one main-thread authority shared dynamically by spawned and attached child runtimes for later Codex requests; child `/fast` commands cannot mutate it, and it resets on main session start, restart, or resume without persistence.
 - Added built-in `search_current_session_history` for searching full conversational entry content on the active branch, including entries omitted from model context by compaction.
 - Added parent-journal admission enforcement for spawned agents: dispatch starts only after `agent_start` persists, append failures terminalize explicitly without running the child, and restart cleanup fails dead-owned unjournaled rows instead of leaving active ghosts.
 - Added a distinct Supervisor `wait` goal decision that emits durable status, runs cancellable background `wait_agents` when agents are active, and otherwise re-runs Supervisor review after five minutes; idle-review errors use the same self-waking path, transient pending-message suppression retries before review or preserves an already reviewed decision, agent wake evidence survives pre-review retries, asynchronous reviews recheck cancellation generation and goal identity, agent-discovery and wait failures fall back to timed review, and input, goal changes, new turns, or shutdown cancel stale work.
