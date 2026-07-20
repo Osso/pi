@@ -193,18 +193,14 @@ describe("goal extension runtime", () => {
 		await waitForProviderCalls(harness, 1);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(harness.sessionManager.getEntries()).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ customType: "supervisor-status" }),
-			]),
+			expect.arrayContaining([expect.objectContaining({ customType: "supervisor-status" })]),
 		);
 		releaseListener?.();
 		await prompt;
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
 		expect(harness.sessionManager.getEntries()).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ customType: "supervisor-status" }),
-			]),
+			expect.arrayContaining([expect.objectContaining({ customType: "supervisor-status" })]),
 		);
 	});
 
