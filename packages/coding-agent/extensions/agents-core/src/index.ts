@@ -7,11 +7,13 @@ export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgen
 
 export {
 	cancelOwnedAgentRuntime,
+	consumeNotifications,
 	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
 	resolveSelectedSessionMutationTarget,
+	waitNotifications,
 } from "./runtime.ts";
 export { createHostrunMultiAgentRequestHandler } from "./runtime.ts";
 export type {
@@ -25,4 +27,5 @@ export type {
 	HostrunMultiAgentRequestHandler,
 	MultiAgentExtensionOptions,
 	MultiAgentRuntimeHandles,
+	WaitNotificationsWake,
 } from "./runtime.ts";

@@ -126,11 +126,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
       from `cancelling`, never direct JSON rewrite or inferred result. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
-- [x] `wait_agents({})` snapshots agents active at invocation, consumes every pending terminal notification already waiting,
-      and queries current agent rows until any snapshot member is terminal. Terminal notifications only wake the query;
-      the agent row is terminal truth. A coordination wake returns and consumes all currently pending deliverable
-      runtime-mailbox and shared-channel inputs so each message is visible exactly once. Restore clears transient
-      `runtime` worker metadata without rewriting
+- [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or coordination
+      input is available without changing notification delivery state, while explicit consumption drains every pending
+      terminal notification. `wait_agents({})` composes both operations, snapshots agents active at invocation, and queries
+      current agent rows until any snapshot member is terminal. Terminal notifications only wake the query; the agent row
+      is terminal truth. A coordination wake consumes all currently pending deliverable runtime-mailbox and shared-channel
+      inputs so each message is visible exactly once. Restore clears transient `runtime` worker metadata without rewriting
       durable lifecycle.
 
 ### Runtime construction inventory
@@ -519,6 +520,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)
   verifies canonical runtime mailbox delivery for child completion, waiting-for-input,
   steering, and failed detached Pyrun notifications, including `wait_agents({})` delivery marking.
+- [`packages/coding-agent/test/wait-agent-notifications.test.ts`](../../packages/coding-agent/test/wait-agent-notifications.test.ts)
+  verifies waiting observes terminal notifications without consuming them and explicit consumption performs delivery.
 - [`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`](../../packages/coding-agent/test/suite/agent-session-child-activity.test.ts)
   verifies child sessions publish thinking/tool phase transitions with stable start timestamps and
   clear current activity at turn completion.

@@ -2164,7 +2164,7 @@ function formatSentMessageTarget(message: AgentMailboxMessage, toSessionId: stri
 	return toSessionId ? `${message.toAgentId} in session ${toSessionId}` : message.toAgentId;
 }
 
-type WaitAgentsWake =
+export type WaitNotificationsWake =
 	| { kind: "agent"; agent: AgentSnapshot }
 	| { kind: "cancelled" }
 	| { kind: "coordination" }
@@ -2184,7 +2184,7 @@ class WaitAgentsWakeWatcher {
 	private readonly signal: AbortSignal | undefined;
 	private readonly store: MultiAgentStore;
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
-	private resolve: ((wake: WaitAgentsWake) => void) | undefined;
+	private resolve: ((wake: WaitNotificationsWake) => void) | undefined;
 	private runtimeSignalHandler: (() => void) | undefined;
 	private settled = false;
 	private unsubscribeAgentTransitions = () => {};
@@ -2205,7 +2205,7 @@ class WaitAgentsWakeWatcher {
 		this.store = store;
 	}
 
-	wait(): Promise<WaitAgentsWake> {
+	wait(): Promise<WaitNotificationsWake> {
 		if (this.signal?.aborted) {
 			return Promise.resolve({ kind: "cancelled" });
 		}
@@ -2284,7 +2284,7 @@ class WaitAgentsWakeWatcher {
 		}
 	};
 
-	private finish(wake: WaitAgentsWake): void {
+	private finish(wake: WaitNotificationsWake): void {
 		if (this.settled) return;
 		this.settled = true;
 		this.cleanup();
@@ -2311,21 +2311,44 @@ async function waitAgents(
 	signal: AbortSignal | undefined,
 	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<WaitAgentsToolDetails>> {
+	const wake = await waitNotifications(store, signal, ctx);
+	return consumeNotifications(store, wake, ctx);
+}
+
+export async function waitNotifications(
+	store: MultiAgentStore,
+	signal?: AbortSignal,
+	ctx?: ExtensionContext,
+): Promise<WaitNotificationsWake> {
 	if (ctx && isChildAgentRuntime(ctx)) {
-		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {});
+		return { error: new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE), kind: "error" };
 	}
 	if (ctx) mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 	const persistence = store.getPersistenceTarget();
-	if (!persistence) return errorResult("wait_agents requires a persisted supervisor session.", {});
-	const pending = takePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
-	if (pending) return pending;
-	const wake = await waitForAgentOrCoordination(
+	if (!persistence) {
+		return { error: new Error("wait_agents requires a persisted supervisor session."), kind: "error" };
+	}
+	const pending = listPendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
+	if (pending.length > 0) return { agent: pending[0].agent, kind: "agent" };
+	return waitForAgentOrCoordination(
 		store,
 		persistence.controlDbPath,
 		persistence.sessionPath,
 		signal,
 		runtimeCoordinationRecipient(ctx),
 	);
+}
+
+export function consumeNotifications(
+	store: MultiAgentStore,
+	wake: WaitNotificationsWake,
+	ctx?: ExtensionContext,
+): AgentToolResult<WaitAgentsToolDetails> {
+	const persistence = store.getPersistenceTarget();
+	if (persistence) {
+		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
+		if (pending) return pending;
+	}
 	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
 	if (wake.kind === "coordination") {
 		const coordination = takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
@@ -2336,10 +2359,7 @@ async function waitAgents(
 		return errorResult(`Wait failed: ${message}`, {});
 	}
 	if (wake.kind === "none") return emptyResult();
-	return (
-		takePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath) ??
-		result(formatAgentStatus(wake.agent), { agent: wake.agent })
-	);
+	return result(formatAgentStatus(wake.agent), { agent: wake.agent });
 }
 
 function runtimeCoordinationRecipient(ctx: ExtensionContext | undefined): RuntimeCoordinationRecipient | undefined {
@@ -2405,18 +2425,28 @@ function readSharedChannelMessagesThrough(
 	return messages;
 }
 
-function takePendingTerminalNotifications(
+type PendingTerminalNotification = { agent: AgentSnapshot; message: AgentMailboxMessage };
+
+function listPendingTerminalNotifications(
 	store: MultiAgentStore,
 	controlDbPath: string,
 	sessionPath: string,
-): AgentToolResult<WaitAgentsToolDetails> | undefined {
+): PendingTerminalNotification[] {
 	const persistedAgents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
-	const pending = persistedAgents.flatMap((agent) => {
+	return persistedAgents.flatMap((agent) => {
 		const lifecycle = agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
 		if (!lifecycle) return [];
 		const message = store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
 		return message ? [{ agent, message }] : [];
 	});
+}
+
+function consumePendingTerminalNotifications(
+	store: MultiAgentStore,
+	controlDbPath: string,
+	sessionPath: string,
+): AgentToolResult<WaitAgentsToolDetails> | undefined {
+	const pending = listPendingTerminalNotifications(store, controlDbPath, sessionPath);
 	if (pending.length === 0) return undefined;
 
 	for (const { message } of pending) store.markMailboxMessageDelivered(message.id);
@@ -2432,7 +2462,7 @@ async function waitForAgentOrCoordination(
 	sessionPath: string,
 	signal: AbortSignal | undefined,
 	recipient: RuntimeCoordinationRecipient | undefined,
-): Promise<WaitAgentsWake> {
+): Promise<WaitNotificationsWake> {
 	if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
 	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
 	return new WaitAgentsWakeWatcher(
