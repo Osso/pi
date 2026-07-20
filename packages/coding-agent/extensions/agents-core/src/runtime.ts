@@ -192,6 +192,16 @@ const sendAgentMessageSchema = Type.Object({
 
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
+
+function requireSpawnAgentParams(params: unknown): asserts params is SpawnAgentParams {
+	if (!params || typeof params !== "object") {
+		throw new Error('spawn_agent context must be "fresh" or "inherit"');
+	}
+	const context = (params as { context?: unknown }).context;
+	if (context !== "fresh" && context !== "inherit") {
+		throw new Error('spawn_agent context must be "fresh" or "inherit"');
+	}
+}
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type AgentViewerParams = Static<typeof agentViewerSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
@@ -661,9 +671,21 @@ export function createProductionChildAgentSessionFactory(
 			isSubagent: true,
 			subagentName: agent.displayName,
 		};
+		const activeEntry = ctx.sessionManager.getLeafEntry();
+		const activeSpawnCall =
+			activeEntry?.type === "message" &&
+			activeEntry.message.role === "assistant" &&
+			activeEntry.message.content.some((part) => part.type === "toolCall" && part.name === "spawn_agent");
+		const inheritedPrefixId = activeSpawnCall ? (activeEntry.parentId ?? undefined) : undefined;
 		const sessionManager =
 			context === "inherit" && parentSessionFile
-				? SessionManager.forkFrom(parentSessionFile, agent.cwd, sessionDir, childSessionOptions)
+				? SessionManager.forkFrom(
+						parentSessionFile,
+						agent.cwd,
+						sessionDir,
+						childSessionOptions,
+						inheritedPrefixId,
+					)
 				: options.createSessionManager(agent.cwd, sessionDir, childSessionOptions);
 		const profile = resolveChildAgentProfile(agent, ctx);
 		const sessionStartEvent = parentSessionFile
@@ -795,7 +817,7 @@ export function createHostrunMultiAgentRequestHandler(
 				options.createChildSession,
 				activeDispatches,
 				ownerships,
-				request.params as SpawnAgentParams,
+				request.params,
 				ctx,
 				desktopNotifier,
 				waitingDesktopNotifications,
@@ -1004,13 +1026,14 @@ async function spawnAgent(
 	createChildSession: ChildAgentSessionFactory | undefined,
 	dispatches: ActiveAgentDispatches,
 	ownerships: Map<string, OwnedAgentRuntime>,
-	params: SpawnAgentParams,
+	params: unknown,
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	pi: ParentAgentJournalWriter | undefined,
 	handles?: BackgroundSessionHandles,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+	requireSpawnAgentParams(params);
 	if (isChildAgentRuntime(ctx)) {
 		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
 			agent: emptyAgent("spawn_agent"),

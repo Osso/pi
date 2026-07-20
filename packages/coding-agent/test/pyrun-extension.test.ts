@@ -489,9 +489,28 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   if (request.code === "pi.agents.spawn({'prompt': 'inspect X'})") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X" } }) + "\\n");
     const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.agents.spawn({'prompt': 'inspect X', 'context': 'invalid'})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X", context: "invalid" } }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
     return { type: "completed", executed: request.code, value: response.result };
   }
   if (request.code === "pi.agents.wait()") {
@@ -1423,10 +1442,74 @@ for await (const line of createInterface({ input: process.stdin })) {
 			],
 		});
 
+		const result = await harness.evaluate({
+			code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})",
+		});
+
+		expect(requests).toEqual([
+			{ method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } },
+		]);
+		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
+	});
+
+	it("rejects Pyrun pi.agents.spawn requests without context through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
+		const createChildSession = vi.fn(async () => ({
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {},
+		}));
+		const harness = createPyrunHarness({
+			piRequestHandlers: [
+				createHostrunMultiAgentRequestHandler(
+					{ createChildSession, store },
+					{
+						appendEntry: (customType: string, data?: unknown) =>
+							sessionManager.appendCustomEntry(customType, data),
+					} satisfies ParentAgentJournalWriter,
+				),
+			],
+		});
+
 		const result = await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
 
-		expect(requests).toEqual([{ method: "agents.spawn", params: { prompt: "inspect X" } }]);
-		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
+		expect(result.isError).toBe(true);
+		expect(result.details.error).toContain("context");
+		expect(createChildSession).not.toHaveBeenCalled();
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("rejects Pyrun pi.agents.spawn requests with invalid context through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
+		const createChildSession = vi.fn(async () => ({
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {},
+		}));
+		const harness = createPyrunHarness({
+			piRequestHandlers: [
+				createHostrunMultiAgentRequestHandler(
+					{ createChildSession, store },
+					{
+						appendEntry: (customType: string, data?: unknown) =>
+							sessionManager.appendCustomEntry(customType, data),
+					} satisfies ParentAgentJournalWriter,
+				),
+			],
+		});
+
+		const result = await harness.evaluate({
+			code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'invalid'})",
+		});
+
+		expect(result.isError).toBe(true);
+		expect(result.details.error).toContain("context");
+		expect(createChildSession).not.toHaveBeenCalled();
+		expect(store.listAgents()).toEqual([]);
 	});
 
 	it("responds to Pyrun pi.agents.wait requests through configured handlers", async () => {
@@ -1471,7 +1554,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			],
 		});
 
-		await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
+		await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})" });
 		const result = await harness.evaluate({ code: "pi.agents.wait()" });
 
 		expect(result.details.value).toBeNull();
