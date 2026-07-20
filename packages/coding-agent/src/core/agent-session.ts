@@ -1588,9 +1588,19 @@ export class AgentSession {
 		}
 	}
 
+	private async _continueAgentWithThinkingTimeout(): Promise<void> {
+		try {
+			await this.agent.continue();
+		} catch (error) {
+			throw this._consumeThinkingPhaseTimeoutError() ?? error;
+		}
+		const timeoutError = this._consumeThinkingPhaseTimeoutError();
+		if (timeoutError) throw timeoutError;
+	}
+
 	private async _continuePostAgentRunsWhileHoldingTurnStartLock(): Promise<void> {
 		while (await this._handlePostAgentRun()) {
-			await this.agent.continue();
+			await this._continueAgentWithThinkingTimeout();
 		}
 	}
 
@@ -1604,7 +1614,7 @@ export class AgentSession {
 			}
 
 			this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
-			await this.agent.continue();
+			await this._continueAgentWithThinkingTimeout();
 			if (turnStartLockHeld) {
 				await this._continuePostAgentRunsWhileHoldingTurnStartLock();
 			} else {
@@ -2171,15 +2181,9 @@ export class AgentSession {
 				if (!(await this._handlePostAgentRun())) {
 					return false;
 				}
-				const continuation = this.agent.continue();
+				const continuation = this._continueAgentWithThinkingTimeout();
 				release();
-				try {
-					await continuation;
-				} catch (error) {
-					throw this._consumeThinkingPhaseTimeoutError() ?? error;
-				}
-				const timeoutError = this._consumeThinkingPhaseTimeoutError();
-				if (timeoutError) throw timeoutError;
+				await continuation;
 				return true;
 			})
 		) {
@@ -2645,6 +2649,11 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
+	private _steerAgent(message: AgentMessage): void {
+		this.agent.steer(message);
+		if (this._multiAgentActiveTools.size === 0) this._startThinkingPhaseDeadline();
+	}
+
 	private async _queueSteer(text: string, images?: ImageContent[], inputSource?: InputSource): Promise<void> {
 		this._steeringMessages.push(text);
 		this._emitQueueUpdate();
@@ -2652,13 +2661,12 @@ export class AgentSession {
 		if (images) {
 			content.push(...images);
 		}
-		this.agent.steer({
+		this._steerAgent({
 			role: "user",
 			content,
 			inputSource,
 			timestamp: Date.now(),
 		});
-		if (this._multiAgentActiveTools.size === 0) this._startThinkingPhaseDeadline();
 	}
 
 	/**
@@ -2820,7 +2828,7 @@ export class AgentSession {
 			.map((message) => formatRuntimeMailboxPrompt(message, recipient.sessionId))
 			.join("\n\n");
 		if (delivery.mode === "steer") {
-			this.agent.steer({
+			this._steerAgent({
 				role: "user",
 				content: [{ type: "text", text: prompt }],
 				inputSource: "extension",
@@ -3181,7 +3189,7 @@ export class AgentSession {
 			if (options?.deliverAs === "followUp") {
 				this.agent.followUp(appMessage);
 			} else {
-				this.agent.steer(appMessage);
+				this._steerAgent(appMessage);
 			}
 		} else if (options?.triggerTurn) {
 			await this._withTurnStartLock(async (release) => {
@@ -3189,7 +3197,7 @@ export class AgentSession {
 					if (options.deliverAs === "followUp") {
 						this.agent.followUp(appMessage);
 					} else {
-						this.agent.steer(appMessage);
+						this._steerAgent(appMessage);
 					}
 					return;
 				}
