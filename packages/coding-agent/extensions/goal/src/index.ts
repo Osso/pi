@@ -17,6 +17,7 @@ import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-s
 import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
+import { goalFooterStatus, goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
 import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
 import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
@@ -187,25 +188,9 @@ function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boole
 	return hasStoredGoal || hasLegacyGoal;
 }
 
-function goalFooterStatus(goal: Goal): string {
-	return goal.pausedAt ? `goal paused: ${goal.objective}` : `goal: ${goal.objective}`;
-}
-
-function goalStartupMessage(goal: Goal): string {
-	return goal.pausedAt ? `Paused goal: ${goal.objective}` : `Active goal: ${goal.objective}`;
-}
-
-function goalViewMessage(goal: Goal): string {
-	return goal.pausedAt ? `Goal paused: ${goal.objective}` : `Goal: ${goal.objective}`;
-}
-
 function updateGoalFooterStatus(ctx: ExtensionContext): void {
 	const goal = loadActiveGoal(ctx);
 	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
-}
-
-function goalStateLines(goal: Goal): string[] {
-	return [`Continuation turns used: ${goal.continuationTurns ?? 0}`];
 }
 
 function currentBranch(cwd: string): string {
@@ -246,21 +231,6 @@ function loadLegacyPreviousGoal(event: SessionStartEvent, ctx: ExtensionContext)
 	if (!event.previousSessionFile) return null;
 	const previousSessionId = sessionIdFromSessionFile(event.previousSessionFile);
 	return previousSessionId ? loadGoalFile(goalPathForSessionId(ctx.cwd, previousSessionId)) : null;
-}
-
-function goalSystemBlock(goal: Goal): string {
-	return [
-		"<goal>",
-		`Long-running objective: ${goal.objective}`,
-		`(set on ${goal.branch} at ${goal.createdAt})`,
-		...goalStateLines(goal),
-		"",
-		"Keep working toward this objective across turns until it is achieved.",
-		'When it is achieved, call the manage_goal tool with action "complete".',
-		"Do not call manage_goal with action set for this objective; it is already active.",
-		"If you cannot make further progress, say what is blocking it rather than stopping silently.",
-		"</goal>",
-	].join("\n");
 }
 
 function textResult(text: string, details: Record<string, unknown> = {}): AgentToolResult<unknown> {
