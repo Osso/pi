@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import goalExtension, {
-	type GoalSupervisorResponse,
-	type GoalSupervisorReview,
-} from "../extensions/goal/src/index.ts";
+import goalExtension, { type GoalSupervisorResponse, type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
 	BeforeAgentStartEvent,
