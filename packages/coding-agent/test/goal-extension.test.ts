@@ -951,7 +951,7 @@ describe("goal extension", () => {
 				.mockResolvedValueOnce({ kind: "pause", reason: "recovered review" });
 			const harness = createGoalHarness(cwd, {
 				callTool: async () => ({
-					content: [{ type: "text", text: "list_agents unavailable" }],
+					content: [{ type: "text" as const, text: "list_agents unavailable" }],
 					details: {},
 					isError: true,
 				}),
@@ -982,7 +982,7 @@ describe("goal extension", () => {
 				callTool: async (name) => {
 					if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
 					return {
-						content: [{ type: "text", text: "wait_agents unavailable" }],
+						content: [{ type: "text" as const, text: "wait_agents unavailable" }],
 						details: {},
 						isError: true,
 					};
