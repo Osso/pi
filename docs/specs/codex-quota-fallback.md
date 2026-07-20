@@ -33,8 +33,8 @@ behavior.
 ### Events
 
 - [x] Emit `model_select` with `source: "fallback"` when the paired provider is selected.
-- [x] Report `agent_end.willRetry: true` while quota fallback continuation is pending, even when
-      generic retry is disabled, and report `false` after the final response.
+- [x] Continue the interrupted request through the paired provider while fallback is pending and
+      emit the final response without exposing retry state through the extension `agent_end` event.
 
 ## How it works
 
@@ -44,14 +44,14 @@ behavior.
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/agent-session.ts` — detects eligible exhaustion errors, switches
-  the model, keeps fallback session-local, and drives continuation/`willRetry` state.
+  the model, keeps fallback session-local, and drives fallback continuation state.
 - `packages/coding-agent/src/core/extensions/types.ts` — defines the `model_select` fallback source.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/agent-session-retry.test.ts`
   - `falls back to the paired Codex provider after quota exhaustion` — paired provider, model ID,
-    session-local defaults, and `agent_end.willRetry` behavior.
+    session-local defaults, and fallback continuation behavior.
   - `does not fall back for unrelated billing errors` — narrowed eligibility matcher.
   - `does not bounce between Codex providers and resets fallback on the next user turn` — one
     fallback per turn, reverse pairing, and next-turn guard reset.
