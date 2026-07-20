@@ -65,27 +65,31 @@ function footerSession(input: DefaultFooterComponentInput): FooterSessionOverrid
 	);
 }
 
-function formatContextUsage(session: FooterSessionOverride): string {
+function formatContextUsage(session: FooterSessionOverride, theme: Theme): string {
 	const usage = session.contextUsage;
 	const contextWindow = usage?.contextWindow ?? session.model?.contextWindow ?? 0;
+	const contextWindowText = formatTokens(contextWindow);
 	const percent = usage?.percent;
 	if (percent === null || percent === undefined) {
-		return `ctx ?/${formatTokens(contextWindow)}`;
+		return theme.fg("dim", `ctx ?/${contextWindowText}`);
 	}
-	return `ctx ${percent.toFixed(1)}%/${formatTokens(contextWindow)}`;
+	return `${theme.fg("dim", "ctx ")}${percent.toFixed(1)}%${theme.fg("dim", `/${contextWindowText}`)}`;
 }
 
-function formatAgentCounts(counts: DefaultFooterAgentLifecycleCounts | undefined): string | undefined {
+function formatAgentCounts(counts: DefaultFooterAgentLifecycleCounts | undefined, theme: Theme): string | undefined {
 	if (!counts) {
 		return undefined;
 	}
 
-	const parts = [];
-	if (counts.running > 0) parts.push(`${counts.running} running`);
-	if (counts.waitingForInput > 0) parts.push(`${counts.waitingForInput} waiting`);
-	if (counts.steeringPending > 0) parts.push(`${counts.steeringPending} steering`);
+	const secondaryParts = [];
+	if (counts.waitingForInput > 0) secondaryParts.push(`${counts.waitingForInput} waiting`);
+	if (counts.steeringPending > 0) secondaryParts.push(`${counts.steeringPending} steering`);
+	if (counts.running > 0) {
+		const secondaryText = secondaryParts.length > 0 ? theme.fg("dim", ` ${secondaryParts.join(" ")}`) : "";
+		return `agents ${counts.running} running${secondaryText}`;
+	}
 
-	return parts.length > 0 ? `agents ${parts.join(" ")}` : undefined;
+	return secondaryParts.length > 0 ? theme.fg("dim", `agents ${secondaryParts.join(" ")}`) : undefined;
 }
 
 function formatAgentLifecycle(lifecycle: AgentLifecycleState): string {
@@ -170,15 +174,17 @@ function formatStats(input: DefaultFooterComponentInput): string {
 	const session = footerSession(input);
 	const usage = sessionUsage(session);
 	const executableName = input.footerData.getExecutableName();
+	const selectedAgent = formatSelectedAgent(input.getSelectedAgent?.());
 	const parts = [
-		executableName ? `[${executableName}]` : undefined,
-		formatSelectedAgent(input.getSelectedAgent?.()),
-		formatAgentCounts(input.getAgentCounts?.()),
+		executableName ? input.theme.fg("dim", `[${executableName}]`) : undefined,
+		selectedAgent ? input.theme.fg("dim", selectedAgent) : undefined,
+		formatAgentCounts(input.getAgentCounts?.(), input.theme),
 	];
-	if (usage.input > 0) parts.push(`in ${formatTokens(usage.input)}`);
-	if (usage.output > 0) parts.push(`out ${formatTokens(usage.output)}`);
-	parts.push(formatCost(usage.cost));
-	parts.push(formatContextUsage(session));
+	if (usage.input > 0) parts.push(input.theme.fg("dim", `in ${formatTokens(usage.input)}`));
+	if (usage.output > 0) parts.push(input.theme.fg("dim", `out ${formatTokens(usage.output)}`));
+	const cost = formatCost(usage.cost);
+	if (cost) parts.push(input.theme.fg("dim", cost));
+	parts.push(formatContextUsage(session, input.theme));
 
 	return parts.filter((part): part is string => part !== undefined).join(" ");
 }
@@ -194,7 +200,7 @@ function formatRightSide(input: DefaultFooterComponentInput): string {
 }
 
 function formatStatsLine(input: DefaultFooterComponentInput, width: number): string {
-	let left = input.theme.fg("dim", formatStats(input));
+	let left = formatStats(input);
 	const right = input.theme.fg("dim", formatRightSide(input));
 	if (visibleWidth(left) + 2 + visibleWidth(right) > width) {
 		left = truncateToWidth(left, Math.max(0, width - visibleWidth(right) - 2), input.theme.fg("dim", "..."));

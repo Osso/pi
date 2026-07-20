@@ -53,7 +53,11 @@ function createFooterData(executableName?: string): ReadonlyFooterDataProvider {
 	};
 }
 
-function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false, executableName?: string): string {
+function renderedStatsLine(
+	counts?: DefaultFooterAgentLifecycleCounts,
+	usingOAuth = false,
+	executableName?: string,
+): string {
 	initTheme(undefined, false);
 	const footer = createDefaultFooterComponent({
 		ctx: createContext(
@@ -70,7 +74,11 @@ function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = fals
 		getAgentCounts: () => counts,
 		theme,
 	});
-	return stripAnsi(footer.render(160)[1] ?? "");
+	return footer.render(160)[1] ?? "";
+}
+
+function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false, executableName?: string): string {
+	return stripAnsi(renderedStatsLine(counts, usingOAuth, executableName));
 }
 
 describe("default footer extension", () => {
@@ -82,6 +90,20 @@ describe("default footer extension", () => {
 		expect(line).not.toContain("R13M");
 		expect(line).not.toContain("CH99.6%");
 		expect(line).not.toContain("auto");
+	});
+
+	it("highlights the running-agent label without changing surrounding footer text", () => {
+		const line = renderedStatsLine({ running: 2, steeringPending: 1, waitingForInput: 3 });
+
+		expect(line).toContain(`agents 2 running${theme.fg("dim", " 3 waiting 1 steering")}`);
+		expect(stripAnsi(line)).toContain("agents 2 running 3 waiting 1 steering in 412k");
+	});
+
+	it("highlights only the context percentage without changing surrounding footer text", () => {
+		const line = renderedStatsLine();
+
+		expect(line).toContain(`${theme.fg("dim", "ctx ")}60.9%${theme.fg("dim", "/272k")}`);
+		expect(stripAnsi(line)).toContain("cost $9.39 ctx 60.9%/272k");
 	});
 
 	it("does not show subscription shorthand in cost text", () => {
