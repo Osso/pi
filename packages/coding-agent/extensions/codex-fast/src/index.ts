@@ -20,33 +20,37 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 	ctx.ui.setEditorText("");
 }
 
-export default function codexFastExtension(pi: ExtensionAPI): void {
-	let enabled = false;
+interface FastModeState {
+	enabled: boolean;
+}
 
+async function handleFastCommand(args: string, ctx: ExtensionCommandContext, state: FastModeState): Promise<void> {
+	const requested = requestedFastMode(args, state.enabled);
+	if (requested === undefined) {
+		ctx.ui.notify("Usage: /fast [on|off]", "warning");
+		clearEditor(ctx);
+		return;
+	}
+	if (requested && !supportsFastMode(ctx.model)) {
+		ctx.ui.notify("Fast mode requires openai-codex or openai-codex-gc", "warning");
+		clearEditor(ctx);
+		return;
+	}
+
+	state.enabled = requested;
+	ctx.ui.setStatus(FAST_STATUS_KEY, state.enabled ? "fast" : undefined);
+	ctx.ui.notify(`Fast mode: ${state.enabled ? "on" : "off"}`, "info");
+	clearEditor(ctx);
+}
+
+export default function codexFastExtension(pi: ExtensionAPI): void {
+	const state: FastModeState = { enabled: false };
 	pi.registerCommand("fast", {
 		description: "Toggle Codex priority processing for this runtime",
-		handler: async (args, ctx) => {
-			const requested = requestedFastMode(args, enabled);
-			if (requested === undefined) {
-				ctx.ui.notify("Usage: /fast [on|off]", "warning");
-				clearEditor(ctx);
-				return;
-			}
-			if (requested && !supportsFastMode(ctx.model)) {
-				ctx.ui.notify("Fast mode requires openai-codex or openai-codex-gc", "warning");
-				clearEditor(ctx);
-				return;
-			}
-
-			enabled = requested;
-			ctx.ui.setStatus(FAST_STATUS_KEY, enabled ? "fast" : undefined);
-			ctx.ui.notify(`Fast mode: ${enabled ? "on" : "off"}`, "info");
-			clearEditor(ctx);
-		},
+		handler: (args, ctx) => handleFastCommand(args, ctx, state),
 	});
-
 	pi.on("before_provider_request", (event, ctx) => {
-		if (!enabled || !supportsFastMode(ctx.model)) return undefined;
+		if (!state.enabled || !supportsFastMode(ctx.model)) return undefined;
 		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) return undefined;
 		return { ...event.payload, service_tier: "priority" };
 	});
