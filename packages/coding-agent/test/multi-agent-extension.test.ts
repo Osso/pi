@@ -2182,7 +2182,7 @@ describe("multi-agent extension tools", () => {
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as unknown as ExtensionContext;
 
 		const spawned = (await handler(
-			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "hostrun work" } },
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "hostrun work" } },
 			ctx,
 			undefined,
 		)) as SpawnAgentDetails;
@@ -2226,7 +2226,7 @@ describe("multi-agent extension tools", () => {
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as unknown as ExtensionContext;
 
 		const spawned = (await handler(
-			{ method: "agents.spawn", params: { displayName: "Worker", prompt: "hostrun work" } },
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "hostrun work" } },
 			ctx,
 			undefined,
 		)) as SpawnAgentDetails;
@@ -3617,7 +3617,10 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { context: "fresh", prompt: "Review without journal" });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			prompt: "Review without journal",
+		});
 
 		expect(spawned.content).toEqual([
 			{ text: "spawn_agent failed to persist parent journal: journal disk full", type: "text" },
@@ -3996,7 +3999,11 @@ describe("multi-agent extension tools", () => {
 			if (context.messages.some((message) => message.role === "toolResult")) {
 				return fauxAssistantMessage("Parent completed");
 			}
-			if (context.messages.some((message) => message.role === "user" && getMessageText(message) === "Child assignment")) {
+			if (
+				context.messages.some(
+					(message) => message.role === "user" && getMessageText(message) === "Child assignment",
+				)
+			) {
 				return fauxAssistantMessage("Child completed");
 			}
 			return fauxAssistantMessage(
@@ -4096,7 +4103,10 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { context: "fresh", prompt: "Inspect child tools" });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			prompt: "Inspect child tools",
+		});
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(childSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
@@ -4611,7 +4621,10 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness({ createChildSession, ctx: { sessionManager } });
 		await harness.emit("session_start");
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { context: "fresh", prompt: "  Preserve spacing  " });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			prompt: "  Preserve spacing  ",
+		});
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(dispatchedPrompt).toBe("  Preserve spacing  ");
@@ -4721,7 +4734,10 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { context: "fresh", prompt: "Anchor first child turn" });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			prompt: "Anchor first child turn",
+		});
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(firstSystemPrompt).not.toContain("Long-running objective: Anchor first child turn");

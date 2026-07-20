@@ -1446,9 +1446,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})",
 		});
 
-		expect(requests).toEqual([
-			{ method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } },
-		]);
+		expect(requests).toEqual([{ method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } }]);
 		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
 	});
 
@@ -1463,13 +1461,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}));
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler(
-					{ createChildSession, store },
-					{
-						appendEntry: (customType: string, data?: unknown) =>
-							sessionManager.appendCustomEntry(customType, data),
-					} satisfies ParentAgentJournalWriter,
-				),
+				createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+				} satisfies ParentAgentJournalWriter),
 			],
 		});
 
@@ -1492,13 +1486,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}));
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler(
-					{ createChildSession, store },
-					{
-						appendEntry: (customType: string, data?: unknown) =>
-							sessionManager.appendCustomEntry(customType, data),
-					} satisfies ParentAgentJournalWriter,
-				),
+				createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+				} satisfies ParentAgentJournalWriter),
 			],
 		});
 
