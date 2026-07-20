@@ -2658,6 +2658,7 @@ export class AgentSession {
 			inputSource,
 			timestamp: Date.now(),
 		});
+		if (this._multiAgentActiveTools.size === 0) this._startThinkingPhaseDeadline();
 	}
 
 	/**

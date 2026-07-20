@@ -14,6 +14,7 @@ interface AgentActivityPublisher {
 	_consumeThinkingPhaseTimeoutError(): Error | undefined;
 	_continuePostAgentRuns(): Promise<void>;
 	_handlePostAgentRun(): Promise<boolean>;
+	_queueSteer(text: string): Promise<void>;
 	_runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void>;
 }
 
@@ -219,7 +220,7 @@ describe("child agent current activity", () => {
 
 		publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
 		await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-		publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
+		await (harness.session as unknown as AgentActivityPublisher)._queueSteer("new direction");
 		await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 		expect(abort).not.toHaveBeenCalled();
 
