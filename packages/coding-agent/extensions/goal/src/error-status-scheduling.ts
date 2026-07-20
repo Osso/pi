@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const ERROR_STATUS_POLL_MS = 10;
+const ERROR_STATUS_SETTLEMENT_MS = 10;
 
 interface ErrorStatusSchedulingOptions {
 	onStatus: (message: string) => void;
@@ -34,20 +34,20 @@ class ErrorStatusSchedulerImpl implements ErrorStatusScheduler {
 	schedule(ctx: ExtensionContext, message: string): void {
 		const sessionId = ctx.sessionManager.getSessionId();
 		this.clearSession(sessionId);
-		if (ctx.hasPendingMessages()) return;
+		const retryDelayMs = ctx.settingsManager?.getRetrySettings().baseDelayMs ?? 0;
 		const checkIdle = (): void => {
-			try {
-				if (!ctx.isIdle()) {
-					this.timers.set(sessionId, setTimeout(checkIdle, ERROR_STATUS_POLL_MS));
-					return;
-				}
+			if (ctx.hasPendingMessages()) {
 				this.timers.delete(sessionId);
-				this.options.onStatus(message);
-			} catch {
-				this.timers.delete(sessionId);
+				return;
 			}
+			if (!ctx.isIdle()) {
+				this.timers.set(sessionId, setTimeout(checkIdle, ERROR_STATUS_SETTLEMENT_MS));
+				return;
+			}
+			this.timers.delete(sessionId);
+			this.options.onStatus(message);
 		};
-		this.timers.set(sessionId, setTimeout(checkIdle, ERROR_STATUS_POLL_MS));
+		this.timers.set(sessionId, setTimeout(checkIdle, retryDelayMs + ERROR_STATUS_SETTLEMENT_MS));
 	}
 }
 

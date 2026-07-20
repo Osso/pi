@@ -16,10 +16,10 @@ import { createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { createErrorStatusScheduler } from "./error-status-scheduling.ts";
 import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
+import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
 import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
-import { didLastAssistantAbort, didLastAssistantReturnEmpty, findLastAssistantMessage } from "./goal-turn.ts";
 import {
 	appendSupervisorStatus,
 	renderSupervisorMessage,
@@ -457,43 +457,6 @@ async function manageGoal({
 	}
 }
 
-function goalForIdleReview(
-	event: AgentEndEvent,
-	ctx: ExtensionContext,
-	clearRetry: (sessionId: string) => void,
-	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
-	scheduleErrorStatus: (ctx: ExtensionContext, message: string) => void,
-	reportSkipped: (message: string) => void,
-): Goal | null {
-	const goal = loadRunningGoal(ctx);
-	if (!goal) return null;
-	const sessionId = ctx.sessionManager.getSessionId();
-	if (didLastAssistantAbort(event)) {
-		clearRetry(sessionId);
-		reportSkipped(
-			ctx.hasPendingMessages()
-				? "Goal continuation deferred: pending input will run next."
-				: "Goal continuation skipped: the model turn was aborted.",
-		);
-		return null;
-	}
-	if (findLastAssistantMessage(event)?.stopReason === "error") {
-		clearRetry(sessionId);
-		if (ctx.hasPendingMessages()) {
-			reportSkipped("Goal continuation deferred: pending input will run next.");
-		} else {
-			scheduleErrorStatus(ctx, "Goal continuation skipped: the model turn ended with an error.");
-		}
-		return null;
-	}
-	if (didLastAssistantReturnEmpty(event)) {
-		scheduleRetry(ctx, goal);
-		return null;
-	}
-	clearRetry(sessionId);
-	return goal;
-}
-
 async function applyGoalIdleDecision(
 	decision: GoalSupervisorResponse,
 	goal: Goal,
@@ -732,14 +695,15 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 			emptyResponseScheduler,
 			applyDecision,
 			selectGoal: () =>
-				goalForIdleReview(
+				selectGoalForIdleReview({
 					event,
 					ctx,
-					emptyResponseScheduler.clearSession.bind(emptyResponseScheduler),
-					emptyResponseScheduler.schedule.bind(emptyResponseScheduler),
-					errorStatusScheduler.schedule.bind(errorStatusScheduler),
-					appendSupervisorStatus.bind(undefined, pi),
-				),
+					selectGoal: () => loadRunningGoal(ctx),
+					clearRetry: emptyResponseScheduler.clearSession.bind(emptyResponseScheduler),
+					scheduleRetry: emptyResponseScheduler.schedule.bind(emptyResponseScheduler),
+					scheduleErrorStatus: errorStatusScheduler.schedule.bind(errorStatusScheduler),
+					reportSkipped: appendSupervisorStatus.bind(undefined, pi),
+				}),
 			isSameGoal: sameRunningGoal,
 		});
 	});

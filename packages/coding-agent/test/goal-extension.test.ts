@@ -1636,6 +1636,24 @@ describe("goal extension", () => {
 		});
 	});
 
+	it("cancels deferred error status when input becomes pending", async () => {
+		vi.useFakeTimers();
+		try {
+			let pending = false;
+			const harness = createGoalHarness(cwd, { hasPendingMessages: () => pending });
+
+			await harness.runCommand("set process later input");
+			harness.appendEntry.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("", "error")]);
+			pending = true;
+			await vi.advanceTimersByTimeAsync(10);
+
+			expect(harness.appendEntry).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps the active goal running when queued steering aborts the current turn", async () => {
 		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
 

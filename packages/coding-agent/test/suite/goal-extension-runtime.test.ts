@@ -156,9 +156,13 @@ describe("goal extension runtime", () => {
 
 		const prompt = harness.session.prompt("retry work");
 		await retryStarted;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(
+			harness.sessionManager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status"),
+		).toHaveLength(0);
 		harness.session.abortRetry();
 		await prompt;
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await new Promise((resolve) => setTimeout(resolve, 120));
 
 		const skippedStatuses = harness.sessionManager
 			.getEntries()
@@ -181,6 +185,7 @@ describe("goal extension runtime", () => {
 		};
 		const harness = await createHarness({
 			extensionFactories: [goalTestExtension, delayedListener],
+			settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } },
 			uiContext: createUiContext(),
 		});
 		harnesses.push(harness);
