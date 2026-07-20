@@ -11,7 +11,7 @@ const harnesses: Harness[] = [];
 
 interface AgentActivityPublisher {
 	_publishCurrentAgentActivity(event: AgentEvent): void;
-	_consumeChildThinkingPhaseTimeoutError(): Error | undefined;
+	_consumeThinkingPhaseTimeoutError(): Error | undefined;
 	_runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void>;
 }
 
@@ -85,13 +85,46 @@ describe("child agent current activity", () => {
 		});
 	});
 
+	it("caps each main-session thinking phase while leaving tool execution uncapped", async () => {
+		vi.useFakeTimers();
+		const harness = await createHarness({ thinkingPhaseTimeoutMs: 15 * 60 * 1000 });
+		harnesses.push(harness);
+		const abort = vi.spyOn(harness.session.agent, "abort");
+
+		publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
+		await vi.advanceTimersByTimeAsync(14 * 60 * 1000 + 59_000);
+		expect(abort).not.toHaveBeenCalled();
+
+		publishCurrentAgentActivity.call(harness.session, {
+			type: "tool_execution_start",
+			toolCallId: "long-tool",
+			toolName: "read",
+			args: { path: "large" },
+			startedAt: Date.now(),
+		});
+		await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+		expect(abort).not.toHaveBeenCalled();
+
+		publishCurrentAgentActivity.call(harness.session, {
+			type: "tool_execution_end",
+			toolCallId: "long-tool",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "done" }] },
+			isError: false,
+			startedAt: Date.now() - 60 * 60 * 1000,
+			finishedAt: Date.now(),
+		});
+		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+		expect(abort).toHaveBeenCalledOnce();
+	});
+
 	it("caps each child thinking phase while leaving tool execution uncapped", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime("2026-07-13T12:00:00.000Z");
 		const store = new MultiAgentStore({ now: () => new Date().toISOString() });
 		const agentId = spawnChild(store);
 		const harness = await createHarness({
-			childThinkingPhaseTimeoutMs: 15 * 60 * 1000,
+			thinkingPhaseTimeoutMs: 15 * 60 * 1000,
 			multiAgentAgentId: agentId,
 			multiAgentStore: store,
 		});
@@ -124,7 +157,7 @@ describe("child agent current activity", () => {
 		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
 		expect(abort).toHaveBeenCalledOnce();
 		expect(
-			(AgentSession.prototype as unknown as AgentActivityPublisher)._consumeChildThinkingPhaseTimeoutError.call(
+			(AgentSession.prototype as unknown as AgentActivityPublisher)._consumeThinkingPhaseTimeoutError.call(
 				harness.session,
 			)?.message,
 		).toBe("Child agent thinking phase exceeded 15 minutes");
@@ -135,7 +168,7 @@ describe("child agent current activity", () => {
 		const store = new MultiAgentStore();
 		const agentId = spawnChild(store);
 		const harness = await createHarness({
-			childThinkingPhaseTimeoutMs: 15 * 60 * 1000,
+			thinkingPhaseTimeoutMs: 15 * 60 * 1000,
 			multiAgentAgentId: agentId,
 			multiAgentStore: store,
 		});
@@ -172,7 +205,7 @@ describe("child agent current activity", () => {
 		const store = new MultiAgentStore();
 		const agentId = spawnChild(store);
 		const harness = await createHarness({
-			childThinkingPhaseTimeoutMs: 15 * 60 * 1000,
+			thinkingPhaseTimeoutMs: 15 * 60 * 1000,
 			multiAgentAgentId: agentId,
 			multiAgentStore: store,
 		});

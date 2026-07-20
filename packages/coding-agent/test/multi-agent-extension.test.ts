@@ -862,7 +862,7 @@ describe("multi-agent extension tools", () => {
 			store,
 			createChildSession: async ({ agent }) => {
 				childHarness = await createHarness({
-					childThinkingPhaseTimeoutMs: 10,
+					thinkingPhaseTimeoutMs: 10,
 					multiAgentAgentId: agent.id,
 					multiAgentParentSessionId: supervisorSession.getSessionId(),
 					multiAgentStore: store,
@@ -1714,7 +1714,7 @@ describe("multi-agent extension tools", () => {
 				store,
 				createAttachedSession: async ({ agent }) => {
 					const childHarness = await createHarness({
-						childThinkingPhaseTimeoutMs: 10,
+						thinkingPhaseTimeoutMs: 10,
 						multiAgentAgentId: agent.id,
 						multiAgentParentSessionId: supervisorSession.getSessionId(),
 						multiAgentStore: store,

@@ -89,7 +89,7 @@ export interface HarnessOptions {
 	/** Viewed-session mutation resolver used by command-routing regressions. */
 	resolveSessionMutationTarget?: () => ViewedSessionMutationTarget | undefined;
 	supervisorDecisionRequester?: AgentSessionConfig["supervisorDecisionRequester"];
-	childThinkingPhaseTimeoutMs?: AgentSessionConfig["childThinkingPhaseTimeoutMs"];
+	thinkingPhaseTimeoutMs?: AgentSessionConfig["thinkingPhaseTimeoutMs"];
 }
 
 export interface Harness {
@@ -213,7 +213,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 			options.multiAgentParentSessionId ?? (options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
 		supervisorDecisionRequester:
 			options.supervisorDecisionRequester ?? (async () => ({ kind: "approve", reason: "test approval" })),
-		childThinkingPhaseTimeoutMs: options.childThinkingPhaseTimeoutMs,
+		thinkingPhaseTimeoutMs: options.thinkingPhaseTimeoutMs,
 	});
 	if (options.resolveSessionMutationTarget) {
 		bindAgentSessionMutationTargetResolver(session, options.resolveSessionMutationTarget);
