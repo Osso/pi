@@ -53,7 +53,6 @@ import {
 	readSessionMetadata,
 	readSharedChannelCursor,
 	readSharedChannelTail,
-	reconcileDeadDetachedAgentRuntimes,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
@@ -2335,7 +2334,7 @@ class WaitAgentsWakeWatcher {
 
 	private reconcileDeadDetachedRuntimes(): void {
 		const nowIso = new Date().toISOString();
-		if (reconcileDeadDetachedAgentRuntimes(this.controlDbPath, nowIso) === 0) return;
+		if (LifecycleCoordinator.reconcileDeadDetachedRuntimes(this.controlDbPath, nowIso) === 0) return;
 		deliverTerminalOutboxProjections({
 			claimId: randomUUID(),
 			controlDbPath: this.controlDbPath,
