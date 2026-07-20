@@ -37,7 +37,11 @@ class EmptyResponseSchedulerImpl<TGoal> implements EmptyResponseScheduler<TGoal>
 		this.clearSession(sessionId);
 		const timer = setTimeout(() => {
 			this.timers.delete(sessionId);
-			if (!this.options.isSameRunningGoal(ctx, goal) || ctx.hasPendingMessages() || !ctx.isIdle()) return;
+			if (!this.options.isSameRunningGoal(ctx, goal) || ctx.hasPendingMessages()) return;
+			if (!ctx.isIdle()) {
+				this.schedule(ctx, goal);
+				return;
+			}
 			this.options.pi.sendUserMessage("Continue working toward the active goal.");
 		}, EMPTY_RESPONSE_RETRY_DELAY_MS);
 		this.timers.set(sessionId, timer);

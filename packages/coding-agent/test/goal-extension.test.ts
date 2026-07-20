@@ -103,7 +103,7 @@ function schemaHasProperty(schema: unknown, property: string): boolean {
 function createGoalHarness(
 	cwd: string,
 	options?: {
-		idle?: boolean;
+		idle?: boolean | (() => boolean);
 		contextUsage?: ContextUsage;
 		callTool?: (name: string, params: unknown, signal?: AbortSignal) => Promise<AgentToolResult<unknown>>;
 		hasPendingMessages?: boolean | (() => boolean);
@@ -210,7 +210,7 @@ function createGoalHarness(
 			isSubagentSession: () => options?.isSubagent ?? false,
 			getSubagentName: () => options?.subagentName,
 		},
-		isIdle: () => options?.idle ?? true,
+		isIdle: () => (typeof options?.idle === "function" ? options.idle() : (options?.idle ?? true)),
 		hasPendingMessages: () =>
 			typeof options?.hasPendingMessages === "function"
 				? options.hasPendingMessages()
@@ -237,8 +237,10 @@ function createGoalHarness(
 			sessionShutdown?.({ type: "session_shutdown", reason: "restart" }, ctx as ExtensionContext),
 		runInput: async (text: string) =>
 			input?.({ type: "input", text, source: "interactive" }, ctx as ExtensionContext),
-		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
-			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
+		runAgentEnd: async (
+			messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")],
+			willRetry?: boolean,
+		) => agentEnd?.({ type: "agent_end", messages, willRetry } as AgentEndEvent, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			manageGoalTool?.execute(
 				"manage-goal-complete-1",
@@ -1563,6 +1565,26 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("retries an empty response after agent_end listeners become idle", async () => {
+		vi.useFakeTimers();
+		try {
+			let idle = false;
+			const harness = createGoalHarness(cwd, { idle: () => idle });
+			await harness.runCommand("set wait for listeners");
+			harness.sendUserMessage.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
+
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+			idle = true;
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("cancels an empty-response retry when the session shuts down", async () => {
 		vi.useFakeTimers();
 		try {
@@ -1596,6 +1618,18 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.notify).not.toHaveBeenCalled();
 		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal continuation skipped: the model turn ended with an error.",
+		});
+	});
+
+	it("does not report a retryable error as skipped", async () => {
+		const harness = createGoalHarness(cwd);
+
+		await harness.runCommand("set retry transient failure");
+		harness.appendEntry.mockClear();
+		await harness.runAgentEnd([createAssistantMessage("", "error")], true);
+
+		expect(harness.appendEntry).not.toHaveBeenCalledWith("supervisor-status", {
 			message: "Goal continuation skipped: the model turn ended with an error.",
 		});
 	});

@@ -477,7 +477,9 @@ function goalForIdleReview(
 	}
 	if (findLastAssistantMessage(event)?.stopReason === "error") {
 		clearRetry(sessionId);
-		reportSkipped("Goal continuation skipped: the model turn ended with an error.");
+		if (event.willRetry !== true) {
+			reportSkipped("Goal continuation skipped: the model turn ended with an error.");
+		}
 		return null;
 	}
 	if (didLastAssistantReturnEmpty(event)) {

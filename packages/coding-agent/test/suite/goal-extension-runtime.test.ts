@@ -96,9 +96,42 @@ describe("goal extension runtime", () => {
 		await waitForProviderCalls(harness, 9);
 
 		expect(harness.faux.state.callCount).toBe(9);
-		expect(getUserTexts(harness)).toContain(
+		expect(JSON.stringify(harness.session.messages)).toContain(
 			"Continue working toward this objective until it is achieved: say hello twice in two different rounds",
 		);
+	});
+
+	it("reports one skipped status only after retryable errors are exhausted", async () => {
+		const pauseAfterRetry = (pi: ExtensionAPI): void => {
+			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
+		};
+		const harness = await createHarness({
+			extensionFactories: [pauseAfterRetry],
+			settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } },
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "survive retries", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+		]);
+
+		await harness.session.prompt("retry work");
+
+		const skippedStatuses = harness.sessionManager
+			.getEntries()
+			.filter(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "supervisor-status" &&
+					JSON.stringify(entry.data).includes("Goal continuation skipped: the model turn ended with an error."),
+			);
+		expect(harness.faux.state.callCount).toBe(3);
+		expect(skippedStatuses).toHaveLength(1);
 	});
 
 	it("cancels an empty-response retry when interactive input arrives before expiry", async () => {
