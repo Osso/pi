@@ -399,7 +399,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
 - [x] Stale slots resync by agent ID from core state instead of trusting cached TUI rows.
 - [x] A selected-child banner identifies the agent ID, display name, and lifecycle without exposing
-      internal target/view terminology.
+      internal target/view terminology; when the selected child reaches `completed`, `failed`, or
+      `aborted`, the selected view clears automatically.
 - [x] While a child transcript is selected, the footer shows that child session's model, provider,
       and thinking level; live placeholders clear the model display, and returning to the main
       session restores the main footer model.
