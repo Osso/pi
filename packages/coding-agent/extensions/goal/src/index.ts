@@ -9,13 +9,6 @@ import type {
 	ExtensionContext,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "../../../src/config.ts";
-import { getControlDbPath } from "../../../src/core/session-control-db.ts";
-import { requestSupervisorDecision } from "../../../src/supervisor/client.ts";
-import {
-	DEFAULT_SUPERVISOR_KB_DIR,
-	resolveSupervisorProjectForCwd,
-} from "../../../src/supervisor/project-resolver.ts";
 import { createCompletionWaitScheduler } from "./completion-scheduling.ts";
 import { createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { handleGoalAgentEnd } from "./goal-agent-end.ts";
@@ -29,9 +22,9 @@ import {
 	renderSupervisorStatusEntry,
 	sendSupervisorInstructions,
 } from "./rendering.ts";
+import { reviewGoalWithResidentSupervisor } from "./supervisor-review.ts";
 
 const MAX_OBJECTIVE_CHARS = 4000;
-const GOAL_REVIEW_TIMEOUT_MS = 180_000;
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 export type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
@@ -349,7 +342,7 @@ function runSetGoalAction({
 	return textResult(result.ok ? `Goal set: ${objective}` : result.message, details);
 }
 
-function runPauseGoalAction(ctx: ExtensionContext): AgentToolResult<unknown> {
+function runPauseGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void): AgentToolResult<unknown> {
 	const goal = pauseGoal(ctx);
 	updateGoalFooterStatus(ctx);
 	if (!goal) {
@@ -357,11 +350,16 @@ function runPauseGoalAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 		return textResult("No active goal to pause.");
 	}
 
+	afterGoalChange?.();
 	ctx.ui.notify(`Goal paused: ${goal.objective}`, "info");
 	return textResult(`Goal paused: ${goal.objective}`, { objective: goal.objective });
 }
 
-function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentToolResult<unknown> {
+function runResumeGoalAction(
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	afterGoalChange?: () => void,
+): AgentToolResult<unknown> {
 	const goal = resumeGoal(ctx);
 	updateGoalFooterStatus(ctx);
 	if (!goal) {
@@ -369,6 +367,7 @@ function runResumeGoalAction(ctx: ExtensionContext, pi: ExtensionAPI): AgentTool
 		return textResult("No paused goal to resume.");
 	}
 
+	afterGoalChange?.();
 	ctx.ui.notify(`Goal resumed: ${goal.objective}`, "info");
 	if (ctx.isIdle()) {
 		pi.sendUserMessage("Continue working toward the active goal.");
@@ -420,9 +419,10 @@ async function runCompleteGoalAction(
 	return textResult(`Goal marked complete: ${reason}`);
 }
 
-function runClearGoalAction(ctx: ExtensionContext): AgentToolResult<unknown> {
+function runClearGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void): AgentToolResult<unknown> {
 	const cleared = clearGoal(ctx);
 	updateGoalFooterStatus(ctx);
+	if (cleared) afterGoalChange?.();
 	const message = cleared ? "Goal cleared" : "No active goal";
 	ctx.ui.notify(message, "info");
 	return textResult(message);
@@ -448,41 +448,15 @@ async function manageGoal({
 		case "set":
 			return runSetGoalAction({ ctx, params, pi, beforeGoalSave });
 		case "pause":
-			return runPauseGoalAction(ctx);
+			return runPauseGoalAction(ctx, beforeGoalSave);
 		case "resume":
-			return runResumeGoalAction(ctx, pi);
+			return runResumeGoalAction(ctx, pi, beforeGoalSave);
 		case "complete":
 			return runCompleteGoalAction(ctx, params.reason, reviewGoal, pi, onCompletionWait);
 		case "clear":
-			return runClearGoalAction(ctx);
+			return runClearGoalAction(ctx, beforeGoalSave);
 		case "status":
 			return runGoalStatusAction(ctx);
-	}
-}
-
-async function reviewGoalWithResidentSupervisor(input: {
-	kind: "goal_completion_review" | "goal_idle_review";
-	payload: Record<string, unknown>;
-	ctx: ExtensionContext;
-}): Promise<GoalSupervisorResponse> {
-	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
-	const response = await requestSupervisorDecision({
-		controlDbPath: getControlDbPath(getAgentDir()),
-		kind: input.kind,
-		payload: input.payload,
-		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
-		senderSessionId: input.ctx.sessionManager.getSessionId(),
-		timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
-	});
-	switch (response.kind) {
-		case "complete":
-		case "continue":
-		case "pause":
-		case "wait":
-		case "error":
-			return response;
-		default:
-			return { kind: "error", reason: `Invalid goal review response: ${response.kind}` };
 	}
 }
 
@@ -540,6 +514,36 @@ async function applyGoalIdleDecision(
 	}
 }
 
+function clearGoalRetry(ctx: ExtensionCommandContext, clearRetry: (sessionId: string) => void): void {
+	clearRetry(ctx.sessionManager.getSessionId());
+}
+
+function handleGoalPauseCommand(ctx: ExtensionCommandContext, clearRetry: (sessionId: string) => void): void {
+	const goal = pauseGoal(ctx);
+	if (goal) clearGoalRetry(ctx, clearRetry);
+	ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
+	updateGoalFooterStatus(ctx);
+}
+
+function handleGoalResumeCommand(
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	clearRetry: (sessionId: string) => void,
+): void {
+	const goal = resumeGoal(ctx);
+	if (goal) clearGoalRetry(ctx, clearRetry);
+	ctx.ui.notify(goal ? `Goal resumed: ${goal.objective}` : "No paused goal to resume", "info");
+	updateGoalFooterStatus(ctx);
+	if (goal && ctx.isIdle()) pi.sendUserMessage("Continue working toward the active goal.");
+}
+
+function handleGoalClearCommand(ctx: ExtensionCommandContext, clearRetry: (sessionId: string) => void): void {
+	const cleared = clearGoal(ctx);
+	if (cleared) clearGoalRetry(ctx, clearRetry);
+	ctx.ui.notify(cleared ? "Goal cleared" : "No active goal", "info");
+	updateGoalFooterStatus(ctx);
+}
+
 function handleGoalCommand(
 	args: string,
 	ctx: ExtensionCommandContext,
@@ -557,22 +561,14 @@ function handleGoalCommand(
 			ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>", "info");
 			return;
 		}
-		case "pause": {
-			const goal = pauseGoal(ctx);
-			ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
-			updateGoalFooterStatus(ctx);
+		case "pause":
+			handleGoalPauseCommand(ctx, clearRetry);
 			return;
-		}
-		case "resume": {
-			const goal = resumeGoal(ctx);
-			ctx.ui.notify(goal ? `Goal resumed: ${goal.objective}` : "No paused goal to resume", "info");
-			updateGoalFooterStatus(ctx);
-			if (goal && ctx.isIdle()) pi.sendUserMessage("Continue working toward the active goal.");
+		case "resume":
+			handleGoalResumeCommand(ctx, pi, clearRetry);
 			return;
-		}
 		case "clear":
-			ctx.ui.notify(clearGoal(ctx) ? "Goal cleared" : "No active goal", "info");
-			updateGoalFooterStatus(ctx);
+			handleGoalClearCommand(ctx, clearRetry);
 			return;
 		case "set": {
 			const result = setGoal({

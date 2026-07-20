@@ -153,12 +153,20 @@ describe("headless Supervisor goal system", () => {
 			const initial = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(initial.id, fauxAssistantMessage("Blocked on user input"));
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
-			agent.respondToSupervisorRequest(review, { kind: "pause", reason: "waiting for user input" });
-			const notification = await agent.waitForExtensionUiRequest(
-				(request) => request.method === "notify" && request.message === "Goal waiting: waiting for user input",
+			agent.respondToSupervisorRequest(review, { kind: "wait", reason: "waiting for background work" });
+			const status = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "supervisor-status" &&
+					JSON.stringify(entry.data).includes("waiting for background work"),
 			);
 
-			expect(notification).toMatchObject({ method: "notify", notifyType: "info" });
+			expect(status).toMatchObject({
+				type: "custom",
+				customType: "supervisor-status",
+				data: { message: "Waiting: waiting for background work" },
+			});
 			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL });
 			expect(agent.readGoal()).not.toHaveProperty("pausedAt");
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);

@@ -78,6 +78,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 			this.startAgentWait(ctx, goal, terminalTurn);
 		} catch (error) {
 			this.options.reportError(error);
+			this.scheduleWaitReview(ctx, goal, terminalTurn);
 		}
 	}
 
@@ -105,7 +106,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	): Promise<void> {
 		if (!this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
-			this.scheduleReviewRetry(ctx, goal, terminalTurn);
+			this.scheduleReviewRetry(ctx, goal, terminalTurn, wakeEvidence);
 			return;
 		}
 		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn, wakeEvidence);
@@ -117,16 +118,23 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		await this.options.applyDecision(decision, goal, ctx, terminalTurn);
 	}
 
-	private scheduleReviewRetry(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): void {
+	private scheduleReviewRetry(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		wakeEvidence?: unknown,
+	): void {
 		const sessionId = ctx.sessionManager.getSessionId();
 		this.clearTimer(this.waitReviewTimers, sessionId);
 		const timer = setTimeout(() => {
 			this.waitReviewTimers.delete(sessionId);
 			if (!ctx.isIdle()) {
-				this.scheduleReviewRetry(ctx, goal, terminalTurn);
+				this.scheduleReviewRetry(ctx, goal, terminalTurn, wakeEvidence);
 				return;
 			}
-			void this.reviewAndApply(ctx, goal, terminalTurn).catch((error: unknown) => this.options.reportError(error));
+			void this.reviewAndApply(ctx, goal, terminalTurn, wakeEvidence).catch((error: unknown) =>
+				this.options.reportError(error),
+			);
 		}, PENDING_DECISION_RETRY_DELAY_MS);
 		this.waitReviewTimers.set(sessionId, timer);
 	}
