@@ -58,12 +58,13 @@ export function enqueueDetachedPyrunBridgeRequest(input: {
 export function parseDetachedPyrunBridgeRequest(message: RuntimeMailboxMessage): DetachedPyrunBridgeRequest | undefined {
 	try {
 		const parsed = JSON.parse(message.body) as DetachedPyrunBridgeRequest;
+		const hasValidToolCallId = typeof parsed.toolCallId === "string" && parsed.toolCallId.trim() !== "";
 		if (
 			parsed.protocol !== DETACHED_PYRUN_BRIDGE_PROTOCOL ||
 			parsed.command !== "request" ||
 			typeof parsed.requestId !== "string" ||
 			typeof parsed.method !== "string" ||
-			(typeof parsed.toolCallId !== "string" || parsed.toolCallId.trim() === "") ||
+			!hasValidToolCallId ||
 			!parsed.identity ||
 			!parsed.replyTo
 		) {
