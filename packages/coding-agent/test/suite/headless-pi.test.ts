@@ -852,6 +852,80 @@ describe("headless Pi fixture", () => {
 		);
 	});
 
+	it("excludes an auto-detached Pyrun turn when spawning an inherited child through the runtime mailbox", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				await agent.send({ type: "prompt", message: "Completed parent prefix" });
+				const prefixRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(prefixRequest.id, fauxAssistantMessage("Completed parent response"));
+				await agent.waitForEvent((event) => event.type === "agent_end");
+
+				const toolCallId = "auto-detached-inherit-call";
+				const bridgeErrorPath = join(agent.paths.workspaceDir, "detached-inherit-error");
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					"time.sleep(0.2)",
+					"try:",
+					"    pi.agents.spawn({'context': 'inherit', 'displayName': 'Detached inherited child', 'prompt': 'Child assignment'})",
+					"except Exception as error:",
+					`    Path(${JSON.stringify(bridgeErrorPath)}).write_text(str(error))`,
+					"    raise",
+					"print('detached-result-marker')",
+				].join("\n");
+				await agent.send({ type: "prompt", message: "Run the detached inherited spawn" });
+				const pyrunRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					pyrunRequest.id,
+					fauxAssistantMessage(
+						{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+						{ stopReason: "toolUse" },
+					),
+				);
+
+				const detachedEntry = (await agent.waitForSessionEntry(
+					null,
+					(entry) =>
+						entry.type === "message" &&
+						entry.message.role === "toolResult" &&
+						entry.message.toolCallId === toolCallId,
+				)) as SessionMessageEntry;
+				expect(detachedEntry.message).toMatchObject({ details: { type: "detached" } });
+				const detachedJobId = (detachedEntry.message as { details?: { backgroundJobId?: string } }).details
+					?.backgroundJobId;
+				expect(detachedJobId).toBeTruthy();
+				await agent.waitForAgent(
+					(candidate) => candidate.id === detachedJobId && candidate.lifecycle === "running",
+				);
+				const afterDetach = await agent.waitForLlmRequest(
+					(candidate) => candidate.agentId === null && candidate.id !== pyrunRequest.id,
+				);
+				agent.respondToLlmRequest(afterDetach.id, fauxAssistantMessage("Parent turn complete"));
+				await agent.waitForEvent((event) => event.type === "agent_end");
+
+				const child = await agent
+					.waitForAgent(
+						(candidate) => candidate.id !== detachedJobId && candidate.displayName !== "Pyrun evaluation",
+					)
+					.catch((error: unknown) => {
+						const bridgeError = existsSync(bridgeErrorPath) ? readFileSync(bridgeErrorPath, "utf8") : "not recorded";
+						const runtimeMessages = JSON.stringify(agent.listRuntimeMailboxMessages());
+						throw new Error(
+							`Detached inherited spawn failed: ${bridgeError}; runtime=${runtimeMessages}; ${error instanceof Error ? error.message : String(error)}`,
+						);
+					});
+				const childRequest = await agent.waitForLlmRequest((request) => request.agentId === child.id);
+				expect(childRequest.userMessages).toEqual(["Completed parent prefix", "Child assignment"]);
+				expect(JSON.stringify(childRequest.messages)).toContain("Completed parent response");
+				expect(JSON.stringify(childRequest.messages)).not.toContain("Run the detached inherited spawn");
+				expect(JSON.stringify(childRequest.messages)).not.toContain(toolCallId);
+				expect(JSON.stringify(childRequest.messages)).not.toContain("detached-result-marker");
+				agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Child complete"));
+			},
+			{ autoDetachTools: true },
+		);
+	});
+
 	it("routes a subagent detached completion only to the detached job parent", async () => {
 		await withHeadlessPi(
 			async (agent) => {

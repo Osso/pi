@@ -654,6 +654,42 @@ function getSessionTranscriptMetadata(
 	};
 }
 
+function resolveInheritedLeafId(
+	context: SpawnAgentParams["context"],
+	activeToolCallId: string | undefined,
+	sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]>,
+): string | undefined {
+	if (activeToolCallId !== undefined && activeToolCallId.trim() === "") {
+		throw new Error("Cannot inherit context: active tool call identity must be non-empty");
+	}
+	if (!activeToolCallId) return sessionManager.getLeafId() ?? undefined;
+
+	const branch = sessionManager.getBranch();
+	const activeToolEntry = [...branch]
+		.reverse()
+		.find(
+			(entry) =>
+				entry.type === "message" &&
+				entry.message.role === "assistant" &&
+				entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId),
+		);
+	if (!activeToolEntry) {
+		if (context === "inherit") {
+			throw new Error(`Cannot inherit context: active tool call ${activeToolCallId} is not in the parent branch`);
+		}
+		return sessionManager.getLeafId() ?? undefined;
+	}
+
+	let ancestorId = activeToolEntry.parentId;
+	while (ancestorId) {
+		const ancestor = branch.find((entry) => entry.id === ancestorId);
+		if (!ancestor) break;
+		if (ancestor.type === "message" && ancestor.message.role === "user") return ancestor.parentId ?? undefined;
+		ancestorId = ancestor.parentId;
+	}
+	return activeToolEntry.parentId ?? undefined;
+}
+
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
@@ -673,30 +709,7 @@ export function createProductionChildAgentSessionFactory(
 			isSubagent: true,
 			subagentName: agent.displayName,
 		};
-		if (activeToolCallId !== undefined && activeToolCallId.trim() === "") {
-			throw new Error("Cannot inherit context: active tool call identity must be non-empty");
-		}
-		let activeSpawnParentId: string | null | undefined;
-		let matchedActiveToolCall = false;
-		if (activeToolCallId) {
-			const branch = ctx.sessionManager.getBranch();
-			for (let index = branch.length - 1; index >= 0; index -= 1) {
-				const entry = branch[index];
-				if (
-					entry?.type === "message" &&
-					entry.message.role === "assistant" &&
-					entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId)
-				) {
-					activeSpawnParentId = entry.parentId;
-					matchedActiveToolCall = true;
-					break;
-				}
-			}
-		}
-		if (context === "inherit" && activeToolCallId && !matchedActiveToolCall) {
-			throw new Error(`Cannot inherit context: active tool call ${activeToolCallId} is not in the parent branch`);
-		}
-		const inheritedLeafId = activeSpawnParentId ?? ctx.sessionManager.getLeafId() ?? undefined;
+		const inheritedLeafId = resolveInheritedLeafId(context, activeToolCallId, ctx.sessionManager);
 		const sessionManager =
 			context === "inherit" && parentSessionFile
 				? SessionManager.forkFrom(
