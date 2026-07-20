@@ -143,16 +143,10 @@ describe("agentLoop with AgentMessage", () => {
 		const started = new Promise<void>((resolve) => {
 			signalStarted = resolve;
 		});
-		const stream = agentLoop(
-			[createUserMessage("Hello")],
-			context,
-			config,
-			controller.signal,
-			() => {
-				signalStarted();
-				return new Promise<never>(() => undefined);
-			},
-		);
+		const stream = agentLoop([createUserMessage("Hello")], context, config, controller.signal, () => {
+			signalStarted();
+			return new Promise<never>(() => undefined);
+		});
 
 		await started;
 		controller.abort();
@@ -175,16 +169,10 @@ describe("agentLoop with AgentMessage", () => {
 		const started = new Promise<void>((resolve) => {
 			signalStarted = resolve;
 		});
-		const stream = agentLoop(
-			[createUserMessage("Hello")],
-			context,
-			config,
-			controller.signal,
-			() => {
-				signalStarted();
-				return new MockAssistantStream();
-			},
-		);
+		const stream = agentLoop([createUserMessage("Hello")], context, config, controller.signal, () => {
+			signalStarted();
+			return new MockAssistantStream();
+		});
 
 		await started;
 		controller.abort();

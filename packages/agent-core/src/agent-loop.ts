@@ -363,13 +363,18 @@ async function awaitWithAbort<T>(value: T | PromiseLike<T>, signal: AbortSignal 
 
 async function* iterateWithAbort<T>(source: AsyncIterable<T>, signal: AbortSignal | undefined): AsyncGenerator<T> {
 	const iterator = source[Symbol.asyncIterator]();
+	let exhausted = false;
 	try {
 		while (true) {
 			const next = await awaitWithAbort(iterator.next(), signal);
-			if (next.done) return;
+			if (next.done) {
+				exhausted = true;
+				return;
+			}
 			yield next.value;
 		}
 	} finally {
+		if (exhausted) return;
 		const close = iterator.return?.();
 		if (close) {
 			if (signal?.aborted) {
