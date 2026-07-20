@@ -10,7 +10,7 @@ import type {
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "../../../src/config.ts";
-import { getControlDbPath, type SupervisorResponse } from "../../../src/core/session-control-db.ts";
+import { getControlDbPath } from "../../../src/core/session-control-db.ts";
 import { requestSupervisorDecision } from "../../../src/supervisor/client.ts";
 import {
 	DEFAULT_SUPERVISOR_KB_DIR,
@@ -21,6 +21,7 @@ import { createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { handleGoalAgentEnd } from "./goal-agent-end.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
+import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import {
 	appendSupervisorStatus,
@@ -33,15 +34,7 @@ const MAX_OBJECTIVE_CHARS = 4000;
 const GOAL_REVIEW_TIMEOUT_MS = 180_000;
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
-export interface Goal {
-	objective: string;
-	branch: string;
-	createdAt: string;
-	completedAt?: string;
-	completionReason?: string;
-	continuationTurns?: number;
-	pausedAt?: string;
-}
+export type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 
 interface SetGoalParams {
 	objective: string;
@@ -57,21 +50,6 @@ interface ManageGoalContext {
 	reviewGoal: GoalSupervisorReview;
 	onCompletionWait: (goal: Goal, ctx: ExtensionContext, reason: string) => Promise<void>;
 	beforeGoalSave?: () => void;
-}
-
-export type GoalSupervisorResponse = Extract<
-	SupervisorResponse,
-	{ kind: "complete" | "continue" | "pause" | "wait" | "error" }
->;
-
-export type GoalSupervisorReview = (input: {
-	kind: "goal_completion_review" | "goal_idle_review";
-	payload: Record<string, unknown>;
-	ctx: ExtensionContext;
-}) => Promise<GoalSupervisorResponse>;
-
-export interface GoalExtensionOptions {
-	reviewGoal?: GoalSupervisorReview;
 }
 
 function goalPathForSessionId(cwd: string, sessionId: string): string {
@@ -551,6 +529,7 @@ async function applyGoalIdleDecision(
 			return;
 		case "error":
 			appendSupervisorStatus(pi, `Goal review failed: ${decision.reason}`);
+			await onWait(decision.reason);
 			return;
 		case "continue": {
 			const continuationTurns = goal.continuationTurns ?? 0;
@@ -623,7 +602,11 @@ function createCompletionScheduler(pi: ExtensionAPI, reviewGoal: GoalSupervisorR
 		reviewGoal,
 		isSameGoal: (ctx, waiting) => {
 			const activeGoal = loadActiveGoal(ctx);
-			return activeGoal?.createdAt === waiting.goal.createdAt && activeGoal.objective === waiting.goal.objective;
+			return (
+				activeGoal?.createdAt === waiting.goal.createdAt &&
+				activeGoal.objective === waiting.goal.objective &&
+				activeGoal.pausedAt === waiting.goal.pausedAt
+			);
 		},
 		onComplete: (waiting, ctx) => {
 			const goal = markGoalComplete(ctx, waiting.reason);
@@ -664,11 +647,11 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		applyDecision,
 		isSameRunningGoal: sameRunningGoal,
 		reportError: appendGoalSchedulingError.bind(undefined, pi),
-		reviewGoal: async (ctx, goal, terminalTurn) =>
+		reviewGoal: async (ctx, goal, terminalTurn, wakeEvidence) =>
 			reviewGoal({
 				ctx,
 				kind: "goal_idle_review",
-				payload: { objective: goal.objective, terminalTurn },
+				payload: { objective: goal.objective, terminalTurn, wakeEvidence },
 			}),
 	});
 

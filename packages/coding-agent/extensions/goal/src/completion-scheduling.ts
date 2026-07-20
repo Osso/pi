@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Goal, GoalSupervisorResponse, GoalSupervisorReview } from "./index.ts";
+import type { Goal, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
 
 interface CompletionWait {
@@ -54,13 +54,14 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		applyDecision: async (decision, waiting, ctx) => applyDecision(decision, waiting, ctx),
 		isSameRunningGoal: options.isSameGoal,
 		reportError: options.onError,
-		reviewGoal: async (ctx, waiting) =>
+		reviewGoal: async (ctx, waiting, _terminalTurn, wakeEvidence) =>
 			options.reviewGoal({
 				ctx,
 				kind: "goal_completion_review",
 				payload: {
 					objective: waiting.goal.objective,
 					proposedCompletionReason: waiting.reason,
+					wakeEvidence,
 				},
 			}),
 	});

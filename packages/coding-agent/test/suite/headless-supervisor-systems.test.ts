@@ -199,7 +199,7 @@ describe("headless Supervisor goal system", () => {
 		});
 	});
 
-	it("keeps the goal running and reports an idle Supervisor error without continuing", async () => {
+	it("keeps the goal running and durably reports an idle Supervisor error", async () => {
 		await withHeadlessPi(async (agent) => {
 			agent.writeRunningGoal(RUNNING_GOAL);
 			await agent.send({ type: "prompt", message: "Reach idle" });
@@ -207,10 +207,18 @@ describe("headless Supervisor goal system", () => {
 			agent.respondToLlmRequest(initial.id, fauxAssistantMessage("Reached idle"));
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
 			agent.respondToSupervisorRequest(review, { kind: "error", reason: "service failed" });
-			const notification = await agent.waitForExtensionUiRequest(
-				(request) => request.method === "notify" && request.message.includes("service failed"),
+			const status = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "supervisor-status" &&
+					JSON.stringify(entry.data).includes("service failed"),
 			);
-			expect(notification).toMatchObject({ method: "notify", notifyType: "error" });
+			expect(status).toMatchObject({
+				type: "custom",
+				customType: "supervisor-status",
+				data: { message: "Goal review failed: service failed" },
+			});
 			expectRunningGoal(agent.readGoal());
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);
 		});

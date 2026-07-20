@@ -7,7 +7,7 @@ type TerminalTurn = AgentEndEvent["messages"];
 
 interface GoalSchedulingOptions<TGoal, TDecision> {
 	pi: ExtensionAPI;
-	reviewGoal: (ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn) => Promise<TDecision>;
+	reviewGoal: (ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn, wakeEvidence?: unknown) => Promise<TDecision>;
 	applyDecision: (
 		decision: TDecision,
 		goal: TGoal,
@@ -33,6 +33,7 @@ function activeAgentCount(details: unknown): number {
 class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecision> {
 	private readonly options: GoalSchedulingOptions<TGoal, TDecision>;
 	private readonly pendingDecisionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly cancellationEpochs = new Map<string, number>();
 	private readonly waitControllers = new Map<string, AbortController>();
 	private readonly waitReviewTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -41,6 +42,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	}
 
 	clearSession(sessionId: string): void {
+		this.cancellationEpochs.set(sessionId, (this.cancellationEpochs.get(sessionId) ?? 0) + 1);
 		this.clearTimer(this.pendingDecisionTimers, sessionId);
 		this.clearTimer(this.waitReviewTimers, sessionId);
 		this.clearWait(sessionId);
@@ -64,8 +66,11 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	}
 
 	async waitForAgentsOrScheduleReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void> {
+		const sessionId = ctx.sessionManager.getSessionId();
+		const epoch = this.cancellationEpochs.get(sessionId) ?? 0;
 		try {
 			const listResult = await this.options.pi.callTool("list_agents", { parentId: "main" });
+			if ((this.cancellationEpochs.get(sessionId) ?? 0) !== epoch) return;
 			if (activeAgentCount(listResult.details) === 0) {
 				this.scheduleWaitReview(ctx, goal, terminalTurn);
 				return;
@@ -92,13 +97,18 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		this.waitControllers.delete(sessionId);
 	}
 
-	private async reviewAndApply(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void> {
+	private async reviewAndApply(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		wakeEvidence?: unknown,
+	): Promise<void> {
 		if (!this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
 			this.scheduleReviewRetry(ctx, goal, terminalTurn);
 			return;
 		}
-		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn);
+		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn, wakeEvidence);
 		if (!this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
 			this.deferDecision(decision, goal, ctx, terminalTurn);
@@ -151,10 +161,10 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		terminalTurn: TerminalTurn,
 		controller: AbortController,
 	): Promise<void> {
-		await this.options.pi.callTool("wait_agents", {}, controller.signal);
+		const waitResult = await this.options.pi.callTool("wait_agents", {}, controller.signal);
 		if (controller.signal.aborted) return;
 		this.waitControllers.delete(ctx.sessionManager.getSessionId());
-		await this.reviewAndApply(ctx, goal, terminalTurn);
+		await this.reviewAndApply(ctx, goal, terminalTurn, waitResult.details);
 	}
 
 	private applyDeferredDecision(

@@ -1,5 +1,5 @@
 import type { AgentEndEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Goal, GoalSupervisorResponse, GoalSupervisorReview } from "./index.ts";
+import type { Goal, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 
 type TerminalTurn = AgentEndEvent["messages"];
 
