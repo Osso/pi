@@ -76,20 +76,13 @@ function formatContextUsage(session: FooterSessionOverride, theme: Theme): strin
 	return `${theme.fg("dim", "ctx ")}${percent.toFixed(1)}%${theme.fg("dim", `/${contextWindowText}`)}`;
 }
 
-function formatAgentCounts(counts: DefaultFooterAgentLifecycleCounts | undefined, theme: Theme): string | undefined {
+function formatAgentCounts(counts: DefaultFooterAgentLifecycleCounts | undefined): string | undefined {
 	if (!counts) {
 		return undefined;
 	}
 
-	const secondaryParts = [];
-	if (counts.waitingForInput > 0) secondaryParts.push(`${counts.waitingForInput} waiting`);
-	if (counts.steeringPending > 0) secondaryParts.push(`${counts.steeringPending} steering`);
-	if (counts.running > 0) {
-		const secondaryText = secondaryParts.length > 0 ? theme.fg("dim", ` ${secondaryParts.join(" ")}`) : "";
-		return `agents ${counts.running} running${secondaryText}`;
-	}
-
-	return secondaryParts.length > 0 ? theme.fg("dim", `agents ${secondaryParts.join(" ")}`) : undefined;
+	const activeCount = counts.running + counts.waitingForInput + counts.steeringPending;
+	return activeCount > 0 ? `agents ${activeCount}` : undefined;
 }
 
 function formatAgentLifecycle(lifecycle: AgentLifecycleState): string {
@@ -178,7 +171,7 @@ function formatStats(input: DefaultFooterComponentInput): string {
 	const parts = [
 		executableName ? input.theme.fg("dim", `[${executableName}]`) : undefined,
 		selectedAgent ? input.theme.fg("dim", selectedAgent) : undefined,
-		formatAgentCounts(input.getAgentCounts?.(), input.theme),
+		formatAgentCounts(input.getAgentCounts?.()),
 	];
 	if (usage.input > 0) parts.push(input.theme.fg("dim", `in ${formatTokens(usage.input)}`));
 	if (usage.output > 0) parts.push(input.theme.fg("dim", `out ${formatTokens(usage.output)}`));

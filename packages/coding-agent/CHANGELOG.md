@@ -84,7 +84,7 @@
 
 ### Changed
 
-- Highlighted the default footer's context percentage and `agents N running` status while retaining dim styling for surrounding statistics.
+- Highlighted the default footer's context percentage and total active `agents N` count while retaining dim styling for surrounding statistics.
 - Changed Pyrun `cli.*` command guidance to use forwarding, exit-code-only `.run()` by default and explicit `.capture().run()` when structured stdout/stderr inspection is required.
 - Resident Architect and Supervisor systemd services now run the installed Bun-compiled Pi binary.
 - Resident Supervisor goal reviews now have a three-minute deadline, its file tools are limited to read/edit/write access inside the configured KB, and Bash/Pyrun remain unavailable.

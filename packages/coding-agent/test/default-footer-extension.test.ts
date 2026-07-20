@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import defaultFooterExtension, {
 	countDefaultFooterAgents,
@@ -57,6 +58,7 @@ function renderedStatsLine(
 	counts?: DefaultFooterAgentLifecycleCounts,
 	usingOAuth = false,
 	executableName?: string,
+	width = 160,
 ): string {
 	initTheme(undefined, false);
 	const footer = createDefaultFooterComponent({
@@ -74,7 +76,7 @@ function renderedStatsLine(
 		getAgentCounts: () => counts,
 		theme,
 	});
-	return footer.render(160)[1] ?? "";
+	return footer.render(width)[1] ?? "";
 }
 
 function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false, executableName?: string): string {
@@ -85,18 +87,21 @@ describe("default footer extension", () => {
 	it("uses readable labels and omits cache and auto fields", () => {
 		const line = statsLine({ running: 2, steeringPending: 1, waitingForInput: 3 });
 
-		expect(line).toContain("agents 2 running 3 waiting 1 steering");
+		expect(line).toContain("agents 6");
+		expect(line).not.toContain("running");
+		expect(line).not.toContain("waiting");
+		expect(line).not.toContain("steering");
 		expect(line).toContain("in 412k out 33k cost $9.39 ctx 60.9%/272k");
 		expect(line).not.toContain("R13M");
 		expect(line).not.toContain("CH99.6%");
 		expect(line).not.toContain("auto");
 	});
 
-	it("highlights the running-agent label without changing surrounding footer text", () => {
+	it("highlights the total active-agent count without changing surrounding footer text", () => {
 		const line = renderedStatsLine({ running: 2, steeringPending: 1, waitingForInput: 3 });
 
-		expect(line).toContain(`agents 2 running${theme.fg("dim", " 3 waiting 1 steering")}`);
-		expect(stripAnsi(line)).toContain("agents 2 running 3 waiting 1 steering in 412k");
+		expect(line).toContain(`agents 6 ${theme.fg("dim", "in 412k")}`);
+		expect(stripAnsi(line)).toContain("agents 6 in 412k");
 	});
 
 	it("highlights only the context percentage without changing surrounding footer text", () => {
@@ -104,6 +109,29 @@ describe("default footer extension", () => {
 
 		expect(line).toContain(`${theme.fg("dim", "ctx ")}60.9%${theme.fg("dim", "/272k")}`);
 		expect(stripAnsi(line)).toContain("cost $9.39 ctx 60.9%/272k");
+	});
+
+	it("keeps unknown context usage fully dimmed", () => {
+		initTheme(undefined, false);
+		const footer = createDefaultFooterComponent({
+			ctx: {
+				...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+				getContextUsage: () => ({ contextWindow: 272_000, percent: undefined }),
+			} as unknown as ExtensionContext,
+			footerData: createFooterData(),
+			theme,
+		});
+		const line = footer.render(160)[1] ?? "";
+
+		expect(line).toContain(theme.fg("dim", "ctx ?/272k"));
+		expect(stripAnsi(line)).toContain("ctx ?/272k");
+	});
+
+	it("keeps highlighted stats within narrow footer widths", () => {
+		const line = renderedStatsLine({ running: 2, steeringPending: 1, waitingForInput: 3 }, false, undefined, 24);
+
+		expect(visibleWidth(line)).toBeLessThanOrEqual(24);
+		expect(stripAnsi(line)).toContain("agents 6");
 	});
 
 	it("does not show subscription shorthand in cost text", () => {
