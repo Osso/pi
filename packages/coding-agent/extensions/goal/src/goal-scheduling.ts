@@ -93,7 +93,11 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	}
 
 	private async reviewAndApply(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void> {
-		if (!this.options.isSameRunningGoal(ctx, goal) || ctx.hasPendingMessages()) return;
+		if (!this.options.isSameRunningGoal(ctx, goal)) return;
+		if (ctx.hasPendingMessages()) {
+			this.scheduleReviewRetry(ctx, goal, terminalTurn);
+			return;
+		}
 		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn);
 		if (!this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
@@ -101,6 +105,20 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 			return;
 		}
 		await this.options.applyDecision(decision, goal, ctx, terminalTurn);
+	}
+
+	private scheduleReviewRetry(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): void {
+		const sessionId = ctx.sessionManager.getSessionId();
+		this.clearTimer(this.waitReviewTimers, sessionId);
+		const timer = setTimeout(() => {
+			this.waitReviewTimers.delete(sessionId);
+			if (!ctx.isIdle()) {
+				this.scheduleReviewRetry(ctx, goal, terminalTurn);
+				return;
+			}
+			void this.reviewAndApply(ctx, goal, terminalTurn).catch((error: unknown) => this.options.reportError(error));
+		}, PENDING_DECISION_RETRY_DELAY_MS);
+		this.waitReviewTimers.set(sessionId, timer);
 	}
 
 	private scheduleWaitReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): void {
@@ -145,12 +163,18 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		ctx: ExtensionContext,
 		terminalTurn: TerminalTurn,
 	): void {
-		if (!this.options.isSameRunningGoal(ctx, goal) || !ctx.isIdle()) return;
+		if (!this.options.isSameRunningGoal(ctx, goal)) return;
+		if (!ctx.isIdle()) {
+			this.deferDecision(decision, goal, ctx, terminalTurn);
+			return;
+		}
 		if (ctx.hasPendingMessages()) {
 			this.deferDecision(decision, goal, ctx, terminalTurn);
 			return;
 		}
-		void this.options.applyDecision(decision, goal, ctx, terminalTurn);
+		void this.options
+			.applyDecision(decision, goal, ctx, terminalTurn)
+			.catch((error: unknown) => this.options.reportError(error));
 	}
 }
 

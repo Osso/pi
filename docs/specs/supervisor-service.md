@@ -106,6 +106,8 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
 - `packages/coding-agent/src/core/agent-session.ts` — LLM-approved preset integration.
 - `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.
+- `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
+- `packages/coding-agent/extensions/goal/src/rendering.ts` — durable Supervisor status entries and tagged continuation rendering.
 - `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — installed Bun-compiled Pi binary service lifecycle.
 
 ## Tests asserting this spec

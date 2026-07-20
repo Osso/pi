@@ -3,18 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import goalExtension, { type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
+import goalExtension, {
+	type GoalSupervisorResponse,
+	type GoalSupervisorReview,
+} from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	ContextUsage,
+	EntryRenderer,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionHandler,
 	InputEvent,
-	EntryRenderer,
 	InputEventResult,
 	MessageRenderer,
 	RegisteredCommand,
@@ -104,7 +107,7 @@ function createGoalHarness(
 	options?: {
 		idle?: boolean;
 		contextUsage?: ContextUsage;
-		callTool?: (name: string, params: unknown) => Promise<{ content: []; details: unknown }>;
+		callTool?: (name: string, params: unknown, signal?: AbortSignal) => Promise<{ content: []; details: unknown }>;
 		hasPendingMessages?: boolean | (() => boolean);
 		sessionId?: string;
 		isSubagent?: boolean;
@@ -906,6 +909,21 @@ describe("goal extension", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("schedules a completion-review wait with durable status", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "wait", reason: "child proof running" }),
+		});
+		await harness.runCommand("set complete after child proof");
+
+		const result = await harness.runGoalComplete("done");
+
+		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: child proof running" }]);
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Waiting: child proof running",
+		});
+		expect(harness.callTool).toHaveBeenCalledWith("list_agents", { parentId: "main" });
 	});
 
 	it("keeps a goal active when completion review says progress must wait", async () => {

@@ -60,6 +60,7 @@ interface ManageGoalContext {
 	params: ManageGoalParams;
 	pi: ExtensionAPI;
 	reviewGoal: GoalSupervisorReview;
+	onCompletionWait: (goal: Goal, ctx: ExtensionContext) => Promise<void>;
 	beforeGoalSave?: () => void;
 }
 
@@ -359,7 +360,12 @@ function setGoal(params: SetGoalParams): { ok: boolean; message: string; severit
 	};
 }
 
-function runSetGoalAction({ ctx, params, pi, beforeGoalSave }: Omit<ManageGoalContext, "reviewGoal">): AgentToolResult<unknown> {
+function runSetGoalAction({
+	ctx,
+	params,
+	pi,
+	beforeGoalSave,
+}: Omit<ManageGoalContext, "reviewGoal" | "onCompletionWait">): AgentToolResult<unknown> {
 	const objective = params.objective?.trim() ?? "";
 	if (!objective) {
 		return textResult("Objective is required.");
@@ -403,6 +409,7 @@ async function runCompleteGoalAction(
 	reasonInput: string | undefined,
 	reviewGoal: GoalSupervisorReview,
 	pi: ExtensionAPI,
+	onWait: (goal: Goal, ctx: ExtensionContext) => Promise<void>,
 ): Promise<AgentToolResult<unknown>> {
 	const activeGoal = loadActiveGoal(ctx);
 	if (!activeGoal) return textResult("No active goal to complete.");
@@ -413,6 +420,10 @@ async function runCompleteGoalAction(
 		kind: "goal_completion_review",
 		payload: { objective: activeGoal.objective, proposedCompletionReason: reason },
 	});
+	const currentGoal = loadActiveGoal(ctx);
+	if (currentGoal?.createdAt !== activeGoal.createdAt || currentGoal.objective !== activeGoal.objective) {
+		return textResult("Goal changed during completion review; stale decision ignored.");
+	}
 	if (decision.kind === "continue") {
 		sendSupervisorInstructions(pi, decision.instructions);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
@@ -421,6 +432,8 @@ async function runCompleteGoalAction(
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind === "wait") {
+		appendSupervisorStatus(pi, `Waiting: ${decision.reason}`);
+		await onWait(activeGoal, ctx);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind !== "complete") {
@@ -451,7 +464,14 @@ function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 	return textResult(message, details);
 }
 
-async function manageGoal({ ctx, params, pi, reviewGoal, beforeGoalSave }: ManageGoalContext): Promise<AgentToolResult<unknown>> {
+async function manageGoal({
+	ctx,
+	params,
+	pi,
+	reviewGoal,
+	onCompletionWait,
+	beforeGoalSave,
+}: ManageGoalContext): Promise<AgentToolResult<unknown>> {
 	switch (params.action) {
 		case "set":
 			return runSetGoalAction({ ctx, params, pi, beforeGoalSave });
@@ -460,7 +480,7 @@ async function manageGoal({ ctx, params, pi, reviewGoal, beforeGoalSave }: Manag
 		case "resume":
 			return runResumeGoalAction(ctx, pi);
 		case "complete":
-			return runCompleteGoalAction(ctx, params.reason, reviewGoal, pi);
+			return runCompleteGoalAction(ctx, params.reason, reviewGoal, pi, onCompletionWait);
 		case "clear":
 			return runClearGoalAction(ctx);
 		case "status":
@@ -565,6 +585,7 @@ async function handleGoalAgentEnd(
 		ctx: ExtensionContext,
 		terminalTurn: AgentEndEvent["messages"],
 	) => void,
+	isSameGoal: (ctx: ExtensionContext, goal: Goal) => boolean,
 ): Promise<void> {
 	const goal = goalForIdleReview(event, ctx, clearRetry, scheduleRetry);
 	if (!goal) return;
@@ -573,6 +594,7 @@ async function handleGoalAgentEnd(
 		kind: "goal_idle_review",
 		payload: { objective: goal.objective, terminalTurn: event.messages },
 	});
+	if (!isSameGoal(ctx, goal)) return;
 	if (ctx.hasPendingMessages()) {
 		deferDecision(decision, goal, ctx, event.messages);
 		return;
@@ -688,6 +710,9 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 			params,
 			pi,
 			reviewGoal,
+			onCompletionWait: async (goal, waitCtx) => {
+				await scheduler.waitForAgentsOrScheduleReview(waitCtx, goal, []);
+			},
 			beforeGoalSave: () => clearGoalSchedules(ctx.sessionManager.getSessionId()),
 		}),
 	);
@@ -718,6 +743,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 			applyDecision,
 			(decision, goal, pendingCtx, terminalTurn) =>
 				scheduler.deferDecision(decision, goal, pendingCtx, terminalTurn),
+			sameRunningGoal,
 		);
 	});
 
