@@ -63,7 +63,7 @@ export function parseDetachedPyrunBridgeRequest(message: RuntimeMailboxMessage):
 			parsed.command !== "request" ||
 			typeof parsed.requestId !== "string" ||
 			typeof parsed.method !== "string" ||
-			typeof parsed.toolCallId !== "string" ||
+			(typeof parsed.toolCallId !== "string" || parsed.toolCallId.trim() === "") ||
 			!parsed.identity ||
 			!parsed.replyTo
 		) {

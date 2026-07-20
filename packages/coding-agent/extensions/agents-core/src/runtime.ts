@@ -673,6 +673,9 @@ export function createProductionChildAgentSessionFactory(
 			isSubagent: true,
 			subagentName: agent.displayName,
 		};
+		if (activeToolCallId !== undefined && activeToolCallId.trim() === "") {
+			throw new Error("Cannot inherit context: active tool call identity must be non-empty");
+		}
 		let activeSpawnParentId: string | null | undefined;
 		let matchedActiveToolCall = false;
 		if (activeToolCallId) {
