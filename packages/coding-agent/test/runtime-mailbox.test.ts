@@ -2220,6 +2220,74 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("joins a mailbox drain that changes from idle prompt delivery to active-turn steering", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		let releasePreflight!: () => void;
+		const preflightGate = new Promise<void>((resolve) => {
+			releasePreflight = resolve;
+		});
+		let markPreflightEntered!: () => void;
+		const preflightEntered = new Promise<void>((resolve) => {
+			markPreflightEntered = resolve;
+		});
+		let releaseMailboxHandler!: () => void;
+		const mailboxHandlerGate = new Promise<void>((resolve) => {
+			releaseMailboxHandler = resolve;
+		});
+		let markMailboxHandlerEntered!: () => void;
+		const mailboxHandlerEntered = new Promise<void>((resolve) => {
+			markMailboxHandlerEntered = resolve;
+		});
+		let firstTurn = true;
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", async () => {
+						if (!firstTurn) return;
+						firstTurn = false;
+						markPreflightEntered();
+						await preflightGate;
+					});
+					pi.on("runtime_mailbox", async () => {
+						markMailboxHandlerEntered();
+						await mailboxHandlerGate;
+						return { handled: false };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("user reply")]);
+		enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Child finished while prompt delivery became steering",
+			kind: "system",
+			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+			sender: { agentId: "agent_1", sessionId: "child-session" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: {
+				checkpoint?: "after_tool_result";
+				triggerIfIdle: boolean;
+			}): Promise<boolean>;
+		};
+
+		const activePrompt = harness.session.prompt("User turn");
+		await preflightEntered;
+		const idleDrain = harness.session.drainRuntimeCoordination();
+		releasePreflight();
+		await mailboxHandlerEntered;
+		const checkpointDrain = drainableSession._drainRuntimeMailboxMessages({
+			checkpoint: "after_tool_result",
+			triggerIfIdle: false,
+		});
+		releaseMailboxHandler();
+
+		await expect(checkpointDrain).resolves.toBe(true);
+		await expect(Promise.all([activePrompt, idleDrain])).resolves.toBeDefined();
+	});
+
 	it("delivers next-model-call steering after a tool result before the provider continues", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

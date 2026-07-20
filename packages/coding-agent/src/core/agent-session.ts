@@ -2797,13 +2797,13 @@ export class AgentSession {
 		const drain =
 			drainMode === "steer"
 				? this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, { mode: "steer" })
-				: this._withTurnStartLock((releaseTurnStart) =>
-						this._deliverReadyRuntimeMailboxMessages(
-							controlDbPath,
-							options,
-							this.isStreaming ? { mode: "steer" } : { mode: "prompt", releaseMailboxDrain, releaseTurnStart },
-						),
-					);
+				: this._withTurnStartLock((releaseTurnStart) => {
+						const delivery = this.isStreaming
+							? ({ mode: "steer" } as const)
+							: ({ mode: "prompt", releaseMailboxDrain, releaseTurnStart } as const);
+						this._runtimeMailboxDrainMode = delivery.mode;
+						return this._deliverReadyRuntimeMailboxMessages(controlDbPath, options, delivery);
+					});
 		this._runtimeMailboxDrainMode = drainMode;
 		this._runtimeMailboxDrainPromise = drain;
 		releaseMailboxDrain = () => {
