@@ -3355,6 +3355,10 @@ export class InteractiveMode {
 			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
 				return;
 			}
+			if (current.lifecycle === "completed" || current.lifecycle === "failed" || current.lifecycle === "aborted") {
+				this.selectAgentView("main");
+				return;
+			}
 			const transcriptPath = current.transcript?.path;
 			if (transcriptPath && transcriptPath !== this.childViewTranscriptPath) {
 				this.openChildAgentView(current);

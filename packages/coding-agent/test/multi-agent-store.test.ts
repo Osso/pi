@@ -1396,13 +1396,16 @@ describe("MultiAgentStore", () => {
 
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			store.setPersistenceSessionManager(session);
+			const childSession = SessionManager.create(tempDir, join(tempDir, "child-sessions"));
+			const childSessionFile = childSession.getSessionFile();
+			if (!childSessionFile) throw new Error("expected persisted child session");
 			const spawned = legacyMultiAgentStore(store).spawnAgent({
 				agentType: "scout",
 				cwd: "/repo",
 				displayName: "Scout",
 				parentId: "main",
 				permission: { narrowed: true, policy: "on-request" },
-				transcript: { path: join(tempDir, "scout.jsonl"), sessionId: session.getSessionId() },
+				transcript: { path: childSessionFile, sessionId: childSession.getSessionId() },
 			});
 			const steer = legacyMultiAgentStore(store).sendSteering(spawned.agent.id, spawned.agent.revision, {
 				body: "Continue with tests",

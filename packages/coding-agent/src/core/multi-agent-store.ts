@@ -362,26 +362,33 @@ export class MultiAgentStore {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
-		this.clearSelectedTerminalAgent(current);
-		if (!previous) return;
+		if (!previous) {
+			this.clearSelectedTerminalAgent(current);
+			return;
+		}
 		this.notifyAgentUpdateListeners(previous, current);
-		if (previous.lifecycle === current.lifecycle) return;
-		if (current.lifecycle === "waiting_for_input") this.recordWaitingForInputNotification(current);
-		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		if (previous.lifecycle !== current.lifecycle) {
+			if (current.lifecycle === "waiting_for_input") this.recordWaitingForInputNotification(current);
+			this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		}
+		this.clearSelectedTerminalAgent(current);
 	}
 
 	publishTerminalOutboxSnapshot(agent: AgentSnapshot): void {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
-		this.clearSelectedTerminalAgent(current);
 		if (current.lifecycle === "completed") this.retryOrRecordTerminalNotification(current, "completed");
 		if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
 			this.retryOrRecordTerminalNotification(current, "failed");
 		}
-		if (!previous) return;
+		if (!previous) {
+			this.clearSelectedTerminalAgent(current);
+			return;
+		}
 		this.notifyAgentUpdateListeners(previous, current);
 		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		this.clearSelectedTerminalAgent(current);
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {
@@ -460,8 +467,7 @@ export class MultiAgentStore {
 	}
 
 	private clearSelectedTerminalAgent(agent: AgentSnapshot): void {
-		if (this.selectedAgentId !== agent.id) return;
-		if (agent.lifecycle === "completed" || agent.lifecycle === "failed" || agent.lifecycle === "aborted") {
+		if (this.selectedAgentId === agent.id && TERMINAL_STATES.has(agent.lifecycle)) {
 			this.selectedAgentId = undefined;
 		}
 	}
