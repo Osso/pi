@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import goalExtension, { type GoalSupervisorResponse, type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
+	AgentToolResult,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	ContextUsage,
@@ -104,7 +105,7 @@ function createGoalHarness(
 	options?: {
 		idle?: boolean;
 		contextUsage?: ContextUsage;
-		callTool?: (name: string, params: unknown, signal?: AbortSignal) => Promise<{ content: []; details: unknown }>;
+		callTool?: (name: string, params: unknown, signal?: AbortSignal) => Promise<AgentToolResult<unknown>>;
 		hasPendingMessages?: boolean | (() => boolean);
 		sessionId?: string;
 		isSubagent?: boolean;
@@ -951,7 +952,7 @@ describe("goal extension", () => {
 				.mockResolvedValueOnce({ kind: "pause", reason: "recovered review" });
 			const harness = createGoalHarness(cwd, {
 				callTool: async () => ({
-					content: [{ type: "text" as const, text: "list_agents unavailable" }],
+					content: [{ type: "text", text: "list_agents unavailable" }],
 					details: {},
 					isError: true,
 				}),
@@ -982,7 +983,7 @@ describe("goal extension", () => {
 				callTool: async (name) => {
 					if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
 					return {
-						content: [{ type: "text" as const, text: "wait_agents unavailable" }],
+						content: [{ type: "text", text: "wait_agents unavailable" }],
 						details: {},
 						isError: true,
 					};
