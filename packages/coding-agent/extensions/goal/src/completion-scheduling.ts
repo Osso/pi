@@ -24,35 +24,42 @@ export interface CompletionWaitScheduler {
 	wait(goal: Goal, ctx: ExtensionContext, reason: string): Promise<void>;
 }
 
-export function createCompletionWaitScheduler(options: CompletionSchedulingOptions): CompletionWaitScheduler {
-	async function applyDecision(
-		decision: GoalSupervisorResponse,
-		waiting: CompletionWait,
-		ctx: ExtensionContext,
-	): Promise<void> {
-		scheduler.clearSession(ctx.sessionManager.getSessionId());
-		switch (decision.kind) {
-			case "complete":
-				options.onComplete(waiting, ctx);
-				return;
-			case "continue":
-				options.onContinue(decision.instructions);
-				return;
-			case "wait":
-				options.onStatus(`Waiting: ${decision.reason}`);
-				await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, []);
-				return;
-			case "pause":
-				options.onStatus(`Goal waiting: ${decision.reason}`);
-				return;
-			case "error":
-				options.onStatus(`Goal review failed: ${decision.reason}`);
-		}
-	}
+type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, GoalSupervisorResponse>>;
 
-	const scheduler = createGoalScheduler<CompletionWait, GoalSupervisorResponse>({
+async function applyCompletionDecision(
+	options: CompletionSchedulingOptions,
+	scheduler: CompletionScheduler,
+	decision: GoalSupervisorResponse,
+	waiting: CompletionWait,
+	ctx: ExtensionContext,
+): Promise<void> {
+	scheduler.clearSession(ctx.sessionManager.getSessionId());
+	switch (decision.kind) {
+		case "complete":
+			return options.onComplete(waiting, ctx);
+		case "continue":
+			return options.onContinue(decision.instructions);
+		case "wait":
+			options.onStatus(`Waiting: ${decision.reason}`);
+			return scheduler.waitForAgentsOrScheduleReview(ctx, waiting, []);
+		case "pause":
+			return options.onStatus(`Goal waiting: ${decision.reason}`);
+		case "error":
+			return options.onStatus(`Goal review failed: ${decision.reason}`);
+	}
+}
+
+function createReviewGuard(scheduler: CompletionScheduler, ctx: ExtensionContext): () => boolean {
+	const epoch = scheduler.captureEpoch(ctx);
+	return () => scheduler.isEpochCurrent(ctx, epoch);
+}
+
+export function createCompletionWaitScheduler(options: CompletionSchedulingOptions): CompletionWaitScheduler {
+	let scheduler: CompletionScheduler;
+	scheduler = createGoalScheduler<CompletionWait, GoalSupervisorResponse>({
 		pi: options.pi,
-		applyDecision: async (decision, waiting, ctx) => applyDecision(decision, waiting, ctx),
+		applyDecision: async (decision, waiting, ctx) =>
+			applyCompletionDecision(options, scheduler, decision, waiting, ctx),
 		isSameRunningGoal: options.isSameGoal,
 		reportError: options.onError,
 		reviewGoal: async (ctx, waiting, _terminalTurn, wakeEvidence) =>
@@ -66,14 +73,10 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 				},
 			}),
 	});
-
 	return {
 		clearAll: () => scheduler.clearAll(),
 		clearSession: (sessionId) => scheduler.clearSession(sessionId),
-		createReviewGuard: (ctx) => {
-			const epoch = scheduler.captureEpoch(ctx);
-			return () => scheduler.isEpochCurrent(ctx, epoch);
-		},
+		createReviewGuard: (ctx) => createReviewGuard(scheduler, ctx),
 		wait: async (goal, ctx, reason) => scheduler.waitForAgentsOrScheduleReview(ctx, { goal, reason }, []),
 	};
 }
