@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isStaleContextError } from "./stale-context.ts";
 
 const ERROR_STATUS_SETTLEMENT_MS = 10;
 
@@ -36,16 +37,21 @@ class ErrorStatusSchedulerImpl implements ErrorStatusScheduler {
 		this.clearSession(sessionId);
 		const retryDelayMs = ctx.settingsManager?.getRetrySettings().baseDelayMs ?? 0;
 		const checkIdle = (): void => {
-			if (ctx.hasPendingMessages()) {
+			try {
+				if (ctx.hasPendingMessages()) {
+					this.timers.delete(sessionId);
+					return;
+				}
+				if (!ctx.isIdle()) {
+					this.timers.set(sessionId, setTimeout(checkIdle, ERROR_STATUS_SETTLEMENT_MS));
+					return;
+				}
 				this.timers.delete(sessionId);
-				return;
+				this.options.onStatus(message);
+			} catch (error) {
+				this.timers.delete(sessionId);
+				if (!isStaleContextError(error)) throw error;
 			}
-			if (!ctx.isIdle()) {
-				this.timers.set(sessionId, setTimeout(checkIdle, ERROR_STATUS_SETTLEMENT_MS));
-				return;
-			}
-			this.timers.delete(sessionId);
-			this.options.onStatus(message);
 		};
 		this.timers.set(sessionId, setTimeout(checkIdle, retryDelayMs + ERROR_STATUS_SETTLEMENT_MS));
 	}

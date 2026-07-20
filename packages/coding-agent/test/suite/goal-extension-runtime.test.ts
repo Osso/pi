@@ -135,6 +135,34 @@ describe("goal extension runtime", () => {
 		expect(skippedStatuses).toHaveLength(1);
 	});
 
+	it("cancels deferred error status when a retry succeeds", async () => {
+		const pauseAfterRecovery = (pi: ExtensionAPI): void => {
+			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
+		};
+		const harness = await createHarness({
+			extensionFactories: [pauseAfterRecovery],
+			settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 20 } },
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "survive recovery", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+			fauxAssistantMessage("recovered"),
+		]);
+
+		await harness.session.prompt("retry work");
+		await new Promise((resolve) => setTimeout(resolve, 40));
+
+		const skippedStatuses = harness.sessionManager
+			.getEntries()
+			.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(skippedStatuses).toHaveLength(0);
+	});
+
 	it("reports a skipped goal continuation when retry sleep is canceled", async () => {
 		const harness = await createHarness({
 			extensionFactories: [goalTestExtension],

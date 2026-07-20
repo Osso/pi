@@ -1,11 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isStaleContextError } from "./stale-context.ts";
 
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
-const STALE_CONTEXT_ERROR_PREFIX = "This extension ctx is stale after session replacement or reload.";
-
-function isStaleContextError(error: unknown): boolean {
-	return error instanceof Error && error.message.startsWith(STALE_CONTEXT_ERROR_PREFIX);
-}
 
 interface EmptyResponseSchedulingOptions<TGoal> {
 	pi: ExtensionAPI;
