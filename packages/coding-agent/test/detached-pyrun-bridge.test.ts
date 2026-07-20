@@ -42,12 +42,21 @@ describe("detached Pyrun bridge", () => {
 			runnerAddress,
 			sessionPath,
 			supervisorAddress,
+			toolCallId: "pyrun-call-1",
 		});
 		const [message] = claimRuntimeMailboxMessages(controlDbPath, supervisorAddress);
 		if (!message) throw new Error("Expected bridge request");
 		const request = parseDetachedPyrunBridgeRequest(message);
 		if (!request) throw new Error("Expected valid bridge request");
-		expect(request).toMatchObject({ method: "models.scoped", requestId });
+		expect(request).toMatchObject({ method: "models.scoped", requestId, toolCallId: "pyrun-call-1" });
+		for (const toolCallId of [42, ""]) {
+			expect(
+				parseDetachedPyrunBridgeRequest({
+					...message,
+					body: JSON.stringify({ ...request, toolCallId }),
+				}),
+			).toBeUndefined();
+		}
 
 		enqueueDetachedPyrunBridgeResponse({
 			controlDbPath,

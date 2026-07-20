@@ -12,6 +12,7 @@ describe("sub-agent completion report ordering", () => {
 				mainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Short-lived tracing child",
 						prompt: "Return the exact text: trace complete",
 					}),

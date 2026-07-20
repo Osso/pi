@@ -1878,6 +1878,7 @@ export class AgentSession {
 		toolName: string,
 		params: unknown,
 		signal: AbortSignal | undefined,
+		activeToolCallId?: string,
 	): Promise<AgentToolResult<unknown>> {
 		if (!this.getActiveToolNames().includes(toolName)) {
 			throw new Error(`Tool is not active: ${toolName}`);
@@ -1890,7 +1891,7 @@ export class AgentSession {
 			throw new Error(`Tool is not registered: ${toolName}`);
 		}
 
-		const toolCallId = `pyrun:${toolName}:${Date.now()}`;
+		const toolCallId = activeToolCallId ?? `pyrun:${toolName}:${Date.now()}`;
 		let toolCall = this._createSyntheticToolCall(toolName, toolCallId, params);
 		if (tool.prepareArguments) {
 			toolCall = this._createSyntheticToolCall(toolName, toolCallId, tool.prepareArguments(toolCall.arguments));
@@ -4391,7 +4392,8 @@ export class AgentSession {
 				getActiveTools: () => this.getActiveToolNames(),
 				getAllTools: () => this.getAllTools(),
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
-				callTool: (toolName, params, signal) => this._callActiveTool(toolName, params, signal),
+				callTool: (toolName, params, signal, toolCallId) =>
+					this._callActiveTool(toolName, params, signal, toolCallId),
 				callCommand,
 				refreshTools: () => this._refreshToolRegistry(),
 				getCommands,

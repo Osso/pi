@@ -13,7 +13,7 @@ import chalk from "chalk";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension, {
 	cancelOwnedAgentRuntime,
-	createHostrunMultiAgentRequestHandler,
+	createMultiAgentPiRequestHandler,
 	createMultiAgentRuntimeHandles,
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
@@ -647,7 +647,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		firstPartyExtensionFactory("pyrun", (pi) => {
-			const hostrunAgentHandler = createHostrunMultiAgentRequestHandler(
+			const multiAgentPiRequestHandler = createMultiAgentPiRequestHandler(
 				{
 					createAttachedSession: attachedSessionFactory,
 					createChildSession: childAgentSessionFactory,
@@ -657,7 +657,7 @@ function createFirstPartyExtensionFactories(
 				},
 				pi,
 			);
-			pyrunExtension(pi, { piRequestHandlers: [hostrunAgentHandler] });
+			pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] });
 		}),
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),

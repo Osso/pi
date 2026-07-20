@@ -53,7 +53,6 @@ import {
 	readSessionMetadata,
 	readSharedChannelCursor,
 	readSharedChannelTail,
-	reconcileDeadDetachedAgentRuntimes,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
@@ -131,6 +130,7 @@ const fileReferenceSchema = Type.Object({
 
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
+	context: Type.Union([Type.Literal("fresh"), Type.Literal("inherit")]),
 	displayName: Type.Optional(Type.String()),
 	parentId: Type.Optional(Type.String()),
 	prompt: Type.String(),
@@ -191,6 +191,19 @@ const sendAgentMessageSchema = Type.Object({
 
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
+
+function requireSpawnAgentParams(params: unknown): asserts params is SpawnAgentParams {
+	if (!params || typeof params !== "object") {
+		throw new Error('spawn_agent context must be "fresh" or "inherit"');
+	}
+	const input = params as { context?: unknown; prompt?: unknown };
+	if (input.context !== "fresh" && input.context !== "inherit") {
+		throw new Error('spawn_agent context must be "fresh" or "inherit"');
+	}
+	if (typeof input.prompt !== "string") {
+		throw new Error("spawn_agent prompt must be a string");
+	}
+}
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type AgentViewerParams = Static<typeof agentViewerSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
@@ -231,7 +244,9 @@ export interface MultiAgentExtensionOptions {
 }
 
 export interface ChildAgentDispatchInput {
+	activeToolCallId?: string;
 	agent: AgentSnapshot;
+	context: "fresh" | "inherit";
 	ctx: ExtensionContext;
 	prompt: string;
 	signal?: AbortSignal;
@@ -258,7 +273,7 @@ type GoalObjectiveValidation =
 	| { objective: string; ok: true }
 	| { length: number; ok: false; reason: "empty" | "too_long" };
 
-export interface AttachedSessionDispatchInput extends ChildAgentDispatchInput {
+export interface AttachedSessionDispatchInput extends Omit<ChildAgentDispatchInput, "context"> {
 	sessionPath: string;
 }
 
@@ -281,11 +296,12 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	sessionDir?: string;
 }
 
-export interface HostrunMultiAgentRequestHandler {
+export interface MultiAgentPiRequestHandler {
 	(
 		request: { method: string; params: unknown },
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		activeToolCallId?: string,
 	): Promise<unknown> | unknown;
 	dispose(): void;
 }
@@ -574,6 +590,7 @@ async function backgroundCommand(
 		try {
 			childSession = await background.createChildSession({
 				agent: prepared,
+				context: "fresh",
 				ctx,
 				prompt,
 				signal: abortController.signal,
@@ -639,21 +656,87 @@ function getSessionTranscriptMetadata(
 	};
 }
 
+function findActiveToolCallEntry(branch: SessionEntry[], activeToolCallId: string): SessionEntry | undefined {
+	return [...branch].reverse().find(
+		(entry) =>
+			entry.type === "message" &&
+			entry.message.role === "assistant" &&
+			entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId),
+	);
+}
+
+function findUnresolvedTurnParentId(branch: SessionEntry[], activeToolEntry: SessionEntry): string | null {
+	const immediateParent = branch.find((entry) => entry.id === activeToolEntry.parentId);
+	if (immediateParent?.type === "message" && immediateParent.message.role === "assistant") {
+		return immediateParent.id;
+	}
+
+	let ancestor = immediateParent;
+	while (ancestor) {
+		if (ancestor.type === "message" && ancestor.message.role === "user") return ancestor.parentId;
+		ancestor = branch.find((entry) => entry.id === ancestor?.parentId);
+	}
+	return activeToolEntry.parentId;
+}
+
+function resolveInheritedLeafId(
+	context: SpawnAgentParams["context"],
+	activeToolCallId: string | undefined,
+	sessionManager: ExtensionContext["sessionManager"],
+): string | null | undefined {
+	if (activeToolCallId !== undefined && activeToolCallId.trim() === "") {
+		throw new Error("Cannot inherit context: active tool call identity must be non-empty");
+	}
+	if (!activeToolCallId) return sessionManager.getLeafId() ?? undefined;
+
+	const branch = sessionManager.getBranch();
+	const activeToolEntry = findActiveToolCallEntry(branch, activeToolCallId);
+	if (activeToolEntry) return findUnresolvedTurnParentId(branch, activeToolEntry);
+	if (context === "inherit") {
+		throw new Error(`Cannot inherit context: active tool call ${activeToolCallId} is not in the parent branch`);
+	}
+	return sessionManager.getLeafId() ?? undefined;
+}
+
+function createChildSessionManager(input: {
+	activeToolCallId?: string;
+	agent: AgentSnapshot;
+	context: SpawnAgentParams["context"];
+	ctx: ExtensionContext;
+	options: ProductionChildAgentSessionFactoryOptions;
+}): { parentSessionFile: string | undefined; sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]> } {
+	const parentSessionFile = input.ctx.sessionManager.getSessionFile();
+	if (input.context === "inherit" && !parentSessionFile) {
+		throw new Error("Cannot inherit context from an unpersisted parent session");
+	}
+	const sessionDir = input.options.sessionDir ?? input.ctx.sessionManager.getSessionDir();
+	const childSessionOptions = {
+		parentSession: parentSessionFile ?? input.ctx.sessionManager.getSessionId(),
+		isSubagent: true,
+		subagentName: input.agent.displayName,
+	};
+	const inheritedLeafId = resolveInheritedLeafId(input.context, input.activeToolCallId, input.ctx.sessionManager);
+	const sessionManager =
+		input.context === "inherit" && parentSessionFile
+			? SessionManager.forkFrom(parentSessionFile, input.agent.cwd, sessionDir, childSessionOptions, inheritedLeafId)
+			: input.options.createSessionManager(input.agent.cwd, sessionDir, childSessionOptions);
+	return { parentSessionFile, sessionManager };
+}
+
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
-	const factory: ProductionChildAgentSessionFactory = async ({ agent, ctx, prompt }) => {
+	const factory: ProductionChildAgentSessionFactory = async ({ activeToolCallId, agent, context, ctx, prompt }) => {
 		const validation = validateGoalObjective(prompt);
 		if (!validation.ok) {
 			throw new Error(spawnPromptValidationMessage(validation));
 		}
-		const parentSessionFile = ctx.sessionManager.getSessionFile();
-		const parentSession = parentSessionFile ?? ctx.sessionManager.getSessionId();
-		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
-		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, {
-			parentSession,
-			isSubagent: true,
-			subagentName: agent.displayName,
+		const { parentSessionFile, sessionManager } = createChildSessionManager({
+			activeToolCallId,
+			agent,
+			context,
+			ctx,
+			options,
 		});
 		const profile = resolveChildAgentProfile(agent, ctx);
 		const sessionStartEvent = parentSessionFile
@@ -759,10 +842,10 @@ function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
 	return value && THINKING_LEVELS.has(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
 }
 
-export function createHostrunMultiAgentRequestHandler(
+export function createMultiAgentPiRequestHandler(
 	options: MultiAgentExtensionOptions,
 	pi?: ParentAgentJournalWriter,
-): HostrunMultiAgentRequestHandler {
+): MultiAgentPiRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const activeDispatches = runtimeHandles.dispatches;
@@ -773,8 +856,8 @@ export function createHostrunMultiAgentRequestHandler(
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 	let disposed = false;
 
-	const handler: HostrunMultiAgentRequestHandler = async (request, ctx, signal) => {
-		if (disposed) throw new Error("Hostrun multi-agent request handler is disposed");
+	const handler: MultiAgentPiRequestHandler = async (request, ctx, signal, activeToolCallId) => {
+		if (disposed) throw new Error("Multi-agent Pi request handler is disposed");
 		if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
 			throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
@@ -785,12 +868,13 @@ export function createHostrunMultiAgentRequestHandler(
 				options.createChildSession,
 				activeDispatches,
 				ownerships,
-				request.params as SpawnAgentParams,
+				request.params,
 				ctx,
 				desktopNotifier,
 				waitingDesktopNotifications,
 				pi,
 				backgroundSessions,
+				activeToolCallId,
 			);
 			return result.details;
 		}
@@ -994,13 +1078,15 @@ async function spawnAgent(
 	createChildSession: ChildAgentSessionFactory | undefined,
 	dispatches: ActiveAgentDispatches,
 	ownerships: Map<string, OwnedAgentRuntime>,
-	params: SpawnAgentParams,
+	params: unknown,
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	pi: ParentAgentJournalWriter | undefined,
 	handles?: BackgroundSessionHandles,
+	activeToolCallId?: string,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+	requireSpawnAgentParams(params);
 	if (isChildAgentRuntime(ctx)) {
 		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
 			agent: emptyAgent("spawn_agent"),
@@ -1056,7 +1142,9 @@ async function spawnAgent(
 	if (createChildSession) {
 		try {
 			childSession = await createChildSession({
+				activeToolCallId,
 				agent: prepared,
+				context: params.context,
 				ctx,
 				prompt: params.prompt,
 				signal: abortController.signal,
@@ -1587,6 +1675,7 @@ async function dispatchReservedAgentSession(
 	try {
 		childSession = await createChildSession({
 			agent: lifecycle.agent,
+			context: "fresh",
 			ctx,
 			prompt,
 			signal: reservedRuntime.abortController.signal,
@@ -1655,6 +1744,7 @@ async function runAgentSession(
 			createdSession ??
 			(await createChildSession({
 				agent: running.agent,
+				context: "fresh",
 				ctx,
 				prompt,
 				signal: reservedRuntime.abortController.signal,
@@ -2245,7 +2335,7 @@ class WaitAgentsWakeWatcher {
 
 	private reconcileDeadDetachedRuntimes(): void {
 		const nowIso = new Date().toISOString();
-		if (reconcileDeadDetachedAgentRuntimes(this.controlDbPath, nowIso) === 0) return;
+		if (LifecycleCoordinator.reconcileDeadDetachedRuntimes(this.controlDbPath, nowIso) === 0) return;
 		deliverTerminalOutboxProjections({
 			claimId: randomUUID(),
 			controlDbPath: this.controlDbPath,
@@ -3204,6 +3294,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			promptGuidelines: [
 				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
+				'Choose context "inherit" when prior main-thread decisions or research are required; choose "fresh" for isolated work, review, verification, or falsification.',
 				'For scoped code changes, use agentType "implement"; for proof commands before completion, use agentType "verifier"; for final code review or second opinions, use agentType "reviewer".',
 			],
 			approvalRequired: false,
@@ -3221,6 +3312,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					waitingDesktopNotifications,
 					pi,
 					backgroundSessions,
+					_toolCallId,
 				);
 			},
 		}),

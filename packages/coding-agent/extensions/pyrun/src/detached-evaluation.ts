@@ -413,6 +413,7 @@ async function respondToForegroundBridgeRequest(
 			{ method: request.method, params: request.params },
 			input.ctx,
 			input.signal,
+			input.toolCallId,
 		);
 		appendJsonLine(input.runner.bridgeResponsePath, { requestId: request.requestId, result });
 	} catch (error) {

@@ -260,6 +260,7 @@ function dispatchDetachedPyrunBridgeRequest(
 		runnerAddress: manifest.runnerAddress,
 		sessionPath: manifest.sessionPath,
 		supervisorAddress: { agentId: null, sessionId: manifest.runnerAddress.sessionId },
+		toolCallId: manifest.toolCallId,
 	});
 	return new Promise((resolve, reject) => pendingRequests.set(requestId, { reject, resolve }));
 }

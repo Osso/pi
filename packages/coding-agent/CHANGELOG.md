@@ -7,6 +7,7 @@
 - Removed the `list_agents.activeOnly` option; `list_agents` now always returns active agents, while terminal agents remain inspectable by ID through `agent_viewer`.
 - Goal creation now requires `/goal set <objective>`; bare `/goal <text>` is rejected, and `manage_goal` cannot persist reserved control words such as `continue` as objectives.
 - Renamed the child mailbox tool `contact_supervisor` to `contact_parent`; it is direct-parent-only, requires the exact caller runtime identity, rejects parentless runtimes, validates persisted `parent_request` targets against the current direct parent, cannot target the resident Supervisor, and has no `contact_supervisor` compatibility alias.
+- `spawn_agent` now requires a `context` value: `fresh` starts the child with only its assignment, while `inherit` forks the persisted parent transcript immediately before the entire unresolved parent turn containing the active direct `spawn_agent` call or its enclosing `pyrun_eval` call, preserving only completed prior turns before appending the assignment. Callers should use `inherit` for required prior decisions/research and `fresh` for isolated work, review, verification, or falsification. Background jobs and restart recovery use `fresh`, and attached-session reuse is separate.
 - Removed `MultiAgentStore.spawnAgent`, `spawnChildAgent`, and `attachSessionAgent`; persisted creation must go through `LifecycleCoordinator`, while `MultiAgentStore` only projects committed snapshots.
 - Removed `createMultiAgentWorkflowOperations` and `MultiAgentWorkflowOperations`; integrations must use registered agent tools or the Pyrun request handler so executable spawning remains coordinator-owned.
 - Renamed `upsertMultiAgentAgent` to `bootstrapMultiAgentAgent`; it is restricted to unowned bootstrap/migration rows.
@@ -86,6 +87,7 @@
 
 ### Changed
 
+- Renamed the internal Pyrun multi-agent bridge from `createHostrunMultiAgentRequestHandler`/`HostrunMultiAgentRequestHandler` to `createMultiAgentPiRequestHandler`/`MultiAgentPiRequestHandler` without compatibility aliases.
 - Highlighted the default footer's context percentage and total active `agents N` count while retaining dim styling for surrounding statistics.
 - Changed Pyrun `cli.*` command guidance to use forwarding, exit-code-only `.run()` by default and explicit `.capture().run()` when structured stdout/stderr inspection is required.
 - Resident Architect and Supervisor systemd services now run the installed Bun-compiled Pi binary.

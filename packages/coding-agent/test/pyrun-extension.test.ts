@@ -2,11 +2,13 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	createHostrunMultiAgentRequestHandler,
+	createMultiAgentPiRequestHandler,
+	createProductionChildAgentSessionFactory,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import { createPyrunEvalExecutor, formatCanonicalPyrunEvalResult } from "../extensions/pyrun/src/eval-tool.ts";
@@ -30,6 +32,7 @@ import { stripAnsi } from "../src/utils/ansi.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
+import { createHarness } from "./suite/harness.ts";
 
 interface PyrunEvalParams {
 	code: string;
@@ -489,9 +492,28 @@ async function resultFor(request) {
     const response = await readNextResponse();
     return { type: "completed", executed: request.code, value: response.result };
   }
+  if (request.code === "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
+    return { type: "completed", executed: request.code, value: response.result };
+  }
   if (request.code === "pi.agents.spawn({'prompt': 'inspect X'})") {
     process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X" } }) + "\\n");
     const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
+    return { type: "completed", executed: request.code, value: response.result };
+  }
+  if (request.code === "pi.agents.spawn({'prompt': 'inspect X', 'context': 'invalid'})") {
+    process.stdout.write(JSON.stringify({ type: "pi_request", method: "agents.spawn", params: { prompt: "inspect X", context: "invalid" } }) + "\\n");
+    const response = await readNextResponse();
+    if (response.error) {
+      return { type: "error", error: response.error };
+    }
     return { type: "completed", executed: request.code, value: response.result };
   }
   if (request.code === "pi.agents.wait()") {
@@ -1375,9 +1397,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 	it("responds to Pyrun pi.tools.call requests through active Pi tools", async () => {
 		const harness = createPyrunHarness({
-			callTool: async (name, params) => ({
+			callTool: async (name, params, _signal, toolCallId) => ({
 				content: [{ type: "text", text: "Pi release notes" }],
-				details: { name, params },
+				details: { name, params, toolCallId },
 			}),
 		});
 
@@ -1385,9 +1407,60 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 		expect(result.details.value).toEqual({
 			content: [{ type: "text", text: "Pi release notes" }],
-			details: { name: "web_search", params: { query: "current Pi release" } },
+			details: {
+				name: "web_search",
+				params: { query: "current Pi release" },
+				toolCallId: "pyrun-test-call-1",
+			},
 		});
 	});
+
+	it.runIf(hasLocalPyrunRunner && hasPython3)(
+		"forwards the enclosing Pyrun tool-call identity through ExtensionAPI.callTool",
+		async () => {
+			delete process.env.PI_PYRUN_RUNNER_COMMAND;
+			delete process.env.PI_PYRUN_RUNNER;
+			delete process.env.PI_PYRUN_RUNNER_ARGS;
+			let nestedToolCallId: string | undefined;
+			const harness = await createHarness({
+				extensionFactories: [pyrunExtension],
+				tools: [
+					{
+						name: "spawn_agent",
+						label: "Spawn Agent",
+						description: "Capture inherited spawn identity",
+						parameters: Type.Object({ context: Type.Literal("inherit"), prompt: Type.String() }),
+						execute: async (toolCallId) => {
+							nestedToolCallId = toolCallId;
+							return { content: [{ type: "text", text: "captured" }], details: {} };
+						},
+					},
+				],
+			});
+			await harness.session.bindExtensions({});
+			harness.setResponses([
+				fauxAssistantMessage(
+					fauxToolCall(
+						"pyrun_eval",
+						{
+							code: "pi.tools.call('spawn_agent', {'prompt': 'Child assignment', 'context': 'inherit'})",
+						},
+						{ id: "enclosing-pyrun-call" },
+					),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("done"),
+			]);
+
+			try {
+				await harness.session.prompt("Run nested inherited spawn");
+
+				expect(nestedToolCallId).toBe("enclosing-pyrun-call");
+			} finally {
+				harness.cleanup();
+			}
+		},
+	);
 
 	it("lists slash commands from Pyrun pi.commands.list", async () => {
 		const harness = createPyrunHarness();
@@ -1423,10 +1496,159 @@ for await (const line of createInterface({ input: process.stdin })) {
 			],
 		});
 
+		const result = await harness.evaluate({
+			code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})",
+		});
+
+		expect(requests).toEqual([{ method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } }]);
+		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
+	});
+
+	it.runIf(hasLocalPyrunRunner && hasPython3)(
+		"excludes the active Pyrun assistant turn when pi.tools.call spawns an inherited child",
+		async () => {
+			delete process.env.PI_PYRUN_RUNNER_COMMAND;
+			delete process.env.PI_PYRUN_RUNNER;
+			delete process.env.PI_PYRUN_RUNNER_ARGS;
+			const root = mkdtempSync(join(tmpdir(), "pi-pyrun-inherit-"));
+			temporaryHarnessDirectories.push(root);
+			const sessionManager = SessionManager.create(root, join(root, "sessions"));
+			sessionManager.setMetadataControlDbPath(getControlDbPath(root));
+			sessionManager.appendMessage({ role: "user", content: "Completed parent prefix", timestamp: 1 });
+			sessionManager.appendMessage(fauxAssistantMessage("Completed parent response"));
+			const code = "pi.tools.call('spawn_agent', {'prompt': 'Child assignment', 'context': 'inherit'})";
+			sessionManager.appendMessage(
+				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }, { id: "pyrun-test-call-1" }), {
+					stopReason: "toolUse",
+				}),
+			);
+			const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+			store.setPersistenceSessionManager(sessionManager);
+			let childSessionManager: SessionManager | undefined;
+			const createChildSession = createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				multiAgentStore: store,
+				createSession: async (options) => {
+					childSessionManager = options.sessionManager;
+					return {
+						session: {
+							bindExtensions: async () => {},
+							get messages() {
+								return options.sessionManager?.buildSessionContext().messages ?? [];
+							},
+							prompt: async (prompt) => {
+								options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
+								options.sessionManager?.appendMessage(fauxAssistantMessage("Child complete"));
+							},
+						},
+					};
+				},
+			});
+			const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
+				appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+			} satisfies ParentAgentJournalWriter);
+			let bridgeContext: ExtensionContext;
+			const harness = createPyrunHarness({
+				callTool: async (name, params, signal, toolCallId) => {
+					if (name !== "spawn_agent") throw new Error(`Unexpected tool: ${name}`);
+					const details = await handler({ method: "agents.spawn", params }, bridgeContext, signal, toolCallId);
+					return { content: [], details };
+				},
+			});
+			bridgeContext = { ...harness.evaluateContext, sessionManager } as ExtensionContext;
+
+			await harness.evaluate({ code }, undefined, undefined, { sessionManager });
+
+			expect(childSessionManager?.buildSessionContext().messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+				"user",
+				"assistant",
+			]);
+			expect(
+				childSessionManager
+					?.buildSessionContext()
+					.messages.map((message) =>
+						message.role === "user" && typeof message.content === "string" ? message.content : message.role,
+					),
+			).toEqual(["Completed parent prefix", "assistant", "Child assignment", "assistant"]);
+		},
+	);
+
+	it("rejects Pyrun pi.agents.spawn requests without context through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
+		const createChildSession = vi.fn(async () => ({
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {},
+		}));
+		const harness = createPyrunHarness({
+			piRequestHandlers: [
+				createMultiAgentPiRequestHandler({ createChildSession, store }, {
+					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+				} satisfies ParentAgentJournalWriter),
+			],
+		});
+
 		const result = await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
 
-		expect(requests).toEqual([{ method: "agents.spawn", params: { prompt: "inspect X" } }]);
-		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
+		expect(result.isError).toBe(true);
+		expect(result.details.error).toContain("context");
+		expect(createChildSession).not.toHaveBeenCalled();
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("rejects Pyrun pi.agents.spawn requests with invalid context through the multi-agent handler", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
+		const createChildSession = vi.fn(async () => ({
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {},
+		}));
+		const harness = createPyrunHarness({
+			piRequestHandlers: [
+				createMultiAgentPiRequestHandler({ createChildSession, store }, {
+					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+				} satisfies ParentAgentJournalWriter),
+			],
+		});
+
+		const result = await harness.evaluate({
+			code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'invalid'})",
+		});
+
+		expect(result.isError).toBe(true);
+		expect(result.details.error).toContain("context");
+		expect(createChildSession).not.toHaveBeenCalled();
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it.each([
+		["missing", { context: "fresh" }],
+		["non-string", { context: "fresh", prompt: 42 }],
+	])("rejects Pyrun pi.agents.spawn requests with %s prompt", async (_case, params) => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
+		const createChildSession = vi.fn(async () => ({
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {},
+		}));
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
+			appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+		} satisfies ParentAgentJournalWriter);
+		const harness = createPyrunHarness();
+		const bridgeContext = { ...harness.evaluateContext, sessionManager } as ExtensionContext;
+
+		await expect(handler({ method: "agents.spawn", params }, bridgeContext, undefined)).rejects.toThrow("prompt");
+
+		expect(createChildSession).not.toHaveBeenCalled();
+		expect(store.listAgents()).toEqual([]);
 	});
 
 	it("responds to Pyrun pi.agents.wait requests through configured handlers", async () => {
@@ -1451,7 +1673,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		store.setPersistenceSessionManager(sessionManager);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler(
+				createMultiAgentPiRequestHandler(
 					{
 						createChildSession: async ({ agent }) => ({
 							messages: [fauxAssistantMessage("done")],
@@ -1471,7 +1693,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			],
 		});
 
-		await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
+		await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X', 'context': 'fresh'})" });
 		const result = await harness.evaluate({ code: "pi.agents.wait()" });
 
 		expect(result.details.value).toBeNull();
@@ -1503,7 +1725,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		});
 		store.selectAgentView(spawned.agent.id);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
@@ -1524,7 +1746,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		).toBe(true);
 		store.selectAgentView(spawned.agent.id);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
@@ -1538,7 +1760,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	it("returns main thread from Pyrun pi.agents.current when no agent is selected", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
@@ -1557,7 +1779,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
@@ -1582,7 +1804,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
@@ -1597,7 +1819,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	it("returns bounded last session message from Pyrun pi.messages.last", async () => {
 		const longToolBlob = "x".repeat(6000);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store: new MultiAgentStore() })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store: new MultiAgentStore() })],
 		});
 		const sessionManager = {
 			getBranch: () => [
@@ -1649,7 +1871,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.list()" });
@@ -1680,7 +1902,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({
@@ -1702,7 +1924,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	it("sends runtime session messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({

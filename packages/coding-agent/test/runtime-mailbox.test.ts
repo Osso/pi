@@ -71,7 +71,7 @@ function enqueueStoredRuntimeMessage(
 }
 
 import {
-	createHostrunMultiAgentRequestHandler,
+	createMultiAgentPiRequestHandler,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
@@ -831,7 +831,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -887,14 +887,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("disposes Hostrun lifecycle mirroring before its session context becomes stale", async () => {
+	it("disposes Pyrun multi-agent bridge lifecycle mirroring before its session context becomes stale", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const handler = createMultiAgentPiRequestHandler({ store });
 		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let contextReplaced = false;
 		Object.defineProperty(staleContext, "controlDbPath", {
@@ -908,7 +908,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		handler.dispose();
 		contextReplaced = true;
 		await expect(handler({ method: "agents.list", params: {} }, staleContext, undefined)).rejects.toThrow(
-			"Hostrun multi-agent request handler is disposed",
+			"Multi-agent Pi request handler is disposed",
 		);
 		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -923,14 +923,14 @@ describe("runtime SQLite mailbox delivery", () => {
 		).not.toThrow();
 	});
 
-	it("rebinds Hostrun lifecycle mirroring when a session context is replaced", async () => {
+	it("rebinds Pyrun multi-agent bridge lifecycle mirroring when a session context is replaced", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const handler = createMultiAgentPiRequestHandler({ store });
 		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let contextReplaced = false;
 		Object.defineProperty(staleContext, "controlDbPath", {
@@ -987,7 +987,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1032,7 +1032,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1089,7 +1089,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1131,7 +1131,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1182,7 +1182,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1225,7 +1225,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "run tests" },
+			{ context: "fresh", displayName: "Worker", prompt: "run tests" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1245,7 +1245,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("Hostrun agents.wait observes the mirrored completion notification", async () => {
+	it("Pyrun multi-agent bridge agents.wait observes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1256,12 +1256,16 @@ describe("runtime SQLite mailbox delivery", () => {
 			lifecycle: "completed",
 			result: { summary: "tests passed" },
 		}));
-		const handler = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
 			appendEntry: (customType: string, data?: unknown) => parentSession.appendCustomEntry(customType, data),
 		} satisfies ParentAgentJournalWriter);
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
-		await handler({ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } }, ctx, undefined);
+		await handler(
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "run tests" } },
+			ctx,
+			undefined,
+		);
 		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}
@@ -1292,7 +1296,13 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
-		await spawnAgent.execute("spawn", { displayName: "Worker", prompt: "run tests" }, undefined, undefined, ctx);
+		await spawnAgent.execute(
+			"spawn",
+			{ context: "fresh", displayName: "Worker", prompt: "run tests" },
+			undefined,
+			undefined,
+			ctx,
+		);
 		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}
