@@ -125,7 +125,10 @@ describe("Codex fast mode extension", () => {
 		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness();
 		await command.handler("on", ctx);
 		const invalidEvent = { payload: "unexpected", type: "before_provider_request" } as BeforeProviderRequestEvent;
-		const validEvent = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+		const validEvent = {
+			payload: { model: "test-model" },
+			type: "before_provider_request",
+		} as BeforeProviderRequestEvent;
 
 		expect(beforeProviderRequest(invalidEvent, ctx)).toBeUndefined();
 		expect(notify).toHaveBeenLastCalledWith("Fast mode disabled: provider payload is not an object", "warning");
