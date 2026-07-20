@@ -158,7 +158,9 @@ describe("goal extension runtime", () => {
 		await retryStarted;
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(
-			harness.sessionManager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status"),
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status"),
 		).toHaveLength(0);
 		harness.session.abortRetry();
 		await prompt;

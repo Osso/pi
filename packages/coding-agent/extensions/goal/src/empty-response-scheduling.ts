@@ -1,6 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
+const STALE_CONTEXT_ERROR_PREFIX = "This extension ctx is stale after session replacement or reload.";
+
+function isStaleContextError(error: unknown): boolean {
+	return error instanceof Error && error.message.startsWith(STALE_CONTEXT_ERROR_PREFIX);
+}
 
 interface EmptyResponseSchedulingOptions<TGoal> {
 	pi: ExtensionAPI;
@@ -37,12 +42,16 @@ class EmptyResponseSchedulerImpl<TGoal> implements EmptyResponseScheduler<TGoal>
 		this.clearSession(sessionId);
 		const timer = setTimeout(() => {
 			this.timers.delete(sessionId);
-			if (!this.options.isSameRunningGoal(ctx, goal) || ctx.hasPendingMessages()) return;
-			if (!ctx.isIdle()) {
-				this.schedule(ctx, goal);
-				return;
+			try {
+				if (!this.options.isSameRunningGoal(ctx, goal) || ctx.hasPendingMessages()) return;
+				if (!ctx.isIdle()) {
+					this.schedule(ctx, goal);
+					return;
+				}
+				this.options.pi.sendUserMessage("Continue working toward the active goal.");
+			} catch (error) {
+				if (!isStaleContextError(error)) throw error;
 			}
-			this.options.pi.sendUserMessage("Continue working toward the active goal.");
 		}, EMPTY_RESPONSE_RETRY_DELAY_MS);
 		this.timers.set(sessionId, timer);
 	}
