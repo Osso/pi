@@ -24,10 +24,12 @@ export function appendSupervisorStatus(pi: ExtensionAPI, message: string): void 
 	pi.appendEntry("supervisor-status", { message });
 }
 
+function hasSupervisorInstructionWrapper(content: string): boolean {
+	return content.startsWith(SUPERVISOR_INSTRUCTION_OPEN) && content.endsWith(SUPERVISOR_INSTRUCTION_CLOSE);
+}
+
 function supervisorInstructionBody(content: string): string {
-	if (!content.startsWith(SUPERVISOR_INSTRUCTION_OPEN) || !content.endsWith(SUPERVISOR_INSTRUCTION_CLOSE)) {
-		return content;
-	}
+	if (!hasSupervisorInstructionWrapper(content)) return content;
 	let body = content.slice(SUPERVISOR_INSTRUCTION_OPEN.length, -SUPERVISOR_INSTRUCTION_CLOSE.length);
 	if (body.startsWith("\n")) body = body.slice(1);
 	if (body.endsWith("\n")) body = body.slice(0, -1);

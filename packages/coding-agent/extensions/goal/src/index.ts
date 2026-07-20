@@ -67,8 +67,12 @@ function saveGoalJson(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal)
 	ctx.sessionManager.setSessionGoalJson(`${JSON.stringify(goal)}\n`);
 }
 
+function isNonNullObject(value: unknown): value is object {
+	return typeof value === "object" && value !== null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	return isNonNullObject(value) && !Array.isArray(value);
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -79,12 +83,20 @@ function optionalNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function hasGoalIdentity(
+	objective: string | undefined,
+	branch: string | undefined,
+	createdAt: string | undefined,
+): objective is string {
+	return Boolean(objective && branch && createdAt);
+}
+
 function parseGoal(value: unknown): Goal | null {
 	if (!isRecord(value)) return null;
 	const objective = optionalString(value.objective)?.trim();
 	const branch = optionalString(value.branch);
 	const createdAt = optionalString(value.createdAt);
-	if (!objective || !branch || !createdAt) return null;
+	if (!hasGoalIdentity(objective, branch, createdAt)) return null;
 
 	return {
 		objective,
@@ -215,8 +227,12 @@ function sessionIdFromSessionFile(sessionFile: string): string | null {
 	}
 }
 
+function isGoalInheritanceEvent(event: SessionStartEvent): event is SessionStartEvent & { previousSessionFile: string } {
+	return event.reason === "fork" && Boolean(event.previousSessionFile);
+}
+
 function inheritPreviousSessionGoal(event: SessionStartEvent, ctx: ExtensionContext): void {
-	if (event.reason !== "fork" || !event.previousSessionFile) return;
+	if (!isGoalInheritanceEvent(event)) return;
 	if (ctx.sessionManager.isSubagentSession()) return;
 	if (loadOrMigrateGoal(ctx)) return;
 
@@ -377,9 +393,8 @@ async function runCompleteGoalAction(
 		kind: "goal_completion_review",
 		payload: { objective: activeGoal.objective, proposedCompletionReason: reason },
 	});
-	if (!isReviewCurrent() || !goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal)) {
-		return textResult("Goal changed or review was canceled; stale decision ignored.");
-	}
+	const reviewStillApplies = isReviewCurrent() && goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal);
+	if (!reviewStillApplies) return textResult("Goal changed or review was canceled; stale decision ignored.");
 	return applyCompletionDecision(decision, activeGoal, ctx, pi, reason, onWait);
 }
 

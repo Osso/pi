@@ -43,8 +43,13 @@ function toolError(result: AgentToolResult<unknown>, toolName: string): Error | 
 	return new Error(message || `${toolName} failed`);
 }
 
+function hasActiveCount(details: unknown): details is { activeCount: unknown } {
+	if (typeof details !== "object" || details === null) return false;
+	return "activeCount" in details;
+}
+
 function activeAgentCount(details: unknown): number {
-	if (typeof details !== "object" || details === null || !("activeCount" in details)) return 0;
+	if (!hasActiveCount(details)) return 0;
 	return typeof details.activeCount === "number" ? details.activeCount : 0;
 }
 

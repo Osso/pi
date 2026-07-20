@@ -14,6 +14,11 @@ function unsupportedGoalFlag(parts: string[]): string | undefined {
 	return "Goal flags are no longer supported";
 }
 
+function isStandaloneControlAction(action: string, objectiveParts: string[]): action is "pause" | "resume" | "clear" {
+	const isControlAction = action === "pause" || action === "resume" || action === "clear";
+	return isControlAction && objectiveParts.length === 0;
+}
+
 export function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
 	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
 	const flagError = unsupportedGoalFlag(parts);
@@ -24,8 +29,6 @@ export function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } 
 		const objective = objectiveParts.join(" ");
 		return objective ? { action: "set", objective } : { error: "Use /goal set <objective> to set a goal" };
 	}
-	if ((action === "pause" || action === "resume" || action === "clear") && objectiveParts.length === 0) {
-		return { action };
-	}
+	if (isStandaloneControlAction(action, objectiveParts)) return { action };
 	return { error: "Use /goal set <objective> to set a goal" };
 }

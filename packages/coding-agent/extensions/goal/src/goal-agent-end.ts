@@ -25,6 +25,10 @@ interface GoalAgentEndOptions {
 	deferReview: (goal: Goal, ctx: ExtensionContext, terminalTurn: TerminalTurn) => void;
 }
 
+function reviewStillApplies(options: GoalAgentEndOptions, goal: Goal): boolean {
+	return options.isReviewCurrent() && options.isSameGoal(options.ctx, goal);
+}
+
 export async function handleGoalAgentEnd(options: GoalAgentEndOptions): Promise<void> {
 	const goal = options.selectGoal();
 	if (!goal) return;
@@ -37,7 +41,7 @@ export async function handleGoalAgentEnd(options: GoalAgentEndOptions): Promise<
 		kind: "goal_idle_review",
 		payload: { objective: goal.objective, terminalTurn: options.event.messages },
 	});
-	if (!options.isReviewCurrent() || !options.isSameGoal(options.ctx, goal)) return;
+	if (!reviewStillApplies(options, goal)) return;
 	if (options.ctx.hasPendingMessages()) {
 		options.deferDecision(decision, goal, options.ctx, options.event.messages);
 		return;
