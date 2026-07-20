@@ -803,21 +803,22 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
-	it("clears selected view when the selected agent becomes terminal", () => {
-		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = spawnScout(store);
-		store.selectAgentView(spawned.agent.id);
+	it.each(["publishLifecycleCoordinatorSnapshot", "publishTerminalOutboxSnapshot"] as const)(
+		"notifies selected-agent listeners before %s clears terminal selection",
+		(publishMethod) => {
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			const spawned = spawnScout(store);
+			store.selectAgentView(spawned.agent.id);
+			const selectedDuringUpdate: Array<string | undefined> = [];
+			store.subscribeAgentUpdates(() => selectedDuringUpdate.push(store.getSelectedAgentId()));
 
-		const completed = legacyMultiAgentStore(store).transitionAgent(
-			spawned.agent.id,
-			spawned.agent.revision,
-			"completed",
-		);
+			store[publishMethod]({ ...spawned.agent, lifecycle: "completed", revision: spawned.agent.revision + 1 });
 
-		expect(completed.ok).toBe(true);
-		expect(store.getSelectedAgentId()).toBeUndefined();
-		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
-	});
+			expect(selectedDuringUpdate).toEqual([spawned.agent.id]);
+			expect(store.getSelectedAgentId()).toBeUndefined();
+			expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
+		},
+	);
 
 	it("maps slot fallback to active agent order", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });

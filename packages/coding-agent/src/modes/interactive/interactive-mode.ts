@@ -3057,10 +3057,14 @@ export class InteractiveMode {
 		}
 
 		const selected = this.multiAgentStore?.getAgent(agentId);
-		if (!selected || !this.openChildAgentView(selected)) {
+		if (!selected) return false;
+		const previousAgentId = this.multiAgentStore?.getSelectedAgentId();
+		const selection = this.multiAgentStore?.selectAgentViewWithStatus(agentId);
+		if (!selection?.ok) return false;
+		if (!this.openChildAgentView(selected)) {
+			this.restorePreviousAgentSelection(previousAgentId);
 			return false;
 		}
-		this.multiAgentStore?.selectAgentViewWithStatus(agentId);
 		this.loadedResourcesContainer.clear();
 		this.syncWorkingLoaderVisibility();
 		this.updateSelectedAgentSelectionWidgets();

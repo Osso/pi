@@ -350,6 +350,7 @@ function createTranscriptSwitchFixture(options: {
 		getUserMessageText: interactiveModeKeyHandlers.getUserMessageText,
 		isViewingAgentSession: interactiveModeKeyHandlers.isViewingAgentSession,
 		multiAgentStore: store,
+		executingToolStartedAt: new Map<string, number>(),
 		pendingTools: new Map<string, unknown>(),
 		renderInitialMessages: interactiveModeKeyHandlers.renderInitialMessages,
 		renderProjectTrustWarningIfNeeded: () => {},
@@ -492,7 +493,7 @@ describe("InteractiveMode key handlers", () => {
 		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
-	test("selected-agent banner preserves an inactive selected view", () => {
+	test("selected-agent banner clears when the selected agent becomes terminal", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -507,8 +508,8 @@ describe("InteractiveMode key handlers", () => {
 		).toBe(true);
 		const banner = new AgentSelectionBannerComponent(store);
 
-		expect(store.getSelectedAgentId()).toBe(spawned.agent.id);
-		expect(normalizeRenderedOutput(banner)).toContain(`Agent ${spawned.agent.id}: Scout (completed)`);
+		expect(store.getSelectedAgentId()).toBeUndefined();
+		expect(normalizeRenderedOutput(banner)).toBe("");
 	});
 
 	test("/agents selection updates the visible selected-agent banner", () => {
@@ -1474,7 +1475,7 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
-	test("rejects inactive agent view selection without changing the current agent", () => {
+	test("selects an inactive agent for read-only viewing", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
 		const active = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -1494,10 +1495,13 @@ describe("InteractiveMode key handlers", () => {
 		store.selectActiveAgentTargetWithStatus(active.agent.id);
 		const fakeThis = {
 			multiAgentStore: store,
+			openChildAgentView: vi.fn(() => true),
+			loadedResourcesContainer: { clear: vi.fn() },
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
 			showInactiveAgentSelectionStatus: interactiveModeKeyHandlers.showInactiveAgentSelectionStatus,
 			showStatus: vi.fn(),
+			syncWorkingLoaderVisibility: vi.fn(),
 			updateSelectedAgentBanner: interactiveModeKeyHandlers.updateSelectedAgentBanner,
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
 			ui: { requestRender: vi.fn() },
@@ -1505,11 +1509,12 @@ describe("InteractiveMode key handlers", () => {
 
 		const selected = interactiveModeKeyHandlers.selectAgentView.call(fakeThis, completed.agent.id);
 
-		expect(selected).toBe(false);
-		expect(store.getSelectedAgentId()).toBe(active.agent.id);
-		expect(fakeThis.showStatus).toHaveBeenCalledWith(`Agent is not active: Done (completed)`);
-		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
-		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
+		expect(selected).toBe(true);
+		expect(store.getSelectedAgentId()).toBe(completed.agent.id);
+		expect(fakeThis.openChildAgentView).toHaveBeenCalledWith(expect.objectContaining({ id: completed.agent.id }));
+		expect(fakeThis.showStatus).not.toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).toHaveBeenCalled();
+		expect(fakeThis.footer.invalidate).toHaveBeenCalled();
 	});
 
 	test("interrupts a streaming main turn before focused components receive escape", () => {
