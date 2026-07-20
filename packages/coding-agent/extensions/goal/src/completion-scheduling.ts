@@ -20,6 +20,7 @@ interface CompletionSchedulingOptions {
 export interface CompletionWaitScheduler {
 	clearAll(): void;
 	clearSession(sessionId: string): void;
+	createReviewGuard(ctx: ExtensionContext): () => boolean;
 	wait(goal: Goal, ctx: ExtensionContext, reason: string): Promise<void>;
 }
 
@@ -69,6 +70,10 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 	return {
 		clearAll: () => scheduler.clearAll(),
 		clearSession: (sessionId) => scheduler.clearSession(sessionId),
+		createReviewGuard: (ctx) => {
+			const epoch = scheduler.captureEpoch(ctx);
+			return () => scheduler.isEpochCurrent(ctx, epoch);
+		},
 		wait: async (goal, ctx, reason) => scheduler.waitForAgentsOrScheduleReview(ctx, { goal, reason }, []),
 	};
 }

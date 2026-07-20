@@ -942,7 +942,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("falls back to a five-minute review when agent discovery fails", async () => {
+	it("falls back to a five-minute review when agent discovery returns an error result", async () => {
 		vi.useFakeTimers();
 		try {
 			const reviewGoal = vi
@@ -950,9 +950,11 @@ describe("goal extension", () => {
 				.mockResolvedValueOnce({ kind: "wait", reason: "agent state unavailable" })
 				.mockResolvedValueOnce({ kind: "pause", reason: "recovered review" });
 			const harness = createGoalHarness(cwd, {
-				callTool: async () => {
-					throw new Error("list_agents unavailable");
-				},
+				callTool: async () => ({
+					content: [{ type: "text", text: "list_agents unavailable" }],
+					details: {},
+					isError: true,
+				}),
 				reviewGoal,
 			});
 			await harness.runCommand("set recover scheduling");
@@ -969,7 +971,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("falls back to timed review when wait_agents fails", async () => {
+	it("falls back to timed review when wait_agents returns an error result", async () => {
 		vi.useFakeTimers();
 		try {
 			const reviewGoal = vi
@@ -979,7 +981,11 @@ describe("goal extension", () => {
 			const harness = createGoalHarness(cwd, {
 				callTool: async (name) => {
 					if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
-					throw new Error("wait_agents unavailable");
+					return {
+						content: [{ type: "text", text: "wait_agents unavailable" }],
+						details: {},
+						isError: true,
+					};
 				},
 				reviewGoal,
 			});
@@ -1057,6 +1063,40 @@ describe("goal extension", () => {
 				content: "<supervisor-instruction>\nRetry the check.\n</supervisor-instruction>",
 				display: true,
 			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("discards a five-minute review canceled while Supervisor review is in flight", async () => {
+		vi.useFakeTimers();
+		try {
+			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+			let markReviewStarted: (() => void) | undefined;
+			const reviewStarted = new Promise<void>((resolve) => {
+				markReviewStarted = resolve;
+			});
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "retry later" })
+				.mockImplementationOnce(
+					async () =>
+						new Promise<GoalSupervisorResponse>((resolve) => {
+							finishReview = resolve;
+							markReviewStarted?.();
+						}),
+				);
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set cancel timed review");
+			harness.sendMessage.mockClear();
+			await harness.runAgentEnd();
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await reviewStarted;
+			await harness.runInput("cancel timed review");
+			finishReview?.({ kind: "continue", reason: "stale", instructions: "Do stale timed work." });
+			await Promise.resolve();
+
+			expect(harness.sendMessage).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -1154,6 +1194,32 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: waiting for external input" }]);
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("discards a completion review canceled by user input", async () => {
+		let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+		let markReviewStarted: (() => void) | undefined;
+		const reviewStarted = new Promise<void>((resolve) => {
+			markReviewStarted = resolve;
+		});
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
+			async () =>
+				new Promise<GoalSupervisorResponse>((resolve) => {
+					finishReview = resolve;
+					markReviewStarted?.();
+				}),
+		);
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set cancel completion review");
+		const completion = harness.runGoalComplete("done");
+		await reviewStarted;
+		await harness.runInput("new user work");
+		finishReview?.({ kind: "complete", reason: "stale completion" });
+
+		expect((await completion)?.content).toEqual([
+			{ type: "text", text: "Goal changed or review was canceled; stale decision ignored." },
+		]);
+		expect(readStoredGoal<{ completedAt?: string }>(cwd).completedAt).toBeUndefined();
 	});
 
 	it("durably reports a completion-review error", async () => {

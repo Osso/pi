@@ -1,4 +1,9 @@
-import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentEndEvent,
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 const PENDING_DECISION_RETRY_DELAY_MS = 1_000;
 const WAIT_REVIEW_DELAY_MS = 5 * 60 * 1_000;
@@ -26,6 +31,16 @@ export interface GoalScheduler<TGoal, TDecision> {
 	deferReview(goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
 	isEpochCurrent(ctx: ExtensionContext, epoch: number): boolean;
 	waitForAgentsOrScheduleReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void>;
+}
+
+function toolError(result: AgentToolResult<unknown>, toolName: string): Error | null {
+	if (!result.isError) return null;
+	const message = result.content
+		.filter((item): item is Extract<(typeof result.content)[number], { type: "text" }> => item.type === "text")
+		.map((item) => item.text)
+		.join("\n")
+		.trim();
+	return new Error(message || `${toolName} failed`);
 }
 
 function activeAgentCount(details: unknown): number {
@@ -90,6 +105,8 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		try {
 			const listResult = await this.options.pi.callTool("list_agents", { parentId: "main" });
 			if ((this.cancellationEpochs.get(sessionId) ?? 0) !== epoch) return;
+			const listError = toolError(listResult, "list_agents");
+			if (listError) throw listError;
 			if (activeAgentCount(listResult.details) === 0) {
 				this.scheduleWaitReview(ctx, goal, terminalTurn);
 				return;
@@ -124,13 +141,14 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		terminalTurn: TerminalTurn,
 		wakeEvidence?: unknown,
 	): Promise<void> {
+		const reviewEpoch = this.captureEpoch(ctx);
 		if (!this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
 			this.scheduleReviewRetry(ctx, goal, terminalTurn, wakeEvidence);
 			return;
 		}
 		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn, wakeEvidence);
-		if (!this.options.isSameRunningGoal(ctx, goal)) return;
+		if (!this.isEpochCurrent(ctx, reviewEpoch) || !this.options.isSameRunningGoal(ctx, goal)) return;
 		if (ctx.hasPendingMessages()) {
 			this.deferDecision(decision, goal, ctx, terminalTurn);
 			return;
@@ -194,6 +212,8 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	): Promise<void> {
 		const waitResult = await this.options.pi.callTool("wait_agents", {}, controller.signal);
 		if (controller.signal.aborted) return;
+		const waitError = toolError(waitResult, "wait_agents");
+		if (waitError) throw waitError;
 		this.waitControllers.delete(ctx.sessionManager.getSessionId());
 		await this.reviewAndApply(ctx, goal, terminalTurn, waitResult.details);
 	}
