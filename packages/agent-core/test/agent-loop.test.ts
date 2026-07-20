@@ -26,8 +26,11 @@ class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMe
 }
 
 class IteratorBoundaryStream extends MockAssistantStream {
-	constructor(private readonly behavior: "natural" | "next-error" | "cleanup-hang") {
+	private readonly behavior: "natural" | "next-error" | "cleanup-hang";
+
+	constructor(behavior: "natural" | "next-error" | "cleanup-hang") {
 		super();
+		this.behavior = behavior;
 	}
 
 	override [Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
