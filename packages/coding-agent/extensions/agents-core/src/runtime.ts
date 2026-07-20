@@ -242,6 +242,7 @@ export interface MultiAgentExtensionOptions {
 }
 
 export interface ChildAgentDispatchInput {
+	activeToolCallId?: string;
 	agent: AgentSnapshot;
 	context: "fresh" | "inherit";
 	ctx: ExtensionContext;
@@ -655,7 +656,7 @@ function getSessionTranscriptMetadata(
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
-	const factory: ProductionChildAgentSessionFactory = async ({ agent, context, ctx, prompt }) => {
+	const factory: ProductionChildAgentSessionFactory = async ({ activeToolCallId, agent, context, ctx, prompt }) => {
 		const validation = validateGoalObjective(prompt);
 		if (!validation.ok) {
 			throw new Error(spawnPromptValidationMessage(validation));
@@ -671,12 +672,19 @@ export function createProductionChildAgentSessionFactory(
 			isSubagent: true,
 			subagentName: agent.displayName,
 		};
-		const activeEntry = ctx.sessionManager.getLeafEntry();
-		const activeSpawnCall =
-			activeEntry?.type === "message" &&
-			activeEntry.message.role === "assistant" &&
-			activeEntry.message.content.some((part) => part.type === "toolCall" && part.name === "spawn_agent");
-		const inheritedLeafId = activeSpawnCall ? (activeEntry.parentId ?? undefined) : (activeEntry?.id ?? undefined);
+		const activeSpawnEntry = activeToolCallId
+			? ctx.sessionManager
+					.getBranch()
+					.findLast(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "assistant" &&
+							entry.message.content.some(
+								(part) => part.type === "toolCall" && part.id === activeToolCallId && part.name === "spawn_agent",
+							),
+					)
+			: undefined;
+		const inheritedLeafId = activeSpawnEntry?.parentId ?? ctx.sessionManager.getLeafId() ?? undefined;
 		const sessionManager =
 			context === "inherit" && parentSessionFile
 				? SessionManager.forkFrom(
@@ -1032,6 +1040,7 @@ async function spawnAgent(
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
 	pi: ParentAgentJournalWriter | undefined,
 	handles?: BackgroundSessionHandles,
+	activeToolCallId?: string,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	requireSpawnAgentParams(params);
 	if (isChildAgentRuntime(ctx)) {
@@ -1089,6 +1098,7 @@ async function spawnAgent(
 	if (createChildSession) {
 		try {
 			childSession = await createChildSession({
+				activeToolCallId,
 				agent: prepared,
 				context: params.context,
 				ctx,
@@ -3226,6 +3236,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					waitingDesktopNotifications,
 					pi,
 					backgroundSessions,
+					_toolCallId,
 				);
 			},
 		}),

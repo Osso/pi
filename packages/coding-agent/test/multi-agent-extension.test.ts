@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { Type } from "typebox";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
@@ -4036,11 +4037,25 @@ describe("multi-agent extension tools", () => {
 	it("inherits context through a real tool loop without copying the active spawn call", async () => {
 		let parentHarness!: Harness;
 		let childSession: Harness["session"] | undefined;
+		let siblingCompletedBeforeSpawn = false;
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const sequentialProbe: ExtensionFactory = (pi) => {
+			pi.registerTool({
+				name: "sequential_probe",
+				label: "Sequential Probe",
+				description: "Complete before the sibling spawn call.",
+				parameters: Type.Object({}),
+				executionMode: "sequential",
+				execute: async () => ({ content: [{ type: "text", text: "probe complete" }], details: {} }),
+			});
+		};
 		const createChildSession = createProductionChildAgentSessionFactory({
 			createSessionManager: SessionManager.create,
 			multiAgentStore: store,
 			createSession: async (options) => {
+				siblingCompletedBeforeSpawn = parentHarness.sessionManager
+					.buildSessionContext()
+					.messages.some((message) => message.role === "toolResult" && message.toolName === "sequential_probe");
 				const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
 				childSession = result.session;
 				childSessions.push(result.session);
@@ -4048,7 +4063,7 @@ describe("multi-agent extension tools", () => {
 			},
 		});
 		parentHarness = await createHarness({
-			extensionFactories: [(pi) => multiAgentExtension(pi, { createChildSession, store })],
+			extensionFactories: [sequentialProbe, (pi) => multiAgentExtension(pi, { createChildSession, store })],
 			multiAgentStore: store,
 			persistedSession: true,
 		});
@@ -4076,11 +4091,14 @@ describe("multi-agent extension tools", () => {
 				return fauxAssistantMessage("Child completed");
 			}
 			return fauxAssistantMessage(
-				fauxToolCall("spawn_agent", {
-					context: "inherit",
-					displayName: "Inherited child",
-					prompt: "Child assignment",
-				}),
+				[
+					fauxToolCall("sequential_probe", {}),
+					fauxToolCall("spawn_agent", {
+						context: "inherit",
+						displayName: "Inherited child",
+						prompt: "Child assignment",
+					}),
+				],
 				{ stopReason: "toolUse" },
 			);
 		};
@@ -4090,6 +4108,7 @@ describe("multi-agent extension tools", () => {
 		if (!childSession) throw new Error("expected child session");
 		await childSession.agent.waitForIdle();
 
+		expect(siblingCompletedBeforeSpawn).toBe(true);
 		expect(childSession.messages.map(getMessageText)).toEqual([
 			"Completed parent prefix",
 			"Completed parent response",
