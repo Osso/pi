@@ -25,6 +25,36 @@ class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMe
 	}
 }
 
+class IteratorBoundaryStream extends MockAssistantStream {
+	constructor(private readonly behavior: "natural" | "next-error" | "cleanup-hang") {
+		super();
+	}
+
+	override [Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
+		if (this.behavior === "next-error") {
+			return {
+				next: async () => {
+					throw new Error("next failed");
+				},
+				return: async () => new Promise<IteratorResult<AssistantMessageEvent>>(() => undefined),
+			};
+		}
+		if (this.behavior === "cleanup-hang") {
+			return {
+				next: async () => new Promise<IteratorResult<AssistantMessageEvent>>(() => undefined),
+				return: async () => new Promise<IteratorResult<AssistantMessageEvent>>(() => undefined),
+			};
+		}
+		const iterator = super[Symbol.asyncIterator]();
+		return {
+			next: () => iterator.next(),
+			return: async () => {
+				throw new Error("return called after natural exhaustion");
+			},
+		};
+	}
+}
+
 function createUsage() {
 	return {
 		input: 0,
@@ -175,6 +205,49 @@ describe("agentLoop with AgentMessage", () => {
 		});
 
 		await started;
+		controller.abort();
+
+		await expect(stream.result()).rejects.toThrow("Agent run aborted");
+	});
+
+	it("does not close an iterator after natural exhaustion", async () => {
+		const context: AgentContext = { systemPrompt: "You are helpful.", messages: [], tools: [] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		const response = createAssistantMessage([{ type: "text", text: "done" }]);
+		const stream = agentLoop([createUserMessage("Hello")], context, config, undefined, () => {
+			const source = new IteratorBoundaryStream("natural");
+			queueMicrotask(() => source.end(response));
+			return source;
+		});
+
+		await expect(stream.result()).resolves.toEqual([expect.anything(), response]);
+	});
+
+	it("preserves next rejection without waiting for iterator cleanup", async () => {
+		const context: AgentContext = { systemPrompt: "You are helpful.", messages: [], tools: [] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		const stream = agentLoop(
+			[createUserMessage("Hello")],
+			context,
+			config,
+			undefined,
+			() => new IteratorBoundaryStream("next-error"),
+		);
+
+		await expect(stream.result()).rejects.toThrow("next failed");
+	});
+
+	it("terminalizes when iterator cleanup ignores abort", async () => {
+		const context: AgentContext = { systemPrompt: "You are helpful.", messages: [], tools: [] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		const controller = new AbortController();
+		const stream = agentLoop(
+			[createUserMessage("Hello")],
+			context,
+			config,
+			controller.signal,
+			() => new IteratorBoundaryStream("cleanup-hang"),
+		);
 		controller.abort();
 
 		await expect(stream.result()).rejects.toThrow("Agent run aborted");
