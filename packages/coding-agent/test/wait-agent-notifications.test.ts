@@ -24,31 +24,45 @@ function createPersistedStore(): MultiAgentStore {
 	return store;
 }
 
+function createStoreWithCompletedAgent(): MultiAgentStore {
+	const store = createPersistedStore();
+	const spawned = legacyMultiAgentStore(store).spawnAgent({
+		agentType: "implement",
+		cwd: "/repo",
+		displayName: "Worker",
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	const completed = legacyMultiAgentStore(store).transitionAgent(
+		spawned.agent.id,
+		spawned.agent.revision,
+		"completed",
+		{ result: { summary: "done" } },
+	);
+	if (!completed.ok) throw new Error("expected completed agent fixture");
+	return store;
+}
+
 describe("agent notification waiting", () => {
 	it("waits for terminal notifications without consuming them", async () => {
-		const store = createPersistedStore();
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "implement",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
-		const completed = legacyMultiAgentStore(store).transitionAgent(
-			spawned.agent.id,
-			spawned.agent.revision,
-			"completed",
-			{ result: { summary: "done" } },
-		);
-		expect(completed.ok).toBe(true);
+		const store = createStoreWithCompletedAgent();
 
 		const wake = await waitNotifications(store);
 
-		expect(wake).toMatchObject({ agent: { id: spawned.agent.id }, kind: "agent" });
+		expect(wake).toMatchObject({ agent: { displayName: "Worker" }, kind: "agent" });
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
 
 		const consumed = consumeNotifications(store, wake);
 
 		expect(consumed.content).toEqual([{ text: "Worker completed: done", type: "text" }]);
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
+	});
+
+	it("does not consume terminal notifications after a non-terminal wake", () => {
+		const store = createStoreWithCompletedAgent();
+
+		const result = consumeNotifications(store, { error: new Error("listener failed"), kind: "error" });
+
+		expect(result.content).toEqual([{ text: "Wait failed: listener failed", type: "text" }]);
+		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
 	});
 });

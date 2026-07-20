@@ -2344,11 +2344,6 @@ export function consumeNotifications(
 	wake: WaitNotificationsWake,
 	ctx?: ExtensionContext,
 ): AgentToolResult<WaitAgentsToolDetails> {
-	const persistence = store.getPersistenceTarget();
-	if (persistence) {
-		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
-		if (pending) return pending;
-	}
 	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
 	if (wake.kind === "coordination") {
 		const coordination = takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
@@ -2359,6 +2354,11 @@ export function consumeNotifications(
 		return errorResult(`Wait failed: ${message}`, {});
 	}
 	if (wake.kind === "none") return emptyResult();
+	const persistence = store.getPersistenceTarget();
+	if (persistence) {
+		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
+		if (pending) return pending;
+	}
 	return result(formatAgentStatus(wake.agent), { agent: wake.agent });
 }
 
