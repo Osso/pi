@@ -1006,7 +1006,9 @@ describe("goal extension", () => {
 			const listStarted = new Promise<void>((resolve) => {
 				markListStarted = resolve;
 			});
-			const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "wait", reason: "discover agents" });
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValue({ kind: "wait", reason: "discover agents" });
 			const harness = createGoalHarness(cwd, {
 				callTool: async () => {
 					markListStarted?.();
