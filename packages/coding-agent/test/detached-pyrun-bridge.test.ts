@@ -49,6 +49,12 @@ describe("detached Pyrun bridge", () => {
 		const request = parseDetachedPyrunBridgeRequest(message);
 		if (!request) throw new Error("Expected valid bridge request");
 		expect(request).toMatchObject({ method: "models.scoped", requestId, toolCallId: "pyrun-call-1" });
+		expect(
+			parseDetachedPyrunBridgeRequest({
+				...message,
+				body: JSON.stringify({ ...request, toolCallId: 42 }),
+			}),
+		).toBeUndefined();
 
 		enqueueDetachedPyrunBridgeResponse({
 			controlDbPath,

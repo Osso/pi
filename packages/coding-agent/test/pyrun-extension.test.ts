@@ -1395,9 +1395,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 	it("responds to Pyrun pi.tools.call requests through active Pi tools", async () => {
 		const harness = createPyrunHarness({
-			callTool: async (name, params) => ({
+			callTool: async (name, params, _signal, toolCallId) => ({
 				content: [{ type: "text", text: "Pi release notes" }],
-				details: { name, params },
+				details: { name, params, toolCallId },
 			}),
 		});
 
@@ -1405,7 +1405,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 		expect(result.details.value).toEqual({
 			content: [{ type: "text", text: "Pi release notes" }],
-			details: { name: "web_search", params: { query: "current Pi release" } },
+			details: {
+				name: "web_search",
+				params: { query: "current Pi release" },
+				toolCallId: "pyrun-test-call-1",
+			},
 		});
 	});
 

@@ -270,7 +270,7 @@ function createPyrunExecutorState(
 
 export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal, activeToolCallId) => {
-		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal);
+		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal, activeToolCallId);
 		if (builtIn.handled) return builtIn.result;
 		for (const handler of options.piRequestHandlers ?? []) {
 			const result = await handler(request, ctx, signal, activeToolCallId);
@@ -287,6 +287,7 @@ async function dispatchBuiltinPyrunRequest(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	signal: AbortSignal | undefined,
+	activeToolCallId?: string,
 ): Promise<BuiltinPyrunRequestResult> {
 	switch (request.method) {
 		case "models.scoped":
@@ -294,7 +295,7 @@ async function dispatchBuiltinPyrunRequest(
 		case "models.set":
 			return { handled: true, result: await setSessionModel(request.params, pi, ctx) };
 		case "tools.call":
-			return { handled: true, result: await callActiveTool(request.params, pi, signal) };
+			return { handled: true, result: await callActiveTool(request.params, pi, signal, activeToolCallId) }; 
 		case "commands.list":
 			return { handled: true, result: pi.getCommands() };
 		case "commands.run":
@@ -382,9 +383,14 @@ function normalizeSetModelParams(params: unknown): {
 	};
 }
 
-async function callActiveTool(params: unknown, pi: ExtensionAPI, signal: AbortSignal | undefined): Promise<unknown> {
+async function callActiveTool(
+	params: unknown,
+	pi: ExtensionAPI,
+	signal: AbortSignal | undefined,
+	activeToolCallId?: string,
+): Promise<unknown> {
 	const request = normalizeToolCallParams(params);
-	return pi.callTool(request.name, request.params, signal);
+	return pi.callTool(request.name, request.params, signal, activeToolCallId);
 }
 
 function normalizeToolCallParams(params: unknown): { name: string; params: unknown } {

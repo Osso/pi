@@ -674,6 +674,7 @@ export function createProductionChildAgentSessionFactory(
 			subagentName: agent.displayName,
 		};
 		let activeSpawnParentId: string | null | undefined;
+		let matchedActiveToolCall = false;
 		if (activeToolCallId) {
 			const branch = ctx.sessionManager.getBranch();
 			for (let index = branch.length - 1; index >= 0; index -= 1) {
@@ -684,9 +685,13 @@ export function createProductionChildAgentSessionFactory(
 					entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId)
 				) {
 					activeSpawnParentId = entry.parentId;
+					matchedActiveToolCall = true;
 					break;
 				}
 			}
+		}
+		if (context === "inherit" && activeToolCallId && !matchedActiveToolCall) {
+			throw new Error(`Cannot inherit context: active tool call ${activeToolCallId} is not in the parent branch`);
 		}
 		const inheritedLeafId = activeSpawnParentId ?? ctx.sessionManager.getLeafId() ?? undefined;
 		const sessionManager =

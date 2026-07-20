@@ -1480,7 +1480,7 @@ export interface ExtensionAPI {
 	setActiveTools(toolNames: string[]): void;
 
 	/** Call an active registered tool by name. */
-	callTool(name: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult<unknown>>;
+	callTool(name: string, params: unknown, signal?: AbortSignal, toolCallId?: string): Promise<AgentToolResult<unknown>>;
 
 	/** Call a registered slash command by invocation name. */
 	callCommand(name: string, args?: string): Promise<unknown>;
@@ -1703,6 +1703,7 @@ export type CallToolHandler = (
 	name: string,
 	params: unknown,
 	signal?: AbortSignal,
+	toolCallId?: string,
 ) => Promise<AgentToolResult<unknown>>;
 
 export type CallCommandHandler = (name: string, args?: string) => Promise<unknown>;
