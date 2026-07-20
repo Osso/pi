@@ -362,6 +362,7 @@ export class MultiAgentStore {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
+		this.clearSelectedTerminalAgent(current);
 		if (!previous) return;
 		this.notifyAgentUpdateListeners(previous, current);
 		if (previous.lifecycle === current.lifecycle) return;
@@ -373,6 +374,7 @@ export class MultiAgentStore {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
+		this.clearSelectedTerminalAgent(current);
 		if (current.lifecycle === "completed") this.retryOrRecordTerminalNotification(current, "completed");
 		if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
 			this.retryOrRecordTerminalNotification(current, "failed");
@@ -455,6 +457,13 @@ export class MultiAgentStore {
 
 	clearSelectedAgentView(): void {
 		this.selectedAgentId = undefined;
+	}
+
+	private clearSelectedTerminalAgent(agent: AgentSnapshot): void {
+		if (this.selectedAgentId !== agent.id) return;
+		if (agent.lifecycle === "completed" || agent.lifecycle === "failed" || agent.lifecycle === "aborted") {
+			this.selectedAgentId = undefined;
+		}
 	}
 
 	getAgent(agentId: string): AgentSnapshot | undefined {
