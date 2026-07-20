@@ -10,6 +10,10 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - [x] While a provider request is active, show elapsed duration beginning as `Thinking... 0s` and formatting longer durations such as `Thinking... 1m 05s` (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
 - [x] Switch to `Streaming...` only after the first non-empty visible assistant text delta or visible thinking delta. Empty stream events and hidden thinking do not switch the label, and provider-request end does not imply visible output (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
 
+### Thinking-phase deadline
+
+- [x] Main sessions and spawned or attached child sessions abort any single model-thinking phase that reaches 15 minutes; observer runtimes are excluded, tool execution remains uncapped, and each post-tool or steered model phase receives a fresh deadline. This is not a total request or turn timeout (`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`, `packages/coding-agent/test/multi-agent-extension.test.ts`).
+
 ### Tool waits
 
 - [x] While an active tool controls the working row, the thinking-duration timer must not replace its tool-wait message (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
@@ -38,6 +42,8 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - `packages/coding-agent/test/interactive-mode-thinking-timer.test.ts` — elapsed formatting, response-end shutdown, and tool-wait precedence.
 - `packages/coding-agent/test/interactive-mode-tool-timing.test.ts` — hydrated versus unhydrated pending-tool ownership across footer paths.
 - `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — completed model-turn duration placement between consecutive tools.
+- `packages/coding-agent/test/suite/agent-session-child-activity.test.ts` — main/child per-phase deadlines, tool exclusion, continuation propagation, observer exclusion, and lifecycle cleanup.
+- `packages/coding-agent/test/multi-agent-extension.test.ts` — real spawned and attached child timeout terminalization.
 
 ## Known gaps (current cycle)
 
