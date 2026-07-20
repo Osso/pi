@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	createHostrunMultiAgentRequestHandler,
+	createMultiAgentPiRequestHandler,
 	createProductionChildAgentSessionFactory,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
@@ -144,7 +144,7 @@ describe("durable detached Pyrun evaluation", () => {
 				};
 			},
 		});
-		const dispatchPiRequest = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+		const dispatchPiRequest = createMultiAgentPiRequestHandler({ createChildSession, store }, {
 			appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
 		} satisfies ParentAgentJournalWriter);
 		const detachRegistry = new ToolDetachRegistry();

@@ -10,7 +10,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import {
-	createHostrunMultiAgentRequestHandler,
+	createMultiAgentPiRequestHandler,
 	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
 	requestAgentSteering,
@@ -921,8 +921,8 @@ describe("multi-agent extension tools", () => {
 			} as unknown as ExtensionContext;
 			const harness = createMultiAgentHarness({ ctx: childContext, store });
 			await harness.emit("session_start", { reason: "startup", type: "session_start" });
-			const hostrun = createHostrunMultiAgentRequestHandler({ store });
-			await expect(hostrun({ method: "agents.list", params: {} }, childContext, undefined)).resolves.toBeDefined();
+			const piRequestHandler = createMultiAgentPiRequestHandler({ store });
+			await expect(piRequestHandler({ method: "agents.list", params: {} }, childContext, undefined)).resolves.toBeDefined();
 			const agent = legacyMultiAgentStore(store).spawnAgent({
 				agentType: "background",
 				cwd: "/repo",
@@ -1442,7 +1442,7 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
-	it("cancels a Hostrun wait for detached background agents", async () => {
+	it("cancels a Pi request handler wait for detached background agents", async () => {
 		const session = createControlDbSession();
 		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		source.setPersistenceSessionManager(session);
@@ -1454,7 +1454,7 @@ describe("multi-agent extension tools", () => {
 			worker: { adapter: "subprocess", handleId: "stale-process" },
 		});
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:00.000Z" });
-		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const handler = createMultiAgentPiRequestHandler({ store });
 		const controller = new AbortController();
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 		const waitPromise = Promise.resolve(handler({ method: "agents.wait", params: {} }, ctx, controller.signal));
@@ -1991,7 +1991,7 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	});
 
-	it("routes Hostrun agents.select through the interactive view callback when available", async () => {
+	it("routes Pi request handler agents.select through the interactive view callback when available", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -2000,7 +2000,7 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const selectAgentView = vi.fn((agentId: string) => store.selectActiveAgentTarget(agentId) !== undefined);
-		const handler = createHostrunMultiAgentRequestHandler({ selectAgentView, store });
+		const handler = createMultiAgentPiRequestHandler({ selectAgentView, store });
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		const result = await handler({ method: "agents.select", params: { agentId: spawned.agent.id } }, ctx, undefined);
@@ -2067,7 +2067,7 @@ describe("multi-agent extension tools", () => {
 		);
 	});
 
-	it("leaves the current mutation view unchanged when Hostrun agents.select fails", async () => {
+	it("leaves the current mutation view unchanged when Pi request handler agents.select fails", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const spawned = legacyMultiAgentStore(store).spawnAgent({
@@ -2076,7 +2076,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			permission: { narrowed: true, policy: "on-request" },
 		});
-		const handler = createHostrunMultiAgentRequestHandler({
+		const handler = createMultiAgentPiRequestHandler({
 			runtimeHandles,
 			selectAgentView: () => false,
 			store,
@@ -2090,8 +2090,8 @@ describe("multi-agent extension tools", () => {
 		expect(resolveSelectedSessionMutationTarget(store, runtimeHandles)).toBeUndefined();
 	});
 
-	it("lets Hostrun agents.wait return immediately when no agents are active", async () => {
-		const handler = createHostrunMultiAgentRequestHandler({ store: new MultiAgentStore() });
+	it("lets Pi request handler agents.wait return immediately when no agents are active", async () => {
+		const handler = createMultiAgentPiRequestHandler({ store: new MultiAgentStore() });
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		await expect(handler({ method: "agents.wait", params: {} }, ctx, undefined)).resolves.toBeNull();
@@ -2099,7 +2099,7 @@ describe("multi-agent extension tools", () => {
 
 	it("rejects obsolete wait parameters", async () => {
 		const harness = createMultiAgentHarness();
-		const handler = createHostrunMultiAgentRequestHandler({ store: new MultiAgentStore() });
+		const handler = createMultiAgentPiRequestHandler({ store: new MultiAgentStore() });
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
 
 		await expect(handler({ method: "agents.wait", params: { agentId: "agent_1" } }, ctx, undefined)).rejects.toThrow(
@@ -2126,9 +2126,9 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
-	it("rejects nested agent orchestration through Hostrun and Pyrun bridge methods", async () => {
+	it("rejects nested agent orchestration through Pi request and Pyrun bridge methods", async () => {
 		const store = new MultiAgentStore();
-		const handler = createHostrunMultiAgentRequestHandler({ store });
+		const handler = createMultiAgentPiRequestHandler({ store });
 		const ctx = {
 			cwd: "/repo",
 			hasUI: false,
@@ -2160,7 +2160,7 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
-	it("lets tool wait_agents observe Hostrun-spawned live dispatches through shared runtime handles", async () => {
+	it("lets tool wait_agents observe Pi request handler dispatches through shared runtime handles", async () => {
 		const finishGate = deferred<void>();
 		const sessionManager = createControlDbSession();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -2168,9 +2168,9 @@ describe("multi-agent extension tools", () => {
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async () => {
 			await finishGate.promise;
-			return { lifecycle: "completed", result: { summary: "hostrun done" } };
+			return { lifecycle: "completed", result: { summary: "pyrun bridge done" } };
 		});
-		const handler = createHostrunMultiAgentRequestHandler(
+		const handler = createMultiAgentPiRequestHandler(
 			{ createChildSession, runtimeHandles, store },
 			createTestEntryWriter(sessionManager),
 		);
@@ -2183,7 +2183,7 @@ describe("multi-agent extension tools", () => {
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as unknown as ExtensionContext;
 
 		const spawned = (await handler(
-			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "hostrun work" } },
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "pyrun bridge work" } },
 			ctx,
 			undefined,
 		)) as SpawnAgentDetails;
@@ -2193,15 +2193,15 @@ describe("multi-agent extension tools", () => {
 		const waited = await waitPromise;
 
 		expect(didResolveBeforeFinish).toBe(false);
-		expectWaitCompletionMessage(waited, "Worker completed: hostrun done");
+		expectWaitCompletionMessage(waited, "Worker completed: pyrun bridge done");
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({
 			id: spawned.agent.id,
 			lifecycle: "completed",
-			result: { summary: "hostrun done" },
+			result: { summary: "pyrun bridge done" },
 		});
 	});
 
-	it("aborts Hostrun-spawned child sessions when exit acknowledgement times out", async () => {
+	it("aborts Pi request handler child sessions when exit acknowledgement times out", async () => {
 		const abort = vi.fn();
 		const childPrompt = deferred<void>();
 		const sessionManager = createControlDbSession();
@@ -2214,7 +2214,7 @@ describe("multi-agent extension tools", () => {
 			prompt: async () => childPrompt.promise,
 			transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
 		});
-		const handler = createHostrunMultiAgentRequestHandler(
+		const handler = createMultiAgentPiRequestHandler(
 			{ createChildSession, runtimeHandles, store },
 			createTestEntryWriter(sessionManager),
 		);
@@ -2227,7 +2227,7 @@ describe("multi-agent extension tools", () => {
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print", sessionManager } as unknown as ExtensionContext;
 
 		const spawned = (await handler(
-			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "hostrun work" } },
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "pyrun bridge work" } },
 			ctx,
 			undefined,
 		)) as SpawnAgentDetails;
@@ -2238,7 +2238,7 @@ describe("multi-agent extension tools", () => {
 		if (!current) throw new Error("expected spawned agent");
 		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
 			agentId: current.id,
-			reason: "stop hostrun child",
+			reason: "stop pyrun bridge child",
 		});
 
 		expect(abort).toHaveBeenCalledOnce();

@@ -7,7 +7,7 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	createHostrunMultiAgentRequestHandler,
+	createMultiAgentPiRequestHandler,
 	createProductionChildAgentSessionFactory,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
@@ -1543,7 +1543,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					};
 				},
 			});
-			const handler = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+			const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
 				appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
 			} satisfies ParentAgentJournalWriter);
 			let bridgeContext: ExtensionContext;
@@ -1585,7 +1585,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}));
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+				createMultiAgentPiRequestHandler({ createChildSession, store }, {
 					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
 				} satisfies ParentAgentJournalWriter),
 			],
@@ -1610,7 +1610,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}));
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+				createMultiAgentPiRequestHandler({ createChildSession, store }, {
 					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
 				} satisfies ParentAgentJournalWriter),
 			],
@@ -1648,7 +1648,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		store.setPersistenceSessionManager(sessionManager);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createHostrunMultiAgentRequestHandler(
+				createMultiAgentPiRequestHandler(
 					{
 						createChildSession: async ({ agent }) => ({
 							messages: [fauxAssistantMessage("done")],
@@ -1700,7 +1700,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		});
 		store.selectAgentView(spawned.agent.id);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
@@ -1721,7 +1721,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		).toBe(true);
 		store.selectAgentView(spawned.agent.id);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
@@ -1735,7 +1735,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	it("returns main thread from Pyrun pi.agents.current when no agent is selected", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.current()" });
@@ -1754,7 +1754,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
@@ -1779,7 +1779,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			legacyMultiAgentStore(store).transitionAgent(spawned.agent.id, spawned.agent.revision, "completed").ok,
 		).toBe(true);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const selected = await harness.evaluate({ code: "pi.agents.select('agent_1')" });
@@ -1794,7 +1794,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	it("returns bounded last session message from Pyrun pi.messages.last", async () => {
 		const longToolBlob = "x".repeat(6000);
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store: new MultiAgentStore() })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store: new MultiAgentStore() })],
 		});
 		const sessionManager = {
 			getBranch: () => [
@@ -1846,7 +1846,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.list()" });
@@ -1877,7 +1877,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			permission: { narrowed: true, policy: "on-request" },
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({
@@ -1899,7 +1899,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	it("sends runtime session messages from Pyrun pi.messages.send through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const harness = createPyrunHarness({
-			piRequestHandlers: [createHostrunMultiAgentRequestHandler({ store })],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ store })],
 		});
 
 		const result = await harness.evaluate({

@@ -13,7 +13,7 @@ export {
 	requestAgentSteering,
 	resolveSelectedSessionMutationTarget,
 } from "./runtime.ts";
-export { createHostrunMultiAgentRequestHandler } from "./runtime.ts";
+export { createMultiAgentPiRequestHandler } from "./runtime.ts";
 export type {
 	AgentSteeringRequest,
 	AgentSteeringRequestResult,
@@ -22,7 +22,7 @@ export type {
 	AttachedSessionFactory,
 	CancelReservedAgentResult,
 	ChildAgentSessionFactory,
-	HostrunMultiAgentRequestHandler,
+	MultiAgentPiRequestHandler,
 	MultiAgentExtensionOptions,
 	MultiAgentRuntimeHandles,
 } from "./runtime.ts";

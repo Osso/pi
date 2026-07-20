@@ -294,7 +294,7 @@ export interface ProductionChildAgentSessionFactoryOptions {
 	sessionDir?: string;
 }
 
-export interface HostrunMultiAgentRequestHandler {
+export interface MultiAgentPiRequestHandler {
 	(
 		request: { method: string; params: unknown },
 		ctx: ExtensionContext,
@@ -827,10 +827,10 @@ function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
 	return value && THINKING_LEVELS.has(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
 }
 
-export function createHostrunMultiAgentRequestHandler(
+export function createMultiAgentPiRequestHandler(
 	options: MultiAgentExtensionOptions,
 	pi?: ParentAgentJournalWriter,
-): HostrunMultiAgentRequestHandler {
+): MultiAgentPiRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const activeDispatches = runtimeHandles.dispatches;
@@ -841,8 +841,8 @@ export function createHostrunMultiAgentRequestHandler(
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 	let disposed = false;
 
-	const handler: HostrunMultiAgentRequestHandler = async (request, ctx, signal, activeToolCallId) => {
-		if (disposed) throw new Error("Hostrun multi-agent request handler is disposed");
+	const handler: MultiAgentPiRequestHandler = async (request, ctx, signal, activeToolCallId) => {
+		if (disposed) throw new Error("Multi-agent Pi request handler is disposed");
 		if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
 			throw new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE);
