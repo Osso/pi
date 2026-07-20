@@ -65,6 +65,7 @@ describe("regression #5109: exclude tools", () => {
 				"outline",
 				"references",
 				"resume_session",
+				"search_current_session_history",
 				"symbol",
 				"write",
 			]);

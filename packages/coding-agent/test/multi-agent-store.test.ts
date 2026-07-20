@@ -1396,10 +1396,17 @@ describe("MultiAgentStore", () => {
 
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			store.setPersistenceSessionManager(session);
-			const spawned = spawnScout(store);
+			const spawned = legacyMultiAgentStore(store).spawnAgent({
+				agentType: "scout",
+				cwd: "/repo",
+				displayName: "Scout",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				transcript: { path: join(tempDir, "scout.jsonl"), sessionId: session.getSessionId() },
+			});
 			const steer = legacyMultiAgentStore(store).sendSteering(spawned.agent.id, spawned.agent.revision, {
 				body: "Continue with tests",
-				fromAgentId: "root",
+				fromAgentId: "main",
 				targetCheckpoint: "after_tool_result",
 			});
 			expect(steer.ok).toBe(true);
