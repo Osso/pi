@@ -73,10 +73,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       with the parent's model, model registry, cwd, and `parentSession` metadata.
 - [x] `spawn_agent` requires a `context` value of `"fresh"` or `"inherit"`. `"fresh"` creates a new
       child transcript containing only the appended assignment. `"inherit"` forks a persisted parent
-      transcript, copying its active completed branch before appending the assignment; the parent remains
-      unchanged. The fork excludes the currently executing assistant tool-call turn, including direct,
-      foreground Pyrun, detached Pyrun, and sequential-sibling execution. `"inherit"` rejects an
-      unpersisted parent instead of changing semantics.
+      transcript immediately before the entire unresolved parent turn containing the active direct
+      `spawn_agent` call or its enclosing `pyrun_eval` call, preserving only completed prior turns before
+      appending the assignment; the parent remains unchanged. This cutoff applies to direct, foreground
+      Pyrun, detached Pyrun, and sequential-sibling execution. `"inherit"` rejects an unpersisted parent
+      instead of changing semantics.
       Callers choose `"inherit"` when prior main-thread decisions or research are required, and
       `"fresh"` for isolated work, review, verification, or falsification. Background jobs and restart
       recovery explicitly use `"fresh"`; attached-session reuse is a separate operation without this choice.
