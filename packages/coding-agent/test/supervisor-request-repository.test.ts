@@ -109,6 +109,27 @@ describe("Supervisor request repository", () => {
 		});
 	});
 
+	it("persists a wait response for a waiting goal caller", () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: "2026-07-20T12:03:00.000Z",
+			kind: "goal_idle_review",
+			payload: { objective: "wait for an active agent" },
+			projectId: "pi",
+			senderSessionId: "goal-session",
+		});
+		claimNextSupervisorRequest(controlDbPath, "supervisor-runtime");
+
+		completeSupervisorRequest(controlDbPath, requestId, "supervisor-runtime", {
+			kind: "wait",
+			reason: "agent still active",
+		});
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "wait", reason: "agent still active" },
+			status: "completed",
+		});
+	});
+
 	it("rejects a pause response for an approval request", () => {
 		const requestId = postSupervisorRequest(controlDbPath, {
 			deadlineAt: "2026-07-17T12:00:30.000Z",

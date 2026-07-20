@@ -1413,7 +1413,7 @@ function isSupervisorResponseValidForRequest(
 ): boolean {
 	if (responseKind === "error") return true;
 	if (requestKind === "approval_review") return responseKind === "approve" || responseKind === "reject";
-	return responseKind === "complete" || responseKind === "continue" || responseKind === "pause";
+	return responseKind === "complete" || responseKind === "continue" || responseKind === "pause" || responseKind === "wait";
 }
 
 export function completeSupervisorRequest(
