@@ -106,14 +106,14 @@ function loadGoalFile(file: string): Goal | null {
 	}
 }
 
-function loadGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+function loadOrMigrateGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const storedGoal = ctx.sessionManager.getSessionGoalJson();
 	if (storedGoal) return parseGoalJson(storedGoal);
 	return migrateLegacyGoal(ctx);
 }
 
 function loadActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadGoal(ctx);
+	const goal = loadOrMigrateGoal(ctx);
 	return goal && !goal.completedAt ? goal : null;
 }
 
@@ -193,7 +193,7 @@ function updateGoalFooterStatus(ctx: ExtensionContext): void {
 	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
 }
 
-function currentBranch(cwd: string): string {
+function readCurrentBranch(cwd: string): string {
 	try {
 		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
 			cwd,
@@ -218,7 +218,7 @@ function sessionIdFromSessionFile(sessionFile: string): string | null {
 function inheritPreviousSessionGoal(event: SessionStartEvent, ctx: ExtensionContext): void {
 	if (event.reason !== "fork" || !event.previousSessionFile) return;
 	if (ctx.sessionManager.isSubagentSession()) return;
-	if (loadGoal(ctx)) return;
+	if (loadOrMigrateGoal(ctx)) return;
 
 	const previousGoalJson = ctx.sessionManager.getSessionGoalJsonForSession(event.previousSessionFile);
 	const previousGoal = previousGoalJson ? parseGoalJson(previousGoalJson) : loadLegacyPreviousGoal(event, ctx);
@@ -252,15 +252,15 @@ function validateGoalObjective(objective: string): SetGoalResult | undefined {
 	}
 }
 
-function createGoal(objective: string, cwd: string): Goal {
-	return { objective, branch: currentBranch(cwd), createdAt: new Date().toISOString(), continuationTurns: 0 };
+function createGoal(objective: string, branch: string, createdAt: string): Goal {
+	return { objective, branch, createdAt, continuationTurns: 0 };
 }
 
 function setGoal(params: SetGoalParams): SetGoalResult {
 	const invalidResult = validateGoalObjective(params.objective);
 	if (invalidResult) return invalidResult;
 	params.beforeSave?.();
-	const goal = createGoal(params.objective, params.ctx.cwd);
+	const goal = createGoal(params.objective, readCurrentBranch(params.ctx.cwd), new Date().toISOString());
 	saveGoal(params.ctx, goal);
 	updateGoalFooterStatus(params.ctx);
 	const idle = params.ctx.isIdle();

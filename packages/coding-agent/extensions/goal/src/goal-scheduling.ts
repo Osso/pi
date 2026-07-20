@@ -135,6 +135,31 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		this.waitControllers.delete(sessionId);
 	}
 
+	private canStartReview(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		wakeEvidence?: unknown,
+	): boolean {
+		if (!this.options.isSameRunningGoal(ctx, goal)) return false;
+		if (!ctx.hasPendingMessages()) return true;
+		this.scheduleReviewRetry(ctx, goal, terminalTurn, wakeEvidence);
+		return false;
+	}
+
+	private async applyReviewedDecision(
+		decision: TDecision,
+		goal: TGoal,
+		ctx: ExtensionContext,
+		terminalTurn: TerminalTurn,
+	): Promise<void> {
+		if (ctx.hasPendingMessages()) {
+			this.deferDecision(decision, goal, ctx, terminalTurn);
+			return;
+		}
+		await this.options.applyDecision(decision, goal, ctx, terminalTurn);
+	}
+
 	private async reviewAndApply(
 		ctx: ExtensionContext,
 		goal: TGoal,
@@ -142,18 +167,11 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		wakeEvidence?: unknown,
 	): Promise<void> {
 		const reviewEpoch = this.captureEpoch(ctx);
-		if (!this.options.isSameRunningGoal(ctx, goal)) return;
-		if (ctx.hasPendingMessages()) {
-			this.scheduleReviewRetry(ctx, goal, terminalTurn, wakeEvidence);
-			return;
-		}
+		if (!this.canStartReview(ctx, goal, terminalTurn, wakeEvidence)) return;
 		const decision = await this.options.reviewGoal(ctx, goal, terminalTurn, wakeEvidence);
-		if (!this.isEpochCurrent(ctx, reviewEpoch) || !this.options.isSameRunningGoal(ctx, goal)) return;
-		if (ctx.hasPendingMessages()) {
-			this.deferDecision(decision, goal, ctx, terminalTurn);
-			return;
-		}
-		await this.options.applyDecision(decision, goal, ctx, terminalTurn);
+		const reviewIsCurrent = this.isEpochCurrent(ctx, reviewEpoch) && this.options.isSameRunningGoal(ctx, goal);
+		if (!reviewIsCurrent) return;
+		await this.applyReviewedDecision(decision, goal, ctx, terminalTurn);
 	}
 
 	private scheduleReviewRetry(
