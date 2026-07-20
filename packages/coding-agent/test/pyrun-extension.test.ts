@@ -31,8 +31,8 @@ import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
-import { createHarness } from "./suite/harness.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
+import { createHarness } from "./suite/harness.ts";
 
 interface PyrunEvalParams {
 	code: string;

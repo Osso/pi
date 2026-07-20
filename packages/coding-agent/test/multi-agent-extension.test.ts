@@ -922,7 +922,9 @@ describe("multi-agent extension tools", () => {
 			const harness = createMultiAgentHarness({ ctx: childContext, store });
 			await harness.emit("session_start", { reason: "startup", type: "session_start" });
 			const piRequestHandler = createMultiAgentPiRequestHandler({ store });
-			await expect(piRequestHandler({ method: "agents.list", params: {} }, childContext, undefined)).resolves.toBeDefined();
+			await expect(
+				piRequestHandler({ method: "agents.list", params: {} }, childContext, undefined),
+			).resolves.toBeDefined();
 			const agent = legacyMultiAgentStore(store).spawnAgent({
 				agentType: "background",
 				cwd: "/repo",

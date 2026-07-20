@@ -908,7 +908,9 @@ describe("headless Pi fixture", () => {
 						(candidate) => candidate.id !== detachedJobId && candidate.displayName !== "Pyrun evaluation",
 					)
 					.catch((error: unknown) => {
-						const bridgeError = existsSync(bridgeErrorPath) ? readFileSync(bridgeErrorPath, "utf8") : "not recorded";
+						const bridgeError = existsSync(bridgeErrorPath)
+							? readFileSync(bridgeErrorPath, "utf8")
+							: "not recorded";
 						const runtimeMessages = JSON.stringify(agent.listRuntimeMailboxMessages());
 						throw new Error(
 							`Detached inherited spawn failed: ${bridgeError}; runtime=${runtimeMessages}; ${error instanceof Error ? error.message : String(error)}`,
