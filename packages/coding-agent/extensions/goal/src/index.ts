@@ -112,13 +112,13 @@ function loadOrMigrateGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">
 	return migrateLegacyGoal(ctx);
 }
 
-function loadActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+function loadOrMigrateActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const goal = loadOrMigrateGoal(ctx);
 	return goal && !goal.completedAt ? goal : null;
 }
 
-function loadRunningGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadActiveGoal(ctx);
+function loadOrMigrateRunningGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+	const goal = loadOrMigrateActiveGoal(ctx);
 	return goal && !goal.pausedAt ? goal : null;
 }
 
@@ -146,7 +146,7 @@ function saveGoal(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal): vo
 }
 
 function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
-	const goal = loadActiveGoal(ctx);
+	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal) return null;
 	const completedGoal: Goal = {
 		...goal,
@@ -158,7 +158,7 @@ function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
 }
 
 function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadActiveGoal(ctx);
+	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal) return null;
 	if (goal.pausedAt) return goal;
 	const pausedGoal: Goal = {
@@ -170,7 +170,7 @@ function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal 
 }
 
 function resumeGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadActiveGoal(ctx);
+	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal?.pausedAt) return null;
 	const { pausedAt: _pausedAt, ...resumedGoal } = goal;
 	saveGoal(ctx, resumedGoal);
@@ -189,7 +189,7 @@ function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boole
 }
 
 function updateGoalFooterStatus(ctx: ExtensionContext): void {
-	const goal = loadActiveGoal(ctx);
+	const goal = loadOrMigrateActiveGoal(ctx);
 	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
 }
 
@@ -369,7 +369,7 @@ async function runCompleteGoalAction(
 	onWait: (goal: Goal, ctx: ExtensionContext, reason: string) => Promise<void>,
 	isReviewCurrent: () => boolean,
 ): Promise<AgentToolResult<unknown>> {
-	const activeGoal = loadActiveGoal(ctx);
+	const activeGoal = loadOrMigrateActiveGoal(ctx);
 	if (!activeGoal) return textResult("No active goal to complete.");
 	const reason = reasonInput?.trim() || "complete";
 	const decision = await reviewGoal({
@@ -377,7 +377,7 @@ async function runCompleteGoalAction(
 		kind: "goal_completion_review",
 		payload: { objective: activeGoal.objective, proposedCompletionReason: reason },
 	});
-	if (!isReviewCurrent() || !goalMatchesReview(loadActiveGoal(ctx), activeGoal)) {
+	if (!isReviewCurrent() || !goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal)) {
 		return textResult("Goal changed or review was canceled; stale decision ignored.");
 	}
 	return applyCompletionDecision(decision, activeGoal, ctx, pi, reason, onWait);
@@ -393,7 +393,7 @@ function runClearGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void)
 }
 
 function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
-	const goal = loadActiveGoal(ctx);
+	const goal = loadOrMigrateActiveGoal(ctx);
 	const message = goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>";
 	ctx.ui.notify(message, "info");
 	const details = goal ? { objective: goal.objective } : {};
@@ -499,7 +499,7 @@ function handleGoalClearCommand(ctx: ExtensionCommandContext, clearRetry: (sessi
 }
 
 function showGoal(ctx: ExtensionCommandContext): void {
-	const goal = loadActiveGoal(ctx);
+	const goal = loadOrMigrateActiveGoal(ctx);
 	ctx.ui.notify(goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>", "info");
 }
 
@@ -541,7 +541,7 @@ function handleGoalCommand(
 }
 
 function sameRunningGoal(ctx: ExtensionContext, goal: Goal): boolean {
-	const activeGoal = loadRunningGoal(ctx);
+	const activeGoal = loadOrMigrateRunningGoal(ctx);
 	return activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
 }
 
@@ -551,7 +551,7 @@ function appendGoalSchedulingError(pi: ExtensionAPI, error: unknown): void {
 }
 
 function injectGoalContext(event: BeforeAgentStartEvent, ctx: ExtensionContext): BeforeAgentStartEventResult | undefined {
-	const goal = loadRunningGoal(ctx);
+	const goal = loadOrMigrateRunningGoal(ctx);
 	if (!goal) return;
 	return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
 }
@@ -561,7 +561,7 @@ function createCompletionScheduler(pi: ExtensionAPI, reviewGoal: GoalSupervisorR
 		pi,
 		reviewGoal,
 		isSameGoal: (ctx, waiting) => {
-			const activeGoal = loadActiveGoal(ctx);
+			const activeGoal = loadOrMigrateActiveGoal(ctx);
 			return (
 				activeGoal?.createdAt === waiting.goal.createdAt &&
 				activeGoal.objective === waiting.goal.objective &&
@@ -600,11 +600,11 @@ interface GoalExtensionRuntime {
 function createIdleGoalScheduler(
 	pi: ExtensionAPI,
 	reviewGoal: GoalSupervisorReview,
-	clearSchedules: { current: (sessionId: string) => void },
+	clearSchedules: (sessionId: string) => void,
 ): { scheduler: IdleGoalScheduler; applyDecision: ApplyIdleDecision } {
 	let scheduler: IdleGoalScheduler;
 	const applyDecision: ApplyIdleDecision = async (decision, goal, ctx, terminalTurn) => {
-		clearSchedules.current(ctx.sessionManager.getSessionId());
+		clearSchedules(ctx.sessionManager.getSessionId());
 		await applyGoalIdleDecision(decision, goal, ctx, pi, async () => {
 			await scheduler.waitForAgentsOrScheduleReview(ctx, goal, terminalTurn);
 		});
@@ -623,10 +623,12 @@ function createIdleGoalScheduler(
 function createGoalExtensionRuntime(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview): GoalExtensionRuntime {
 	const emptyResponseScheduler = createEmptyResponseScheduler<Goal>({ pi, isSameRunningGoal: sameRunningGoal });
 	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: appendSupervisorStatus.bind(undefined, pi) });
-	const clearSchedules = { current: (_sessionId: string): void => {} };
-	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, clearSchedules);
+	let clearGoalSchedules: (sessionId: string) => void;
+	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, (sessionId) =>
+		clearGoalSchedules(sessionId),
+	);
 	const completionScheduler = createCompletionScheduler(pi, reviewGoal);
-	const clearGoalSchedules = (sessionId: string): void => {
+	clearGoalSchedules = (sessionId: string): void => {
 		emptyResponseScheduler.clearSession(sessionId);
 		errorStatusScheduler.clearSession(sessionId);
 		scheduler.clearSession(sessionId);
@@ -638,7 +640,6 @@ function createGoalExtensionRuntime(pi: ExtensionAPI, reviewGoal: GoalSupervisor
 		scheduler.clearAll();
 		completionScheduler.clearAll();
 	};
-	clearSchedules.current = clearGoalSchedules;
 	return {
 		emptyResponseScheduler,
 		errorStatusScheduler,
@@ -668,7 +669,7 @@ function registerManageGoal(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview, 
 function registerSessionGoalHandlers(pi: ExtensionAPI, runtime: GoalExtensionRuntime): void {
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
 		inheritPreviousSessionGoal(event, ctx);
-		const goal = loadActiveGoal(ctx);
+		const goal = loadOrMigrateActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
 		if (goal) ctx.ui.notify(goalStartupMessage(goal), "info");
 	});
@@ -713,7 +714,7 @@ function selectIdleGoal(
 	return selectGoalForIdleReview({
 		event,
 		ctx,
-		selectGoal: () => loadRunningGoal(ctx),
+		selectGoal: () => loadOrMigrateRunningGoal(ctx),
 		clearRetry: runtime.emptyResponseScheduler.clearSession.bind(runtime.emptyResponseScheduler),
 		scheduleRetry: runtime.emptyResponseScheduler.schedule.bind(runtime.emptyResponseScheduler),
 		scheduleErrorStatus: runtime.errorStatusScheduler.schedule.bind(runtime.errorStatusScheduler),
