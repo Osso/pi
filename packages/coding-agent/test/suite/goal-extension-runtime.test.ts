@@ -174,10 +174,10 @@ describe("goal extension runtime", () => {
 		const statuses = harness.sessionManager
 			.getEntries()
 			.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status")
-			.map((entry) => JSON.stringify(entry.data));
-		expect(statuses.some((status) => status.includes("Goal continuation deferred: pending input will run next."))).toBe(
-			true,
-		);
+			.map((entry) => JSON.stringify(entry));
+		expect(
+			statuses.some((status) => status.includes("Goal continuation deferred: pending input will run next.")),
+		).toBe(true);
 		expect(
 			statuses.some((status) => status.includes("Goal continuation skipped: the model turn ended with an error.")),
 		).toBe(false);
