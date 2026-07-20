@@ -4,6 +4,8 @@ import * as path from "node:path";
 import type {
 	AgentEndEvent,
 	AgentToolResult,
+	BeforeAgentStartEvent,
+	BeforeAgentStartEventResult,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -11,7 +13,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createCompletionWaitScheduler } from "./completion-scheduling.ts";
 import { createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
-import { handleGoalAgentEnd } from "./goal-agent-end.ts";
+import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
 import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
@@ -408,6 +410,7 @@ async function runCompleteGoalAction(
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind !== "complete") {
+		appendSupervisorStatus(pi, `Goal review failed: ${decision.reason}`);
 		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
 		return textResult(`Goal review failed: ${decision.reason}`);
 	}
@@ -467,7 +470,7 @@ function goalForIdleReview(
 	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
 ): Goal | null {
 	const goal = loadRunningGoal(ctx);
-	if (!goal || ctx.hasPendingMessages()) return null;
+	if (!goal) return null;
 	const sessionId = ctx.sessionManager.getSessionId();
 	if (didLastAssistantAbort(event) || findLastAssistantMessage(event)?.stopReason === "error") {
 		clearRetry(sessionId);
@@ -592,6 +595,12 @@ function appendGoalSchedulingError(pi: ExtensionAPI, error: unknown): void {
 	appendSupervisorStatus(pi, `Goal wait failed: ${message}`);
 }
 
+function injectGoalContext(event: BeforeAgentStartEvent, ctx: ExtensionContext): BeforeAgentStartEventResult | undefined {
+	const goal = loadRunningGoal(ctx);
+	if (!goal) return;
+	return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
+}
+
 function createCompletionScheduler(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview) {
 	return createCompletionWaitScheduler({
 		pi,
@@ -694,10 +703,13 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	});
 
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
-		await handleGoalAgentEnd({
+		await runScheduledGoalAgentEnd({
 			event,
 			ctx,
 			reviewGoal,
+			scheduler,
+			emptyResponseScheduler,
+			applyDecision,
 			selectGoal: () =>
 				goalForIdleReview(
 					event,
@@ -706,17 +718,12 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 					emptyResponseScheduler.schedule.bind(emptyResponseScheduler),
 				),
 			isSameGoal: sameRunningGoal,
-			applyDecision,
-			deferDecision: (decision, goal, pendingCtx, terminalTurn) =>
-				scheduler.deferDecision(decision, goal, pendingCtx, terminalTurn),
 		});
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		clearGoalSchedules(ctx.sessionManager.getSessionId());
-		const goal = loadRunningGoal(ctx);
-		if (!goal) return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
+		return injectGoalContext(event, ctx);
 	});
 
 	pi.registerCommand("goal", {

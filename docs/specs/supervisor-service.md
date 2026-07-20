@@ -51,7 +51,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 ### Goal completion review
 
 - [x] Intercept `manage_goal complete` before the calling session marks the running goal complete.
-- [x] Send a `goal_completion_review` request containing the objective, current terminal turn evidence, and proposed completion reason.
+- [x] Send a `goal_completion_review` request containing the objective and proposed completion reason; later wait wakeups add bounded wake evidence.
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal completion review.
 - [x] Mark the goal complete only when the caller receives `complete`.
 - [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
@@ -73,7 +73,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Leave the goal active without another continuation when the caller receives `pause` because no active work can advance without user or external input.
 - [x] Require best judgment between `complete`, actionable `continue`, and `pause` despite uncertainty.
 - [x] On goal `error`, keep the goal running, append visible durable error status without requiring human approval, and use the same agent-wake or five-minute re-review path as `wait`; rejected scheduled work remains visibly durable.
-- [x] Preserve reviewed decisions across transient pending-message state and retry until pending input drains, but cancel deferred decisions, waits, and timers on input, new turns, goal lifecycle changes, and shutdown; recheck goal identity after asynchronous review before applying a decision.
+- [x] Retry before review when pending input is transient, preserve reviewed decisions when input becomes pending during review, and cancel in-flight reviews, deferred decisions, waits, discovery calls, and timers on input, new turns, goal lifecycle changes, and shutdown; recheck cancellation generation and goal identity before applying an asynchronous decision.
 - [x] Enforce a three-minute deadline for goal reviews.
 
 ### Scheduling and preemption

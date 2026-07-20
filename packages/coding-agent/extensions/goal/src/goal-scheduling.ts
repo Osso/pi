@@ -19,9 +19,12 @@ interface GoalSchedulingOptions<TGoal, TDecision> {
 }
 
 export interface GoalScheduler<TGoal, TDecision> {
+	captureEpoch(ctx: ExtensionContext): number;
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	deferDecision(decision: TDecision, goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
+	deferReview(goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
+	isEpochCurrent(ctx: ExtensionContext, epoch: number): boolean;
 	waitForAgentsOrScheduleReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void>;
 }
 
@@ -41,6 +44,17 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		this.options = options;
 	}
 
+	captureEpoch(ctx: ExtensionContext): number {
+		const sessionId = ctx.sessionManager.getSessionId();
+		const epoch = this.cancellationEpochs.get(sessionId) ?? 0;
+		this.cancellationEpochs.set(sessionId, epoch);
+		return epoch;
+	}
+
+	isEpochCurrent(ctx: ExtensionContext, epoch: number): boolean {
+		return (this.cancellationEpochs.get(ctx.sessionManager.getSessionId()) ?? 0) === epoch;
+	}
+
 	clearSession(sessionId: string): void {
 		this.cancellationEpochs.set(sessionId, (this.cancellationEpochs.get(sessionId) ?? 0) + 1);
 		this.clearTimer(this.pendingDecisionTimers, sessionId);
@@ -49,10 +63,15 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 	}
 
 	clearAll(): void {
+		for (const [sessionId, epoch] of this.cancellationEpochs) this.cancellationEpochs.set(sessionId, epoch + 1);
 		this.clearTimers(this.pendingDecisionTimers);
 		this.clearTimers(this.waitReviewTimers);
 		for (const controller of this.waitControllers.values()) controller.abort();
 		this.waitControllers.clear();
+	}
+
+	deferReview(goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void {
+		this.scheduleReviewRetry(ctx, goal, terminalTurn);
 	}
 
 	deferDecision(decision: TDecision, goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void {
@@ -77,6 +96,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 			}
 			this.startAgentWait(ctx, goal, terminalTurn);
 		} catch (error) {
+			if ((this.cancellationEpochs.get(sessionId) ?? 0) !== epoch) return;
 			this.options.reportError(error);
 			this.scheduleWaitReview(ctx, goal, terminalTurn);
 		}
@@ -159,7 +179,10 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		const controller = new AbortController();
 		this.waitControllers.set(sessionId, controller);
 		void this.waitForAgentWake(ctx, goal, terminalTurn, controller).catch((error: unknown) => {
-			if (!controller.signal.aborted) this.options.reportError(error);
+			if (controller.signal.aborted) return;
+			this.waitControllers.delete(sessionId);
+			this.options.reportError(error);
+			this.scheduleWaitReview(ctx, goal, terminalTurn);
 		});
 	}
 

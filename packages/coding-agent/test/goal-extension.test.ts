@@ -783,6 +783,59 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("starts Supervisor review after initial pending input drains without a turn", async () => {
+		vi.useFakeTimers();
+		try {
+			let pendingMessages = true;
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValue({ kind: "continue", reason: "ready", instructions: "Resume after pending input." });
+			const harness = createGoalHarness(cwd, {
+				hasPendingMessages: () => pendingMessages,
+				reviewGoal,
+			});
+			await harness.runCommand("set resume after initial pending input");
+			harness.sendMessage.mockClear();
+			await harness.runAgentEnd();
+			expect(reviewGoal).not.toHaveBeenCalled();
+
+			pendingMessages = false;
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(1);
+			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+				content: expect.stringContaining("Resume after pending input."),
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("discards an in-flight review when user input cancels it", async () => {
+		let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+		let markReviewStarted: (() => void) | undefined;
+		const reviewStarted = new Promise<void>((resolve) => {
+			markReviewStarted = resolve;
+		});
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
+			async () =>
+				new Promise<GoalSupervisorResponse>((resolve) => {
+					finishReview = resolve;
+					markReviewStarted?.();
+				}),
+		);
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set cancel stale review");
+		harness.sendMessage.mockClear();
+		const agentEnd = harness.runAgentEnd();
+		await reviewStarted;
+		await harness.runInput("new user direction");
+		finishReview?.({ kind: "continue", reason: "stale", instructions: "Do stale work." });
+		await agentEnd;
+
+		expect(harness.sendMessage).not.toHaveBeenCalled();
+	});
+
 	it("persists a wait message, waits in the background for active agents, and re-reviews", async () => {
 		let finishWait: (() => void) | undefined;
 		const waitFinished = new Promise<void>((resolve) => {
@@ -916,6 +969,68 @@ describe("goal extension", () => {
 		}
 	});
 
+	it("falls back to timed review when wait_agents fails", async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "child running" })
+				.mockResolvedValueOnce({ kind: "pause", reason: "wait failed; reassessed" });
+			const harness = createGoalHarness(cwd, {
+				callTool: async (name) => {
+					if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
+					throw new Error("wait_agents unavailable");
+				},
+				reviewGoal,
+			});
+			await harness.runCommand("set recover failed agent wait");
+			await harness.runAgentEnd();
+			await Promise.resolve();
+			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+				message: "Goal wait failed: wait_agents unavailable",
+			});
+
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not schedule work after shutdown cancels in-flight agent discovery", async () => {
+		vi.useFakeTimers();
+		try {
+			let finishList: (() => void) | undefined;
+			let markListStarted: (() => void) | undefined;
+			const listStarted = new Promise<void>((resolve) => {
+				markListStarted = resolve;
+			});
+			const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "wait", reason: "discover agents" });
+			const harness = createGoalHarness(cwd, {
+				callTool: async () => {
+					markListStarted?.();
+					await new Promise<void>((resolve) => {
+						finishList = resolve;
+					});
+					return { content: [], details: { activeCount: 0 } };
+				},
+				reviewGoal,
+			});
+			await harness.runCommand("set cancel discovery on shutdown");
+			const agentEnd = harness.runAgentEnd();
+			await listStarted;
+			await harness.runSessionShutdown();
+			finishList?.();
+			await agentEnd;
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("re-reviews a wait decision after five minutes when no agents are active", async () => {
 		vi.useFakeTimers();
 		try {
@@ -1037,6 +1152,20 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: waiting for external input" }]);
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("durably reports a completion-review error", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => ({ kind: "error", reason: "service unavailable" }),
+		});
+		await harness.runCommand("set survive completion error");
+
+		const result = await harness.runGoalComplete("done");
+
+		expect(result?.content).toEqual([{ type: "text", text: "Goal review failed: service unavailable" }]);
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal review failed: service unavailable",
+		});
 	});
 
 	it("keeps the goal running and follows Supervisor instructions when completion is rejected", async () => {

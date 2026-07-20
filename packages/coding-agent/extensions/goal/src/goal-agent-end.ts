@@ -9,6 +9,7 @@ interface GoalAgentEndOptions {
 	reviewGoal: GoalSupervisorReview;
 	selectGoal: () => Goal | null;
 	isSameGoal: (ctx: ExtensionContext, goal: Goal) => boolean;
+	isReviewCurrent: () => boolean;
 	applyDecision: (
 		decision: GoalSupervisorResponse,
 		goal: Goal,
@@ -21,17 +22,22 @@ interface GoalAgentEndOptions {
 		ctx: ExtensionContext,
 		terminalTurn: TerminalTurn,
 	) => void;
+	deferReview: (goal: Goal, ctx: ExtensionContext, terminalTurn: TerminalTurn) => void;
 }
 
 export async function handleGoalAgentEnd(options: GoalAgentEndOptions): Promise<void> {
 	const goal = options.selectGoal();
 	if (!goal) return;
+	if (options.ctx.hasPendingMessages()) {
+		options.deferReview(goal, options.ctx, options.event.messages);
+		return;
+	}
 	const decision = await options.reviewGoal({
 		ctx: options.ctx,
 		kind: "goal_idle_review",
 		payload: { objective: goal.objective, terminalTurn: options.event.messages },
 	});
-	if (!options.isSameGoal(options.ctx, goal)) return;
+	if (!options.isReviewCurrent() || !options.isSameGoal(options.ctx, goal)) return;
 	if (options.ctx.hasPendingMessages()) {
 		options.deferDecision(decision, goal, options.ctx, options.event.messages);
 		return;
