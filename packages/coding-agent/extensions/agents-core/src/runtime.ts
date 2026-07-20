@@ -2169,7 +2169,8 @@ export type WaitNotificationsWake =
 	| { kind: "cancelled" }
 	| { kind: "coordination" }
 	| { kind: "error"; error: unknown }
-	| { kind: "none" };
+	| { kind: "none" }
+	| { kind: "unavailable"; message: string };
 
 type RuntimeCoordinationRecipient = {
 	address: RuntimeMailboxAddress;
@@ -2321,12 +2322,12 @@ export async function waitNotifications(
 	ctx?: ExtensionContext,
 ): Promise<WaitNotificationsWake> {
 	if (ctx && isChildAgentRuntime(ctx)) {
-		return { error: new Error(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE), kind: "error" };
+		return { kind: "unavailable", message: CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE };
 	}
 	if (ctx) mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) {
-		return { error: new Error("wait_agents requires a persisted supervisor session."), kind: "error" };
+		return { kind: "unavailable", message: "wait_agents requires a persisted supervisor session." };
 	}
 	const pending = listPendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
 	if (pending.length > 0) return { agent: pending[0].agent, kind: "agent" };
@@ -2354,6 +2355,7 @@ export function consumeNotifications(
 		return errorResult(`Wait failed: ${message}`, {});
 	}
 	if (wake.kind === "none") return emptyResult();
+	if (wake.kind === "unavailable") return errorResult(wake.message, {});
 	const persistence = store.getPersistenceTarget();
 	if (persistence) {
 		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);

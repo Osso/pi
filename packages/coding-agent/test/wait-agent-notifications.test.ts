@@ -65,4 +65,13 @@ describe("agent notification waiting", () => {
 		expect(result.content).toEqual([{ text: "Wait failed: listener failed", type: "text" }]);
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
 	});
+
+	it("preserves direct availability errors when waiting cannot start", async () => {
+		const store = new MultiAgentStore();
+
+		const wake = await waitNotifications(store);
+		const result = consumeNotifications(store, wake);
+
+		expect(result.content).toEqual([{ text: "wait_agents requires a persisted supervisor session.", type: "text" }]);
+	});
 });
