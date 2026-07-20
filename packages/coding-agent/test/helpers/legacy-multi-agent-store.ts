@@ -17,7 +17,7 @@ import {
 	registerRuntimeMailboxListener,
 } from "../../src/core/session-control-db.ts";
 import { deliverTerminalOutboxProjections } from "../../src/core/terminal-outbox-delivery.ts";
-import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./process-identity.ts";
+import { testProcessIdentity } from "./process-identity.ts";
 import { forceRuntimeOwnership } from "./runtime-ownership.ts";
 
 interface TransitionAgentDetails {
@@ -363,7 +363,7 @@ function acquireTestOwnership(
 		agentId: agent.id,
 		nowIso: shiftIso(agent.updatedAt, -2),
 		owner: { agentId: agent.parentId === "main" ? null : (agent.parentId ?? null), sessionId: "legacy-test-session" },
-		processIdentity: CURRENT_PROCESS_IDENTITY,
+		processIdentity: testProcessIdentity("legacy-test-runtime"),
 		sessionPath,
 	});
 	if (!result.ok) throw new Error(`Could not acquire test ownership for ${agent.id}: ${result.error}`);

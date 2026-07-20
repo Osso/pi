@@ -6,6 +6,8 @@ import { MultiAgentStore, type SpawnAgentInput } from "../src/core/multi-agent-s
 import { getControlDbPath, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
+import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 
 const managedTempDirs: string[] = [];
 
@@ -1408,6 +1410,16 @@ describe("MultiAgentStore", () => {
 				permission: { narrowed: true, policy: "on-request" },
 				transcript: { path: childSessionFile, sessionId: childSession.getSessionId() },
 			});
+			const persistence = store.getPersistenceTarget();
+			if (!persistence) throw new Error("expected persisted store");
+			const ownership = forceRuntimeOwnership(persistence.controlDbPath, {
+				agentId: spawned.agent.id,
+				nowIso: spawned.agent.updatedAt,
+				owner: { agentId: null, sessionId: "legacy-test-session" },
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				sessionPath: persistence.sessionPath,
+			});
+			expect(ownership.ok).toBe(true);
 			const steer = legacyMultiAgentStore(store).sendSteering(spawned.agent.id, spawned.agent.revision, {
 				body: "Continue with tests",
 				fromAgentId: "main",
