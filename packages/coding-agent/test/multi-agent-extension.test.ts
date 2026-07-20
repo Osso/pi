@@ -4185,7 +4185,6 @@ describe("multi-agent extension tools", () => {
 		expect(childSession.messages.map(getMessageText)).toEqual([
 			"Completed parent prefix",
 			"Completed parent response",
-			"Spawn child",
 			"Child assignment",
 			"Child completed",
 		]);

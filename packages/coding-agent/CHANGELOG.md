@@ -85,7 +85,7 @@
 
 ### Changed
 
-- Renamed the internal Pyrun multi-agent bridge request handler to use Pi-specific naming.
+- Renamed the internal Pyrun multi-agent bridge from `createHostrunMultiAgentRequestHandler`/`HostrunMultiAgentRequestHandler` to `createMultiAgentPiRequestHandler`/`MultiAgentPiRequestHandler` without compatibility aliases.
 - Highlighted the default footer's context percentage and total active `agents N` count while retaining dim styling for surrounding statistics.
 - Changed Pyrun `cli.*` command guidance to use forwarding, exit-code-only `.run()` by default and explicit `.capture().run()` when structured stdout/stderr inspection is required.
 - Resident Architect and Supervisor systemd services now run the installed Bun-compiled Pi binary.

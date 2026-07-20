@@ -1427,6 +1427,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				tools: [
 					{
 						name: "spawn_agent",
+						label: "Spawn Agent",
 						description: "Capture inherited spawn identity",
 						parameters: Type.Object({ context: Type.Literal("inherit"), prompt: Type.String() }),
 						execute: async (toolCallId) => {

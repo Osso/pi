@@ -667,12 +667,15 @@ function findActiveToolCallEntry(branch: SessionEntry[], activeToolCallId: strin
 }
 
 function findUnresolvedTurnParentId(branch: SessionEntry[], activeToolEntry: SessionEntry): string | null {
-	let ancestorId = activeToolEntry.parentId;
-	while (ancestorId) {
-		const ancestor = branch.find((entry) => entry.id === ancestorId);
-		if (!ancestor) break;
+	const immediateParent = branch.find((entry) => entry.id === activeToolEntry.parentId);
+	if (immediateParent?.type === "message" && immediateParent.message.role === "assistant") {
+		return immediateParent.id;
+	}
+
+	let ancestor = immediateParent;
+	while (ancestor) {
 		if (ancestor.type === "message" && ancestor.message.role === "user") return ancestor.parentId;
-		ancestorId = ancestor.parentId;
+		ancestor = branch.find((entry) => entry.id === ancestor?.parentId);
 	}
 	return activeToolEntry.parentId;
 }

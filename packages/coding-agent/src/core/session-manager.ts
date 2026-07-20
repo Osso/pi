@@ -2055,8 +2055,9 @@ export class SessionManager {
 		writeFileSync(newSessionFile, `${JSON.stringify(newHeader)}\n`, { flag: "wx" });
 
 		const sessionEntries = sourceEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
-		const entriesToCopy =
-			fromEntryId === null ? [] : fromEntryId ? buildSessionPath(sessionEntries, fromEntryId) : sessionEntries;
+		let entriesToCopy = sessionEntries;
+		if (fromEntryId === null) entriesToCopy = [];
+		else if (fromEntryId) entriesToCopy = buildSessionPath(sessionEntries, fromEntryId);
 		for (const entry of entriesToCopy) {
 			appendFileSync(newSessionFile, `${JSON.stringify(entry)}\n`);
 		}
