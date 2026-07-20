@@ -78,8 +78,8 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 		description: "Toggle Codex priority processing from the main thread",
 		handler: (args, ctx) => handleFastCommand(args, ctx, authority),
 	});
-	pi.on("session_start", (_event, ctx) => {
-		if (!isChildRuntime(ctx)) authority.enabled = false;
+	pi.on("session_start", (event, ctx) => {
+		if (!isChildRuntime(ctx) && event.reason !== "reload") authority.enabled = false;
 		updateFastStatus(ctx, authority);
 	});
 	pi.on("model_select", (event, ctx) => {

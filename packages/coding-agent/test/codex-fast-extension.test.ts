@@ -6,12 +6,13 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	RegisteredCommand,
+	SessionStartEvent,
 } from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
 type BeforeProviderRequestHandler = (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => unknown;
 type ModelSelectHandler = (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => void;
-type SessionStartHandler = (event: { type: "session_start" }, ctx: ExtensionContext) => void;
+type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => void;
 
 interface FastModeAuthority {
 	enabled: boolean;
@@ -51,7 +52,17 @@ function createHarness(provider = "openai-codex", authority?: FastModeAuthority,
 	if (!command) throw new Error("/fast command was not registered");
 	if (!beforeProviderRequest) throw new Error("before_provider_request handler was not registered");
 	if (!modelSelect) throw new Error("model_select handler was not registered");
-	return { beforeProviderRequest, command, commandName, ctx, modelSelect, notify, sessionStart, setEditorText, setStatus };
+	return {
+		beforeProviderRequest,
+		command,
+		commandName,
+		ctx,
+		modelSelect,
+		notify,
+		sessionStart,
+		setEditorText,
+		setStatus,
+	};
 }
 
 describe("Codex fast mode extension", () => {
@@ -175,15 +186,17 @@ describe("Codex fast mode extension", () => {
 		});
 	});
 
-	it("resets shared fast mode when the main session starts without letting child startup reset it", async () => {
+	it("preserves shared fast mode on reload and resets it on main session replacement", async () => {
 		const authority = { enabled: true };
 		const main = createHarness("openai-codex", authority);
 		const child = createHarness("openai-codex", authority, true);
 		if (!main.sessionStart || !child.sessionStart) throw new Error("session_start handler was not registered");
 
-		child.sessionStart({ type: "session_start" }, child.ctx);
+		child.sessionStart({ reason: "startup", type: "session_start" }, child.ctx);
 		expect(authority.enabled).toBe(true);
-		main.sessionStart({ type: "session_start" }, main.ctx);
+		main.sessionStart({ reason: "reload", type: "session_start" }, main.ctx);
+		expect(authority.enabled).toBe(true);
+		main.sessionStart({ reason: "resume", type: "session_start" }, main.ctx);
 		expect(authority.enabled).toBe(false);
 	});
 

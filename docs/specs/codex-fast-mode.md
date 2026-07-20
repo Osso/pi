@@ -24,7 +24,7 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that requ
 ### Lifetime
 
 - [x] Keep the authority in the main runtime until explicitly disabled; do not persist fast-mode state to session entries or settings.
-- [x] Reset the authority to disabled when the main session starts, including restart or resume; child session startup must not reset it.
+- [x] Reset the authority to disabled on main session startup, restart, resume, or replacement; extension reload and child session startup must not reset it.
 
 ## How it works
 
