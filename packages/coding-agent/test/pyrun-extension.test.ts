@@ -1456,7 +1456,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it.runIf(hasLocalPyrunRunner && hasPython3)(
-		"excludes the active Pyrun assistant turn from inherited child context",
+		"excludes the active Pyrun assistant turn when pi.tools.call spawns an inherited child",
 		async () => {
 			delete process.env.PI_PYRUN_RUNNER_COMMAND;
 			delete process.env.PI_PYRUN_RUNNER;
@@ -1467,7 +1467,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			sessionManager.setMetadataControlDbPath(getControlDbPath(root));
 			sessionManager.appendMessage({ role: "user", content: "Completed parent prefix", timestamp: 1 });
 			sessionManager.appendMessage(fauxAssistantMessage("Completed parent response"));
-			const code = "pi.agents.spawn({'prompt': 'Child assignment', 'context': 'inherit'})";
+			const code = "pi.tools.call('spawn_agent', {'prompt': 'Child assignment', 'context': 'inherit'})";
 			sessionManager.appendMessage(
 				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }, { id: "pyrun-test-call-1" }), {
 					stopReason: "toolUse",
@@ -1495,14 +1495,18 @@ for await (const line of createInterface({ input: process.stdin })) {
 					};
 				},
 			});
+			const handler = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+				appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+			} satisfies ParentAgentJournalWriter);
+			let bridgeContext: ExtensionContext;
 			const harness = createPyrunHarness({
-				piRequestHandlers: [
-					createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
-						appendEntry: (customType: string, data?: unknown) =>
-							sessionManager.appendCustomEntry(customType, data),
-					} satisfies ParentAgentJournalWriter),
-				],
+				callTool: async (name, params, signal, toolCallId) => {
+					if (name !== "spawn_agent") throw new Error(`Unexpected tool: ${name}`);
+					const details = await handler({ method: "agents.spawn", params }, bridgeContext, signal, toolCallId);
+					return { content: [], details };
+				},
 			});
+			bridgeContext = { ...harness.evaluateContext, sessionManager } as ExtensionContext;
 
 			await harness.evaluate({ code }, undefined, undefined, { sessionManager });
 

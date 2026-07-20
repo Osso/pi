@@ -4812,6 +4812,39 @@ describe("multi-agent extension tools", () => {
 		expect(createSession).not.toHaveBeenCalled();
 	});
 
+	it("rejects inherited context when the active tool identity is absent from the parent branch", async () => {
+		const parentHarness = await createHarness({ persistedSession: true });
+		childHarnesses.push(parentHarness);
+		parentHarness.sessionManager.appendMessage({ role: "user", content: "Parent context", timestamp: 1 });
+		const store = new MultiAgentStore({ now: () => "2026-07-20T00:00:00.000Z" });
+		const agent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		}).agent;
+		const createSession = vi.fn();
+		const factory = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			createSession,
+		});
+
+		await expect(
+			factory({
+				activeToolCallId: "missing-tool-call",
+				agent,
+				context: "inherit",
+				ctx: {
+					model: parentHarness.getModel(),
+					modelRegistry: parentHarness.session.modelRegistry,
+					sessionManager: parentHarness.sessionManager,
+				} as unknown as ExtensionContext,
+				prompt: "Continue work",
+			}),
+		).rejects.toThrow("active tool call missing-tool-call is not in the parent branch");
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	it("does not inject goal continuation into a completed production child", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
