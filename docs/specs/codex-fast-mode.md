@@ -11,12 +11,13 @@ Codex fast mode provides a runtime-local `/fast` command that requests priority 
 - [x] Register `/fast` as a first-party extension command rather than a core built-in command.
 - [x] Let bare `/fast` toggle fast mode, with explicit `/fast on` and `/fast off` forms.
 - [x] Reject enabling fast mode unless the current provider is `openai-codex` or `openai-codex-gc`.
-- [x] Show `fast` in footer status while enabled and clear it when disabled.
+- [x] Show `fast` in footer status while enabled on a supported provider, hide it after switching away, and restore it after switching back without changing the runtime toggle.
 
 ### Request behavior
 
 - [x] Add `service_tier: "priority"` to Codex provider request payloads while fast mode is enabled.
 - [x] Leave provider request payloads unchanged while fast mode is disabled or the active provider is unsupported.
+- [x] Fail the request explicitly if an enabled Codex provider produces a payload that cannot accept the priority tier field.
 
 ### Lifetime
 

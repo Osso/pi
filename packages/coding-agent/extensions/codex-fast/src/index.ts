@@ -1,5 +1,9 @@
 import type { Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+} from "../../../src/core/extensions/types.ts";
 
 const FAST_STATUS_KEY = "codex-fast";
 const SUPPORTED_PROVIDERS = new Set(["openai-codex", "openai-codex-gc"]);
@@ -20,6 +24,10 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 	ctx.ui.setEditorText("");
 }
 
+function updateFastStatus(ctx: ExtensionContext, state: FastModeState, model = ctx.model): void {
+	ctx.ui.setStatus(FAST_STATUS_KEY, state.enabled && supportsFastMode(model) ? "fast" : undefined);
+}
+
 interface FastModeState {
 	enabled: boolean;
 }
@@ -38,7 +46,7 @@ async function handleFastCommand(args: string, ctx: ExtensionCommandContext, sta
 	}
 
 	state.enabled = requested;
-	ctx.ui.setStatus(FAST_STATUS_KEY, state.enabled ? "fast" : undefined);
+	updateFastStatus(ctx, state);
 	ctx.ui.notify(`Fast mode: ${state.enabled ? "on" : "off"}`, "info");
 	clearEditor(ctx);
 }
@@ -49,9 +57,14 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
 		description: "Toggle Codex priority processing for this runtime",
 		handler: (args, ctx) => handleFastCommand(args, ctx, state),
 	});
+	pi.on("model_select", (event, ctx) => {
+		updateFastStatus(ctx, state, event.model);
+	});
 	pi.on("before_provider_request", (event, ctx) => {
 		if (!state.enabled || !supportsFastMode(ctx.model)) return undefined;
-		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) return undefined;
+		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) {
+			throw new Error("Fast mode requires an object provider payload");
+		}
 		return { ...event.payload, service_tier: "priority" };
 	});
 }
