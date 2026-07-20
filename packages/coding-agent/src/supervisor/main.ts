@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { cleanupSessionResources } from "@earendil-works/pi-ai/compat";
+import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir } from "../config.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
@@ -182,7 +182,7 @@ export async function processSupervisorRequest(
 						await session.abort();
 						throw new Error("Supervisor request aborted");
 					}
-					const contextPercent = session.getContextUsage?.().percent;
+					const contextPercent = session.getContextUsage?.()?.percent;
 					if (
 						session.compact &&
 						contextPercent !== null &&
