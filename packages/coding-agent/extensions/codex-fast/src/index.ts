@@ -63,9 +63,7 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
 	pi.on("before_provider_request", (event, ctx) => {
 		if (!state.enabled || !supportsFastMode(ctx.model)) return undefined;
 		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) {
-			state.enabled = false;
-			updateFastStatus(ctx, state);
-			ctx.ui.notify("Fast mode disabled: provider payload is not an object", "warning");
+			ctx.ui.notify("Fast mode skipped: provider payload is not an object", "warning");
 			return undefined;
 		}
 		return { ...event.payload, service_tier: "priority" };

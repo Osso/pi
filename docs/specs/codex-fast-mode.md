@@ -17,7 +17,7 @@ Codex fast mode provides a runtime-local `/fast` command that requests priority 
 
 - [x] Add `service_tier: "priority"` to Codex provider request payloads while fast mode is enabled.
 - [x] Leave provider request payloads unchanged while fast mode is disabled or the active provider is unsupported.
-- [x] Disable fast mode, clear its footer status, and warn explicitly when a Codex provider produces a non-object payload that cannot accept the priority tier field.
+- [x] Warn and leave a non-object Codex provider payload unchanged for that request while preserving fast mode for the next valid request until explicit `/fast off`.
 
 ### Lifetime
 
