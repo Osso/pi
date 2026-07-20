@@ -1,0 +1,11 @@
+{
+	"name": "@earendil-works/pi-spec-validation-extension",
+	"version": "0.80.3",
+	"private": true,
+	"type": "module",
+	"description": "First-party project spec validation extension for Pi",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	}
+}
