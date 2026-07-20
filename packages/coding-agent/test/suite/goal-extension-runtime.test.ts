@@ -121,6 +121,7 @@ describe("goal extension runtime", () => {
 		]);
 
 		await harness.session.prompt("retry work");
+		await new Promise((resolve) => setTimeout(resolve, 20));
 
 		const skippedStatuses = harness.sessionManager
 			.getEntries()
@@ -132,6 +133,79 @@ describe("goal extension runtime", () => {
 			);
 		expect(harness.faux.state.callCount).toBe(3);
 		expect(skippedStatuses).toHaveLength(1);
+	});
+
+	it("reports a skipped goal continuation when retry sleep is canceled", async () => {
+		const harness = await createHarness({
+			extensionFactories: [goalTestExtension],
+			settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 100 } },
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "survive cancellation", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" })]);
+		const retryStarted = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type !== "auto_retry_start") return;
+				unsubscribe();
+				resolve();
+			});
+		});
+
+		const prompt = harness.session.prompt("retry work");
+		await retryStarted;
+		harness.session.abortRetry();
+		await prompt;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		const skippedStatuses = harness.sessionManager
+			.getEntries()
+			.filter(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "supervisor-status" &&
+					JSON.stringify(entry.data).includes("Goal continuation skipped: the model turn ended with an error."),
+			);
+		expect(skippedStatuses).toHaveLength(1);
+	});
+
+	it("waits for an actual delayed agent_end listener before reporting an error", async () => {
+		let releaseListener: (() => void) | undefined;
+		const listenerReleased = new Promise<void>((resolve) => {
+			releaseListener = resolve;
+		});
+		const delayedListener = (pi: ExtensionAPI): void => {
+			pi.on("agent_end", async () => listenerReleased);
+		};
+		const harness = await createHarness({
+			extensionFactories: [goalTestExtension, delayedListener],
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "wait for listeners", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid_api_key" })]);
+
+		const prompt = harness.session.prompt("initial work");
+		await waitForProviderCalls(harness, 1);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(harness.sessionManager.getEntries()).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ customType: "supervisor-status" }),
+			]),
+		);
+		releaseListener?.();
+		await prompt;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(harness.sessionManager.getEntries()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ customType: "supervisor-status" }),
+			]),
+		);
 	});
 
 	it("cancels an empty-response retry when interactive input arrives before expiry", async () => {

@@ -237,10 +237,8 @@ function createGoalHarness(
 			sessionShutdown?.({ type: "session_shutdown", reason: "restart" }, ctx as ExtensionContext),
 		runInput: async (text: string) =>
 			input?.({ type: "input", text, source: "interactive" }, ctx as ExtensionContext),
-		runAgentEnd: async (
-			messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")],
-			willRetry?: boolean,
-		) => agentEnd?.({ type: "agent_end", messages, willRetry } as AgentEndEvent, ctx as ExtensionContext),
+		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
+			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (reason: string) =>
 			manageGoalTool?.execute(
 				"manage-goal-complete-1",
@@ -1602,33 +1600,37 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("does not continue or warn when the last assistant response is an error", async () => {
-		const harness = createGoalHarness(cwd);
+	it("reports an error only after the session becomes idle", async () => {
+		vi.useFakeTimers();
+		try {
+			let idle = false;
+			const harness = createGoalHarness(cwd, { idle: () => idle });
 
-		await harness.runCommand("set retry failed request");
-		harness.notify.mockClear();
-		harness.sendUserMessage.mockClear();
-		await harness.runAgentEnd([createAssistantMessage("", "error")]);
-		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
-		const nextTurn = await harness.runBeforeAgentStart();
+			await harness.runCommand("set retry failed request");
+			harness.appendEntry.mockClear();
+			await harness.runAgentEnd([createAssistantMessage("", "error")]);
 
-		expect(goal.objective).toBe("retry failed request");
-		expect(goal.pausedAt).toBeUndefined();
-		expect(nextTurn?.systemPrompt).toContain("Long-running objective: retry failed request");
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).not.toHaveBeenCalled();
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal continuation skipped: the model turn ended with an error.",
-		});
+			expect(harness.appendEntry).not.toHaveBeenCalled();
+			idle = true;
+			await vi.advanceTimersByTimeAsync(10);
+			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+				message: "Goal continuation skipped: the model turn ended with an error.",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
-	it("does not report a retryable error as skipped", async () => {
-		const harness = createGoalHarness(cwd);
+	it("reports pending input instead of an error stop", async () => {
+		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
 
-		await harness.runCommand("set retry transient failure");
+		await harness.runCommand("set process queued input");
 		harness.appendEntry.mockClear();
-		await harness.runAgentEnd([createAssistantMessage("", "error")], true);
+		await harness.runAgentEnd([createAssistantMessage("", "error")]);
 
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal continuation deferred: pending input will run next.",
+		});
 		expect(harness.appendEntry).not.toHaveBeenCalledWith("supervisor-status", {
 			message: "Goal continuation skipped: the model turn ended with an error.",
 		});

@@ -790,7 +790,6 @@ export interface AgentStartEvent {
 export interface AgentEndEvent {
 	type: "agent_end";
 	messages: AgentMessage[];
-	willRetry?: boolean;
 }
 
 /** Fired at the start of each turn */

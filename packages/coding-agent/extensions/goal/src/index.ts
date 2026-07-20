@@ -13,6 +13,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createCompletionWaitScheduler } from "./completion-scheduling.ts";
 import { createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
+import { createErrorStatusScheduler } from "./error-status-scheduling.ts";
 import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
@@ -461,6 +462,7 @@ function goalForIdleReview(
 	ctx: ExtensionContext,
 	clearRetry: (sessionId: string) => void,
 	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
+	scheduleErrorStatus: (ctx: ExtensionContext, message: string) => void,
 	reportSkipped: (message: string) => void,
 ): Goal | null {
 	const goal = loadRunningGoal(ctx);
@@ -477,8 +479,10 @@ function goalForIdleReview(
 	}
 	if (findLastAssistantMessage(event)?.stopReason === "error") {
 		clearRetry(sessionId);
-		if (event.willRetry !== true) {
-			reportSkipped("Goal continuation skipped: the model turn ended with an error.");
+		if (ctx.hasPendingMessages()) {
+			reportSkipped("Goal continuation deferred: pending input will run next.");
+		} else {
+			scheduleErrorStatus(ctx, "Goal continuation skipped: the model turn ended with an error.");
 		}
 		return null;
 	}
@@ -640,6 +644,9 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		pi,
 		isSameRunningGoal: sameRunningGoal,
 	});
+	const errorStatusScheduler = createErrorStatusScheduler({
+		onStatus: appendSupervisorStatus.bind(undefined, pi),
+	});
 
 	async function applyDecision(
 		decision: GoalSupervisorResponse,
@@ -670,12 +677,14 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 
 	function clearGoalSchedules(sessionId: string): void {
 		emptyResponseScheduler.clearSession(sessionId);
+		errorStatusScheduler.clearSession(sessionId);
 		scheduler.clearSession(sessionId);
 		completionScheduler.clearSession(sessionId);
 	}
 
 	function clearAllGoalSchedules(): void {
 		emptyResponseScheduler.clearAll();
+		errorStatusScheduler.clearAll();
 		scheduler.clearAll();
 		completionScheduler.clearAll();
 	}
@@ -710,6 +719,10 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		clearGoalSchedules(ctx.sessionManager.getSessionId());
 	});
 
+	pi.on("agent_start", async (_event, ctx: ExtensionContext) => {
+		errorStatusScheduler.clearSession(ctx.sessionManager.getSessionId());
+	});
+
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
 		await runScheduledGoalAgentEnd({
 			event,
@@ -724,6 +737,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 					ctx,
 					emptyResponseScheduler.clearSession.bind(emptyResponseScheduler),
 					emptyResponseScheduler.schedule.bind(emptyResponseScheduler),
+					errorStatusScheduler.schedule.bind(errorStatusScheduler),
 					appendSupervisorStatus.bind(undefined, pi),
 				),
 			isSameGoal: sameRunningGoal,
