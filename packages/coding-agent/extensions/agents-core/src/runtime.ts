@@ -197,9 +197,12 @@ function requireSpawnAgentParams(params: unknown): asserts params is SpawnAgentP
 	if (!params || typeof params !== "object") {
 		throw new Error('spawn_agent context must be "fresh" or "inherit"');
 	}
-	const context = (params as { context?: unknown }).context;
-	if (context !== "fresh" && context !== "inherit") {
+	const input = params as { context?: unknown; prompt?: unknown };
+	if (input.context !== "fresh" && input.context !== "inherit") {
 		throw new Error('spawn_agent context must be "fresh" or "inherit"');
+	}
+	if (typeof input.prompt !== "string") {
+		throw new Error("spawn_agent prompt must be a string");
 	}
 }
 type ListAgentsParams = Static<typeof listAgentsSchema>;
@@ -693,6 +696,31 @@ function resolveInheritedLeafId(
 	return sessionManager.getLeafId() ?? undefined;
 }
 
+function createChildSessionManager(input: {
+	activeToolCallId?: string;
+	agent: AgentSnapshot;
+	context: SpawnAgentParams["context"];
+	ctx: ExtensionContext;
+	options: ProductionChildAgentSessionFactoryOptions;
+}): { parentSessionFile: string | undefined; sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]> } {
+	const parentSessionFile = input.ctx.sessionManager.getSessionFile();
+	if (input.context === "inherit" && !parentSessionFile) {
+		throw new Error("Cannot inherit context from an unpersisted parent session");
+	}
+	const sessionDir = input.options.sessionDir ?? input.ctx.sessionManager.getSessionDir();
+	const childSessionOptions = {
+		parentSession: parentSessionFile ?? input.ctx.sessionManager.getSessionId(),
+		isSubagent: true,
+		subagentName: input.agent.displayName,
+	};
+	const inheritedLeafId = resolveInheritedLeafId(input.context, input.activeToolCallId, input.ctx.sessionManager);
+	const sessionManager =
+		input.context === "inherit" && parentSessionFile
+			? SessionManager.forkFrom(parentSessionFile, input.agent.cwd, sessionDir, childSessionOptions, inheritedLeafId)
+			: input.options.createSessionManager(input.agent.cwd, sessionDir, childSessionOptions);
+	return { parentSessionFile, sessionManager };
+}
+
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
@@ -701,28 +729,13 @@ export function createProductionChildAgentSessionFactory(
 		if (!validation.ok) {
 			throw new Error(spawnPromptValidationMessage(validation));
 		}
-		const parentSessionFile = ctx.sessionManager.getSessionFile();
-		if (context === "inherit" && !parentSessionFile) {
-			throw new Error("Cannot inherit context from an unpersisted parent session");
-		}
-		const parentSession = parentSessionFile ?? ctx.sessionManager.getSessionId();
-		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
-		const childSessionOptions = {
-			parentSession,
-			isSubagent: true,
-			subagentName: agent.displayName,
-		};
-		const inheritedLeafId = resolveInheritedLeafId(context, activeToolCallId, ctx.sessionManager);
-		const sessionManager =
-			context === "inherit" && parentSessionFile
-				? SessionManager.forkFrom(
-						parentSessionFile,
-						agent.cwd,
-						sessionDir,
-						childSessionOptions,
-						inheritedLeafId,
-					)
-				: options.createSessionManager(agent.cwd, sessionDir, childSessionOptions);
+		const { parentSessionFile, sessionManager } = createChildSessionManager({
+			activeToolCallId,
+			agent,
+			context,
+			ctx,
+			options,
+		});
 		const profile = resolveChildAgentProfile(agent, ctx);
 		const sessionStartEvent = parentSessionFile
 			? { type: "session_start" as const, reason: "fork" as const, previousSessionFile: parentSessionFile }

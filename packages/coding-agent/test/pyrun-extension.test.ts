@@ -1626,6 +1626,30 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(store.listAgents()).toEqual([]);
 	});
 
+	it.each([
+		["missing", { context: "fresh" }],
+		["non-string", { context: "fresh", prompt: 42 }],
+	])("rejects Pyrun pi.agents.spawn requests with %s prompt", async (_case, params) => {
+		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+		store.setPersistenceSessionManager(sessionManager);
+		const createChildSession = vi.fn(async () => ({
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {},
+		}));
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
+			appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+		} satisfies ParentAgentJournalWriter);
+		const harness = createPyrunHarness();
+		const bridgeContext = { ...harness.evaluateContext, sessionManager } as ExtensionContext;
+
+		await expect(handler({ method: "agents.spawn", params }, bridgeContext, undefined)).rejects.toThrow("prompt");
+
+		expect(createChildSession).not.toHaveBeenCalled();
+		expect(store.listAgents()).toEqual([]);
+	});
+
 	it("responds to Pyrun pi.agents.wait requests through configured handlers", async () => {
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
