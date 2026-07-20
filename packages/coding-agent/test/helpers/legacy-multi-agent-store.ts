@@ -359,10 +359,11 @@ function acquireTestOwnership(
 	sessionPath: string,
 	agent: AgentSnapshot,
 ): MultiAgentRuntimeOwnership {
+	const ownerAgentId = agent.parentId === "main" ? null : agent.parentId;
 	const result = forceRuntimeOwnership(controlDbPath, {
 		agentId: agent.id,
 		nowIso: shiftIso(agent.updatedAt, -2),
-		owner: { agentId: agent.parentId === "main" ? null : (agent.parentId ?? null), sessionId: "legacy-test-session" },
+		owner: { agentId: ownerAgentId ?? null, sessionId: "legacy-test-session" },
 		processIdentity: testProcessIdentity("legacy-test-runtime"),
 		sessionPath,
 	});

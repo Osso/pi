@@ -1,6 +1,6 @@
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getControlDbPath, readRuntimeMailboxListener } from "../../../src/core/session-control-db.ts";
 import { withHeadlessPi } from "../headless-pi.ts";
 
@@ -114,7 +114,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 
 			pi.respondToLlmRequest(childRequest.id, fauxAssistantMessage("visibility complete"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
-			expect(readRuntimeMailboxListener(controlDbPath, childRecipient)).toBeUndefined();
+			await vi.waitFor(() => expect(readRuntimeMailboxListener(controlDbPath, childRecipient)).toBeUndefined());
 			expect(readRuntimeMailboxListener(controlDbPath, parentRecipient)).toBeDefined();
 
 			const completionRequest = await pi.waitForLlmRequest(
