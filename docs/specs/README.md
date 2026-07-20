@@ -52,6 +52,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Shared channel (`channel_post`) | [`shared-channel.md`](shared-channel.md) | **BUILD** (done) | Single SQLite-backed global coordination log with per-session cursors and idle drain delivery. |
 | Compaction length-retry | [`compaction-length-retry.md`](compaction-length-retry.md) | **BUILD** (done) | Threshold auto-compaction resumes a `"length"`-truncated turn once instead of idling. |
 | Codex paired-provider quota fallback | [`codex-quota-fallback.md`](codex-quota-fallback.md) | **BUILD** | On terminal Codex quota/billing exhaustion, continue once through an authenticated paired provider with the same model ID; fallback stays session-local and requires failed-message provenance. |
+| Codex fast mode (`/fast`) | [`codex-fast-mode.md`](codex-fast-mode.md) | **BUILD** (done) | Runtime-only priority processing toggle for OpenAI Codex providers; resets on restart or resume. |
 | TUI customization | [`tui-customization.md`](tui-customization.md) | **NATIVE** | Themes, keybindings, `registerShortcut`, header/footer/widget/editor swap, `ui.custom()`. |
 | Thinking status indicator | [`thinking-status.md`](thinking-status.md) | **BUILD** (done) | Default working ticker reports elapsed thinking time without replacing tool-wait messages. |
 

@@ -90,6 +90,7 @@ describe("runtime inventory CLI", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(result.stdout).toContain("approval-controls");
+		expect(result.stdout).toContain("codex-fast");
 		expect(result.stdout).toContain("goal");
 		expect(result.stdout).toContain("agents-core");
 		expect(result.stdout).toContain("agent-viewer");
