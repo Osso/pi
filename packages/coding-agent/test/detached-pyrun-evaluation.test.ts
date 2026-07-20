@@ -1,7 +1,13 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+	createHostrunMultiAgentRequestHandler,
+	createProductionChildAgentSessionFactory,
+	type ParentAgentJournalWriter,
+} from "../extensions/agents-core/src/runtime.ts";
 import { runDurableDetachablePyrunEvaluation } from "../extensions/pyrun/src/detached-evaluation.ts";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -84,6 +90,91 @@ describe("durable detached Pyrun evaluation", () => {
 		const result = await evaluation;
 		expect(result).toMatchObject({ isError: true });
 		expect(store.listAgents()).toMatchObject([{ lifecycle: "failed", revision: 2 }]);
+	});
+
+	it("excludes the active durable Pyrun turn when spawning an inherited child", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-pyrun-durable-inherit-"));
+		temporaryDirectories.push(root);
+		const runnerPath = join(root, "fake-pyrun.mjs");
+		writeFileSync(
+			runnerPath,
+			[
+				"#!/usr/bin/env node",
+				"import { createInterface } from 'node:readline';",
+				"const iterator = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
+				"const first = await iterator.next();",
+				"const request = JSON.parse(first.value);",
+				"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'agents.spawn', params: { context: 'inherit', prompt: 'Child assignment' } }) + '\\n');",
+				"const response = JSON.parse((await iterator.next()).value);",
+				"if (response.error) throw new Error(response.error);",
+				"process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: response.result }) + '\\n');",
+			].join("\n"),
+		);
+		chmodSync(runnerPath, 0o700);
+		const sessionManager = SessionManager.create(root, join(root, "sessions"));
+		const controlDbPath = getControlDbPath(root);
+		sessionManager.setMetadataControlDbPath(controlDbPath);
+		sessionManager.appendMessage({ role: "user", content: "Completed parent prefix", timestamp: 1 });
+		sessionManager.appendMessage(fauxAssistantMessage("Completed parent response"));
+		const toolCallId = "durable-inherit-call";
+		sessionManager.appendMessage(
+			fauxAssistantMessage(fauxToolCall("pyrun_eval", { code: "spawn inherited" }, { id: toolCallId }), {
+				stopReason: "toolUse",
+			}),
+		);
+		const store = new MultiAgentStore();
+		store.setPersistenceSessionManager(sessionManager);
+		let childSessionManager: SessionManager | undefined;
+		const createChildSession = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			multiAgentStore: store,
+			createSession: async (options) => {
+				childSessionManager = options.sessionManager;
+				return {
+					session: {
+						bindExtensions: async () => {},
+						get messages() {
+							return options.sessionManager?.buildSessionContext().messages ?? [];
+						},
+						prompt: async (prompt) => {
+							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
+							options.sessionManager?.appendMessage(fauxAssistantMessage("Child complete"));
+						},
+					},
+				};
+			},
+		});
+		const dispatchPiRequest = createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+			appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+		} satisfies ParentAgentJournalWriter);
+		const detachRegistry = new ToolDetachRegistry();
+
+		await runDurableDetachablePyrunEvaluation({
+			ctx: {
+				controlDbPath,
+				cwd: root,
+				footerData: undefined,
+				getContextUsage: () => undefined,
+				model: undefined,
+				modelRegistry: { getAll: () => [] },
+				sessionManager,
+				toolExecutionStartedAt: Date.now(),
+			} as unknown as ExtensionContext,
+			detachRegistry,
+			dispatchPiRequest,
+			params: { code: "spawn inherited" },
+			piBridgeEnabled: true,
+			runnerOptions: { command: runnerPath },
+			store,
+			toolCallId,
+		});
+
+		expect(childSessionManager?.buildSessionContext().messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"user",
+			"assistant",
+		]);
 	});
 
 	it("settles the original call to a handle while the independent runner completes", async () => {
