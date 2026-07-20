@@ -23,6 +23,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 |---|---|---|---|
 | Goal system (`/goal`) | [`goal-system.md`](goal-system.md) | **BUILD** (primary) | Codex-style long-running objective with set/view/clear, persistence, context injection, and autonomous continuation. |
 | `/run-plan` command | [`run-plan-command.md`](run-plan-command.md) | **BUILD** | Trivial via `pi.registerCommand`; walks `PLAN.md`. |
+| `/spec-validation` command | [`spec-validation.md`](spec-validation.md) | **BUILD** (done) | First-party command that submits the exact validation prompt as one native agent turn, blocks while busy, and clears the composer. |
 | User rules loader (`rules/*.md`) | [`user-rules-loader.md`](user-rules-loader.md) | **BUILD** (additive) | Pi already loads AGENTS.md/CLAUDE.md hierarchy; adds global agent `rules/` + project `.pi/rules/`. |
 | Project context files | [`project-context-files.md`](project-context-files.md) | **NATIVE** | Global/cwd instruction-file hierarchy plus cwd-ancestor `docs/local/memory.md` project context. |
 | Worktree startup (`-w/--worktree`) | [`worktree-startup-option.md`](worktree-startup-option.md) | **BUILD** | New CLI flag; create/reuse sibling git worktree. |
