@@ -17,6 +17,7 @@ import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-s
 import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
+import { isRecord, optionalString, parseGoal, parseGoalJson } from "./goal-parsing.ts";
 import { goalFooterStatus, goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
 import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
 import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
@@ -67,48 +68,6 @@ function saveGoalJson(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal)
 	ctx.sessionManager.setSessionGoalJson(`${JSON.stringify(goal)}\n`);
 }
 
-function isNonNullObject(value: unknown): value is object {
-	return typeof value === "object" && value !== null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return isNonNullObject(value) && !Array.isArray(value);
-}
-
-function optionalString(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-function optionalNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function hasGoalIdentity(
-	objective: string | undefined,
-	branch: string | undefined,
-	createdAt: string | undefined,
-): objective is string {
-	return Boolean(objective && branch && createdAt);
-}
-
-function parseGoal(value: unknown): Goal | null {
-	if (!isRecord(value)) return null;
-	const objective = optionalString(value.objective)?.trim();
-	const branch = optionalString(value.branch);
-	const createdAt = optionalString(value.createdAt);
-	if (!hasGoalIdentity(objective, branch, createdAt)) return null;
-
-	return {
-		objective,
-		branch,
-		createdAt,
-		completedAt: optionalString(value.completedAt),
-		completionReason: optionalString(value.completionReason),
-		continuationTurns: optionalNumber(value.continuationTurns),
-		pausedAt: optionalString(value.pausedAt),
-	};
-}
-
 function loadGoalFile(file: string): Goal | null {
 	if (!fs.existsSync(file)) return null;
 	try {
@@ -132,14 +91,6 @@ function loadOrMigrateActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionMan
 function loadOrMigrateRunningGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	return goal && !goal.pausedAt ? goal : null;
-}
-
-function parseGoalJson(value: string): Goal | null {
-	try {
-		return parseGoal(JSON.parse(value));
-	} catch {
-		return null;
-	}
 }
 
 function migrateLegacyGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
