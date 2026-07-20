@@ -116,7 +116,7 @@ Review does not start when:
 - pending messages exist;
 - the last assistant response was empty.
 
-Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. A decision returned while pending state exists is retained and applied if that state drains without starting a turn. Input, a new turn, goal replacement/pause/completion/clear, or shutdown cancels deferred decisions, background waits, and review timers. Every asynchronous review rechecks goal identity before applying its decision. Aborted turns do not change persisted goal state; only explicit pause actions set `pausedAt`.
+Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. A decision returned while pending state exists is retained and applied if that state drains without starting a turn. Input, a new turn, goal replacement/pause/completion/clear, or shutdown cancels deferred decisions, background waits, and review timers. Every asynchronous review rechecks goal identity before applying its decision. Scheduling or review failures append durable `supervisor-status` errors, keep the goal active, and stop automatic continuation visibly. Aborted turns do not change persisted goal state; only explicit pause actions set `pausedAt`.
 
 ## Completion Tool Action
 

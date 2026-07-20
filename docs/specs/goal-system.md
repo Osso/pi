@@ -67,6 +67,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and goal lifecycle hooks, persists goal state, injects active objectives, and coordinates Supervisor decisions.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — preserves decisions across transient pending input, waits for active agents, and schedules five-minute Supervisor re-review.
+- `packages/coding-agent/extensions/goal/src/completion-scheduling.ts` — preserves completion-review evidence and decision type across wait wakeups.
 - `packages/coding-agent/extensions/goal/src/empty-response-scheduling.ts` — owns bounded empty-response retry timers.
 - `packages/coding-agent/extensions/goal/src/goal-tool.ts` — registers and types `manage_goal`.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — preserves tagged Supervisor model content while rendering one visible `[Supervisor]` header and plain instruction body.

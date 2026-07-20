@@ -1025,7 +1025,9 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith("Supervisor goal review failed: service failed", "error");
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal review failed: service failed",
+		});
 		expect(await harness.runBeforeAgentStart()).toBeDefined();
 	});
 

@@ -127,7 +127,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		const timer = setTimeout(() => {
 			this.waitReviewTimers.delete(sessionId);
 			if (!ctx.isIdle()) {
-				this.scheduleWaitReview(ctx, goal, terminalTurn);
+				this.scheduleReviewRetry(ctx, goal, terminalTurn);
 				return;
 			}
 			void this.reviewAndApply(ctx, goal, terminalTurn).catch((error: unknown) => this.options.reportError(error));
