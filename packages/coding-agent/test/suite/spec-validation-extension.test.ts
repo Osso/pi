@@ -50,5 +50,4 @@ describe("spec validation extension integration", () => {
 			await pi.waitForEvent((event) => event.type === "agent_end");
 		});
 	});
-
 });

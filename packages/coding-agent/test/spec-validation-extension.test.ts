@@ -67,9 +67,7 @@ describe("spec validation extension", () => {
 	it("rejects the command while an agent turn is running", async () => {
 		const harness = createHarness(false);
 
-		await expect(harness.runCommand()).rejects.toThrow(
-			"/spec-validation is blocked while a task is running",
-		);
+		await expect(harness.runCommand()).rejects.toThrow("/spec-validation is blocked while a task is running");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.setEditorText).not.toHaveBeenCalled();
 	});

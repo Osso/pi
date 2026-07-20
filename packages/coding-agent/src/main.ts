@@ -38,10 +38,10 @@ import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/sr
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import safeExtension from "../extensions/safe/src/index.ts";
-import specValidationExtension from "../extensions/spec-validation/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
 import sessionIdExtension from "../extensions/session-id/src/index.ts";
+import specValidationExtension from "../extensions/spec-validation/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
