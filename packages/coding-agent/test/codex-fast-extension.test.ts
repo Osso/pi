@@ -121,12 +121,16 @@ describe("Codex fast mode extension", () => {
 		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 	});
 
-	it("fails explicitly when an enabled Codex request payload is not an object", async () => {
-		const { beforeProviderRequest, command, ctx } = createHarness();
+	it("disables fast mode explicitly when a Codex request payload is not an object", async () => {
+		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness();
 		await command.handler("on", ctx);
-		const event = { payload: "unexpected", type: "before_provider_request" } as BeforeProviderRequestEvent;
+		const invalidEvent = { payload: "unexpected", type: "before_provider_request" } as BeforeProviderRequestEvent;
+		const validEvent = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
-		expect(() => beforeProviderRequest(event, ctx)).toThrow("Fast mode requires an object provider payload");
+		expect(beforeProviderRequest(invalidEvent, ctx)).toBeUndefined();
+		expect(notify).toHaveBeenLastCalledWith("Fast mode disabled: provider payload is not an object", "warning");
+		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", undefined);
+		expect(beforeProviderRequest(validEvent, ctx)).toBeUndefined();
 	});
 
 	it("starts disabled when the runtime extension is recreated", async () => {
