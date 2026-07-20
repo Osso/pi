@@ -3927,6 +3927,37 @@ describe("multi-agent extension tools", () => {
 		expect(parentHarness.sessionManager.buildSessionContext().messages).toEqual(parentMessagesBefore);
 	});
 
+	it("rejects inherited context when the parent transcript is not persisted", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const createSession = vi.fn();
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession,
+			}),
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "inherit",
+			prompt: "Continue integrated task",
+		});
+
+		expect(spawned.content).toEqual([
+			{
+				type: "text",
+				text: "spawn_agent failed to construct child session: Cannot inherit context from an unpersisted parent session",
+			},
+		]);
+		expect(spawned.details.dispatched).toBe(false);
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	it("denies externally registered manage_goal in production child sessions", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);

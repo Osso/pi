@@ -651,6 +651,9 @@ export function createProductionChildAgentSessionFactory(
 			throw new Error(spawnPromptValidationMessage(validation));
 		}
 		const parentSessionFile = ctx.sessionManager.getSessionFile();
+		if (context === "inherit" && !parentSessionFile) {
+			throw new Error("Cannot inherit context from an unpersisted parent session");
+		}
 		const parentSession = parentSessionFile ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
 		const childSessionOptions = {

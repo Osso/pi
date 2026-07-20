@@ -45,6 +45,14 @@ Production child sessions also resolve agent-type profiles from settings. The bu
 thinking). User settings can override them with `agents.<type>.model` and
 `agents.<type>.thinkingLevel`.
 
+`spawn_agent` requires an explicit `context`: `fresh` creates a new child transcript with only the
+assignment appended, while `inherit` forks a persisted parent transcript, copies its prior entries,
+and then appends the assignment without changing the parent. If the parent has no persisted session
+file, `inherit` rejects the request instead of changing semantics. Direct callers choose `inherit` when prior main-thread
+decisions or research are required; they choose `fresh` for isolated work, review, verification, or
+falsification. `/bg` and restart recovery select `fresh` internally. `attach_session_agent` reuses an
+existing transcript and does not use this context choice.
+
 Model execution guidance and verifier proof scope are specified in the
 [model execution and proof contract](../../specs/multi-agent.md#model-execution-and-proof): known
 independent tool calls are emitted together, while dependent calls wait for their inputs, and
