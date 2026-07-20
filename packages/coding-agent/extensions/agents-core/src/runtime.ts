@@ -672,19 +672,24 @@ export function createProductionChildAgentSessionFactory(
 			isSubagent: true,
 			subagentName: agent.displayName,
 		};
-		const activeSpawnEntry = activeToolCallId
-			? ctx.sessionManager
-					.getBranch()
-					.findLast(
-						(entry) =>
-							entry.type === "message" &&
-							entry.message.role === "assistant" &&
-							entry.message.content.some(
-								(part) => part.type === "toolCall" && part.id === activeToolCallId && part.name === "spawn_agent",
-							),
+		let activeSpawnParentId: string | null | undefined;
+		if (activeToolCallId) {
+			const branch = ctx.sessionManager.getBranch();
+			for (let index = branch.length - 1; index >= 0; index -= 1) {
+				const entry = branch[index];
+				if (
+					entry?.type === "message" &&
+					entry.message.role === "assistant" &&
+					entry.message.content.some(
+						(part) => part.type === "toolCall" && part.id === activeToolCallId && part.name === "spawn_agent",
 					)
-			: undefined;
-		const inheritedLeafId = activeSpawnEntry?.parentId ?? ctx.sessionManager.getLeafId() ?? undefined;
+				) {
+					activeSpawnParentId = entry.parentId;
+					break;
+				}
+			}
+		}
+		const inheritedLeafId = activeSpawnParentId ?? ctx.sessionManager.getLeafId() ?? undefined;
 		const sessionManager =
 			context === "inherit" && parentSessionFile
 				? SessionManager.forkFrom(
