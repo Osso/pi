@@ -209,7 +209,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed before steering"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.lifecycle).toBe("completed");
-			expect(readRuntimeMailboxListener(controlDbPath, recipient)).toBeUndefined();
+			await vi.waitFor(() => expect(readRuntimeMailboxListener(controlDbPath, recipient)).toBeUndefined());
 
 			pi.respondToLlmRequest(
 				mainAfterSpawn.id,
