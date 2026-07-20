@@ -269,11 +269,11 @@ function createPyrunExecutorState(
 }
 
 export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
-	return async (request, ctx, signal) => {
+	return async (request, ctx, signal, activeToolCallId) => {
 		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal);
 		if (builtIn.handled) return builtIn.result;
 		for (const handler of options.piRequestHandlers ?? []) {
-			const result = await handler(request, ctx, signal);
+			const result = await handler(request, ctx, signal, activeToolCallId);
 			if (result !== undefined) return result;
 		}
 		throw new Error(`Pi capability is unavailable: ${request.method}`);
@@ -557,6 +557,7 @@ async function respondToDetachedPyrunBridgeRequest(input: {
 			{ method: input.request.method, params: input.request.params },
 			input.ctx,
 			input.ctx.signal,
+			input.request.toolCallId,
 		);
 		enqueueDetachedPyrunBridgeResponse({ ...input, result });
 	} catch (error) {
@@ -595,7 +596,7 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 				| ((partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void)
 				| undefined;
 			if (!store || !detachRegistry) {
-				return activeExecutor.evaluate(params, ctx, typedOnUpdate, signal);
+				return activeExecutor.evaluate(params, ctx, typedOnUpdate, signal, toolCallId);
 			}
 			return runDurableDetachablePyrunEvaluation({
 				ctx,

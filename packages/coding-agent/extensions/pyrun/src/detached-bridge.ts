@@ -18,6 +18,7 @@ export interface DetachedPyrunBridgeRequest {
 	protocol: typeof DETACHED_PYRUN_BRIDGE_PROTOCOL;
 	replyTo: RuntimeMailboxAddress;
 	requestId: string;
+	toolCallId: string;
 }
 
 export function enqueueDetachedPyrunBridgeRequest(input: {
@@ -27,6 +28,7 @@ export function enqueueDetachedPyrunBridgeRequest(input: {
 	params: unknown;
 	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
+	toolCallId: string;
 	supervisorAddress: RuntimeMailboxAddress;
 }): string {
 	const requestId = randomUUID();
@@ -38,6 +40,7 @@ export function enqueueDetachedPyrunBridgeRequest(input: {
 		protocol: DETACHED_PYRUN_BRIDGE_PROTOCOL,
 		replyTo: input.runnerAddress,
 		requestId,
+		toolCallId: input.toolCallId,
 	};
 	persistBridgeMessage({
 		body,

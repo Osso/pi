@@ -46,8 +46,10 @@ thinking). User settings can override them with `agents.<type>.model` and
 `agents.<type>.thinkingLevel`.
 
 `spawn_agent` requires an explicit `context`: `fresh` creates a new child transcript with only the
-assignment appended, while `inherit` forks a persisted parent transcript, copies its prior entries,
-and then appends the assignment without changing the parent. If the parent has no persisted session
+assignment appended, while `inherit` forks the active completed branch of a persisted parent transcript,
+excludes the currently executing assistant tool-call turn, and then appends the assignment without changing
+its parent. This cutoff applies to direct, foreground Pyrun, detached Pyrun, and sequential-sibling execution.
+If the parent has no persisted session
 file, `inherit` rejects the request instead of changing semantics. Direct callers choose `inherit` when prior main-thread
 decisions or research are required; they choose `fresh` for isolated work, review, verification, or
 falsification. `/bg` and restart recovery select `fresh` internally. `attach_session_agent` reuses an

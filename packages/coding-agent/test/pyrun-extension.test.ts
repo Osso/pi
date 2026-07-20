@@ -2,11 +2,12 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createHostrunMultiAgentRequestHandler,
+	createProductionChildAgentSessionFactory,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import { createPyrunEvalExecutor, formatCanonicalPyrunEvalResult } from "../extensions/pyrun/src/eval-tool.ts";
@@ -1449,6 +1450,68 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(requests).toEqual([{ method: "agents.spawn", params: { prompt: "inspect X", context: "fresh" } }]);
 		expect(result.details.value).toEqual({ agent: { id: "agent-1" }, dispatched: true, prompt: "inspect X" });
 	});
+
+	it.runIf(hasLocalPyrunRunner && hasPython3)(
+		"excludes the active Pyrun assistant turn from inherited child context",
+		async () => {
+			delete process.env.PI_PYRUN_RUNNER_COMMAND;
+			delete process.env.PI_PYRUN_RUNNER;
+			delete process.env.PI_PYRUN_RUNNER_ARGS;
+			const root = mkdtempSync(join(tmpdir(), "pi-pyrun-inherit-"));
+			temporaryHarnessDirectories.push(root);
+			const sessionManager = SessionManager.create(root, join(root, "sessions"));
+			sessionManager.setMetadataControlDbPath(getControlDbPath(root));
+			sessionManager.appendMessage({ role: "user", content: "Completed parent prefix", timestamp: 1 });
+			sessionManager.appendMessage(fauxAssistantMessage("Completed parent response"));
+			const code = "pi.agents.spawn({'prompt': 'Child assignment', 'context': 'inherit'})";
+			sessionManager.appendMessage(
+				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }, { id: "pyrun-test-call-1" }), {
+					stopReason: "toolUse",
+				}),
+			);
+			const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
+			store.setPersistenceSessionManager(sessionManager);
+			let childSessionManager: SessionManager | undefined;
+			const createChildSession = createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				multiAgentStore: store,
+				createSession: async (options) => {
+					childSessionManager = options.sessionManager;
+					return {
+						session: {
+							bindExtensions: async () => {},
+							get messages() {
+								return options.sessionManager?.buildSessionContext().messages ?? [];
+							},
+							prompt: async (prompt) => {
+								options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
+								options.sessionManager?.appendMessage(fauxAssistantMessage("Child complete"));
+							},
+						},
+					};
+				},
+			});
+			const harness = createPyrunHarness({
+				piRequestHandlers: [
+					createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
+						appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+					} satisfies ParentAgentJournalWriter),
+				],
+			});
+
+			await harness.evaluate({ code }, undefined, undefined, { sessionManager });
+
+			expect(childSessionManager?.buildSessionContext().messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+				"user",
+				"assistant",
+			]);
+			expect(childSessionManager?.buildSessionContext().messages.map((message) =>
+				message.role === "user" && typeof message.content === "string" ? message.content : message.role,
+			)).toEqual(["Completed parent prefix", "assistant", "Child assignment", "assistant"]);
+		},
+	);
 
 	it("rejects Pyrun pi.agents.spawn requests without context through the multi-agent handler", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });

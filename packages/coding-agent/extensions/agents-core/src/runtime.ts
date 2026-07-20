@@ -299,6 +299,7 @@ export interface HostrunMultiAgentRequestHandler {
 		request: { method: string; params: unknown },
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		activeToolCallId?: string,
 	): Promise<unknown> | unknown;
 	dispose(): void;
 }
@@ -680,9 +681,7 @@ export function createProductionChildAgentSessionFactory(
 				if (
 					entry?.type === "message" &&
 					entry.message.role === "assistant" &&
-					entry.message.content.some(
-						(part) => part.type === "toolCall" && part.id === activeToolCallId && part.name === "spawn_agent",
-					)
+					entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId)
 				) {
 					activeSpawnParentId = entry.parentId;
 					break;
@@ -818,7 +817,7 @@ export function createHostrunMultiAgentRequestHandler(
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 	let disposed = false;
 
-	const handler: HostrunMultiAgentRequestHandler = async (request, ctx, signal) => {
+	const handler: HostrunMultiAgentRequestHandler = async (request, ctx, signal, activeToolCallId) => {
 		if (disposed) throw new Error("Hostrun multi-agent request handler is disposed");
 		if (!isChildAgentRuntime(ctx)) runtimeLifecycleMirror.bind(ctx);
 		if (isChildAgentRuntime(ctx) && isSupervisorOnlyAgentRequest(request.method)) {
@@ -836,6 +835,7 @@ export function createHostrunMultiAgentRequestHandler(
 				waitingDesktopNotifications,
 				pi,
 				backgroundSessions,
+				activeToolCallId,
 			);
 			return result.details;
 		}

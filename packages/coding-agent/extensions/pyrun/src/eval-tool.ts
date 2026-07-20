@@ -35,6 +35,7 @@ export interface PyrunPiRequestDispatcher {
 		request: { method: string; params: unknown },
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		activeToolCallId?: string,
 	): Promise<unknown> | unknown;
 	dispose?(): void;
 }
@@ -251,6 +252,7 @@ export function createPyrunEvalExecutor(
 		ctx: ExtensionContext,
 		onUpdate?: (partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void,
 		signal?: AbortSignal,
+		activeToolCallId?: string,
 	): Promise<AgentToolResult<CanonicalPyrunEvalResult>> => {
 		const piBridgeEnabled = options.enablePiBridge ?? true;
 		const onPiRequest: PyrunPiRequestHandler | undefined = piBridgeEnabled
@@ -258,7 +260,7 @@ export function createPyrunEvalExecutor(
 					if (!dispatchPiRequest) {
 						throw new Error(`Pi capability is unavailable: ${request.method}`);
 					}
-					return dispatchPiRequest(request, ctx, signal);
+					return dispatchPiRequest(request, ctx, signal, activeToolCallId);
 				}
 			: undefined;
 		const result = await runner.evaluate(
