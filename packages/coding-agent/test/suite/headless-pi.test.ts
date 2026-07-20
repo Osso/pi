@@ -279,7 +279,11 @@ describe("headless Pi fixture", () => {
 				fauxAssistantMessage(
 					fauxToolCall(
 						"spawn_agent",
-						{ displayName: "Command child", prompt: "/model headless-faux/headless-faux-reasoning" },
+						{
+							context: "fresh",
+							displayName: "Command child",
+							prompt: "/model headless-faux/headless-faux-reasoning",
+						},
 						{ id: spawnToolCallId },
 					),
 					{ stopReason: "toolUse" },
