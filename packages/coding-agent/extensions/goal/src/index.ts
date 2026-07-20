@@ -461,12 +461,23 @@ function goalForIdleReview(
 	ctx: ExtensionContext,
 	clearRetry: (sessionId: string) => void,
 	scheduleRetry: (ctx: ExtensionContext, goal: Goal) => void,
+	reportSkipped: (message: string) => void,
 ): Goal | null {
 	const goal = loadRunningGoal(ctx);
 	if (!goal) return null;
 	const sessionId = ctx.sessionManager.getSessionId();
-	if (didLastAssistantAbort(event) || findLastAssistantMessage(event)?.stopReason === "error") {
+	if (didLastAssistantAbort(event)) {
 		clearRetry(sessionId);
+		reportSkipped(
+			ctx.hasPendingMessages()
+				? "Goal continuation deferred: pending input will run next."
+				: "Goal continuation skipped: the model turn was aborted.",
+		);
+		return null;
+	}
+	if (findLastAssistantMessage(event)?.stopReason === "error") {
+		clearRetry(sessionId);
+		reportSkipped("Goal continuation skipped: the model turn ended with an error.");
 		return null;
 	}
 	if (didLastAssistantReturnEmpty(event)) {
@@ -711,6 +722,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 					ctx,
 					emptyResponseScheduler.clearSession.bind(emptyResponseScheduler),
 					emptyResponseScheduler.schedule.bind(emptyResponseScheduler),
+					appendSupervisorStatus.bind(undefined, pi),
 				),
 			isSameGoal: sameRunningGoal,
 		});

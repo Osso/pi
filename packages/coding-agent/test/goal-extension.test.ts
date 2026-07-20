@@ -1595,6 +1595,9 @@ describe("goal extension", () => {
 		expect(nextTurn?.systemPrompt).toContain("Long-running objective: retry failed request");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.notify).not.toHaveBeenCalled();
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal continuation skipped: the model turn ended with an error.",
+		});
 	});
 
 	it("keeps the active goal running when queued steering aborts the current turn", async () => {
@@ -1610,6 +1613,9 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.setStatus).not.toHaveBeenCalledWith("goal", "goal paused: continue after steering abort");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal continuation deferred: pending input will run next.",
+		});
 	});
 
 	it("keeps the active goal running when the agent turn is aborted without pending input", async () => {
@@ -1630,6 +1636,9 @@ describe("goal extension", () => {
 			"Goal continuation stopped because the last assistant response was empty",
 			"warning",
 		);
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal continuation skipped: the model turn was aborted.",
+		});
 	});
 
 	it("persists new goals without budget fields", async () => {

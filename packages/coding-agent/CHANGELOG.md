@@ -260,6 +260,7 @@
 - Fixed queued agent and shared-channel follow-up previews to show `Follow-up from <agent>: <first body line up to 50 chars>` instead of the raw `Follow-up: From:` wrapper.
 - Fixed active tool elapsed timers disappearing when pending tool components are reconstructed.
 - Fixed concurrent `./test.sh` runs destroying global Pi OAuth credentials by isolating each run with a unique temporary `PI_CODING_AGENT_DIR` instead of moving `auth.json` through a shared backup path.
+- Fixed `/goal` terminal-turn handling: aborted or error turns leave the active goal intact without queuing a continuation and append durable Supervisor status explaining why; an aborted turn with pending input reports that continuation is deferred because pending input runs next.
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning, so retry/session error handling owns recovery.
 - Fixed bwrap sandbox profiles to run Pyrun through the shared bwrap runner backend; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
 - Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
