@@ -846,6 +846,36 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
+	test.each([
+		["main thread", false],
+		["another child", true],
+	])("restores %s selection when child view rendering fails", (_case, selectPreviousChild) => {
+		const store = new MultiAgentStore({ now: () => "2026-06-27T00:00:00.000Z" });
+		const previous = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Previous",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const target = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Target",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		if (selectPreviousChild) store.selectAgentView(previous.agent.id);
+		const fakeThis = {
+			multiAgentStore: store,
+			openChildAgentView: vi.fn(() => false),
+			restorePreviousAgentSelection: interactiveModeKeyHandlers.restorePreviousAgentSelection,
+		};
+
+		const selected = interactiveModeKeyHandlers.selectAgentView.call(fakeThis, target.agent.id);
+
+		expect(selected).toBe(false);
+		expect(store.getSelectedAgentId()).toBe(selectPreviousChild ? previous.agent.id : undefined);
+	});
+
 	test("child selection hides loaded resources and main selection restores them", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
 		const resource = new Text("loaded resource", 0, 0);
