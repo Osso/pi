@@ -2060,7 +2060,10 @@ export class SessionManager {
 			}
 		}
 
-		return new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);
+		const sessionManager = new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);
+		sessionManager.isSubagent = options?.isSubagent ?? false;
+		sessionManager.subagentName = options?.subagentName?.trim() || undefined;
+		return sessionManager;
 	}
 
 	/**

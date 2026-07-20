@@ -131,6 +131,7 @@ const fileReferenceSchema = Type.Object({
 
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
+	context: Type.Union([Type.Literal("fresh"), Type.Literal("inherit")]),
 	displayName: Type.Optional(Type.String()),
 	parentId: Type.Optional(Type.String()),
 	prompt: Type.String(),
@@ -232,6 +233,7 @@ export interface MultiAgentExtensionOptions {
 
 export interface ChildAgentDispatchInput {
 	agent: AgentSnapshot;
+	context: "fresh" | "inherit";
 	ctx: ExtensionContext;
 	prompt: string;
 	signal?: AbortSignal;
@@ -574,6 +576,7 @@ async function backgroundCommand(
 		try {
 			childSession = await background.createChildSession({
 				agent: prepared,
+				context: "fresh",
 				ctx,
 				prompt,
 				signal: abortController.signal,
@@ -642,7 +645,7 @@ function getSessionTranscriptMetadata(
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
-	const factory: ProductionChildAgentSessionFactory = async ({ agent, ctx, prompt }) => {
+	const factory: ProductionChildAgentSessionFactory = async ({ agent, context, ctx, prompt }) => {
 		const validation = validateGoalObjective(prompt);
 		if (!validation.ok) {
 			throw new Error(spawnPromptValidationMessage(validation));
@@ -650,11 +653,15 @@ export function createProductionChildAgentSessionFactory(
 		const parentSessionFile = ctx.sessionManager.getSessionFile();
 		const parentSession = parentSessionFile ?? ctx.sessionManager.getSessionId();
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
-		const sessionManager = options.createSessionManager(agent.cwd, sessionDir, {
+		const childSessionOptions = {
 			parentSession,
 			isSubagent: true,
 			subagentName: agent.displayName,
-		});
+		};
+		const sessionManager =
+			context === "inherit" && parentSessionFile
+				? SessionManager.forkFrom(parentSessionFile, agent.cwd, sessionDir, childSessionOptions)
+				: options.createSessionManager(agent.cwd, sessionDir, childSessionOptions);
 		const profile = resolveChildAgentProfile(agent, ctx);
 		const sessionStartEvent = parentSessionFile
 			? { type: "session_start" as const, reason: "fork" as const, previousSessionFile: parentSessionFile }
@@ -1057,6 +1064,7 @@ async function spawnAgent(
 		try {
 			childSession = await createChildSession({
 				agent: prepared,
+				context: params.context,
 				ctx,
 				prompt: params.prompt,
 				signal: abortController.signal,
@@ -3172,6 +3180,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			promptGuidelines: [
 				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
+				'Choose context "inherit" when prior main-thread decisions or research are required; choose "fresh" for isolated work, review, verification, or falsification.',
 				'For scoped code changes, use agentType "implement"; for proof commands before completion, use agentType "verifier"; for final code review or second opinions, use agentType "reviewer".',
 			],
 			approvalRequired: false,

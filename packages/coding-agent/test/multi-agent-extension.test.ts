@@ -3782,6 +3782,151 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("creates an explicitly fresh child with only its appended assignment", async () => {
+		const parentHarness = await createHarness({ persistedSession: true });
+		childHarnesses.push(parentHarness);
+		parentHarness.sessionManager.appendMessage({
+			role: "user",
+			content: "Parent-only context marker",
+			timestamp: 1,
+		});
+		parentHarness.sessionManager.appendMessage(fauxAssistantMessage("Parent-only assistant marker"));
+		const parentMessagesBefore = parentHarness.sessionManager.buildSessionContext().messages;
+		let receivedContext: unknown;
+		let childSessionManager: SessionManager | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const productionFactory = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			multiAgentStore: store,
+			createSession: async (options) => {
+				childSessionManager = options.sessionManager;
+				return {
+					session: {
+						bindExtensions: async () => {},
+						get messages() {
+							return options.sessionManager?.buildSessionContext().messages ?? [];
+						},
+						prompt: async (prompt) => {
+							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
+							options.sessionManager?.appendMessage(fauxAssistantMessage("fresh child done"));
+						},
+					},
+				};
+			},
+		});
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			store,
+			createChildSession: async (input) => {
+				receivedContext = "context" in input ? input.context : undefined;
+				return productionFactory(input);
+			},
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			prompt: "Handle isolated task",
+		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(receivedContext).toBe("fresh");
+		expect(childSessionManager?.buildSessionContext().messages.map(getMessageText)).toEqual([
+			"Handle isolated task",
+			"fresh child done",
+		]);
+		expect(childSessionManager?.getSessionId()).not.toBe(parentHarness.sessionManager.getSessionId());
+		expect(childSessionManager?.getSessionFile()).not.toBe(parentHarness.sessionManager.getSessionFile());
+		expect(parentHarness.sessionManager.buildSessionContext().messages).toEqual(parentMessagesBefore);
+	});
+
+	it("inherits the parent prompt prefix before appending the child assignment", async () => {
+		const parentHarness = await createHarness({ persistedSession: true });
+		childHarnesses.push(parentHarness);
+		parentHarness.sessionManager.appendMessage({
+			role: "user",
+			content: "Inherited parent context marker",
+			timestamp: 1,
+		});
+		parentHarness.sessionManager.appendMessage(fauxAssistantMessage("Inherited parent assistant marker"));
+		const parentMessagesBefore = parentHarness.sessionManager.buildSessionContext().messages;
+		let receivedContext: unknown;
+		let childSessionManager: SessionManager | undefined;
+		let childSessionOptions: CreateAgentSessionOptions | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const productionFactory = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			multiAgentStore: store,
+			createSession: async (options) => {
+				childSessionOptions = options;
+				childSessionManager = options.sessionManager;
+				return {
+					session: {
+						bindExtensions: async () => {},
+						get messages() {
+							return options.sessionManager?.buildSessionContext().messages ?? [];
+						},
+						prompt: async (prompt) => {
+							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
+							options.sessionManager?.appendMessage(fauxAssistantMessage("inherited child done"));
+						},
+					},
+				};
+			},
+		});
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			store,
+			createChildSession: async (input) => {
+				receivedContext = "context" in input ? input.context : undefined;
+				return productionFactory(input);
+			},
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "inherit",
+			prompt: "Continue integrated task",
+		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(receivedContext).toBe("inherit");
+		expect(childSessionManager?.buildSessionContext().messages.map(getMessageText)).toEqual([
+			"Inherited parent context marker",
+			"Inherited parent assistant marker",
+			"Continue integrated task",
+			"inherited child done",
+		]);
+		expect(childSessionOptions).toMatchObject({
+			excludeTools: [
+				"agent_viewer",
+				"attach_session_agent",
+				"cancel_agent",
+				"list_agents",
+				"spawn_agent",
+				"steer_agent",
+				"wait_agents",
+				"manage_goal",
+			],
+			multiAgentAgentId: spawned.details.agent.id,
+			multiAgentParentSessionId: parentHarness.sessionManager.getSessionId(),
+			multiAgentRequiresAgentId: true,
+			multiAgentRuntimeRole: "child",
+		});
+		expect(childSessionManager?.getHeader()).toMatchObject({
+			parentSession: parentHarness.sessionManager.getSessionFile(),
+		});
+		expect(childSessionManager?.getSessionId()).not.toBe(parentHarness.sessionManager.getSessionId());
+		expect(childSessionManager?.getSessionFile()).not.toBe(parentHarness.sessionManager.getSessionFile());
+		expect(parentHarness.sessionManager.buildSessionContext().messages).toEqual(parentMessagesBefore);
+	});
+
 	it("denies externally registered manage_goal in production child sessions", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
