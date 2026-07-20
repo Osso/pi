@@ -4392,7 +4392,8 @@ export class AgentSession {
 				getActiveTools: () => this.getActiveToolNames(),
 				getAllTools: () => this.getAllTools(),
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
-				callTool: (toolName, params, signal, toolCallId) => this._callActiveTool(toolName, params, signal, toolCallId),
+				callTool: (toolName, params, signal, toolCallId) =>
+					this._callActiveTool(toolName, params, signal, toolCallId),
 				callCommand,
 				refreshTools: () => this._refreshToolRegistry(),
 				getCommands,

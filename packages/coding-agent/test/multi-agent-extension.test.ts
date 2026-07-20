@@ -3890,6 +3890,16 @@ describe("multi-agent extension tools", () => {
 			timestamp: 1,
 		});
 		parentHarness.sessionManager.appendMessage(fauxAssistantMessage("Inherited parent assistant marker"));
+		parentHarness.sessionManager.appendMessage(
+			fauxAssistantMessage(
+				fauxToolCall(
+					"spawn_agent",
+					{ context: "inherit", prompt: "Continue integrated task" },
+					{ id: "spawn_agent-call" },
+				),
+				{ stopReason: "toolUse" },
+			),
+		);
 		const parentMessagesBefore = parentHarness.sessionManager.buildSessionContext().messages;
 		let receivedContext: unknown;
 		let childSessionManager: SessionManager | undefined;
@@ -3984,6 +3994,16 @@ describe("multi-agent extension tools", () => {
 		});
 		parentHarness.sessionManager.appendMessage(fauxAssistantMessage("Later branch response"));
 		parentHarness.sessionManager.branch(activeBranchLeaf);
+		parentHarness.sessionManager.appendMessage(
+			fauxAssistantMessage(
+				fauxToolCall(
+					"spawn_agent",
+					{ context: "inherit", prompt: "Continue active branch" },
+					{ id: "spawn_agent-call" },
+				),
+				{ stopReason: "toolUse" },
+			),
+		);
 		const parentMessagesBefore = parentHarness.sessionManager.buildSessionContext().messages;
 		let childSessionManager: SessionManager | undefined;
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
