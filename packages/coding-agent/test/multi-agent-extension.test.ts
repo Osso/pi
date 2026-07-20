@@ -4541,6 +4541,7 @@ describe("multi-agent extension tools", () => {
 		await expect(
 			factory({
 				agent,
+				context: "fresh",
 				ctx: {
 					model: parentHarness.getModel(),
 					modelRegistry: parentHarness.session.modelRegistry,

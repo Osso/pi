@@ -260,7 +260,7 @@ type GoalObjectiveValidation =
 	| { objective: string; ok: true }
 	| { length: number; ok: false; reason: "empty" | "too_long" };
 
-export interface AttachedSessionDispatchInput extends ChildAgentDispatchInput {
+export interface AttachedSessionDispatchInput extends Omit<ChildAgentDispatchInput, "context"> {
 	sessionPath: string;
 }
 
@@ -1595,6 +1595,7 @@ async function dispatchReservedAgentSession(
 	try {
 		childSession = await createChildSession({
 			agent: lifecycle.agent,
+			context: "fresh",
 			ctx,
 			prompt,
 			signal: reservedRuntime.abortController.signal,
@@ -1663,6 +1664,7 @@ async function runAgentSession(
 			createdSession ??
 			(await createChildSession({
 				agent: running.agent,
+				context: "fresh",
 				ctx,
 				prompt,
 				signal: reservedRuntime.abortController.signal,
