@@ -717,6 +717,7 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
+	private readonly _multiAgentRuntimeRole: MultiAgentRuntimeRole | undefined;
 	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
 	private readonly _terminalOutboxClaimId = randomUUID();
 	private _terminalOutboxLastCleanupAt: number | undefined;
@@ -748,6 +749,7 @@ export class AgentSession {
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._permissionPromptTool = config.permissionPromptTool ?? this.settingsManager.getPermissionPromptTool();
+		this._multiAgentRuntimeRole = config.multiAgentRuntimeRole;
 		this._multiAgentAgentId = config.multiAgentAgentId;
 		this._multiAgentParentSessionId = config.multiAgentParentSessionId;
 		this._multiAgentRequiresAgentId = config.multiAgentRequiresAgentId ?? false;
@@ -1278,7 +1280,7 @@ export class AgentSession {
 	}
 
 	private _startThinkingPhaseDeadline(): void {
-		if (this._thinkingPhaseTimeoutMs <= 0) return;
+		if (this._multiAgentRuntimeRole === "observer" || this._thinkingPhaseTimeoutMs <= 0) return;
 		this._clearThinkingPhaseDeadline();
 		this._thinkingPhaseTimer = setTimeout(() => {
 			this._thinkingPhaseTimer = undefined;
@@ -2171,7 +2173,13 @@ export class AgentSession {
 				}
 				const continuation = this.agent.continue();
 				release();
-				await continuation;
+				try {
+					await continuation;
+				} catch (error) {
+					throw this._consumeThinkingPhaseTimeoutError() ?? error;
+				}
+				const timeoutError = this._consumeThinkingPhaseTimeoutError();
+				if (timeoutError) throw timeoutError;
 				return true;
 			})
 		) {

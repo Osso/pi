@@ -12,6 +12,8 @@ const harnesses: Harness[] = [];
 interface AgentActivityPublisher {
 	_publishCurrentAgentActivity(event: AgentEvent): void;
 	_consumeThinkingPhaseTimeoutError(): Error | undefined;
+	_continuePostAgentRuns(): Promise<void>;
+	_handlePostAgentRun(): Promise<boolean>;
 	_runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void>;
 }
 
@@ -116,6 +118,46 @@ describe("child agent current activity", () => {
 		});
 		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
 		expect(abort).toHaveBeenCalledOnce();
+	});
+
+	it("propagates a main-session timeout from automatic continuation", async () => {
+		vi.useFakeTimers();
+		const harness = await createHarness({ thinkingPhaseTimeoutMs: 15 * 60 * 1000 });
+		harnesses.push(harness);
+		const session = harness.session as unknown as AgentActivityPublisher;
+		vi.spyOn(session, "_handlePostAgentRun").mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+		let finishContinuation: (() => void) | undefined;
+		vi.spyOn(harness.session.agent, "continue").mockImplementation(
+			async () =>
+				new Promise<void>((resolve) => {
+					finishContinuation = resolve;
+				}),
+		);
+		vi.spyOn(harness.session.agent, "abort").mockImplementation(async () => {
+			finishContinuation?.();
+		});
+		publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
+
+		const continuation = session._continuePostAgentRuns();
+		const timeoutResult = expect(continuation).rejects.toThrow("Main session thinking phase exceeded 15 minutes");
+		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+		await timeoutResult;
+	});
+
+	it("does not cap observer-session thinking", async () => {
+		vi.useFakeTimers();
+		const harness = await createHarness({
+			multiAgentRuntimeRole: "observer",
+			thinkingPhaseTimeoutMs: 15 * 60 * 1000,
+		});
+		harnesses.push(harness);
+		const abort = vi.spyOn(harness.session.agent, "abort");
+		publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
+
+		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+		expect(abort).not.toHaveBeenCalled();
 	});
 
 	it("caps each child thinking phase while leaving tool execution uncapped", async () => {

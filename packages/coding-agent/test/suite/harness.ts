@@ -82,6 +82,7 @@ export interface HarnessOptions {
 	persistedSession?: boolean;
 	/** Store handed to AgentSession so transport delivery can mark store mailbox rows delivered. */
 	multiAgentStore?: MultiAgentStore;
+	multiAgentRuntimeRole?: AgentSessionConfig["multiAgentRuntimeRole"];
 	/** Current multi-agent runtime agent identity for child-session mailbox tests. */
 	multiAgentAgentId?: string;
 	/** Exact owning supervisor session for persisted child activity updates. */
@@ -208,6 +209,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		excludedToolNames: options.excludedToolNames,
 		extensionRunnerRef,
 		multiAgentStore: options.multiAgentStore,
+		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
 		multiAgentAgentId: options.multiAgentAgentId,
 		multiAgentParentSessionId:
 			options.multiAgentParentSessionId ?? (options.multiAgentAgentId ? sessionManager.getSessionId() : undefined),
