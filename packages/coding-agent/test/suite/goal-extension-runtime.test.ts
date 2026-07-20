@@ -135,6 +135,54 @@ describe("goal extension runtime", () => {
 		expect(skippedStatuses).toHaveLength(1);
 	});
 
+	it("reports pending input instead of an error when input is queued during agent_end", async () => {
+		let releaseAgentEnd: (() => void) | undefined;
+		let markAgentEndReached: (() => void) | undefined;
+		const agentEndReached = new Promise<void>((resolve) => {
+			markAgentEndReached = resolve;
+		});
+		const agentEndReleased = new Promise<void>((resolve) => {
+			releaseAgentEnd = resolve;
+		});
+		const holdBeforeGoalHandling = (pi: ExtensionAPI): void => {
+			pi.on("agent_end", async () => {
+				markAgentEndReached?.();
+				await agentEndReleased;
+			});
+			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
+		};
+		const harness = await createHarness({
+			extensionFactories: [holdBeforeGoalHandling],
+			settings: { retry: { enabled: false } },
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "process pending input", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid_api_key" }),
+			fauxAssistantMessage("processed queued input"),
+		]);
+
+		const prompt = harness.session.prompt("initial work");
+		await agentEndReached;
+		const interrupt = harness.session.interrupt("queued after error");
+		releaseAgentEnd?.();
+		await Promise.all([prompt, interrupt]);
+
+		const statuses = harness.sessionManager
+			.getEntries()
+			.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status")
+			.map((entry) => JSON.stringify(entry.data));
+		expect(statuses.some((status) => status.includes("Goal continuation deferred: pending input will run next."))).toBe(
+			true,
+		);
+		expect(
+			statuses.some((status) => status.includes("Goal continuation skipped: the model turn ended with an error.")),
+		).toBe(false);
+	});
+
 	it("cancels deferred error status when a retry succeeds", async () => {
 		const pauseAfterRecovery = (pi: ExtensionAPI): void => {
 			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
