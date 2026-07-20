@@ -1494,7 +1494,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			const harness = createPyrunHarness({
 				piRequestHandlers: [
 					createHostrunMultiAgentRequestHandler({ createChildSession, store }, {
-						appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
+						appendEntry: (customType: string, data?: unknown) =>
+							sessionManager.appendCustomEntry(customType, data),
 					} satisfies ParentAgentJournalWriter),
 				],
 			});
@@ -1507,9 +1508,13 @@ for await (const line of createInterface({ input: process.stdin })) {
 				"user",
 				"assistant",
 			]);
-			expect(childSessionManager?.buildSessionContext().messages.map((message) =>
-				message.role === "user" && typeof message.content === "string" ? message.content : message.role,
-			)).toEqual(["Completed parent prefix", "assistant", "Child assignment", "assistant"]);
+			expect(
+				childSessionManager
+					?.buildSessionContext()
+					.messages.map((message) =>
+						message.role === "user" && typeof message.content === "string" ? message.content : message.role,
+					),
+			).toEqual(["Completed parent prefix", "assistant", "Child assignment", "assistant"]);
 		},
 	);
 
