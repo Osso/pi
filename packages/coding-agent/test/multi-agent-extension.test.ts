@@ -2137,7 +2137,7 @@ describe("multi-agent extension tools", () => {
 		} as ExtensionContext;
 
 		for (const request of [
-			{ method: "agents.spawn", params: { displayName: "Nested", prompt: "do work" } },
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Nested", prompt: "do work" } },
 			{ method: "agents.attachSession", params: { sessionId: "saved-session" } },
 			{ method: "agents.wait", params: {} },
 		]) {
@@ -3961,6 +3961,75 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(childSessionManager?.getSessionId()).not.toBe(parentHarness.sessionManager.getSessionId());
 		expect(childSessionManager?.getSessionFile()).not.toBe(parentHarness.sessionManager.getSessionFile());
+		expect(parentHarness.sessionManager.buildSessionContext().messages).toEqual(parentMessagesBefore);
+	});
+
+	it("inherits only the active earlier branch through the direct production factory", async () => {
+		const parentHarness = await createHarness({ persistedSession: true });
+		childHarnesses.push(parentHarness);
+		parentHarness.sessionManager.appendMessage({
+			role: "user",
+			content: "Shared branch prefix",
+			timestamp: 1,
+		});
+		const activeBranchLeaf = parentHarness.sessionManager.appendMessage(
+			fauxAssistantMessage("Active branch response"),
+		);
+		parentHarness.sessionManager.branch(activeBranchLeaf);
+		parentHarness.sessionManager.appendMessage({
+			role: "user",
+			content: "Later branch only",
+			timestamp: 2,
+		});
+		parentHarness.sessionManager.appendMessage(fauxAssistantMessage("Later branch response"));
+		parentHarness.sessionManager.branch(activeBranchLeaf);
+		const parentMessagesBefore = parentHarness.sessionManager.buildSessionContext().messages;
+		let childSessionManager: SessionManager | undefined;
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const productionFactory = createProductionChildAgentSessionFactory({
+			createSessionManager: SessionManager.create,
+			multiAgentStore: store,
+			createSession: async (options) => {
+				childSessionManager = options.sessionManager;
+				return {
+					session: {
+						bindExtensions: async () => {},
+						get messages() {
+							return options.sessionManager?.buildSessionContext().messages ?? [];
+						},
+						prompt: async (prompt) => {
+							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 3 });
+							options.sessionManager?.appendMessage(fauxAssistantMessage("active branch child done"));
+						},
+					},
+				};
+			},
+		});
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+			},
+			store,
+			createChildSession: productionFactory,
+		});
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "inherit",
+			prompt: "Continue active branch",
+		});
+		await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(childSessionManager?.buildSessionContext().messages.map(getMessageText)).toEqual([
+			"Shared branch prefix",
+			"Active branch response",
+			"Continue active branch",
+			"active branch child done",
+		]);
+		expect(childSessionManager?.buildSessionContext().messages.map(getMessageText)).not.toContain(
+			"Later branch only",
+		);
 		expect(parentHarness.sessionManager.buildSessionContext().messages).toEqual(parentMessagesBefore);
 	});
 

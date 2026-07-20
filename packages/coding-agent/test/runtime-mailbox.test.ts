@@ -831,7 +831,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -987,7 +987,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1032,7 +1032,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1089,7 +1089,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1131,7 +1131,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1182,7 +1182,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "ask user" },
+			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1225,7 +1225,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await spawnAgent.execute(
 			"spawn",
-			{ displayName: "Worker", prompt: "run tests" },
+			{ context: "fresh", displayName: "Worker", prompt: "run tests" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
@@ -1261,7 +1261,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		} satisfies ParentAgentJournalWriter);
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
-		await handler({ method: "agents.spawn", params: { displayName: "Worker", prompt: "run tests" } }, ctx, undefined);
+		await handler(
+			{ method: "agents.spawn", params: { context: "fresh", displayName: "Worker", prompt: "run tests" } },
+			ctx,
+			undefined,
+		);
 		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}
@@ -1292,7 +1296,13 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
-		await spawnAgent.execute("spawn", { displayName: "Worker", prompt: "run tests" }, undefined, undefined, ctx);
+		await spawnAgent.execute(
+			"spawn",
+			{ context: "fresh", displayName: "Worker", prompt: "run tests" },
+			undefined,
+			undefined,
+			ctx,
+		);
 		for (let attempt = 0; attempt < 50 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
 			await delay(1);
 		}

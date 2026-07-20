@@ -74,6 +74,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				initialMainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Immediate visibility child",
 						prompt: "Wait, then return: visibility complete",
 					}),
@@ -134,6 +135,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				mainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Live steering target",
 						prompt: "Wait for steering",
 					}),
@@ -184,7 +186,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(
 				mainRequest.id,
 				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", { displayName: "Terminal steering target", prompt: "Complete now" }),
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "Terminal steering target",
+						prompt: "Complete now",
+					}),
 					{ stopReason: "toolUse" },
 				),
 			);
@@ -232,6 +238,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				mainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Restart-persisted reviewer",
 						prompt: "Review until Pi restarts",
 					}),
@@ -287,7 +294,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(
 				mainRequest.id,
 				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", { displayName: "Unjournaled child", prompt: "Wait for restart" }),
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "Unjournaled child",
+						prompt: "Wait for restart",
+					}),
 					{ stopReason: "toolUse" },
 				),
 			);
@@ -315,7 +326,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(
 				mainRequest.id,
 				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", { displayName: "Failing child", prompt: "Wait for restart" }),
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "Failing child",
+						prompt: "Wait for restart",
+					}),
 					{ stopReason: "toolUse" },
 				),
 			);
@@ -339,7 +354,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(
 				mainRequest.id,
 				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", { displayName: "Cancelled child", prompt: "Wait for cancellation" }),
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "Cancelled child",
+						prompt: "Wait for cancellation",
+					}),
 					{ stopReason: "toolUse" },
 				),
 			);
@@ -365,7 +384,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(
 				mainRequest.id,
 				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", { displayName: "Completed child", prompt: "Complete now" }),
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "Completed child",
+						prompt: "Complete now",
+					}),
 					{ stopReason: "toolUse" },
 				),
 			);

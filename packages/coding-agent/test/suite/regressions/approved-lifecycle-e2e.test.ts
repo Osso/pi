@@ -149,9 +149,12 @@ describe("approved multi-agent lifecycle e2e", () => {
 		};
 		fixture = await createSupervisorFixture({ createChildSession });
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Worker", prompt: "do work" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", { context: "fresh", displayName: "Worker", prompt: "do work" }),
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage("spawn requested"),
 		]);
 
@@ -185,9 +188,12 @@ describe("approved multi-agent lifecycle e2e", () => {
 			});
 		fixture = await createSupervisorFixture({ createChildSession });
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Worker", prompt: "initial work" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", { context: "fresh", displayName: "Worker", prompt: "initial work" }),
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage("spawned"),
 		]);
 		await fixture.harness.session.prompt("spawn worker");
@@ -239,9 +245,12 @@ describe("approved multi-agent lifecycle e2e", () => {
 			});
 		fixture = await createSupervisorFixture({ createChildSession });
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Worker", prompt: "finish work" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", { context: "fresh", displayName: "Worker", prompt: "finish work" }),
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage("spawned"),
 		]);
 		await fixture.harness.session.prompt("spawn worker");
@@ -301,9 +310,12 @@ describe("approved multi-agent lifecycle e2e", () => {
 		};
 		fixture = await createSupervisorFixture({ createChildSession });
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("spawn_agent", { displayName: "Worker", prompt: "wait" }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", { context: "fresh", displayName: "Worker", prompt: "wait" }),
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage("spawned"),
 		]);
 		await fixture.harness.session.prompt("spawn worker");

@@ -676,7 +676,7 @@ export function createProductionChildAgentSessionFactory(
 			activeEntry?.type === "message" &&
 			activeEntry.message.role === "assistant" &&
 			activeEntry.message.content.some((part) => part.type === "toolCall" && part.name === "spawn_agent");
-		const inheritedPrefixId = activeSpawnCall ? (activeEntry.parentId ?? undefined) : undefined;
+		const inheritedLeafId = activeSpawnCall ? (activeEntry.parentId ?? undefined) : (activeEntry?.id ?? undefined);
 		const sessionManager =
 			context === "inherit" && parentSessionFile
 				? SessionManager.forkFrom(
@@ -684,7 +684,7 @@ export function createProductionChildAgentSessionFactory(
 						agent.cwd,
 						sessionDir,
 						childSessionOptions,
-						inheritedPrefixId,
+						inheritedLeafId,
 					)
 				: options.createSessionManager(agent.cwd, sessionDir, childSessionOptions);
 		const profile = resolveChildAgentProfile(agent, ctx);

@@ -66,7 +66,12 @@ async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string,
 	agent.respondToLlmRequest(
 		initialMainRequest.id,
 		fauxAssistantMessage(
-			fauxToolCall("spawn_agent", { agentType, displayName, prompt: `Remain live for ${displayName}` }),
+			fauxToolCall("spawn_agent", {
+				context: "fresh",
+				agentType,
+				displayName,
+				prompt: `Remain live for ${displayName}`,
+			}),
 			{
 				stopReason: "toolUse",
 			},
@@ -406,6 +411,7 @@ describe("headless Pi fixture", () => {
 				initialMainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Investigator",
 						prompt: "Inspect the authentication flow",
 					}),
@@ -462,6 +468,7 @@ describe("headless Pi fixture", () => {
 				initialMainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Steered reviewer",
 						prompt: "Review the original implementation",
 					}),
@@ -588,6 +595,7 @@ describe("headless Pi fixture", () => {
 				mainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Interrupted reviewer",
 						prompt: "Review until the supervisor restarts",
 					}),
@@ -637,6 +645,7 @@ describe("headless Pi fixture", () => {
 				mainRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("spawn_agent", {
+						context: "fresh",
 						displayName: "Restarted steering target",
 						prompt: "Wait for steering after restart",
 					}),
@@ -688,6 +697,7 @@ describe("headless Pi fixture", () => {
 					mainRequest.id,
 					fauxAssistantMessage(
 						fauxToolCall("spawn_agent", {
+							context: "fresh",
 							displayName: "Interrupted detached caller",
 							prompt: "Run a detached Pyrun evaluation until release",
 						}),
@@ -849,6 +859,7 @@ describe("headless Pi fixture", () => {
 					mainRequest.id,
 					fauxAssistantMessage(
 						fauxToolCall("spawn_agent", {
+							context: "fresh",
 							displayName: "Detached caller",
 							prompt: "Run the detached Pyrun evaluation",
 						}),
