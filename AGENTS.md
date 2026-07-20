@@ -171,6 +171,10 @@ Attribution:
 - Internal (from issues): `Fixed foo bar ([#123](https://github.com/earendil-works/pi-mono/issues/123))`
 - External contributions: `Added feature X ([#456](https://github.com/earendil-works/pi-mono/pull/456) by [@username](https://github.com/username))`
 
+## Deployment
+
+- Merge feature and fix branches into `main` before deploying. Deploy a non-`main` revision only when the user explicitly designates it as a special deployment.
+
 ## Releasing
 
 **Lockstep versioning**: all packages share one version; every release updates all together. `patch` = fixes + additions, `minor` = breaking changes. No major releases.
