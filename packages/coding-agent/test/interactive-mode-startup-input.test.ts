@@ -1,15 +1,29 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	consumeNotifications,
+	createMultiAgentRuntimeHandles,
+	waitNotifications,
+	wakeWaitAgentsAfterSteering,
+} from "../extensions/agents-core/src/runtime.ts";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
+import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	claimLatestIncomingMessage,
 	enqueueIncomingMessage,
 	getControlDbPath,
 	readIncomingMessageStatus,
 } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import { createHarness } from "./suite/harness.ts";
 
 type SubmitContext = {
 	defaultEditor: { onSubmit?: (text: string) => void };
@@ -56,6 +70,7 @@ type SubmitContext = {
 	ui: { requestRender: () => void };
 	updateEditorBorderColor: () => void;
 	updatePendingMessagesDisplay: () => void;
+	unsubscribe?: () => void;
 };
 
 type InputContext = {
@@ -72,6 +87,7 @@ type MainLoopContext = {
 type InteractiveModePrivate = {
 	handleEvent(this: SubmitContext, event: AgentSessionEvent): Promise<void>;
 	setupEditorSubmitHandler(this: SubmitContext): void;
+	subscribeToAgent(this: SubmitContext): void;
 	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
 	getUserInput(this: InputContext): Promise<string>;
 	submitMainLoopInput(this: MainLoopContext, userInput: string): Promise<void>;
@@ -337,6 +353,78 @@ describe("InteractiveMode startup input", () => {
 		acceptPrompt?.();
 		await submission;
 		expect(context.options.wakeWaitAgentsAfterSteering).toHaveBeenCalledOnce();
+	});
+
+	it("wakes a real active wait through ordinary editor steering", async () => {
+		let releaseTool: (() => void) | undefined;
+		const toolRelease = new Promise<void>((resolve) => {
+			releaseTool = resolve;
+		});
+		const waitTool: AgentTool = {
+			name: "wait",
+			label: "Wait",
+			description: "Wait for release",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await toolRelease;
+				return { content: [{ type: "text", text: "released" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [waitTool] });
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		const toolStarted = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type !== "tool_execution_start" || event.toolName !== "wait") return;
+				unsubscribe();
+				resolve();
+			});
+		});
+		const promptPromise = harness.session.prompt("start");
+		await toolStarted;
+
+		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		sessionManager.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-21T00:00:00.000Z" });
+		store.setPersistenceSessionManager(sessionManager);
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+			now: () => "2026-07-21T00:00:00.000Z",
+			processIdentity: readProcessIdentity(process.pid),
+			sessionPath: sessionManager.getSessionFile(),
+		});
+		const prepared = coordinator.prepareChild({
+			agentType: "explore",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const running = coordinator.commitRunningChild(prepared, sessionManager.getSessionId());
+		if (!running.ok) throw new Error(running.error);
+		store.publishLifecycleCoordinatorSnapshot(running.agent);
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const waiting = waitNotifications(store, runtimeHandles);
+
+		const context = createSubmitContext();
+		context.session = harness.session as unknown as SubmitContext["session"];
+		context.options.wakeWaitAgentsAfterSteering = () => wakeWaitAgentsAfterSteering(runtimeHandles);
+		interactiveModePrototype.subscribeToAgent.call(context);
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		try {
+			await context.defaultEditor.onSubmit?.("test");
+			const waited = consumeNotifications(store, await waiting);
+			expect(waited.content).toEqual([{ type: "text", text: "Woken after supervisor steering." }]);
+		} finally {
+			context.unsubscribe?.();
+			releaseTool?.();
+			await promptPromise;
+			harness.cleanup();
+		}
 	});
 
 	it("queues main-loop input as steering when a background turn raced in", async () => {
