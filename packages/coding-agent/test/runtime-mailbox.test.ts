@@ -1521,6 +1521,14 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect(waited.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
 			expect(waited.details).toMatchObject({ wakeUp: { agentId: runtime.agent.id, kind: "steering" } });
 			expect(store.getAgent(runtime.agent.id)).toMatchObject({ lifecycle: "steering_pending" });
+			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+				{
+					body: "Check permissions",
+					recipient: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+					status: "pending",
+					storeRef: { sessionPath: parentSession.getSessionFile() },
+				},
+			]);
 			expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "completed")).toEqual([]);
 		} finally {
 			controller.abort();
