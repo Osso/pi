@@ -1690,6 +1690,82 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "completed")).toEqual([]);
 	});
 
+	it("returns terminal state when steering terminalizes before wake_up observation", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
+			id: "child-session",
+			isSubagent: true,
+			parentSession: parentSession.getSessionFile(),
+			subagentName: "Worker",
+		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		childSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+			transcriptSessionId: childSession.getSessionId(),
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+			process.pid,
+		);
+		const tools = collectMultiAgentTools(store);
+		const steerAgent = tools.get("steer_agent");
+		const waitAgents = tools.get("wait_agents");
+		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const waiting = waitAgents.execute("wait-terminal-precedence", {}, undefined, undefined, context);
+		await Promise.resolve();
+
+		let terminalized = false;
+		const unsubscribe = store.subscribeAgentTransitions((_previous, current) => {
+			if (terminalized || current.id !== runtime.agent.id || current.lifecycle !== "steering_pending") return;
+			terminalized = true;
+			const steeringMessage = store.listMailboxMessages().find((message) => message.body === "Finish now");
+			if (!steeringMessage) throw new Error("expected pending steering message");
+			const delivered = legacyMultiAgentStore(store).ackSteering(
+				current.id,
+				current.revision,
+				steeringMessage.id,
+				"delivered",
+			);
+			if (!delivered.ok) throw new Error(`could not deliver steering: ${delivered.error}`);
+			finalizeReservedRuntimeAgent(store, runtime, {
+				result: { summary: "finished during steering" },
+				terminalLifecycle: "completed",
+			});
+		});
+
+		try {
+			await steerAgent.execute(
+				"steer-terminal-precedence",
+				{ agentId: runtime.agent.id, message: "Finish now" },
+				undefined,
+				undefined,
+				context,
+			);
+			const completionResult = await waiting;
+			expect(completionResult.content).toEqual([
+				{ type: "text", text: "Verifier completed: finished during steering" },
+			]);
+			expect(completionResult.details).toMatchObject({
+				agent: { id: runtime.agent.id, lifecycle: "completed" },
+				message: { status: "pending" },
+			});
+		} finally {
+			unsubscribe();
+		}
+	});
+
 	it("wait_agents ignores pending terminal transport rows until actionable coordination arrives", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
