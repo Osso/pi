@@ -44,6 +44,7 @@ type SubmitContext = {
 	onInputCallback?: (text: string) => void;
 	options: {
 		steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+		wakeWaitAgentsAfterSteering?: () => void;
 	};
 	pendingUserInputs: string[];
 	showError: (message: string) => void;
@@ -304,6 +305,27 @@ describe("InteractiveMode startup input", () => {
 		await expect(interactiveModePrototype.getUserInput.call(context)).resolves.toBe("queued prompt");
 		expect(context.onInputCallback).toBeUndefined();
 		expect(context.pendingUserInputs).toEqual([]);
+	});
+
+	it("wakes wait_agents only after ordinary streaming steering is accepted", async () => {
+		let acceptPrompt: (() => void) | undefined;
+		const promptAccepted = new Promise<void>((resolve) => {
+			acceptPrompt = resolve;
+		});
+		const context = createSubmitContext();
+		context.session.isStreaming = true;
+		context.session.prompt = vi.fn(() => promptAccepted);
+		context.options.wakeWaitAgentsAfterSteering = vi.fn();
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		const submission = context.defaultEditor.onSubmit?.("test");
+		await Promise.resolve();
+		expect(context.session.prompt).toHaveBeenCalledWith("test", { streamingBehavior: "steer" });
+		expect(context.options.wakeWaitAgentsAfterSteering).not.toHaveBeenCalled();
+
+		acceptPrompt?.();
+		await submission;
+		expect(context.options.wakeWaitAgentsAfterSteering).toHaveBeenCalledOnce();
 	});
 
 	it("queues main-loop input as steering when a background turn raced in", async () => {
