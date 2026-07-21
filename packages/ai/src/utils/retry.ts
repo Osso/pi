@@ -71,6 +71,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"Incomplete response returned",
 	"ended without",
 	"stream ended before message_stop",
+	"stream ended before a terminal response event",
 	"http2 request did not get a response",
 
 	// Provider-requested retry delay cap failures should flow through the outer
