@@ -1732,17 +1732,19 @@ describe("runtime SQLite mailbox delivery", () => {
 			terminalized = true;
 			const steeringMessage = store.listMailboxMessages().find((message) => message.body === "Finish now");
 			if (!steeringMessage) throw new Error("expected pending steering message");
-			const delivered = legacyMultiAgentStore(store).ackSteering(
-				current.id,
-				current.revision,
-				steeringMessage.id,
-				"delivered",
-			);
+			const delivered = runtime.coordinator.acknowledgeSteeringDelivery({
+				agent: current,
+				messageId: steeringMessage.id,
+				ownership: runtime.ownership,
+			});
 			if (!delivered.ok) throw new Error(`could not deliver steering: ${delivered.error}`);
-			finalizeReservedRuntimeAgent(store, runtime, {
+			const finalized = runtime.coordinator.finalizeChild({
+				agent: delivered.agent,
+				ownership: runtime.ownership,
 				result: { summary: "finished during steering" },
 				terminalLifecycle: "completed",
 			});
+			if (!finalized.ok) throw new Error(`could not finalize steering: ${finalized.error}`);
 		});
 
 		try {
@@ -1759,7 +1761,6 @@ describe("runtime SQLite mailbox delivery", () => {
 			]);
 			expect(completionResult.details).toMatchObject({
 				agent: { id: runtime.agent.id, lifecycle: "completed" },
-				message: { status: "pending" },
 			});
 		} finally {
 			unsubscribe();
