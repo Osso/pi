@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -34,10 +34,6 @@ import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 let storedMessageCounter = 0;
 const ignoreRuntimeMailboxSignal = () => {};
 process.on("SIGUSR2", ignoreRuntimeMailboxSignal);
-
-afterAll(() => {
-	process.off("SIGUSR2", ignoreRuntimeMailboxSignal);
-});
 
 function enqueueStoredRuntimeMessage(
 	controlDbPath: string,
@@ -1619,7 +1615,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
-	it("prioritizes completion when steering wakes wait_agents during a terminal race", async () => {
+	it("preserves completion when steering wakes wait_agents during a terminal race", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1683,7 +1679,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			terminalLifecycle: "completed",
 		});
 
-		const completionResult = await firstWait;
+		const wakeResult = await firstWait;
+		expect(wakeResult.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
+		const completionResult = await waitAgents.execute("wait-completion", {}, undefined, undefined, context);
 		expect(completionResult.content).toEqual([{ type: "text", text: "Verifier completed: tests passed" }]);
 		expect(completionResult.details).toMatchObject({
 			agent: { id: runtime.agent.id, lifecycle: "completed", result: { summary: "tests passed" } },

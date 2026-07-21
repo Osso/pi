@@ -2285,8 +2285,6 @@ class WaitAgentsWakeWatcher {
 	private readonly waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"];
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	private resolve: ((wake: WaitNotificationsWake) => void) | undefined;
-	private wakeImmediate: ReturnType<typeof setImmediate> | undefined;
-	private runtimeSignalHandler: (() => void) | undefined;
 	private settled = false;
 	private unsubscribeAgentTransitions = () => {};
 	private unsubscribeWakeUp = () => {};
@@ -2335,12 +2333,9 @@ class WaitAgentsWakeWatcher {
 			if (terminal) this.finish({ agent: terminal, kind: "agent" });
 		});
 		const onWakeUp = (wakeUp: WaitAgentsWakeUp) => {
-			if (!trackedAgentIds.has(wakeUp.agentId) || this.wakeImmediate) return;
-			this.wakeImmediate = setImmediate(() => {
-				this.wakeImmediate = undefined;
-				const terminal = readTrackedTerminal();
-				this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
-			});
+			if (!trackedAgentIds.has(wakeUp.agentId)) return;
+			const terminal = readTrackedTerminal();
+			this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
 		};
 		this.waitWakeListeners.add(onWakeUp);
 		this.unsubscribeWakeUp = () => this.waitWakeListeners.delete(onWakeUp);
@@ -2368,7 +2363,7 @@ class WaitAgentsWakeWatcher {
 	}
 
 	private startRuntimeCoordinationWatch(readTrackedTerminal: () => AgentSnapshot | undefined): void {
-		const checkWake = () => {
+		this.pollTimer = setInterval(() => {
 			this.reconcileDeadDetachedRuntimes();
 			const terminal = readTrackedTerminal();
 			if (terminal) {
@@ -2376,11 +2371,7 @@ class WaitAgentsWakeWatcher {
 				return;
 			}
 			this.checkCoordination();
-		};
-		this.pollTimer = setInterval(checkWake, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
-		if (process.platform === "win32") return;
-		this.runtimeSignalHandler = checkWake;
-		process.prependListener("SIGUSR2", this.runtimeSignalHandler);
+		}, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
 	}
 
 	private readonly onAbort = () => {
@@ -2412,14 +2403,6 @@ class WaitAgentsWakeWatcher {
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = undefined;
-		}
-		if (this.runtimeSignalHandler) {
-			process.off("SIGUSR2", this.runtimeSignalHandler);
-			this.runtimeSignalHandler = undefined;
-		}
-		if (this.wakeImmediate) {
-			clearImmediate(this.wakeImmediate);
-			this.wakeImmediate = undefined;
 		}
 		this.signal?.removeEventListener("abort", this.onAbort);
 	}
