@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Moved configured control SQLite from the agent config directory to the XDG state root: the default is `$XDG_STATE_HOME/pi/control.sqlite` or `~/.local/state/pi/control.sqlite`, overridden by `PI_CODING_AGENT_STATE_DIR`. Startup performs no legacy fallback or migration, so deployment must move the live database while runtimes are stopped.
 - Removed the `list_agents.activeOnly` option; `list_agents` now always returns active agents, while terminal agents remain inspectable by ID through `agent_viewer`.
 - Goal creation now requires `/goal set <objective>`; bare `/goal <text>` is rejected, and `manage_goal` cannot persist reserved control words such as `continue` as objectives.
 - Renamed the child mailbox tool `contact_supervisor` to `contact_parent`; it is direct-parent-only, requires the exact caller runtime identity, rejects parentless runtimes, validates persisted `parent_request` targets against the current direct parent, cannot target the resident Supervisor, and has no `contact_supervisor` compatibility alias.

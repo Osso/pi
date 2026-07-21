@@ -25,6 +25,7 @@ import type { ExtensionRunner, ViewedSessionMutationTarget } from "../../src/cor
 import { convertToLlm } from "../../src/core/messages.ts";
 import { ModelRegistry } from "../../src/core/model-registry.ts";
 import type { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
+import { getControlDbPath } from "../../src/core/session-control-db.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
@@ -131,6 +132,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const sessionManager = options.persistedSession
 		? SessionManager.create(tempDir, join(tempDir, "sessions"))
 		: SessionManager.inMemory();
+	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 	const settingsManager = SettingsManager.inMemory(options.settings);
 
 	const authStorage = AuthStorage.inMemory();

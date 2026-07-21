@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { isAbsolute, join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
+import { getUserStateRoot } from "../config.ts";
 import type { DetachedJobTerminalInput } from "./detached-job-runner.ts";
 import {
 	type AgentFileReference,
@@ -328,8 +330,8 @@ type GoalRow = {
 	goal_json: string | null;
 };
 
-export function getControlDbPath(agentDir: string): string {
-	return join(agentDir, "control.sqlite");
+export function getControlDbPath(directory = getUserStateRoot()): string {
+	return join(directory, "control.sqlite");
 }
 
 export function enqueueIncomingMessage(controlDbPath: string, content: string): number {
@@ -4473,8 +4475,13 @@ export function retainControlDbConnection(controlDbPath: string): () => void {
 	};
 }
 
+function createWritableControlDb(controlDbPath: string): SqliteDatabase {
+	mkdirSync(dirname(controlDbPath), { mode: 0o700, recursive: true });
+	return createSqliteDatabase(controlDbPath);
+}
+
 function openRetainedControlDb(controlDbPath: string): RetainedControlDb {
-	const db = createSqliteDatabase(controlDbPath);
+	const db = createWritableControlDb(controlDbPath);
 	try {
 		configureSharedSqliteDatabase(db);
 		initializeSchema(db);
@@ -4506,7 +4513,7 @@ function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) 
 			closeReleasedControlDb(controlDbPath, retained);
 		}
 	}
-	const db = createSqliteDatabase(controlDbPath);
+	const db = createWritableControlDb(controlDbPath);
 	try {
 		// Shared control.sqlite is multi-process (all Pi sessions on the machine).
 		// WAL + busy_timeout keeps list_sessions/broadcast and mailbox writes safe under contention.

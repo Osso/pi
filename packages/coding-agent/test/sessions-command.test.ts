@@ -6,7 +6,6 @@ describe("sessions command", () => {
 		let cutoff: Date | undefined;
 		const output: string[] = [];
 		const handled = await handleSessionsCommand(["sessions", "archive"], {
-			agentDir: "/tmp/pi-agent",
 			stdout: (text) => output.push(text),
 			now: () => new Date("2026-07-10T00:00:00.000Z"),
 			refreshMetadata: async () => {},
@@ -24,7 +23,6 @@ describe("sessions command", () => {
 	it("accepts an explicit day cutoff", async () => {
 		let cutoff: Date | undefined;
 		await handleSessionsCommand(["sessions", "archive", "--older-than", "2"], {
-			agentDir: "/tmp/pi-agent",
 			stdout: () => {},
 			now: () => new Date("2026-07-10T00:00:00.000Z"),
 			refreshMetadata: async () => {},

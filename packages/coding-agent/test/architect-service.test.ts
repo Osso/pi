@@ -205,12 +205,13 @@ describe("resident architect service", () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-store-"));
 		try {
 			const sessionManager = SessionManager.create("/home/osso", agentDir, { id: "architect" });
-			const store = createArchitectMultiAgentStore(sessionManager, agentDir);
+			const controlDbPath = getControlDbPath(agentDir);
+			const store = createArchitectMultiAgentStore(sessionManager, controlDbPath);
 			const sessionPath = sessionManager.getSessionFile();
 			if (!sessionPath) throw new Error("Architect session should be persisted");
 
 			expect(store.getPersistenceTarget()).toEqual({
-				controlDbPath: join(agentDir, "control.sqlite"),
+				controlDbPath,
 				sessionPath,
 			});
 			expect(readSessionMetadata(getControlDbPath(agentDir), sessionPath)).toMatchObject({

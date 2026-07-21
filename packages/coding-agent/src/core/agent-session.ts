@@ -687,6 +687,7 @@ export class AgentSession {
 	private _permissionPromptTool?: string;
 	private _permissionRuleStore: PermissionRuleStore;
 	private _agentDir: string;
+	private readonly _controlDbPath: string;
 	private readonly _supervisorDecisionRequester: SupervisorDecisionRequester;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
@@ -768,6 +769,7 @@ export class AgentSession {
 		this._disableRuntimeCoordinationInbound = config.disableRuntimeCoordinationInbound ?? false;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
+		this._controlDbPath = this.sessionManager.getMetadataControlDbPath() ?? getControlDbPath();
 		this._supervisorDecisionRequester = config.supervisorDecisionRequester ?? requestSupervisorDecision;
 		this._permissionRuleStore = new PermissionRuleStore({
 			agentDir: this._agentDir,
@@ -776,7 +778,7 @@ export class AgentSession {
 		});
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
-		this.sessionManager.setMetadataControlDbPath(getControlDbPath(this._agentDir));
+		this.sessionManager.setMetadataControlDbPath(this._controlDbPath);
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -1127,7 +1129,7 @@ export class AgentSession {
 			return reviewToolCallWithSupervisor(
 				() =>
 					this._supervisorDecisionRequester({
-						controlDbPath: getControlDbPath(this._agentDir),
+						controlDbPath: this._controlDbPath,
 						kind: "approval_review",
 						payload: {
 							activeGoal: this.sessionManager.getSessionGoalJson(),
@@ -1543,7 +1545,7 @@ export class AgentSession {
 		const content = getAssistantMessageText(message).trim();
 		if (!content) return;
 
-		writeLastMessage(getControlDbPath(this._agentDir), { role: "assistant", content });
+		writeLastMessage(this._controlDbPath, { role: "assistant", content });
 	}
 
 	/** Find the last assistant message in agent state (including aborted ones) */
@@ -2476,7 +2478,7 @@ export class AgentSession {
 
 	private _recordHandledSlashCommandHistory(text: string): void {
 		try {
-			recordPromptHistoryEntry(getControlDbPath(this._agentDir), text);
+			recordPromptHistoryEntry(this._controlDbPath, text);
 		} catch (error) {
 			console.error(
 				"Failed to persist prompt history for handled slash command:",
@@ -4923,7 +4925,7 @@ export class AgentSession {
 	setSessionName(name: string): void {
 		const sessionFile = this.sessionFile;
 		if (sessionFile) {
-			setNamedSession(getControlDbPath(this._agentDir), sessionFile, name);
+			setNamedSession(this._controlDbPath, sessionFile, name);
 		}
 		this.sessionManager.appendSessionInfo(name);
 		const event = { type: "session_info_changed", name: this.sessionManager.getSessionName() } as const;
@@ -4934,7 +4936,7 @@ export class AgentSession {
 	clearSessionName(): void {
 		const sessionFile = this.sessionFile;
 		if (sessionFile) {
-			removeNamedSession(getControlDbPath(this._agentDir), sessionFile);
+			removeNamedSession(this._controlDbPath, sessionFile);
 		}
 		this.sessionManager.appendSessionInfo("");
 		this._emit({ type: "session_info_changed", name: undefined });

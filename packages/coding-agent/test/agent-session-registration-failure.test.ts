@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { expect, it, vi } from "vitest";
+import { ENV_STATE_DIR } from "../src/config.ts";
 import { createAgentSessionFromServices, createAgentSessionServices } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { getControlDbPath, listSessionHealth } from "../src/core/session-control-db.ts";
@@ -12,6 +13,8 @@ import { createSqliteDatabase } from "../src/core/sqlite.ts";
 it("does not emit session_start or retain timers when runtime listener registration fails", async () => {
 	vi.useFakeTimers();
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-listener-registration-failure-"));
+	const previousStateDir = process.env[ENV_STATE_DIR];
+	process.env[ENV_STATE_DIR] = agentDir;
 	const faux = registerFauxProvider();
 	let sessionStartCount = 0;
 	try {
@@ -59,6 +62,11 @@ it("does not emit session_start or retain timers when runtime listener registrat
 	} finally {
 		vi.useRealTimers();
 		faux.unregister();
+		if (previousStateDir === undefined) {
+			delete process.env[ENV_STATE_DIR];
+		} else {
+			process.env[ENV_STATE_DIR] = previousStateDir;
+		}
 		rmSync(agentDir, { force: true, recursive: true });
 	}
 });

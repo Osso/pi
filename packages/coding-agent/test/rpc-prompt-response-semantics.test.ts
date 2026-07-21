@@ -202,12 +202,12 @@ describe("RPC prompt response semantics", () => {
 	});
 
 	it("binds the control database path for runtime mailbox draining", async () => {
-		const { bindExtensionsSpy, agentDir, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 0 });
+		const { bindExtensionsSpy, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 0 });
 
 		try {
 			expect(bindExtensionsSpy).toHaveBeenCalledWith(
 				expect.objectContaining({
-					controlDbPath: getControlDbPath(agentDir),
+					controlDbPath: getControlDbPath(),
 				}),
 			);
 		} finally {

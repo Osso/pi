@@ -6,8 +6,14 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## What it must do
 
-- [x] Store the single control database at `control.sqlite` under the agent
-  directory.
+- [x] Store the configured control database at `$XDG_STATE_HOME/pi/control.sqlite`, or
+  `~/.local/state/pi/control.sqlite` when `XDG_STATE_HOME` is unset.
+- [x] `PI_CODING_AGENT_STATE_DIR` overrides the state root, so the configured database is
+  `<PI_CODING_AGENT_STATE_DIR>/control.sqlite`.
+- [x] Explicit directory arguments remain available and resolve to `<directory>/control.sqlite`
+  for isolated internal and test databases.
+- [x] Do not automatically fall back to or migrate a legacy control database from the agent config
+  directory. Deployment moves the live database to the state-root path while all runtimes are stopped.
 - [x] Open the control database with multi-consumer SQLite settings (WAL journal
   mode, busy timeout, NORMAL synchronous) so concurrent Pi sessions can read and
   write without exclusive-lock failures. Bun connections must finalize every

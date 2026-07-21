@@ -325,7 +325,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		await session.bindExtensions({
 			uiContext: createExtensionUIContext(),
 			mode: "rpc",
-			controlDbPath: agentDir ? getControlDbPath(agentDir) : undefined,
+			controlDbPath: agentDir ? getControlDbPath() : undefined,
 			commandContextActions: {
 				showApprovalSelector: () => {},
 				showSandboxSelector: () => {},

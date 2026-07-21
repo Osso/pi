@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { getAgentDir } from "../config.ts";
 import {
 	type ArchitectRequest,
 	claimPendingArchitectRequests,
@@ -132,7 +131,7 @@ export class ArchitectObserver {
 	private readonly readSnapshot: ArchitectSnapshotReader;
 	private state: ArchitectObserverState = {};
 
-	constructor(controlDbPath = getControlDbPath(getAgentDir()), readSnapshot?: ArchitectSnapshotReader) {
+	constructor(controlDbPath = getControlDbPath(), readSnapshot?: ArchitectSnapshotReader) {
 		this.controlDbPath = controlDbPath;
 		this.readSnapshot = readSnapshot ?? (() => readAndClaimArchitectSnapshot(controlDbPath, this.claimToken));
 	}

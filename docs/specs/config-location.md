@@ -2,7 +2,7 @@
 
 Module boundary: core configuration path resolution, not a first-party extension module.
 
-Pi stores global user configuration under the XDG config tree instead of the legacy `~/.pi` tree. Project-local configuration remains in each workspace's `.pi/` directory. The global agent directory is the base for user settings, auth, prompt history, sessions, tools, themes, prompts, skills, extensions, and rules. How it works belongs in [docs/wiki/systems/config-location.md](../wiki/systems/config-location.md).
+Pi stores global user configuration under the XDG config tree instead of the legacy `~/.pi` tree. Project-local configuration remains in each workspace's `.pi/` directory. The global agent directory is the base for user settings, auth, prompt history, sessions, tools, themes, prompts, skills, extensions, and rules. The control database is state, not config, and is resolved under the global state root. How it works belongs in [docs/wiki/systems/config-location.md](../wiki/systems/config-location.md).
 
 ## What it must do
 
@@ -13,6 +13,15 @@ Pi stores global user configuration under the XDG config tree instead of the leg
 - [x] When `XDG_CONFIG_HOME` is unset, the default global config root is `~/.config/pi`.
 - [x] When `XDG_CONFIG_HOME` is unset, the default global agent directory is `~/.config/pi/agent`.
 - [x] `PI_CODING_AGENT_DIR` overrides the default agent directory and remains the highest-priority path setting.
+
+### Global state root
+
+- [x] The default global state root is `$XDG_STATE_HOME/pi` when `XDG_STATE_HOME` is set.
+- [x] When `XDG_STATE_HOME` is unset, the default global state root is `~/.local/state/pi`.
+- [x] `PI_CODING_AGENT_STATE_DIR` overrides the global state root.
+- [x] The configured control database is `control.sqlite` under the global state root, not under the agent config directory.
+- [x] Startup does not fall back to or migrate a legacy control database from the agent config directory.
+- [x] Deployment moves the live control database to the state-root path only while all runtimes are stopped.
 
 ### Legacy compatibility
 
@@ -39,14 +48,15 @@ Pi stores global user configuration under the XDG config tree instead of the leg
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/config.ts` — Resolves global user config paths, legacy path helpers, and environment overrides.
+- `packages/coding-agent/src/config.ts` — Resolves global user config and state paths, legacy path helpers, and environment overrides.
+- `packages/coding-agent/src/core/session-control-db.ts` — Resolves the configured control database under the state root and creates missing state directories before writes.
 - `packages/coding-agent/src/core/settings-manager.ts` — Reads global settings from the resolved agent directory and project settings from `.pi/settings.json`.
 - `packages/coding-agent/src/core/resource-loader.ts` — Loads global rules from the resolved agent directory and project rules from `.pi/rules`.
 - `packages/coding-agent/src/core/package-manager.ts` — Discovers user resources under the resolved agent directory and project resources under `.pi/`.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/config-paths.test.ts` — XDG config root, fallback default, explicit agent-dir override, and legacy migration-source path.
+- `packages/coding-agent/test/config-paths.test.ts` — XDG config/state roots, fallback defaults, explicit overrides, control-database path/isolation, state-directory creation, and legacy migration-source path.
 - `packages/coding-agent/test/settings-manager.test.ts` — project-local `.pi/settings.json` remains the project settings path.
 - `packages/coding-agent/test/package-manager.test.ts` — project-local `.pi` resources remain workspace-scoped.
 

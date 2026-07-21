@@ -9,6 +9,7 @@ import { getControlDbPath, writeSessionHealth } from "../src/core/session-contro
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
 });
 
@@ -33,6 +34,7 @@ it("prints debug command help successfully", async () => {
 it("attaches to the debug socket owned by the exact live session", async () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-debug-command-"));
 	temporaryDirectories.push(agentDir);
+	vi.stubEnv("PI_CODING_AGENT_STATE_DIR", agentDir);
 	const sessionId = "019f689a-8260-79d9-ad2c-ce6da9a4dd05";
 	writeSessionHealth(getControlDbPath(agentDir), {
 		agentGeneration: 1,

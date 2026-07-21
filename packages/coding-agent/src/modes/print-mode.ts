@@ -73,7 +73,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		session = runtimeHost.session;
 		await session.bindExtensions({
 			mode: mode === "json" ? "json" : "print",
-			controlDbPath: getControlDbPath(runtimeHost.services.agentDir),
+			controlDbPath: getControlDbPath(),
 			commandContextActions: {
 				showApprovalSelector: () => {},
 				showSandboxSelector: () => {},

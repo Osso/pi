@@ -106,7 +106,7 @@ describe("runPrintMode", () => {
 		expect(exitCode).toBe(0);
 		expect(session.bindExtensions).toHaveBeenCalledWith(
 			expect.objectContaining({
-				controlDbPath: getControlDbPath(runtimeHost.services.agentDir),
+				controlDbPath: getControlDbPath(),
 			}),
 		);
 	});

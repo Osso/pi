@@ -3,7 +3,6 @@ import type { SessionInfo } from "../core/session-manager.ts";
 import { SessionManager } from "../core/session-manager.ts";
 
 interface SessionsCommandDependencies {
-	agentDir: string;
 	stdout?: (text: string) => void;
 	stderr?: (text: string) => void;
 	now?: () => Date;
@@ -32,7 +31,7 @@ export async function handleSessionsCommand(
 		return true;
 	}
 
-	const controlDbPath = getControlDbPath(dependencies.agentDir);
+	const controlDbPath = getControlDbPath();
 	if (dependencies.refreshMetadata) {
 		await dependencies.refreshMetadata(controlDbPath);
 	} else {

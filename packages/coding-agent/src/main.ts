@@ -718,7 +718,7 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(process.exitCode ?? 0);
 	}
 
-	if (handleControlCommand(args, { agentDir })) {
+	if (handleControlCommand(args, {})) {
 		process.exit(process.exitCode ?? 0);
 	}
 
@@ -726,7 +726,7 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(process.exitCode ?? 0);
 	}
 
-	if (await handleSessionsCommand(args, { agentDir })) {
+	if (await handleSessionsCommand(args, {})) {
 		process.exit(process.exitCode ?? 0);
 	}
 
@@ -735,7 +735,7 @@ export async function main(args: string[], options?: MainOptions) {
 	applySelfRestartRequest(parsed, selfRestartHandoff);
 	await waitForSelfRestartParentExit(selfRestartHandoff);
 	if (selfRestartHandoff?.oldPid === process.pid) {
-		prepareControlDbForSelfRestart(getControlDbPath(agentDir), process.pid);
+		prepareControlDbForSelfRestart(getControlDbPath(), process.pid);
 	}
 	let extensionFactories: ExtensionFactory[] = [];
 	let debugRepl: DebugReplServer | undefined;
@@ -826,7 +826,7 @@ export async function main(args: string[], options?: MainOptions) {
 		(parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
 		startupSettingsManager.getSessionDir();
-	const controlDbPath = getControlDbPath(agentDir);
+	const controlDbPath = getControlDbPath();
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
 	sessionManager.setMetadataControlDbPath(controlDbPath);
 	appendSelfRestartNotice(sessionManager, selfRestartHandoff);
@@ -882,7 +882,7 @@ export async function main(args: string[], options?: MainOptions) {
 		// Switched/restarted sessions get their control DB path from the AgentSession
 		// constructor, which runs after this callback; set it here so the store restore
 		// and its row persistence see the DB.
-		sessionManager.setMetadataControlDbPath(getControlDbPath(agentDir));
+		sessionManager.setMetadataControlDbPath(getControlDbPath());
 		firstPartyMultiAgentStore.restoreFromSessionManager(sessionManager);
 		const isInitialRuntime = sessionStartEvent === undefined;
 		const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];

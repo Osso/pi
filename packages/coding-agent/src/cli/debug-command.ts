@@ -27,7 +27,7 @@ export async function handleDebugCommand(args: string[], dependencies: DebugComm
 	}
 
 	const sessionId = args[2];
-	const health = readSessionHealth(getControlDbPath(dependencies.agentDir), sessionId);
+	const health = readSessionHealth(getControlDbPath(), sessionId);
 	if (!health?.pid || health.checkStatus !== "ok") {
 		stderr(`Session ${sessionId} is not running.\n`);
 		process.exitCode = 1;

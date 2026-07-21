@@ -18,18 +18,19 @@ describe("control command", () => {
 
 	beforeEach(() => {
 		agentDir = mkdtempSync(join(tmpdir(), "pi-control-command-"));
+		vi.stubEnv("PI_CODING_AGENT_STATE_DIR", agentDir);
 		stdout = [];
 		stderr = [];
 		signalProcess = vi.fn();
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		rmSync(agentDir, { force: true, recursive: true });
 	});
 
 	it("queues a control message and signals a running process", () => {
 		const handled = handleControlCommand(["control", "send", "--pid", "1234", "finish now"], {
-			agentDir,
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),
@@ -57,7 +58,6 @@ describe("control command", () => {
 		});
 
 		const handled = handleControlCommand(["control", "restart", "--session-id", sessionId], {
-			agentDir,
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),
@@ -73,7 +73,6 @@ describe("control command", () => {
 		writeLastMessage(getControlDbPath(agentDir), { role: "assistant", content: "done" });
 
 		const handled = handleControlCommand(["control", "last"], {
-			agentDir,
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),
@@ -84,9 +83,20 @@ describe("control command", () => {
 		expect(stderr).toEqual([]);
 	});
 
+	it("prints the state-root control database path", () => {
+		const handled = handleControlCommand(["control", "path"], {
+			signalProcess,
+			stderr: (text) => stderr.push(text),
+			stdout: (text) => stdout.push(text),
+		});
+
+		expect(handled).toBe(true);
+		expect(stdout).toEqual([`${getControlDbPath()}\n`]);
+		expect(stderr).toEqual([]);
+	});
+
 	it("ignores non-control commands", () => {
 		const handled = handleControlCommand(["--help"], {
-			agentDir,
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),

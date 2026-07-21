@@ -102,7 +102,7 @@ export async function runSupervisorService(): Promise<void> {
 	const agentDir = getAgentDir();
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 	const sessionManager = openSupervisorSession(agentDir, kbDir);
-	const controlDbPath = getControlDbPath(agentDir);
+	const controlDbPath = getControlDbPath();
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
 	const model = modelRegistry.find("openai-codex", "gpt-5.6-sol");
@@ -153,9 +153,10 @@ function openSupervisorSession(agentDir: string, kbDir: string): SessionManager 
 	const sessionManager = existsSync(sessionPath)
 		? SessionManager.open(sessionPath, sessionDir, kbDir)
 		: SessionManager.create(kbDir, sessionDir, { id: SUPERVISOR_SESSION_ID });
-	sessionManager.setMetadataControlDbPath(getControlDbPath(agentDir));
+	const controlDbPath = getControlDbPath();
+	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const persistedPath = sessionManager.getSessionFile();
-	if (persistedPath) archiveSession(getControlDbPath(agentDir), persistedPath);
+	if (persistedPath) archiveSession(controlDbPath, persistedPath);
 	return sessionManager;
 }
 

@@ -7,6 +7,7 @@ cleanup() {
 }
 trap cleanup EXIT
 export PI_CODING_AGENT_DIR="$TEST_AGENT_DIR"
+export PI_CODING_AGENT_STATE_DIR="$TEST_AGENT_DIR/state"
 
 # Skip local LLM tests (ollama, lmstudio)
 export PI_NO_LOCAL_LLM=1

@@ -1,5 +1,4 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "../../../src/config.ts";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
 import { requestSupervisorDecision } from "../../../src/supervisor/client.ts";
 import {
@@ -17,7 +16,7 @@ export async function reviewGoalWithResidentSupervisor(input: {
 }): Promise<GoalSupervisorResponse> {
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 	const response = await requestSupervisorDecision({
-		controlDbPath: getControlDbPath(getAgentDir()),
+		controlDbPath: getControlDbPath(),
 		kind: input.kind,
 		payload: input.payload,
 		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),

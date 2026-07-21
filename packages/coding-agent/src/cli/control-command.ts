@@ -6,7 +6,6 @@ import {
 } from "../core/session-control-db.ts";
 
 interface ControlCommandDependencies {
-	agentDir: string;
 	stdout?: (text: string) => void;
 	stderr?: (text: string) => void;
 	signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
@@ -33,7 +32,7 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 			return true;
 		}
 
-		const id = enqueueIncomingMessage(getControlDbPath(dependencies.agentDir), parsed.message);
+		const id = enqueueIncomingMessage(getControlDbPath(), parsed.message);
 		stdout(`queued ${id}\n`);
 		if (parsed.pid !== undefined) {
 			signalProcess(parsed.pid, "SIGHUP");
@@ -49,7 +48,7 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 			process.exitCode = 1;
 			return true;
 		}
-		const health = readSessionHealth(getControlDbPath(dependencies.agentDir), sessionId);
+		const health = readSessionHealth(getControlDbPath(), sessionId);
 		if (!health?.pid || health.checkStatus !== "ok") {
 			stderr(`Session ${sessionId} is not running.\n`);
 			process.exitCode = 1;
@@ -68,7 +67,7 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 	}
 
 	if (subcommand === "last") {
-		const lastMessage = readLastMessage(getControlDbPath(dependencies.agentDir));
+		const lastMessage = readLastMessage(getControlDbPath());
 		if (lastMessage) {
 			stdout(`${lastMessage.content}\n`);
 		}
@@ -76,7 +75,7 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 	}
 
 	if (subcommand === "path") {
-		stdout(`${getControlDbPath(dependencies.agentDir)}\n`);
+		stdout(`${getControlDbPath()}\n`);
 		return true;
 	}
 

@@ -640,12 +640,14 @@ describe("goal extension", () => {
 		const agentDir = join(cwd, "agent-dir");
 		mkdirSync(agentDir, { recursive: true });
 		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		const previousStateDir = process.env.PI_CODING_AGENT_STATE_DIR;
 		process.env.PI_CODING_AGENT_DIR = agentDir;
+		process.env.PI_CODING_AGENT_STATE_DIR = agentDir;
 		try {
 			const harness = createGoalHarness(cwd, { useResidentSupervisor: true });
 			await harness.runCommand("set verify resident deadline");
 			const review = harness.runAgentEnd();
-			const controlDbPath = getControlDbPath(agentDir);
+			const controlDbPath = getControlDbPath();
 			let request = readSupervisorRequest(controlDbPath, 1);
 			for (let attempts = 0; !request && attempts < 20; attempts++) {
 				await new Promise((resolve) => setTimeout(resolve, 10));
@@ -667,6 +669,11 @@ describe("goal extension", () => {
 				delete process.env.PI_CODING_AGENT_DIR;
 			} else {
 				process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			}
+			if (previousStateDir === undefined) {
+				delete process.env.PI_CODING_AGENT_STATE_DIR;
+			} else {
+				process.env.PI_CODING_AGENT_STATE_DIR = previousStateDir;
 			}
 		}
 	});

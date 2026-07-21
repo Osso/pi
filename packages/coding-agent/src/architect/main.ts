@@ -31,8 +31,10 @@ export function createArchitectSettingsManager(): SettingsManager {
 	return SettingsManager.inMemory({ sandboxProfile: "read-only" });
 }
 
-export function createArchitectMultiAgentStore(sessionManager: SessionManager, agentDir: string): MultiAgentStore {
-	const controlDbPath = getControlDbPath(agentDir);
+export function createArchitectMultiAgentStore(
+	sessionManager: SessionManager,
+	controlDbPath = getControlDbPath(),
+): MultiAgentStore {
 	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const sessionPath = sessionManager.getSessionFile();
 	if (sessionPath) {
@@ -143,7 +145,7 @@ export async function runArchitectService(): Promise<void> {
 		throw new Error("Pi Architect requires openai-codex/gpt-5.6-sol");
 	}
 	const settingsManager = createArchitectSettingsManager();
-	const multiAgentStore = createArchitectMultiAgentStore(sessionManager, agentDir);
+	const multiAgentStore = createArchitectMultiAgentStore(sessionManager);
 	const observer = new ArchitectObserver();
 	const { session } = await createAgentSession({
 		agentDir,

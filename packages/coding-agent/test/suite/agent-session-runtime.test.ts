@@ -98,6 +98,7 @@ describe("AgentSessionRuntime characterization", () => {
 				...runtimeOptions,
 				cwd,
 			});
+			sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 			return {
 				...(await createAgentSessionFromServices({
 					services,
@@ -515,6 +516,7 @@ describe("AgentSessionRuntime characterization", () => {
 				...runtimeOptions,
 				cwd,
 			});
+			sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 			return {
 				...(await createAgentSessionFromServices({
 					services,
@@ -628,6 +630,7 @@ describe("AgentSessionRuntime characterization", () => {
 				...otherRuntimeOptions,
 				cwd,
 			});
+			sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 			return {
 				...(await createAgentSessionFromServices({
 					services,
@@ -701,6 +704,7 @@ describe("AgentSessionRuntime characterization", () => {
 				...otherRuntimeOptions,
 				cwd,
 			});
+			sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 			return {
 				...(await createAgentSessionFromServices({
 					services,
