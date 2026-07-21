@@ -3383,7 +3383,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "wait_agents",
 			label: "Wait Agents",
 			description:
-				"Wait until any active agent reaches a terminal state or coordination input arrives, then consume all pending terminal notifications.",
+				"Wait until an active agent terminates, steering wakes the wait, or persisted coordination polling finds input, then consume pending terminal notifications.",
 			approvalRequired: false,
 			parameters: waitAgentsSchema,
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {

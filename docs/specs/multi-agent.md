@@ -136,13 +136,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
       from `cancelling`, never direct JSON rewrite or inferred result. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
-- [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or coordination
-      input is available without changing notification delivery state, while explicit consumption drains every pending
-      terminal notification. `wait_agents({})` composes both operations, snapshots agents active at invocation, and queries
-      current agent rows until any snapshot member is terminal. Terminal notifications only wake the query; the agent row
-      is terminal truth. A coordination wake consumes all currently pending deliverable runtime-mailbox and shared-channel
-      inputs so each message is visible exactly once. Restore clears transient `runtime` worker metadata without rewriting
-      durable lifecycle.
+- [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or persisted
+      coordination input is available, or when transient steering wakes a live wait, without changing notification delivery
+      state. Explicit consumption drains every pending terminal notification. `wait_agents({})` composes both operations,
+      snapshots agents active at invocation, and queries current agent rows until any snapshot member is terminal. Terminal
+      notifications only wake the query; the agent row is terminal truth. Persisted coordination polling consumes all
+      currently pending deliverable runtime-mailbox and shared-channel inputs so each message is visible exactly once.
+      Restore clears transient `runtime` worker metadata without rewriting durable lifecycle.
 
 ### Runtime construction inventory
 
@@ -263,8 +263,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
   delivery queue. Redelivery and retries affect terminal-notification delivery only. `wait_agents` consumes every
   pending terminal notification already waiting and queries the current agent rows for agents active at invocation;
-  terminal notifications only wake that query, while coordination wakes return and consume currently pending
-  deliverable mailbox and shared-channel input. The agent row remains the sole terminal source of truth.
+  terminal notifications only wake that query, transient steering wakes only a live wait, and persisted coordination
+  polling returns and consumes currently pending deliverable mailbox and shared-channel input. The agent row remains the
+  sole terminal source of truth.
 
 ### Mailbox and steering
 
@@ -339,8 +340,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       failure is reported explicitly rather than silently falling back.
 - [x] `wait_agents({})` consumes every pending terminal notification already waiting and queries agent rows for agents
       active at invocation until one reaches a terminal state. Terminal notifications only wake the query; the agent
-      row is terminal truth. A coordination wake returns and consumes all currently pending deliverable runtime-mailbox
-      and shared-channel inputs; Pyrun uses the same operation.
+      row is terminal truth. Transient steering wakes only a live wait. Persisted coordination polling returns and
+      consumes all currently pending deliverable runtime-mailbox and shared-channel inputs; Pyrun uses the same operation.
 - [x] A live `wait_agents({})` invocation receives a transient `wake_up` when steering is accepted for one of its
       snapshotted active agents. The wake is scoped to that invocation, is never persisted or replayed after it ends,
       and leaves the steering mailbox row persisted as canonical state. If the agent is terminal when the wake is

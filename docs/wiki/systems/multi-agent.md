@@ -24,10 +24,11 @@ or an arbitrary sibling. The old `contact_supervisor` name has no compatibility 
 Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
 `wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
-rows for agents active at invocation until one is terminal. On a coordination wake, it instead returns and consumes
-all currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting;
-mailbox rows become `delivered` and the shared-channel cursor advances. Each distinct coordination message is visible
-exactly once. The agent row remains terminal truth, and Pyrun `pi.agents.wait()` uses the same semantics.
+rows for agents active at invocation until one is terminal. Steering accepted for a snapshotted active agent emits a
+transient process-local `wake_up` only to the live wait. Persisted coordination polling instead returns and consumes all
+currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting; mailbox rows
+become `delivered` and the shared-channel cursor advances. Each distinct coordination message is visible exactly once.
+The agent row remains terminal truth, and Pyrun `pi.agents.wait()` uses the same semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
