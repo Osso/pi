@@ -154,6 +154,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Responses early stream endings to trigger automatic retry instead of ending the agent run ([#6727](https://github.com/earendil-works/pi/issues/6727)).
 - Fixed Escape in the branch-summary picker to cancel the picker without interrupting the active turn.
 - Fixed Codex fast mode to hide footer status on unsupported provider switches while retaining its runtime toggle, and to warn without disabling when a request payload cannot accept the priority tier.
 - Fixed runtime-mailbox-started turns that deadlocked after a tool call because post-tool coordination awaited the turn's own enclosing prompt drain.

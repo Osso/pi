@@ -19,6 +19,17 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it("matches OpenAI Responses streams ending before a terminal event", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "OpenAI Responses stream ended before a terminal response event",
+				}),
+			),
+		).toBe(true);
+	});
+
 	it("matches explicit provider retry guidance", () => {
 		expect(
 			isRetryableAssistantError(
