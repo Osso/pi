@@ -67,8 +67,12 @@ function enqueueStoredRuntimeMessage(
 }
 
 import {
+	consumeNotifications,
 	createMultiAgentPiRequestHandler,
+	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
+	requestAgentSteering,
+	waitNotifications,
 } from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
 	type AgentDesktopNotification,
@@ -1420,6 +1424,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	it.skipIf(process.platform === "win32")(
 		"wait_agents wakes for a deliverable runtime mailbox message without consuming transport delivery",
 		async () => {
+			vi.useFakeTimers();
 			tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 			const controlDbPath = getControlDbPath(tempDir);
 			const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1436,23 +1441,33 @@ describe("runtime SQLite mailbox delivery", () => {
 				parentSession.getSessionFile(),
 			);
 
-			const waiting = waitAgents.execute(
-				"wait",
-				{},
-				undefined,
-				undefined,
-				createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
-			);
-			await delay(1);
+			const signalListenerCount = process.listenerCount("SIGUSR2");
+			let settled = false;
+			const waiting = waitAgents
+				.execute(
+					"wait",
+					{},
+					undefined,
+					undefined,
+					createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+				)
+				.then((result) => {
+					settled = true;
+					return result;
+				});
+			await Promise.resolve();
+			expect(process.listenerCount("SIGUSR2")).toBe(signalListenerCount);
 			const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 				body: "Need parent review",
 				kind: "message",
 				recipient: { agentId: null, sessionId: parentSession.getSessionId() },
 				sender: { agentId: runtime.agent.id, sessionId: "child-session" },
 			});
+			await vi.advanceTimersByTimeAsync(2_999);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
 
 			const waited = await waiting;
-
 			expect(waited.content[0]).toMatchObject({
 				text: expect.stringContaining("Need parent review"),
 			});
@@ -1533,6 +1548,80 @@ describe("runtime SQLite mailbox delivery", () => {
 		} finally {
 			controller.abort();
 		}
+	});
+
+	it("shares transient wake handles with exported interactive steering", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+			transcriptSessionId: "interactive-child-session",
+		});
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const waiting = waitNotifications(store, runtimeHandles, undefined, context);
+		await Promise.resolve();
+
+		const steered = requestAgentSteering(
+			store,
+			{ agentId: runtime.agent.id, message: "Interactive instruction" },
+			{ actorAgentId: null, controlDbPath, sessionId: parentSession.getSessionId() },
+			runtimeHandles,
+		);
+		if (!steered.ok) throw new Error(steered.error);
+		const waited = consumeNotifications(store, await waiting, context);
+
+		expect(waited.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
+		expect(waited.details).toMatchObject({ wakeUp: { agentId: runtime.agent.id, kind: "steering" } });
+	});
+
+	it("does not wake for steering accepted after the active-agent snapshot", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const tracked = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+			transcriptSessionId: "tracked-child-session",
+		});
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		let settled = false;
+		const waiting = waitNotifications(store, runtimeHandles, undefined, context).then((wake) => {
+			settled = true;
+			return wake;
+		});
+		await Promise.resolve();
+		const untracked = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+			displayName: "Late worker",
+			transcriptSessionId: "late-child-session",
+		});
+
+		const lateSteering = requestAgentSteering(
+			store,
+			{ agentId: untracked.agent.id, message: "Late instruction" },
+			{ actorAgentId: null, controlDbPath, sessionId: parentSession.getSessionId() },
+			runtimeHandles,
+		);
+		if (!lateSteering.ok) throw new Error(lateSteering.error);
+		await Promise.resolve();
+		expect(settled).toBe(false);
+
+		const trackedSteering = requestAgentSteering(
+			store,
+			{ agentId: tracked.agent.id, message: "Tracked instruction" },
+			{ actorAgentId: null, controlDbPath, sessionId: parentSession.getSessionId() },
+			runtimeHandles,
+		);
+		if (!trackedSteering.ok) throw new Error(trackedSteering.error);
+		expect(await waiting).toEqual({
+			kind: "wake_up",
+			wakeUp: { agentId: tracked.agent.id, kind: "steering" },
+		});
 	});
 
 	it("does not retain a stale wake when steering succeeds without an active wait", async () => {
