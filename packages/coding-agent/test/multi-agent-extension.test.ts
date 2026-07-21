@@ -39,6 +39,7 @@ import {
 	MultiAgentStore,
 } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import {
 	type CreateAgentSessionOptions,
 	createAgentSession,
@@ -2345,6 +2346,42 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(notifications).toEqual(["No background jobs."]);
+	});
+
+	it("inherits parent context when spawn_agent omits context", async () => {
+		const contexts: string[] = [];
+		const harness = createMultiAgentHarness({
+			createChildSession: async ({ context }) => {
+				contexts.push(context);
+				return { messages: [], prompt: async () => {} };
+			},
+		});
+
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			displayName: "Worker",
+			prompt: "inspect parent work",
+		});
+
+		expect(contexts).toEqual(["inherit"]);
+	});
+
+	it("uses the reviewer profile fresh-context setting when spawn_agent omits context", async () => {
+		const contexts: string[] = [];
+		const harness = createMultiAgentHarness({
+			createChildSession: async ({ context }) => {
+				contexts.push(context);
+				return { messages: [], prompt: async () => {} };
+			},
+			ctx: { settingsManager: SettingsManager.inMemory({ agents: { reviewer: { context: "fresh" } } }) },
+		});
+
+		await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "reviewer",
+			displayName: "Reviewer",
+			prompt: "review changes",
+		});
+
+		expect(contexts).toEqual(["fresh"]);
 	});
 
 	it("does not execute a legacy dispatcher without a transcript-backed child session", async () => {

@@ -130,7 +130,7 @@ const fileReferenceSchema = Type.Object({
 
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
-	context: Type.Union([Type.Literal("fresh"), Type.Literal("inherit")]),
+	context: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("inherit")])),
 	displayName: Type.Optional(Type.String()),
 	parentId: Type.Optional(Type.String()),
 	prompt: Type.String(),
@@ -197,7 +197,7 @@ function requireSpawnAgentParams(params: unknown): asserts params is SpawnAgentP
 		throw new Error('spawn_agent context must be "fresh" or "inherit"');
 	}
 	const input = params as { context?: unknown; prompt?: unknown };
-	if (input.context !== "fresh" && input.context !== "inherit") {
+	if (input.context !== undefined && input.context !== "fresh" && input.context !== "inherit") {
 		throw new Error('spawn_agent context must be "fresh" or "inherit"');
 	}
 	if (typeof input.prompt !== "string") {
@@ -214,6 +214,7 @@ type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
 type ChildSessionModel = CreateAgentSessionOptions["model"];
 
 type ResolvedAgentProfile = {
+	context?: "fresh" | "inherit";
 	model?: ChildSessionModel;
 	modelMetadata?: AgentSnapshot["model"];
 	thinkingLevel?: ThinkingLevel;
@@ -687,7 +688,7 @@ function findUnresolvedTurnParentId(branch: SessionEntry[], activeToolEntry: Ses
 }
 
 function resolveInheritedLeafId(
-	context: SpawnAgentParams["context"],
+	context: ChildAgentDispatchInput["context"],
 	activeToolCallId: string | undefined,
 	sessionManager: ExtensionContext["sessionManager"],
 ): string | null | undefined {
@@ -708,7 +709,7 @@ function resolveInheritedLeafId(
 function createChildSessionManager(input: {
 	activeToolCallId?: string;
 	agent: AgentSnapshot;
-	context: SpawnAgentParams["context"];
+	context: ChildAgentDispatchInput["context"];
 	ctx: ExtensionContext;
 	options: ProductionChildAgentSessionFactoryOptions;
 }): { parentSessionFile: string | undefined; sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]> } {
@@ -839,6 +840,7 @@ function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext)
 
 	const model = profile.model ? findExactModelReferenceMatch(profile.model, ctx.modelRegistry.getAll()) : undefined;
 	return {
+		context: profile.context,
 		model,
 		modelMetadata: model ? { providerId: model.provider, modelId: model.id, thinkingLevel: profile.thinkingLevel } : undefined,
 		thinkingLevel: profile.thinkingLevel,
@@ -1128,6 +1130,7 @@ async function spawnAgent(
 	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
 	const agentType = params.agentType?.trim() || "default";
 	const profile = resolveConfiguredAgentProfile(agentType, ctx);
+	const context = params.context ?? profile.context ?? "inherit";
 	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) {
 		return errorResult("spawn_agent requires a persisted supervisor session.", {
@@ -1151,7 +1154,7 @@ async function spawnAgent(
 			childSession = await createChildSession({
 				activeToolCallId,
 				agent: prepared,
-				context: params.context,
+				context,
 				ctx,
 				prompt: params.prompt,
 				signal: abortController.signal,
@@ -3340,7 +3343,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
 			promptGuidelines: [
 				'For read-only codebase research or exploration, prefer spawn_agent with agentType "explore".',
-				'Choose context "inherit" when prior main-thread decisions or research are required; choose "fresh" for isolated work, review, verification, or falsification.',
+				'Context defaults to "inherit"; choose "fresh" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.',
 				'For scoped code changes, use agentType "implement"; for proof commands before completion, use agentType "verifier"; for final code review or second opinions, use agentType "reviewer".',
 			],
 			approvalRequired: false,

@@ -71,8 +71,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       non-executable operation.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
       with the parent's model, model registry, cwd, and `parentSession` metadata.
-- [x] `spawn_agent` requires a `context` value of `"fresh"` or `"inherit"`. `"fresh"` creates a new
-      child transcript containing only the appended assignment. `"inherit"` forks a persisted parent
+- [x] `spawn_agent` accepts an optional `context` value of `"fresh"` or `"inherit"`. Omitted context
+      defaults to `"inherit"`, unless the selected agent-type profile configures another default. `"fresh"`
+      creates a new child transcript containing only the appended assignment. `"inherit"` forks a persisted parent
       transcript immediately before the entire unresolved parent turn containing the active direct
       `spawn_agent` call or its enclosing `pyrun_eval` call, preserving only completed prior turns before
       appending the assignment; the parent remains unchanged. This cutoff applies to direct, foreground
@@ -81,9 +82,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       Callers choose `"inherit"` when prior main-thread decisions or research are required, and
       `"fresh"` for isolated work, review, verification, or falsification. Background jobs and restart
       recovery explicitly use `"fresh"`; attached-session reuse is a separate operation without this choice.
-- [x] Agent-type profiles can select a child model/thinking level; built-in `explore`, `verifier`,
-      `documentation-update`, `implement`, and `reviewer` profiles provide default model/thinking
-      choices and configured profiles override them.
+- [x] Agent-type profiles can select a child model, thinking level, and default context; built-in
+      `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` profiles provide defaults,
+      the reviewer profile uses fresh context, and configured profiles override them.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log. The parent session JSONL contains
       authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.

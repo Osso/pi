@@ -160,6 +160,7 @@ describe("SettingsManager", () => {
 				thinkingLevel: "low",
 			});
 			expect(settingsManager.getAgentProfile("reviewer")).toEqual({
+				context: "fresh",
 				model: "openai/gpt-5.5",
 				thinkingLevel: "medium",
 			});

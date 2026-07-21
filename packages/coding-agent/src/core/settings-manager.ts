@@ -70,6 +70,7 @@ export interface WarningSettings {
 export type AgentProfileThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface AgentProfileSettings {
+	context?: "fresh" | "inherit";
 	model?: string;
 	thinkingLevel?: AgentProfileThinkingLevel;
 }
@@ -200,7 +201,7 @@ const DEFAULT_AGENT_PROFILES: Record<string, AgentProfileSettings> = {
 	implement: { model: "openai/gpt-5.5", thinkingLevel: "medium" },
 	verifier: { model: "openai/gpt-5-mini", thinkingLevel: "low" },
 	"documentation-update": { model: "openai/gpt-5-mini", thinkingLevel: "low" },
-	reviewer: { model: "openai/gpt-5.5", thinkingLevel: "medium" },
+	reviewer: { context: "fresh", model: "openai/gpt-5.5", thinkingLevel: "medium" },
 };
 
 export interface SettingsManagerCreateOptions {
