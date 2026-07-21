@@ -6,16 +6,24 @@ import type {
 } from "../../../src/core/extensions/types.ts";
 
 const FAST_STATUS_KEY = "codex-fast";
+const PRIORITY_SERVICE_TIER = "priority";
+const ULTRAFAST_SERVICE_TIER = "ultrafast";
 const SUPPORTED_PROVIDERS = new Set(["openai-codex", "openai-codex-gc"]);
+
+type FastServiceTier = typeof PRIORITY_SERVICE_TIER | typeof ULTRAFAST_SERVICE_TIER;
 
 function supportsFastMode(model: Model<string> | undefined): boolean {
 	return model !== undefined && SUPPORTED_PROVIDERS.has(model.provider);
 }
 
-function requestedFastMode(args: string, enabled: boolean): boolean | undefined {
+function requestedFastMode(
+	args: string,
+	currentTier: FastServiceTier | undefined,
+): FastServiceTier | false | undefined {
 	const requested = args.trim().toLowerCase();
-	if (!requested) return !enabled;
-	if (requested === "on") return true;
+	if (!requested) return currentTier === undefined ? PRIORITY_SERVICE_TIER : false;
+	if (requested === "on") return PRIORITY_SERVICE_TIER;
+	if (requested === "ultra") return ULTRAFAST_SERVICE_TIER;
 	if (requested === "off") return false;
 	return undefined;
 }
@@ -24,12 +32,19 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 	ctx.ui.setEditorText("");
 }
 
+function fastModeLabel(serviceTier: FastServiceTier | undefined): "off" | "on" | "ultra" {
+	if (serviceTier === ULTRAFAST_SERVICE_TIER) return "ultra";
+	return serviceTier === PRIORITY_SERVICE_TIER ? "on" : "off";
+}
+
 function updateFastStatus(ctx: ExtensionContext, state: FastModeAuthority, model = ctx.model): void {
-	ctx.ui.setStatus(FAST_STATUS_KEY, state.enabled && supportsFastMode(model) ? "fast" : undefined);
+	const label = fastModeLabel(state.serviceTier);
+	const status = label === "ultra" ? "fast ultra" : "fast";
+	ctx.ui.setStatus(FAST_STATUS_KEY, state.serviceTier && supportsFastMode(model) ? status : undefined);
 }
 
 export interface FastModeAuthority {
-	enabled: boolean;
+	serviceTier: FastServiceTier | undefined;
 }
 
 export interface CodexFastOptions {
@@ -54,43 +69,43 @@ async function handleFastCommand(
 		clearEditor(ctx);
 		return;
 	}
-	const requested = requestedFastMode(args, authority.enabled);
+	const requested = requestedFastMode(args, authority.serviceTier);
 	if (requested === undefined) {
-		ctx.ui.notify("Usage: /fast [on|off]", "warning");
+		ctx.ui.notify("Usage: /fast [on|off|ultra]", "warning");
 		clearEditor(ctx);
 		return;
 	}
-	if (requested && !supportsFastMode(ctx.model)) {
+	if (requested !== false && !supportsFastMode(ctx.model)) {
 		ctx.ui.notify("Fast mode requires openai-codex or openai-codex-gc", "warning");
 		clearEditor(ctx);
 		return;
 	}
 
-	authority.enabled = requested;
+	authority.serviceTier = requested === false ? undefined : requested;
 	updateFastStatus(ctx, authority);
-	ctx.ui.notify(`Fast mode: ${authority.enabled ? "on" : "off"}`, "info");
+	ctx.ui.notify(`Fast mode: ${fastModeLabel(authority.serviceTier)}`, "info");
 	clearEditor(ctx);
 }
 
 export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFastOptions): void {
-	const authority = options?.authority ?? { enabled: false };
+	const authority = options?.authority ?? { serviceTier: undefined };
 	pi.registerCommand("fast", {
-		description: "Toggle Codex priority processing from the main thread",
+		description: "Toggle Codex priority or ultrafast processing from the main thread",
 		handler: (args, ctx) => handleFastCommand(args, ctx, authority),
 	});
 	pi.on("session_start", (event, ctx) => {
-		if (!isChildRuntime(ctx) && event.reason !== "reload") authority.enabled = false;
+		if (!isChildRuntime(ctx) && event.reason !== "reload") authority.serviceTier = undefined;
 		updateFastStatus(ctx, authority);
 	});
 	pi.on("model_select", (event, ctx) => {
 		updateFastStatus(ctx, authority, event.model);
 	});
 	pi.on("before_provider_request", (event, ctx) => {
-		if (!authority.enabled || !supportsFastMode(ctx.model)) return undefined;
+		if (!authority.serviceTier || !supportsFastMode(ctx.model)) return undefined;
 		if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) {
 			ctx.ui.notify("Fast mode skipped: provider payload is not an object", "warning");
 			return undefined;
 		}
-		return { ...event.payload, service_tier: "priority" };
+		return { ...event.payload, service_tier: authority.serviceTier };
 	});
 }

@@ -15,7 +15,7 @@ type ModelSelectHandler = (event: { model: ExtensionContext["model"] }, ctx: Ext
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => void;
 
 interface FastModeAuthority {
-	enabled: boolean;
+	serviceTier: "priority" | "ultrafast" | undefined;
 }
 
 function createHarness(provider = "openai-codex", authority?: FastModeAuthority, child = false) {
@@ -95,6 +95,23 @@ describe("Codex fast mode extension", () => {
 		expect(notify).toHaveBeenNthCalledWith(2, "Fast mode: off", "info");
 	});
 
+	it("selects ultrafast processing until fast mode is disabled", async () => {
+		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness();
+		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+
+		await command.handler("ultra", ctx);
+
+		expect(notify).toHaveBeenLastCalledWith("Fast mode: ultra", "info");
+		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", "fast ultra");
+		expect(beforeProviderRequest(event, ctx)).toEqual({
+			model: "test-model",
+			service_tier: "ultrafast",
+		});
+
+		await command.handler("off", ctx);
+		expect(beforeProviderRequest(event, ctx)).toBeUndefined();
+	});
+
 	it("rejects enabling fast mode for unsupported providers", async () => {
 		const { command, ctx, notify, setStatus } = createHarness("anthropic");
 
@@ -156,7 +173,7 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("shares live main-thread fast mode with child runtimes", async () => {
-		const authority = { enabled: false };
+		const authority: FastModeAuthority = { serviceTier: undefined };
 		const main = createHarness("openai-codex", authority);
 		const child = createHarness("openai-codex", authority, true);
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
@@ -172,7 +189,7 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("prevents child commands from changing main-thread fast mode", async () => {
-		const authority = { enabled: true };
+		const authority: FastModeAuthority = { serviceTier: "priority" };
 		const main = createHarness("openai-codex", authority);
 		const child = createHarness("openai-codex", authority, true);
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
@@ -187,17 +204,17 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("preserves shared fast mode on reload and resets it on main session replacement", async () => {
-		const authority = { enabled: true };
+		const authority: FastModeAuthority = { serviceTier: "priority" };
 		const main = createHarness("openai-codex", authority);
 		const child = createHarness("openai-codex", authority, true);
 		if (!main.sessionStart || !child.sessionStart) throw new Error("session_start handler was not registered");
 
 		child.sessionStart({ reason: "startup", type: "session_start" }, child.ctx);
-		expect(authority.enabled).toBe(true);
+		expect(authority.serviceTier).toBe("priority");
 		main.sessionStart({ reason: "reload", type: "session_start" }, main.ctx);
-		expect(authority.enabled).toBe(true);
+		expect(authority.serviceTier).toBe("priority");
 		main.sessionStart({ reason: "resume", type: "session_start" }, main.ctx);
-		expect(authority.enabled).toBe(false);
+		expect(authority.serviceTier).toBeUndefined();
 	});
 
 	it("starts disabled when the runtime extension is recreated without shared authority", async () => {

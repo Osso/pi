@@ -739,7 +739,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	let extensionFactories: ExtensionFactory[] = [];
 	let debugRepl: DebugReplServer | undefined;
-	const fastModeAuthority: FastModeAuthority = { enabled: false };
+	const fastModeAuthority: FastModeAuthority = { serviceTier: undefined };
 	const firstPartyExtensionFactories = createFirstPartyExtensionFactories(
 		() => extensionFactories,
 		() => {
