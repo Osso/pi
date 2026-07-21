@@ -1043,6 +1043,20 @@ export function readRuntimeMailboxListener(
 	});
 }
 
+export function assertMainSessionRuntimeAvailable(controlDbPath: string, sessionId: string): void {
+	withControlDb(controlDbPath, (db) => {
+		const recipient = { agentId: null, sessionId };
+		assertRuntimeReplacementAllowed(
+			db,
+			sessionId,
+			readRuntimeMailboxListenerRow(db, recipient),
+			process.pid,
+			RUNTIME_PROCESS_INSTANCE_ID,
+			{},
+		);
+	});
+}
+
 /**
  * Resolve this process's own main-thread runtime coordination address from the
  * persisted listener registration, not from mutable UI/store context.

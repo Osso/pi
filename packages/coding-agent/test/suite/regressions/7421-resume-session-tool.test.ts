@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../../../src/core/agent-session.ts";
 import {
@@ -12,11 +12,16 @@ import {
 	createAgentSessionServices,
 } from "../../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
-import { getControlDbPath, writeSessionMetadata } from "../../../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	readRuntimeMailboxListener,
+	writeSessionMetadata,
+} from "../../../src/core/session-control-db.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { createResumeSessionToolDefinition } from "../../../src/core/tools/resume-session.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../../../src/index.ts";
+import { withHeadlessPi } from "../headless-pi.ts";
 
 function getText(message: AgentSession["messages"][number]): string {
 	if (!("content" in message)) return "";
@@ -149,6 +154,40 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 }
 
 describe("resume_session first-party tool", () => {
+	it("keeps the caller alive when the target session is already open", async () => {
+		await withHeadlessPi(async (caller) => {
+			const targetSession = SessionManager.create(caller.paths.workspaceDir, caller.paths.sessionDir);
+			targetSession.appendMessage({ role: "user", content: "Live target", timestamp: Date.now() });
+			const targetSessionFile = targetSession.getSessionFile();
+			if (!targetSessionFile) throw new Error("Missing target session file");
+			const target = await caller.startSharedSession({ sessionFile: targetSessionFile });
+			if (!existsSync(target.sessionFile)) {
+				writeFileSync(
+					target.sessionFile,
+					`${JSON.stringify({ type: "session", version: 3, id: target.sessionId, timestamp: new Date().toISOString(), cwd: caller.paths.workspaceDir })}\n`,
+				);
+			}
+			const callerRecipient = { agentId: null, sessionId: caller.sessionId };
+			const controlDbPath = getControlDbPath(caller.paths.agentDir);
+
+			await caller.send({ type: "prompt", message: "Resume the live target" });
+			const request = await caller.waitForLlmRequest();
+			caller.respondToLlmRequest(
+				request.id,
+				fauxAssistantMessage(
+					fauxToolCall("resume_session", { path: target.sessionFile }, { id: "resume-live-target" }),
+				),
+			);
+
+			const afterRejection = await caller.waitForLlmRequest((candidate) => candidate.id !== request.id);
+			expect(JSON.stringify(afterRejection.messages)).toContain("open in another Pi process");
+			expect(readRuntimeMailboxListener(controlDbPath, callerRecipient)?.sessionPath).toBe(caller.sessionFile);
+
+			caller.respondToLlmRequest(afterRejection.id, fauxAssistantMessage("Caller remains active"));
+			await caller.waitForEvent((event) => event.type === "agent_end");
+		});
+	});
+
 	it("is active by default and warns that it replaces the current supervisor context", async () => {
 		const { runtime } = await createRuntimeForTest([]);
 

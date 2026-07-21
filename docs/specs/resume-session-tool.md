@@ -13,6 +13,7 @@ The `resume_session` tool lets an agent switch the current main Pi session to an
 - [x] The tool rejects empty or ambiguous targets.
 - [x] ID and name resolution query only matching active non-subagent metadata instead of materializing unrelated session rows.
 - [x] Targets resolving to the current session file are rejected for path, ID, and name inputs.
+- [x] Targets owned by another live Pi process are rejected before the caller session shuts down, leaving the caller active.
 - [x] The tool description warns that it replaces the current supervisor context.
 
 ### Session replacement
@@ -38,6 +39,7 @@ The `resume_session` tool lets an agent switch the current main Pi session to an
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/tools/resume-session.ts` — defines `resume_session`, target resolution, rendering, and starter prompt delivery.
+- `packages/coding-agent/src/core/agent-session-runtime.ts` — validates target runtime availability before invalidating the caller session.
 - `packages/coding-agent/src/core/tools/index.ts` — registers `resume_session` in built-in tool lists and factories.
 - `packages/coding-agent/src/core/extensions/types.ts` — exposes `switchSession(..., { withSession })` on extension contexts.
 - `packages/coding-agent/src/core/extensions/runner.ts` — forwards `switchSession` options from extension contexts to the runtime handler.

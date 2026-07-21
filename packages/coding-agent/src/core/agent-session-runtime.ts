@@ -15,6 +15,7 @@ import type { CreateAgentSessionResult } from "./sdk.ts";
 export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
+import { assertMainSessionRuntimeAvailable, getControlDbPath } from "./session-control-db.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
 import { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { SessionManager } from "./session-manager.ts";
@@ -208,6 +209,7 @@ export class AgentSessionRuntime {
 		const previousSessionFile = this.session.sessionFile;
 		const sessionManager = SessionManager.open(sessionPath, undefined, options?.cwdOverride);
 		assertSessionCwdExists(sessionManager, this.cwd);
+		assertMainSessionRuntimeAvailable(getControlDbPath(this.services.agentDir), sessionManager.getSessionId());
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
