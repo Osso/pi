@@ -2,7 +2,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
-import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	postSharedChannelMessage,
+	readMultiAgentRuntimeOwnership,
+	readRuntimeMailboxListener,
+	readSharedChannelCursor,
+} from "../../src/core/session-control-db.ts";
 import type { CustomEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
 import {
 	cleanupHeadlessPiResources,
@@ -544,6 +550,52 @@ describe("headless Pi fixture", () => {
 			);
 			expect(JSON.stringify(mainAfterWait.messages)).toContain("Cancellation races reviewed");
 			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Steered reviewer completed"));
+		});
+	});
+
+	it("wakes wait_agents when signal-driven shared-channel draining advances its cursor first", async () => {
+		await withHeadlessPi(async (agent) => {
+			const { childRequest, mainAfterSpawn } = await spawnPendingHeadlessChild(agent, "Waiting worker");
+			const waitToolCallId = "wait-for-signal-drained-channel";
+			agent.respondToLlmRequest(
+				mainAfterSpawn.id,
+				fauxAssistantMessage({ ...fauxToolCall("wait_agents", {}), id: waitToolCallId }, { stopReason: "toolUse" }),
+			);
+			await agent.waitForEvent(
+				(event) =>
+					event.type === "tool_execution_start" &&
+					event.toolName === "wait_agents" &&
+					event.toolCallId === waitToolCallId,
+			);
+
+			const controlDbPath = getControlDbPath(agent.paths.agentDir);
+			const recipient = { agentId: null, sessionId: agent.sessionId };
+			const messageId = postSharedChannelMessage(controlDbPath, {
+				body: "Restart onto the deployed runtime",
+				sender: { agentId: null, sessionId: "other-main-session" },
+			});
+			const listener = readRuntimeMailboxListener(controlDbPath, recipient);
+			if (!listener) throw new Error("Expected main runtime mailbox listener");
+			process.kill(listener.pid, "SIGUSR2");
+
+			await agent.waitForSessionEntry(
+				null,
+				() => readSharedChannelCursor(controlDbPath, recipient) === messageId,
+			);
+			const waitResult = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === waitToolCallId,
+			);
+			expect(JSON.stringify(waitResult)).toContain("Restart onto the deployed runtime");
+
+			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Worker complete"));
+			const mainAfterWait = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
+			);
+			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Shared-channel message handled"));
 		});
 	});
 
