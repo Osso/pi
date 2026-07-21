@@ -3004,7 +3004,8 @@ export class InteractiveMode {
 	private registerGlobalInterruptInputHandler(): void {
 		this.unregisterInterruptInputHandler?.();
 		this.unregisterInterruptInputHandler = this.ui.addInputListener((data) => {
-			if (this.extensionSelector || !this.session.isStreaming || !this.keybindings.matches(data, "app.interrupt")) {
+			const selectorHandlesCancel = this.extensionSelector && this.keybindings.matches(data, "tui.select.cancel");
+			if (selectorHandlesCancel || !this.session.isStreaming || !this.keybindings.matches(data, "app.interrupt")) {
 				return undefined;
 			}
 			void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {

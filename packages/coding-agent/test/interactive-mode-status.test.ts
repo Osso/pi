@@ -11,7 +11,7 @@ import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
-import { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
+import type { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
@@ -161,6 +161,8 @@ interface InteractiveModeKeyHandlerInternals {
 	registerAgentSlotKeyHandlers(this: unknown): void;
 	registerGlobalAgentSlotInputHandler(this: unknown): void;
 	registerGlobalInterruptInputHandler(this: unknown): void;
+	showExtensionSelector(this: unknown, title: string, options: string[]): Promise<string | undefined>;
+	hideExtensionSelector(this: unknown): void;
 	showAgentSwitcher(this: unknown): void;
 	openChildAgentView(this: unknown, agent: unknown): boolean;
 	renderInitialMessages(this: unknown): void;
@@ -1571,38 +1573,80 @@ describe("InteractiveMode key handlers", () => {
 		expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
 	});
 
-	test("raw terminal escape cancels a focused extension selector without interrupting a streaming turn", async () => {
+	test("raw terminal escape closes the branch-summary selector without interrupting a streaming turn", async () => {
 		const terminal = new VirtualTerminal(80, 24);
 		const ui = new TUI(terminal);
-		const onCancel = vi.fn();
-		const extensionSelector = new ExtensionSelectorComponent(
-			"Summarize branch?",
-			["No summary", "Summarize"],
-			vi.fn(),
-			onCancel,
-		);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
 		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
 		const fakeThis = {
-			extensionSelector,
-			keybindings: { matches: (data: string, action: string) => action === "app.interrupt" && data === "\x1b" },
+			editor,
+			editorContainer,
+			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
+			hideExtensionSelector: interactiveModeKeyHandlers.hideExtensionSelector,
+			keybindings: {
+				matches: (data: string, action: string) =>
+					(action === "app.interrupt" || action === "tui.select.cancel") && data === "\x1b",
+			},
 			session: { isStreaming: true },
 			cancelStreamingAndSubmitQueuedMessages,
 			showError: vi.fn(),
 			ui,
 		};
 
-		ui.addChild(extensionSelector);
-		ui.setFocus(extensionSelector);
+		ui.addChild(editorContainer);
 		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
 		ui.start();
 		try {
+			const selection = interactiveModeKeyHandlers.showExtensionSelector.call(fakeThis, "Summarize branch?", [
+				"No summary",
+				"Summarize",
+			]);
 			terminal.sendInput("\x1b");
+			await flushTui(ui, terminal);
+
+			await expect(selection).resolves.toBeUndefined();
+			expect(fakeThis.extensionSelector).toBeUndefined();
+			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+		} finally {
+			ui.stop();
+		}
+	});
+
+	test("a configured non-cancel interrupt still interrupts while the branch-summary selector is open", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const fakeThis = {
+			editor,
+			editorContainer,
+			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
+			hideExtensionSelector: interactiveModeKeyHandlers.hideExtensionSelector,
+			keybindings: {
+				matches: (data: string, action: string) =>
+					(action === "app.interrupt" && data === "\x18") || (action === "tui.select.cancel" && data === "\x1b"),
+			},
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+
+		ui.addChild(editorContainer);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			void interactiveModeKeyHandlers.showExtensionSelector.call(fakeThis, "Summarize branch?", ["No summary"]);
+			terminal.sendInput("\x18");
 			await Promise.resolve();
 			await flushTui(ui, terminal);
 
-			expect(onCancel).toHaveBeenCalledTimes(1);
-			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+			expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+			expect(fakeThis.extensionSelector).toBeDefined();
 		} finally {
+			fakeThis.hideExtensionSelector();
 			ui.stop();
 		}
 	});
