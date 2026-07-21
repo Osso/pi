@@ -1563,6 +1563,12 @@ describe("runtime SQLite mailbox delivery", () => {
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: "interactive-child-session",
 		});
@@ -1601,6 +1607,12 @@ describe("runtime SQLite mailbox delivery", () => {
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
 		const tracked = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: "tracked-child-session",
 		});
