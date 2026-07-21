@@ -578,10 +578,7 @@ describe("headless Pi fixture", () => {
 			if (!listener) throw new Error("Expected main runtime mailbox listener");
 			process.kill(listener.pid, "SIGUSR2");
 
-			await agent.waitForSessionEntry(
-				null,
-				() => readSharedChannelCursor(controlDbPath, recipient) === messageId,
-			);
+			await agent.waitForSessionEntry(null, () => readSharedChannelCursor(controlDbPath, recipient) === messageId);
 			const waitResult = await agent.waitForSessionEntry(
 				null,
 				(entry) =>
@@ -592,7 +589,9 @@ describe("headless Pi fixture", () => {
 			expect(JSON.stringify(waitResult)).toContain("Restart onto the deployed runtime");
 
 			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Worker complete"));
-			await agent.waitForAgent((candidate) => candidate.displayName === "Waiting worker" && candidate.lifecycle === "completed");
+			await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Waiting worker" && candidate.lifecycle === "completed",
+			);
 			const mainAfterWait = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
 			);
