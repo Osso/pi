@@ -1590,7 +1590,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			{
 				actorAgentId: runtime.ownership.owner.agentId ?? null,
 				controlDbPath,
-				sessionId: runtime.ownership.owner.sessionId,
+				sessionId: parentSession.getSessionId(),
 			},
 		);
 		if (!steered.ok) throw new Error(steered.error);
@@ -1645,7 +1645,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			{
 				actorAgentId: untracked.ownership.owner.agentId ?? null,
 				controlDbPath,
-				sessionId: untracked.ownership.owner.sessionId,
+				sessionId: parentSession.getSessionId(),
 			},
 			runtimeHandles,
 		);
@@ -1659,7 +1659,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			{
 				actorAgentId: tracked.ownership.owner.agentId ?? null,
 				controlDbPath,
-				sessionId: tracked.ownership.owner.sessionId,
+				sessionId: parentSession.getSessionId(),
 			},
 			runtimeHandles,
 		);
