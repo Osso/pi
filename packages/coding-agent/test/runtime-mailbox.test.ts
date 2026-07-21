@@ -1464,8 +1464,12 @@ describe("runtime SQLite mailbox delivery", () => {
 				recipient: { agentId: null, sessionId: parentSession.getSessionId() },
 				sender: { agentId: runtime.agent.id, sessionId: "child-session" },
 			});
-			await vi.advanceTimersByTimeAsync(2_999);
+			await vi.advanceTimersByTimeAsync(1_500);
 			expect(settled).toBe(false);
+			expect(process.listenerCount("SIGUSR2")).toBe(signalListenerCount);
+			await vi.advanceTimersByTimeAsync(1_499);
+			expect(settled).toBe(false);
+			expect(process.listenerCount("SIGUSR2")).toBe(signalListenerCount);
 			await vi.advanceTimersByTimeAsync(1);
 
 			const waited = await waiting;
@@ -1573,7 +1577,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			runtime.agent.id,
 			"Interactive instruction",
 			{
-				actorAgentId: runtime.ownership.owner.agentId,
+				actorAgentId: runtime.ownership.owner.agentId ?? null,
 				controlDbPath,
 				sessionId: runtime.ownership.owner.sessionId,
 			},
@@ -1612,7 +1616,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			store,
 			{ agentId: untracked.agent.id, message: "Late instruction" },
 			{
-				actorAgentId: untracked.ownership.owner.agentId,
+				actorAgentId: untracked.ownership.owner.agentId ?? null,
 				controlDbPath,
 				sessionId: untracked.ownership.owner.sessionId,
 			},
@@ -1626,7 +1630,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			store,
 			{ agentId: tracked.agent.id, message: "Tracked instruction" },
 			{
-				actorAgentId: tracked.ownership.owner.agentId,
+				actorAgentId: tracked.ownership.owner.agentId ?? null,
 				controlDbPath,
 				sessionId: tracked.ownership.owner.sessionId,
 			},
