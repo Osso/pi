@@ -86,7 +86,11 @@ describe("AgentSession queue characterization", () => {
 		await harness.session.prompt("start");
 		expect(harness.eventsOfType("tool_execution_start")).toHaveLength(1);
 
-		expect(drain).toHaveBeenCalledWith({ checkpoint: "after_tool_result", triggerIfIdle: false });
+		expect(drain).toHaveBeenCalledWith({
+			checkpoint: "after_tool_result",
+			includeNextModelCall: true,
+			triggerIfIdle: false,
+		});
 	});
 
 	afterEach(() => {
