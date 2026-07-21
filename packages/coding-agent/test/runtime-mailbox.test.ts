@@ -212,14 +212,18 @@ function spawnReservedRuntimeAgent(store: MultiAgentStore, ownerSessionId: strin
 function finalizeReservedRuntimeAgent(
 	store: MultiAgentStore,
 	runtime: ReturnType<typeof createReservedRuntimeAgent>,
-	input: { error?: AgentSnapshot["error"]; result?: AgentSnapshot["result"] },
+	input: {
+		error?: AgentSnapshot["error"];
+		result?: AgentSnapshot["result"];
+		terminalLifecycle?: "completed" | "failed";
+	},
 ): AgentSnapshot {
 	const finalized = runtime.coordinator.finalizeChild({
-		agent: runtime.agent,
+		agent: store.getAgent(runtime.agent.id) ?? runtime.agent,
 		error: input.error,
 		ownership: runtime.ownership,
 		result: input.result,
-		terminalLifecycle: "failed",
+		terminalLifecycle: input.terminalLifecycle ?? "failed",
 	});
 	if (!finalized.ok) throw new Error(`could not finalize reserved test agent: ${finalized.error}`);
 	const persistence = store.getPersistenceTarget();
@@ -1460,8 +1464,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		},
 	);
 
-	it("wait_agents ignores outbound steering to the selected child until supervisor coordination arrives", async () => {
-		vi.useFakeTimers();
+	it("wakes an active wait_agents naturally after successful steering", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1474,21 +1477,10 @@ describe("runtime SQLite mailbox delivery", () => {
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		childSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		// UI selection may point at the child, but authoritative multi-agent state
-		// remains persisted under the main supervisor session.
 		store.setPersistenceSessionManager(parentSession);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
-		const tools = collectMultiAgentTools(store);
-		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agents");
-		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
-		const supervisorContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
-
-		// Main and child mailbox listeners are registered under the same process.
-		// Only the main listener is registered with agentId null; the resolver must
-		// pick it by exact process identity regardless of mutable persistence.
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -1500,6 +1492,14 @@ describe("runtime SQLite mailbox delivery", () => {
 			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
 			process.pid,
 		);
+		const tools = collectMultiAgentTools(store);
+		const steerAgent = tools.get("steer_agent");
+		const waitAgents = tools.get("wait_agents");
+		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const controller = new AbortController();
+		const waiting = waitAgents.execute("wait", {}, controller.signal, undefined, context);
+		await Promise.resolve();
 
 		const steered = await steerAgent.execute(
 			"steer",
@@ -1510,60 +1510,188 @@ describe("runtime SQLite mailbox delivery", () => {
 			},
 			undefined,
 			undefined,
-			supervisorContext,
+			context,
 		);
-		expect(steered.content).toEqual([{ type: "text", text: "Queued steering for Verifier." }]);
-		const steeringMessages = listRuntimeMailboxMessages(controlDbPath);
-		expect(steeringMessages).toMatchObject([
+
+		try {
+			const waited = await Promise.race([
+				waiting,
+				delay(100).then(() => {
+					throw new Error("wait_agents did not wake after steering");
+				}),
+			]);
+			expect(controller.signal.aborted).toBe(false);
+			expect(steered.content).toEqual([{ type: "text", text: "Queued steering for Verifier." }]);
+			expect(waited.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
+			expect(waited.details).toMatchObject({ wakeUp: { agentId: runtime.agent.id, kind: "steering" } });
+			expect(store.getAgent(runtime.agent.id)).toMatchObject({ lifecycle: "steering_pending" });
+			expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "completed")).toEqual([]);
+		} finally {
+			controller.abort();
+		}
+	});
+
+	it("does not retain a stale wake when steering succeeds without an active wait", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
+			id: "child-session",
+			isSubagent: true,
+			parentSession: parentSession.getSessionFile(),
+			subagentName: "Worker",
+		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		childSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+			transcriptSessionId: childSession.getSessionId(),
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+			process.pid,
+		);
+		const tools = collectMultiAgentTools(store);
+		const steerAgent = tools.get("steer_agent");
+		const waitAgents = tools.get("wait_agents");
+		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+
+		await steerAgent.execute(
+			"steer-before-wait",
 			{
+				agentId: runtime.agent.id,
+				expectedRevision: store.getAgent(runtime.agent.id)?.revision,
+				message: "First instruction",
+			},
+			undefined,
+			undefined,
+			context,
+		);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+			{
+				body: "First instruction",
 				recipient: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
-				sender: { agentId: null, sessionId: parentSession.getSessionId() },
 				status: "pending",
 			},
 		]);
-		const steerMessageId = steeringMessages[0].id;
 
-		let selectedChildIdentityRead = false;
-		const selectedChildSessionManager = {
-			getSessionId: () => childSession.getSessionId(),
-			isSubagentSession: () => false,
-		} as unknown as SessionManager;
-		const selectedChildContext = createRuntimeMailboxContext({
-			controlDbPath,
-			sessionManager: selectedChildSessionManager,
-		});
-		Object.defineProperty(selectedChildContext, "multiAgentAgentId", {
-			get: () => {
-				if (!selectedChildIdentityRead) {
-					selectedChildIdentityRead = true;
-					return undefined;
-				}
-				return runtime.agent.id;
-			},
-		});
-
+		const controller = new AbortController();
 		let settled = false;
-		const waiting = waitAgents.execute("wait", {}, undefined, undefined, selectedChildContext).then((result) => {
+		const waiting = waitAgents.execute("wait", {}, controller.signal, undefined, context).then((value) => {
 			settled = true;
-			return result;
+			return value;
 		});
-		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(30_000);
-		// Pending outbound steering targets the child, not the main listener.
+		await delay(20);
 		expect(settled).toBe(false);
 
-		const inboundMessageId = enqueueStoredRuntimeMessage(controlDbPath, {
-			body: "Need parent review",
-			kind: "message",
-			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
-			sender: { agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
-		});
-		await vi.advanceTimersByTimeAsync(30_000);
+		await steerAgent.execute(
+			"steer-during-wait",
+			{
+				agentId: runtime.agent.id,
+				expectedRevision: store.getAgent(runtime.agent.id)?.revision,
+				message: "Second instruction",
+			},
+			undefined,
+			undefined,
+			context,
+		);
 
-		const waited = await waiting;
-		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Need parent review") });
-		expect(readRuntimeMailboxMessage(controlDbPath, inboundMessageId)).toMatchObject({ status: "delivered" });
-		expect(readRuntimeMailboxMessage(controlDbPath, steerMessageId)).toMatchObject({ status: "pending" });
+		try {
+			const waited = await Promise.race([
+				waiting,
+				delay(100).then(() => {
+					throw new Error("wait_agents did not wake for steering emitted during the active wait");
+				}),
+			]);
+			expect(waited.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
+			expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(2);
+		} finally {
+			controller.abort();
+		}
+	});
+
+	it("preserves completion when steering wakes wait_agents during a terminal race", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
+			id: "child-session",
+			isSubagent: true,
+			parentSession: parentSession.getSessionFile(),
+			subagentName: "Worker",
+		});
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		childSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
+			transcriptSessionId: childSession.getSessionId(),
+		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: runtime.agent.id, sessionId: childSession.getSessionId() },
+			process.pid,
+		);
+		const tools = collectMultiAgentTools(store);
+		const steerAgent = tools.get("steer_agent");
+		const waitAgents = tools.get("wait_agents");
+		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const firstWait = waitAgents.execute("wait-race", {}, undefined, undefined, context);
+		await Promise.resolve();
+
+		await steerAgent.execute(
+			"steer-race",
+			{
+				agentId: runtime.agent.id,
+				expectedRevision: store.getAgent(runtime.agent.id)?.revision,
+				message: "Check the final edge case",
+			},
+			undefined,
+			undefined,
+			context,
+		);
+		const steeringMessage = store
+			.listMailboxMessages()
+			.find((message) => message.body === "Check the final edge case");
+		const steeringPendingAgent = store.getAgent(runtime.agent.id);
+		if (!steeringMessage || !steeringPendingAgent) throw new Error("expected pending steering state");
+		const delivered = legacyMultiAgentStore(store).ackSteering(
+			runtime.agent.id,
+			steeringPendingAgent.revision,
+			steeringMessage.id,
+			"delivered",
+		);
+		expect(delivered.ok).toBe(true);
+		finalizeReservedRuntimeAgent(store, runtime, {
+			result: { summary: "tests passed" },
+			terminalLifecycle: "completed",
+		});
+
+		const wakeResult = await firstWait;
+		expect(wakeResult.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
+		const completionResult = await waitAgents.execute("wait-completion", {}, undefined, undefined, context);
+		expect(completionResult.content).toEqual([{ type: "text", text: "Verifier completed: tests passed" }]);
+		expect(completionResult.details).toMatchObject({
+			agent: { id: runtime.agent.id, lifecycle: "completed", result: { summary: "tests passed" } },
+			message: { status: "pending" },
+		});
+		expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "completed")).toEqual([]);
 	});
 
 	it("wait_agents ignores pending terminal transport rows until actionable coordination arrives", async () => {
