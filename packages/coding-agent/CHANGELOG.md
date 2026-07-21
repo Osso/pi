@@ -153,6 +153,7 @@
 
 ### Fixed
 
+- Fixed Escape in the branch-summary picker to cancel the picker without interrupting the active turn.
 - Fixed Codex fast mode to hide footer status on unsupported provider switches while retaining its runtime toggle, and to warn without disabling when a request payload cannot accept the priority tier.
 - Fixed runtime-mailbox-started turns that deadlocked after a tool call because post-tool coordination awaited the turn's own enclosing prompt drain.
 - Fixed Supervisor compaction retaining the OpenAI cached continuation for the pre-compaction context, which could cause later approval requests to fail with context-window errors despite a small compacted transcript.

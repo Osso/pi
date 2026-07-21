@@ -11,6 +11,7 @@ import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
+import { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
@@ -1568,6 +1569,42 @@ describe("InteractiveMode key handlers", () => {
 
 		expect(result).toEqual({ consume: true });
 		expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+	});
+
+	test("raw terminal escape cancels a focused extension selector without interrupting a streaming turn", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const onCancel = vi.fn();
+		const extensionSelector = new ExtensionSelectorComponent(
+			"Summarize branch?",
+			["No summary", "Summarize"],
+			vi.fn(),
+			onCancel,
+		);
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const fakeThis = {
+			extensionSelector,
+			keybindings: { matches: (data: string, action: string) => action === "app.interrupt" && data === "\x1b" },
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+
+		ui.addChild(extensionSelector);
+		ui.setFocus(extensionSelector);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			terminal.sendInput("\x1b");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+
+			expect(onCancel).toHaveBeenCalledTimes(1);
+			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+		} finally {
+			ui.stop();
+		}
 	});
 
 	test("raw terminal escape interrupts before a focused component can consume it and preserves queued steering", async () => {
