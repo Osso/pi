@@ -876,6 +876,39 @@ describe("goal extension", () => {
 		});
 	});
 
+	it("passes wait_agents visible coordination content into goal re-review", async () => {
+		let finishWait: (() => void) | undefined;
+		const waitFinished = new Promise<void>((resolve) => {
+			finishWait = resolve;
+		});
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValueOnce({ kind: "wait", reason: "child running" })
+			.mockResolvedValueOnce({ kind: "pause", reason: "restart requested" });
+		const harness = createGoalHarness(cwd, {
+			callTool: async (name) => {
+				if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
+				await waitFinished;
+				return {
+					content: [{ type: "text" as const, text: "Restart onto the deployed runtime" }],
+					details: {},
+				};
+			},
+			reviewGoal,
+		});
+		await harness.runCommand("set preserve coordination wake content");
+		await harness.runAgentEnd();
+
+		finishWait?.();
+		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
+
+		expect(reviewGoal.mock.calls[1]?.[0].payload).toMatchObject({
+			wakeEvidence: {
+				content: [{ type: "text", text: "Restart onto the deployed runtime" }],
+			},
+		});
+	});
+
 	it("cancels a background agent wait when user input arrives", async () => {
 		let finishWait: (() => void) | undefined;
 		const waitFinished = new Promise<void>((resolve) => {

@@ -53,6 +53,11 @@ function activeAgentCount(details: unknown): number {
 	return typeof details.activeCount === "number" ? details.activeCount : 0;
 }
 
+function waitWakeEvidence(result: AgentToolResult<unknown>): Record<string, unknown> {
+	const details = typeof result.details === "object" && result.details !== null ? result.details : { details: result.details };
+	return { ...details, content: result.content };
+}
+
 class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecision> {
 	private readonly options: GoalSchedulingOptions<TGoal, TDecision>;
 	private readonly pendingDecisionTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -238,7 +243,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		const waitError = toolError(waitResult, "wait_agents");
 		if (waitError) throw waitError;
 		this.waitControllers.delete(ctx.sessionManager.getSessionId());
-		await this.reviewAndApply(ctx, goal, terminalTurn, waitResult.details);
+		await this.reviewAndApply(ctx, goal, terminalTurn, waitWakeEvidence(waitResult));
 	}
 
 	private applyDeferredDecision(
