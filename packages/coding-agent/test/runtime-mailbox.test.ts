@@ -1566,6 +1566,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: "interactive-child-session",
 		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: runtime.agent.id, sessionId: "interactive-child-session" },
+			process.pid,
+		);
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		const waiting = waitNotifications(store, runtimeHandles, undefined, context);
@@ -1599,6 +1604,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		const tracked = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: "tracked-child-session",
 		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: tracked.agent.id, sessionId: "tracked-child-session" },
+			process.pid,
+		);
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let settled = false;
@@ -1611,6 +1621,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			displayName: "Late worker",
 			transcriptSessionId: "late-child-session",
 		});
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: untracked.agent.id, sessionId: "late-child-session" },
+			process.pid,
+		);
 
 		const lateSteering = requestAgentSteering(
 			store,
