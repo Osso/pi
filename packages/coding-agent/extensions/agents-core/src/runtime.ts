@@ -351,11 +351,17 @@ interface ContactParentToolDetails {
 	message: AgentMailboxMessage;
 }
 
+interface WaitAgentsWakeUp {
+	agentId: string;
+	kind: "steering";
+}
+
 interface WaitAgentsToolDetails {
 	agent?: AgentSnapshot;
 	agents?: AgentSnapshot[];
 	message?: AgentMailboxMessage;
 	messages?: AgentMailboxMessage[];
+	wakeUp?: WaitAgentsWakeUp;
 }
 interface AgentViewerToolDetails {
 	agent?: AgentSnapshot;
@@ -406,10 +412,11 @@ export interface MultiAgentRuntimeHandles {
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
+	waitWakeListeners: Set<(wakeUp: WaitAgentsWakeUp) => void>;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
-	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map() };
+	return { dispatches: new Map(), ownerships: new Map(), sessions: new Map(), waitWakeListeners: new Set() };
 }
 
 export function resolveSelectedSessionMutationTarget(
@@ -881,7 +888,7 @@ export function createMultiAgentPiRequestHandler(
 
 		if (request.method === "agents.wait") {
 			assertNoWaitAgentsParams(request.params, "pi.agents.wait");
-			await waitAgents(store, signal, ctx);
+			await waitAgents(store, runtimeHandles, signal, ctx);
 			return null;
 		}
 
@@ -2260,7 +2267,8 @@ export type WaitNotificationsWake =
 	| { kind: "coordination" }
 	| { kind: "error"; error: unknown }
 	| { kind: "none" }
-	| { kind: "unavailable"; message: string };
+	| { kind: "unavailable"; message: string }
+	| { kind: "wake_up"; wakeUp: WaitAgentsWakeUp };
 
 type RuntimeCoordinationRecipient = {
 	address: RuntimeMailboxAddress;
@@ -2274,11 +2282,13 @@ class WaitAgentsWakeWatcher {
 	private readonly sessionPath: string;
 	private readonly signal: AbortSignal | undefined;
 	private readonly store: MultiAgentStore;
+	private readonly waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"];
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	private resolve: ((wake: WaitNotificationsWake) => void) | undefined;
 	private runtimeSignalHandler: (() => void) | undefined;
 	private settled = false;
 	private unsubscribeAgentTransitions = () => {};
+	private unsubscribeWakeUp = () => {};
 
 	constructor(
 		store: MultiAgentStore,
@@ -2287,6 +2297,7 @@ class WaitAgentsWakeWatcher {
 		sessionPath: string,
 		signal: AbortSignal | undefined,
 		recipient: RuntimeCoordinationRecipient | undefined,
+		waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"],
 	) {
 		this.activeAgents = activeAgents;
 		this.controlDbPath = controlDbPath;
@@ -2294,6 +2305,7 @@ class WaitAgentsWakeWatcher {
 		this.recipient = recipient;
 		this.signal = signal;
 		this.store = store;
+		this.waitWakeListeners = waitWakeListeners;
 	}
 
 	wait(): Promise<WaitNotificationsWake> {
@@ -2321,6 +2333,13 @@ class WaitAgentsWakeWatcher {
 			const terminal = readTrackedTerminal();
 			if (terminal) this.finish({ agent: terminal, kind: "agent" });
 		});
+		const onWakeUp = (wakeUp: WaitAgentsWakeUp) => {
+			if (!trackedAgentIds.has(wakeUp.agentId)) return;
+			const terminal = readTrackedTerminal();
+			this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
+		};
+		this.waitWakeListeners.add(onWakeUp);
+		this.unsubscribeWakeUp = () => this.waitWakeListeners.delete(onWakeUp);
 		this.signal?.addEventListener("abort", this.onAbort, { once: true });
 		this.startRuntimeCoordinationWatch(readTrackedTerminal);
 		this.reconcileDeadDetachedRuntimes();
@@ -2385,6 +2404,7 @@ class WaitAgentsWakeWatcher {
 
 	private cleanup(): void {
 		this.unsubscribeAgentTransitions();
+		this.unsubscribeWakeUp();
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = undefined;
@@ -2399,15 +2419,17 @@ class WaitAgentsWakeWatcher {
 
 async function waitAgents(
 	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
 	signal: AbortSignal | undefined,
 	ctx?: ExtensionContext,
 ): Promise<AgentToolResult<WaitAgentsToolDetails>> {
-	const wake = await waitNotifications(store, signal, ctx);
+	const wake = await waitNotifications(store, runtimeHandles, signal, ctx);
 	return consumeNotifications(store, wake, ctx);
 }
 
 export async function waitNotifications(
 	store: MultiAgentStore,
+	runtimeHandles = createMultiAgentRuntimeHandles(),
 	signal?: AbortSignal,
 	ctx?: ExtensionContext,
 ): Promise<WaitNotificationsWake> {
@@ -2427,6 +2449,7 @@ export async function waitNotifications(
 		persistence.sessionPath,
 		signal,
 		runtimeCoordinationRecipient(ctx),
+		runtimeHandles.waitWakeListeners,
 	);
 }
 
@@ -2446,6 +2469,10 @@ export function consumeNotifications(
 	}
 	if (wake.kind === "none") return emptyResult();
 	if (wake.kind === "unavailable") return errorResult(wake.message, {});
+	if (wake.kind === "wake_up") {
+		const agent = store.getAgent(wake.wakeUp.agentId);
+		return result(`Woken after steering ${agent?.displayName ?? wake.wakeUp.agentId}.`, { wakeUp: wake.wakeUp });
+	}
 	const persistence = store.getPersistenceTarget();
 	if (persistence) {
 		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
@@ -2554,6 +2581,7 @@ async function waitForAgentOrCoordination(
 	sessionPath: string,
 	signal: AbortSignal | undefined,
 	recipient: RuntimeCoordinationRecipient | undefined,
+	waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"],
 ): Promise<WaitNotificationsWake> {
 	if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
 	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
@@ -2564,6 +2592,7 @@ async function waitForAgentOrCoordination(
 		sessionPath,
 		signal,
 		recipient,
+		waitWakeListeners,
 	).wait();
 }
 
@@ -2759,6 +2788,7 @@ export function requestAgentSteering(
 	store: MultiAgentStore,
 	params: AgentSteeringRequest,
 	binding: AgentSteeringRuntimeBinding,
+	runtimeHandles?: MultiAgentRuntimeHandles,
 ): AgentSteeringRequestResult {
 	const senderId = binding.actorAgentId ?? "supervisor";
 	const current = store.getAgent(params.agentId);
@@ -2823,11 +2853,15 @@ export function requestAgentSteering(
 		};
 	}
 	store.publishLifecycleCoordinatorSteering(steered.agent, steered.message);
+	for (const listener of runtimeHandles?.waitWakeListeners ?? []) {
+		listener({ agentId: steered.agent.id, kind: "steering" });
+	}
 	return { agent: steered.agent, message: steered.message, ok: true };
 }
 
 function steerAgent(
 	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
 	params: SteerAgentParams,
 	ctx?: ExtensionContext,
 ): AgentToolResult<AgentSteerToolDetails> {
@@ -2844,7 +2878,7 @@ function steerAgent(
 		actorAgentId: senderId === "supervisor" ? null : senderId,
 		controlDbPath,
 		sessionId: ctx.sessionManager?.getSessionId() ?? persistence?.sessionPath ?? "",
-	});
+	}, runtimeHandles);
 	if (!steered.ok) {
 		return errorResult(steered.error, { agent: steered.agent, message: steered.message });
 	}
@@ -3364,7 +3398,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
 				runtimeLifecycleMirror.bind(ctx);
 				assertNoWaitAgentsParams(params, "wait_agents");
-				return waitAgents(store, signal, ctx);
+				return waitAgents(store, runtimeHandles, signal, ctx);
 			},
 		}),
 	);
@@ -3388,7 +3422,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Queue a steering message through the multi-agent mailbox.",
 			approvalRequired: false,
 			parameters: steerAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => steerAgent(store, params, ctx),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				steerAgent(store, runtimeHandles, params, ctx),
 		}),
 	);
 }

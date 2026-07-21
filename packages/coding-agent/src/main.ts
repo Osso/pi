@@ -1119,6 +1119,7 @@ export async function main(args: string[], options?: MainOptions) {
 					firstPartyMultiAgentStore,
 					{ agentId, message, targetCheckpoint: "next_model_call" },
 					{ actorAgentId: null, controlDbPath, sessionId: runtime.session.sessionId },
+					firstPartyMultiAgentRuntimeHandles,
 				);
 				return steered.ok ? { ok: true } : { error: steered.error, ok: false };
 			},
