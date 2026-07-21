@@ -391,12 +391,14 @@ describe("InteractiveMode startup input", () => {
 		sessionManager.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-21T00:00:00.000Z" });
 		store.setPersistenceSessionManager(sessionManager);
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted multi-agent store");
 		const coordinator = new LifecycleCoordinator({
 			controlDbPath,
 			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
 			now: () => "2026-07-21T00:00:00.000Z",
 			processIdentity: readProcessIdentity(process.pid),
-			sessionPath: sessionManager.getSessionFile(),
+			sessionPath: persistence.sessionPath,
 		});
 		const prepared = coordinator.prepareChild({
 			agentType: "explore",
