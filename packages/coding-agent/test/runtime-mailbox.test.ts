@@ -1619,7 +1619,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
-	it("preserves completion when steering wakes wait_agents during a terminal race", async () => {
+	it("prioritizes completion when steering wakes wait_agents during a terminal race", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1683,9 +1683,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			terminalLifecycle: "completed",
 		});
 
-		const wakeResult = await firstWait;
-		expect(wakeResult.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
-		const completionResult = await waitAgents.execute("wait-completion", {}, undefined, undefined, context);
+		const completionResult = await firstWait;
 		expect(completionResult.content).toEqual([{ type: "text", text: "Verifier completed: tests passed" }]);
 		expect(completionResult.details).toMatchObject({
 			agent: { id: runtime.agent.id, lifecycle: "completed", result: { summary: "tests passed" } },

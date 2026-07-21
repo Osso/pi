@@ -2285,6 +2285,7 @@ class WaitAgentsWakeWatcher {
 	private readonly waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"];
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	private resolve: ((wake: WaitNotificationsWake) => void) | undefined;
+	private wakeImmediate: ReturnType<typeof setImmediate> | undefined;
 	private runtimeSignalHandler: (() => void) | undefined;
 	private settled = false;
 	private unsubscribeAgentTransitions = () => {};
@@ -2334,9 +2335,12 @@ class WaitAgentsWakeWatcher {
 			if (terminal) this.finish({ agent: terminal, kind: "agent" });
 		});
 		const onWakeUp = (wakeUp: WaitAgentsWakeUp) => {
-			if (!trackedAgentIds.has(wakeUp.agentId)) return;
-			const terminal = readTrackedTerminal();
-			this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
+			if (!trackedAgentIds.has(wakeUp.agentId) || this.wakeImmediate) return;
+			this.wakeImmediate = setImmediate(() => {
+				this.wakeImmediate = undefined;
+				const terminal = readTrackedTerminal();
+				this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
+			});
 		};
 		this.waitWakeListeners.add(onWakeUp);
 		this.unsubscribeWakeUp = () => this.waitWakeListeners.delete(onWakeUp);
@@ -2412,6 +2416,10 @@ class WaitAgentsWakeWatcher {
 		if (this.runtimeSignalHandler) {
 			process.off("SIGUSR2", this.runtimeSignalHandler);
 			this.runtimeSignalHandler = undefined;
+		}
+		if (this.wakeImmediate) {
+			clearImmediate(this.wakeImmediate);
+			this.wakeImmediate = undefined;
 		}
 		this.signal?.removeEventListener("abort", this.onAbort);
 	}
