@@ -43,6 +43,7 @@ type SubmitContext = {
 	flushPendingBashComponents: () => void;
 	handleBashCommand: (command: string, excludeFromContext: boolean) => Promise<void>;
 	handleDebugCommand: () => void;
+	handleEvent(this: SubmitContext, event: AgentSessionEvent): Promise<void>;
 	isBashMode: boolean;
 	isInitialized: boolean;
 	isViewingAgentSession: () => boolean;
@@ -126,6 +127,7 @@ function createSubmitContext(): SubmitContext {
 		flushPendingBashComponents: vi.fn(),
 		handleBashCommand: vi.fn(async () => {}),
 		handleDebugCommand: vi.fn(),
+		handleEvent: interactiveModePrototype.handleEvent,
 		isBashMode: false,
 		isInitialized: true,
 		isViewingAgentSession: () => false,
