@@ -39,7 +39,6 @@ import {
 	MultiAgentStore,
 } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
-import { SettingsManager } from "../src/core/settings-manager.ts";
 import {
 	type CreateAgentSessionOptions,
 	createAgentSession,
@@ -60,6 +59,7 @@ import {
 	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
