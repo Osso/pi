@@ -592,10 +592,13 @@ describe("headless Pi fixture", () => {
 			expect(JSON.stringify(waitResult)).toContain("Restart onto the deployed runtime");
 
 			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Worker complete"));
+			await agent.waitForAgent((candidate) => candidate.displayName === "Waiting worker" && candidate.lifecycle === "completed");
 			const mainAfterWait = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
 			);
+			const mainEnded = agent.waitForEvent((event) => event.type === "agent_end");
 			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Shared-channel message handled"));
+			await mainEnded;
 		});
 	});
 
