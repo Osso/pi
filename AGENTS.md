@@ -174,6 +174,7 @@ Attribution:
 ## Deployment
 
 - Merge feature and fix branches into `main` before deploying. Deploy a non-`main` revision only when the user explicitly designates it as a special deployment.
+- Preserve each session launcher during deployment restarts. Installed `pi` sessions must re-exec the deployed binary and match its checksum. `pi-dev` sessions must remain `pi-dev`; they restart from canonical main-repo source, so verify that repo HEAD/source revision instead of the installed binary checksum. Never migrate `pi-dev` to installed `pi` merely to satisfy deployment verification.
 
 ## Releasing
 
