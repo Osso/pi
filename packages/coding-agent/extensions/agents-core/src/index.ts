@@ -12,6 +12,7 @@ export {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	requestAgentSteering,
+	requestInteractiveAgentSteering,
 	resolveSelectedSessionMutationTarget,
 	waitNotifications,
 } from "./runtime.ts";

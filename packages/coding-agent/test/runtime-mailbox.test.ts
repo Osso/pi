@@ -72,6 +72,7 @@ import {
 	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
 	requestAgentSteering,
+	requestInteractiveAgentSteering,
 	waitNotifications,
 } from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
@@ -1472,6 +1473,7 @@ describe("runtime SQLite mailbox delivery", () => {
 				text: expect.stringContaining("Need parent review"),
 			});
 			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+			expect(process.listenerCount("SIGUSR2")).toBe(signalListenerCount);
 		},
 	);
 
@@ -1565,11 +1567,16 @@ describe("runtime SQLite mailbox delivery", () => {
 		const waiting = waitNotifications(store, runtimeHandles, undefined, context);
 		await Promise.resolve();
 
-		const steered = requestAgentSteering(
+		const steered = requestInteractiveAgentSteering(
 			store,
-			{ agentId: runtime.agent.id, message: "Interactive instruction" },
-			{ actorAgentId: null, controlDbPath, sessionId: parentSession.getSessionId() },
 			runtimeHandles,
+			runtime.agent.id,
+			"Interactive instruction",
+			{
+				actorAgentId: runtime.ownership.owner.agentId,
+				controlDbPath,
+				sessionId: runtime.ownership.owner.sessionId,
+			},
 		);
 		if (!steered.ok) throw new Error(steered.error);
 		const waited = consumeNotifications(store, await waiting, context);
@@ -1604,7 +1611,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		const lateSteering = requestAgentSteering(
 			store,
 			{ agentId: untracked.agent.id, message: "Late instruction" },
-			{ actorAgentId: null, controlDbPath, sessionId: parentSession.getSessionId() },
+			{
+				actorAgentId: untracked.ownership.owner.agentId,
+				controlDbPath,
+				sessionId: untracked.ownership.owner.sessionId,
+			},
 			runtimeHandles,
 		);
 		if (!lateSteering.ok) throw new Error(lateSteering.error);
@@ -1614,7 +1625,11 @@ describe("runtime SQLite mailbox delivery", () => {
 		const trackedSteering = requestAgentSteering(
 			store,
 			{ agentId: tracked.agent.id, message: "Tracked instruction" },
-			{ actorAgentId: null, controlDbPath, sessionId: parentSession.getSessionId() },
+			{
+				actorAgentId: tracked.ownership.owner.agentId,
+				controlDbPath,
+				sessionId: tracked.ownership.owner.sessionId,
+			},
 			runtimeHandles,
 		);
 		if (!trackedSteering.ok) throw new Error(trackedSteering.error);

@@ -2775,6 +2775,22 @@ export type AgentSteeringRequestResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; agent: AgentSnapshot; message: AgentMailboxMessage; error: string };
 
+export function requestInteractiveAgentSteering(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+	agentId: string,
+	message: string,
+	binding: AgentSteeringRuntimeBinding,
+): { ok: true } | { error: string; ok: false } {
+	const steered = requestAgentSteering(
+		store,
+		{ agentId, message, targetCheckpoint: "next_model_call" },
+		binding,
+		runtimeHandles,
+	);
+	return steered.ok ? { ok: true } : { error: steered.error, ok: false };
+}
+
 export function requestAgentSteering(
 	store: MultiAgentStore,
 	params: AgentSteeringRequest,
