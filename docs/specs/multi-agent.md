@@ -140,9 +140,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       coordination input is available, or when transient steering wakes a live wait, without changing notification delivery
       state. Explicit consumption drains every pending terminal notification. `wait_agents({})` composes both operations,
       snapshots agents active at invocation, and queries current agent rows until any snapshot member is terminal. Terminal
-      notifications only wake the query; the agent row is terminal truth. Persisted coordination polling consumes all
-      currently pending deliverable runtime-mailbox and shared-channel inputs so each message is visible exactly once.
-      Restore clears transient `runtime` worker metadata without rewriting durable lifecycle.
+      notifications only wake the query. Accepted ordinary main-session steering also wakes a live wait through the
+      process-local AgentSession event path; neither wake changes notification delivery. Persisted coordination polling
+      consumes all currently pending deliverable runtime-mailbox and shared-channel inputs so each message is visible
+      exactly once. Restore clears transient `runtime` worker metadata without rewriting durable lifecycle.
 
 ### Runtime construction inventory
 
@@ -263,9 +264,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
   delivery queue. Redelivery and retries affect terminal-notification delivery only. `wait_agents` consumes every
   pending terminal notification already waiting and queries the current agent rows for agents active at invocation;
-  terminal notifications only wake that query, transient steering wakes only a live wait, and persisted coordination
-  polling returns and consumes currently pending deliverable mailbox and shared-channel input. The agent row remains the
-  sole terminal source of truth.
+  terminal notifications only wake that query, while child steering and accepted ordinary main-session steering wake
+  only a live wait. Ordinary steering emits `steering_message_queued` after entering the AgentSession queue; interactive
+  mode forwards that event to the process-local wait wake path. Persisted coordination polling returns and consumes
+  currently pending deliverable mailbox and shared-channel input. The agent row remains the sole terminal source of truth.
 
 ### Mailbox and steering
 
@@ -339,15 +341,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
 - [x] `wait_agents({})` consumes every pending terminal notification already waiting and queries agent rows for agents
-      active at invocation until one reaches a terminal state. Terminal notifications only wake the query; the agent
-      row is terminal truth. Transient steering wakes only a live wait. Persisted coordination polling returns and
-      consumes all currently pending deliverable runtime-mailbox and shared-channel inputs; Pyrun uses the same operation.
+      active at invocation until one reaches a terminal state. Terminal notifications only wake the query; child
+      steering and accepted ordinary main-session steering wake only a live wait. Persisted coordination polling
+      returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs; Pyrun uses the
+      same operation.
 - [x] A live `wait_agents({})` invocation receives a transient `wake_up` when steering is accepted for one of its
-      snapshotted active agents. The wake is scoped to that invocation, is never persisted or replayed after it ends,
-      and leaves the steering mailbox row persisted as canonical state. If the agent is terminal when the wake is
-      observed, the terminal result wins over `wake_up`. Persisted coordination input remains detected by the waiter's
-      three-second polling loop; `wake_up` is a separate transient process-local event and does not use SIGUSR2 or
-      mailbox transport.
+      snapshotted active agents. Accepted ordinary main-session steering emits `steering_message_queued` after it enters
+      the AgentSession queue; interactive mode forwards that event to the same process-local wait wake path. Both wakes
+      are scoped to the live invocation, are never persisted or replayed after it ends, and do not use SIGUSR2 or
+      mailbox transport. Child steering leaves its steering mailbox row persisted as canonical state. If a tracked agent
+      is terminal when a wake is observed, the terminal result wins over `wake_up`; persisted coordination input remains
+      detected by the waiter's three-second polling loop.
 - [x] While an agent turn is active, ordinary polling leaves pending messages unread and unchanged.
       After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
       first and then `next_model_call` steering before the following provider request. Long tool loops must

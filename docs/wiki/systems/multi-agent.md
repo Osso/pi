@@ -25,10 +25,12 @@ Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
 `wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
 rows for agents active at invocation until one is terminal. Steering accepted for a snapshotted active agent emits a
-transient process-local `wake_up` only to the live wait. Persisted coordination polling instead returns and consumes all
-currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting; mailbox rows
-become `delivered` and the shared-channel cursor advances. Each distinct coordination message is visible exactly once.
-The agent row remains terminal truth, and Pyrun `pi.agents.wait()` uses the same semantics.
+transient process-local `wake_up` only to the live wait. Accepted ordinary main-session steering emits
+`steering_message_queued` after entering the AgentSession queue; interactive mode forwards it to the same process-local
+wait wake path. Persisted coordination polling instead returns and consumes all currently pending deliverable
+runtime-mailbox and shared-channel inputs, preserving sender/body formatting; mailbox rows become `delivered` and the
+shared-channel cursor advances. Each distinct coordination message is visible exactly once. The agent row remains
+terminal truth, and Pyrun `pi.agents.wait()` uses the same semantics.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.
@@ -142,9 +144,10 @@ foreign ownership; repository transactions manage revision internally. Viewing a
 read-only: switching tabs, opening a transcript, or pressing `Alt+1` through `Alt+9` must not wake,
 resume, close, interrupt, or otherwise advance a child.
 
-Steering is a mailbox command, not an edit to a live input buffer. Core records pending, accepted,
-rejected, and delivered states. Children consume steering only at safe checkpoints: before the next
-model call, after a tool result, or while waiting for input.
+Steering is a mailbox command for child agents, not an edit to a live input buffer. Core records pending, accepted,
+rejected, and delivered states. Children consume steering only at safe checkpoints: before the next model call, after a
+tool result, or while waiting for input. Ordinary accepted main-session steering enters the AgentSession queue,
+emits `steering_message_queued`, and wakes only live process-local `wait_agents` invocations through interactive mode.
 
 Accounts own resource policy only: model/account choice, provider fallback, token budgets,
 concurrency caps, and rate limits. Agent-type profiles are a lightweight local policy for selecting

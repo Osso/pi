@@ -16,6 +16,7 @@
 
 ### Added
 
+- Added the `steering_message_queued` AgentSession event; interactive mode uses it to wake active process-local `wait_agents` after accepted ordinary main-session steering.
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
 - Added runtime-only `/fast` mode for `openai-codex` and `openai-codex-gc`, with one main-thread authority shared dynamically by spawned and attached child runtimes for later Codex requests; child `/fast` commands cannot mutate it, and it resets on main session start, restart, or resume without persistence.
 - Added built-in `search_current_session_history` for searching full conversational entry content on the active branch, including entries omitted from model context by compaction.
