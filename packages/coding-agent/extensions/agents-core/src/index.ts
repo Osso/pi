@@ -15,6 +15,7 @@ export {
 	requestInteractiveAgentSteering,
 	resolveSelectedSessionMutationTarget,
 	waitNotifications,
+	wakeWaitAgentsAfterSteering,
 } from "./runtime.ts";
 export { createMultiAgentPiRequestHandler } from "./runtime.ts";
 export type {

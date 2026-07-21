@@ -304,6 +304,7 @@ export type AgentSessionEvent =
 			steering: readonly string[];
 			followUp: readonly string[];
 	  }
+	| { type: "steering_message_queued" }
 	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow"; sourceHint?: CompactionSourceInfo }
 	| { type: "entry_appended"; entry: SessionEntry }
 	/** Emitted after bash messages are appended to agent state and session storage. */
@@ -2682,6 +2683,7 @@ export class AgentSession {
 			inputSource,
 			timestamp: Date.now(),
 		});
+		this._emit({ type: "steering_message_queued" });
 	}
 
 	/**

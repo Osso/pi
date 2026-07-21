@@ -352,7 +352,7 @@ interface ContactParentToolDetails {
 }
 
 interface WaitAgentsWakeUp {
-	agentId: string;
+	agentId?: string;
 	kind: "steering";
 }
 
@@ -2333,7 +2333,7 @@ class WaitAgentsWakeWatcher {
 			if (terminal) this.finish({ agent: terminal, kind: "agent" });
 		});
 		const onWakeUp = (wakeUp: WaitAgentsWakeUp) => {
-			if (!trackedAgentIds.has(wakeUp.agentId)) return;
+			if (wakeUp.agentId && !trackedAgentIds.has(wakeUp.agentId)) return;
 			const terminal = readTrackedTerminal();
 			this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
 		};
@@ -2461,8 +2461,9 @@ export function consumeNotifications(
 	if (wake.kind === "none") return emptyResult();
 	if (wake.kind === "unavailable") return errorResult(wake.message, {});
 	if (wake.kind === "wake_up") {
-		const agent = store.getAgent(wake.wakeUp.agentId);
-		return result(`Woken after steering ${agent?.displayName ?? wake.wakeUp.agentId}.`, { wakeUp: wake.wakeUp });
+		const agent = wake.wakeUp.agentId ? store.getAgent(wake.wakeUp.agentId) : undefined;
+		const text = agent ? `Woken after steering ${agent.displayName}.` : "Woken after supervisor steering.";
+		return result(text, { wakeUp: wake.wakeUp });
 	}
 	const persistence = store.getPersistenceTarget();
 	if (persistence) {
@@ -2774,6 +2775,10 @@ export interface AgentSteeringRequest {
 export type AgentSteeringRequestResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; agent: AgentSnapshot; message: AgentMailboxMessage; error: string };
+
+export function wakeWaitAgentsAfterSteering(runtimeHandles: MultiAgentRuntimeHandles): void {
+	for (const listener of runtimeHandles.waitWakeListeners) listener({ kind: "steering" });
+}
 
 export function requestInteractiveAgentSteering(
 	store: MultiAgentStore,

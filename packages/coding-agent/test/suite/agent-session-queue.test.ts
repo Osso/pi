@@ -118,6 +118,28 @@ describe("AgentSession queue characterization", () => {
 		expect(harness.session.messages).toEqual([]);
 	});
 
+	it("emits steering_message_queued only after steering enters the active queue", async () => {
+		const { harness, promptPromise, releaseToolExecution, waitForToolStart } = await createWaitingHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		const events: string[] = [];
+		const unsubscribe = harness.session.subscribe((event) => events.push(event.type));
+
+		await waitForToolStart;
+		await expect(harness.session.prompt("rejected steering")).rejects.toThrow("Agent is already processing");
+		expect(events).not.toContain("steering_message_queued");
+
+		await harness.session.prompt("accepted steering", { streamingBehavior: "steer" });
+		expect(events).toContain("steering_message_queued");
+
+		unsubscribe();
+		releaseToolExecution();
+		await promptPromise;
+	});
+
 	it("delivers extension-origin steering messages before the next LLM call", async () => {
 		let extensionApi: ExtensionAPI | undefined;
 		const waiting = await createWaitingHarness({

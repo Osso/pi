@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import {
 	claimLatestIncomingMessage,
 	enqueueIncomingMessage,
@@ -29,6 +30,8 @@ type SubmitContext = {
 	handleBashCommand: (command: string, excludeFromContext: boolean) => Promise<void>;
 	handleDebugCommand: () => void;
 	isBashMode: boolean;
+	isInitialized: boolean;
+	isViewingAgentSession: () => boolean;
 	multiAgentStore?: {
 		getAgent: (agentId: string) =>
 			| {
@@ -67,6 +70,7 @@ type MainLoopContext = {
 };
 
 type InteractiveModePrivate = {
+	handleEvent(this: SubmitContext, event: AgentSessionEvent): Promise<void>;
 	setupEditorSubmitHandler(this: SubmitContext): void;
 	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
 	getUserInput(this: InputContext): Promise<string>;
@@ -107,6 +111,8 @@ function createSubmitContext(): SubmitContext {
 		handleBashCommand: vi.fn(async () => {}),
 		handleDebugCommand: vi.fn(),
 		isBashMode: false,
+		isInitialized: true,
+		isViewingAgentSession: () => false,
 		options: {},
 		pendingUserInputs: [],
 		showError: vi.fn(),
@@ -316,7 +322,10 @@ describe("InteractiveMode startup input", () => {
 		});
 		const context = createSubmitContext();
 		context.session.isStreaming = true;
-		context.session.prompt = vi.fn(() => promptAccepted);
+		context.session.prompt = vi.fn(async () => {
+			await promptAccepted;
+			await interactiveModePrototype.handleEvent.call(context, { type: "steering_message_queued" });
+		});
 		context.options.wakeWaitAgentsAfterSteering = vi.fn();
 		interactiveModePrototype.setupEditorSubmitHandler.call(context);
 

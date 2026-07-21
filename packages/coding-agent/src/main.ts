@@ -19,6 +19,7 @@ import agentsCoreExtension, {
 	createProductionChildAgentSessionFactory,
 	requestInteractiveAgentSteering,
 	resolveSelectedSessionMutationTarget,
+	wakeWaitAgentsAfterSteering,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
@@ -1113,6 +1114,7 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
+			wakeWaitAgentsAfterSteering: () => wakeWaitAgentsAfterSteering(firstPartyMultiAgentRuntimeHandles),
 			steerMultiAgent: async (agentId, message) => {
 				if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
 				return requestInteractiveAgentSteering(

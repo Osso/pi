@@ -419,6 +419,8 @@ export interface InteractiveModeOptions {
 	cancelMultiAgent?: (agentId: string) => Promise<{ ok: boolean; agent?: AgentSnapshot; error?: string }>;
 	/** Submit editor text to the selected agent through the lifecycle coordinator and runtime mailbox. */
 	steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
+	/** Wake an active multi-agent wait after ordinary main-session steering is queued. */
+	wakeWaitAgentsAfterSteering?: () => void;
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
 }
@@ -4008,6 +4010,10 @@ export class InteractiveMode {
 			case "queue_update":
 				this.updatePendingMessagesDisplay();
 				this.ui.requestRender();
+				break;
+
+			case "steering_message_queued":
+				this.options.wakeWaitAgentsAfterSteering?.();
 				break;
 
 			case "session_info_changed":
