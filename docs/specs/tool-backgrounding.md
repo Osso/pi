@@ -14,10 +14,11 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] The live-agent TUI view renders the detached Pyrun script and output log without fabricating a child transcript.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
 - [x] `wait_agents({})` consumes every pending terminal notification already waiting before querying detached
-      tool jobs active at invocation for a terminal agent row. A coordination wake returns and consumes all currently
-      pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting; mailbox rows
-      become `delivered` and the shared-channel cursor advances so each distinct message is visible exactly once.
-      Failed jobs expose their failure message and direct `fileRefs`.
+      tool jobs active at invocation for a terminal agent row. Persisted coordination is detected by the waiter's
+      three-second polling loop and returns with all currently pending deliverable runtime-mailbox and shared-channel
+      inputs consumed, preserving sender/body formatting; mailbox rows become `delivered` and the shared-channel
+      cursor advances so each distinct message is visible exactly once. Failed jobs expose their failure message and
+      direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 - [x] Only jobs explicitly detached from their waiting tool call emit a terminal supervisor mailbox
       notification, recorded through a fenced `detached` lifecycle mark. Attended runner-owned jobs
@@ -29,10 +30,12 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
 - `wait_agents({})` snapshots active background jobs and consumes every pending terminal notification already
-  waiting, then queries current agent rows until the first snapshot member is terminal. A coordination wake returns
-  and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body
-  formatting, marking mailbox rows `delivered`, and advancing the shared-channel cursor. Each distinct coordination
-  message is visible exactly once. Pyrun uses the same wait operation.
+  waiting, then queries current agent rows until the first snapshot member is terminal. Persisted coordination input
+  is detected by the waiter's three-second polling loop and returns with all currently pending deliverable
+  runtime-mailbox and shared-channel inputs consumed, preserving sender/body formatting, marking mailbox rows
+  `delivered`, and advancing the shared-channel cursor. Each distinct coordination message is visible exactly once.
+  A transient steering `wake_up` is separate from persisted coordination and does not use SIGUSR2 or mailbox
+  transport. Pyrun uses the same wait operation.
 
 ## Implementation inventory
 

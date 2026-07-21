@@ -341,6 +341,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       active at invocation until one reaches a terminal state. Terminal notifications only wake the query; the agent
       row is terminal truth. A coordination wake returns and consumes all currently pending deliverable runtime-mailbox
       and shared-channel inputs; Pyrun uses the same operation.
+- [x] A live `wait_agents({})` invocation receives a transient `wake_up` when steering is accepted for one of its
+      snapshotted active agents. The wake is scoped to that invocation, is never persisted or replayed after it ends,
+      and leaves the steering mailbox row persisted as canonical state. If the agent is terminal when the wake is
+      observed, the terminal result wins over `wake_up`. Persisted coordination input remains detected by the waiter's
+      three-second polling loop; `wake_up` is a separate transient process-local event and does not use SIGUSR2 or
+      mailbox transport.
 - [x] While an agent turn is active, ordinary polling leaves pending messages unread and unchanged.
       After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
       first and then `next_model_call` steering before the following provider request. Long tool loops must

@@ -55,7 +55,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
       worker-handle mismatch guards (`headless-pi.test.ts`, `orphaned-detached-reconciliation.test.ts`).
 - [x] Prove an RPC `interrupt` command during an active real-process turn preserves queued steering and submits it in the replacement LLM request. This test starts below terminal/TUI input routing and does not prove that an Escape key reaches the interrupt command.
 - [x] Prove steering accepted immediately after a real Pyrun tool turn reaches `agent_end` wakes the idle session and produces a new model request instead of remaining queued indefinitely (`headless-pi.test.ts`: `wakes idle steering after completion of a real Pyrun tool turn`).
-- [x] Prove `wait_agents` remains blocked while an active child has pending `steer_agent` input, the steering reaches the child's next LLM request, and the wait returns only after that full child turn completes and terminalizes.
+- [x] Prove `wait_agents` remains blocked when `steer_agent` input was already pending before the wait started (no stale wake), the steering reaches the child's next LLM request, and the wait returns only after that full child turn completes and terminalizes.
 
 ### Terminal interrupt coverage
 
