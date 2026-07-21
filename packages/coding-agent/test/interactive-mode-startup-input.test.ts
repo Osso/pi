@@ -52,6 +52,7 @@ type SubmitContext = {
 	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
 	ui: { requestRender: () => void };
 	updateEditorBorderColor: () => void;
+	updatePendingMessagesDisplay: () => void;
 };
 
 type InputContext = {
@@ -113,6 +114,7 @@ function createSubmitContext(): SubmitContext {
 		submitSelectedAgentSteering: interactiveModePrototype.submitSelectedAgentSteering,
 		ui: { requestRender: vi.fn() },
 		updateEditorBorderColor: vi.fn(),
+		updatePendingMessagesDisplay: vi.fn(),
 	};
 }
 
