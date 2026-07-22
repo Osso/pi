@@ -65,7 +65,7 @@
 
 ## Pi Control CLI
 
-Pi session restarts are safe; incomplete goals alone never block restart. Active foreground operations may delay timing to preserve output.
+Pi session restarts are always safe. Never request safe-point acknowledgments or wait for goals, foreground operations, or agents before restarting; restart machinery preserves work and output.
 
 Prefer the control CLI for the SQLite control channel. Do not type into tmux panes to steer a running Pi unless explicitly asked.
 
@@ -174,7 +174,7 @@ Attribution:
 ## Deployment
 
 - Merge feature and fix branches into `main` before deploying. Deploy a non-`main` revision only when the user explicitly designates it as a special deployment.
-- Preserve each session launcher during deployment restarts. Installed `pi` sessions must re-exec the deployed binary and match its checksum. `pi-dev` sessions must remain `pi-dev`; they restart from canonical main-repo source, so verify that repo HEAD/source revision instead of the installed binary checksum. Never migrate `pi-dev` to installed `pi` merely to satisfy deployment verification.
+- Restart every live session immediately after deployment without requesting per-session acknowledgment. Preserve each launcher: installed `pi` sessions must re-exec the deployed binary and match its checksum; `pi-dev` sessions must remain `pi-dev` and match canonical main-repo source. Never migrate `pi-dev` to installed `pi` for verification.
 
 ## Releasing
 
