@@ -3101,7 +3101,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(didResolveBeforeDispatch).toBe(true);
 		expect(spawned.content).toEqual([
-			{ text: `Spawned explore Worker [fresh] (${spawned.details.agent.id})`, type: "text" },
+			{ text: `Spawned Worker (${spawned.details.agent.id}) [type: explore, context: fresh]`, type: "text" },
 		]);
 		expect(spawned.details).toMatchObject({ dispatched: true });
 	});
@@ -3121,7 +3121,7 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(spawned.content).toEqual([
-			{ text: `Spawned implement Inheritor [inherit] (${spawned.details.agent.id})`, type: "text" },
+			{ text: `Spawned Inheritor (${spawned.details.agent.id}) [type: implement, context: inherit]`, type: "text" },
 		]);
 	});
 
