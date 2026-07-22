@@ -482,7 +482,8 @@ export function shouldContinueInterruptedSession(messages: readonly AgentMessage
 	const lastMessage = messages[messages.length - 1];
 	if (lastMessage?.role === "user" || lastMessage?.role === "toolResult") return true;
 	if (lastMessage?.role !== "assistant") return false;
-	return lastMessage.stopReason === "aborted" || lastMessage.content.some((content) => content.type === "toolCall");
+	if (lastMessage.stopReason === "aborted") return true;
+	return lastMessage.content.some((content) => content.type === "toolCall" && content.name !== "resume_session");
 }
 
 function estimateMessagesTokens(messages: AgentMessage[]): number {

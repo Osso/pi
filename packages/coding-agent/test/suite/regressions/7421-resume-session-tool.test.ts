@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentSession } from "../../../src/core/agent-session.ts";
+import { type AgentSession, shouldContinueInterruptedSession } from "../../../src/core/agent-session.ts";
 import {
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionFromServices,
@@ -154,6 +154,18 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 }
 
 describe("resume_session first-party tool", () => {
+	it("does not classify a trailing resume_session call as interrupted work", () => {
+		const resumeCall = fauxAssistantMessage(
+			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-before-exit" }),
+		);
+		const ordinaryCall = fauxAssistantMessage(
+			fauxToolCall("read", { path: "/tmp/file" }, { id: "read-before-exit" }),
+		);
+
+		expect(shouldContinueInterruptedSession([resumeCall])).toBe(false);
+		expect(shouldContinueInterruptedSession([ordinaryCall])).toBe(true);
+	});
+
 	it("keeps the caller alive when the target session is already open", async () => {
 		await withHeadlessPi(async (caller) => {
 			const targetSession = SessionManager.create(caller.paths.workspaceDir, caller.paths.sessionDir);
