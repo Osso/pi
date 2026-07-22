@@ -1,7 +1,9 @@
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import { type AgentSession, shouldContinueInterruptedSession } from "../../../src/core/agent-session.ts";
@@ -21,7 +23,7 @@ import { SessionManager } from "../../../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { createResumeSessionToolDefinition } from "../../../src/core/tools/resume-session.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../../../src/index.ts";
-import { withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessPiPaths, withHeadlessPi } from "../headless-pi.ts";
 
 function getText(message: AgentSession["messages"][number]): string {
 	if (!("content" in message)) return "";
@@ -33,6 +35,101 @@ function getText(message: AgentSession["messages"][number]): string {
 }
 
 const cleanups: Array<() => Promise<void> | void> = [];
+
+function startInteractivePi(paths: HeadlessPiPaths, sessionFile: string): {
+	process: ChildProcessWithoutNullStreams;
+	readOutput: () => string;
+} {
+	const cliPath = join(import.meta.dirname, "../../../src/cli.ts");
+	const providerPreload = join(import.meta.dirname, "../fixtures/headless-pi-provider-preload.ts");
+	const ttyPreload = join(import.meta.dirname, "../fixtures/headless-pi-tty-preload.mjs");
+	const child = spawn(
+		process.execPath,
+		[
+			"--import",
+			import.meta.resolve("tsx"),
+			"--import",
+			pathToFileURL(providerPreload).href,
+			"--import",
+			pathToFileURL(ttyPreload).href,
+			cliPath,
+			"--approve",
+			"--no-context-files",
+			"--no-skills",
+			"--no-themes",
+			"--provider",
+			"headless-faux",
+			"--model",
+			"headless-faux-1",
+			"--session",
+			sessionFile,
+		],
+		{
+			cwd: paths.workspaceDir,
+			env: {
+				...process.env,
+				NO_COLOR: "1",
+				PI_CODING_AGENT_DIR: paths.agentDir,
+				PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
+				PI_CODING_AGENT_STATE_DIR: paths.agentDir,
+				PI_HEADLESS_PROVIDER_SOCKET: join(paths.tempDir, "provider.sock"),
+				TERM: "xterm-256color",
+			},
+		},
+	);
+	let output = "";
+	child.stdout.on("data", (chunk: Buffer) => {
+		output += chunk.toString();
+	});
+	child.stderr.on("data", (chunk: Buffer) => {
+		output += chunk.toString();
+	});
+	return { process: child, readOutput: () => output };
+}
+
+async function stopProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return;
+	const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+	child.kill("SIGTERM");
+	await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2_000))]);
+	if (child.exitCode === null && child.signalCode === null) {
+		child.kill("SIGKILL");
+		await exited;
+	}
+}
+
+async function waitForRuntimeListener(
+	controlDbPath: string,
+	sessionId: string,
+	process: ChildProcessWithoutNullStreams,
+	readOutput: () => string,
+): Promise<void> {
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		if (readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId })?.pid === process.pid) return;
+		if (process.exitCode !== null || process.signalCode !== null) {
+			throw new Error(`Interactive Pi exited before registering its runtime listener:\n${readOutput()}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`Timed out waiting for interactive Pi runtime listener:\n${readOutput()}`);
+}
+
+async function waitForInteractiveOutput(
+	process: ChildProcessWithoutNullStreams,
+	readOutput: () => string,
+	text: string,
+): Promise<void> {
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		if (readOutput().includes(text)) return;
+		if (process.exitCode !== null || process.signalCode !== null) {
+			throw new Error(`Interactive Pi exited before rendering '${text}':\n${readOutput()}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`Timed out waiting for interactive Pi to render '${text}':\n${readOutput()}`);
+}
 
 function runtimeToolForTest() {
 	return createResumeSessionToolDefinition();
@@ -166,6 +263,68 @@ describe("resume_session first-party tool", () => {
 		expect(shouldContinueInterruptedSession([ordinaryCall])).toBe(true);
 	});
 
+	it("keeps a restored source alive without replaying its completed switch", async () => {
+		await withHeadlessPi(async (target) => {
+			if (!existsSync(target.sessionFile)) {
+				writeFileSync(
+					target.sessionFile,
+					`${JSON.stringify({
+						type: "session",
+						version: 3,
+						id: target.sessionId,
+						timestamp: new Date().toISOString(),
+						cwd: target.paths.workspaceDir,
+					})}\n`,
+				);
+			}
+			const sourceSession = SessionManager.create(target.paths.workspaceDir, target.paths.sessionDir);
+			sourceSession.appendMessage({ role: "user", content: "Switch to live target", timestamp: Date.now() });
+			sourceSession.appendMessage(
+				fauxAssistantMessage(
+					fauxToolCall(
+						"resume_session",
+						{
+							id: target.sessionId,
+							starter_prompt: "Resume target after restart without changing task scope.",
+						},
+						{ id: "resume-before-process-exit" },
+					),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const sourceSessionFile = sourceSession.getSessionFile();
+			if (!sourceSessionFile) throw new Error("Missing source session file");
+			const interactive = startInteractivePi(target.paths, sourceSessionFile);
+			cleanups.push(() => stopProcess(interactive.process));
+
+			const controlDbPath = getControlDbPath(target.paths.agentDir);
+			await waitForRuntimeListener(
+				controlDbPath,
+				sourceSession.getSessionId(),
+				interactive.process,
+				interactive.readOutput,
+			);
+			await waitForInteractiveOutput(interactive.process, interactive.readOutput, "headless-faux-1");
+			await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+			expect(interactive.process.exitCode, interactive.readOutput()).toBeNull();
+			expect(
+				readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: sourceSession.getSessionId() }),
+			).toMatchObject({ pid: interactive.process.pid, sessionPath: sourceSessionFile });
+			expect(
+				SessionManager.open(sourceSessionFile)
+					.getEntries()
+					.find(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "toolResult" &&
+							entry.message.toolCallId === "resume-before-process-exit",
+					),
+				interactive.readOutput(),
+			).toBeUndefined();
+		});
+	});
+
 	it("keeps the caller alive when the target session is already open", async () => {
 		await withHeadlessPi(async (caller) => {
 			const targetSession = SessionManager.create(caller.paths.workspaceDir, caller.paths.sessionDir);
@@ -261,7 +420,7 @@ describe("resume_session first-party tool", () => {
 		if (!tool) throw new Error("Missing resume_session tool");
 		const idResult = await tool.execute(
 			"resume-session-id-test",
-			{ id: targetSessionId.slice(0, 12) },
+			{ id: targetSessionId.slice(0, 20) },
 			undefined,
 			undefined,
 			runtime.session.extensionRunner.createContext(),
