@@ -83,7 +83,10 @@ function captureProcessOutput(child: ChildProcessWithoutNullStreams): () => stri
 	return () => output;
 }
 
-function startInteractivePi(paths: HeadlessPiPaths, sessionFile: string): {
+function startInteractivePi(
+	paths: HeadlessPiPaths,
+	sessionFile: string,
+): {
 	process: ChildProcessWithoutNullStreams;
 	readOutput: () => string;
 } {
