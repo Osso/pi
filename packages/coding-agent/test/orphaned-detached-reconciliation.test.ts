@@ -117,6 +117,14 @@ function waitForWorkerMessage(worker: Worker, expected: string): Promise<void> {
 	});
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!predicate()) {
+		if (Date.now() >= deadline) throw new Error("Timed out waiting for reconciliation");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
 function replaceRunnerIdentity(controlDbPath: string, processIdentity: { pid: number; startTimeTicks: number }): void {
 	const db = createSqliteDatabase(controlDbPath);
 	try {
@@ -154,14 +162,12 @@ describe("orphaned detached runtime reconciliation", () => {
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
-	it(
-		"defers reconciliation when another process holds the control database writer lock",
-		async () => {
-			createRunningDetachedJob(controlDbPath);
-			const releaseRetainedConnection = retainControlDbConnection(controlDbPath);
-			const sqliteModuleUrl = pathToFileURL(join(process.cwd(), "src/core/sqlite.ts")).href;
-			const worker = new Worker(
-				`
+	it("defers reconciliation when another process holds the control database writer lock", async () => {
+		createRunningDetachedJob(controlDbPath);
+		const releaseRetainedConnection = retainControlDbConnection(controlDbPath);
+		const sqliteModuleUrl = pathToFileURL(join(process.cwd(), "src/core/sqlite.ts")).href;
+		const worker = new Worker(
+			`
 					import { parentPort, workerData } from "node:worker_threads";
 					import { configureSharedSqliteDatabase, createSqliteDatabase } from ${JSON.stringify(sqliteModuleUrl)};
 					const db = createSqliteDatabase(workerData.controlDbPath);
@@ -174,24 +180,24 @@ describe("orphaned detached runtime reconciliation", () => {
 						parentPort?.postMessage("released");
 					}, workerData.holdMs);
 				`,
-				{
-					eval: true,
-					execArgv: ["--experimental-strip-types"],
-					workerData: { controlDbPath, holdMs: 5_500 },
-				},
-			);
-			try {
-				await waitForWorkerMessage(worker, "locked");
-				expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, RECONCILED_AT)).toBe(0);
-				await waitForWorkerMessage(worker, "released");
-				expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, RECONCILED_AT)).toBe(1);
-			} finally {
-				releaseRetainedConnection();
-				await worker.terminate();
-			}
-		},
-		15_000,
-	);
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { controlDbPath, holdMs: 5_500 },
+			},
+		);
+		try {
+			await waitForWorkerMessage(worker, "locked");
+			expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, RECONCILED_AT)).toBe(0);
+			expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)?.lifecycle).toBe("running");
+			await waitForWorkerMessage(worker, "released");
+			await waitFor(() => readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)?.lifecycle === "failed");
+			expect(countTerminalOutboxRows(controlDbPath)).toBe(1);
+		} finally {
+			releaseRetainedConnection();
+			await worker.terminate();
+		}
+	}, 15_000);
 
 	it("surfaces non-transient reconciliation failures", () => {
 		createRunningDetachedJob(controlDbPath);

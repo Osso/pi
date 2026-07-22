@@ -1,6 +1,5 @@
 import type { AgentMailboxMessage, AgentSnapshot, SendSteeringInput, SpawnAgentInput } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
-import { isSqliteContentionError } from "./sqlite.ts";
 import {
 	acquireAttachedRuntimeOwnership,
 	commitMultiAgentDetachMark,
@@ -17,8 +16,28 @@ import {
 	reconcileDeadDetachedAgentRuntimes as reconcileDeadDetachedAgentRuntimesRepository,
 	recoverDeadMultiAgentRuntime,
 } from "./session-control-db.ts";
+import { isSqliteContentionError } from "./sqlite.ts";
 
 const MAIN_THREAD_AGENT_ID = "main";
+const DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS = 250;
+const deadDetachedReconciliationRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleDeadDetachedReconciliationRetry(controlDbPath: string): void {
+	if (deadDetachedReconciliationRetryTimers.has(controlDbPath)) return;
+	const timer = setTimeout(() => {
+		deadDetachedReconciliationRetryTimers.delete(controlDbPath);
+		LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString());
+	}, DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS);
+	timer.unref();
+	deadDetachedReconciliationRetryTimers.set(controlDbPath, timer);
+}
+
+function clearDeadDetachedReconciliationRetry(controlDbPath: string): void {
+	const timer = deadDetachedReconciliationRetryTimers.get(controlDbPath);
+	if (!timer) return;
+	clearTimeout(timer);
+	deadDetachedReconciliationRetryTimers.delete(controlDbPath);
+}
 
 export interface LifecycleCoordinatorOptions {
 	controlDbPath: string;
@@ -99,9 +118,12 @@ export class LifecycleCoordinator {
 
 	static reconcileDeadDetachedRuntimes(controlDbPath: string, nowIso: string): number {
 		try {
-			return reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
+			const reconciled = reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
+			clearDeadDetachedReconciliationRetry(controlDbPath);
+			return reconciled;
 		} catch (error) {
 			if (!isSqliteContentionError(error)) throw error;
+			scheduleDeadDetachedReconciliationRetry(controlDbPath);
 			return 0;
 		}
 	}
