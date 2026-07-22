@@ -101,6 +101,33 @@ describe("goal extension runtime", () => {
 		);
 	});
 
+	it("persists the reason when Supervisor pauses continuation for user input", async () => {
+		const pauseForUserInput = (pi: ExtensionAPI): void => {
+			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "waiting for user input" }) });
+		};
+		const harness = await createHarness({
+			extensionFactories: [pauseForUserInput],
+			uiContext: createUiContext(),
+		});
+		harnesses.push(harness);
+		harness.sessionManager.setSessionGoalJson(
+			JSON.stringify({ objective: "wait visibly", branch: "test", createdAt: new Date().toISOString() }),
+		);
+		harness.setResponses([fauxAssistantMessage("Guest sync resumed successfully.")]);
+
+		await harness.session.prompt("resume guest sync");
+
+		const hasWaitingStatus = harness.sessionManager
+			.getEntries()
+			.some(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "supervisor-status" &&
+					JSON.stringify(entry.data) === JSON.stringify({ message: "Goal waiting: waiting for user input" }),
+			);
+		expect(hasWaitingStatus).toBe(true);
+	});
+
 	it("reports one skipped status only after retryable errors are exhausted", async () => {
 		const pauseAfterRetry = (pi: ExtensionAPI): void => {
 			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
@@ -206,7 +233,12 @@ describe("goal extension runtime", () => {
 
 		const skippedStatuses = harness.sessionManager
 			.getEntries()
-			.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+			.filter(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "supervisor-status" &&
+					JSON.stringify(entry.data).includes("Goal continuation skipped"),
+			);
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(skippedStatuses).toHaveLength(0);
 	});

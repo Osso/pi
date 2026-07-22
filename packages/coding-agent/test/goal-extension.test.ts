@@ -1348,7 +1348,9 @@ describe("goal extension", () => {
 		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
 		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith("Goal waiting: waiting for user input", "info");
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal waiting: waiting for user input",
+		});
 	});
 
 	it("keeps a goal running without continuing automatically after Supervisor error", async () => {

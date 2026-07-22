@@ -424,7 +424,7 @@ async function applyGoalIdleDecision(
 		case "complete":
 			return completeGoalFromIdleDecision(goal, decision.reason, ctx);
 		case "pause":
-			return ctx.ui.notify(`Goal waiting: ${decision.reason}`, "info");
+			return appendSupervisorStatus(pi, `Goal waiting: ${decision.reason}`);
 		case "wait":
 			return reportGoalWait(pi, "Waiting", decision.reason, onWait);
 		case "error":
