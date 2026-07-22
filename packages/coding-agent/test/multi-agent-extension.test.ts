@@ -2357,12 +2357,15 @@ describe("multi-agent extension tools", () => {
 			},
 		});
 
-		await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			displayName: "Worker",
 			prompt: "inspect parent work",
 		});
 
 		expect(contexts).toEqual(["inherit"]);
+		expect(spawned.content).toEqual([
+			{ text: `Spawned Worker (${spawned.details.agent.id}) [type: default, context: inherit]`, type: "text" },
+		]);
 	});
 
 	it("uses the reviewer profile fresh-context setting when spawn_agent omits context", async () => {
@@ -2375,13 +2378,16 @@ describe("multi-agent extension tools", () => {
 			ctx: { settingsManager: SettingsManager.inMemory({ agents: { reviewer: { context: "fresh" } } }) },
 		});
 
-		await harness.call<SpawnAgentDetails>("spawn_agent", {
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			agentType: "reviewer",
 			displayName: "Reviewer",
 			prompt: "review changes",
 		});
 
 		expect(contexts).toEqual(["fresh"]);
+		expect(spawned.content).toEqual([
+			{ text: `Spawned Reviewer (${spawned.details.agent.id}) [type: reviewer, context: fresh]`, type: "text" },
+		]);
 	});
 
 	it("does not execute a legacy dispatcher without a transcript-backed child session", async () => {
