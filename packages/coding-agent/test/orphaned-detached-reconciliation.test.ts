@@ -1,7 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	commitMultiAgentLifecycleMutation,
@@ -11,6 +14,7 @@ import {
 	readMultiAgentRuntimeOwnership,
 	reconcileDeadDetachedAgentRuntimes,
 	registerRuntimeMailboxListener,
+	retainControlDbConnection,
 	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -98,6 +102,21 @@ function countTerminalOutboxRows(controlDbPath: string): number {
 	}
 }
 
+function waitForWorkerMessage(worker: Worker, expected: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(`Timed out waiting for worker message: ${expected}`)), 10_000);
+		worker.once("message", (message: string) => {
+			clearTimeout(timer);
+			if (message === expected) resolve();
+			else reject(new Error(`Unexpected worker message: ${message}`));
+		});
+		worker.once("error", (error) => {
+			clearTimeout(timer);
+			reject(error);
+		});
+	});
+}
+
 function replaceRunnerIdentity(controlDbPath: string, processIdentity: { pid: number; startTimeTicks: number }): void {
 	const db = createSqliteDatabase(controlDbPath);
 	try {
@@ -133,6 +152,67 @@ describe("orphaned detached runtime reconciliation", () => {
 
 	afterEach(() => {
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it(
+		"defers reconciliation when another process holds the control database writer lock",
+		async () => {
+			createRunningDetachedJob(controlDbPath);
+			const releaseRetainedConnection = retainControlDbConnection(controlDbPath);
+			const sqliteModuleUrl = pathToFileURL(join(process.cwd(), "src/core/sqlite.ts")).href;
+			const worker = new Worker(
+				`
+					import { parentPort, workerData } from "node:worker_threads";
+					import { configureSharedSqliteDatabase, createSqliteDatabase } from ${JSON.stringify(sqliteModuleUrl)};
+					const db = createSqliteDatabase(workerData.controlDbPath);
+					configureSharedSqliteDatabase(db);
+					db.exec("BEGIN IMMEDIATE");
+					parentPort?.postMessage("locked");
+					setTimeout(() => {
+						db.exec("ROLLBACK");
+						db.close();
+						parentPort?.postMessage("released");
+					}, workerData.holdMs);
+				`,
+				{
+					eval: true,
+					execArgv: ["--experimental-strip-types"],
+					workerData: { controlDbPath, holdMs: 5_500 },
+				},
+			);
+			try {
+				await waitForWorkerMessage(worker, "locked");
+				expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, RECONCILED_AT)).toBe(0);
+				await waitForWorkerMessage(worker, "released");
+				expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, RECONCILED_AT)).toBe(1);
+			} finally {
+				releaseRetainedConnection();
+				await worker.terminate();
+			}
+		},
+		15_000,
+	);
+
+	it("surfaces non-transient reconciliation failures", () => {
+		createRunningDetachedJob(controlDbPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(SESSION_PATH, JOB_ID) as { data: string };
+			const agent = JSON.parse(row.data) as Record<string, unknown>;
+			db.prepare("UPDATE multi_agent_agents SET data = ? WHERE session_path = ? AND agent_id = ?").run(
+				JSON.stringify({ ...agent, permission: { narrowed: "invalid", policy: "on-request" } }),
+				SESSION_PATH,
+				JOB_ID,
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, RECONCILED_AT)).toThrow(
+			/Invalid persisted narrowed/,
+		);
 	});
 
 	it("settles a dead-runner cancellation owned by a sticky-dead historical session", () => {

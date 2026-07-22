@@ -14,6 +14,7 @@ import {
 	type DetachedJobTerminalInput,
 } from "./detached-job-runner.ts";
 import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-control-db.ts";
+import { isSqliteContentionError } from "./sqlite.ts";
 
 export const DETACHED_BASH_RUNNER_MODE = "--internal-detached-bash-runner";
 const DETACHED_BASH_LAUNCH_VERSION = 2;
@@ -192,18 +193,10 @@ export async function finalizeDetachedJobWithRetry<T>(
 		try {
 			return finalize(terminal);
 		} catch (error) {
-			if (!isRetryableSqliteError(error)) throw error;
+			if (!isSqliteContentionError(error)) throw error;
 			await sleep(retryDelayMs);
 		}
 	}
-}
-
-function isRetryableSqliteError(error: unknown): boolean {
-	if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") return false;
-	if (error.code === "SQLITE_BUSY" || error.code.startsWith("SQLITE_BUSY_")) return true;
-	if (error.code === "SQLITE_LOCKED" || error.code.startsWith("SQLITE_LOCKED_")) return true;
-	if (error.code !== "ERR_SQLITE_ERROR" || !("errcode" in error)) return false;
-	return error.errcode === 5 || error.errcode === 6;
 }
 
 function defaultRunnerEntryPath(): string {

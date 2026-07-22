@@ -1,5 +1,6 @@
 import type { AgentMailboxMessage, AgentSnapshot, SendSteeringInput, SpawnAgentInput } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
+import { isSqliteContentionError } from "./sqlite.ts";
 import {
 	acquireAttachedRuntimeOwnership,
 	commitMultiAgentDetachMark,
@@ -97,7 +98,12 @@ export class LifecycleCoordinator {
 	private readonly options: LifecycleCoordinatorOptions;
 
 	static reconcileDeadDetachedRuntimes(controlDbPath: string, nowIso: string): number {
-		return reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
+		try {
+			return reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
+		} catch (error) {
+			if (!isSqliteContentionError(error)) throw error;
+			return 0;
+		}
 	}
 
 	constructor(options: LifecycleCoordinatorOptions) {

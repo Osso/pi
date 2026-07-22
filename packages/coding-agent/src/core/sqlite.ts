@@ -100,6 +100,14 @@ export interface ConfigureSharedSqliteDatabaseOptions {
 	busyTimeoutMs?: number;
 }
 
+export function isSqliteContentionError(error: unknown): boolean {
+	if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") return false;
+	if (error.code === "SQLITE_BUSY" || error.code.startsWith("SQLITE_BUSY_")) return true;
+	if (error.code === "SQLITE_LOCKED" || error.code.startsWith("SQLITE_LOCKED_")) return true;
+	if (error.code !== "ERR_SQLITE_ERROR" || !("errcode" in error)) return false;
+	return error.errcode === 5 || error.errcode === 6;
+}
+
 /**
  * Configure a SQLite connection for concurrent multi-process access.
  * Enables WAL so readers do not block writers (and vice versa) and sets a busy timeout.

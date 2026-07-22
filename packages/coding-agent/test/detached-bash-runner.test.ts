@@ -149,13 +149,13 @@ describe("detached Bash runner", () => {
 					terminal,
 					() => {
 						attempts += 1;
-						throw new Error("invalid terminal payload");
+						throw Object.assign(new Error("disk I/O error"), { code: "ERR_SQLITE_ERROR", errcode: 10 });
 					},
 					{ retryDelayMs: 1 },
 				),
 				new Promise((_, reject) => setTimeout(() => reject(new Error("finalizer kept retrying")), 20)),
 			]),
-		).rejects.toThrow("invalid terminal payload");
+		).rejects.toThrow("disk I/O error");
 		expect(attempts).toBe(1);
 	});
 
@@ -176,8 +176,10 @@ describe("detached Bash runner", () => {
 			"2026-07-11T22:00:00.000Z",
 		);
 		const transientErrors = [
-			Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY", errno: 5 }),
-			Object.assign(new Error("database is locked"), { code: "ERR_SQLITE_ERROR", errcode: 5 }),
+			Object.assign(new Error("database is busy"), { code: "SQLITE_BUSY", errno: 5 }),
+			Object.assign(new Error("database table is locked"), { code: "SQLITE_LOCKED_SHAREDCACHE", errno: 6 }),
+			Object.assign(new Error("database is busy"), { code: "ERR_SQLITE_ERROR", errcode: 5 }),
+			Object.assign(new Error("database table is locked"), { code: "ERR_SQLITE_ERROR", errcode: 6 }),
 		];
 		for (const transientError of transientErrors) {
 			const attempts: (typeof terminal)[] = [];

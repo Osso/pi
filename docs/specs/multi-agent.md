@@ -135,7 +135,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       auto-prompted. After listener registration, the owning supervisor reconciles candidates through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks)` identity.
       Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
-      from `cancelling`, never direct JSON rewrite or inferred result. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
+      from `cancelling`, never direct JSON rewrite or inferred result. Transient SQLite busy/locked contention
+      defers dead-detached-runtime reconciliation to a later poll without terminating Pi; other database,
+      validation, and programming failures remain explicit. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
 - [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or persisted
       coordination input is available, or when transient steering wakes a live wait, without changing notification delivery
@@ -482,6 +484,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   owns SQLite schema, exact-owner lifecycle/steering/terminal transactions and runtime ownership,
   terminal agent rows and completion outbox delivery, canonical mailbox delivery, session health, and path
   relocation.
+- [`packages/coding-agent/src/core/sqlite.ts`](../../packages/coding-agent/src/core/sqlite.ts)
+  provides runtime-neutral SQLite access, shared WAL configuration, and precise busy/locked contention
+  classification used by lifecycle reconciliation and detached-runner finalization.
 - [`docs/wiki/systems/multi-agent.md`](../wiki/systems/multi-agent.md) records the current
   external-extension and Claude Code audit that informs the first implementation slice.
 
@@ -533,6 +538,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   It covers wrong sender/recipient, PID mismatch, wrong start time, dead recipient, and invalid lifecycle
   requests, and verifies rejected requests preserve lifecycle/mailbox state and do not advance the message
   counter; accepted rows retain the persisted sender/recipient routing metadata.
+- [`packages/coding-agent/test/orphaned-detached-reconciliation.test.ts`](../../packages/coding-agent/test/orphaned-detached-reconciliation.test.ts)
+  verifies exact dead-runner reconciliation, deferral under a real concurrent SQLite writer lock, later
+  successful reconciliation, and explicit propagation of non-transient validation failures.
 - [`packages/coding-agent/test/runtime-process.test.ts`](../../packages/coding-agent/test/runtime-process.test.ts)
   verifies exact process identity and liveness, including changed start time and zombie rejection.
 - [`packages/coding-agent/test/interactive-mode-startup-input.test.ts`](../../packages/coding-agent/test/interactive-mode-startup-input.test.ts)
