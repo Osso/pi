@@ -1233,7 +1233,7 @@ async function spawnAgent(
 			runtime,
 		);
 		releaseOwnershipAfterDispatch(dispatches, ownerships, agent.id);
-		return result(`Spawned ${agent.agentType} ${agent.displayName} [${context}] (${agent.id})`, {
+		return result(`Spawned ${agent.displayName} (${agent.id}) [type: ${agent.agentType}, context: ${context}]`, {
 			agent,
 			dispatched: true,
 			prompt: params.prompt,
