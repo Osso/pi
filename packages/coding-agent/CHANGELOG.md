@@ -89,6 +89,7 @@
 
 ### Changed
 
+- `spawn_agent` success results now include the agent type and effective context: `Spawned <agentType> <displayName> [<fresh|inherit>] (<id>)`.
 - `spawn_agent` now inherits parent context by default when `context` is omitted; agent profiles can override that default, and the built-in reviewer profile remains isolated with fresh context.
 - Renamed the internal Pyrun multi-agent bridge from `createHostrunMultiAgentRequestHandler`/`HostrunMultiAgentRequestHandler` to `createMultiAgentPiRequestHandler`/`MultiAgentPiRequestHandler` without compatibility aliases.
 - Highlighted the default footer's context percentage and total active `agents N` count while retaining dim styling for surrounding statistics.

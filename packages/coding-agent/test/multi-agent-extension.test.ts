@@ -3090,6 +3090,7 @@ describe("multi-agent extension tools", () => {
 		const harness = createMultiAgentHarness({ createChildSession });
 
 		const spawnPromise = harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "explore",
 			context: "fresh",
 			displayName: "Worker",
 			prompt: "Implement auth tests",
@@ -3099,7 +3100,29 @@ describe("multi-agent extension tools", () => {
 		const spawned = await spawnPromise;
 
 		expect(didResolveBeforeDispatch).toBe(true);
+		expect(spawned.content).toEqual([
+			{ text: `Spawned explore Worker [fresh] (${spawned.details.agent.id})`, type: "text" },
+		]);
 		expect(spawned.details).toMatchObject({ dispatched: true });
+	});
+
+	it("shows inherited context in the spawn_agent result", async () => {
+		const createChildSession = createTranscriptBackedFauxSessionFactory(async () => ({
+			lifecycle: "completed",
+			result: { summary: "done" },
+		}));
+		const harness = createMultiAgentHarness({ createChildSession });
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "implement",
+			context: "inherit",
+			displayName: "Inheritor",
+			prompt: "Use parent context",
+		});
+
+		expect(spawned.content).toEqual([
+			{ text: `Spawned implement Inheritor [inherit] (${spawned.details.agent.id})`, type: "text" },
+		]);
 	});
 
 	it("retains exact process ownership until terminal settlement", async () => {
