@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { getAgentDir } from "../../../src/config.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -402,6 +403,11 @@ interface SendAgentMessageToolDetails {
 
 type BackgroundSessionHandles = Map<string, ChildAgentSession>;
 type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
+const artifactRootsByStore = new WeakMap<MultiAgentStore, string>();
+
+function artifactRootForStore(store: MultiAgentStore): string {
+	return artifactRootsByStore.get(store) ?? getAgentDir();
+}
 
 interface OwnedAgentRuntime {
 	abortController: AbortController;
@@ -734,6 +740,7 @@ function createChildSessionManager(input: {
 export function createProductionChildAgentSessionFactory(
 	options: ProductionChildAgentSessionFactoryOptions,
 ): ChildAgentSessionFactory {
+	if (options.multiAgentStore && options.agentDir) artifactRootsByStore.set(options.multiAgentStore, options.agentDir);
 	const factory: ProductionChildAgentSessionFactory = async ({ activeToolCallId, agent, context, ctx, prompt }) => {
 		const validation = validateGoalObjective(prompt);
 		if (!validation.ok) {
@@ -1874,6 +1881,7 @@ function publishCoordinatorSnapshot(store: MultiAgentStore, agent: AgentSnapshot
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return;
 	deliverTerminalOutboxProjections({
+		artifactRoot: artifactRootForStore(store),
 		claimId: randomUUID(),
 		controlDbPath: persistence.controlDbPath,
 		now: () => new Date().toISOString(),
@@ -2356,8 +2364,10 @@ class WaitAgentsWakeWatcher {
 
 	private reconcileDeadDetachedRuntimes(): void {
 		const nowIso = new Date().toISOString();
-		if (LifecycleCoordinator.reconcileDeadDetachedRuntimes(this.controlDbPath, nowIso) === 0) return;
+		const artifactRoot = artifactRootForStore(this.store);
+		if (LifecycleCoordinator.reconcileDeadDetachedRuntimes(this.controlDbPath, nowIso, artifactRoot) === 0) return;
 		deliverTerminalOutboxProjections({
+			artifactRoot,
 			claimId: randomUUID(),
 			controlDbPath: this.controlDbPath,
 			now: () => nowIso,
