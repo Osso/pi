@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
@@ -43,12 +44,23 @@ function normalizeTarget(params: unknown): ChangeWorkingDirectoryTarget {
 	throw new Error("change_working_directory requires exactly one of path or id");
 }
 
+function assertExistingDirectory(cwd: string): void {
+	if (!existsSync(cwd)) {
+		throw new Error(`Directory does not exist: ${cwd}`);
+	}
+	if (!statSync(cwd).isDirectory()) {
+		throw new Error(`Not a directory: ${cwd}`);
+	}
+}
+
 async function loadTargetCwd(
 	target: ChangeWorkingDirectoryTarget,
 	ctx: ExtensionContext,
 ): Promise<{ cwd: string; source: "path" | "session"; sessionId?: string }> {
 	if (target.path !== undefined) {
-		return { cwd: resolvePath(target.path, ctx.cwd), source: "path" };
+		const cwd = resolvePath(target.path, ctx.cwd);
+		assertExistingDirectory(cwd);
+		return { cwd, source: "path" };
 	}
 	const sessionPath = await findSessionFileById(target.id, ctx);
 	const currentSessionFile = ctx.sessionManager.getSessionFile();
@@ -59,6 +71,7 @@ async function loadTargetCwd(
 	if (!cwd) {
 		throw new Error(`Session does not record a working directory: ${sessionPath}`);
 	}
+	assertExistingDirectory(cwd);
 	return { cwd, source: "session", sessionId: target.id };
 }
 
@@ -94,14 +107,14 @@ export function createChangeWorkingDirectoryToolDefinition(): ToolDefinition<
 		],
 		parameters: changeWorkingDirectorySchema,
 		executionMode: "sequential",
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!ctx.relocate) {
+		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!ctx.relocateAfterToolResult) {
 				throw new Error("change_working_directory is not available in this session mode");
 			}
 			const target = normalizeTarget(params);
 			const previousCwd = ctx.cwd;
 			const resolved = await loadTargetCwd(target, ctx);
-			await ctx.relocate(resolved.cwd);
+			ctx.relocateAfterToolResult(toolCallId, resolved.cwd);
 			return {
 				content: [{ type: "text", text: `Changed working directory to ${resolved.cwd}` }],
 				details: { previousCwd, ...resolved },

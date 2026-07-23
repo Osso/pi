@@ -1273,6 +1273,10 @@ export class AgentSession {
 			}
 			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
 
+			if (event.message.role === "toolResult") {
+				await this._extensionRunner.deliverToolResultRelocation(event.message.toolCallId);
+			}
+
 			// Track assistant message for auto-compaction (checked on agent_end)
 			if (event.message.role === "assistant") {
 				this._lastAssistantMessage = event.message;

@@ -374,6 +374,8 @@ export interface ExtensionContext {
 	restart(options?: { notice?: string; process?: boolean }): Promise<void>;
 	/** Change the current session cwd and rebuild cwd-bound runtime state when available. */
 	relocate?(targetCwd: string): Promise<void>;
+	/** Defer a cwd change until the named tool call's terminal result has been delivered and persisted. */
+	relocateAfterToolResult?(toolCallId: string, targetCwd: string): void;
 	/** Switch to a different session file using the same path as /resume when available. */
 	switchSession?(
 		sessionPath: string,

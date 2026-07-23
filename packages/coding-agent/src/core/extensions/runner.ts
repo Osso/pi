@@ -327,6 +327,7 @@ export class ExtensionRunner {
 	private relocateHandler: (targetCwd: string) => Promise<void> = async () => {
 		throw new Error("Working-directory changes are not available in this session mode");
 	};
+	private pendingToolResultRelocations = new Map<string, string>();
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
@@ -450,6 +451,13 @@ export class ExtensionRunner {
 
 	setRelocateHandler(handler: (targetCwd: string) => Promise<void>): void {
 		this.relocateHandler = handler;
+	}
+
+	async deliverToolResultRelocation(toolCallId: string): Promise<void> {
+		const targetCwd = this.pendingToolResultRelocations.get(toolCallId);
+		if (targetCwd === undefined) return;
+		this.pendingToolResultRelocations.delete(toolCallId);
+		await this.relocateHandler(targetCwd);
 	}
 
 	bindCommandContext(actions?: ExtensionCommandContextActions): void {
@@ -595,6 +603,7 @@ export class ExtensionRunner {
 		if (!this.staleMessage) {
 			this.staleMessage = message;
 			this.runtime.invalidate(message);
+			this.pendingToolResultRelocations.clear();
 		}
 	}
 
@@ -842,6 +851,13 @@ export class ExtensionRunner {
 			relocate: (targetCwd) => {
 				runner.assertActive();
 				return runner.relocateHandler(targetCwd);
+			},
+			relocateAfterToolResult: (toolCallId, targetCwd) => {
+				runner.assertActive();
+				if (runner.pendingToolResultRelocations.has(toolCallId)) {
+					throw new Error(`Working-directory relocation already scheduled for tool call ${toolCallId}`);
+				}
+				runner.pendingToolResultRelocations.set(toolCallId, targetCwd);
 			},
 			getContextUsage: () => {
 				runner.assertActive();

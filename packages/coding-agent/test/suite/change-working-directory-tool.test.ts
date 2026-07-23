@@ -137,6 +137,22 @@ function getChangeWorkingDirectoryTool(runtime: Awaited<ReturnType<typeof create
 	return tool;
 }
 
+async function executeAndDeliverChangeWorkingDirectory(
+	runtime: Awaited<ReturnType<typeof createRuntimeForTest>>["runtime"],
+	toolCallId: string,
+	params: { path: string } | { id: string },
+): Promise<void> {
+	const runner = runtime.session.extensionRunner;
+	await getChangeWorkingDirectoryTool(runtime).execute(
+		toolCallId,
+		params,
+		undefined,
+		undefined,
+		runner.createContext(),
+	);
+	await runner.deliverToolResultRelocation(toolCallId);
+}
+
 function readTextContent(content: Array<{ type: string; text?: string }>): string {
 	return content
 		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
@@ -151,13 +167,7 @@ describe("change_working_directory first-party tool", () => {
 		mkdirSync(targetCwd);
 		const sessionId = runtime.session.sessionId;
 
-		await getChangeWorkingDirectoryTool(runtime).execute(
-			"change-cwd-path",
-			{ path: targetCwd },
-			undefined,
-			undefined,
-			runtime.session.extensionRunner.createContext(),
-		);
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-path", { path: targetCwd });
 
 		expect(runtime.session.sessionId).toBe(sessionId);
 		expect(runtime.cwd).toBe(targetCwd);
@@ -169,13 +179,7 @@ describe("change_working_directory first-party tool", () => {
 		const targetCwd = join(tempDir, " target with whitespace ");
 		mkdirSync(targetCwd);
 
-		await getChangeWorkingDirectoryTool(runtime).execute(
-			"change-cwd-whitespace-path",
-			{ path: targetCwd },
-			undefined,
-			undefined,
-			runtime.session.extensionRunner.createContext(),
-		);
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-whitespace-path", { path: targetCwd });
 
 		expect(runtime.cwd).toBe(targetCwd);
 		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
@@ -204,13 +208,9 @@ describe("change_working_directory first-party tool", () => {
 		const currentSessionId = runtime.session.sessionId;
 		const currentSessionFile = runtime.session.sessionFile;
 
-		await getChangeWorkingDirectoryTool(runtime).execute(
-			"change-cwd-session-id",
-			{ id: target.getSessionId() },
-			undefined,
-			undefined,
-			runtime.session.extensionRunner.createContext(),
-		);
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-session-id", {
+			id: target.getSessionId(),
+		});
 
 		expect(runtime.session.sessionId).toBe(currentSessionId);
 		expect(runtime.session.sessionFile).not.toBe(targetSessionFile);
@@ -251,13 +251,7 @@ describe("change_working_directory first-party tool", () => {
 		target.appendMessage({ role: "user", content: "Short ID target", timestamp: Date.now() });
 		target.appendMessage(fauxAssistantMessage("Short ID reply"));
 
-		await getChangeWorkingDirectoryTool(runtime).execute(
-			"change-cwd-short-id",
-			{ id: targetId },
-			undefined,
-			undefined,
-			runtime.session.extensionRunner.createContext(),
-		);
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-short-id", { id: targetId });
 
 		expect(runtime.cwd).toBe(targetCwd);
 	});
@@ -285,13 +279,7 @@ describe("change_working_directory first-party tool", () => {
 		mkdirSync(targetCwd);
 		writeFileSync(join(targetCwd, "marker.txt"), "relative tool used changed cwd");
 
-		await getChangeWorkingDirectoryTool(runtime).execute(
-			"change-cwd-relative",
-			{ path: targetCwd },
-			undefined,
-			undefined,
-			runtime.session.extensionRunner.createContext(),
-		);
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-relative", { path: targetCwd });
 
 		const readTool = runtime.session.getToolDefinition("read");
 		if (!readTool) throw new Error("Missing read tool");
@@ -304,6 +292,39 @@ describe("change_working_directory first-party tool", () => {
 		);
 
 		expect(readTextContent(result.content)).toContain("relative tool used changed cwd");
+	});
+
+	it("persists the terminal tool result before replacing the runtime", async () => {
+		await withHeadlessPi(async (agent) => {
+			const targetCwd = join(agent.paths.tempDir, "terminal-result-target");
+			mkdirSync(targetCwd);
+			const toolCallId = "change-cwd-terminal-result";
+
+			await agent.send({ type: "prompt", message: "Change working directory" });
+			const changeRequest = await agent.waitForLlmRequest();
+			agent.respondToLlmRequest(
+				changeRequest.id,
+				fauxAssistantMessage(fauxToolCall("change_working_directory", { path: targetCwd }, { id: toolCallId })),
+			);
+
+			const toolResult = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === toolCallId,
+			);
+
+			expect(JSON.stringify(toolResult)).toContain(`Changed working directory to ${targetCwd}`);
+			const entries = agent.readSessionEntries(null);
+			const toolResultIndex = entries.findIndex((entry) => entry.id === toolResult.id);
+			const cwdChangedIndex = entries.findIndex(
+				(entry) => entry.type === "custom_message" && entry.customType === "cwd_changed",
+			);
+			expect(toolResultIndex).toBeGreaterThanOrEqual(0);
+			expect(cwdChangedIndex).toBeGreaterThan(toolResultIndex);
+			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+		});
 	});
 
 	it("persists the changed cwd across a real process restart", async () => {
