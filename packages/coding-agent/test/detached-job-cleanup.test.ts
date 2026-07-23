@@ -167,7 +167,7 @@ async function createRuntimeResult(root: string) {
 		diagnostics: [],
 		extensionsResult: await createTestExtensionsResult([], root),
 		services: { agentDir: root, cwd: root } as AgentSessionServices,
-		session: {} as AgentSession,
+		session: { extensionRunner: { setRelocateHandler: () => {} } } as unknown as AgentSession,
 	};
 }
 
