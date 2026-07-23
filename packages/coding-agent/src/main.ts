@@ -95,6 +95,7 @@ import {
 	formatMissingSessionCwdPrompt,
 	getMissingSessionCwdIssue,
 	MissingSessionCwdError,
+	reopenSessionWithCwd,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
 import { reconcileSessionRuntimeBindings } from "./core/session-directory.ts";
@@ -837,7 +838,7 @@ export async function main(args: string[], options?: MainOptions) {
 			if (!selectedCwd) {
 				process.exit(0);
 			}
-			sessionManager = SessionManager.open(missingSessionCwdIssue.sessionFile!, sessionDir, selectedCwd);
+			sessionManager = reopenSessionWithCwd(missingSessionCwdIssue, sessionDir, selectedCwd, controlDbPath);
 		} else {
 			console.error(chalk.red(new MissingSessionCwdError(missingSessionCwdIssue).message));
 			process.exit(1);

@@ -30,6 +30,7 @@ import {
 	getControlDbPath,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
+import { reopenSessionWithCwd } from "../src/core/session-cwd.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { createTestExtensionsResult } from "./utilities.ts";
@@ -417,6 +418,46 @@ describe("detached job artifact cleanup", () => {
 		expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date(NOW).toISOString())).toBe(1);
 
 		expect(existsSync(artifact)).toBe(false);
+	});
+
+	it("runs startup cleanup after replacing a session whose stored cwd is missing", async () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_replaced_startup",
+			lifecycle: "completed",
+			root,
+			sessionName: "replaced-startup-expired",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const sessionDir = join(root, "sessions", "resumed");
+		const sessionFile = join(sessionDir, "missing-cwd.jsonl");
+		mkdirSync(sessionDir, { recursive: true });
+		writeFileSync(
+			sessionFile,
+			`${JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "missing-cwd-session",
+				timestamp: new Date(NOW).toISOString(),
+				cwd: join(root, "missing"),
+			})}\n`,
+		);
+		const sessionManager = reopenSessionWithCwd(
+			{ fallbackCwd: root, sessionCwd: join(root, "missing"), sessionFile },
+			sessionDir,
+			root,
+			controlDbPath,
+		);
+
+		await createAgentSessionRuntime(async () => createRuntimeResult(root), {
+			agentDir: root,
+			cwd: root,
+			sessionManager,
+		});
+
+		expect(existsSync(expired)).toBe(false);
 	});
 
 	it("runs cleanup before creating the initial AgentSession runtime", async () => {

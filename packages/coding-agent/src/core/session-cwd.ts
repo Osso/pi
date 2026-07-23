@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { SessionManager } from "./session-manager.ts";
 
 export interface SessionCwdIssue {
 	sessionFile?: string;
@@ -30,6 +31,18 @@ export function getMissingSessionCwdIssue(
 		sessionCwd,
 		fallbackCwd,
 	};
+}
+
+export function reopenSessionWithCwd(
+	issue: SessionCwdIssue,
+	sessionDir: string | undefined,
+	selectedCwd: string,
+	controlDbPath: string,
+): SessionManager {
+	if (!issue.sessionFile) throw new Error("Cannot reopen a session without a session file");
+	const sessionManager = SessionManager.open(issue.sessionFile, sessionDir, selectedCwd);
+	sessionManager.setMetadataControlDbPath(controlDbPath);
+	return sessionManager;
 }
 
 export function formatMissingSessionCwdError(issue: SessionCwdIssue): string {
