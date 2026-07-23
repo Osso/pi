@@ -222,6 +222,7 @@ describe("change_working_directory first-party tool", () => {
 	it("rejects a current session id prefix without modifying the session", async () => {
 		const { runtime } = await createRuntimeForTest();
 		runtime.session.sessionManager.appendMessage({ role: "user", content: "Current work", timestamp: Date.now() });
+		runtime.session.sessionManager.appendMessage(fauxAssistantMessage("Current reply"));
 		const originalCwd = runtime.cwd;
 		const originalEntryCount = runtime.session.sessionManager.getEntries().length;
 		const currentSessionIdPrefix = runtime.session.sessionId.slice(0, 8);
@@ -238,6 +239,27 @@ describe("change_working_directory first-party tool", () => {
 
 		expect(runtime.cwd).toBe(originalCwd);
 		expect(runtime.session.sessionManager.getEntries()).toHaveLength(originalEntryCount);
+	});
+
+	it("prefers an exact shorter session id over a current-session prefix", async () => {
+		const { controlDbPath, runtime, tempDir } = await createRuntimeForTest();
+		const targetCwd = join(tempDir, "short-id-target");
+		mkdirSync(targetCwd);
+		const targetId = runtime.session.sessionId.slice(0, 8);
+		const target = SessionManager.create(targetCwd, runtime.session.sessionManager.getSessionDir(), { id: targetId });
+		target.setMetadataControlDbPath(controlDbPath);
+		target.appendMessage({ role: "user", content: "Short ID target", timestamp: Date.now() });
+		target.appendMessage(fauxAssistantMessage("Short ID reply"));
+
+		await getChangeWorkingDirectoryTool(runtime).execute(
+			"change-cwd-short-id",
+			{ id: targetId },
+			undefined,
+			undefined,
+			runtime.session.extensionRunner.createContext(),
+		);
+
+		expect(runtime.cwd).toBe(targetCwd);
 	});
 
 	it("rejects a missing directory without changing cwd", async () => {
