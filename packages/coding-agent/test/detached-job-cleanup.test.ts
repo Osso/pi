@@ -33,6 +33,10 @@ import {
 import { reopenSessionWithCwd } from "../src/core/session-cwd.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
+import {
+	createProductionAttachedSessionFactory,
+	deliverTerminalOutboxForStore,
+} from "../src/extensions/multi-agent.ts";
 import { createTestExtensionsResult } from "./utilities.ts";
 
 const NOW = Date.parse("2026-07-23T18:00:00.000Z");
@@ -650,6 +654,43 @@ describe("detached job artifact cleanup", () => {
 			sessionManager,
 		});
 
+		expect(existsSync(expired)).toBe(false);
+	});
+
+	it("uses an attached-only factory's custom artifact root for terminal cleanup", () => {
+		const stateRoot = createRoot();
+		const agentRoot = createRoot();
+		const controlDbPath = getControlDbPath(stateRoot);
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_attached_root",
+			lifecycle: "completed",
+			root: agentRoot,
+			sessionName: "attached-root-expired",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const sessionManager = SessionManager.create(agentRoot, join(agentRoot, "sessions", "current"));
+		sessionManager.setMetadataControlDbPath(controlDbPath);
+		const sessionPath = sessionManager.getSessionFile();
+		if (!sessionPath) throw new Error("Expected persisted session path");
+		persistFailedOutboxAgent({
+			completedAt: new Date(NOW).toISOString(),
+			controlDbPath,
+			id: "agent_attached_root",
+			root: agentRoot,
+			sessionPath,
+		});
+		const store = new MultiAgentStore();
+		store.setPersistenceSessionManager(sessionManager);
+		createProductionAttachedSessionFactory({
+			agentDir: agentRoot,
+			createSession: async () => {
+				throw new Error("Attached session creation is not expected");
+			},
+			multiAgentStore: store,
+		});
+
+		expect(deliverTerminalOutboxForStore(store)).toBe(1);
 		expect(existsSync(expired)).toBe(false);
 	});
 

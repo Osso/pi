@@ -13,6 +13,7 @@ export {
 	createProductionAttachedSessionFactory,
 	createProductionChildAgentSessionFactory,
 	default,
+	deliverTerminalOutboxForStore,
 	registerAgentsCoreTools,
 	registerAgentsMailboxTools,
 	registerAgentViewerTools,

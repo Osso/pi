@@ -1879,9 +1879,13 @@ function finalizeReservedRuntime(
 function publishCoordinatorSnapshot(store: MultiAgentStore, agent: AgentSnapshot): void {
 	store.publishLifecycleCoordinatorSnapshot(agent);
 	if (isActiveLifecycle(agent.lifecycle)) return;
+	deliverTerminalOutboxForStore(store);
+}
+
+export function deliverTerminalOutboxForStore(store: MultiAgentStore): number {
 	const persistence = store.getPersistenceTarget();
-	if (!persistence) return;
-	deliverTerminalOutboxProjections({
+	if (!persistence) return 0;
+	return deliverTerminalOutboxProjections({
 		artifactRoot: artifactRootForStore(store),
 		claimId: randomUUID(),
 		controlDbPath: persistence.controlDbPath,
