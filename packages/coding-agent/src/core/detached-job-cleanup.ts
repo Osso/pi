@@ -1,0 +1,279 @@
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import {
+	type DetachedArtifactRetentionCandidate,
+	selectDetachedArtifactDirectoriesToDelete,
+} from "./detached-job-retention.ts";
+import type { AgentSnapshot } from "./multi-agent-store.ts";
+import { listSessionMetadata, readMultiAgentState } from "./session-control-db.ts";
+
+const DETACHED_ARTIFACT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
+const DETACHED_ARTIFACT_MAX_BYTES = 2 * 1024 ** 3;
+const DETACHED_OUTPUT_LABELS = new Set(["Bash output", "Pyrun output"]);
+const DELETED_PATH_SUFFIX = " (deleted)";
+
+export interface DetachedJobCleanupResult {
+	deletedBytes: number;
+	deletedDirectories: string[];
+	errors: string[];
+	retainedBytes: number;
+	skippedReason?: string;
+}
+
+export function cleanupDetachedJobArtifacts(
+	controlDbPath: string,
+	options: { now?: number } = {},
+): DetachedJobCleanupResult {
+	const processReferences = readLinuxProcessReferences();
+	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
+	const errors: string[] = [];
+	const candidates = collectTerminalArtifactCandidates(controlDbPath, processReferences, errors);
+	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
+		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
+		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
+		now: options.now ?? Date.now(),
+	});
+	const finalProcessReferences = readLinuxProcessReferences();
+	if (!finalProcessReferences) return unavailableReferenceResult(candidates, errors);
+	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, finalProcessReferences, errors);
+}
+
+export function runDetachedJobArtifactCleanup(controlDbPath: string, now = Date.now()): void {
+	try {
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { now });
+		for (const error of result.errors) console.error(`Detached artifact cleanup: ${error}`);
+	} catch (error) {
+		console.error(`Detached artifact cleanup failed: ${errorMessage(error)}`);
+	}
+}
+
+function emptyCleanupResult(skippedReason: string): DetachedJobCleanupResult {
+	return { deletedBytes: 0, deletedDirectories: [], errors: [], retainedBytes: 0, skippedReason };
+}
+
+function unavailableReferenceResult(
+	candidates: readonly DetachedArtifactRetentionCandidate[],
+	errors: string[],
+): DetachedJobCleanupResult {
+	return {
+		...emptyCleanupResult("live process reference inspection became unavailable"),
+		errors,
+		retainedBytes: totalCandidateBytes(candidates),
+	};
+}
+
+function deleteSelectedArtifactDirectories(
+	candidates: readonly DetachedArtifactRetentionCandidate[],
+	pathsToDelete: readonly string[],
+	processReferences: ReadonlySet<string>,
+	errors: string[],
+): DetachedJobCleanupResult {
+	const candidatesByPath = new Map(candidates.map((candidate) => [candidate.directoryPath, candidate]));
+	const deletedDirectories: string[] = [];
+	let deletedBytes = 0;
+	for (const directoryPath of pathsToDelete) {
+		const candidate = candidatesByPath.get(directoryPath);
+		if (!candidate || directoryHasLiveReference(directoryPath, processReferences)) continue;
+		if (deleteArtifactDirectory(directoryPath, errors)) {
+			deletedDirectories.push(directoryPath);
+			deletedBytes += candidate.byteSize;
+		}
+	}
+	return {
+		deletedBytes,
+		deletedDirectories,
+		errors,
+		retainedBytes: totalCandidateBytes(candidates) - deletedBytes,
+	};
+}
+
+function deleteArtifactDirectory(directoryPath: string, errors: string[]): boolean {
+	try {
+		const directory = lstatSync(directoryPath);
+		if (!directory.isDirectory() || directory.isSymbolicLink()) {
+			errors.push(`Refused to delete non-directory detached artifact path: ${directoryPath}`);
+			return false;
+		}
+		rmSync(directoryPath, { force: true, recursive: true });
+		return true;
+	} catch (error) {
+		if (isMissingPathError(error)) return false;
+		errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
+		return false;
+	}
+}
+
+function totalCandidateBytes(candidates: readonly DetachedArtifactRetentionCandidate[]): number {
+	return candidates.reduce((total, candidate) => total + candidate.byteSize, 0);
+}
+
+function collectTerminalArtifactCandidates(
+	controlDbPath: string,
+	processReferences: ReadonlySet<string>,
+	errors: string[],
+): DetachedArtifactRetentionCandidate[] {
+	const candidatesByPath = new Map<string, DetachedArtifactRetentionCandidate>();
+	for (const session of listSessionMetadata(controlDbPath)) {
+		const state = readMultiAgentState(controlDbPath, session.sessionPath);
+		if (!state) continue;
+		for (const persistedAgent of state.agents) {
+			const candidate = terminalArtifactCandidate(persistedAgent, session.sessionPath, processReferences, errors);
+			if (!candidate) continue;
+			const existing = candidatesByPath.get(candidate.directoryPath);
+			if (!existing) {
+				candidatesByPath.set(candidate.directoryPath, candidate);
+				continue;
+			}
+			candidatesByPath.set(candidate.directoryPath, { ...existing, protectedByLiveReference: true });
+		}
+	}
+	return [...candidatesByPath.values()];
+}
+
+function terminalArtifactCandidate(
+	persistedAgent: unknown,
+	sessionPath: string,
+	processReferences: ReadonlySet<string>,
+	errors: string[],
+): DetachedArtifactRetentionCandidate | undefined {
+	if (!persistedAgent || typeof persistedAgent !== "object" || Array.isArray(persistedAgent)) return undefined;
+	const agent = persistedAgent as Partial<AgentSnapshot>;
+	if (!isTerminalLifecycle(agent.lifecycle) || typeof agent.id !== "string" || typeof agent.updatedAt !== "string") {
+		return undefined;
+	}
+	const outputPath = detachedOutputPath(agent);
+	if (!outputPath) return undefined;
+	const directoryPath = detachedArtifactDirectory(outputPath, sessionPath, agent.id);
+	if (!directoryPath) return undefined;
+	const terminalAt = Date.parse(agent.updatedAt);
+	if (!Number.isFinite(terminalAt)) {
+		errors.push(`Invalid detached artifact terminal timestamp for ${sessionPath}#${agent.id}`);
+		return undefined;
+	}
+	const byteSize = readDirectoryByteSize(directoryPath, errors);
+	if (byteSize === undefined) return undefined;
+	return {
+		byteSize,
+		directoryPath,
+		protectedByLiveReference: directoryHasLiveReference(directoryPath, processReferences),
+		terminalAt,
+	};
+}
+
+function detachedOutputPath(agent: Partial<AgentSnapshot>): string | undefined {
+	const fileRef = agent.result?.fileRefs?.find(
+		(reference) => reference.label !== undefined && DETACHED_OUTPUT_LABELS.has(reference.label),
+	);
+	return fileRef?.path;
+}
+
+function detachedArtifactDirectory(outputPath: string, sessionPath: string, jobId: string): string | undefined {
+	if (!isAbsolute(outputPath) || basename(outputPath) !== "output.log") return undefined;
+	const directoryPath = resolve(dirname(outputPath));
+	const sessionName = basename(sessionPath, extname(sessionPath));
+	const expectedSuffix = join("detached-jobs", sessionName, jobId);
+	if (basename(directoryPath) !== jobId || !directoryPath.endsWith(`${sep}${expectedSuffix}`)) return undefined;
+	try {
+		const directory = lstatSync(directoryPath);
+		return directory.isDirectory() && !directory.isSymbolicLink() ? directoryPath : undefined;
+	} catch (error) {
+		if (isMissingPathError(error)) return undefined;
+		throw error;
+	}
+}
+
+function readDirectoryByteSize(directoryPath: string, errors: string[]): number | undefined {
+	let byteSize = 0;
+	const pendingDirectories = [directoryPath];
+	try {
+		while (pendingDirectories.length > 0) {
+			const currentDirectory = pendingDirectories.pop();
+			if (!currentDirectory) continue;
+			for (const entry of readdirSync(currentDirectory, { withFileTypes: true })) {
+				const entryPath = join(currentDirectory, entry.name);
+				if (entry.isDirectory()) {
+					pendingDirectories.push(entryPath);
+					continue;
+				}
+				byteSize += lstatSync(entryPath).size;
+			}
+		}
+		return byteSize;
+	} catch (error) {
+		if (isMissingPathError(error)) return undefined;
+		errors.push(`Could not measure detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
+		return undefined;
+	}
+}
+
+function readLinuxProcessReferences(): Set<string> | undefined {
+	if (process.platform !== "linux" || !existsSync("/proc")) return undefined;
+	const references = new Set<string>();
+	for (const processEntry of readdirSync("/proc", { withFileTypes: true })) {
+		if (!processEntry.isDirectory() || !/^\d+$/.test(processEntry.name)) continue;
+		const processDirectory = join("/proc", processEntry.name);
+		addLinkReference(references, join(processDirectory, "cwd"));
+		addCommandReferences(references, join(processDirectory, "cmdline"));
+		addDescriptorReferences(references, join(processDirectory, "fd"));
+	}
+	return references;
+}
+
+function addLinkReference(references: Set<string>, linkPath: string): void {
+	try {
+		addAbsoluteReference(references, readlinkSync(linkPath));
+	} catch (error) {
+		if (!isExpectedProcessReadError(error)) throw error;
+	}
+}
+
+function addCommandReferences(references: Set<string>, commandPath: string): void {
+	try {
+		for (const argument of readFileSync(commandPath).toString("utf8").split("\0")) {
+			addAbsoluteReference(references, argument);
+		}
+	} catch (error) {
+		if (!isExpectedProcessReadError(error)) throw error;
+	}
+}
+
+function addDescriptorReferences(references: Set<string>, descriptorDirectory: string): void {
+	try {
+		for (const descriptor of readdirSync(descriptorDirectory)) {
+			addLinkReference(references, join(descriptorDirectory, descriptor));
+		}
+	} catch (error) {
+		if (!isExpectedProcessReadError(error)) throw error;
+	}
+}
+
+function addAbsoluteReference(references: Set<string>, value: string): void {
+	const path = value.endsWith(DELETED_PATH_SUFFIX) ? value.slice(0, -DELETED_PATH_SUFFIX.length) : value;
+	if (isAbsolute(path)) references.add(resolve(path));
+}
+
+function directoryHasLiveReference(directoryPath: string, references: ReadonlySet<string>): boolean {
+	const nestedPrefix = `${directoryPath}${sep}`;
+	for (const reference of references) {
+		if (reference === directoryPath || reference.startsWith(nestedPrefix)) return true;
+	}
+	return false;
+}
+
+function isTerminalLifecycle(lifecycle: AgentSnapshot["lifecycle"] | undefined): boolean {
+	return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "aborted";
+}
+
+function isMissingPathError(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function isExpectedProcessReadError(error: unknown): boolean {
+	return (
+		error instanceof Error && "code" in error && ["EACCES", "ENOENT", "EPERM", "ESRCH"].includes(String(error.code))
+	);
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}

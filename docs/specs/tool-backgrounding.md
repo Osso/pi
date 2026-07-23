@@ -24,6 +24,11 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       notification, recorded through a fenced `detached` lifecycle mark. Attended runner-owned jobs
       deliver results in-band through the waiting tool call without a mailbox wakeup; terminal outbox
       rows and lifecycle events remain unconditional.
+- [x] Terminal detached-job artifact directories are pruned at Pi startup and after terminal outbox delivery.
+- [x] Cleanup removes artifacts at least three days old, then removes the oldest terminal artifacts until
+      retained terminal artifacts are at most 2 GiB.
+- [x] Linux `/proc`-backed cleanup preserves nonterminal jobs and terminal directories referenced by a live
+      process, current working directory, or open file descriptor.
 
 ## How it works
 
@@ -39,6 +44,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 ## Implementation inventory
 
+- `packages/coding-agent/src/core/detached-job-cleanup.ts` — Linux `/proc`-backed terminal artifact cleanup.
+- `packages/coding-agent/src/core/detached-job-retention.ts` — age and size retention selection.
 - `packages/coding-agent/src/core/tool-detach-registry.ts` — shared in-flight tool detach registry.
 - `packages/coding-agent/src/core/agent-session.ts` — owns the session detach registry and exposes it to base tools and extensions.
 - `packages/coding-agent/src/core/tools/bash.ts` — registers bash commands as detachable and tracks detached subprocesses.
@@ -53,6 +60,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery plus
   completion-notification wakeups and simultaneous/late waiter queries.
 - `packages/coding-agent/test/multi-agent-extension.test.ts`
+- `packages/coding-agent/test/detached-job-cleanup.test.ts`
+- `packages/coding-agent/test/detached-job-retention.test.ts`
 
 ## Known gaps (current cycle)
 

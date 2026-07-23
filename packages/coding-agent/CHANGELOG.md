@@ -17,6 +17,7 @@
 
 ### Added
 
+- Added automatic detached-job artifact cleanup at Pi startup and after terminal outbox delivery; Linux `/proc`-backed cleanup preserves nonterminal or live-referenced jobs, removes artifacts at least three days old, and caps retained terminal artifacts at 2 GiB.
 - Added the `steering_message_queued` AgentSession event; interactive mode uses it to wake active process-local `wait_agents` after accepted ordinary main-session steering.
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
 - Added runtime-only `/fast` mode for `openai-codex` and `openai-codex-gc`: bare `/fast` toggles the current mode, `/fast on` selects `priority`, `/fast ultra` selects `ultrafast`, and `/fast off` disables it; one main-thread authority shares the selected tier dynamically with spawned and attached child runtimes, while child `/fast` commands cannot mutate it and main session start, restart, or resume resets it without persistence.

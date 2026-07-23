@@ -1,3 +1,4 @@
+import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	claimMultiAgentTerminalOutbox,
@@ -39,11 +40,13 @@ export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxO
 			sessionPath: persistence.sessionPath,
 			staleClaimBefore: new Date(Date.parse(nowIso) - TERMINAL_OUTBOX_CLAIM_LEASE_MS).toISOString(),
 		});
-		if (!record) return delivered;
+		if (!record) break;
 
 		deliverTerminalOutboxProjection(options, record);
 		delivered += 1;
 	}
+	if (delivered > 0) runDetachedJobArtifactCleanup(options.controlDbPath, Date.parse(options.now()));
+	return delivered;
 }
 
 function deliverTerminalOutboxProjection(
