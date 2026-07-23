@@ -474,8 +474,7 @@ export class ExtensionRunner {
 				this.assertActive();
 				return this.relocateHandler(targetCwd);
 			},
-			relocateAfterToolResult: (toolCallId, targetCwd) =>
-				this.scheduleToolResultRelocation(toolCallId, targetCwd),
+			relocateAfterToolResult: (toolCallId, targetCwd) => this.scheduleToolResultRelocation(toolCallId, targetCwd),
 		};
 	}
 
@@ -757,6 +756,7 @@ export class ExtensionRunner {
 	 */
 	createContext(): ExtensionContext {
 		const runner = this;
+		const getModel = this.getModel;
 		return {
 			get ui() {
 				runner.assertActive();
@@ -820,7 +820,7 @@ export class ExtensionRunner {
 			},
 			get model() {
 				runner.assertActive();
-				return runner.getModel();
+				return getModel();
 			},
 			setModel: async (model) => {
 				runner.assertActive();

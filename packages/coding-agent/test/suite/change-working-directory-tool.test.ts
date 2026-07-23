@@ -32,7 +32,7 @@ function defaultSessionDir(cwd: string, agentDir: string): string {
 	return join(agentDir, "sessions", safePath);
 }
 
-async function createRuntimeForTest() {
+async function createRuntimeForTest(extensionFactory?: (pi: ExtensionAPI) => void) {
 	const tempDir = join(tmpdir(), `pi-change-working-directory-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 	mkdirSync(tempDir, { recursive: true });
 
@@ -64,6 +64,7 @@ async function createRuntimeForTest() {
 								maxTokens: model.maxTokens,
 							})),
 						});
+						extensionFactory?.(pi);
 					},
 				],
 				noSkills: true,
@@ -128,7 +129,7 @@ async function createRuntimeForTest() {
 		if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	return { controlDbPath, runtime, tempDir };
+	return { controlDbPath, faux, runtime, tempDir };
 }
 
 function getChangeWorkingDirectoryTool(runtime: Awaited<ReturnType<typeof createRuntimeForTest>>["runtime"]) {
@@ -294,6 +295,35 @@ describe("change_working_directory first-party tool", () => {
 		expect(readTextContent(result.content)).toContain("relative tool used changed cwd");
 	});
 
+	it("relocates after an extension rewrites the persisted tool call id", async () => {
+		const rewrittenToolCallId = "rewritten-change-cwd";
+		const { faux, runtime, tempDir } = await createRuntimeForTest((pi) => {
+			pi.on("message_end", (event) => {
+				if (event.message.role !== "toolResult" || event.message.toolName !== "change_working_directory") return;
+				return { message: { ...event.message, toolCallId: rewrittenToolCallId } };
+			});
+		});
+		const targetCwd = join(tempDir, "rewritten-tool-call-target");
+		mkdirSync(targetCwd);
+		faux.setResponses([
+			fauxAssistantMessage(
+				fauxToolCall("change_working_directory", { path: targetCwd }, { id: "original-change-cwd" }),
+			),
+		]);
+
+		await runtime.session.prompt("Change working directory");
+
+		expect(runtime.cwd).toBe(targetCwd);
+		const persistedResult = runtime.session.sessionManager
+			.getEntries()
+			.find(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === rewrittenToolCallId,
+			);
+		expect(persistedResult).toBeDefined();
+	});
 });
 
 describe("change_working_directory real-process lifecycle", () => {
@@ -319,6 +349,10 @@ describe("change_working_directory real-process lifecycle", () => {
 			);
 
 			expect(JSON.stringify(toolResult)).toContain(`Changed working directory to ${targetCwd}`);
+			await agent.waitForSessionEntry(
+				null,
+				(entry) => entry.type === "custom_message" && entry.customType === "cwd_changed",
+			);
 			const entries = agent.readSessionEntries(null);
 			const toolResultIndex = entries.findIndex((entry) => entry.id === toolResult.id);
 			const cwdChangedIndex = entries.findIndex(
@@ -329,7 +363,6 @@ describe("change_working_directory real-process lifecycle", () => {
 			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
 		});
 	});
-
 });
 
 describe("change_working_directory process restart", () => {

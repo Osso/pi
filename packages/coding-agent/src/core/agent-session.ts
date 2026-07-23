@@ -1251,7 +1251,15 @@ export class AgentSession {
 		this._retryAttempt = 0;
 	}
 
-	private async _persistCompletedMessage(event: Extract<AgentEvent, { type: "message_end" }>): Promise<void> {
+	private _getTerminalToolCallId(event: AgentEvent): string | undefined {
+		if (event.type !== "message_end" || event.message.role !== "toolResult") return undefined;
+		return event.message.toolCallId;
+	}
+
+	private async _persistCompletedMessage(
+		event: Extract<AgentEvent, { type: "message_end" }>,
+		originalToolCallId: string | undefined,
+	): Promise<void> {
 		const { message } = event;
 		if (message.role === "custom") {
 			this.sessionManager.appendCustomMessageEntry(
@@ -1264,19 +1272,20 @@ export class AgentSession {
 			this.sessionManager.appendMessage(message);
 		}
 
-		if (message.role === "toolResult") {
-			await this._extensionRunner.deliverToolResultRelocation(message.toolCallId);
+		if (originalToolCallId !== undefined) {
+			await this._extensionRunner.deliverToolResultRelocation(originalToolCallId);
 		}
 		if (message.role === "assistant") this._trackCompletedAssistantMessage(message);
 	}
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
+		const originalToolCallId = this._getTerminalToolCallId(event);
 		this._publishCurrentAgentActivity(event);
 		this._removeStartedUserMessageFromQueue(event);
 		await this._emitExtensionEvent(event);
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
-		if (event.type === "message_end") await this._persistCompletedMessage(event);
+		if (event.type === "message_end") await this._persistCompletedMessage(event, originalToolCallId);
 	};
 
 	private _getCurrentAgentActivityOwner(): AgentCurrentActivityOwner | undefined {
