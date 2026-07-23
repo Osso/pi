@@ -701,7 +701,7 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	return entries;
 }
 
-function readSessionHeader(filePath: string): SessionHeader | null {
+export function readSessionHeader(filePath: string): SessionHeader | null {
 	try {
 		const fd = openSync(filePath, "r");
 		const buffer = Buffer.alloc(512);

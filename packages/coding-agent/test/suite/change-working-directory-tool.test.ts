@@ -191,6 +191,12 @@ describe("change_working_directory first-party tool", () => {
 		target.setMetadataControlDbPath(controlDbPath);
 		target.appendMessage({ role: "user", content: "Tradebot work", timestamp: Date.now() });
 		target.appendMessage(fauxAssistantMessage("Tradebot reply"));
+		const targetSessionFile = target.getSessionFile();
+		if (!targetSessionFile) throw new Error("Target session file was not created");
+		const targetLines = readFileSync(targetSessionFile, "utf8").trimEnd().split("\n");
+		const legacyHeader = { ...JSON.parse(targetLines[0] ?? "{}"), version: 2 };
+		const legacyTargetContent = `${[JSON.stringify(legacyHeader), ...targetLines.slice(1)].join("\n")}\n`;
+		writeFileSync(targetSessionFile, legacyTargetContent);
 		const currentSessionId = runtime.session.sessionId;
 		const currentSessionFile = runtime.session.sessionFile;
 
@@ -203,20 +209,23 @@ describe("change_working_directory first-party tool", () => {
 		);
 
 		expect(runtime.session.sessionId).toBe(currentSessionId);
-		expect(runtime.session.sessionFile).not.toBe(target.getSessionFile());
+		expect(runtime.session.sessionFile).not.toBe(targetSessionFile);
 		expect(runtime.session.sessionFile).not.toBe(currentSessionFile);
 		expect(runtime.cwd).toBe(targetCwd);
+		expect(readFileSync(targetSessionFile, "utf8")).toBe(legacyTargetContent);
 	});
 
-	it("rejects the current session id without modifying the session", async () => {
+	it("rejects a current session id prefix without modifying the session", async () => {
 		const { runtime } = await createRuntimeForTest();
+		runtime.session.sessionManager.appendMessage({ role: "user", content: "Current work", timestamp: Date.now() });
 		const originalCwd = runtime.cwd;
 		const originalEntryCount = runtime.session.sessionManager.getEntries().length;
+		const currentSessionIdPrefix = runtime.session.sessionId.slice(0, 8);
 
 		await expect(
 			getChangeWorkingDirectoryTool(runtime).execute(
 				"change-cwd-current-session",
-				{ id: runtime.session.sessionId },
+				{ id: currentSessionIdPrefix },
 				undefined,
 				undefined,
 				runtime.session.extensionRunner.createContext(),

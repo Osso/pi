@@ -3,7 +3,7 @@ import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { SessionManager } from "../session-manager.ts";
+import { readSessionHeader } from "../session-manager.ts";
 import { findSessionFileById } from "./resume-session.ts";
 
 const changeWorkingDirectorySchema = Type.Object({
@@ -50,15 +50,15 @@ async function loadTargetCwd(
 	if (target.path !== undefined) {
 		return { cwd: resolvePath(target.path, ctx.cwd), source: "path" };
 	}
-	if (target.id === ctx.sessionManager.getSessionId()) {
+	if (ctx.sessionManager.getSessionId().startsWith(target.id)) {
 		throw new Error("current session id cannot be used as a working directory target");
 	}
 	const sessionPath = await findSessionFileById(target.id, ctx);
-	return {
-		cwd: SessionManager.open(sessionPath).getCwd(),
-		source: "session",
-		sessionId: target.id,
-	};
+	const cwd = readSessionHeader(sessionPath)?.cwd;
+	if (!cwd) {
+		throw new Error(`Session does not record a working directory: ${sessionPath}`);
+	}
+	return { cwd, source: "session", sessionId: target.id };
 }
 
 function formatCall(args: ChangeWorkingDirectoryToolInput | undefined, theme: Theme): string {
