@@ -36,7 +36,7 @@ function getText(message: AgentSession["messages"][number]): string {
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
-function buildInteractivePiArguments(sessionFile: string): string[] {
+function buildInteractivePiArguments(sessionFile: string, initialMessage?: string): string[] {
 	const cliPath = join(import.meta.dirname, "../../../src/cli.ts");
 	const providerPreload = join(import.meta.dirname, "../fixtures/headless-pi-provider-preload.ts");
 	const ttyPreload = join(import.meta.dirname, "../fixtures/headless-pi-tty-preload.mjs");
@@ -58,6 +58,7 @@ function buildInteractivePiArguments(sessionFile: string): string[] {
 		"headless-faux-1",
 		"--session",
 		sessionFile,
+		...(initialMessage ? [initialMessage] : []),
 	];
 }
 
@@ -86,11 +87,12 @@ function captureProcessOutput(child: ChildProcessWithoutNullStreams): () => stri
 function startInteractivePi(
 	paths: HeadlessPiPaths,
 	sessionFile: string,
+	initialMessage?: string,
 ): {
 	process: ChildProcessWithoutNullStreams;
 	readOutput: () => string;
 } {
-	const child = spawn(process.execPath, buildInteractivePiArguments(sessionFile), {
+	const child = spawn(process.execPath, buildInteractivePiArguments(sessionFile, initialMessage), {
 		cwd: paths.workspaceDir,
 		env: buildInteractivePiEnvironment(paths),
 	});
@@ -265,11 +267,15 @@ describe("resume_session first-party tool", () => {
 		const resumeCall = fauxAssistantMessage(
 			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-before-exit" }),
 		);
-		const ordinaryCall = fauxAssistantMessage(
-			fauxToolCall("read", { path: "/tmp/file" }, { id: "read-before-exit" }),
-		);
+		const ordinaryToolCall = fauxToolCall("read", { path: "/tmp/file" }, { id: "read-before-exit" });
+		const ordinaryCall = fauxAssistantMessage(ordinaryToolCall);
+		const mixedCall = fauxAssistantMessage([
+			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-in-mixed-batch" }),
+			ordinaryToolCall,
+		]);
 
 		expect(shouldContinueInterruptedSession([resumeCall])).toBe(false);
+		expect(shouldContinueInterruptedSession([mixedCall])).toBe(false);
 		expect(shouldContinueInterruptedSession([ordinaryCall])).toBe(true);
 	});
 
@@ -304,7 +310,7 @@ describe("resume_session first-party tool", () => {
 			);
 			const sourceSessionFile = sourceSession.getSessionFile();
 			if (!sourceSessionFile) throw new Error("Missing source session file");
-			const interactive = startInteractivePi(target.paths, sourceSessionFile);
+			const interactive = startInteractivePi(target.paths, sourceSessionFile, "/session-id");
 			cleanups.push(() => stopProcess(interactive.process));
 
 			const controlDbPath = getControlDbPath(target.paths.agentDir);
@@ -314,8 +320,11 @@ describe("resume_session first-party tool", () => {
 				interactive.process,
 				interactive.readOutput,
 			);
-			await waitForInteractiveOutput(interactive.process, interactive.readOutput, "headless-faux-1");
-			await new Promise((resolve) => setTimeout(resolve, 1_000));
+			await waitForInteractiveOutput(
+				interactive.process,
+				interactive.readOutput,
+				`Session ID: ${sourceSession.getSessionId()}`,
+			);
 
 			expect(interactive.process.exitCode, interactive.readOutput()).toBeNull();
 			expect(
