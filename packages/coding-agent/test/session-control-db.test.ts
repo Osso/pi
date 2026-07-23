@@ -85,6 +85,7 @@ import {
 	configureSharedSqliteDatabase,
 	createReadOnlySqliteDatabase,
 	createSqliteDatabase,
+	isSqliteContentionError,
 } from "../src/core/sqlite.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
@@ -3890,6 +3891,87 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		]);
 		expect(sessions[0].updatedAt).toEqual(expect.any(String));
 	});
+
+	it("avoids prolonged writer starvation when resident message indexing is disabled", async () => {
+		readMultiAgentState(controlDbPath, "/tmp/schema-initialization.jsonl");
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import { writeSessionMetadata } from ${JSON.stringify(moduleUrl)};
+			const messageText = "x".repeat(workerData.messageBytes);
+			parentPort?.postMessage("starting");
+			for (let iteration = 0; iteration < workerData.iterations; iteration += 1) {
+				writeSessionMetadata(workerData.controlDbPath, {
+					sessionPath: workerData.sessionPath,
+					id: workerData.id,
+					cwd: "/repo",
+					createdAt: "2026-01-01T00:00:00.000Z",
+					modifiedAt: new Date(iteration).toISOString(),
+					messageCount: iteration + 1,
+					firstMessage: "request",
+					allMessagesText: messageText,
+					indexMessageText: workerData.indexMessageText,
+				});
+			}
+			parentPort?.postMessage("done");
+		`;
+		const measureContention = async (indexMessageText: boolean): Promise<number> => {
+			const worker = new Worker(workerSource, {
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: {
+					controlDbPath,
+					id: indexMessageText ? "indexed-resident" : "unindexed-resident",
+					indexMessageText,
+					iterations: 2,
+					messageBytes: 64 * 1024 * 1024,
+					sessionPath: indexMessageText ? "/tmp/indexed.jsonl" : "/tmp/unindexed.jsonl",
+				},
+			});
+			let finishWorker: (() => void) | undefined;
+			let startWorker: (() => void) | undefined;
+			const started = new Promise<void>((resolve) => {
+				startWorker = resolve;
+			});
+			const finished = new Promise<void>((resolve) => {
+				finishWorker = resolve;
+			});
+			const exited = once(worker, "exit");
+			worker.on("message", (message: string) => {
+				if (message === "starting") startWorker?.();
+				if (message === "done") finishWorker?.();
+			});
+			await started;
+			const contender = createSqliteDatabase(controlDbPath);
+			configureSharedSqliteDatabase(contender, { busyTimeoutMs: 0 });
+			let contentionCount = 0;
+			let workerFinished = false;
+			void finished.then(() => {
+				workerFinished = true;
+			});
+			try {
+				while (!workerFinished) {
+					try {
+						contender.exec("BEGIN IMMEDIATE; ROLLBACK");
+					} catch (error) {
+						if (!isSqliteContentionError(error)) throw error;
+						contentionCount += 1;
+					}
+					await new Promise<void>((resolve) => setTimeout(resolve, 1));
+				}
+				await exited;
+				return contentionCount;
+			} finally {
+				contender.close();
+				await worker.terminate();
+			}
+		};
+
+		const indexedContention = await measureContention(true);
+		const unindexedContention = await measureContention(false);
+
+		expect(indexedContention).toBeGreaterThan(unindexedContention * 10);
+	}, 30_000);
 
 	it("omits message search text when metadata indexing is disabled", () => {
 		writeSessionMetadata(controlDbPath, {
