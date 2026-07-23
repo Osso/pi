@@ -453,11 +453,30 @@ export class ExtensionRunner {
 		this.relocateHandler = handler;
 	}
 
+	private scheduleToolResultRelocation(toolCallId: string, targetCwd: string): void {
+		this.assertActive();
+		if (this.pendingToolResultRelocations.has(toolCallId)) {
+			throw new Error(`Working-directory relocation already scheduled for tool call ${toolCallId}`);
+		}
+		this.pendingToolResultRelocations.set(toolCallId, targetCwd);
+	}
+
 	async deliverToolResultRelocation(toolCallId: string): Promise<void> {
 		const targetCwd = this.pendingToolResultRelocations.get(toolCallId);
 		if (targetCwd === undefined) return;
 		this.pendingToolResultRelocations.delete(toolCallId);
 		await this.relocateHandler(targetCwd);
+	}
+
+	private createRelocationContextActions(): Pick<ExtensionContext, "relocate" | "relocateAfterToolResult"> {
+		return {
+			relocate: (targetCwd) => {
+				this.assertActive();
+				return this.relocateHandler(targetCwd);
+			},
+			relocateAfterToolResult: (toolCallId, targetCwd) =>
+				this.scheduleToolResultRelocation(toolCallId, targetCwd),
+		};
 	}
 
 	bindCommandContext(actions?: ExtensionCommandContextActions): void {
@@ -738,7 +757,6 @@ export class ExtensionRunner {
 	 */
 	createContext(): ExtensionContext {
 		const runner = this;
-		const getModel = this.getModel;
 		return {
 			get ui() {
 				runner.assertActive();
@@ -802,7 +820,7 @@ export class ExtensionRunner {
 			},
 			get model() {
 				runner.assertActive();
-				return getModel();
+				return runner.getModel();
 			},
 			setModel: async (model) => {
 				runner.assertActive();
@@ -848,17 +866,7 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.restartFn(options);
 			},
-			relocate: (targetCwd) => {
-				runner.assertActive();
-				return runner.relocateHandler(targetCwd);
-			},
-			relocateAfterToolResult: (toolCallId, targetCwd) => {
-				runner.assertActive();
-				if (runner.pendingToolResultRelocations.has(toolCallId)) {
-					throw new Error(`Working-directory relocation already scheduled for tool call ${toolCallId}`);
-				}
-				runner.pendingToolResultRelocations.set(toolCallId, targetCwd);
-			},
+			...runner.createRelocationContextActions(),
 			getContextUsage: () => {
 				runner.assertActive();
 				return runner.getContextUsageFn();

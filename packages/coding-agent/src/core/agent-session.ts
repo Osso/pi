@@ -1218,90 +1218,65 @@ export class AgentSession {
 	// Track last assistant message for auto-compaction check
 	private _lastAssistantMessage: AssistantMessage | undefined = undefined;
 
+	private _removeStartedUserMessageFromQueue(event: AgentEvent): void {
+		if (event.type !== "message_start" || event.message.role !== "user") return;
+		this._overflowRecoveryAttempted = false;
+		this._lengthRecoveryAttempted = false;
+		this._quotaFallbackAttempted = false;
+		const messageText = this._getUserMessageText(event.message);
+		if (!messageText) return;
+
+		const steeringIndex = this._steeringMessages.indexOf(messageText);
+		if (steeringIndex !== -1) {
+			this._steeringMessages.splice(steeringIndex, 1);
+			this._emitQueueUpdate();
+			return;
+		}
+
+		const followUpIndex = this._followUpMessages.indexOf(messageText);
+		if (followUpIndex !== -1) {
+			this._followUpMessages.splice(followUpIndex, 1);
+			this._emitQueueUpdate();
+		}
+	}
+
+	private _trackCompletedAssistantMessage(message: AssistantMessage): void {
+		this._lastAssistantMessage = message;
+		this._writeLastAssistantControlMessage(message);
+		if (message.stopReason !== "error") this._overflowRecoveryAttempted = false;
+		if (message.stopReason !== "length") this._lengthRecoveryAttempted = false;
+		if (message.stopReason === "error" || this._retryAttempt === 0) return;
+
+		this._emit({ type: "auto_retry_end", success: true, attempt: this._retryAttempt });
+		this._retryAttempt = 0;
+	}
+
+	private async _persistCompletedMessage(event: Extract<AgentEvent, { type: "message_end" }>): Promise<void> {
+		const { message } = event;
+		if (message.role === "custom") {
+			this.sessionManager.appendCustomMessageEntry(
+				message.customType,
+				message.content,
+				message.display,
+				message.details,
+			);
+		} else if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
+			this.sessionManager.appendMessage(message);
+		}
+
+		if (message.role === "toolResult") {
+			await this._extensionRunner.deliverToolResultRelocation(message.toolCallId);
+		}
+		if (message.role === "assistant") this._trackCompletedAssistantMessage(message);
+	}
+
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
 		this._publishCurrentAgentActivity(event);
-
-		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
-		// This ensures the UI sees the updated queue state
-		if (event.type === "message_start" && event.message.role === "user") {
-			this._overflowRecoveryAttempted = false;
-			this._lengthRecoveryAttempted = false;
-			this._quotaFallbackAttempted = false;
-			const messageText = this._getUserMessageText(event.message);
-			if (messageText) {
-				// Check steering queue first
-				const steeringIndex = this._steeringMessages.indexOf(messageText);
-				if (steeringIndex !== -1) {
-					this._steeringMessages.splice(steeringIndex, 1);
-					this._emitQueueUpdate();
-				} else {
-					// Check follow-up queue
-					const followUpIndex = this._followUpMessages.indexOf(messageText);
-					if (followUpIndex !== -1) {
-						this._followUpMessages.splice(followUpIndex, 1);
-						this._emitQueueUpdate();
-					}
-				}
-			}
-		}
-
-		// Emit to extensions first
+		this._removeStartedUserMessageFromQueue(event);
 		await this._emitExtensionEvent(event);
-
-		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
-
-		// Handle session persistence
-		if (event.type === "message_end") {
-			// Check if this is a custom message from extensions
-			if (event.message.role === "custom") {
-				// Persist as CustomMessageEntry
-				this.sessionManager.appendCustomMessageEntry(
-					event.message.customType,
-					event.message.content,
-					event.message.display,
-					event.message.details,
-				);
-			} else if (
-				event.message.role === "user" ||
-				event.message.role === "assistant" ||
-				event.message.role === "toolResult"
-			) {
-				// Regular LLM message - persist as SessionMessageEntry
-				this.sessionManager.appendMessage(event.message);
-			}
-			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
-
-			if (event.message.role === "toolResult") {
-				await this._extensionRunner.deliverToolResultRelocation(event.message.toolCallId);
-			}
-
-			// Track assistant message for auto-compaction (checked on agent_end)
-			if (event.message.role === "assistant") {
-				this._lastAssistantMessage = event.message;
-				this._writeLastAssistantControlMessage(event.message);
-
-				const assistantMsg = event.message as AssistantMessage;
-				if (assistantMsg.stopReason !== "error") {
-					this._overflowRecoveryAttempted = false;
-				}
-				if (assistantMsg.stopReason !== "length") {
-					this._lengthRecoveryAttempted = false;
-				}
-
-				// Reset retry counter immediately on successful assistant response
-				// This prevents accumulation across multiple LLM calls within a turn
-				if (assistantMsg.stopReason !== "error" && this._retryAttempt > 0) {
-					this._emit({
-						type: "auto_retry_end",
-						success: true,
-						attempt: this._retryAttempt,
-					});
-					this._retryAttempt = 0;
-				}
-			}
-		}
+		if (event.type === "message_end") await this._persistCompletedMessage(event);
 	};
 
 	private _getCurrentAgentActivityOwner(): AgentCurrentActivityOwner | undefined {

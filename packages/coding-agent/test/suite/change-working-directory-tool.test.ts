@@ -294,6 +294,9 @@ describe("change_working_directory first-party tool", () => {
 		expect(readTextContent(result.content)).toContain("relative tool used changed cwd");
 	});
 
+});
+
+describe("change_working_directory real-process lifecycle", () => {
 	it("persists the terminal tool result before replacing the runtime", async () => {
 		await withHeadlessPi(async (agent) => {
 			const targetCwd = join(agent.paths.tempDir, "terminal-result-target");
@@ -327,6 +330,9 @@ describe("change_working_directory first-party tool", () => {
 		});
 	});
 
+});
+
+describe("change_working_directory process restart", () => {
 	it("persists the changed cwd across a real process restart", async () => {
 		await withHeadlessPi(async (agent) => {
 			const targetCwd = join(agent.paths.tempDir, "restart-target");

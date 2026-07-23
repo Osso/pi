@@ -91,10 +91,33 @@ function formatResult(
 	return output ? `\n${theme.fg(result.isError ? "error" : "toolOutput", output)}` : "";
 }
 
-export function createChangeWorkingDirectoryToolDefinition(): ToolDefinition<
+type ChangeWorkingDirectoryTool = ToolDefinition<
 	typeof changeWorkingDirectorySchema,
 	ChangeWorkingDirectoryToolDetails
-> {
+>;
+
+const executeChangeWorkingDirectory: ChangeWorkingDirectoryTool["execute"] = async (
+	toolCallId,
+	params,
+	_signal,
+	_onUpdate,
+	ctx,
+) => {
+	if (!ctx.relocateAfterToolResult) {
+		throw new Error("change_working_directory is not available in this session mode");
+	}
+	const target = normalizeTarget(params);
+	const previousCwd = ctx.cwd;
+	const resolved = await loadTargetCwd(target, ctx);
+	ctx.relocateAfterToolResult(toolCallId, resolved.cwd);
+	return {
+		content: [{ type: "text", text: `Changed working directory to ${resolved.cwd}` }],
+		details: { previousCwd, ...resolved },
+		terminate: true,
+	};
+};
+
+export function createChangeWorkingDirectoryToolDefinition(): ChangeWorkingDirectoryTool {
 	return {
 		name: "change_working_directory",
 		label: "change_working_directory",
@@ -107,20 +130,7 @@ export function createChangeWorkingDirectoryToolDefinition(): ToolDefinition<
 		],
 		parameters: changeWorkingDirectorySchema,
 		executionMode: "sequential",
-		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!ctx.relocateAfterToolResult) {
-				throw new Error("change_working_directory is not available in this session mode");
-			}
-			const target = normalizeTarget(params);
-			const previousCwd = ctx.cwd;
-			const resolved = await loadTargetCwd(target, ctx);
-			ctx.relocateAfterToolResult(toolCallId, resolved.cwd);
-			return {
-				content: [{ type: "text", text: `Changed working directory to ${resolved.cwd}` }],
-				details: { previousCwd, ...resolved },
-				terminate: true,
-			};
-		},
+		execute: executeChangeWorkingDirectory,
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			text.setText(formatCall(args, theme));
