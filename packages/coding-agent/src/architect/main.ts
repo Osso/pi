@@ -35,7 +35,7 @@ export function createArchitectMultiAgentStore(
 	sessionManager: SessionManager,
 	controlDbPath = getControlDbPath(),
 ): MultiAgentStore {
-	sessionManager.setMetadataControlDbPath(controlDbPath);
+	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
 	const sessionPath = sessionManager.getSessionFile();
 	if (sessionPath) {
 		archiveSession(controlDbPath, sessionPath);

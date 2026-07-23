@@ -1123,6 +1123,7 @@ export class SessionManager {
 	private labelTimestampsById: Map<string, string> = new Map();
 	private leafId: string | null = null;
 	private metadataControlDbPath: string | undefined;
+	private indexMessageText: boolean = true;
 	private isSubagent: boolean = false;
 	private subagentName: string | undefined;
 	private inMemoryGoalJson: string | undefined;
@@ -1403,8 +1404,9 @@ export class SessionManager {
 		writeSessionGoal(this.metadataControlDbPath, this.sessionFile, undefined);
 	}
 
-	setMetadataControlDbPath(controlDbPath: string | undefined): void {
+	setMetadataControlDbPath(controlDbPath: string | undefined, options?: { indexMessageText?: boolean }): void {
 		this.metadataControlDbPath = controlDbPath;
+		if (options?.indexMessageText !== undefined) this.indexMessageText = options.indexMessageText;
 		this.restorePersistedSubagentMetadata();
 		this.writeMetadataSnapshot();
 	}
@@ -1422,13 +1424,13 @@ export class SessionManager {
 		const header = this.fileEntries[0];
 		if (!header || header.type !== "session") return;
 		const info = finishSessionInfo(this.sessionFile, header, this.currentSessionInfoAccumulator(), new Date());
-		writeSessionMetadata(
-			this.metadataControlDbPath,
-			writableSessionMetadataFromInfo(info, {
+		writeSessionMetadata(this.metadataControlDbPath, {
+			...writableSessionMetadataFromInfo(info, {
 				isSubagent: this.isSubagent,
 				subagentName: this.subagentName,
 			}),
-		);
+			indexMessageText: this.indexMessageText,
+		});
 	}
 
 	// The accumulator folds entries one at a time as they are appended; it is rebuilt from

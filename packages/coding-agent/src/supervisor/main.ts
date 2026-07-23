@@ -154,7 +154,7 @@ function openSupervisorSession(agentDir: string, kbDir: string): SessionManager 
 		? SessionManager.open(sessionPath, sessionDir, kbDir)
 		: SessionManager.create(kbDir, sessionDir, { id: SUPERVISOR_SESSION_ID });
 	const controlDbPath = getControlDbPath();
-	sessionManager.setMetadataControlDbPath(controlDbPath);
+	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
 	const persistedPath = sessionManager.getSessionFile();
 	if (persistedPath) archiveSession(controlDbPath, persistedPath);
 	return sessionManager;

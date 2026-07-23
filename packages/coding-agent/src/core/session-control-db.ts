@@ -172,7 +172,9 @@ export interface SessionMetadata {
 	updatedAt: string;
 }
 
-export type WritableSessionMetadata = Omit<SessionMetadata, "goalJson" | "updatedAt">;
+export type WritableSessionMetadata = Omit<SessionMetadata, "goalJson" | "updatedAt"> & {
+	indexMessageText?: boolean;
+};
 
 type IncomingRow = {
 	id: number;
@@ -2253,7 +2255,7 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 			metadata.modifiedAt,
 			metadata.messageCount,
 			metadata.firstMessage,
-			metadata.allMessagesText,
+			metadata.indexMessageText === false ? "" : metadata.allMessagesText,
 			new Date().toISOString(),
 		);
 	});

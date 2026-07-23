@@ -3891,6 +3891,25 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(sessions[0].updatedAt).toEqual(expect.any(String));
 	});
 
+	it("omits message search text when metadata indexing is disabled", () => {
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: "/tmp/resident-service.jsonl",
+			id: "resident-service",
+			cwd: "/repo",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:10:00.000Z",
+			messageCount: 2,
+			firstMessage: "first request",
+			allMessagesText: "x".repeat(1024 * 1024),
+			indexMessageText: false,
+		});
+
+		expect(readSessionMetadata(controlDbPath, "/tmp/resident-service.jsonl")).toMatchObject({
+			firstMessage: "first request",
+			allMessagesText: "",
+		});
+	});
+
 	it("archives and restores session metadata without changing transcript data", () => {
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
