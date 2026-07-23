@@ -50,6 +50,9 @@ async function loadTargetCwd(
 	if (target.path !== undefined) {
 		return { cwd: resolvePath(target.path, ctx.cwd), source: "path" };
 	}
+	if (target.id === ctx.sessionManager.getSessionId()) {
+		throw new Error("current session id cannot be used as a working directory target");
+	}
 	const sessionPath = await findSessionFileById(target.id, ctx);
 	return {
 		cwd: SessionManager.open(sessionPath).getCwd(),

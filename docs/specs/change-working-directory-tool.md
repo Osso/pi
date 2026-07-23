@@ -12,7 +12,7 @@ The `change_working_directory` tool changes the current Pi session's working dir
 - [x] The tool accepts exactly one target: `path` or `id`.
 - [x] Direct paths resolve relative to the current session cwd.
 - [x] Session IDs resolve to the referenced session file's recorded cwd.
-- [x] ID-based changes do not resume, replace, or modify the referenced session.
+- [x] ID-based changes do not resume, replace, or modify the referenced session; the current session ID is rejected as a target.
 - [x] Empty, missing, multiple, nonexistent, and non-directory targets fail explicitly.
 
 ### Runtime behavior

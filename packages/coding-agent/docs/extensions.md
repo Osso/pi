@@ -1054,7 +1054,10 @@ pi.registerTool({
     if (!ctx.relocate) throw new Error("Runtime relocation unavailable");
     const targetCwd = resolve(ctx.cwd, params.path);
     await ctx.relocate(targetCwd);
-    return { content: [{ type: "text", text: `Changed cwd to ${targetCwd}` }] };
+    return {
+      content: [{ type: "text", text: `Changed cwd to ${targetCwd}` }],
+      terminate: true,
+    };
   },
 });
 ```

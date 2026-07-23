@@ -208,6 +208,25 @@ describe("change_working_directory first-party tool", () => {
 		expect(runtime.cwd).toBe(targetCwd);
 	});
 
+	it("rejects the current session id without modifying the session", async () => {
+		const { runtime } = await createRuntimeForTest();
+		const originalCwd = runtime.cwd;
+		const originalEntryCount = runtime.session.sessionManager.getEntries().length;
+
+		await expect(
+			getChangeWorkingDirectoryTool(runtime).execute(
+				"change-cwd-current-session",
+				{ id: runtime.session.sessionId },
+				undefined,
+				undefined,
+				runtime.session.extensionRunner.createContext(),
+			),
+		).rejects.toThrow("current session id cannot be used as a working directory target");
+
+		expect(runtime.cwd).toBe(originalCwd);
+		expect(runtime.session.sessionManager.getEntries()).toHaveLength(originalEntryCount);
+	});
+
 	it("rejects a missing directory without changing cwd", async () => {
 		const { runtime, tempDir } = await createRuntimeForTest();
 		const missingCwd = join(tempDir, "missing");
