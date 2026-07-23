@@ -20,9 +20,7 @@ export interface ChangeWorkingDirectoryToolDetails {
 	sessionId?: string;
 }
 
-type ChangeWorkingDirectoryTarget =
-	| { path: string; id?: undefined }
-	| { id: string; path?: undefined };
+type ChangeWorkingDirectoryTarget = { path: string; id?: undefined } | { id: string; path?: undefined };
 
 function readNonEmptyTarget(record: Record<string, unknown>, key: "path" | "id"): string | undefined {
 	const value = record[key];
