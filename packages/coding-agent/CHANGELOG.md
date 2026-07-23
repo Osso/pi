@@ -158,7 +158,7 @@
 
 ### Fixed
 
-- Fixed reopening a source session whose active transcript ends with a `resume_session` tool call to keep the source session active without appending a `toolResult` for that call.
+- Fixed reopening a source session whose restored pending assistant tool-call batch contains any `resume_session` call to treat that batch as a completed terminal switch without appending a `toolResult`; ordinary batches without `resume_session` still continue.
 - Fixed dead-detached-runtime reconciliation terminating Pi when another process held the shared SQLite writer lock; transient busy/locked contention now defers to a later reconciliation poll while other failures still surface.
 - Fixed `resume_session` targeting a session open in another live Pi process to reject before shutting down the caller, instead of dropping the caller back to the shell.
 - Fixed goal-managed `wait_agents` wakeups to preserve visible coordination content, preventing shared-channel instructions from being discarded before Supervisor re-review.

@@ -30,7 +30,7 @@ The `resume_session` tool lets an agent switch the current main Pi session to an
 - [x] The starter prompt uses the replacement session context, not the stale pre-resume context.
 - [x] If resume is cancelled, the starter prompt is not sent.
 - [x] Interactive startup resume and in-session resume automatically continue an interrupted assistant turn when the active transcript ends with a `toolResult`.
-- [x] Reopening a source session whose active transcript ends with a `resume_session` tool call leaves the source session active without appending a `toolResult` for that call.
+- [x] Reopening a source session whose restored pending assistant tool-call batch contains any `resume_session` call treats that batch as a completed terminal switch, leaving the source session active without appending a `toolResult`; batches without `resume_session` continue normally.
 
 ## How it works
 
