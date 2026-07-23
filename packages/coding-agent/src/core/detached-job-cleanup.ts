@@ -190,8 +190,8 @@ function detachedArtifactDirectory(outputPath: string, sessionPath: string, jobI
 	if (!isAbsolute(outputPath) || basename(outputPath) !== "output.log") return undefined;
 	const directoryPath = resolve(dirname(outputPath));
 	const sessionName = basename(sessionPath, extname(sessionPath));
-	const expectedSuffix = join("detached-jobs", sessionName, jobId);
-	if (basename(directoryPath) !== jobId || !directoryPath.endsWith(`${sep}${expectedSuffix}`)) return undefined;
+	const expectedDirectoryPath = resolve(dirname(sessionPath), "detached-jobs", sessionName, jobId);
+	if (directoryPath !== expectedDirectoryPath) return undefined;
 	try {
 		const directory = lstatSync(directoryPath);
 		return directory.isDirectory() && !directory.isSymbolicLink() ? realpathSync(directoryPath) : undefined;

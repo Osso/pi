@@ -367,6 +367,48 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(expired)).toBe(false);
 	});
 
+	it("refuses a matching detached path outside the session directory", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const sessionName = "external-path";
+		const jobId = "pyrun_external";
+		const sessionPath = join(root, "sessions", "project", `${sessionName}.jsonl`);
+		const externalDirectory = join(root, "unrelated", "detached-jobs", sessionName, jobId);
+		const outputPath = join(externalDirectory, "output.log");
+		mkdirSync(externalDirectory, { recursive: true });
+		writeFileSync(outputPath, "output", { mode: 0o600 });
+		writeSessionMetadata(controlDbPath, {
+			allMessagesText: sessionName,
+			createdAt: "2026-07-19T18:00:00.000Z",
+			cwd: root,
+			firstMessage: sessionName,
+			id: `session-${sessionName}`,
+			messageCount: 1,
+			modifiedAt: "2026-07-19T18:00:00.000Z",
+			name: undefined,
+			parentSessionPath: undefined,
+			sessionPath,
+		});
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, jobId, {
+			agentType: "background",
+			createdAt: "2026-07-19T18:00:00.000Z",
+			cwd: root,
+			displayName: "Detached job",
+			id: jobId,
+			lifecycle: "completed",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			result: { fileRefs: [{ label: "Pyrun output", path: outputPath }] },
+			revision: 2,
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+		expect(result.deletedDirectories).toEqual([]);
+		expect(existsSync(externalDirectory)).toBe(true);
+	});
+
 	it("deletes oldest recent terminal directories until retained bytes fit the two GiB cap", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);
