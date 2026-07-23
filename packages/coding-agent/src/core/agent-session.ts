@@ -2785,6 +2785,7 @@ export class AgentSession {
 			this._terminalOutboxLastCleanupAt = now;
 		}
 		deliverTerminalOutboxProjections({
+			artifactRoot: this._agentDir,
 			claimId: this._terminalOutboxClaimId,
 			controlDbPath,
 			now: () => new Date().toISOString(),

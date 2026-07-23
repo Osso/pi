@@ -199,6 +199,25 @@ function persistFailedOutboxAgent(input: {
 }
 
 describe("detached job artifact cleanup", () => {
+	it("cleans production artifacts when agent and control database roots differ", () => {
+		const stateRoot = createRoot();
+		const agentRoot = createRoot();
+		const controlDbPath = getControlDbPath(stateRoot);
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "bash_distinct_roots",
+			lifecycle: "completed",
+			root: agentRoot,
+			sessionName: "distinct-roots",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: agentRoot, now: NOW });
+
+		expect(result.deletedDirectories).toEqual([expired]);
+		expect(existsSync(expired)).toBe(false);
+	});
+
 	it("deletes expired terminal artifacts while preserving nonterminal and live-referenced directories", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);
@@ -234,7 +253,7 @@ describe("detached job artifact cleanup", () => {
 		expect(child.pid).toBeDefined();
 		expect(readlinkSync(`/proc/${child.pid}/cwd`)).toBe(referenced);
 
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(result.deletedDirectories).toEqual([expired]);
 		expect(existsSync(expired)).toBe(false);
@@ -265,7 +284,7 @@ describe("detached job artifact cleanup", () => {
 		if (!child.pid) throw new Error("Expected child process ID");
 		expect(readlinkSync(`/proc/${child.pid}/cwd`)).toBe(realpathSync(referenced));
 
-		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: linkedRoot, now: NOW });
 
 		expect(existsSync(referenced)).toBe(true);
 	});
@@ -288,7 +307,7 @@ describe("detached job artifact cleanup", () => {
 		childProcesses.add(child);
 		if (!child.pid) throw new Error("Expected child process ID");
 
-		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(existsSync(referenced)).toBe(true);
 	});
@@ -306,7 +325,7 @@ describe("detached job artifact cleanup", () => {
 		});
 		const descriptor = openSync(join(referenced, "output.log"), "r");
 		try {
-			const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+			const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 			expect(result.deletedDirectories).toEqual([]);
 			expect(existsSync(referenced)).toBe(true);
@@ -328,6 +347,7 @@ describe("detached job artifact cleanup", () => {
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, {
+			artifactRoot: root,
 			now: NOW,
 			onDirectoryQuarantined: (quarantinePath) => {
 				const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -362,7 +382,7 @@ describe("detached job artifact cleanup", () => {
 		childProcesses.add(child);
 		if (!child.pid) throw new Error("Expected child process ID");
 
-		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(existsSync(expired)).toBe(false);
 	});
@@ -403,7 +423,7 @@ describe("detached job artifact cleanup", () => {
 			updatedAt: "2026-07-19T18:00:00.000Z",
 		});
 
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(result.deletedDirectories).toEqual([]);
 		expect(existsSync(externalDirectory)).toBe(true);
@@ -449,7 +469,7 @@ describe("detached job artifact cleanup", () => {
 			updatedAt: "2026-07-19T18:00:00.000Z",
 		});
 
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(result.deletedDirectories).toEqual([]);
 		expect(existsSync(externalDirectory)).toBe(true);
@@ -491,7 +511,7 @@ describe("detached job artifact cleanup", () => {
 			updatedAt: "2026-07-19T18:00:00.000Z",
 		});
 
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(result.deletedDirectories).toEqual([]);
 		expect(existsSync(escapedDirectory)).toBe(true);
@@ -519,7 +539,7 @@ describe("detached job artifact cleanup", () => {
 			updatedAt: "2026-07-22T17:00:00.000Z",
 		});
 
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(result.deletedDirectories).toEqual([oldest]);
 		expect(existsSync(oldest)).toBe(false);
@@ -545,7 +565,9 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(artifact)).toBe(true);
 		await stopChildProcess(child);
 
-		expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date(NOW).toISOString())).toBe(1);
+		expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date(NOW).toISOString(), root)).toBe(
+			1,
+		);
 
 		expect(existsSync(artifact)).toBe(false);
 	});
@@ -635,6 +657,7 @@ describe("detached job artifact cleanup", () => {
 
 		expect(
 			deliverTerminalOutboxProjections({
+				artifactRoot: root,
 				claimId: "cleanup-test",
 				controlDbPath,
 				now: () => completedAt,
@@ -673,6 +696,7 @@ describe("detached job artifact cleanup", () => {
 
 		expect(() =>
 			deliverTerminalOutboxProjections({
+				artifactRoot: root,
 				claimId: "partial-cleanup-test",
 				controlDbPath,
 				now: () => completedAt,

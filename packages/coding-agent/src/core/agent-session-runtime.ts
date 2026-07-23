@@ -498,7 +498,7 @@ export async function createAgentSessionRuntime(
 ): Promise<AgentSessionRuntime> {
 	assertSessionCwdExists(options.sessionManager, options.cwd);
 	const controlDbPath = options.sessionManager.getMetadataControlDbPath();
-	if (controlDbPath) runDetachedJobArtifactCleanup(controlDbPath);
+	if (controlDbPath) runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
 	const result = await createRuntime(options);
 	return new AgentSessionRuntime(
 		result.session,

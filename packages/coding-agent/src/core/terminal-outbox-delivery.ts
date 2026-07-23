@@ -14,6 +14,7 @@ export const TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const TERMINAL_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DeliverTerminalOutboxOptions {
+	artifactRoot?: string;
 	claimId: string;
 	controlDbPath: string;
 	now: () => string;
@@ -48,7 +49,9 @@ export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxO
 		}
 		return delivered;
 	} finally {
-		if (delivered > 0) runDetachedJobArtifactCleanup(options.controlDbPath, Date.parse(options.now()));
+		if (delivered > 0) {
+			runDetachedJobArtifactCleanup(options.controlDbPath, options.artifactRoot, Date.parse(options.now()));
+		}
 	}
 }
 

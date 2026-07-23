@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { getAgentDir } from "../config.ts";
 import {
 	type DetachedArtifactRetentionCandidate,
 	selectDetachedArtifactDirectoriesToDelete,
@@ -22,23 +23,19 @@ export interface DetachedJobCleanupResult {
 }
 
 interface DetachedJobCleanupOptions {
+	artifactRoot: string;
 	now?: number;
 	onDirectoryQuarantined?: (quarantinePath: string) => void;
 }
 
 export function cleanupDetachedJobArtifacts(
 	controlDbPath: string,
-	options: DetachedJobCleanupOptions = {},
+	options: DetachedJobCleanupOptions,
 ): DetachedJobCleanupResult {
 	const processReferences = readLinuxProcessReferences();
 	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
 	const errors: string[] = [];
-	const candidates = collectTerminalArtifactCandidates(
-		controlDbPath,
-		dirname(controlDbPath),
-		processReferences,
-		errors,
-	);
+	const candidates = collectTerminalArtifactCandidates(controlDbPath, options.artifactRoot, processReferences, errors);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
@@ -47,9 +44,13 @@ export function cleanupDetachedJobArtifacts(
 	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors, options.onDirectoryQuarantined);
 }
 
-export function runDetachedJobArtifactCleanup(controlDbPath: string, now = Date.now()): void {
+export function runDetachedJobArtifactCleanup(
+	controlDbPath: string,
+	artifactRoot: string = getAgentDir(),
+	now = Date.now(),
+): void {
 	try {
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { now });
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot, now });
 		for (const error of result.errors) console.error(`Detached artifact cleanup: ${error}`);
 	} catch (error) {
 		console.error(`Detached artifact cleanup failed: ${errorMessage(error)}`);

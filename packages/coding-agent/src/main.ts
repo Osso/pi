@@ -1020,7 +1020,7 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionManager,
 	});
 	reconcileSessionRuntimeBindings(controlDbPath);
-	LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString());
+	LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString(), agentDir);
 	debugRepl = new DebugReplServer({
 		agentDir,
 		getRuntime: () => runtime,
