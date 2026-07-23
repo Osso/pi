@@ -164,6 +164,23 @@ describe("change_working_directory first-party tool", () => {
 		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
 	});
 
+	it("preserves whitespace in a direct directory path", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest();
+		const targetCwd = join(tempDir, " target with whitespace ");
+		mkdirSync(targetCwd);
+
+		await getChangeWorkingDirectoryTool(runtime).execute(
+			"change-cwd-whitespace-path",
+			{ path: targetCwd },
+			undefined,
+			undefined,
+			runtime.session.extensionRunner.createContext(),
+		);
+
+		expect(runtime.cwd).toBe(targetCwd);
+		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
+	});
+
 	it("resolves a session id to its recorded cwd without resuming that session", async () => {
 		const { controlDbPath, runtime, tempDir } = await createRuntimeForTest();
 		const targetCwd = join(tempDir, "tradebot");

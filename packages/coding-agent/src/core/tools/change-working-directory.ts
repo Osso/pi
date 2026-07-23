@@ -28,7 +28,7 @@ function readNonEmptyTarget(record: Record<string, unknown>, key: "path" | "id")
 	if (typeof value !== "string" || value.trim() === "") {
 		throw new Error(`change_working_directory ${key} must be a non-empty string`);
 	}
-	return value.trim();
+	return value;
 }
 
 function normalizeTarget(params: unknown): ChangeWorkingDirectoryTarget {
@@ -37,7 +37,7 @@ function normalizeTarget(params: unknown): ChangeWorkingDirectoryTarget {
 	}
 	const record = params as Record<string, unknown>;
 	const path = readNonEmptyTarget(record, "path");
-	const id = readNonEmptyTarget(record, "id");
+	const id = readNonEmptyTarget(record, "id")?.trim();
 	if (path !== undefined && id === undefined) return { path };
 	if (id !== undefined && path === undefined) return { id };
 	throw new Error("change_working_directory requires exactly one of path or id");
