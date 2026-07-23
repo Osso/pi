@@ -68,7 +68,7 @@ function persistArtifact(input: {
 }): string {
 	const sessionDirectory = join(input.root, "sessions", "project");
 	const sessionPath = join(sessionDirectory, `${input.sessionName}.jsonl`);
-	const artifactDirectory = join(sessionDirectory, "detached-jobs", input.sessionName, input.jobId);
+	const artifactDirectory = join(input.root, "detached-jobs", input.sessionName, input.jobId);
 	const outputPath = join(artifactDirectory, "output.log");
 	mkdirSync(artifactDirectory, { recursive: true });
 	writeFileSync(outputPath, "output", { mode: 0o600 });
@@ -112,7 +112,7 @@ function persistOwnedDetachedArtifact(input: {
 }): string {
 	const sessionDirectory = join(input.root, "sessions", "project");
 	const sessionPath = join(sessionDirectory, `${input.sessionName}.jsonl`);
-	const artifactDirectory = join(sessionDirectory, "detached-jobs", input.sessionName, input.jobId);
+	const artifactDirectory = join(input.root, "detached-jobs", input.sessionName, input.jobId);
 	const outputPath = join(artifactDirectory, "output.log");
 	mkdirSync(artifactDirectory, { recursive: true });
 	writeFileSync(outputPath, "output", { mode: 0o600 });
@@ -367,7 +367,7 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(expired)).toBe(false);
 	});
 
-	it("refuses a matching detached path outside the session directory", () => {
+	it("refuses a matching detached path outside the agent artifact root", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);
 		const sessionName = "external-path";
@@ -407,6 +407,94 @@ describe("detached job artifact cleanup", () => {
 
 		expect(result.deletedDirectories).toEqual([]);
 		expect(existsSync(externalDirectory)).toBe(true);
+	});
+
+	it("refuses an artifact path redirected outside the root by a symlinked session directory", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const sessionName = "symlink-escape";
+		const jobId = "pyrun_symlink_escape";
+		const sessionPath = join(root, "sessions", "project", `${sessionName}.jsonl`);
+		const externalSessionDirectory = join(root, "outside", sessionName);
+		const externalDirectory = join(externalSessionDirectory, jobId);
+		const detachedRoot = join(root, "detached-jobs");
+		mkdirSync(externalDirectory, { recursive: true });
+		mkdirSync(detachedRoot, { recursive: true });
+		symlinkSync(externalSessionDirectory, join(detachedRoot, sessionName), "dir");
+		const outputPath = join(detachedRoot, sessionName, jobId, "output.log");
+		writeFileSync(outputPath, "output", { mode: 0o600 });
+		writeSessionMetadata(controlDbPath, {
+			allMessagesText: sessionName,
+			createdAt: "2026-07-19T18:00:00.000Z",
+			cwd: root,
+			firstMessage: sessionName,
+			id: `session-${sessionName}`,
+			messageCount: 1,
+			modifiedAt: "2026-07-19T18:00:00.000Z",
+			name: undefined,
+			parentSessionPath: undefined,
+			sessionPath,
+		});
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, jobId, {
+			agentType: "background",
+			createdAt: "2026-07-19T18:00:00.000Z",
+			cwd: root,
+			displayName: "Detached job",
+			id: jobId,
+			lifecycle: "completed",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			result: { fileRefs: [{ label: "Bash output", path: outputPath }] },
+			revision: 2,
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+		expect(result.deletedDirectories).toEqual([]);
+		expect(existsSync(externalDirectory)).toBe(true);
+	});
+
+	it("refuses a detached job ID containing path traversal", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const sessionName = "traversal";
+		const jobId = "../escaped-job";
+		const sessionPath = join(root, "sessions", "project", `${sessionName}.jsonl`);
+		const escapedDirectory = join(root, "detached-jobs", "escaped-job");
+		const outputPath = join(escapedDirectory, "output.log");
+		mkdirSync(escapedDirectory, { recursive: true });
+		writeFileSync(outputPath, "output", { mode: 0o600 });
+		writeSessionMetadata(controlDbPath, {
+			allMessagesText: sessionName,
+			createdAt: "2026-07-19T18:00:00.000Z",
+			cwd: root,
+			firstMessage: sessionName,
+			id: `session-${sessionName}`,
+			messageCount: 1,
+			modifiedAt: "2026-07-19T18:00:00.000Z",
+			name: undefined,
+			parentSessionPath: undefined,
+			sessionPath,
+		});
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, jobId, {
+			agentType: "background",
+			createdAt: "2026-07-19T18:00:00.000Z",
+			cwd: root,
+			displayName: "Detached job",
+			id: jobId,
+			lifecycle: "completed",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			result: { fileRefs: [{ label: "Pyrun output", path: outputPath }] },
+			revision: 2,
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+		expect(result.deletedDirectories).toEqual([]);
+		expect(existsSync(escapedDirectory)).toBe(true);
 	});
 
 	it("deletes oldest recent terminal directories until retained bytes fit the two GiB cap", () => {

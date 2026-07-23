@@ -33,7 +33,12 @@ export function cleanupDetachedJobArtifacts(
 	const processReferences = readLinuxProcessReferences();
 	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
 	const errors: string[] = [];
-	const candidates = collectTerminalArtifactCandidates(controlDbPath, processReferences, errors);
+	const candidates = collectTerminalArtifactCandidates(
+		controlDbPath,
+		dirname(controlDbPath),
+		processReferences,
+		errors,
+	);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
@@ -128,6 +133,7 @@ function totalCandidateBytes(candidates: readonly DetachedArtifactRetentionCandi
 
 function collectTerminalArtifactCandidates(
 	controlDbPath: string,
+	artifactRoot: string,
 	processReferences: ReadonlySet<string>,
 	errors: string[],
 ): DetachedArtifactRetentionCandidate[] {
@@ -136,7 +142,13 @@ function collectTerminalArtifactCandidates(
 		const state = readMultiAgentState(controlDbPath, session.sessionPath);
 		if (!state) continue;
 		for (const persistedAgent of state.agents) {
-			const candidate = terminalArtifactCandidate(persistedAgent, session.sessionPath, processReferences, errors);
+			const candidate = terminalArtifactCandidate(
+				persistedAgent,
+				session.sessionPath,
+				artifactRoot,
+				processReferences,
+				errors,
+			);
 			if (!candidate) continue;
 			const existing = candidatesByPath.get(candidate.directoryPath);
 			if (!existing) {
@@ -152,6 +164,7 @@ function collectTerminalArtifactCandidates(
 function terminalArtifactCandidate(
 	persistedAgent: unknown,
 	sessionPath: string,
+	artifactRoot: string,
 	processReferences: ReadonlySet<string>,
 	errors: string[],
 ): DetachedArtifactRetentionCandidate | undefined {
@@ -162,7 +175,7 @@ function terminalArtifactCandidate(
 	}
 	const outputPath = detachedOutputPath(agent);
 	if (!outputPath) return undefined;
-	const directoryPath = detachedArtifactDirectory(outputPath, sessionPath, agent.id);
+	const directoryPath = detachedArtifactDirectory(outputPath, sessionPath, agent.id, artifactRoot);
 	if (!directoryPath) return undefined;
 	const terminalAt = Date.parse(agent.updatedAt);
 	if (!Number.isFinite(terminalAt)) {
@@ -186,19 +199,32 @@ function detachedOutputPath(agent: Partial<AgentSnapshot>): string | undefined {
 	return fileRef?.path;
 }
 
-function detachedArtifactDirectory(outputPath: string, sessionPath: string, jobId: string): string | undefined {
-	if (!isAbsolute(outputPath) || basename(outputPath) !== "output.log") return undefined;
+function detachedArtifactDirectory(
+	outputPath: string,
+	sessionPath: string,
+	jobId: string,
+	artifactRoot: string,
+): string | undefined {
+	if (!isAbsolute(outputPath) || basename(outputPath) !== "output.log" || !isPathSegment(jobId)) return undefined;
 	const directoryPath = resolve(dirname(outputPath));
 	const sessionName = basename(sessionPath, extname(sessionPath));
-	const expectedDirectoryPath = resolve(dirname(sessionPath), "detached-jobs", sessionName, jobId);
+	const expectedDirectoryPath = resolve(artifactRoot, "detached-jobs", sessionName, jobId);
 	if (directoryPath !== expectedDirectoryPath) return undefined;
 	try {
 		const directory = lstatSync(directoryPath);
-		return directory.isDirectory() && !directory.isSymbolicLink() ? realpathSync(directoryPath) : undefined;
+		if (!directory.isDirectory() || directory.isSymbolicLink()) return undefined;
+		const canonicalDirectoryPath = realpathSync(directoryPath);
+		const canonicalArtifactRoot = realpathSync(artifactRoot);
+		const expectedCanonicalPath = join(canonicalArtifactRoot, "detached-jobs", sessionName, jobId);
+		return canonicalDirectoryPath === expectedCanonicalPath ? canonicalDirectoryPath : undefined;
 	} catch (error) {
 		if (isMissingPathError(error)) return undefined;
 		throw error;
 	}
+}
+
+function isPathSegment(value: string): boolean {
+	return value.length > 0 && value !== "." && value !== ".." && basename(value) === value;
 }
 
 function readDirectoryByteSize(directoryPath: string, errors: string[]): number | undefined {
