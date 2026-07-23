@@ -194,7 +194,11 @@ describe("change_working_directory first-party tool", () => {
 		const targetSessionFile = target.getSessionFile();
 		if (!targetSessionFile) throw new Error("Target session file was not created");
 		const targetLines = readFileSync(targetSessionFile, "utf8").trimEnd().split("\n");
-		const legacyHeader = { ...JSON.parse(targetLines[0] ?? "{}"), version: 2 };
+		const legacyHeader = {
+			...JSON.parse(targetLines[0] ?? "{}"),
+			version: 2,
+			parentSession: `/${"nested-session/".repeat(40)}`,
+		};
 		const legacyTargetContent = `${[JSON.stringify(legacyHeader), ...targetLines.slice(1)].join("\n")}\n`;
 		writeFileSync(targetSessionFile, legacyTargetContent);
 		const currentSessionId = runtime.session.sessionId;

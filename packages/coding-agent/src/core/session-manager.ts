@@ -701,18 +701,35 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	return entries;
 }
 
+function readFirstLine(filePath: string): string | undefined {
+	const fd = openSync(filePath, "r");
+	const chunks: Buffer[] = [];
+	const buffer = Buffer.alloc(4096);
+	let position = 0;
+	try {
+		while (true) {
+			const bytesRead = readSync(fd, buffer, 0, buffer.length, position);
+			if (bytesRead === 0) break;
+			const bytes = buffer.subarray(0, bytesRead);
+			const newlineIndex = bytes.indexOf(0x0a);
+			const chunkEnd = newlineIndex >= 0 ? newlineIndex : bytesRead;
+			chunks.push(Buffer.from(bytes.subarray(0, chunkEnd)));
+			if (newlineIndex >= 0) break;
+			position += bytesRead;
+		}
+	} finally {
+		closeSync(fd);
+	}
+	if (chunks.length === 0) return undefined;
+	return Buffer.concat(chunks).toString("utf8");
+}
+
 export function readSessionHeader(filePath: string): SessionHeader | null {
 	try {
-		const fd = openSync(filePath, "r");
-		const buffer = Buffer.alloc(512);
-		const bytesRead = readSync(fd, buffer, 0, 512, 0);
-		closeSync(fd);
-		const firstLine = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
+		const firstLine = readFirstLine(filePath);
 		if (!firstLine) return null;
 		const header = JSON.parse(firstLine) as Record<string, unknown>;
-		if (header.type !== "session" || typeof header.id !== "string") {
-			return null;
-		}
+		if (header.type !== "session" || typeof header.id !== "string") return null;
 		return header as unknown as SessionHeader;
 	} catch {
 		return null;
