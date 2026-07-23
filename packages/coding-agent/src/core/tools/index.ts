@@ -25,6 +25,11 @@ export {
 	createBroadcastToolDefinition,
 } from "./broadcast.ts";
 export {
+	type ChangeWorkingDirectoryToolDetails,
+	type ChangeWorkingDirectoryToolInput,
+	createChangeWorkingDirectoryToolDefinition,
+} from "./change-working-directory.ts";
+export {
 	type ChannelPostToolDetails,
 	type ChannelPostToolInput,
 	createChannelPostToolDefinition,
@@ -125,6 +130,7 @@ import { createAskArchitectToolDefinition } from "./ask-architect.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
 import { createBroadcastToolDefinition } from "./broadcast.ts";
+import { createChangeWorkingDirectoryToolDefinition } from "./change-working-directory.ts";
 import { createChannelPostToolDefinition } from "./channel-post.ts";
 import {
 	type CodeIndexToolOptions,
@@ -159,6 +165,7 @@ export type ToolName =
 	| "outline"
 	| "symbol"
 	| "references"
+	| "change_working_directory"
 	| "resume_session"
 	| "search_current_session_history"
 	| "list_sessions"
@@ -177,6 +184,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"outline",
 	"symbol",
 	"references",
+	"change_working_directory",
 	"resume_session",
 	"search_current_session_history",
 	"list_sessions",
@@ -196,6 +204,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"outline",
 	"symbol",
 	"references",
+	"change_working_directory",
 	"resume_session",
 	"search_current_session_history",
 	"list_sessions",
@@ -238,6 +247,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createSymbolToolDefinition(cwd, options?.codeIndex);
 		case "references":
 			return createReferencesToolDefinition(cwd, options?.codeIndex);
+		case "change_working_directory":
+			return createChangeWorkingDirectoryToolDefinition();
 		case "resume_session":
 			return createResumeSessionToolDefinition();
 		case "search_current_session_history":
@@ -279,6 +290,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createSymbolTool(cwd, options?.codeIndex);
 		case "references":
 			return createReferencesTool(cwd, options?.codeIndex);
+		case "change_working_directory":
+			return wrapToolDefinition(createChangeWorkingDirectoryToolDefinition());
 		case "resume_session":
 			return wrapToolDefinition(createResumeSessionToolDefinition());
 		case "search_current_session_history":
@@ -331,6 +344,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		outline: createOutlineToolDefinition(cwd, options?.codeIndex),
 		symbol: createSymbolToolDefinition(cwd, options?.codeIndex),
 		references: createReferencesToolDefinition(cwd, options?.codeIndex),
+		change_working_directory: createChangeWorkingDirectoryToolDefinition(),
 		resume_session: createResumeSessionToolDefinition(),
 		search_current_session_history: createSearchCurrentSessionHistoryToolDefinition(),
 		list_sessions: createListSessionsToolDefinition(),
@@ -374,6 +388,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		outline: createOutlineTool(cwd, options?.codeIndex),
 		symbol: createSymbolTool(cwd, options?.codeIndex),
 		references: createReferencesTool(cwd, options?.codeIndex),
+		change_working_directory: wrapToolDefinition(createChangeWorkingDirectoryToolDefinition()),
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
 		search_current_session_history: wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition()),
 		list_sessions: wrapToolDefinition(createListSessionsToolDefinition()),

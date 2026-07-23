@@ -510,8 +510,8 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 Specify which built-in tools to enable:
 
-- Built-in tool names: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
-- Default built-ins: `read`, `bash`, `edit`, `write`
+- Built-in tool names: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, `outline`, `symbol`, `references`, `change_working_directory`, `resume_session`, `search_current_session_history`, `list_sessions`, `broadcast`, `channel_post`, `ask_questions`, `ask_architect`
+- All built-in tools are active by default unless filtered with `tools`, `excludeTools`, or `noTools`
 - `noTools: "all"` disables all tools
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied

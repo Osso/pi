@@ -1035,6 +1035,30 @@ pi.on("tool_call", (event, ctx) => {
 });
 ```
 
+### ctx.relocate(targetCwd)
+
+Change the current session working directory without changing session identity. This persists the new cwd and rebuilds cwd-bound settings, resources, extension contexts, and built-in tools.
+
+`ctx.relocate` is available when the session is hosted by `AgentSessionRuntime`. Check for it when supporting direct `createAgentSession()` SDK sessions. Relocation replaces the runtime, so the calling extension context becomes stale after the promise resolves; retain only plain result data and do not read `ctx` again.
+
+```typescript
+import { resolve } from "node:path";
+import { Type } from "typebox";
+
+pi.registerTool({
+  name: "move_to_project",
+  label: "Move to project",
+  description: "Change the current session cwd",
+  parameters: Type.Object({ path: Type.String() }),
+  async execute(_id, params, _signal, _onUpdate, ctx) {
+    if (!ctx.relocate) throw new Error("Runtime relocation unavailable");
+    const targetCwd = resolve(ctx.cwd, params.path);
+    await ctx.relocate(targetCwd);
+    return { content: [{ type: "text", text: `Changed cwd to ${targetCwd}` }] };
+  },
+});
+```
+
 ### ctx.getContextUsage()
 
 Returns current context usage for the active model. Uses last assistant usage when available, then estimates tokens for trailing messages.

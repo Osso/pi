@@ -324,6 +324,9 @@ export class ExtensionRunner {
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
 	private restartFn: (options?: { notice?: string; process?: boolean }) => Promise<void> = async () => {};
+	private relocateHandler: (targetCwd: string) => Promise<void> = async () => {
+		throw new Error("Working-directory changes are not available in this session mode");
+	};
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
@@ -443,6 +446,10 @@ export class ExtensionRunner {
 			}
 			this.modelRegistry.unregisterProvider(name);
 		};
+	}
+
+	setRelocateHandler(handler: (targetCwd: string) => Promise<void>): void {
+		this.relocateHandler = handler;
 	}
 
 	bindCommandContext(actions?: ExtensionCommandContextActions): void {
@@ -831,6 +838,10 @@ export class ExtensionRunner {
 			restart: (options) => {
 				runner.assertActive();
 				return runner.restartFn(options);
+			},
+			relocate: (targetCwd) => {
+				runner.assertActive();
+				return runner.relocateHandler(targetCwd);
 			},
 			getContextUsage: () => {
 				runner.assertActive();

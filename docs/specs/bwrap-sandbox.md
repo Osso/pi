@@ -28,6 +28,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - [x] Keep default-loaded `pyrun_eval` available: run its runner inside bwrap for sandbox-required profiles, with the Pi bridge disabled.
 - [x] Do not hard-block Pyrun merely because a sandbox-required profile is active.
 - [x] Register a hard tool gate so sandbox-required profiles cannot silently proceed unsandboxed when `bwrap` is unavailable.
+- [x] In unsandboxed mode, resolve each local file-tool execution from current extension-context cwd rather than process startup cwd.
 
 ## How it works
 
@@ -43,6 +44,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 - `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, runner-path validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — sandboxed Pyrun runner and disabled Pi bridge.
+- `packages/coding-agent/test/suite/change-working-directory-tool.test.ts` — unsandboxed file-tool cwd after relocation and process restart.
 
 ## Known gaps (current cycle)
 

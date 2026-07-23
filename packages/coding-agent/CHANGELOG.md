@@ -17,6 +17,7 @@
 
 ### Added
 
+- Added built-in `change_working_directory` for persistently changing the current session cwd by direct path or another session's recorded cwd without switching session identity.
 - Added the `steering_message_queued` AgentSession event; interactive mode uses it to wake active process-local `wait_agents` after accepted ordinary main-session steering.
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
 - Added runtime-only `/fast` mode for `openai-codex` and `openai-codex-gc`: bare `/fast` toggles the current mode, `/fast on` selects `priority`, `/fast ultra` selects `ultrafast`, and `/fast off` disables it; one main-thread authority shares the selected tier dynamically with spawned and attached child runtimes, while child `/fast` commands cannot mutate it and main session start, restart, or resume resets it without persistence.
@@ -158,6 +159,7 @@
 
 ### Fixed
 
+- Fixed unsandboxed bwrap file-tool overrides retaining process startup cwd after session relocation or restart instead of resolving relative paths from current extension-context cwd.
 - Fixed resident Architect and Supervisor metadata rewrites growing without bound and holding the shared `control.sqlite` writer lock long enough to disrupt terminal-outbox delivery.
 - Fixed reopening a source session whose restored pending assistant tool-call batch contains any `resume_session` call to treat that batch as a completed terminal switch without appending a `toolResult`; ordinary batches without `resume_session` still continue.
 - Fixed dead-detached-runtime reconciliation terminating Pi when another process held the shared SQLite writer lock; transient busy/locked contention now defers to a later reconciliation poll while other failures still surface.

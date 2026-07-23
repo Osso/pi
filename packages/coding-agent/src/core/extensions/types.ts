@@ -372,6 +372,8 @@ export interface ExtensionContext {
 	shutdown(): void;
 	/** Restart the current session runtime and resume the same session file. */
 	restart(options?: { notice?: string; process?: boolean }): Promise<void>;
+	/** Change the current session cwd and rebuild cwd-bound runtime state when available. */
+	relocate?(targetCwd: string): Promise<void>;
 	/** Switch to a different session file using the same path as /resume when available. */
 	switchSession?(
 		sessionPath: string,

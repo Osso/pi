@@ -87,6 +87,7 @@ export class AgentSessionRuntime {
 		this.createRuntime = createRuntime;
 		this._diagnostics = _diagnostics;
 		this._modelFallbackMessage = _modelFallbackMessage;
+		this.bindSessionRuntimeActions();
 	}
 
 	get services(): AgentSessionServices {
@@ -177,11 +178,16 @@ export class AgentSessionRuntime {
 		this.session.dispose();
 	}
 
+	private bindSessionRuntimeActions(): void {
+		this.session.extensionRunner.setRelocateHandler((targetCwd) => this.relocate(targetCwd));
+	}
+
 	private apply(result: CreateAgentSessionRuntimeResult): void {
 		this._session = result.session;
 		this._services = result.services;
 		this._diagnostics = result.diagnostics;
 		this._modelFallbackMessage = result.modelFallbackMessage;
+		this.bindSessionRuntimeActions();
 	}
 
 	private async finishSessionReplacement(withSession?: (ctx: ReplacedSessionContext) => Promise<void>): Promise<void> {

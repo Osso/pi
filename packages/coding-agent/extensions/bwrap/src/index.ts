@@ -348,32 +348,33 @@ function registerSandboxedTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
 	runtime: BwrapExtensionRuntime,
 	localTool: ToolDefinition<TParams, TDetails, TState>,
+	createLocalTool: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
 	createSandboxedTool: (cwd: string, params: SandboxParams) => ToolDefinition<TParams, TDetails, TState>,
 ): void {
 	pi.registerTool({
 		...localTool,
 		async execute(id, params, signal, onUpdate, ctx) {
 			const sandbox = readSandboxParams(ctx, runtime.bwrapCommand);
-			if (!sandbox) return localTool.execute(id, params, signal, onUpdate, ctx);
-			return createSandboxedTool(ctx.cwd, sandbox).execute(id, params, signal, onUpdate, ctx);
+			const tool = sandbox ? createSandboxedTool(ctx.cwd, sandbox) : createLocalTool(ctx.cwd);
+			return tool.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 }
 
 function registerStandardSandboxedTools(pi: ExtensionAPI, runtime: BwrapExtensionRuntime): void {
-	registerSandboxedTool(pi, runtime, runtime.localTools.read, (cwd, params) =>
+	registerSandboxedTool(pi, runtime, runtime.localTools.read, createReadToolDefinition, (cwd, params) =>
 		createReadToolDefinition(cwd, { operations: createReadOperations(params) }),
 	);
-	registerSandboxedTool(pi, runtime, runtime.localTools.write, (cwd, params) =>
+	registerSandboxedTool(pi, runtime, runtime.localTools.write, createWriteToolDefinition, (cwd, params) =>
 		createWriteToolDefinition(cwd, { operations: createWriteOperations(params) }),
 	);
-	registerSandboxedTool(pi, runtime, runtime.localTools.edit, (cwd, params) =>
+	registerSandboxedTool(pi, runtime, runtime.localTools.edit, createEditToolDefinition, (cwd, params) =>
 		createEditToolDefinition(cwd, { operations: createEditOperations(params) }),
 	);
-	registerSandboxedTool(pi, runtime, runtime.localTools.ls, (cwd, params) =>
+	registerSandboxedTool(pi, runtime, runtime.localTools.ls, createLsToolDefinition, (cwd, params) =>
 		createLsToolDefinition(cwd, { operations: createLsOperations(params) }),
 	);
-	registerSandboxedTool(pi, runtime, runtime.localTools.find, (cwd, params) =>
+	registerSandboxedTool(pi, runtime, runtime.localTools.find, createFindToolDefinition, (cwd, params) =>
 		createFindToolDefinition(cwd, { operations: createFindOperations(params) }),
 	);
 }
@@ -407,7 +408,7 @@ function registerSandboxedGrepTool(pi: ExtensionAPI, runtime: BwrapExtensionRunt
 		...localGrep,
 		async execute(_id, params, signal, _onUpdate, ctx) {
 			const sandbox = readSandboxParams(ctx, runtime.bwrapCommand);
-			if (!sandbox) return localGrep.execute("grep", params, signal, _onUpdate, ctx);
+			if (!sandbox) return createGrepToolDefinition(ctx.cwd).execute("grep", params, signal, _onUpdate, ctx);
 			return executeSandboxedGrep(sandbox, params, signal);
 		},
 	});

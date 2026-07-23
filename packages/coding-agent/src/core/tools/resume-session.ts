@@ -186,6 +186,11 @@ async function resolveResumeSessionFile(params: ResumeSessionParams, ctx: Extens
 	if (!id) {
 		throw new Error("resume_session requires { path }, { id }, or { name }");
 	}
+	return findSessionFileById(id, ctx);
+}
+
+export async function findSessionFileById(id: string, ctx: ExtensionContext): Promise<string> {
+	const params: ResumeSessionParams = { id };
 	const metadataSessions = findMetadataSessions(params, ctx);
 	const scopedMetadataMatch = findResumeSessionById(sessionsInCurrentDirectory(metadataSessions, ctx), id);
 	if (scopedMetadataMatch) return assertResumeSessionPath(scopedMetadataMatch.path);
