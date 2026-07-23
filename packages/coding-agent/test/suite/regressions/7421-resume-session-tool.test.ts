@@ -270,13 +270,23 @@ describe("resume_session first-party tool", () => {
 		const ordinaryToolCall = fauxToolCall("read", { path: "/tmp/file" }, { id: "read-before-exit" });
 		const ordinaryCall = fauxAssistantMessage(ordinaryToolCall);
 		const mixedCall = fauxAssistantMessage([
-			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-in-mixed-batch" }),
 			ordinaryToolCall,
+			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-in-mixed-batch" }),
 		]);
+		const ordinaryResult = {
+			role: "toolResult",
+			toolCallId: ordinaryToolCall.id,
+			toolName: ordinaryToolCall.name,
+			content: [{ type: "text", text: "read complete" }],
+			isError: false,
+			timestamp: Date.now(),
+		} satisfies AgentSession["messages"][number];
 
 		expect(shouldContinueInterruptedSession([resumeCall])).toBe(false);
 		expect(shouldContinueInterruptedSession([mixedCall])).toBe(false);
+		expect(shouldContinueInterruptedSession([mixedCall, ordinaryResult])).toBe(false);
 		expect(shouldContinueInterruptedSession([ordinaryCall])).toBe(true);
+		expect(shouldContinueInterruptedSession([ordinaryCall, ordinaryResult])).toBe(true);
 	});
 
 	it("keeps a restored source alive without replaying its completed switch", async () => {

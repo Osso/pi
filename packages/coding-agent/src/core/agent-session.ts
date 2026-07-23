@@ -478,12 +478,24 @@ interface ToolDefinitionEntry {
 	sourceInfo: SourceInfo;
 }
 
+function findTrailingAssistantToolBatch(messages: readonly AgentMessage[]): AssistantMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message.role === "toolResult") continue;
+		return message.role === "assistant" ? message : undefined;
+	}
+	return undefined;
+}
+
 export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
 	const lastMessage = messages[messages.length - 1];
-	if (lastMessage?.role === "user" || lastMessage?.role === "toolResult") return true;
-	if (lastMessage?.role !== "assistant") return false;
-	if (lastMessage.stopReason === "aborted") return true;
-	const toolCalls = lastMessage.content.filter((content) => content.type === "toolCall");
+	if (lastMessage?.role === "user") return true;
+	if (lastMessage?.role !== "assistant" && lastMessage?.role !== "toolResult") return false;
+	const assistant =
+		lastMessage.role === "assistant" ? lastMessage : findTrailingAssistantToolBatch(messages.slice(0, -1));
+	if (!assistant) return lastMessage.role === "toolResult";
+	if (assistant.stopReason === "aborted") return true;
+	const toolCalls = assistant.content.filter((content) => content.type === "toolCall");
 	return toolCalls.length > 0 && toolCalls.every((content) => content.name !== "resume_session");
 }
 
