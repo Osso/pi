@@ -168,6 +168,33 @@ async function createRuntimeResult(root: string) {
 	};
 }
 
+function persistFailedOutboxAgent(input: {
+	completedAt: string;
+	controlDbPath: string;
+	id: string;
+	root: string;
+	sessionPath: string;
+}): void {
+	const failedAgent: AgentSnapshot = {
+		agentType: "verifier",
+		createdAt: input.completedAt,
+		cwd: input.root,
+		displayName: "Verifier",
+		id: input.id,
+		lifecycle: "failed",
+		parentId: "main",
+		permission: { narrowed: true, policy: "on-request" },
+		revision: 1,
+		updatedAt: input.completedAt,
+	};
+	const created = createFailedMultiAgentChild(input.controlDbPath, {
+		agent: failedAgent,
+		nowIso: input.completedAt,
+		sessionPath: input.sessionPath,
+	});
+	if (!created.ok) throw new Error(`Could not persist terminal outbox fixture: ${created.error}`);
+}
+
 describe("detached job artifact cleanup", () => {
 	it("deletes expired terminal artifacts while preserving nonterminal and live-referenced directories", () => {
 		const root = createRoot();
@@ -355,25 +382,7 @@ describe("detached job artifact cleanup", () => {
 		const sessionPath = sessionManager.getSessionFile();
 		if (!sessionPath) throw new Error("Expected persisted session path");
 		const completedAt = new Date(NOW).toISOString();
-		const failedAgent: AgentSnapshot = {
-			agentType: "verifier",
-			createdAt: completedAt,
-			cwd: root,
-			displayName: "Verifier",
-			id: "agent_terminal",
-			lifecycle: "failed",
-			parentId: "main",
-			permission: { narrowed: true, policy: "on-request" },
-			revision: 1,
-			updatedAt: completedAt,
-		};
-		expect(
-			createFailedMultiAgentChild(controlDbPath, {
-				agent: failedAgent,
-				nowIso: completedAt,
-				sessionPath,
-			}),
-		).toMatchObject({ ok: true });
+		persistFailedOutboxAgent({ completedAt, controlDbPath, id: "agent_terminal", root, sessionPath });
 		const store = new MultiAgentStore();
 		store.setPersistenceSessionManager(sessionManager);
 
@@ -385,6 +394,45 @@ describe("detached job artifact cleanup", () => {
 				store,
 			}),
 		).toBe(1);
+
+		expect(existsSync(expired)).toBe(false);
+	});
+
+	it("runs cleanup when a later terminal projection fails after an earlier delivery", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_partial_delivery",
+			lifecycle: "completed",
+			root,
+			sessionName: "partial-delivery-expired",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const sessionManager = SessionManager.create(root, join(root, "sessions", "current"));
+		sessionManager.setMetadataControlDbPath(controlDbPath);
+		const sessionPath = sessionManager.getSessionFile();
+		if (!sessionPath) throw new Error("Expected persisted session path");
+		const completedAt = new Date(NOW).toISOString();
+		persistFailedOutboxAgent({ completedAt, controlDbPath, id: "agent_first", root, sessionPath });
+		persistFailedOutboxAgent({ completedAt, controlDbPath, id: "agent_second", root, sessionPath });
+		const store = new MultiAgentStore();
+		store.setPersistenceSessionManager(sessionManager);
+		let projectionCount = 0;
+		const unsubscribe = store.subscribeLifecycleNotifications(() => {
+			projectionCount += 1;
+			if (projectionCount === 2) throw new Error("later projection failed");
+		});
+
+		expect(() =>
+			deliverTerminalOutboxProjections({
+				claimId: "partial-cleanup-test",
+				controlDbPath,
+				now: () => completedAt,
+				store,
+			}),
+		).toThrow("later projection failed");
+		unsubscribe();
 
 		expect(existsSync(expired)).toBe(false);
 	});

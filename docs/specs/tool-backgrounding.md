@@ -28,7 +28,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Cleanup removes artifacts at least three days old, then removes the oldest terminal artifacts until
       retained terminal artifacts are at most 2 GiB.
 - [x] Linux `/proc`-backed cleanup preserves nonterminal jobs and terminal directories referenced by a live
-      process, current working directory, or open file descriptor.
+      executable, current working directory, or open file descriptor before atomic quarantine; quarantine removes
+      the canonical job path before the final reference scan and restores referenced directories.
 
 ## How it works
 

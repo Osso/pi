@@ -33,20 +33,23 @@ export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxO
 	if (!persistence) return 0;
 
 	let delivered = 0;
-	while (true) {
-		const nowIso = options.now();
-		const record = claimMultiAgentTerminalOutbox(options.controlDbPath, options.claimId, nowIso, {
-			maxAttempts: TERMINAL_OUTBOX_MAX_ATTEMPTS,
-			sessionPath: persistence.sessionPath,
-			staleClaimBefore: new Date(Date.parse(nowIso) - TERMINAL_OUTBOX_CLAIM_LEASE_MS).toISOString(),
-		});
-		if (!record) break;
+	try {
+		while (true) {
+			const nowIso = options.now();
+			const record = claimMultiAgentTerminalOutbox(options.controlDbPath, options.claimId, nowIso, {
+				maxAttempts: TERMINAL_OUTBOX_MAX_ATTEMPTS,
+				sessionPath: persistence.sessionPath,
+				staleClaimBefore: new Date(Date.parse(nowIso) - TERMINAL_OUTBOX_CLAIM_LEASE_MS).toISOString(),
+			});
+			if (!record) break;
 
-		deliverTerminalOutboxProjection(options, record);
-		delivered += 1;
+			deliverTerminalOutboxProjection(options, record);
+			delivered += 1;
+		}
+		return delivered;
+	} finally {
+		if (delivered > 0) runDetachedJobArtifactCleanup(options.controlDbPath, Date.parse(options.now()));
 	}
-	if (delivered > 0) runDetachedJobArtifactCleanup(options.controlDbPath, Date.parse(options.now()));
-	return delivered;
 }
 
 function deliverTerminalOutboxProjection(
