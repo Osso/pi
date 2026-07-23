@@ -3970,6 +3970,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const indexedContention = await measureContention(true);
 		const unindexedContention = await measureContention(false);
 
+		expect(indexedContention).toBeGreaterThan(100);
 		expect(indexedContention).toBeGreaterThan(unindexedContention * 10);
 	}, 30_000);
 
