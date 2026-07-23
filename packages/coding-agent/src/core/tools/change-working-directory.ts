@@ -45,7 +45,7 @@ function normalizeTarget(params: unknown): ChangeWorkingDirectoryTarget {
 	throw new Error("change_working_directory requires exactly one of path or id");
 }
 
-async function resolveTargetCwd(
+async function loadTargetCwd(
 	target: ChangeWorkingDirectoryTarget,
 	ctx: ExtensionContext,
 ): Promise<{ cwd: string; source: "path" | "session"; sessionId?: string }> {
@@ -98,7 +98,7 @@ export function createChangeWorkingDirectoryToolDefinition(): ToolDefinition<
 			}
 			const target = normalizeTarget(params);
 			const previousCwd = ctx.cwd;
-			const resolved = await resolveTargetCwd(target, ctx);
+			const resolved = await loadTargetCwd(target, ctx);
 			await ctx.relocate(resolved.cwd);
 			return {
 				content: [{ type: "text", text: `Changed working directory to ${resolved.cwd}` }],
