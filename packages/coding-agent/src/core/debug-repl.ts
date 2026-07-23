@@ -187,13 +187,15 @@ export class DebugReplServer {
 	}
 
 	private async evaluateLine(socket: Socket, expression: string, clientPid: number, context: Context): Promise<void> {
+		let output: string;
 		try {
 			const result = await this.evaluateAndAudit(expression, clientPid, context);
-			socket.write(`${inspect(result, { colors: true, depth: 8 })}\n`);
+			output = `${inspect(result, { colors: true, depth: 8 })}\n`;
 		} catch (error) {
-			socket.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+			output = `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`;
 		}
-		socket.write(PRIMARY_PROMPT);
+		if (!socket.writable) return;
+		socket.write(`${output}${PRIMARY_PROMPT}`);
 	}
 
 	private async evaluateAndAudit(expression: string, clientPid: number, context: Context): Promise<unknown> {

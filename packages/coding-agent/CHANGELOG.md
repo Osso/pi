@@ -198,6 +198,7 @@
 - Fixed resident Supervisor requests reusing stale or intermediate assistant text from the persistent transcript; response extraction now requires a non-empty successful terminal assistant entry produced by the current request.
 - Fixed restored child runtimes leaving dead detached-job descendants stuck as running by binding child extensions and reconciling only direct persisted descendants through the normal dead-owner recovery path.
 - Fixed interactive `/debug` bypassing the live-process REPL extension, replaced unsupported Bun `node:repl` usage with a runtime-neutral VM evaluator, and corrected settled audit outcomes, live session attribution, socket cleanup, listen recovery, and session-bound attachment.
+- Fixed debug REPL evaluations completing after client disconnect without writing to the closed socket or crashing Pi; settlement and audit still complete.
 - Fixed a stale selected-agent ID hiding main-session model-request events and leaving a static `Thinking...` label after the selected agent disappeared.
 - Fixed selected agent views persisting after the selected child reached a terminal lifecycle; completed, failed, and aborted snapshots now clear the selected view automatically.
 - Fixed extension UI reset/reload replacing active `Streaming...` or elapsed `Thinking...` status with a static `Thinking...` label.

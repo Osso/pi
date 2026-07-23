@@ -16,6 +16,7 @@ The live-process debug REPL provides explicitly enabled, privileged JavaScript a
 - [x] Expose one `pi` root with live runtime, session, agent, services, and multi-agent store access.
 - [x] Resolve runtime state at evaluation time so session replacement does not leave captured stale session objects in the root.
 - [x] Permit privileged JavaScript evaluation intentionally; activation is an explicit operator action.
+- [x] Allow a client to exit or disconnect while an asynchronous evaluation is pending; settlement and audit may complete, but the server must not write to the closed client or crash Pi.
 
 ### Audit
 

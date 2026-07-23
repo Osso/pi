@@ -42,6 +42,25 @@ function connectDebugRepl(socketPath: string, sessionId: string): Promise<Socket
 	});
 }
 
+it("does not crash when a queued evaluation settles after the client exits", async () => {
+	await withHeadlessPi(async (agent) => {
+		await agent.send({ type: "prompt", message: "/debug" });
+		const controlDbPath = getControlDbPath(agent.paths.agentDir);
+		const health = listSessionHealth(controlDbPath).find((entry) => entry.checkStatus === "ok");
+		if (!health?.pid) throw new Error("Headless session health was not available");
+
+		const socket = await connectDebugRepl(getDebugSocketPath(agent.paths.agentDir, health.pid), health.sessionId);
+		await readUntil(socket, "pi> ");
+		const closed = new Promise<void>((resolve) => socket.once("close", resolve));
+		socket.write("Promise.resolve(1)\n.exit\n");
+		await closed;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		const state = await agent.send({ type: "get_state" });
+		expect(state).toMatchObject({ command: "get_state", success: true });
+	});
+});
+
 it("keeps the privileged REPL bound to live runtime state across real session replacement", async () => {
 	await withHeadlessPi(async (agent) => {
 		await agent.send({ type: "prompt", message: "/debug" });
