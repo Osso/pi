@@ -1,3 +1,4 @@
+import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import type { AgentMailboxMessage, AgentSnapshot, SendSteeringInput, SpawnAgentInput } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
 import {
@@ -120,6 +121,7 @@ export class LifecycleCoordinator {
 		try {
 			const reconciled = reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
 			clearDeadDetachedReconciliationRetry(controlDbPath);
+			if (reconciled > 0) runDetachedJobArtifactCleanup(controlDbPath, Date.parse(nowIso));
 			return reconciled;
 		} catch (error) {
 			if (!isSqliteContentionError(error)) throw error;

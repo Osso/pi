@@ -1,4 +1,14 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+	existsSync,
+	lstatSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+} from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import {
 	type DetachedArtifactRetentionCandidate,
@@ -33,9 +43,7 @@ export function cleanupDetachedJobArtifacts(
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
 		now: options.now ?? Date.now(),
 	});
-	const finalProcessReferences = readLinuxProcessReferences();
-	if (!finalProcessReferences) return unavailableReferenceResult(candidates, errors);
-	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, finalProcessReferences, errors);
+	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors);
 }
 
 export function runDetachedJobArtifactCleanup(controlDbPath: string, now = Date.now()): void {
@@ -51,21 +59,9 @@ function emptyCleanupResult(skippedReason: string): DetachedJobCleanupResult {
 	return { deletedBytes: 0, deletedDirectories: [], errors: [], retainedBytes: 0, skippedReason };
 }
 
-function unavailableReferenceResult(
-	candidates: readonly DetachedArtifactRetentionCandidate[],
-	errors: string[],
-): DetachedJobCleanupResult {
-	return {
-		...emptyCleanupResult("live process reference inspection became unavailable"),
-		errors,
-		retainedBytes: totalCandidateBytes(candidates),
-	};
-}
-
 function deleteSelectedArtifactDirectories(
 	candidates: readonly DetachedArtifactRetentionCandidate[],
 	pathsToDelete: readonly string[],
-	processReferences: ReadonlySet<string>,
 	errors: string[],
 ): DetachedJobCleanupResult {
 	const candidatesByPath = new Map(candidates.map((candidate) => [candidate.directoryPath, candidate]));
@@ -73,8 +69,8 @@ function deleteSelectedArtifactDirectories(
 	let deletedBytes = 0;
 	for (const directoryPath of pathsToDelete) {
 		const candidate = candidatesByPath.get(directoryPath);
-		if (!candidate || directoryHasLiveReference(directoryPath, processReferences)) continue;
-		if (deleteArtifactDirectory(directoryPath, errors)) {
+		if (!candidate) continue;
+		if (deleteUnreferencedArtifactDirectory(directoryPath, errors)) {
 			deletedDirectories.push(directoryPath);
 			deletedBytes += candidate.byteSize;
 		}
@@ -87,19 +83,40 @@ function deleteSelectedArtifactDirectories(
 	};
 }
 
-function deleteArtifactDirectory(directoryPath: string, errors: string[]): boolean {
+function deleteUnreferencedArtifactDirectory(directoryPath: string, errors: string[]): boolean {
+	const quarantinePath = join(dirname(directoryPath), `.cleanup-${basename(directoryPath)}-${randomUUID()}`);
 	try {
 		const directory = lstatSync(directoryPath);
 		if (!directory.isDirectory() || directory.isSymbolicLink()) {
 			errors.push(`Refused to delete non-directory detached artifact path: ${directoryPath}`);
 			return false;
 		}
-		rmSync(directoryPath, { force: true, recursive: true });
+		renameSync(directoryPath, quarantinePath);
+		if (quarantinedDirectoryHasLiveReference(quarantinePath)) {
+			renameSync(quarantinePath, directoryPath);
+			return false;
+		}
+		rmSync(quarantinePath, { force: true, recursive: true });
 		return true;
 	} catch (error) {
+		restoreQuarantinedDirectory(quarantinePath, directoryPath, errors);
 		if (isMissingPathError(error)) return false;
 		errors.push(`Could not delete detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
 		return false;
+	}
+}
+
+function quarantinedDirectoryHasLiveReference(quarantinePath: string): boolean {
+	const processReferences = readLinuxProcessReferences();
+	return !processReferences || directoryHasLiveReference(realpathSync(quarantinePath), processReferences);
+}
+
+function restoreQuarantinedDirectory(quarantinePath: string, directoryPath: string, errors: string[]): void {
+	if (!existsSync(quarantinePath) || existsSync(directoryPath)) return;
+	try {
+		renameSync(quarantinePath, directoryPath);
+	} catch (error) {
+		errors.push(`Could not restore referenced detached artifact directory ${directoryPath}: ${errorMessage(error)}`);
 	}
 }
 
@@ -175,7 +192,7 @@ function detachedArtifactDirectory(outputPath: string, sessionPath: string, jobI
 	if (basename(directoryPath) !== jobId || !directoryPath.endsWith(`${sep}${expectedSuffix}`)) return undefined;
 	try {
 		const directory = lstatSync(directoryPath);
-		return directory.isDirectory() && !directory.isSymbolicLink() ? directoryPath : undefined;
+		return directory.isDirectory() && !directory.isSymbolicLink() ? realpathSync(directoryPath) : undefined;
 	} catch (error) {
 		if (isMissingPathError(error)) return undefined;
 		throw error;
@@ -213,6 +230,7 @@ function readLinuxProcessReferences(): Set<string> | undefined {
 		if (!processEntry.isDirectory() || !/^\d+$/.test(processEntry.name)) continue;
 		const processDirectory = join("/proc", processEntry.name);
 		addLinkReference(references, join(processDirectory, "cwd"));
+		addLinkReference(references, join(processDirectory, "exe"));
 		addCommandReferences(references, join(processDirectory, "cmdline"));
 		addDescriptorReferences(references, join(processDirectory, "fd"));
 	}
@@ -249,7 +267,14 @@ function addDescriptorReferences(references: Set<string>, descriptorDirectory: s
 
 function addAbsoluteReference(references: Set<string>, value: string): void {
 	const path = value.endsWith(DELETED_PATH_SUFFIX) ? value.slice(0, -DELETED_PATH_SUFFIX.length) : value;
-	if (isAbsolute(path)) references.add(resolve(path));
+	if (!isAbsolute(path)) return;
+	try {
+		references.add(realpathSync(path));
+	} catch (error) {
+		if (isErrorCode(error, "ENAMETOOLONG")) return;
+		if (!isExpectedReferenceResolutionError(error)) throw error;
+		references.add(resolve(path));
+	}
 }
 
 function directoryHasLiveReference(directoryPath: string, references: ReadonlySet<string>): boolean {
@@ -265,13 +290,19 @@ function isTerminalLifecycle(lifecycle: AgentSnapshot["lifecycle"] | undefined):
 }
 
 function isMissingPathError(error: unknown): boolean {
-	return error instanceof Error && "code" in error && error.code === "ENOENT";
+	return isErrorCode(error, "ENOENT");
+}
+
+function isExpectedReferenceResolutionError(error: unknown): boolean {
+	return ["EACCES", "ENOENT", "ENOTDIR", "EPERM"].some((code) => isErrorCode(error, code));
 }
 
 function isExpectedProcessReadError(error: unknown): boolean {
-	return (
-		error instanceof Error && "code" in error && ["EACCES", "ENOENT", "EPERM", "ESRCH"].includes(String(error.code))
-	);
+	return ["EACCES", "ENOENT", "EPERM", "ESRCH"].some((code) => isErrorCode(error, code));
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+	return error instanceof Error && "code" in error && error.code === code;
 }
 
 function errorMessage(error: unknown): string {

@@ -1,16 +1,30 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readlinkSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readlinkSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	truncateSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import { type AgentSessionServices, createAgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { cleanupDetachedJobArtifacts } from "../src/core/detached-job-cleanup.ts";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	bootstrapMultiAgentAgent,
 	createFailedMultiAgentChild,
+	createMultiAgentChildWithRuntimeOwnership,
 	getControlDbPath,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -84,6 +98,67 @@ function persistArtifact(input: {
 	return artifactDirectory;
 }
 
+function persistOwnedDetachedArtifact(input: {
+	controlDbPath: string;
+	jobId: string;
+	processIdentity: ReturnType<typeof readProcessIdentity>;
+	root: string;
+	sessionName: string;
+	size: number;
+	updatedAt: string;
+}): string {
+	const sessionDirectory = join(input.root, "sessions", "project");
+	const sessionPath = join(sessionDirectory, `${input.sessionName}.jsonl`);
+	const artifactDirectory = join(sessionDirectory, "detached-jobs", input.sessionName, input.jobId);
+	const outputPath = join(artifactDirectory, "output.log");
+	mkdirSync(artifactDirectory, { recursive: true });
+	writeFileSync(outputPath, "output", { mode: 0o600 });
+	truncateSync(outputPath, input.size);
+	writeSessionMetadata(input.controlDbPath, {
+		allMessagesText: input.sessionName,
+		createdAt: input.updatedAt,
+		cwd: input.root,
+		firstMessage: input.sessionName,
+		id: `session-${input.sessionName}`,
+		messageCount: 1,
+		modifiedAt: input.updatedAt,
+		name: undefined,
+		parentSessionPath: undefined,
+		sessionPath,
+	});
+	const agent: AgentSnapshot = {
+		agentType: "background",
+		createdAt: input.updatedAt,
+		cwd: input.root,
+		detached: true,
+		displayName: "Detached job",
+		id: input.jobId,
+		lifecycle: "running",
+		parentId: "main",
+		permission: { narrowed: true, policy: "on-request" },
+		result: { fileRefs: [{ label: "Pyrun output", path: outputPath }] },
+		revision: 1,
+		updatedAt: input.updatedAt,
+		worker: { adapter: "runtime", handleId: String(input.processIdentity.pid) },
+	};
+	const created = createMultiAgentChildWithRuntimeOwnership(input.controlDbPath, {
+		agent,
+		agentId: input.jobId,
+		nowIso: input.updatedAt,
+		owner: { agentId: null, sessionId: "owner-session" },
+		processIdentity: input.processIdentity,
+		sessionPath,
+	});
+	if (!created.ok) throw new Error(`Could not persist detached artifact fixture: ${created.error}`);
+	return artifactDirectory;
+}
+
+async function stopChildProcess(child: ChildProcess): Promise<void> {
+	child.kill("SIGKILL");
+	await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+	childProcesses.delete(child);
+}
+
 async function createRuntimeResult(root: string) {
 	return {
 		diagnostics: [],
@@ -137,6 +212,57 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(referenced)).toBe(true);
 	});
 
+	it("preserves a terminal directory referenced through a symlinked cwd", () => {
+		const container = createRoot();
+		const realRoot = join(container, "real");
+		const linkedRoot = join(container, "linked");
+		mkdirSync(realRoot);
+		symlinkSync(realRoot, linkedRoot, "dir");
+		const controlDbPath = getControlDbPath(realRoot);
+		const referenced = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_symlink",
+			lifecycle: "completed",
+			root: linkedRoot,
+			sessionName: "symlink-referenced",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+			cwd: realpathSync(referenced),
+			stdio: "ignore",
+		});
+		childProcesses.add(child);
+		if (!child.pid) throw new Error("Expected child process ID");
+		expect(readlinkSync(`/proc/${child.pid}/cwd`)).toBe(realpathSync(referenced));
+
+		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+		expect(existsSync(referenced)).toBe(true);
+	});
+
+	it("preserves a terminal directory containing a running executable", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const referenced = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_executable",
+			lifecycle: "completed",
+			root,
+			sessionName: "executable-referenced",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const executablePath = join(referenced, "sleep");
+		copyFileSync("/usr/bin/sleep", executablePath);
+		chmodSync(executablePath, 0o700);
+		const child = spawn(executablePath, ["30"], { argv0: "sleep", cwd: root, stdio: "ignore" });
+		childProcesses.add(child);
+		if (!child.pid) throw new Error("Expected child process ID");
+
+		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+		expect(existsSync(referenced)).toBe(true);
+	});
+
 	it("deletes oldest recent terminal directories until retained bytes fit the two GiB cap", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);
@@ -164,6 +290,30 @@ describe("detached job artifact cleanup", () => {
 		expect(result.deletedDirectories).toEqual([oldest]);
 		expect(existsSync(oldest)).toBe(false);
 		expect(existsSync(newest)).toBe(true);
+	});
+
+	it("cleans over-cap artifacts after startup reconciliation terminalizes a dead detached job", async () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+		childProcesses.add(child);
+		if (!child.pid) throw new Error("Expected child process ID");
+		const processIdentity = readProcessIdentity(child.pid);
+		const artifact = persistOwnedDetachedArtifact({
+			controlDbPath,
+			jobId: "pyrun_dead",
+			processIdentity,
+			root,
+			sessionName: "dead-runtime",
+			size: 3 * ONE_GIB,
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		expect(existsSync(artifact)).toBe(true);
+		await stopChildProcess(child);
+
+		expect(LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date(NOW).toISOString())).toBe(1);
+
+		expect(existsSync(artifact)).toBe(false);
 	});
 
 	it("runs cleanup before creating the initial AgentSession runtime", async () => {

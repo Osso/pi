@@ -46,6 +46,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 - `packages/coding-agent/src/core/detached-job-cleanup.ts` — Linux `/proc`-backed terminal artifact cleanup.
 - `packages/coding-agent/src/core/detached-job-retention.ts` — age and size retention selection.
+- `packages/coding-agent/src/core/agent-session-runtime.ts` — runs cleanup during initial runtime startup.
+- `packages/coding-agent/src/core/lifecycle-coordinator.ts` — reruns cleanup after dead detached runtimes become terminal.
+- `packages/coding-agent/src/core/terminal-outbox-delivery.ts` — runs cleanup after terminal completion delivery.
 - `packages/coding-agent/src/core/tool-detach-registry.ts` — shared in-flight tool detach registry.
 - `packages/coding-agent/src/core/agent-session.ts` — owns the session detach registry and exposes it to base tools and extensions.
 - `packages/coding-agent/src/core/tools/bash.ts` — registers bash commands as detachable and tracks detached subprocesses.
