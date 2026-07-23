@@ -1,9 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import {
 	chmodSync,
+	closeSync,
 	copyFileSync,
 	existsSync,
 	mkdirSync,
+	openSync,
 	readlinkSync,
 	realpathSync,
 	rmSync,
@@ -287,6 +289,57 @@ describe("detached job artifact cleanup", () => {
 
 		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
 
+		expect(existsSync(referenced)).toBe(true);
+	});
+
+	it("preserves a terminal directory containing an open file descriptor", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const referenced = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_descriptor",
+			lifecycle: "completed",
+			root,
+			sessionName: "descriptor-referenced",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const descriptor = openSync(join(referenced, "output.log"), "r");
+		try {
+			const result = cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+			expect(result.deletedDirectories).toEqual([]);
+			expect(existsSync(referenced)).toBe(true);
+		} finally {
+			closeSync(descriptor);
+		}
+	});
+
+	it("restores a quarantined directory acquired as a process cwd after candidate selection", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const referenced = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_quarantine_race",
+			lifecycle: "completed",
+			root,
+			sessionName: "quarantine-race",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, {
+			now: NOW,
+			onDirectoryQuarantined: (quarantinePath) => {
+				const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+					cwd: quarantinePath,
+					stdio: "ignore",
+				});
+				childProcesses.add(child);
+				if (!child.pid) throw new Error("Expected child process ID");
+				expect(readlinkSync(`/proc/${child.pid}/cwd`)).toBe(quarantinePath);
+			},
+		});
+
+		expect(result.deletedDirectories).toEqual([]);
 		expect(existsSync(referenced)).toBe(true);
 	});
 

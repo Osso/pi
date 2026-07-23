@@ -21,9 +21,14 @@ export interface DetachedJobCleanupResult {
 	skippedReason?: string;
 }
 
+interface DetachedJobCleanupOptions {
+	now?: number;
+	onDirectoryQuarantined?: (quarantinePath: string) => void;
+}
+
 export function cleanupDetachedJobArtifacts(
 	controlDbPath: string,
-	options: { now?: number } = {},
+	options: DetachedJobCleanupOptions = {},
 ): DetachedJobCleanupResult {
 	const processReferences = readLinuxProcessReferences();
 	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
@@ -34,7 +39,7 @@ export function cleanupDetachedJobArtifacts(
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
 		now: options.now ?? Date.now(),
 	});
-	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors);
+	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors, options.onDirectoryQuarantined);
 }
 
 export function runDetachedJobArtifactCleanup(controlDbPath: string, now = Date.now()): void {
@@ -54,6 +59,7 @@ function deleteSelectedArtifactDirectories(
 	candidates: readonly DetachedArtifactRetentionCandidate[],
 	pathsToDelete: readonly string[],
 	errors: string[],
+	onDirectoryQuarantined?: (quarantinePath: string) => void,
 ): DetachedJobCleanupResult {
 	const candidatesByPath = new Map(candidates.map((candidate) => [candidate.directoryPath, candidate]));
 	const deletedDirectories: string[] = [];
@@ -61,7 +67,7 @@ function deleteSelectedArtifactDirectories(
 	for (const directoryPath of pathsToDelete) {
 		const candidate = candidatesByPath.get(directoryPath);
 		if (!candidate) continue;
-		if (deleteUnreferencedArtifactDirectory(directoryPath, errors)) {
+		if (deleteUnreferencedArtifactDirectory(directoryPath, errors, onDirectoryQuarantined)) {
 			deletedDirectories.push(directoryPath);
 			deletedBytes += candidate.byteSize;
 		}
@@ -74,7 +80,11 @@ function deleteSelectedArtifactDirectories(
 	};
 }
 
-function deleteUnreferencedArtifactDirectory(directoryPath: string, errors: string[]): boolean {
+function deleteUnreferencedArtifactDirectory(
+	directoryPath: string,
+	errors: string[],
+	onDirectoryQuarantined?: (quarantinePath: string) => void,
+): boolean {
 	const quarantinePath = join(dirname(directoryPath), `.cleanup-${basename(directoryPath)}-${randomUUID()}`);
 	try {
 		const directory = lstatSync(directoryPath);
@@ -83,6 +93,7 @@ function deleteUnreferencedArtifactDirectory(directoryPath: string, errors: stri
 			return false;
 		}
 		renameSync(directoryPath, quarantinePath);
+		onDirectoryQuarantined?.(quarantinePath);
 		if (quarantinedDirectoryHasLiveReference(quarantinePath)) {
 			renameSync(quarantinePath, directoryPath);
 			return false;
