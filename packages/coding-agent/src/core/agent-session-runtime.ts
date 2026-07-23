@@ -14,6 +14,7 @@ import type { CreateAgentSessionResult } from "./sdk.ts";
 
 export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
+import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
 import { assertMainSessionRuntimeAvailable } from "./session-control-db.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
@@ -502,6 +503,8 @@ export async function createAgentSessionRuntime(
 	},
 ): Promise<AgentSessionRuntime> {
 	assertSessionCwdExists(options.sessionManager, options.cwd);
+	const controlDbPath = options.sessionManager.getMetadataControlDbPath();
+	if (controlDbPath) runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
 	const result = await createRuntime(options);
 	return new AgentSessionRuntime(
 		result.session,

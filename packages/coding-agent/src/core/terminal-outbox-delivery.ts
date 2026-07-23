@@ -1,3 +1,4 @@
+import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
 import {
 	claimMultiAgentTerminalOutbox,
@@ -13,6 +14,7 @@ export const TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const TERMINAL_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DeliverTerminalOutboxOptions {
+	artifactRoot?: string;
 	claimId: string;
 	controlDbPath: string;
 	now: () => string;
@@ -32,17 +34,24 @@ export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxO
 	if (!persistence) return 0;
 
 	let delivered = 0;
-	while (true) {
-		const nowIso = options.now();
-		const record = claimMultiAgentTerminalOutbox(options.controlDbPath, options.claimId, nowIso, {
-			maxAttempts: TERMINAL_OUTBOX_MAX_ATTEMPTS,
-			sessionPath: persistence.sessionPath,
-			staleClaimBefore: new Date(Date.parse(nowIso) - TERMINAL_OUTBOX_CLAIM_LEASE_MS).toISOString(),
-		});
-		if (!record) return delivered;
+	try {
+		while (true) {
+			const nowIso = options.now();
+			const record = claimMultiAgentTerminalOutbox(options.controlDbPath, options.claimId, nowIso, {
+				maxAttempts: TERMINAL_OUTBOX_MAX_ATTEMPTS,
+				sessionPath: persistence.sessionPath,
+				staleClaimBefore: new Date(Date.parse(nowIso) - TERMINAL_OUTBOX_CLAIM_LEASE_MS).toISOString(),
+			});
+			if (!record) break;
 
-		deliverTerminalOutboxProjection(options, record);
-		delivered += 1;
+			deliverTerminalOutboxProjection(options, record);
+			delivered += 1;
+		}
+		return delivered;
+	} finally {
+		if (delivered > 0) {
+			runDetachedJobArtifactCleanup(options.controlDbPath, options.artifactRoot, Date.parse(options.now()));
+		}
 	}
 }
 

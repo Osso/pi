@@ -1,3 +1,4 @@
+import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import type { AgentMailboxMessage, AgentSnapshot, SendSteeringInput, SpawnAgentInput } from "./multi-agent-store.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
 import {
@@ -22,11 +23,11 @@ const MAIN_THREAD_AGENT_ID = "main";
 const DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS = 250;
 const deadDetachedReconciliationRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function scheduleDeadDetachedReconciliationRetry(controlDbPath: string): void {
+function scheduleDeadDetachedReconciliationRetry(controlDbPath: string, artifactRoot?: string): void {
 	if (deadDetachedReconciliationRetryTimers.has(controlDbPath)) return;
 	const timer = setTimeout(() => {
 		deadDetachedReconciliationRetryTimers.delete(controlDbPath);
-		LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString());
+		LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString(), artifactRoot);
 	}, DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS);
 	timer.unref();
 	deadDetachedReconciliationRetryTimers.set(controlDbPath, timer);
@@ -116,14 +117,15 @@ export interface FinalizeChildCommandInput extends OwnedLifecycleCommandInput {
 export class LifecycleCoordinator {
 	private readonly options: LifecycleCoordinatorOptions;
 
-	static reconcileDeadDetachedRuntimes(controlDbPath: string, nowIso: string): number {
+	static reconcileDeadDetachedRuntimes(controlDbPath: string, nowIso: string, artifactRoot?: string): number {
 		try {
 			const reconciled = reconcileDeadDetachedAgentRuntimesRepository(controlDbPath, nowIso);
 			clearDeadDetachedReconciliationRetry(controlDbPath);
+			if (reconciled > 0) runDetachedJobArtifactCleanup(controlDbPath, artifactRoot, Date.parse(nowIso));
 			return reconciled;
 		} catch (error) {
 			if (!isSqliteContentionError(error)) throw error;
-			scheduleDeadDetachedReconciliationRetry(controlDbPath);
+			scheduleDeadDetachedReconciliationRetry(controlDbPath, artifactRoot);
 			return 0;
 		}
 	}
