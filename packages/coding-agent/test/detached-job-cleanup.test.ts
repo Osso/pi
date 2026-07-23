@@ -290,6 +290,29 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(referenced)).toBe(true);
 	});
 
+	it("does not preserve an artifact mentioned only in an unrelated process argument", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_argument",
+			lifecycle: "completed",
+			root,
+			sessionName: "argument-only",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(expired, "output.log")], {
+			cwd: root,
+			stdio: "ignore",
+		});
+		childProcesses.add(child);
+		if (!child.pid) throw new Error("Expected child process ID");
+
+		cleanupDetachedJobArtifacts(controlDbPath, { now: NOW });
+
+		expect(existsSync(expired)).toBe(false);
+	});
+
 	it("deletes oldest recent terminal directories until retained bytes fit the two GiB cap", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);

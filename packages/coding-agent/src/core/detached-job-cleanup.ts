@@ -1,14 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-	existsSync,
-	lstatSync,
-	readdirSync,
-	readFileSync,
-	readlinkSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-} from "node:fs";
+import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import {
 	type DetachedArtifactRetentionCandidate,
@@ -231,7 +222,6 @@ function readLinuxProcessReferences(): Set<string> | undefined {
 		const processDirectory = join("/proc", processEntry.name);
 		addLinkReference(references, join(processDirectory, "cwd"));
 		addLinkReference(references, join(processDirectory, "exe"));
-		addCommandReferences(references, join(processDirectory, "cmdline"));
 		addDescriptorReferences(references, join(processDirectory, "fd"));
 	}
 	return references;
@@ -240,16 +230,6 @@ function readLinuxProcessReferences(): Set<string> | undefined {
 function addLinkReference(references: Set<string>, linkPath: string): void {
 	try {
 		addAbsoluteReference(references, readlinkSync(linkPath));
-	} catch (error) {
-		if (!isExpectedProcessReadError(error)) throw error;
-	}
-}
-
-function addCommandReferences(references: Set<string>, commandPath: string): void {
-	try {
-		for (const argument of readFileSync(commandPath).toString("utf8").split("\0")) {
-			addAbsoluteReference(references, argument);
-		}
 	} catch (error) {
 		if (!isExpectedProcessReadError(error)) throw error;
 	}
