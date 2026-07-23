@@ -517,6 +517,24 @@ describe("detached job artifact cleanup", () => {
 		expect(existsSync(escapedDirectory)).toBe(true);
 	});
 
+	it("refuses a session filename that resolves outside detached-jobs", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const escaped = persistArtifact({
+			controlDbPath,
+			jobId: "escaped-session-job",
+			lifecycle: "completed",
+			root,
+			sessionName: "..",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
+
+		expect(result.deletedDirectories).toEqual([]);
+		expect(existsSync(escaped)).toBe(true);
+	});
+
 	it("deletes oldest recent terminal directories until retained bytes fit the two GiB cap", () => {
 		const root = createRoot();
 		const controlDbPath = getControlDbPath(root);

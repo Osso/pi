@@ -209,6 +209,7 @@ function detachedArtifactDirectory(
 	if (!isAbsolute(outputPath) || basename(outputPath) !== "output.log" || !isPathSegment(jobId)) return undefined;
 	const directoryPath = resolve(dirname(outputPath));
 	const sessionName = basename(sessionPath, extname(sessionPath));
+	if (!isPathSegment(sessionName)) return undefined;
 	const expectedDirectoryPath = resolve(artifactRoot, "detached-jobs", sessionName, jobId);
 	if (directoryPath !== expectedDirectoryPath) return undefined;
 	try {

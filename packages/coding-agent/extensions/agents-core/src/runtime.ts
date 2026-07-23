@@ -786,6 +786,7 @@ export function createProductionChildAgentSessionFactory(
 export function createProductionAttachedSessionFactory(
 	options: Omit<ProductionChildAgentSessionFactoryOptions, "createSessionManager">,
 ): AttachedSessionFactory {
+	if (options.multiAgentStore && options.agentDir) artifactRootsByStore.set(options.multiAgentStore, options.agentDir);
 	return async ({ agent, ctx, sessionPath }) => {
 		if (!sessionPath) {
 			throw new Error("Cannot resume attached session without a session path");
