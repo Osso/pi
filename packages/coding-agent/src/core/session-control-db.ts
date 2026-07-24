@@ -164,6 +164,9 @@ export interface SessionMetadata {
 	goalJson?: string;
 	isSubagent?: boolean;
 	subagentName?: string;
+	modelProvider?: string;
+	modelId?: string;
+	thinkingLevel?: string;
 	createdAt: string;
 	modifiedAt: string;
 	messageCount: number;
@@ -309,6 +312,9 @@ type SessionMetadataRow = {
 	goal_json: string | null;
 	is_subagent: number;
 	subagent_name: string | null;
+	model_provider: string | null;
+	model_id: string | null;
+	thinking_level: string | null;
 	created_at: string;
 	modified_at: string;
 	message_count: number;
@@ -322,6 +328,9 @@ type SessionMetadataPreservedRow = {
 	goal_json: string | null;
 	is_subagent: number;
 	subagent_name: string | null;
+	model_provider: string | null;
+	model_id: string | null;
+	thinking_level: string | null;
 };
 
 type TableInfoRow = {
@@ -2206,6 +2215,9 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 		const preservedIsSubagent = preserved?.is_subagent === 1;
 		const isSubagent = metadata.isSubagent ?? preservedIsSubagent;
 		const subagentName = metadata.subagentName ?? preserved?.subagent_name ?? null;
+		const modelProvider = metadata.modelProvider ?? preserved?.model_provider ?? null;
+		const modelId = metadata.modelId ?? preserved?.model_id ?? null;
+		const thinkingLevel = metadata.thinkingLevel ?? preserved?.thinking_level ?? null;
 		db.prepare(
 			`
 			INSERT INTO session_metadata (
@@ -2218,6 +2230,9 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 				goal_json,
 				is_subagent,
 				subagent_name,
+				model_provider,
+				model_id,
+				thinking_level,
 				created_at,
 				modified_at,
 				message_count,
@@ -2225,7 +2240,7 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 				all_messages_text,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(session_path) DO UPDATE SET
 				id = excluded.id,
 				cwd = excluded.cwd,
@@ -2234,6 +2249,9 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 				archived_at = excluded.archived_at,
 				is_subagent = excluded.is_subagent,
 				subagent_name = excluded.subagent_name,
+				model_provider = excluded.model_provider,
+				model_id = excluded.model_id,
+				thinking_level = excluded.thinking_level,
 				created_at = excluded.created_at,
 				modified_at = excluded.modified_at,
 				message_count = excluded.message_count,
@@ -2251,6 +2269,9 @@ export function writeSessionMetadata(controlDbPath: string, metadata: WritableSe
 			null,
 			isSubagent ? 1 : 0,
 			subagentName,
+			modelProvider,
+			modelId,
+			thinkingLevel,
 			metadata.createdAt,
 			metadata.modifiedAt,
 			metadata.messageCount,
@@ -2268,7 +2289,7 @@ function readPreservedSessionMetadata(
 	return db
 		.prepare(
 			`
-			SELECT archived_at, goal_json, is_subagent, subagent_name
+			SELECT archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
 			FROM session_metadata
 			WHERE session_path = ?
 			`,
@@ -2325,6 +2346,9 @@ export function readSessionMetadata(controlDbPath: string, sessionPath: string):
 					goal_json,
 					is_subagent,
 					subagent_name,
+					model_provider,
+					model_id,
+					thinking_level,
 					created_at,
 					modified_at,
 					message_count,
@@ -2377,6 +2401,9 @@ function findActiveSessionMetadata(controlDbPath: string, field: "id" | "name", 
 					goal_json,
 					is_subagent,
 					subagent_name,
+					model_provider,
+					model_id,
+					thinking_level,
 					created_at,
 					modified_at,
 					message_count,
@@ -2410,6 +2437,9 @@ function listSessionMetadataByArchiveState(controlDbPath: string, archived?: boo
 					goal_json,
 					is_subagent,
 					subagent_name,
+					model_provider,
+					model_id,
+					thinking_level,
 					created_at,
 					modified_at,
 					message_count,
@@ -2482,6 +2512,9 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 		goalJson: row.goal_json ?? undefined,
 		isSubagent: row.is_subagent === 1,
 		subagentName: row.subagent_name ?? undefined,
+		modelProvider: row.model_provider ?? undefined,
+		modelId: row.model_id ?? undefined,
+		thinkingLevel: row.thinking_level ?? undefined,
 		createdAt: row.created_at,
 		modifiedAt: row.modified_at,
 		messageCount: row.message_count,
@@ -4583,6 +4616,9 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			goal_json TEXT,
 			is_subagent INTEGER NOT NULL DEFAULT 0,
 			subagent_name TEXT,
+			model_provider TEXT,
+			model_id TEXT,
+			thinking_level TEXT,
 			created_at TEXT NOT NULL,
 			modified_at TEXT NOT NULL,
 			message_count INTEGER NOT NULL,
@@ -5166,5 +5202,14 @@ function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
 	}
 	if (!columns.has("subagent_name")) {
 		db.exec("ALTER TABLE session_metadata ADD COLUMN subagent_name TEXT");
+	}
+	if (!columns.has("model_provider")) {
+		db.exec("ALTER TABLE session_metadata ADD COLUMN model_provider TEXT");
+	}
+	if (!columns.has("model_id")) {
+		db.exec("ALTER TABLE session_metadata ADD COLUMN model_id TEXT");
+	}
+	if (!columns.has("thinking_level")) {
+		db.exec("ALTER TABLE session_metadata ADD COLUMN thinking_level TEXT");
 	}
 }
