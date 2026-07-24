@@ -2297,6 +2297,26 @@ function readPreservedSessionMetadata(
 		.get(sessionPath) as SessionMetadataPreservedRow | undefined;
 }
 
+export function writeSessionModel(controlDbPath: string, sessionPath: string, provider: string, modelId: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`UPDATE session_metadata
+			 SET model_provider = ?, model_id = ?, updated_at = ?
+			 WHERE session_path = ?`,
+		).run(provider, modelId, new Date().toISOString(), sessionPath);
+	});
+}
+
+export function writeSessionThinkingLevel(controlDbPath: string, sessionPath: string, thinkingLevel: string): void {
+	withControlDb(controlDbPath, (db) => {
+		db.prepare(
+			`UPDATE session_metadata
+			 SET thinking_level = ?, updated_at = ?
+			 WHERE session_path = ?`,
+		).run(thinkingLevel, new Date().toISOString(), sessionPath);
+	});
+}
+
 export function writeSessionGoal(controlDbPath: string, sessionPath: string, goalJson: string | undefined): void {
 	withControlDb(controlDbPath, (db) => {
 		db.prepare(

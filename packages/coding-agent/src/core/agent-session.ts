@@ -3430,7 +3430,7 @@ export class AgentSession {
 		const previousModel = this.model;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = model;
-		this.sessionManager.appendModelChange(model.provider, model.id);
+		this.sessionManager.setSessionModel(model.provider, model.id);
 		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
 
 		// Re-clamp thinking level for new model's capabilities
@@ -3495,7 +3495,7 @@ export class AgentSession {
 
 		// Apply model
 		this.agent.state.model = next.model;
-		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
+		this.sessionManager.setSessionModel(next.model.provider, next.model.id);
 		this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
 
 		// Apply thinking level.
@@ -3529,7 +3529,7 @@ export class AgentSession {
 		this.agent.state.thinkingLevel = effectiveLevel;
 
 		if (isChanging) {
-			this.sessionManager.appendThinkingLevelChange(effectiveLevel);
+			this.sessionManager.setSessionThinkingLevel(effectiveLevel);
 			if (this.supportsThinking() || effectiveLevel !== "off") {
 				this.settingsManager.setDefaultThinkingLevel(effectiveLevel);
 			}
@@ -4724,7 +4724,7 @@ export class AgentSession {
 
 		const previousModel = this.model;
 		this.agent.state.model = fallbackModel;
-		this.sessionManager.appendModelChange(fallbackModel.provider, fallbackModel.id);
+		this.sessionManager.setSessionModel(fallbackModel.provider, fallbackModel.id);
 		await this._emitModelSelect(fallbackModel, previousModel, "fallback");
 		return true;
 	}

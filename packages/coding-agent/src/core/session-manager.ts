@@ -39,6 +39,8 @@ import {
 	type WritableSessionMetadata,
 	writeSessionGoal,
 	writeSessionMetadata,
+	writeSessionModel,
+	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
@@ -1537,6 +1539,18 @@ export class SessionManager {
 		}
 		this.writeMetadataSnapshot();
 		writeSessionGoal(this.metadataControlDbPath, this.sessionFile, undefined);
+	}
+
+	setSessionModel(provider: string, modelId: string): void {
+		if (!this.metadataControlDbPath || !this.sessionFile) return;
+		this.writeMetadataSnapshot();
+		writeSessionModel(this.metadataControlDbPath, this.sessionFile, provider, modelId);
+	}
+
+	setSessionThinkingLevel(thinkingLevel: string): void {
+		if (!this.metadataControlDbPath || !this.sessionFile) return;
+		this.writeMetadataSnapshot();
+		writeSessionThinkingLevel(this.metadataControlDbPath, this.sessionFile, thinkingLevel);
 	}
 
 	setMetadataControlDbPath(controlDbPath: string | undefined, options?: { indexMessageText?: boolean }): void {

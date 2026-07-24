@@ -6,6 +6,7 @@ import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as DesktopNotificationModule from "../../src/core/desktop-notification.ts";
+import { getControlDbPath, readSessionMetadata } from "../../src/core/session-control-db.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
 
@@ -139,9 +140,10 @@ describe("AgentSession model and extension characterization", () => {
 		expect(isToolCallEventType("read", bashEvent)).toBe(false);
 	});
 
-	it("setModel saves the model and emits model_select", async () => {
+	it("setModel saves the model in control metadata and emits model_select", async () => {
 		const modelEvents: string[] = [];
 		const harness = await createHarness({
+			persistedSession: true,
 			models: [
 				{ id: "faux-1", name: "One", reasoning: true },
 				{ id: "faux-2", name: "Two", reasoning: true },
@@ -157,16 +159,23 @@ describe("AgentSession model and extension characterization", () => {
 		harnesses.push(harness);
 		const nextModel = harness.getModel("faux-2")!;
 
+		harness.session.setThinkingLevel("high");
 		await harness.session.setModel(nextModel);
 
 		expect(harness.session.model?.id).toBe("faux-2");
 		expect(modelEvents).toEqual(["faux-1->faux-2:set"]);
+		const sessionFile = harness.sessionManager.getSessionFile();
+		expect(sessionFile).toBeDefined();
+		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile!)).toMatchObject({
+			modelProvider: nextModel.provider,
+			modelId: nextModel.id,
+			thinkingLevel: harness.session.thinkingLevel,
+		});
 		expect(
 			harness.sessionManager
 				.getEntries()
-				.filter((entry) => entry.type === "model_change")
-				.map((entry) => `${entry.provider}/${entry.modelId}`),
-		).toEqual([`${nextModel.provider}/${nextModel.id}`]);
+				.filter((entry) => entry.type === "model_change" || entry.type === "thinking_level_change"),
+		).toEqual([]);
 	});
 
 	it("cycles through scoped models and preserves the scoped thinking preference", async () => {

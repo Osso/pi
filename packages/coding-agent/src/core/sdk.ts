@@ -246,7 +246,6 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
 	const hasExistingSession = existingSession.messages.length > 0;
-	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
@@ -281,13 +280,6 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	}
 
 	let thinkingLevel = options.thinkingLevel;
-
-	// If session has data, restore thinking level from it
-	if (thinkingLevel === undefined && hasExistingSession) {
-		thinkingLevel = hasThinkingEntry
-			? (existingSession.thinkingLevel as ThinkingLevel)
-			: (settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL);
-	}
 
 	// Fall back to settings default
 	if (thinkingLevel === undefined) {
@@ -426,16 +418,11 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	// Restore messages if session has existing data
 	if (hasExistingSession) {
 		agent.state.messages = existingSession.messages;
-		if (!hasThinkingEntry) {
-			sessionManager.appendThinkingLevelChange(thinkingLevel);
-		}
-	} else {
-		// Save initial model and thinking level for new sessions so they can be restored on resume
-		if (model) {
-			sessionManager.appendModelChange(model.provider, model.id);
-		}
-		sessionManager.appendThinkingLevelChange(thinkingLevel);
 	}
+	if (model) {
+		sessionManager.setSessionModel(model.provider, model.id);
+	}
+	sessionManager.setSessionThinkingLevel(thinkingLevel);
 
 	const session = new AgentSession({
 		agent,
