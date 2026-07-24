@@ -38,7 +38,17 @@ describe("active slice session loading", () => {
 				cwd: "/tmp",
 			},
 			messageEntry("old-1", null, "x".repeat(summarizedBytes)),
-			messageEntry("kept-1", "old-1", "kept"),
+			{
+				type: "custom_message",
+				id: "cwd-change",
+				parentId: "old-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				customType: "cwd_changed",
+				content: "Working directory changed to /tmp.",
+				details: { previousCwd: "/previous", cwd: "/tmp" },
+				display: true,
+			},
+			messageEntry("kept-1", "cwd-change", "kept"),
 			{
 				type: "compaction",
 				id: "compaction-1",
