@@ -1,5 +1,5 @@
 import { constants as bufferConstants } from "buffer";
-import {
+import fs, {
 	appendFileSync,
 	closeSync,
 	existsSync,
@@ -10,6 +10,7 @@ import {
 	writeFileSync,
 	writeSync,
 } from "fs";
+import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -87,6 +88,34 @@ describe("loadEntriesFromFile", () => {
 		);
 		const entries = loadEntriesFromFile(file);
 		expect(entries).toHaveLength(2);
+	});
+
+	it("opens a session without reading the full file twice", () => {
+		const file = join(tempDir, "single-full-read.jsonl");
+		const paddingBytes = 2 * 1024 * 1024;
+		const content =
+			'{"type":"session","version":3,"id":"abc","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}\n' +
+			`{"type":"custom","id":"1","parentId":null,"timestamp":"2025-01-01T00:00:01Z","customType":"padding","data":"${"x".repeat(paddingBytes)}"}\n`;
+		writeFileSync(file, content);
+
+		const originalReadSync = fs.readSync;
+		let totalBytesRead = 0;
+		fs.readSync = ((fd, buffer, offset, length, position) => {
+			const bytesRead = originalReadSync(fd, buffer, offset, length, position);
+			totalBytesRead += bytesRead;
+			return bytesRead;
+		}) as typeof fs.readSync;
+		syncBuiltinESMExports();
+
+		try {
+			SessionManager.open(file, tempDir);
+		} finally {
+			fs.readSync = originalReadSync;
+			syncBuiltinESMExports();
+		}
+
+		const fileBytes = Buffer.byteLength(content);
+		expect(totalBytesRead).toBeLessThan(fileBytes * 2);
 	});
 
 	it("opens session files larger than Node's max string length", () => {
