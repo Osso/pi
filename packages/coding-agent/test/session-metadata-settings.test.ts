@@ -5,16 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	getControlDbPath,
 	readSessionMetadata,
-	type SessionMetadata,
 	type WritableSessionMetadata,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-
-interface PersistedSessionSettings {
-	modelProvider?: string;
-	modelId?: string;
-	thinkingLevel?: string;
-}
 
 describe("session metadata settings", () => {
 	let tempDir: string;
@@ -31,7 +24,7 @@ describe("session metadata settings", () => {
 
 	it("persists model and thinking settings across metadata snapshots", () => {
 		const sessionPath = "/tmp/session.jsonl";
-		const initialMetadata: WritableSessionMetadata & PersistedSessionSettings = {
+		const initialMetadata: WritableSessionMetadata = {
 			sessionPath,
 			id: "session-1",
 			cwd: "/repo",
@@ -54,9 +47,7 @@ describe("session metadata settings", () => {
 			thinkingLevel: undefined,
 		});
 
-		const stored = readSessionMetadata(controlDbPath, sessionPath) as
-			| (SessionMetadata & PersistedSessionSettings)
-			| undefined;
+		const stored = readSessionMetadata(controlDbPath, sessionPath);
 		expect(stored).toMatchObject({
 			modelProvider: "openai-codex",
 			modelId: "gpt-5.6-sol",

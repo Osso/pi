@@ -2207,78 +2207,106 @@ function relocateMultiAgentSessionRows(
 	);
 }
 
+interface SessionMetadataWriteValues {
+	name: string | undefined;
+	archivedAt: string | null;
+	isSubagent: boolean;
+	subagentName: string | null;
+	modelProvider: string | null;
+	modelId: string | null;
+	thinkingLevel: string | null;
+}
+
+const UPSERT_SESSION_METADATA_SQL = `
+	INSERT INTO session_metadata (
+		session_path,
+		id,
+		cwd,
+		name,
+		parent_session_path,
+		archived_at,
+		goal_json,
+		is_subagent,
+		subagent_name,
+		model_provider,
+		model_id,
+		thinking_level,
+		created_at,
+		modified_at,
+		message_count,
+		first_message,
+		all_messages_text,
+		updated_at
+	)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(session_path) DO UPDATE SET
+		id = excluded.id,
+		cwd = excluded.cwd,
+		name = excluded.name,
+		parent_session_path = excluded.parent_session_path,
+		archived_at = excluded.archived_at,
+		is_subagent = excluded.is_subagent,
+		subagent_name = excluded.subagent_name,
+		model_provider = excluded.model_provider,
+		model_id = excluded.model_id,
+		thinking_level = excluded.thinking_level,
+		created_at = excluded.created_at,
+		modified_at = excluded.modified_at,
+		message_count = excluded.message_count,
+		first_message = excluded.first_message,
+		all_messages_text = excluded.all_messages_text,
+		updated_at = excluded.updated_at
+`;
+
+function readSessionMetadataWriteValues(
+	db: SqliteDatabase,
+	metadata: WritableSessionMetadata,
+): SessionMetadataWriteValues {
+	const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
+	const preservedIsSubagent = preserved?.is_subagent === 1;
+	return {
+		name: metadata.name ?? readNamedSessionName(db, metadata.sessionPath),
+		archivedAt: metadata.archivedAt ?? preserved?.archived_at ?? null,
+		isSubagent: metadata.isSubagent ?? preservedIsSubagent,
+		subagentName: metadata.subagentName ?? preserved?.subagent_name ?? null,
+		modelProvider: metadata.modelProvider ?? preserved?.model_provider ?? null,
+		modelId: metadata.modelId ?? preserved?.model_id ?? null,
+		thinkingLevel: metadata.thinkingLevel ?? preserved?.thinking_level ?? null,
+	};
+}
+
+function writeSessionMetadataRow(
+	db: SqliteDatabase,
+	metadata: WritableSessionMetadata,
+	values: SessionMetadataWriteValues,
+): void {
+	const allMessagesText = metadata.indexMessageText === false ? "" : metadata.allMessagesText;
+	db.prepare(UPSERT_SESSION_METADATA_SQL).run(
+		metadata.sessionPath,
+		metadata.id,
+		metadata.cwd,
+		values.name,
+		metadata.parentSessionPath ?? null,
+		values.archivedAt,
+		null,
+		values.isSubagent ? 1 : 0,
+		values.subagentName,
+		values.modelProvider,
+		values.modelId,
+		values.thinkingLevel,
+		metadata.createdAt,
+		metadata.modifiedAt,
+		metadata.messageCount,
+		metadata.firstMessage,
+		allMessagesText,
+		new Date().toISOString(),
+	);
+}
+
 export function writeSessionMetadata(controlDbPath: string, metadata: WritableSessionMetadata): void {
 	withControlDb(controlDbPath, (db) => {
-		const metadataName = metadata.name ?? readNamedSessionName(db, metadata.sessionPath);
-		const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
-		const archivedAt = metadata.archivedAt ?? preserved?.archived_at ?? null;
-		const preservedIsSubagent = preserved?.is_subagent === 1;
-		const isSubagent = metadata.isSubagent ?? preservedIsSubagent;
-		const subagentName = metadata.subagentName ?? preserved?.subagent_name ?? null;
-		const modelProvider = metadata.modelProvider ?? preserved?.model_provider ?? null;
-		const modelId = metadata.modelId ?? preserved?.model_id ?? null;
-		const thinkingLevel = metadata.thinkingLevel ?? preserved?.thinking_level ?? null;
-		db.prepare(
-			`
-			INSERT INTO session_metadata (
-				session_path,
-				id,
-				cwd,
-				name,
-				parent_session_path,
-				archived_at,
-				goal_json,
-				is_subagent,
-				subagent_name,
-				model_provider,
-				model_id,
-				thinking_level,
-				created_at,
-				modified_at,
-				message_count,
-				first_message,
-				all_messages_text,
-				updated_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(session_path) DO UPDATE SET
-				id = excluded.id,
-				cwd = excluded.cwd,
-				name = excluded.name,
-				parent_session_path = excluded.parent_session_path,
-				archived_at = excluded.archived_at,
-				is_subagent = excluded.is_subagent,
-				subagent_name = excluded.subagent_name,
-				model_provider = excluded.model_provider,
-				model_id = excluded.model_id,
-				thinking_level = excluded.thinking_level,
-				created_at = excluded.created_at,
-				modified_at = excluded.modified_at,
-				message_count = excluded.message_count,
-				first_message = excluded.first_message,
-				all_messages_text = excluded.all_messages_text,
-				updated_at = excluded.updated_at
-			`,
-		).run(
-			metadata.sessionPath,
-			metadata.id,
-			metadata.cwd,
-			metadataName,
-			metadata.parentSessionPath ?? null,
-			archivedAt,
-			null,
-			isSubagent ? 1 : 0,
-			subagentName,
-			modelProvider,
-			modelId,
-			thinkingLevel,
-			metadata.createdAt,
-			metadata.modifiedAt,
-			metadata.messageCount,
-			metadata.firstMessage,
-			metadata.indexMessageText === false ? "" : metadata.allMessagesText,
-			new Date().toISOString(),
-		);
+		const values = readSessionMetadataWriteValues(db, metadata);
+		writeSessionMetadataRow(db, metadata, values);
 	});
 }
 

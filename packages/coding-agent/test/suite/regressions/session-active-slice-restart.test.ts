@@ -3,9 +3,10 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../../../src/core/session-control-db.ts";
+import type { SessionMessageEntry } from "../../../src/core/session-manager.ts";
 import { withHeadlessPi } from "../headless-pi.ts";
 
-function userEntry(id: string, parentId: string | null, content: string): object {
+function userEntry(id: string, parentId: string | null, content: string): SessionMessageEntry {
 	return {
 		type: "message",
 		id,

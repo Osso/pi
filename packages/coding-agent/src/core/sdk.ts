@@ -246,7 +246,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
 	const hasExistingSession = existingSession.messages.length > 0;
-	const persistedSettings = sessionManager.getPersistedSessionSettings();
+	const persistedSettings = sessionManager.readPersistedSessionSettings();
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;

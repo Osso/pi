@@ -666,7 +666,8 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 interface ReverseSessionScan {
 	allEntries: SessionEntry[];
 	activePath: SessionEntry[];
-	requiredParentId: string | null | undefined;
+	isReadingLeaf: boolean;
+	requiredParentId: string | null;
 	latestCompaction: CompactionEntry | undefined;
 	foundFirstKeptEntry: boolean;
 	precedingCwd: string | undefined;
@@ -692,7 +693,8 @@ function createReverseSessionScan(): ReverseSessionScan {
 	return {
 		allEntries: [],
 		activePath: [],
-		requiredParentId: undefined,
+		isReadingLeaf: true,
+		requiredParentId: null,
 		latestCompaction: undefined,
 		foundFirstKeptEntry: false,
 		precedingCwd: undefined,
@@ -724,10 +726,10 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 	if (entry.type === "session") return false;
 	scan.allEntries.push(entry);
 
-	const isLeaf = scan.requiredParentId === undefined;
-	const isRequiredParent = scan.requiredParentId !== null && entry.id === scan.requiredParentId;
-	if (!isLeaf && !isRequiredParent) return false;
+	const isActiveEntry = scan.isReadingLeaf || entry.id === scan.requiredParentId;
+	if (!isActiveEntry) return false;
 
+	scan.isReadingLeaf = false;
 	if (!scan.foundFirstKeptEntry) {
 		scan.activePath.push(entry);
 	}
@@ -797,9 +799,7 @@ function readCurrentVersionSessionEntries(fd: number, fileSize: number, filePath
 		return loadedActiveSlice(scan);
 	}
 	validateCompleteReverseScan(scan, filePath);
-	return scan.foundFirstKeptEntry
-		? loadedActiveSlice(scan)
-		: { entries: scan.allEntries.reverse() };
+	return scan.foundFirstKeptEntry ? loadedActiveSlice(scan) : { entries: scan.allEntries.reverse() };
 }
 
 function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHeader): LoadedCurrentVersionSession {
@@ -810,6 +810,14 @@ function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHead
 	} finally {
 		closeSync(fd);
 	}
+}
+
+function loadSessionFileEntries(filePath: string): LoadedCurrentVersionSession {
+	const header = readSessionHeader(filePath);
+	if (header?.version === CURRENT_SESSION_VERSION) {
+		return loadCurrentVersionEntriesFromFile(filePath, header);
+	}
+	return { fileEntries: loadEntriesFromFile(filePath) };
 }
 
 /** Exported for testing */
@@ -1326,14 +1334,9 @@ export class SessionManager {
 	setSessionFile(sessionFile: string): void {
 		this.sessionFile = resolvePath(sessionFile);
 		if (existsSync(this.sessionFile)) {
-			const sessionHeader = readSessionHeader(this.sessionFile);
-			if (sessionHeader?.version === CURRENT_SESSION_VERSION) {
-				const loaded = loadCurrentVersionEntriesFromFile(this.sessionFile, sessionHeader);
-				this.fileEntries = loaded.fileEntries;
-				if (loaded.precedingCwd) this.cwd = resolvePath(loaded.precedingCwd);
-			} else {
-				this.fileEntries = loadEntriesFromFile(this.sessionFile);
-			}
+			const loaded = loadSessionFileEntries(this.sessionFile);
+			this.fileEntries = loaded.fileEntries;
+			if (loaded.precedingCwd) this.cwd = resolvePath(loaded.precedingCwd);
 
 			// If file was empty, initialize it with a valid session header. If it was
 			// non-empty but did not parse as a pi session, fail without modifying it.
@@ -1543,7 +1546,7 @@ export class SessionManager {
 		return this.metadataControlDbPath;
 	}
 
-	getPersistedSessionSettings(): PersistedSessionSettings | undefined {
+	readPersistedSessionSettings(): PersistedSessionSettings | undefined {
 		if (!this.metadataControlDbPath || !this.sessionFile) return undefined;
 		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
 		if (!metadata) return undefined;
