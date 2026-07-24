@@ -1572,14 +1572,16 @@ export class SessionManager {
 	setMetadataControlDbPath(controlDbPath: string | undefined, options?: { indexMessageText?: boolean }): void {
 		this.metadataControlDbPath = controlDbPath;
 		if (options?.indexMessageText !== undefined) this.indexMessageText = options.indexMessageText;
-		this.restorePersistedSubagentMetadata();
+		this.restorePersistedMetadata();
 		this.writeMetadataSnapshot();
 	}
 
-	private restorePersistedSubagentMetadata(): void {
+	private restorePersistedMetadata(): void {
 		if (!this.metadataControlDbPath || !this.sessionFile) return;
 		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
-		if (!metadata?.isSubagent) return;
+		if (!metadata) return;
+		this.cwd = resolvePath(metadata.cwd);
+		if (!metadata.isSubagent) return;
 		this.isSubagent = true;
 		this.subagentName = metadata.subagentName;
 	}
@@ -1594,6 +1596,7 @@ export class SessionManager {
 				isSubagent: this.isSubagent,
 				subagentName: this.subagentName,
 			}),
+			cwd: this.cwd,
 			indexMessageText: this.indexMessageText,
 		});
 	}

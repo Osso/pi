@@ -58,6 +58,7 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 export interface HeadlessPiOptions {
 	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
+	model?: string | false;
 }
 
 export interface HeadlessRpcExtensionError {
@@ -266,7 +267,7 @@ function createHeadlessRpcClient(
 			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
 		},
 		provider: "headless-faux",
-		model: "headless-faux-1",
+		model: options.model === false ? undefined : (options.model ?? "headless-faux-1"),
 		nodeArgs: ["--import", import.meta.resolve("tsx"), "--import", pathToFileURL(preloadPath).href],
 		args,
 	});
