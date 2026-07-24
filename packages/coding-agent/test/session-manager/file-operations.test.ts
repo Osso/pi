@@ -253,7 +253,7 @@ describe("SessionManager relocate", () => {
 		return join(agentDir, "sessions", safePath);
 	}
 
-	it("moves a default-session-dir session to the target cwd storage and updates its header", () => {
+	it("moves a default-session-dir session to the target cwd storage and preserves its header", () => {
 		const sourceSessionDir = defaultSessionDir(projectA);
 		const controlDbPath = getControlDbPath(agentDir);
 		const session = SessionManager.create(projectA, sourceSessionDir, {
@@ -309,11 +309,13 @@ describe("SessionManager relocate", () => {
 		expect(session.getCwd()).toBe(projectB);
 
 		const header = JSON.parse(readFileSync(movedFile!, "utf8").split("\n")[0]!) as { cwd: string };
-		expect(header.cwd).toBe(projectB);
-		expect(SessionManager.open(movedFile!).getCwd()).toBe(projectB);
+		expect(header.cwd).toBe(projectA);
+		const reopened = SessionManager.open(movedFile!);
+		reopened.setMetadataControlDbPath(controlDbPath);
+		expect(reopened.getCwd()).toBe(projectB);
 		expect(readSessionMetadata(controlDbPath, sourceFile!)).toBeUndefined();
 		const movedMetadata = readSessionMetadata(controlDbPath, movedFile!);
-		expect(movedMetadata).toMatchObject({ isSubagent: true, subagentName: "worker" });
+		expect(movedMetadata).toMatchObject({ cwd: projectB, isSubagent: true, subagentName: "worker" });
 		expect(readSessionGoal(controlDbPath, movedFile!)).toBe(JSON.stringify({ objective: "keep goal" }));
 		expect(listNamedSessions(controlDbPath)).toEqual([
 			{ sessionPath: movedFile!, name: "Keep name", updatedAt: expect.any(String) },

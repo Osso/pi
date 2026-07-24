@@ -165,7 +165,8 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(existsSync(originalSessionFile!)).toBe(false);
 		expect(rebindCalls).toEqual([targetCwd]);
 		const sessionText = readFileSync(runtime.session.sessionManager.getSessionFile()!, "utf8");
-		expect(sessionText).toContain(`"cwd":"${targetCwd}"`);
+		const header = JSON.parse(sessionText.split("\n")[0]!) as { cwd: string };
+		expect(header.cwd).toBe(tempDir);
 		expect(sessionText).toContain("Working directory changed from");
 	});
 

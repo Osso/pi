@@ -1450,13 +1450,13 @@ export class SessionManager {
 
 	relocate(targetCwd: string, agentDir: string = getDefaultAgentDir()): void {
 		const resolvedTargetCwd = resolvePath(targetCwd);
-		const header = this.requireSessionHeader();
+		this.requireSessionHeader();
 		const plan = this.planRelocation(resolvedTargetCwd, agentDir);
 
 		this.ensureRelocationDestinationAvailable(plan);
 		this.copyRelocatedSessionFile(plan);
 		this.relocateControlData(plan);
-		this.applyRelocation(resolvedTargetCwd, header, plan);
+		this.applyRelocation(resolvedTargetCwd, plan);
 		this.removeRelocatedSourceFile(plan);
 		this.writeMetadataSnapshot();
 	}
@@ -1519,15 +1519,10 @@ export class SessionManager {
 		}
 	}
 
-	private applyRelocation(resolvedTargetCwd: string, header: SessionHeader, plan: SessionRelocationPlan): void {
+	private applyRelocation(resolvedTargetCwd: string, plan: SessionRelocationPlan): void {
 		this.cwd = resolvedTargetCwd;
 		this.sessionDir = plan.targetSessionDir;
-		header.cwd = resolvedTargetCwd;
-		if (plan.destination) {
-			this.sessionFile = plan.destination;
-			this._rewriteFile();
-			this.flushed = true;
-		}
+		if (plan.destination) this.sessionFile = plan.destination;
 	}
 
 	private removeRelocatedSourceFile(plan: SessionRelocationPlan): void {
