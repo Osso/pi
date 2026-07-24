@@ -255,10 +255,7 @@ export class AgentSessionRuntime {
 		return resolvedPath;
 	}
 
-	private prepareRelocation(
-		targetCwd: string,
-		projectTrustContext?: ProjectTrustContext,
-	): PreparedCwdRelocation {
+	private prepareRelocation(targetCwd: string, projectTrustContext?: ProjectTrustContext): PreparedCwdRelocation {
 		const resolvedTargetCwd = this.resolveExistingDirectory(targetCwd);
 		const previousCwd = this.cwd;
 		const previousSessionFile = this.session.sessionFile;

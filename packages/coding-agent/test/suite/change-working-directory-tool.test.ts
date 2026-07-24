@@ -422,12 +422,8 @@ describe("change_working_directory process restart", () => {
 					{ stopReason: "toolUse" },
 				),
 			);
-			const spawned = await agent.waitForAgent(
-				(candidate) => candidate.displayName === "Relocation restart child",
-			);
-			const interruptedChildRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === spawned.id,
-			);
+			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Relocation restart child");
+			const interruptedChildRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
 			const spawnFollowUp = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== spawnRequest.id,
 			);
