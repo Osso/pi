@@ -175,6 +175,49 @@ describe("active slice session loading", () => {
 		expect(() => SessionManager.open(file, tempDir)).toThrow(/missing firstKeptEntryId/);
 	});
 
+	it("restores cwd from the summarized prefix without retaining its entry", () => {
+		const file = join(tempDir, "compacted-cwd.jsonl");
+		const initialCwd = join(tempDir, "initial");
+		const relocatedCwd = join(tempDir, "relocated");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: initialCwd,
+			},
+			messageEntry("old-1", null, "old"),
+			{
+				type: "custom_message",
+				id: "cwd-change",
+				parentId: "old-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				customType: "cwd_changed",
+				content: `Working directory changed to ${relocatedCwd}.`,
+				details: { previousCwd: initialCwd, cwd: relocatedCwd },
+				display: true,
+			},
+			messageEntry("kept-1", "cwd-change", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		const session = SessionManager.open(file, tempDir);
+
+		expect(session.getCwd()).toBe(relocatedCwd);
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(["kept-1", "compaction-1", "after-1"]);
+	});
+
 	it("retains only the active compacted slice", () => {
 		const file = join(tempDir, "compacted.jsonl");
 		const entries = [
