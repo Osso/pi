@@ -324,7 +324,7 @@ export class ExtensionRunner {
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
 	private restartFn: (options?: { notice?: string; process?: boolean }) => Promise<void> = async () => {};
-	private relocateHandler: (targetCwd: string) => Promise<void> = async () => {
+	private relocateHandler: (targetCwd: string, options?: { continueAgent?: boolean }) => Promise<void> = async () => {
 		throw new Error("Working-directory changes are not available in this session mode");
 	};
 	private pendingToolResultRelocations = new Map<string, string>();
@@ -449,7 +449,7 @@ export class ExtensionRunner {
 		};
 	}
 
-	setRelocateHandler(handler: (targetCwd: string) => Promise<void>): void {
+	setRelocateHandler(handler: (targetCwd: string, options?: { continueAgent?: boolean }) => Promise<void>): void {
 		this.relocateHandler = handler;
 	}
 
@@ -465,7 +465,7 @@ export class ExtensionRunner {
 		const targetCwd = this.pendingToolResultRelocations.get(toolCallId);
 		if (targetCwd === undefined) return;
 		this.pendingToolResultRelocations.delete(toolCallId);
-		await this.relocateHandler(targetCwd);
+		await this.relocateHandler(targetCwd, { continueAgent: true });
 	}
 
 	private createRelocationContextActions(): Pick<ExtensionContext, "relocate" | "relocateAfterToolResult"> {

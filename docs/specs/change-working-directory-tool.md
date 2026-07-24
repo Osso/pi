@@ -20,7 +20,8 @@ The `change_working_directory` tool changes the current Pi session's working dir
 - [x] Changing cwd preserves the current session ID and conversation.
 - [x] The current session header and control metadata persist the changed cwd.
 - [x] Cwd-bound services, resources, extension contexts, and built-in tools are rebuilt for the changed directory.
-- [x] The terminal `toolResult` is emitted and persisted before deferred cwd relocation replaces and rebuilds the runtime, without requiring a second prompt or render event.
+- [x] The terminal `toolResult` is emitted and persisted before deferred cwd relocation replaces and rebuilds the runtime.
+- [x] Tool-driven relocation continues the active agent turn in the rebuilt runtime without requiring another user prompt.
 - [x] Subsequent relative tool paths resolve from the changed cwd.
 - [x] A real process restart restores the changed cwd and relative tool behavior from the persisted session.
 - [x] Unsandboxed bwrap tool overrides resolve each execution from current extension-context cwd instead of process startup cwd.

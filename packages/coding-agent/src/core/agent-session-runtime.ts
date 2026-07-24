@@ -180,7 +180,7 @@ export class AgentSessionRuntime {
 	}
 
 	private bindSessionRuntimeActions(): void {
-		this.session.extensionRunner.setRelocateHandler((targetCwd) => this.relocate(targetCwd));
+		this.session.extensionRunner.setRelocateHandler((targetCwd, options) => this.relocate(targetCwd, options));
 	}
 
 	private apply(result: CreateAgentSessionRuntimeResult): void {
@@ -244,7 +244,10 @@ export class AgentSessionRuntime {
 		return resolvedPath;
 	}
 
-	async relocate(targetCwd: string, options?: { projectTrustContext?: ProjectTrustContext }): Promise<void> {
+	async relocate(
+		targetCwd: string,
+		options?: { projectTrustContext?: ProjectTrustContext; continueAgent?: boolean },
+	): Promise<void> {
 		const resolvedTargetCwd = this.resolveExistingDirectory(targetCwd);
 		const previousCwd = this.cwd;
 		const previousSessionFile = this.session.sessionFile;
@@ -268,6 +271,9 @@ export class AgentSessionRuntime {
 			}),
 		);
 		await this.finishSessionReplacement();
+		if (options?.continueAgent) {
+			await this.session.continue();
+		}
 	}
 
 	async restart(options?: { notice?: string; process?: boolean }): Promise<void> {

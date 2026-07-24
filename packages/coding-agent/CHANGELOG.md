@@ -160,6 +160,7 @@
 
 ### Fixed
 
+- Fixed `change_working_directory` returning the rebuilt session to an idle prompt instead of continuing the active agent turn after relocation.
 - Fixed `change_working_directory` leaving its in-flight tool call without a terminal result when relocation replaced the active runtime; the result is now emitted and persisted before deferred cwd rebuild.
 - Fixed unsandboxed bwrap file-tool overrides retaining process startup cwd after session relocation or restart instead of resolving relative paths from current extension-context cwd.
 - Fixed resident Architect and Supervisor metadata rewrites growing without bound and holding the shared `control.sqlite` writer lock long enough to disrupt terminal-outbox delivery.

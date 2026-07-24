@@ -327,11 +327,14 @@ describe("change_working_directory first-party tool", () => {
 });
 
 describe("change_working_directory real-process lifecycle", () => {
-	it("persists the terminal tool result before replacing the runtime", async () => {
+	it("continues the active turn after replacing the runtime", async () => {
 		await withHeadlessPi(async (agent) => {
 			const targetCwd = join(agent.paths.tempDir, "terminal-result-target");
 			mkdirSync(targetCwd);
+			writeFileSync(join(targetCwd, "relocated-marker.txt"), "continued from relocated cwd");
 			const toolCallId = "change-cwd-terminal-result";
+			const goal = "Continue work after changing cwd";
+			agent.writeRunningGoal(goal);
 
 			await agent.send({ type: "prompt", message: "Change working directory" });
 			const changeRequest = await agent.waitForLlmRequest();
@@ -361,6 +364,30 @@ describe("change_working_directory real-process lifecycle", () => {
 			expect(toolResultIndex).toBeGreaterThanOrEqual(0);
 			expect(cwdChangedIndex).toBeGreaterThan(toolResultIndex);
 			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+
+			const continuedRequest = await agent.waitForLlmRequest((request) => request.id !== changeRequest.id);
+			agent.respondToLlmRequest(
+				continuedRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("read", { path: "relocated-marker.txt" }, { id: "read-after-relocation" }),
+				),
+			);
+			const readFollowUp = await agent.waitForLlmRequest(
+				(request) => request.id !== changeRequest.id && request.id !== continuedRequest.id,
+			);
+			expect(JSON.stringify(readFollowUp.messages)).toContain("continued from relocated cwd");
+			agent.respondToLlmRequest(readFollowUp.id, fauxAssistantMessage("relocated turn complete"));
+			await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					readTextContent(entry.message.content).includes("relocated turn complete"),
+			);
+			const goalReview = await agent.waitForSupervisorRequest("goal_idle_review");
+			agent.respondToSupervisorRequest(goalReview, { kind: "complete", reason: "relocated turn verified" });
+			await agent.waitForEvent((event) => event.type === "agent_end");
+			expect(agent.readGoal()).toMatchObject({ objective: goal, completedAt: expect.any(String) });
 		});
 	});
 });
