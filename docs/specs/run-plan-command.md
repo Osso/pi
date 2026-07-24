@@ -31,6 +31,7 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 - [x] `process.env.PLAN_PATH` is set to the resolved plan path so follow-up hooks do not depend on process cwd.
 - [x] Legacy `process.env.PI_PLAN_FILE` and `process.env.PI_PLAN_PATH` are also set for Pi-local callers.
 - [x] The active plan filename and resolved path are appended as a session entry via `pi.appendEntry("run-plan:active", { file, path })` for in-process hook extensions.
+- [x] Runtime replacement restores the active plan and environment from the latest session entry; completing the plan appends a cleared-state entry so later replacements do not resurrect it.
 
 ### Error reporting
 - [x] A missing plan file throws a command error.
@@ -43,12 +44,12 @@ The `/run-plan` slash command automates checklist-driven work by reading `PLAN.m
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/run-plan/package.json` — First-party extension package manifest.
-- `packages/coding-agent/extensions/run-plan/src/index.ts` — Extension factory: registers the `run-plan` command, implements `findNextPlanItem()`, handles plan-file argument resolution, env export, and session entry append.
+- `packages/coding-agent/extensions/run-plan/src/index.ts` — Extension factory: registers the `run-plan` command, implements `findNextPlanItem()`, handles plan-file argument resolution, environment export, and persisted active-plan restoration.
 - `packages/coding-agent/src/main.ts` — Loads the first-party run-plan extension factory.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/run-plan-extension.test.ts` — command registration, markdown completions, unchecked item extraction, checked-item skipping, missing-file errors, complete plan notices, running-task blocking, prompt submission, composer clearing, and active-plan signaling.
+- `packages/coding-agent/test/run-plan-extension.test.ts` — command registration, markdown completions, unchecked item extraction, checked-item skipping, missing-file errors, complete plan notices, running-task blocking, prompt submission, composer clearing, active-plan signaling, runtime restoration, and cleared-state persistence.
 
 ## Known gaps (current cycle)
 

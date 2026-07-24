@@ -8,6 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 const uncheckedItemPattern = /^\s*[-*]\s+\[\s\]\s+(.*)$/;
+const activePlanEntryType = "run-plan:active";
 
 export async function findNextPlanItem(
 	filePath: string,
@@ -28,6 +29,23 @@ const RUN_PLAN_AGENT_INSTRUCTION =
 interface ActivePlan {
 	file: string;
 	path: string;
+}
+
+function readPersistedActivePlan(ctx: Pick<ExtensionContext, "sessionManager">): ActivePlan | undefined {
+	const entries = ctx.sessionManager.getEntries();
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index];
+		if (entry?.type !== "custom" || entry.customType !== activePlanEntryType) continue;
+		if (!entry.data || typeof entry.data !== "object") return undefined;
+		const record = entry.data as Record<string, unknown>;
+		if (typeof record.file !== "string" || typeof record.path !== "string") return undefined;
+		return { file: record.file, path: record.path };
+	}
+	return undefined;
+}
+
+function persistActivePlan(pi: ExtensionAPI, plan: ActivePlan | undefined): void {
+	pi.appendEntry(activePlanEntryType, plan ? { file: basename(plan.file), path: plan.path } : null);
 }
 
 function resolvePlanFile(cwd: string, args: string): ActivePlan {
@@ -90,10 +108,7 @@ async function runPlan(
 	}
 
 	exportPlanEnvironment(plan);
-	pi.appendEntry("run-plan:active", {
-		file: basename(plan.file),
-		path: plan.path,
-	});
+	persistActivePlan(pi, plan);
 	ctx.ui.setEditorText("");
 	return plan;
 }
@@ -113,6 +128,11 @@ function completeMarkdownFiles(
 export default function runPlanExtension(pi: ExtensionAPI) {
 	let activePlan: ActivePlan | undefined;
 
+	pi.on("session_start", async (_event, ctx) => {
+		activePlan = readPersistedActivePlan(ctx);
+		if (activePlan) exportPlanEnvironment(activePlan);
+	});
+
 	pi.on("agent_end", async (event, ctx) => {
 		if (event.sessionContinuation) return;
 		if (!activePlan) {
@@ -121,6 +141,7 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 
 		if (!(await submitNextPlanItem(activePlan, ctx, pi, { followUp: true }))) {
 			activePlan = undefined;
+			persistActivePlan(pi, undefined);
 		}
 	});
 

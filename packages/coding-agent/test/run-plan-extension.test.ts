@@ -7,10 +7,16 @@ import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from ".
 
 type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
-function createRunPlanHarness(cwd: string, options: { idle?: boolean } = {}) {
+function createRunPlanHarness(
+	cwd: string,
+	options: { idle?: boolean; entries?: Array<Record<string, unknown>> } = {},
+) {
 	let command: RegisteredRunPlanCommand | undefined;
 	const eventHandlers = new Map<string, (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void>();
-	const appendEntry = vi.fn();
+	const entries = options.entries ?? [];
+	const appendEntry = vi.fn((customType: string, data: unknown) => {
+		entries.push({ type: "custom", customType, data });
+	});
 	const notify = vi.fn();
 	const sendUserMessage = vi.fn();
 	const setEditorText = vi.fn();
@@ -34,6 +40,7 @@ function createRunPlanHarness(cwd: string, options: { idle?: boolean } = {}) {
 	const ctx = {
 		cwd,
 		isIdle,
+		sessionManager: { getEntries: () => entries },
 		ui: { notify, setEditorText },
 	} as unknown as ExtensionCommandContext;
 
@@ -43,6 +50,7 @@ function createRunPlanHarness(cwd: string, options: { idle?: boolean } = {}) {
 		runEvent: async (event: string, payload: Record<string, unknown> = {}) =>
 			eventHandlers.get(event)?.({ type: event, ...payload }, ctx),
 		appendEntry,
+		entries,
 		notify,
 		sendUserMessage,
 		setEditorText,
@@ -128,6 +136,37 @@ describe("run-plan extension", () => {
 		await harness.runEvent("agent_end", { sessionContinuation: "cwd_relocation" });
 
 		expect(harness.sendUserMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it("restores the active plan after cwd relocation rebuilds the extension", async () => {
+		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Keep working\n");
+		const entries: Array<Record<string, unknown>> = [];
+		const original = createRunPlanHarness(cwd, { entries });
+
+		await original.runCommand("");
+		await original.runEvent("agent_end", { sessionContinuation: "cwd_relocation" });
+
+		const replacement = createRunPlanHarness(cwd, { entries });
+		await replacement.runEvent("session_start");
+		await replacement.runEvent("agent_end");
+
+		expect(replacement.sendUserMessage).toHaveBeenCalledWith(
+			"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
+			{ deliverAs: "followUp" },
+		);
+	});
+
+	it("persists cleared plan state after the last item is checked", async () => {
+		const planPath = join(cwd, "PLAN.md");
+		writeFileSync(planPath, "- [ ] Finish work\n");
+		const entries: Array<Record<string, unknown>> = [];
+		const harness = createRunPlanHarness(cwd, { entries });
+
+		await harness.runCommand("");
+		writeFileSync(planPath, "- [x] Finish work\n");
+		await harness.runEvent("agent_end");
+
+		expect(entries.at(-1)).toMatchObject({ type: "custom", customType: "run-plan:active", data: null });
 	});
 
 	it("uses an inline plan filename argument", async () => {
