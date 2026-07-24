@@ -34,7 +34,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store the current session cwd, model provider/model ID, and thinking level in the
       session metadata row. Resume and restart treat these values as authoritative; ordinary
       metadata snapshots preserve them when callers update unrelated fields, and model/thinking
-      changes do not append new JSONL setting entries.
+      changes do not append new JSONL setting entries. Existing sessions without these values
+      use configured defaults; no existing-session settings backfill runs.
 - [x] Session-listing metadata is maintained incrementally: appended entries fold into a
       per-session accumulator (rebuilt only after wholesale entry replacement such as resume,
       branch, or new session), and entries that cannot change session metadata (custom entries,

@@ -197,6 +197,8 @@ For sessions with a parent (created via `/fork`, `/clone`, or `newSession({ pare
 {"type":"session","version":3,"id":"uuid","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project","parentSession":"/path/to/original/session.jsonl"}
 ```
 
+The header `cwd` is the immutable initial working directory. Later directory changes are recorded as `cwd_changed` custom messages, while the current cwd is authoritative in control SQLite.
+
 ### SessionMessageEntry
 
 A message in the conversation. The `message` field contains an `AgentMessage`.
@@ -209,7 +211,7 @@ A message in the conversation. The `message` field contains an `AgentMessage`.
 
 ### ModelChangeEntry
 
-Emitted when the user switches models mid-session.
+Legacy compatibility record for model switches. Current runtimes store the authoritative model in control SQLite and do not append new model-change entries.
 
 ```json
 {"type":"model_change","id":"d4e5f6g7","parentId":"c3d4e5f6","timestamp":"2024-12-03T14:05:00.000Z","provider":"openai","modelId":"gpt-4o"}
@@ -217,7 +219,7 @@ Emitted when the user switches models mid-session.
 
 ### ThinkingLevelChangeEntry
 
-Emitted when the user changes the thinking/reasoning level.
+Legacy compatibility record for thinking-level changes. Current runtimes store the authoritative thinking level in control SQLite and do not append new thinking-level entries.
 
 ```json
 {"type":"thinking_level_change","id":"e5f6g7h8","parentId":"d4e5f6g7","timestamp":"2024-12-03T14:06:00.000Z","thinkingLevel":"high"}
@@ -304,9 +306,19 @@ Entries form a tree:
                                                             └─ [branch_summary] ─── [user msg] ← alternate branch
 ```
 
+## Current-Version Loading
+
+When a version 3 session contains compaction, `SessionManager.open()` reverse-scans the active parent chain to the latest compaction and continues through its `firstKeptEntryId`. Only that active slice is retained in memory. The source JSONL remains complete and untrimmed on disk; `forkFrom()` copies the loaded slice and detaches its first retained entry from any omitted parent.
+
+The loader ignores one incomplete trailing JSONL line. It fails on malformed interior entries, a broken active parent chain, or a compaction whose `firstKeptEntryId` cannot be found. Custom extension entries and labels omitted before the retained boundary are not checkpointed into the slice, so extensions must reconstruct or clear their state during `session_start`.
+
+Current cwd, model, and thinking level are authoritative in control SQLite. Existing sessions without stored model/thinking values use configured defaults in memory without backfilling those fields. Historical JSONL model/thinking entries remain parseable but do not restore current runtime settings.
+
+Active-slice loading does not trim JSONL, create a sidecar/index, lazily expose full history, restore historical model/thinking state, backfill existing-session settings, checkpoint omitted extension/label state, or guarantee bounded disk reads in worst-case or uncompacted files.
+
 ## Context Building
 
-`buildContextEntries()` walks from the current leaf to the root, producing the active entry list while honoring compaction:
+`buildContextEntries()` walks from the current leaf to the retained root, producing the active entry list while honoring compaction:
 
 1. Collects all entries on the path
 2. If a `CompactionEntry` is on the path:
@@ -317,7 +329,7 @@ Entries form a tree:
 
 `buildSessionContext()` builds on that entry list to produce the message list for the LLM:
 
-1. Extracts current model and thinking level settings from the full path
+1. Decodes any retained legacy model and thinking-level entries for compatibility; runtime resume settings come from control SQLite or configured defaults
 2. Converts selected entries to messages:
    - `message` -> stored `AgentMessage`
    - `compaction` -> `compactionSummary`
@@ -376,7 +388,7 @@ Key methods for working with sessions programmatically.
 - `SessionManager.open(path, sessionDir?)` - Open existing session file
 - `SessionManager.continueRecent(cwd, sessionDir?)` - Continue most recent or create new
 - `SessionManager.inMemory(cwd?)` - No file persistence
-- `SessionManager.forkFrom(sourcePath, targetCwd, sessionDir?)` - Fork session from another project
+- `SessionManager.forkFrom(sourcePath, targetCwd, sessionDir?)` - Fork the loaded active slice from another project (legacy versions use their migrated load path)
 
 ### Static Listing Methods
 - `SessionManager.list(cwd, sessionDir?, onProgress?)` - List sessions for a directory
@@ -402,7 +414,7 @@ Key methods for working with sessions programmatically.
 - `getLeafEntry()` - Get current leaf entry
 - `getEntry(id)` - Get entry by ID
 - `getBranch(fromId?)` - Walk from entry to root
-- `getTree()` - Get full tree structure
+- `getTree()` - Get the loaded tree structure (the retained active slice for compacted current-version sessions)
 - `getChildren(parentId)` - Get direct children
 - `getLabel(id)` - Get label for entry
 - `branch(entryId)` - Move leaf to earlier entry
@@ -412,7 +424,7 @@ Key methods for working with sessions programmatically.
 ### Instance Methods - Context & Info
 - `buildContextEntries()` - Get active branch entries with compaction applied
 - `buildSessionContext()` - Get messages, thinkingLevel, and model for LLM
-- `getEntries()` - All entries (excluding header)
+- `getEntries()` - Loaded entries excluding the header (the retained active slice for compacted current-version sessions)
 - `getHeader()` - Session header metadata
 - `getSessionName()` - Get display name from latest session_info entry
 - `getCwd()` - Working directory

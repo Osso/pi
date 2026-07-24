@@ -91,7 +91,9 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 
 ## Session restoration (current cycle)
 
-Conversation and tool recovery are reconstructed from the existing session JSONL; current cwd/model/thinking state is restored from control SQLite. It does not add recovery records, replay markers, execution rows, attempt rows, or a replay limit.
+Conversation and tool recovery are reconstructed from the existing session JSONL; current cwd/model/thinking state is restored from control SQLite. For current-version sessions with compaction, resume reverse-scans the active parent chain through the latest compaction and its `firstKeptEntryId`, retains only that active slice in memory, and leaves the complete JSONL transcript untrimmed on disk. The JSONL header stores immutable initial cwd; later cwd transitions remain historical `cwd_changed` entries. Existing sessions without SQLite model/thinking values use configured defaults without backfill. Resume does not restore historical model/thinking settings and does not append new model/thinking JSONL entries.
+
+Active-slice loading ignores one incomplete trailing JSONL line, but fails on malformed interior entries, a broken active parent chain, or a compaction whose `firstKeptEntryId` is missing. It intentionally excludes JSONL trimming, sidecar/index storage, lazy full-history loading, historical model/thinking restoration, existing-session settings backfill, extension/label checkpointing, and any guarantee of bounded disk reads in the no-compaction or otherwise worst-case path.
 
 - [x] Prove a gracefully terminated post-tool thinking turn automatically issues a replacement LLM request after session restore and completes (`headless-pi.test.ts`: `continues post-tool model thinking after restoring the session JSONL`).
 - [x] Prove restoring JSONL that ends with an unfinished Bash or Pyrun tool call reattaches its still-running durable runner without executing the command again (`headless-pi.test.ts`: `reattaches a live Bash runner when restoring its unfinished JSONL tool call`; `reattaches a live Pyrun runner when restoring its unfinished JSONL tool call`).
