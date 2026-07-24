@@ -61,6 +61,13 @@ function planFileEnvValue(plan: ActivePlan): string {
 	return basename(plan.file) === "PLAN.md" ? "1" : basename(plan.file);
 }
 
+function clearPlanEnvironment(): void {
+	delete process.env.PLAN_FILE;
+	delete process.env.PLAN_PATH;
+	delete process.env.PI_PLAN_FILE;
+	delete process.env.PI_PLAN_PATH;
+}
+
 function exportPlanEnvironment(plan: ActivePlan): void {
 	process.env.PLAN_FILE = planFileEnvValue(plan);
 	process.env.PLAN_PATH = plan.path;
@@ -129,6 +136,7 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 	let activePlan: ActivePlan | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
+		clearPlanEnvironment();
 		activePlan = readPersistedActivePlan(ctx);
 		if (activePlan) exportPlanEnvironment(activePlan);
 	});

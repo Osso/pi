@@ -64,6 +64,10 @@ describe("run-plan extension", () => {
 
 	afterEach(() => {
 		rmSync(cwd, { recursive: true, force: true });
+		delete process.env.PLAN_FILE;
+		delete process.env.PLAN_PATH;
+		delete process.env.PI_PLAN_FILE;
+		delete process.env.PI_PLAN_PATH;
 	});
 
 	it("finds the first unchecked plan item and skips checked items", async () => {
@@ -151,6 +155,31 @@ describe("run-plan extension", () => {
 			"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
 			{ deliverAs: "followUp" },
 		);
+	});
+
+	it("clears active plan environment when resumed history omits its state", async () => {
+		const planPath = join(cwd, "PLAN.md");
+		const original = createRunPlanHarness(cwd, {
+			entries: [
+				{
+					type: "custom",
+					customType: "run-plan:active",
+					data: { file: "PLAN.md", path: planPath },
+				},
+			],
+		});
+		await original.runEvent("session_start");
+		expect(process.env.PLAN_PATH).toBe(planPath);
+
+		const replacement = createRunPlanHarness(cwd);
+		await replacement.runEvent("session_start");
+
+		expect([
+			process.env.PLAN_FILE,
+			process.env.PLAN_PATH,
+			process.env.PI_PLAN_FILE,
+			process.env.PI_PLAN_PATH,
+		]).toEqual([undefined, undefined, undefined, undefined]);
 	});
 
 	it("persists cleared plan state after the last item is checked", async () => {
