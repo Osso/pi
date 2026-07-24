@@ -2264,8 +2264,9 @@ export class SessionManager {
 		let entriesToCopy = sessionEntries;
 		if (fromEntryId === null) entriesToCopy = [];
 		else if (fromEntryId) entriesToCopy = buildSessionPath(sessionEntries, fromEntryId);
-		for (const entry of entriesToCopy) {
-			appendFileSync(newSessionFile, `${JSON.stringify(entry)}\n`);
+		for (const [index, entry] of entriesToCopy.entries()) {
+			const forkedEntry = index === 0 ? { ...entry, parentId: null } : entry;
+			appendFileSync(newSessionFile, `${JSON.stringify(forkedEntry)}\n`);
 		}
 
 		const sessionManager = new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);
