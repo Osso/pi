@@ -151,6 +151,7 @@ describe("AgentSessionRuntime characterization", () => {
 		const { runtime, tempDir } = await createRuntimeForTest(() => {});
 		const targetCwd = join(tempDir, "target");
 		mkdirSync(targetCwd, { recursive: true });
+		runtime.session.sessionManager.persistForRecovery();
 		const originalSessionFile = runtime.session.sessionManager.getSessionFile();
 		const rebindCalls: string[] = [];
 		runtime.setRebindSession(async (session) => {
