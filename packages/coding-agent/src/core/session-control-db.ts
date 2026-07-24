@@ -2208,7 +2208,7 @@ function relocateMultiAgentSessionRows(
 }
 
 interface SessionMetadataWriteValues {
-	name: string | undefined;
+	name: string | null;
 	archivedAt: string | null;
 	isSubagent: boolean;
 	subagentName: string | null;
@@ -2265,7 +2265,7 @@ function readSessionMetadataWriteValues(
 	const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
 	const preservedIsSubagent = preserved?.is_subagent === 1;
 	return {
-		name: metadata.name ?? readNamedSessionName(db, metadata.sessionPath),
+		name: metadata.name ?? readNamedSessionName(db, metadata.sessionPath) ?? null,
 		archivedAt: metadata.archivedAt ?? preserved?.archived_at ?? null,
 		isSubagent: metadata.isSubagent ?? preservedIsSubagent,
 		subagentName: metadata.subagentName ?? preserved?.subagent_name ?? null,

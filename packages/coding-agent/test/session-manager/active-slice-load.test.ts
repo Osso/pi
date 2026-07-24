@@ -3,7 +3,7 @@ import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionManager } from "../../src/core/session-manager.ts";
+import { SessionManager, type SessionTreeNode } from "../../src/core/session-manager.ts";
 
 function messageEntry(id: string, parentId: string | null, content: string): object {
 	return {
@@ -13,6 +13,10 @@ function messageEntry(id: string, parentId: string | null, content: string): obj
 		timestamp: "2025-01-01T00:00:00Z",
 		message: { role: "user", content, timestamp: 1 },
 	};
+}
+
+function treeEntryIds(nodes: SessionTreeNode[]): string[] {
+	return nodes.flatMap((node) => [node.entry.id, ...treeEntryIds(node.children)]);
 }
 
 describe("active slice session loading", () => {
@@ -266,6 +270,100 @@ describe("active slice session loading", () => {
 		expect(serializedIds).toEqual(["kept-1", "compaction-1", "after-1"]);
 	});
 
+	it("uses the latest compaction on the active branch", () => {
+		const file = join(tempDir, "multiple-compactions.jsonl");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			messageEntry("old-1", null, "old"),
+			messageEntry("first-kept", "old-1", "first kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "first-kept",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "first summary",
+				firstKeptEntryId: "first-kept",
+				tokensBefore: 500,
+			},
+			messageEntry("between", "compaction-1", "between"),
+			messageEntry("latest-kept", "between", "latest kept"),
+			{
+				type: "compaction",
+				id: "compaction-2",
+				parentId: "latest-kept",
+				timestamp: "2025-01-01T00:01:00Z",
+				summary: "latest summary",
+				firstKeptEntryId: "latest-kept",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-2", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		const session = SessionManager.open(file, tempDir);
+
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(["latest-kept", "compaction-2", "after-1"]);
+	});
+
+	it("clears label state omitted before the retained slice", () => {
+		const labeledFile = join(tempDir, "labeled.jsonl");
+		const labeledEntries = [
+			{
+				type: "session",
+				version: 3,
+				id: "labeled-session",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			messageEntry("target", null, "target"),
+			{
+				type: "label",
+				id: "label-1",
+				parentId: "target",
+				timestamp: "2025-01-01T00:00:00Z",
+				targetId: "target",
+				label: "stale",
+			},
+		];
+		writeFileSync(labeledFile, `${labeledEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+		const session = SessionManager.open(labeledFile, tempDir);
+		expect(session.getLabel("target")).toBe("stale");
+
+		const compactedFile = join(tempDir, "compacted-label.jsonl");
+		const compactedEntries = [
+			{
+				type: "session",
+				version: 3,
+				id: "compacted-session",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			...labeledEntries.slice(1),
+			messageEntry("kept-1", "label-1", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(compactedFile, `${compactedEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		session.setSessionFile(compactedFile);
+
+		expect(session.getLabel("target")).toBeUndefined();
+	});
+
 	it("retains only the active compacted slice", () => {
 		const file = join(tempDir, "compacted.jsonl");
 		const entries = [
@@ -296,12 +394,9 @@ describe("active slice session loading", () => {
 
 		const session = SessionManager.open(file, tempDir);
 
-		expect(session.getEntries().map((entry) => entry.id)).toEqual([
-			"kept-1",
-			"kept-2",
-			"compaction-1",
-			"after-1",
-			"after-2",
-		]);
+		const activeIds = ["kept-1", "kept-2", "compaction-1", "after-1", "after-2"];
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(activeIds);
+		expect(session.getBranch().map((entry) => entry.id)).toEqual(activeIds);
+		expect(treeEntryIds(session.getTree())).toEqual(activeIds);
 	});
 });
