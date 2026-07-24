@@ -197,6 +197,11 @@ export interface SessionContext {
 	model: { provider: string; modelId: string } | null;
 }
 
+export interface PersistedSessionSettings {
+	model?: { provider: string; modelId: string };
+	thinkingLevel?: string;
+}
+
 export interface SessionInfo {
 	path: string;
 	id: string;
@@ -1503,6 +1508,17 @@ export class SessionManager {
 
 	getMetadataControlDbPath(): string | undefined {
 		return this.metadataControlDbPath;
+	}
+
+	getPersistedSessionSettings(): PersistedSessionSettings | undefined {
+		if (!this.metadataControlDbPath || !this.sessionFile) return undefined;
+		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
+		if (!metadata) return undefined;
+		const model =
+			metadata.modelProvider && metadata.modelId
+				? { provider: metadata.modelProvider, modelId: metadata.modelId }
+				: undefined;
+		return { model, thinkingLevel: metadata.thinkingLevel };
 	}
 
 	isSubagentSession(): boolean {

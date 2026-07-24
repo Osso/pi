@@ -246,18 +246,18 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
 	const hasExistingSession = existingSession.messages.length > 0;
+	const persistedSettings = sessionManager.getPersistedSessionSettings();
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
 
-	// If session has data, try to restore model from it
-	if (!model && hasExistingSession && existingSession.model) {
-		const restoredModel = modelRegistry.find(existingSession.model.provider, existingSession.model.modelId);
+	if (!model && persistedSettings?.model) {
+		const restoredModel = modelRegistry.find(persistedSettings.model.provider, persistedSettings.model.modelId);
 		if (restoredModel && modelRegistry.hasConfiguredAuth(restoredModel)) {
 			model = restoredModel;
 		}
 		if (!model) {
-			modelFallbackMessage = `Could not restore model ${existingSession.model.provider}/${existingSession.model.modelId}`;
+			modelFallbackMessage = `Could not restore model ${persistedSettings.model.provider}/${persistedSettings.model.modelId}`;
 		}
 	}
 
@@ -279,7 +279,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 		}
 	}
 
-	let thinkingLevel = options.thinkingLevel;
+	let thinkingLevel = options.thinkingLevel ?? (persistedSettings?.thinkingLevel as ThinkingLevel | undefined);
 
 	// Fall back to settings default
 	if (thinkingLevel === undefined) {

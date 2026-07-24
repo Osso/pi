@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readArchitectSnapshot } from "../../src/architect/observer.ts";
@@ -11,7 +12,12 @@ import {
 	createAgentSessionServices,
 } from "../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
-import { getControlDbPath, listRuntimeMailboxListeners, readSessionHealth } from "../../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	listRuntimeMailboxListeners,
+	readSessionHealth,
+	readSessionMetadata,
+} from "../../src/core/session-control-db.ts";
 import { listSessions } from "../../src/core/session-directory.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type {
@@ -45,7 +51,13 @@ describe("AgentSessionRuntime characterization", () => {
 
 	async function createRuntimeForTest(
 		extensionFactory: ExtensionFactory,
-		options?: { cwd?: string; bootstrapModel?: boolean; bootstrapThinkingLevel?: boolean },
+		options?: {
+			cwd?: string;
+			bootstrapModel?: boolean;
+			bootstrapThinkingLevel?: boolean;
+			defaultModelId?: string;
+			defaultThinkingLevel?: ThinkingLevel;
+		},
 	) {
 		const tempDir =
 			options?.cwd ?? join(tmpdir(), `pi-runtime-suite-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -98,6 +110,12 @@ describe("AgentSessionRuntime characterization", () => {
 				...runtimeOptions,
 				cwd,
 			});
+			if (options?.defaultModelId) {
+				services.settingsManager.setDefaultModelAndProvider(faux.getModel().provider, options.defaultModelId);
+			}
+			if (options?.defaultThinkingLevel) {
+				services.settingsManager.setDefaultThinkingLevel(options.defaultThinkingLevel);
+			}
 			sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 			return {
 				...(await createAgentSessionFromServices({
@@ -662,6 +680,8 @@ describe("AgentSessionRuntime characterization", () => {
 		const { runtime, faux, tempDir } = await createRuntimeForTest(() => {}, {
 			bootstrapModel: false,
 			bootstrapThinkingLevel: false,
+			defaultModelId: "faux-1",
+			defaultThinkingLevel: "high",
 		});
 		const otherDir = join(tempDir, "other");
 		mkdirSync(otherDir, { recursive: true });
@@ -725,12 +745,24 @@ describe("AgentSessionRuntime characterization", () => {
 		});
 		await otherRuntime.session.setModel(faux.getModel("faux-2")!);
 		otherRuntime.session.setThinkingLevel("off");
-		await otherRuntime.session.prompt("hello");
+		otherRuntime.session.sessionManager.persistForRecovery();
 		const targetSessionFile = otherRuntime.session.sessionFile!;
+		const controlDbPath = getControlDbPath(tempDir);
+		const settingsBeforeResume = readSessionMetadata(controlDbPath, targetSessionFile);
 
 		await runtime.switchSession(targetSessionFile);
 
 		expect(runtime.session.model?.id).toBe("faux-2");
 		expect(runtime.session.thinkingLevel).toBe("off");
+		expect(readSessionMetadata(controlDbPath, targetSessionFile)).toMatchObject({
+			modelProvider: settingsBeforeResume?.modelProvider,
+			modelId: settingsBeforeResume?.modelId,
+			thinkingLevel: settingsBeforeResume?.thinkingLevel,
+		});
+		expect(
+			SessionManager.open(targetSessionFile)
+				.getEntries()
+				.filter((entry) => entry.type === "model_change" || entry.type === "thinking_level_change"),
+		).toEqual([]);
 	});
 });
