@@ -31,6 +31,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   instead of reading or writing SQLite directly. Session restart resolves the exact
   live session health row and signals its PID with `SIGHUP`.
 - [x] Store named-session metadata in the control DB.
+- [x] Store the current session cwd, model provider/model ID, and thinking level in the
+      session metadata row. Resume and restart treat these values as authoritative; ordinary
+      metadata snapshots preserve them when callers update unrelated fields, and model/thinking
+      changes do not append new JSONL setting entries.
 - [x] Session-listing metadata is maintained incrementally: appended entries fold into a
       per-session accumulator (rebuilt only after wholesale entry replacement such as resume,
       branch, or new session), and entries that cannot change session metadata (custom entries,
@@ -135,7 +139,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 - `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path and schema,
   incoming-message claim/complete API, canonical mailbox delivery and listener/health lifecycle,
-  per-session multi-agent rows and counters, prompt-history and session-metadata APIs, and
+  per-session cwd/model/thinking metadata, multi-agent rows and counters, prompt-history and
+  session-metadata APIs, and
   persisted spawned-agent ghost reconciliation.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.

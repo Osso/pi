@@ -24,7 +24,7 @@ The `change_working_directory` tool changes the current Pi session's working dir
 - [x] Changing cwd during an active agent turn continues that turn without requiring another user prompt.
 - [x] The intermediate `agent_end` boundary is marked as a cwd-relocation continuation so idle extensions defer until the continued turn settles.
 - [x] Subsequent relative tool paths resolve from the changed cwd.
-- [x] A real process restart restores the changed cwd and relative tool behavior from the persisted session.
+- [x] A real process restart restores the changed cwd and relative tool behavior from the current `session_metadata.cwd` value in control SQLite; the JSONL transcript remains the persisted history of the session's cwd-related entries.
 - [x] Unsandboxed bwrap tool overrides resolve each execution from current extension-context cwd instead of process startup cwd.
 
 ## How it works
