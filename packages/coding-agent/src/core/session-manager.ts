@@ -391,6 +391,20 @@ function buildSessionPath(
 	return path;
 }
 
+function retainActiveCompactedSlice(entries: FileEntry[]): FileEntry[] {
+	const header = entries[0];
+	if (!header || header.type !== "session") return entries;
+
+	const sessionEntries = entries.filter((entry): entry is SessionEntry => entry.type !== "session");
+	const path = buildSessionPath(sessionEntries);
+	const compaction = getLatestCompactionEntry(path);
+	if (!compaction) return entries;
+
+	const firstKeptIndex = path.findIndex((entry) => entry.id === compaction.firstKeptEntryId);
+	if (firstKeptIndex === -1) return entries;
+	return [header, ...path.slice(firstKeptIndex)];
+}
+
 function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "thinkingLevel" | "model"> {
 	let thinkingLevel = "off";
 	let model: { provider: string; modelId: string } | null = null;
@@ -1196,6 +1210,7 @@ export class SessionManager {
 				this._rewriteFile();
 			}
 
+			this.fileEntries = retainActiveCompactedSlice(this.fileEntries);
 			this._buildIndex();
 			this.flushed = true;
 		} else {
