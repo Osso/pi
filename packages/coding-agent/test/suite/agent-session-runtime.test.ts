@@ -678,6 +678,38 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(realpathSync(runtime.cwd)).toBe(realpathSync(secondDir));
 	});
 
+	it("uses configured defaults for an existing session without persisting session settings", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {}, {
+			bootstrapModel: false,
+			bootstrapThinkingLevel: false,
+			defaultModelId: "faux-1",
+			defaultThinkingLevel: "high",
+		});
+		const otherDir = join(tempDir, "existing");
+		mkdirSync(otherDir, { recursive: true });
+		const controlDbPath = getControlDbPath(tempDir);
+		const existingSession = SessionManager.create(otherDir, defaultSessionDir(otherDir, tempDir));
+		existingSession.setMetadataControlDbPath(controlDbPath);
+		existingSession.persistForRecovery();
+		const targetSessionFile = existingSession.getSessionFile()!;
+
+		await runtime.switchSession(targetSessionFile);
+
+		expect(runtime.session.model?.id).toBe("faux-1");
+		expect(runtime.session.thinkingLevel).toBe("high");
+		const metadata = readSessionMetadata(controlDbPath, targetSessionFile);
+		expect([metadata?.modelProvider, metadata?.modelId, metadata?.thinkingLevel]).toEqual([
+			undefined,
+			undefined,
+			undefined,
+		]);
+		expect(
+			SessionManager.open(targetSessionFile)
+				.getEntries()
+				.filter((entry) => entry.type === "model_change" || entry.type === "thinking_level_change"),
+		).toEqual([]);
+	});
+
 	it("restores model and thinking state from the destination session", async () => {
 		const { runtime, faux, tempDir } = await createRuntimeForTest(() => {}, {
 			bootstrapModel: false,

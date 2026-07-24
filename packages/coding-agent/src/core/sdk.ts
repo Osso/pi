@@ -419,11 +419,6 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	if (hasExistingSession) {
 		agent.state.messages = existingSession.messages;
 	}
-	if (model) {
-		sessionManager.setSessionModel(model.provider, model.id);
-	}
-	sessionManager.setSessionThinkingLevel(thinkingLevel);
-
 	const session = new AgentSession({
 		agent,
 		sessionManager,
