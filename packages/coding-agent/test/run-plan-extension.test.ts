@@ -7,10 +7,7 @@ import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from ".
 
 type RegisteredRunPlanCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
-function createRunPlanHarness(
-	cwd: string,
-	options: { idle?: boolean; entries?: Array<Record<string, unknown>> } = {},
-) {
+function createRunPlanHarness(cwd: string, options: { idle?: boolean; entries?: Array<Record<string, unknown>> } = {}) {
 	let command: RegisteredRunPlanCommand | undefined;
 	const eventHandlers = new Map<string, (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void>();
 	const entries = options.entries ?? [];
