@@ -47,6 +47,12 @@ export type CreateAgentSessionRuntimeFactory = (options: {
 	projectTrustContext?: ProjectTrustContext;
 }) => Promise<CreateAgentSessionRuntimeResult>;
 
+interface PreparedCwdRelocation {
+	previousSessionFile: string | undefined;
+	projectTrustContext: ProjectTrustContext | undefined;
+	sessionManager: SessionManager;
+}
+
 function extractUserMessageText(content: string | Array<{ type: string; text?: string }>): string {
 	if (typeof content === "string") {
 		return content;
@@ -75,6 +81,7 @@ export class AgentSessionRuntime {
 	private _diagnostics: AgentSessionRuntimeDiagnostic[];
 	private _modelFallbackMessage?: string;
 	private processRestarter: ProcessRestarter = restartCurrentProcess;
+	private preparedToolResultRelocation: PreparedCwdRelocation | undefined;
 
 	constructor(
 		_session: AgentSession,
@@ -180,7 +187,11 @@ export class AgentSessionRuntime {
 	}
 
 	private bindSessionRuntimeActions(): void {
-		this.session.extensionRunner.setRelocateHandler((targetCwd, options) => this.relocate(targetCwd, options));
+		this.session.extensionRunner.setRelocateHandler((targetCwd) => this.relocate(targetCwd));
+		this.session.extensionRunner.setToolResultRelocationHandlers({
+			prepare: (targetCwd) => this.prepareToolResultRelocation(targetCwd),
+			activate: () => this.activateToolResultRelocation(),
+		});
 	}
 
 	private apply(result: CreateAgentSessionRuntimeResult): void {
@@ -244,10 +255,10 @@ export class AgentSessionRuntime {
 		return resolvedPath;
 	}
 
-	async relocate(
+	private prepareRelocation(
 		targetCwd: string,
-		options?: { projectTrustContext?: ProjectTrustContext; continueAgent?: boolean },
-	): Promise<void> {
+		projectTrustContext?: ProjectTrustContext,
+	): PreparedCwdRelocation {
 		const resolvedTargetCwd = this.resolveExistingDirectory(targetCwd);
 		const previousCwd = this.cwd;
 		const previousSessionFile = this.session.sessionFile;
@@ -259,21 +270,45 @@ export class AgentSessionRuntime {
 			true,
 			{ previousCwd, cwd: resolvedTargetCwd },
 		);
+		return { previousSessionFile, projectTrustContext, sessionManager };
+	}
 
-		await this.teardownCurrent("resume", sessionManager.getSessionFile());
+	private async activateRelocation(prepared: PreparedCwdRelocation): Promise<void> {
+		await this.teardownCurrent("resume", prepared.sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
-				cwd: sessionManager.getCwd(),
+				cwd: prepared.sessionManager.getCwd(),
 				agentDir: this.services.agentDir,
-				sessionManager,
-				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
-				projectTrustContext: options?.projectTrustContext,
+				sessionManager: prepared.sessionManager,
+				sessionStartEvent: {
+					type: "session_start",
+					reason: "resume",
+					previousSessionFile: prepared.previousSessionFile,
+				},
+				projectTrustContext: prepared.projectTrustContext,
 			}),
 		);
 		await this.finishSessionReplacement();
-		if (options?.continueAgent) {
-			await this.session.continue();
+	}
+
+	private async prepareToolResultRelocation(targetCwd: string): Promise<void> {
+		if (this.preparedToolResultRelocation) {
+			throw new Error("A tool-result working-directory relocation is already prepared");
 		}
+		this.preparedToolResultRelocation = this.prepareRelocation(targetCwd);
+	}
+
+	private async activateToolResultRelocation(): Promise<void> {
+		const prepared = this.preparedToolResultRelocation;
+		if (!prepared) return;
+		this.preparedToolResultRelocation = undefined;
+		await this.activateRelocation(prepared);
+		await this.session.continue();
+	}
+
+	async relocate(targetCwd: string, options?: { projectTrustContext?: ProjectTrustContext }): Promise<void> {
+		const prepared = this.prepareRelocation(targetCwd, options?.projectTrustContext);
+		await this.activateRelocation(prepared);
 	}
 
 	async restart(options?: { notice?: string; process?: boolean }): Promise<void> {

@@ -40,7 +40,8 @@ function createRunPlanHarness(cwd: string, options: { idle?: boolean } = {}) {
 	return {
 		complete: async (prefix: string) => command?.getArgumentCompletions?.(prefix),
 		runCommand: async (args: string) => command?.handler(args, ctx),
-		runEvent: async (event: string) => eventHandlers.get(event)?.({ type: event }, ctx),
+		runEvent: async (event: string, payload: Record<string, unknown> = {}) =>
+			eventHandlers.get(event)?.({ type: event, ...payload }, ctx),
 		appendEntry,
 		notify,
 		sendUserMessage,
@@ -117,6 +118,16 @@ describe("run-plan extension", () => {
 			"Keep working\n\n[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]",
 			{ deliverAs: "followUp" },
 		);
+	});
+
+	it("does not advance the plan for an intermediate cwd relocation boundary", async () => {
+		writeFileSync(join(cwd, "PLAN.md"), "- [ ] Keep working\n");
+		const harness = createRunPlanHarness(cwd);
+
+		await harness.runCommand("");
+		await harness.runEvent("agent_end", { sessionContinuation: "cwd_relocation" });
+
+		expect(harness.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("uses an inline plan filename argument", async () => {

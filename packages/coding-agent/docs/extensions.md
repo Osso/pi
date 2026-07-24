@@ -565,13 +565,15 @@ Inside `before_agent_start`, `event.systemPrompt` and `ctx.getSystemPrompt()` bo
 
 #### agent_start / agent_end
 
-Fired once per user prompt.
+Fired when an agent loop starts and ends. Most user prompts produce one pair. A session handoff may end one loop and continue the same prompt in a replacement runtime.
 
 ```typescript
 pi.on("agent_start", async (_event, ctx) => {});
 
 pi.on("agent_end", async (event, ctx) => {
-  // event.messages - messages from this prompt
+  // event.messages - messages from this agent loop
+  // event.sessionContinuation === "cwd_relocation" means the same prompt
+  // continues after Pi rebuilds the runtime; defer idle/completion behavior.
 });
 ```
 

@@ -654,6 +654,7 @@ function registerAgentGoalHandlers(
 		runtime.errorStatusScheduler.clearSession(ctx.sessionManager.getSessionId());
 	});
 	pi.on("agent_end", async (event, ctx: ExtensionContext) => {
+		if (event.sessionContinuation) return;
 		await runScheduledGoalAgentEnd({
 			event,
 			ctx,

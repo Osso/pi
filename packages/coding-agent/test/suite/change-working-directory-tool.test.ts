@@ -152,6 +152,7 @@ async function executeAndDeliverChangeWorkingDirectory(
 		runner.createContext(),
 	);
 	await runner.deliverToolResultRelocation(toolCallId);
+	await runner.activateToolResultRelocation();
 }
 
 function readTextContent(content: Array<{ type: string; text?: string }>): string {
@@ -365,7 +366,15 @@ describe("change_working_directory real-process lifecycle", () => {
 			expect(cwdChangedIndex).toBeGreaterThan(toolResultIndex);
 			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
 
-			const continuedRequest = await agent.waitForLlmRequest((request) => request.id !== changeRequest.id);
+			const oldAgentEnd = agent.waitForEvent((event) => event.type === "agent_end");
+			const continuedRequestPromise = agent.waitForLlmRequest((request) => request.id !== changeRequest.id);
+			const firstAfterRelocation = await Promise.race([
+				oldAgentEnd.then(() => "agent_end" as const),
+				continuedRequestPromise.then(() => "llm_request" as const),
+			]);
+			expect(firstAfterRelocation).toBe("agent_end");
+			const continuedRequest = await continuedRequestPromise;
+			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(0);
 			agent.respondToLlmRequest(
 				continuedRequest.id,
 				fauxAssistantMessage(
@@ -388,16 +397,48 @@ describe("change_working_directory real-process lifecycle", () => {
 			agent.respondToSupervisorRequest(goalReview, { kind: "complete", reason: "relocated turn verified" });
 			await agent.waitForEvent((event) => event.type === "agent_end");
 			expect(agent.readGoal()).toMatchObject({ objective: goal, completedAt: expect.any(String) });
+			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);
 		});
 	});
 });
 
 describe("change_working_directory process restart", () => {
-	it("persists the changed cwd across a real process restart", async () => {
+	it("persists the changed cwd across a restart while a child is live", async () => {
 		await withHeadlessPi(async (agent) => {
 			const targetCwd = join(agent.paths.tempDir, "restart-target");
 			mkdirSync(targetCwd);
 			writeFileSync(join(targetCwd, "restart-marker.txt"), "cwd survived process restart");
+
+			await agent.send({ type: "prompt", message: "Start a child before relocating" });
+			const spawnRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				spawnRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "Relocation restart child",
+						prompt: "Remain live through cwd relocation and restart",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const spawned = await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Relocation restart child",
+			);
+			const interruptedChildRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === spawned.id,
+			);
+			const spawnFollowUp = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== spawnRequest.id,
+			);
+			agent.respondToLlmRequest(spawnFollowUp.id, fauxAssistantMessage("Child remains active"));
+			await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					readTextContent(entry.message.content).includes("Child remains active"),
+			);
 
 			await agent.send({ type: "prompt", message: "Change working directory" });
 			const changeRequest = await agent.waitForLlmRequest();
@@ -416,8 +457,9 @@ describe("change_working_directory process restart", () => {
 					entry.content.includes(targetCwd),
 			);
 
-			await agent.send({ type: "prompt", message: "Acknowledge the changed cwd" });
-			const settledRequest = await agent.waitForLlmRequest();
+			const settledRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== changeRequest.id,
+			);
 			agent.respondToLlmRequest(settledRequest.id, fauxAssistantMessage("replacement runtime settled"));
 			await agent.waitForSessionEntry(
 				null,
@@ -428,8 +470,14 @@ describe("change_working_directory process restart", () => {
 			);
 
 			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+			expect(agent.listAgents().find((candidate) => candidate.id === spawned.id)?.lifecycle).toBe("running");
 			await agent.restart();
 			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+
+			const restoredChildRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === spawned.id && request.id !== interruptedChildRequest.id,
+			);
+			expect(restoredChildRequest.userMessages).toContain("Remain live through cwd relocation and restart");
 
 			await agent.send({ type: "prompt", message: "Read restart-marker.txt" });
 			const readRequest = await agent.waitForLlmRequest();
@@ -456,6 +504,11 @@ describe("change_working_directory process restart", () => {
 			};
 			expect(persistedHeader.cwd).toBe(targetCwd);
 			expect(basename(agent.sessionFile)).toContain(agent.sessionId);
+
+			agent.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Child recovered after restart"));
+			await expect(
+				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
+			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
 		});
 	});
 });

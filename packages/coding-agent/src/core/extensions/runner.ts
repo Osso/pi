@@ -324,10 +324,15 @@ export class ExtensionRunner {
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
 	private restartFn: (options?: { notice?: string; process?: boolean }) => Promise<void> = async () => {};
-	private relocateHandler: (targetCwd: string, options?: { continueAgent?: boolean }) => Promise<void> = async () => {
+	private relocateHandler: (targetCwd: string) => Promise<void> = async () => {
 		throw new Error("Working-directory changes are not available in this session mode");
 	};
+	private prepareToolResultRelocationHandler: (targetCwd: string) => Promise<void> = async () => {
+		throw new Error("Tool-result working-directory changes are not available in this session mode");
+	};
+	private activateToolResultRelocationHandler: () => Promise<void> = async () => {};
 	private pendingToolResultRelocations = new Map<string, string>();
+	private isToolResultRelocationPrepared = false;
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
@@ -449,8 +454,16 @@ export class ExtensionRunner {
 		};
 	}
 
-	setRelocateHandler(handler: (targetCwd: string, options?: { continueAgent?: boolean }) => Promise<void>): void {
+	setRelocateHandler(handler: (targetCwd: string) => Promise<void>): void {
 		this.relocateHandler = handler;
+	}
+
+	setToolResultRelocationHandlers(handlers: {
+		prepare(targetCwd: string): Promise<void>;
+		activate(): Promise<void>;
+	}): void {
+		this.prepareToolResultRelocationHandler = handlers.prepare;
+		this.activateToolResultRelocationHandler = handlers.activate;
 	}
 
 	private scheduleToolResultRelocation(toolCallId: string, targetCwd: string): void {
@@ -465,7 +478,18 @@ export class ExtensionRunner {
 		const targetCwd = this.pendingToolResultRelocations.get(toolCallId);
 		if (targetCwd === undefined) return;
 		this.pendingToolResultRelocations.delete(toolCallId);
-		await this.relocateHandler(targetCwd, { continueAgent: true });
+		await this.prepareToolResultRelocationHandler(targetCwd);
+		this.isToolResultRelocationPrepared = true;
+	}
+
+	hasPreparedToolResultRelocation(): boolean {
+		return this.isToolResultRelocationPrepared;
+	}
+
+	async activateToolResultRelocation(): Promise<void> {
+		if (!this.isToolResultRelocationPrepared) return;
+		this.isToolResultRelocationPrepared = false;
+		await this.activateToolResultRelocationHandler();
 	}
 
 	private createRelocationContextActions(): Pick<ExtensionContext, "relocate" | "relocateAfterToolResult"> {

@@ -790,10 +790,13 @@ export interface AgentStartEvent {
 	type: "agent_start";
 }
 
+export type AgentEndSessionContinuation = "cwd_relocation";
+
 /** Fired when an agent loop ends */
 export interface AgentEndEvent {
 	type: "agent_end";
 	messages: AgentMessage[];
+	sessionContinuation?: AgentEndSessionContinuation;
 }
 
 /** Fired at the start of each turn */

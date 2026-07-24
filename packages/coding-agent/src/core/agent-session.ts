@@ -76,6 +76,7 @@ import type { DetachedJobLifecycleController } from "./detached-job-runner.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
+	type AgentEndSessionContinuation,
 	type ContextUsage,
 	type ExtensionCommandContext,
 	type ExtensionCommandContextActions,
@@ -298,6 +299,7 @@ export type AgentSessionEvent =
 			type: "agent_end";
 			messages: AgentMessage[];
 			willRetry: boolean;
+			sessionContinuation?: AgentEndSessionContinuation;
 	  }
 	| {
 			type: "queue_update";
@@ -1281,11 +1283,26 @@ export class AgentSession {
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
 		const originalToolCallId = this._getTerminalToolCallId(event);
+		const sessionContinuation =
+			event.type === "agent_end" && this._extensionRunner.hasPreparedToolResultRelocation()
+				? "cwd_relocation"
+				: undefined;
 		this._publishCurrentAgentActivity(event);
 		this._removeStartedUserMessageFromQueue(event);
-		await this._emitExtensionEvent(event);
-		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+		await this._emitExtensionEvent(event, sessionContinuation);
+		this._emit(
+			event.type === "agent_end"
+				? {
+						...event,
+						willRetry: sessionContinuation !== undefined || this._willRetryAfterAgentEnd(event),
+						sessionContinuation,
+					}
+				: event,
+		);
 		if (event.type === "message_end") await this._persistCompletedMessage(event, originalToolCallId);
+		if (event.type === "agent_end" && sessionContinuation) {
+			await this._extensionRunner.activateToolResultRelocation();
+		}
 	};
 
 	private _getCurrentAgentActivityOwner(): AgentCurrentActivityOwner | undefined {
@@ -1678,12 +1695,15 @@ export class AgentSession {
 	}
 
 	/** Emit extension events based on agent events */
-	private async _emitExtensionEvent(event: AgentEvent): Promise<void> {
+	private async _emitExtensionEvent(
+		event: AgentEvent,
+		sessionContinuation?: AgentEndSessionContinuation,
+	): Promise<void> {
 		if (event.type === "agent_start") {
 			this._turnIndex = 0;
 			await this._extensionRunner.emit({ type: "agent_start" });
 		} else if (event.type === "agent_end") {
-			await this._extensionRunner.emit({ type: "agent_end", messages: event.messages });
+			await this._extensionRunner.emit({ type: "agent_end", messages: event.messages, sessionContinuation });
 		} else if (event.type === "turn_start") {
 			const extensionEvent: TurnStartEvent = {
 				type: "turn_start",
@@ -2196,6 +2216,7 @@ export class AgentSession {
 	}
 
 	private async _continuePostAgentRuns(): Promise<void> {
+		if (this._disposed) return;
 		while (
 			await this._withTurnStartLock(async (release) => {
 				if (!(await this._handlePostAgentRun())) {
@@ -2232,6 +2253,7 @@ export class AgentSession {
 	}
 
 	private async _handlePostAgentRun(): Promise<boolean> {
+		if (this._disposed) return false;
 		const msg = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
 		if (!msg) {

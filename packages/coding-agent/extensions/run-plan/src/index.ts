@@ -113,7 +113,8 @@ function completeMarkdownFiles(
 export default function runPlanExtension(pi: ExtensionAPI) {
 	let activePlan: ActivePlan | undefined;
 
-	pi.on("agent_end", async (_event, ctx) => {
+	pi.on("agent_end", async (event, ctx) => {
+		if (event.sessionContinuation) return;
 		if (!activePlan) {
 			return;
 		}

@@ -224,6 +224,8 @@ cat README.md | pi -p "Summarize this text"
 
 Built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, `outline`, `symbol`, `references`, `change_working_directory`, `resume_session`, `search_current_session_history`, `list_sessions`, `broadcast`, `channel_post`, `ask_questions`, `ask_architect`.
 
+`change_working_directory` changes the session's working directory without switching sessions. When used during an active agent turn, Pi continues that turn after the change without requiring another user prompt.
+
 ### Resource Options
 
 | Option | Description |

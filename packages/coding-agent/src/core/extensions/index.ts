@@ -22,6 +22,7 @@ export { ExtensionRunner } from "./runner.ts";
 export type {
 	AfterProviderResponseEvent,
 	AgentEndEvent,
+	AgentEndSessionContinuation,
 	AgentStartEvent,
 	// Re-exports
 	AgentToolResult,
