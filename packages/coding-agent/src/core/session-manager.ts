@@ -391,20 +391,6 @@ function buildSessionPath(
 	return path;
 }
 
-function retainActiveCompactedSlice(entries: FileEntry[]): FileEntry[] {
-	const header = entries[0];
-	if (!header || header.type !== "session") return entries;
-
-	const sessionEntries = entries.filter((entry): entry is SessionEntry => entry.type !== "session");
-	const path = buildSessionPath(sessionEntries);
-	const compaction = getLatestCompactionEntry(path);
-	if (!compaction) return entries;
-
-	const firstKeptIndex = path.findIndex((entry) => entry.id === compaction.firstKeptEntryId);
-	if (firstKeptIndex === -1) return entries;
-	return [header, ...path.slice(firstKeptIndex)];
-}
-
 function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "thinkingLevel" | "model"> {
 	let thinkingLevel = "off";
 	let model: { provider: string; modelId: string } | null = null;
@@ -667,6 +653,92 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 	} catch {
 		// Skip malformed lines
 		return null;
+	}
+}
+
+interface ReverseSessionScan {
+	allEntries: SessionEntry[];
+	activePath: SessionEntry[];
+	requiredParentId: string | null | undefined;
+	latestCompaction: CompactionEntry | undefined;
+}
+
+interface ReverseLineScanResult {
+	remaining: Buffer;
+	activeSlice?: SessionEntry[];
+}
+
+function createReverseSessionScan(): ReverseSessionScan {
+	return {
+		allEntries: [],
+		activePath: [],
+		requiredParentId: undefined,
+		latestCompaction: undefined,
+	};
+}
+
+function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): boolean {
+	if (entry.type === "session") return false;
+	scan.allEntries.push(entry);
+
+	const isLeaf = scan.requiredParentId === undefined;
+	const isRequiredParent = scan.requiredParentId !== null && entry.id === scan.requiredParentId;
+	if (!isLeaf && !isRequiredParent) return false;
+
+	scan.activePath.push(entry);
+	scan.requiredParentId = entry.parentId;
+	if (!scan.latestCompaction && entry.type === "compaction") {
+		scan.latestCompaction = entry;
+	}
+
+	return scan.latestCompaction?.firstKeptEntryId === entry.id;
+}
+
+function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer): ReverseLineScanResult {
+	let lineEnd = pending.length;
+	let newlineIndex = pending.lastIndexOf(0x0a, lineEnd - 1);
+	while (newlineIndex !== -1) {
+		const line = pending.subarray(newlineIndex + 1, lineEnd).toString("utf8");
+		const entry = parseSessionEntryLine(line);
+		if (entry && scanSessionEntryReverse(scan, entry)) {
+			return { remaining: Buffer.alloc(0), activeSlice: scan.activePath.reverse() };
+		}
+		lineEnd = newlineIndex;
+		newlineIndex = pending.lastIndexOf(0x0a, lineEnd - 1);
+	}
+	return { remaining: pending.subarray(0, lineEnd) };
+}
+
+function readCurrentVersionSessionEntries(fd: number, fileSize: number): SessionEntry[] {
+	const scan = createReverseSessionScan();
+	let position = fileSize;
+	let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+
+	while (position > 0) {
+		const bytesToRead = Math.min(SESSION_READ_BUFFER_SIZE, position);
+		position -= bytesToRead;
+		const buffer = Buffer.allocUnsafe(bytesToRead);
+		const bytesRead = readSync(fd, buffer, 0, bytesToRead, position);
+		pending = Buffer.concat([buffer.subarray(0, bytesRead), pending]);
+
+		const lineScan = scanCompleteReverseLines(scan, pending);
+		if (lineScan.activeSlice) return lineScan.activeSlice;
+		pending = lineScan.remaining;
+	}
+
+	const firstEntry = parseSessionEntryLine(pending.toString("utf8"));
+	if (firstEntry && scanSessionEntryReverse(scan, firstEntry)) {
+		return scan.activePath.reverse();
+	}
+	return scan.allEntries.reverse();
+}
+
+function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHeader): FileEntry[] {
+	const fd = openSync(filePath, "r");
+	try {
+		return [header, ...readCurrentVersionSessionEntries(fd, statSync(filePath).size)];
+	} finally {
+		closeSync(fd);
 	}
 }
 
@@ -1184,7 +1256,11 @@ export class SessionManager {
 	setSessionFile(sessionFile: string): void {
 		this.sessionFile = resolvePath(sessionFile);
 		if (existsSync(this.sessionFile)) {
-			this.fileEntries = loadEntriesFromFile(this.sessionFile);
+			const sessionHeader = readSessionHeader(this.sessionFile);
+			this.fileEntries =
+				sessionHeader?.version === CURRENT_SESSION_VERSION
+					? loadCurrentVersionEntriesFromFile(this.sessionFile, sessionHeader)
+					: loadEntriesFromFile(this.sessionFile);
 
 			// If file was empty, initialize it with a valid session header. If it was
 			// non-empty but did not parse as a pi session, fail without modifying it.
@@ -1210,7 +1286,6 @@ export class SessionManager {
 				this._rewriteFile();
 			}
 
-			this.fileEntries = retainActiveCompactedSlice(this.fileEntries);
 			this._buildIndex();
 			this.flushed = true;
 		} else {

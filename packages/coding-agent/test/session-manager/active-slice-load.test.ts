@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import fs, { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -23,6 +24,52 @@ describe("active slice session loading", () => {
 
 	afterEach(() => {
 		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	it("does not read the summarized prefix", () => {
+		const file = join(tempDir, "large-compacted.jsonl");
+		const summarizedBytes = 8 * 1024 * 1024;
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			messageEntry("old-1", null, "x".repeat(summarizedBytes)),
+			messageEntry("kept-1", "old-1", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		const content = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+		writeFileSync(file, content);
+
+		const originalReadSync = fs.readSync;
+		let totalBytesRead = 0;
+		fs.readSync = ((fd, buffer, offset, length, position) => {
+			const bytesRead = originalReadSync(fd, buffer, offset, length, position);
+			totalBytesRead += bytesRead;
+			return bytesRead;
+		}) as typeof fs.readSync;
+		syncBuiltinESMExports();
+
+		try {
+			SessionManager.open(file, tempDir);
+		} finally {
+			fs.readSync = originalReadSync;
+			syncBuiltinESMExports();
+		}
+
+		expect(totalBytesRead).toBeLessThan(Buffer.byteLength(content) / 2);
 	});
 
 	it("retains only the active compacted slice", () => {
