@@ -2221,13 +2221,17 @@ export class SessionManager {
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
-		const sourceEntries = loadEntriesFromFile(resolvedSourcePath);
+		const sourceHeader = readSessionHeader(resolvedSourcePath);
+		const sourceEntries =
+			sourceHeader?.version === CURRENT_SESSION_VERSION
+				? loadCurrentVersionEntriesFromFile(resolvedSourcePath, sourceHeader).fileEntries
+				: loadEntriesFromFile(resolvedSourcePath);
 		if (sourceEntries.length === 0) {
 			throw new Error(`Cannot fork: source session file is empty or invalid: ${resolvedSourcePath}`);
 		}
 
-		const sourceHeader = sourceEntries.find((e) => e.type === "session") as SessionHeader | undefined;
-		if (!sourceHeader) {
+		const loadedSourceHeader = sourceEntries.find((e) => e.type === "session") as SessionHeader | undefined;
+		if (!loadedSourceHeader) {
 			throw new Error(`Cannot fork: source session has no header: ${resolvedSourcePath}`);
 		}
 

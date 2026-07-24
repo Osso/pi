@@ -228,6 +228,44 @@ describe("active slice session loading", () => {
 		expect(session.getEntries().map((entry) => entry.id)).toEqual(["kept-1", "compaction-1", "after-1"]);
 	});
 
+	it("forks only the active compacted slice", () => {
+		const file = join(tempDir, "fork-source.jsonl");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: tempDir,
+			},
+			messageEntry("old-1", null, "summarized"),
+			messageEntry("kept-1", "old-1", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		const forked = SessionManager.forkFrom(file, tempDir, join(tempDir, "forks"), { id: "forked" });
+		const forkedFile = forked.getSessionFile();
+		expect(forkedFile).toBeDefined();
+		const serializedIds = fs
+			.readFileSync(forkedFile!, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line) as { id: string; type: string })
+			.filter((entry) => entry.type !== "session")
+			.map((entry) => entry.id);
+		expect(serializedIds).toEqual(["kept-1", "compaction-1", "after-1"]);
+	});
+
 	it("retains only the active compacted slice", () => {
 		const file = join(tempDir, "compacted.jsonl");
 		const entries = [
