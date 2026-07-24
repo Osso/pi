@@ -661,6 +661,7 @@ interface ReverseSessionScan {
 	activePath: SessionEntry[];
 	requiredParentId: string | null | undefined;
 	latestCompaction: CompactionEntry | undefined;
+	allowIncompleteTrailingEntry: boolean;
 }
 
 interface ReverseLineScanResult {
@@ -674,7 +675,22 @@ function createReverseSessionScan(): ReverseSessionScan {
 		activePath: [],
 		requiredParentId: undefined,
 		latestCompaction: undefined,
+		allowIncompleteTrailingEntry: true,
 	};
+}
+
+function parseReverseSessionEntry(scan: ReverseSessionScan, line: string, filePath: string): FileEntry | undefined {
+	if (!line.trim()) return undefined;
+	const entry = parseSessionEntryLine(line);
+	if (entry) {
+		scan.allowIncompleteTrailingEntry = false;
+		return entry;
+	}
+	if (scan.allowIncompleteTrailingEntry) {
+		scan.allowIncompleteTrailingEntry = false;
+		return undefined;
+	}
+	throw new Error(`Session file contains malformed JSONL entry: ${filePath}`);
 }
 
 function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): boolean {
@@ -694,12 +710,12 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 	return scan.latestCompaction?.firstKeptEntryId === entry.id;
 }
 
-function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer): ReverseLineScanResult {
+function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer, filePath: string): ReverseLineScanResult {
 	let lineEnd = pending.length;
 	let newlineIndex = pending.lastIndexOf(0x0a, lineEnd - 1);
 	while (newlineIndex !== -1) {
 		const line = pending.subarray(newlineIndex + 1, lineEnd).toString("utf8");
-		const entry = parseSessionEntryLine(line);
+		const entry = parseReverseSessionEntry(scan, line, filePath);
 		if (entry && scanSessionEntryReverse(scan, entry)) {
 			return { remaining: Buffer.alloc(0), activeSlice: scan.activePath.reverse() };
 		}
@@ -709,7 +725,18 @@ function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer): Re
 	return { remaining: pending.subarray(0, lineEnd) };
 }
 
-function readCurrentVersionSessionEntries(fd: number, fileSize: number): SessionEntry[] {
+function validateCompleteReverseScan(scan: ReverseSessionScan, filePath: string): void {
+	if (scan.activePath.length > 0 && scan.requiredParentId !== null) {
+		throw new Error(`Session file contains a broken active parent chain: ${filePath}`);
+	}
+	if (scan.latestCompaction) {
+		throw new Error(
+			`Session compaction ${scan.latestCompaction.id} references missing firstKeptEntryId ${scan.latestCompaction.firstKeptEntryId}: ${filePath}`,
+		);
+	}
+}
+
+function readCurrentVersionSessionEntries(fd: number, fileSize: number, filePath: string): SessionEntry[] {
 	const scan = createReverseSessionScan();
 	let position = fileSize;
 	let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -721,22 +748,23 @@ function readCurrentVersionSessionEntries(fd: number, fileSize: number): Session
 		const bytesRead = readSync(fd, buffer, 0, bytesToRead, position);
 		pending = Buffer.concat([buffer.subarray(0, bytesRead), pending]);
 
-		const lineScan = scanCompleteReverseLines(scan, pending);
+		const lineScan = scanCompleteReverseLines(scan, pending, filePath);
 		if (lineScan.activeSlice) return lineScan.activeSlice;
 		pending = lineScan.remaining;
 	}
 
-	const firstEntry = parseSessionEntryLine(pending.toString("utf8"));
+	const firstEntry = parseReverseSessionEntry(scan, pending.toString("utf8"), filePath);
 	if (firstEntry && scanSessionEntryReverse(scan, firstEntry)) {
 		return scan.activePath.reverse();
 	}
+	validateCompleteReverseScan(scan, filePath);
 	return scan.allEntries.reverse();
 }
 
 function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHeader): FileEntry[] {
 	const fd = openSync(filePath, "r");
 	try {
-		return [header, ...readCurrentVersionSessionEntries(fd, statSync(filePath).size)];
+		return [header, ...readCurrentVersionSessionEntries(fd, statSync(filePath).size, filePath)];
 	} finally {
 		closeSync(fd);
 	}

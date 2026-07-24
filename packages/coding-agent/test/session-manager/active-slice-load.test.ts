@@ -72,6 +72,109 @@ describe("active slice session loading", () => {
 		expect(totalBytesRead).toBeLessThan(Buffer.byteLength(content) / 2);
 	});
 
+	it("ignores one incomplete trailing entry", () => {
+		const file = join(tempDir, "truncated-tail.jsonl");
+		const lines = [
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			}),
+			JSON.stringify(messageEntry("old-1", null, "old")),
+			JSON.stringify(messageEntry("kept-1", "old-1", "kept")),
+			JSON.stringify({
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			}),
+			JSON.stringify(messageEntry("after-1", "compaction-1", "after")),
+		];
+		writeFileSync(file, `${lines.join("\n")}\n{"type":"message"`);
+
+		const session = SessionManager.open(file, tempDir);
+
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(["kept-1", "compaction-1", "after-1"]);
+	});
+
+	it("rejects malformed interior entries", () => {
+		const file = join(tempDir, "malformed-compacted.jsonl");
+		const lines = [
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			}),
+			JSON.stringify(messageEntry("old-1", null, "old")),
+			JSON.stringify(messageEntry("kept-1", "old-1", "kept")),
+			"not json",
+			JSON.stringify({
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			}),
+			JSON.stringify(messageEntry("after-1", "compaction-1", "after")),
+		];
+		writeFileSync(file, `${lines.join("\n")}\n`);
+
+		expect(() => SessionManager.open(file, tempDir)).toThrow(/malformed JSONL entry/);
+	});
+
+	it("rejects a broken active parent chain", () => {
+		const file = join(tempDir, "broken-parent.jsonl");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			messageEntry("leaf", "missing-parent", "orphan"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		expect(() => SessionManager.open(file, tempDir)).toThrow(/broken active parent chain/);
+	});
+
+	it("rejects a compaction with a missing first kept entry", () => {
+		const file = join(tempDir, "missing-first-kept.jsonl");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			messageEntry("old-1", null, "old"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "old-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "missing-entry",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		expect(() => SessionManager.open(file, tempDir)).toThrow(/missing firstKeptEntryId/);
+	});
+
 	it("retains only the active compacted slice", () => {
 		const file = join(tempDir, "compacted.jsonl");
 		const entries = [
