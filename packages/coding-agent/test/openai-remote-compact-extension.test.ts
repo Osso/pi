@@ -561,9 +561,7 @@ describe("openai remote compact extension", () => {
 		});
 		expect(requestPayload).toMatchObject({ instructions: expect.stringContaining("system prompt") });
 		expect(JSON.stringify(requestPayload)).toContain("Deduplicate repeated or semantically equivalent content");
-		expect(JSON.stringify(requestPayload)).toContain(
-			"Prioritize the database migration and unresolved blockers.",
-		);
+		expect(JSON.stringify(requestPayload)).toContain("Prioritize the database migration and unresolved blockers.");
 	});
 
 	it("reuses Codex native history compacted with Terra for a different active model", async () => {
