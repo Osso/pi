@@ -7,7 +7,7 @@ import {
 	selectDetachedArtifactDirectoriesToDelete,
 } from "./detached-job-retention.ts";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
-import { listTerminalMultiAgentAgentsUpdatedAtOrBefore } from "./session-control-db.ts";
+import { listDetachedArtifactAgentsUpdatedAtOrBefore } from "./session-control-db.ts";
 
 const DETACHED_ARTIFACT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
 const DETACHED_ARTIFACT_MAX_BYTES = 2 * 1024 ** 3;
@@ -170,7 +170,7 @@ function collectTerminalArtifactCandidates(
 	updatedAtCutoff: string,
 ): DetachedArtifactRetentionCandidate[] {
 	const candidatesByPath = new Map<string, DetachedArtifactRetentionCandidate>();
-	const records = listTerminalMultiAgentAgentsUpdatedAtOrBefore(controlDbPath, updatedAtCutoff);
+	const records = listDetachedArtifactAgentsUpdatedAtOrBefore(controlDbPath, updatedAtCutoff);
 	for (const { agent, sessionPath } of records) {
 		const candidate = terminalArtifactCandidate(agent, sessionPath, artifactRoot, processReferences, errors);
 		if (!candidate) continue;

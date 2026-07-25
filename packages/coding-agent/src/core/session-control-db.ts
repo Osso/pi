@@ -2740,7 +2740,7 @@ export interface MultiAgentPersistedState {
 	counters: MultiAgentCounters;
 }
 
-export interface TerminalMultiAgentAgentRecord {
+export interface DetachedArtifactAgentRecord {
 	sessionPath: string;
 	agent: AgentSnapshot;
 }
@@ -4492,10 +4492,10 @@ export function readMultiAgentAgent(
 	});
 }
 
-export function listTerminalMultiAgentAgentsUpdatedAtOrBefore(
+export function listDetachedArtifactAgentsUpdatedAtOrBefore(
 	controlDbPath: string,
 	updatedAtCutoff: string,
-): TerminalMultiAgentAgentRecord[] {
+): DetachedArtifactAgentRecord[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
 			.prepare(
@@ -4503,6 +4503,11 @@ export function listTerminalMultiAgentAgentsUpdatedAtOrBefore(
 				 FROM multi_agent_agents
 				 WHERE CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END <= ?
 				   AND json_extract(data, '$.lifecycle') IN ('completed', 'failed', 'aborted')
+				   AND EXISTS (
+				     SELECT 1
+				     FROM json_each(data, '$.result.fileRefs') AS file_ref
+				     WHERE json_extract(file_ref.value, '$.label') IN ('Bash output', 'Pyrun output')
+				   )
 				 ORDER BY CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END,
 				          session_path,
 				          agent_id`,

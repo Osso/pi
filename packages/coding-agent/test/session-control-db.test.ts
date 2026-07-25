@@ -38,13 +38,13 @@ import {
 	initializeSharedChannelCursorAtTail,
 	listActiveSessionMetadata,
 	listArchivedSessionMetadata,
+	listDetachedArtifactAgentsUpdatedAtOrBefore,
 	listNamedSessions,
 	listPendingArchitectRequests,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
-	listTerminalMultiAgentAgentsUpdatedAtOrBefore,
 	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
 	postArchitectRequest,
@@ -571,30 +571,41 @@ describe("session control DB", () => {
 		).toThrow("Runtime mailbox store reference does not exist");
 	});
 
-	it("queries terminal agents through an inclusive update cutoff without reading unrelated state", () => {
+	it("queries detached artifact agents through an inclusive update cutoff without reading unrelated state", () => {
 		readMultiAgentState(controlDbPath, "/sessions/query-schema.jsonl");
 		const cutoff = "2026-07-11T00:00:00.000Z";
 		const rows = [
 			{
 				agentId: "completed-before",
+				hasDetachedOutput: true,
 				lifecycle: "completed",
 				sessionPath: "/sessions/completed-before.jsonl",
 				updatedAt: "2026-07-10T23:59:59.999Z",
 			},
 			{
 				agentId: "failed-at-cutoff",
+				hasDetachedOutput: true,
 				lifecycle: "failed",
 				sessionPath: "/sessions/failed-at-cutoff.jsonl",
 				updatedAt: cutoff,
 			},
 			{
+				agentId: "completed-without-output",
+				hasDetachedOutput: false,
+				lifecycle: "completed",
+				sessionPath: "/sessions/completed-without-output.jsonl",
+				updatedAt: "2026-07-10T12:00:00.000Z",
+			},
+			{
 				agentId: "aborted-after",
+				hasDetachedOutput: true,
 				lifecycle: "aborted",
 				sessionPath: "/sessions/aborted-after.jsonl",
 				updatedAt: "2026-07-11T00:00:00.001Z",
 			},
 			{
 				agentId: "running-before",
+				hasDetachedOutput: true,
 				lifecycle: "running",
 				sessionPath: "/sessions/running-before.jsonl",
 				updatedAt: "2026-07-10T00:00:00.000Z",
@@ -608,7 +619,15 @@ describe("session control DB", () => {
 				).run(
 					row.sessionPath,
 					row.agentId,
-					JSON.stringify({ id: row.agentId, lifecycle: row.lifecycle, revision: 1, updatedAt: row.updatedAt }),
+					JSON.stringify({
+						id: row.agentId,
+						lifecycle: row.lifecycle,
+						...(row.hasDetachedOutput
+							? { result: { fileRefs: [{ label: "Pyrun output", path: `/tmp/${row.agentId}/output.log` }] } }
+							: {}),
+						revision: 1,
+						updatedAt: row.updatedAt,
+					}),
 					"2026-07-25T00:00:00.000Z",
 				);
 			}
@@ -622,11 +641,14 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(listTerminalMultiAgentAgentsUpdatedAtOrBefore(controlDbPath, cutoff)).toEqual([
+		expect(listDetachedArtifactAgentsUpdatedAtOrBefore(controlDbPath, cutoff)).toEqual([
 			{
 				agent: {
 					id: "completed-before",
 					lifecycle: "completed",
+					result: {
+						fileRefs: [{ label: "Pyrun output", path: "/tmp/completed-before/output.log" }],
+					},
 					revision: 1,
 					updatedAt: "2026-07-10T23:59:59.999Z",
 				},
@@ -636,6 +658,9 @@ describe("session control DB", () => {
 				agent: {
 					id: "failed-at-cutoff",
 					lifecycle: "failed",
+					result: {
+						fileRefs: [{ label: "Pyrun output", path: "/tmp/failed-at-cutoff/output.log" }],
+					},
 					revision: 1,
 					updatedAt: cutoff,
 				},
@@ -644,7 +669,7 @@ describe("session control DB", () => {
 		]);
 	});
 
-	it("validates terminal agent payloads returned by cutoff queries", () => {
+	it("validates detached artifact agent payloads returned by cutoff queries", () => {
 		readMultiAgentState(controlDbPath, "/sessions/query-validation-schema.jsonl");
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -656,7 +681,7 @@ describe("session control DB", () => {
 				JSON.stringify({
 					id: "invalid-terminal",
 					lifecycle: "completed",
-					result: { fileRefs: [{ label: 42, path: "/tmp/output.log" }] },
+					result: { fileRefs: [{ label: "Pyrun output", path: 42 }] },
 					updatedAt: "2026-07-10T00:00:00.000Z",
 				}),
 				"2026-07-10T00:00:00.000Z",
@@ -665,8 +690,8 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(() => listTerminalMultiAgentAgentsUpdatedAtOrBefore(controlDbPath, "2026-07-11T00:00:00.000Z")).toThrow(
-			/label.*string/i,
+		expect(() => listDetachedArtifactAgentsUpdatedAtOrBefore(controlDbPath, "2026-07-11T00:00:00.000Z")).toThrow(
+			/path must be absolute/i,
 		);
 	});
 
