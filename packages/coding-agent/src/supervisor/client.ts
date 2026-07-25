@@ -4,6 +4,7 @@ import {
 	type SupervisorRequestKind,
 	type SupervisorResponse,
 } from "../core/session-control-db.ts";
+import { notifySupervisorRequest } from "./request-wake.ts";
 
 export interface RequestSupervisorDecisionInput {
 	controlDbPath: string;
@@ -24,6 +25,7 @@ export async function requestSupervisorDecision(input: RequestSupervisorDecision
 		projectId: input.projectId,
 		senderSessionId: input.senderSessionId,
 	});
+	notifySupervisorRequest(input.controlDbPath);
 	const pollIntervalMs = input.pollIntervalMs ?? 50;
 	while (Date.now() < deadline) {
 		const request = readSupervisorRequest(input.controlDbPath, requestId);

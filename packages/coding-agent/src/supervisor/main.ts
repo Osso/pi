@@ -21,10 +21,10 @@ import { SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
+import { SupervisorRequestWakeServer } from "./request-wake.ts";
 import { runSupervisorRequest } from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
-const REQUEST_POLL_INTERVAL_MS = 100;
 const SUPERVISOR_COMPACTION_PERCENT = 75;
 
 export const SUPERVISOR_TOOL_NAMES = ["read", "edit", "write"];
@@ -124,20 +124,29 @@ export async function runSupervisorService(): Promise<void> {
 		tools: SUPERVISOR_TOOL_NAMES,
 	});
 	const claimToken = randomUUID();
-	recoverSupervisorRequests(controlDbPath);
+	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
+	await wakeServer.start();
 	const abortController = new AbortController();
 	const stop = () => abortController.abort();
 	process.once("SIGINT", stop);
 	process.once("SIGTERM", stop);
-	while (!abortController.signal.aborted) {
-		const request = claimNextSupervisorRequest(controlDbPath, claimToken);
-		if (!request) {
-			await waitForRequestPoll(abortController.signal);
-			continue;
+	try {
+		recoverSupervisorRequests(controlDbPath);
+		while (!abortController.signal.aborted) {
+			const observedGeneration = wakeServer.currentGeneration();
+			const request = claimNextSupervisorRequest(controlDbPath, claimToken);
+			if (!request) {
+				await wakeServer.waitForWakeAfter(observedGeneration, abortController.signal);
+				continue;
+			}
+			await processSupervisorRequest(controlDbPath, request, session);
 		}
-		await processSupervisorRequest(controlDbPath, request, session);
+	} finally {
+		process.off("SIGINT", stop);
+		process.off("SIGTERM", stop);
+		await wakeServer.close();
+		await session.abort();
 	}
-	await session.abort();
 }
 
 function openSupervisorSession(agentDir: string, kbDir: string): SessionManager {
@@ -278,20 +287,4 @@ function requiredClaimToken(request: SupervisorRequest): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function waitForRequestPoll(signal: AbortSignal): Promise<void> {
-	return new Promise((resolveWait) => {
-		if (signal.aborted) {
-			resolveWait();
-			return;
-		}
-		const timer = setTimeout(done, REQUEST_POLL_INTERVAL_MS);
-		function done() {
-			clearTimeout(timer);
-			signal.removeEventListener("abort", done);
-			resolveWait();
-		}
-		signal.addEventListener("abort", done, { once: true });
-	});
 }
