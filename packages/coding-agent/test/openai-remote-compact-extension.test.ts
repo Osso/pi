@@ -492,9 +492,11 @@ describe("openai remote compact extension", () => {
 		});
 	});
 
-	it("returns remote compaction duration from the compact endpoint call", async () => {
-		globalThis.fetch = (async () =>
-			new Response(
+	it("returns remote compaction metadata and sends steered instructions", async () => {
+		let requestPayload: unknown;
+		globalThis.fetch = (async (_url, init) => {
+			requestPayload = JSON.parse(String(init?.body));
+			return new Response(
 				JSON.stringify({
 					output: [
 						{ role: "user", content: [{ type: "input_text", text: "hello" }] },
@@ -502,7 +504,8 @@ describe("openai remote compact extension", () => {
 					],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
-			)) as typeof fetch;
+			);
+		}) as typeof fetch;
 		const model = createOpenAIResponsesModel();
 		const preparation: CompactionPreparation = {
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
@@ -517,6 +520,7 @@ describe("openai remote compact extension", () => {
 			type: "compaction",
 			preparation,
 			branchEntries: [],
+			customInstructions: "Prioritize the database migration and unresolved blockers.",
 			reason: "manual",
 			willRetry: false,
 			signal: new AbortController().signal,
@@ -555,6 +559,11 @@ describe("openai remote compact extension", () => {
 				{ type: "compaction", encrypted_content: "encrypted" },
 			],
 		});
+		expect(requestPayload).toMatchObject({ instructions: expect.stringContaining("system prompt") });
+		expect(JSON.stringify(requestPayload)).toContain("Deduplicate repeated or semantically equivalent content");
+		expect(JSON.stringify(requestPayload)).toContain(
+			"Prioritize the database migration and unresolved blockers.",
+		);
 	});
 
 	it("reuses Codex native history compacted with Terra for a different active model", async () => {

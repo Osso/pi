@@ -13,6 +13,16 @@ const DETAILS_TYPE = "openai-remote-compaction";
 const DETAILS_VERSION = 1;
 const MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS = 400_000;
 const CODEX_REMOTE_COMPACTION_MODEL = "gpt-5.6-terra";
+const OPENAI_REMOTE_COMPACTION_GUIDANCE = `Create a compact context checkpoint for continuing the work, not a conversational reply.
+
+- Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
+- Collapse repeated rows, messages, and tool outputs into one canonical statement. Include a repetition count only when it affects diagnosis.
+- Preserve the current goal, user-stated constraints, decisions and reasons, completed work, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
+- Prefer the latest state over superseded state. Record unresolved contradictions explicitly.
+- Integrate relevant prior compacted context instead of copying it verbatim.
+- Do not copy system, developer, or startup instruction packets into replacement history.
+- Do not invent completion, evidence, file changes, commands, or test results.
+- Prioritize the current task, then parked tasks, then only the earlier history needed to continue.`;
 
 type OpenAINativeCompactApi = "openai-responses" | "openai-codex-responses";
 type OpenAINativeCompactModel = Model<OpenAINativeCompactApi>;
@@ -65,7 +75,8 @@ export async function handleCompaction(event: CompactionEvent, ctx: ExtensionCon
 
 	const endpoint = buildCompactEndpoint(model);
 	const messages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
-	const payload = buildOpenAICompactPayload(model, messages, ctx.getSystemPrompt(), previousReplacementHistory);
+	const instructions = buildOpenAICompactInstructions(ctx.getSystemPrompt(), event.customInstructions);
+	const payload = buildOpenAICompactPayload(model, messages, instructions, previousReplacementHistory);
 	const startedAt = Date.now();
 	const response = await postOpenAICompact(endpoint, payload, model, auth.apiKey, auth.headers, event.signal);
 	const durationMs = Date.now() - startedAt;
@@ -89,6 +100,13 @@ export async function handleCompaction(event: CompactionEvent, ctx: ExtensionCon
 			details,
 		},
 	};
+}
+
+export function buildOpenAICompactInstructions(baseInstructions: string, customInstructions?: string): string {
+	const instructionSections = [baseInstructions.trim(), OPENAI_REMOTE_COMPACTION_GUIDANCE];
+	const customFocus = customInstructions?.trim();
+	if (customFocus) instructionSections.push(`Additional compaction focus requested by the user:\n${customFocus}`);
+	return instructionSections.filter((section) => section.length > 0).join("\n\n");
 }
 
 export function isOpenAIResponsesModel(model: Model<Api> | undefined): model is OpenAINativeCompactModel {

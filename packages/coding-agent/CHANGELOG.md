@@ -217,6 +217,7 @@
 - Fixed runtime-mailbox-triggered turns deadlocking after a tool result by preventing the turn's checkpoint drain from awaiting its own enclosing mailbox delivery.
 - Fixed production child and attached sessions exposing parent agent inspection and control tools, which allowed delegated workflows to mistake and cancel their own agent record.
 - Fixed OpenAI remote compaction describing empty tool output as an attached image when no image existed.
+- Fixed OpenAI remote compaction ignoring `/compact` custom instructions and relying only on the general system prompt; compact requests now add dedicated continuation guidance that collapses repeated context and preserves current state.
 - Fixed interactive tool elapsed ownership so pending components claim it only after timing hydration, both footer paths use the same predicate, and hydrated components render elapsed below compact or expanded call content.
 - Fixed runtime mailbox messages being marked delivered after entering a volatile follow-up queue: busy or unauthenticated sessions now leave rows pending, while ready sessions select and mark rows delivered in one transaction before submitting them directly as active input.
 - Fixed repeated stale extension-context failures while draining terminal agent outbox projections after session replacement or reload by making Pyrun dispose session-bound Pi request handlers during session shutdown.
