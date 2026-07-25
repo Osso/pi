@@ -27,6 +27,23 @@ import { runSupervisorRequest } from "./service.ts";
 const SUPERVISOR_SESSION_ID = "supervisor";
 const SUPERVISOR_COMPACTION_PERCENT = 75;
 
+interface SupervisorSession {
+	abort(): Promise<void>;
+	compact?: (customInstructions?: string) => Promise<unknown>;
+	getContextUsage?: () => { percent: number | null } | undefined;
+	prompt(content: string): Promise<void>;
+	sessionId?: string;
+	sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
+}
+
+interface RunSupervisorRequestLoopInput {
+	claimToken: string;
+	controlDbPath: string;
+	session: SupervisorSession;
+	signal: AbortSignal;
+	wakeServer: SupervisorRequestWakeServer;
+}
+
 export const SUPERVISOR_TOOL_NAMES = ["read", "edit", "write"];
 
 export const SUPERVISOR_EXCLUDED_TOOL_NAMES = [
@@ -101,8 +118,36 @@ export function blockSupervisorFileAccess(
 export async function runSupervisorService(): Promise<void> {
 	const agentDir = getAgentDir();
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
-	const sessionManager = openSupervisorSession(agentDir, kbDir);
 	const controlDbPath = getControlDbPath();
+	const sessionManager = openSupervisorSession(agentDir, kbDir);
+	const session = await createSupervisorAgentSession(agentDir, kbDir, sessionManager);
+	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
+	await wakeServer.start();
+	const abortController = new AbortController();
+	const stop = () => abortController.abort();
+	process.once("SIGINT", stop);
+	process.once("SIGTERM", stop);
+	try {
+		await runSupervisorRequestLoop({
+			claimToken: randomUUID(),
+			controlDbPath,
+			session,
+			signal: abortController.signal,
+			wakeServer,
+		});
+	} finally {
+		process.off("SIGINT", stop);
+		process.off("SIGTERM", stop);
+		await wakeServer.close();
+		await session.abort();
+	}
+}
+
+async function createSupervisorAgentSession(
+	agentDir: string,
+	kbDir: string,
+	sessionManager: SessionManager,
+): Promise<SupervisorSession> {
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
 	const model = modelRegistry.find("openai-codex", "gpt-5.6-sol");
@@ -123,29 +168,19 @@ export async function runSupervisorService(): Promise<void> {
 		thinkingLevel: "low",
 		tools: SUPERVISOR_TOOL_NAMES,
 	});
-	const claimToken = randomUUID();
-	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
-	await wakeServer.start();
-	const abortController = new AbortController();
-	const stop = () => abortController.abort();
-	process.once("SIGINT", stop);
-	process.once("SIGTERM", stop);
-	try {
-		recoverSupervisorRequests(controlDbPath);
-		while (!abortController.signal.aborted) {
-			const observedGeneration = wakeServer.currentGeneration();
-			const request = claimNextSupervisorRequest(controlDbPath, claimToken);
-			if (!request) {
-				await wakeServer.waitForWakeAfter(observedGeneration, abortController.signal);
-				continue;
-			}
-			await processSupervisorRequest(controlDbPath, request, session);
+	return session;
+}
+
+async function runSupervisorRequestLoop(input: RunSupervisorRequestLoopInput): Promise<void> {
+	recoverSupervisorRequests(input.controlDbPath);
+	while (!input.signal.aborted) {
+		const observedGeneration = input.wakeServer.currentGeneration();
+		const request = claimNextSupervisorRequest(input.controlDbPath, input.claimToken);
+		if (!request) {
+			await input.wakeServer.waitForWakeAfter(observedGeneration, input.signal);
+			continue;
 		}
-	} finally {
-		process.off("SIGINT", stop);
-		process.off("SIGTERM", stop);
-		await wakeServer.close();
-		await session.abort();
+		await processSupervisorRequest(input.controlDbPath, request, input.session);
 	}
 }
 
