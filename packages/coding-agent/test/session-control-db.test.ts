@@ -44,6 +44,7 @@ import {
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
+	listTerminalMultiAgentAgentsUpdatedAtOrBefore,
 	markMultiAgentMailboxMessageDelivered,
 	markRuntimeMailboxMessageDelivered,
 	postArchitectRequest,
@@ -568,6 +569,105 @@ describe("session control DB", () => {
 				storeRef: { messageId: "missing", sessionPath: "/sessions/missing.jsonl" },
 			}),
 		).toThrow("Runtime mailbox store reference does not exist");
+	});
+
+	it("queries terminal agents through an inclusive update cutoff without reading unrelated state", () => {
+		readMultiAgentState(controlDbPath, "/sessions/query-schema.jsonl");
+		const cutoff = "2026-07-11T00:00:00.000Z";
+		const rows = [
+			{
+				agentId: "completed-before",
+				lifecycle: "completed",
+				sessionPath: "/sessions/completed-before.jsonl",
+				updatedAt: "2026-07-10T23:59:59.999Z",
+			},
+			{
+				agentId: "failed-at-cutoff",
+				lifecycle: "failed",
+				sessionPath: "/sessions/failed-at-cutoff.jsonl",
+				updatedAt: cutoff,
+			},
+			{
+				agentId: "aborted-after",
+				lifecycle: "aborted",
+				sessionPath: "/sessions/aborted-after.jsonl",
+				updatedAt: "2026-07-11T00:00:00.001Z",
+			},
+			{
+				agentId: "running-before",
+				lifecycle: "running",
+				sessionPath: "/sessions/running-before.jsonl",
+				updatedAt: "2026-07-10T00:00:00.000Z",
+			},
+		] as const;
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			for (const row of rows) {
+				db.prepare(
+					"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+				).run(
+					row.sessionPath,
+					row.agentId,
+					JSON.stringify({ id: row.agentId, lifecycle: row.lifecycle, revision: 1, updatedAt: row.updatedAt }),
+					"2026-07-25T00:00:00.000Z",
+				);
+			}
+			db.prepare(
+				"INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at) VALUES (?, ?, ?, ?)",
+			).run("/sessions/completed-before.jsonl", "invalid-mailbox", "not-json", cutoff);
+			db.prepare(
+				"INSERT INTO multi_agent_counters_v2 (session_path, next_agent_number, next_message_number, updated_at) VALUES (?, ?, ?, ?)",
+			).run("/sessions/completed-before.jsonl", 99, 99, cutoff);
+		} finally {
+			db.close();
+		}
+
+		expect(listTerminalMultiAgentAgentsUpdatedAtOrBefore(controlDbPath, cutoff)).toEqual([
+			{
+				agent: {
+					id: "completed-before",
+					lifecycle: "completed",
+					revision: 1,
+					updatedAt: "2026-07-10T23:59:59.999Z",
+				},
+				sessionPath: "/sessions/completed-before.jsonl",
+			},
+			{
+				agent: {
+					id: "failed-at-cutoff",
+					lifecycle: "failed",
+					revision: 1,
+					updatedAt: cutoff,
+				},
+				sessionPath: "/sessions/failed-at-cutoff.jsonl",
+			},
+		]);
+	});
+
+	it("validates terminal agent payloads returned by cutoff queries", () => {
+		readMultiAgentState(controlDbPath, "/sessions/query-validation-schema.jsonl");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+			).run(
+				"/sessions/invalid-terminal.jsonl",
+				"invalid-terminal",
+				JSON.stringify({
+					id: "invalid-terminal",
+					lifecycle: "completed",
+					result: { fileRefs: [{ label: 42, path: "/tmp/output.log" }] },
+					updatedAt: "2026-07-10T00:00:00.000Z",
+				}),
+				"2026-07-10T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(() => listTerminalMultiAgentAgentsUpdatedAtOrBefore(controlDbPath, "2026-07-11T00:00:00.000Z")).toThrow(
+			/label.*string/i,
+		);
 	});
 
 	it("rejects non-string persisted file reference labels", () => {

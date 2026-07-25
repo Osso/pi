@@ -2740,6 +2740,11 @@ export interface MultiAgentPersistedState {
 	counters: MultiAgentCounters;
 }
 
+export interface TerminalMultiAgentAgentRecord {
+	sessionPath: string;
+	agent: AgentSnapshot;
+}
+
 export function claimMultiAgentTerminalOutbox(
 	controlDbPath: string,
 	claimId: string,
@@ -4487,6 +4492,31 @@ export function readMultiAgentAgent(
 	});
 }
 
+export function listTerminalMultiAgentAgentsUpdatedAtOrBefore(
+	controlDbPath: string,
+	updatedAtCutoff: string,
+): TerminalMultiAgentAgentRecord[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`SELECT session_path, agent_id, data
+				 FROM multi_agent_agents
+				 WHERE CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END <= ?
+				   AND json_extract(data, '$.lifecycle') IN ('completed', 'failed', 'aborted')
+				 ORDER BY CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END,
+				          session_path,
+				          agent_id`,
+			)
+			.all(updatedAtCutoff) as Array<{ agent_id: string; data: string; session_path: string }>;
+		return rows.map((row) => {
+			const context = `multi_agent_agents:${row.session_path}#${row.agent_id}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
+			return { agent: agent as unknown as AgentSnapshot, sessionPath: row.session_path };
+		});
+	});
+}
+
 export function readMultiAgentState(controlDbPath: string, sessionPath: string): MultiAgentPersistedState | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const readRows = (table: "multi_agent_agents" | "multi_agent_mailbox_messages"): unknown[] =>
@@ -4691,6 +4721,9 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY (session_path, agent_id)
 		);
+
+		CREATE INDEX IF NOT EXISTS multi_agent_agents_agent_updated_at_idx
+		ON multi_agent_agents(CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_runtime_owners (
 			session_path TEXT NOT NULL,

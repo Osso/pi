@@ -7,10 +7,12 @@ import {
 	selectDetachedArtifactDirectoriesToDelete,
 } from "./detached-job-retention.ts";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
-import { listSessionMetadata, readMultiAgentState } from "./session-control-db.ts";
+import { listTerminalMultiAgentAgentsUpdatedAtOrBefore } from "./session-control-db.ts";
 
 const DETACHED_ARTIFACT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
 const DETACHED_ARTIFACT_MAX_BYTES = 2 * 1024 ** 3;
+const ALL_TERMINAL_AGENTS_CUTOFF = "9999-12-31T23:59:59.999Z";
+const NO_BYTE_CAP = Number.MAX_SAFE_INTEGER;
 const DETACHED_OUTPUT_LABELS = new Set(["Bash output", "Pyrun output"]);
 const DELETED_PATH_SUFFIX = " (deleted)";
 
@@ -35,7 +37,13 @@ export function cleanupDetachedJobArtifacts(
 	const processReferences = readLinuxProcessReferences();
 	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
 	const errors: string[] = [];
-	const candidates = collectTerminalArtifactCandidates(controlDbPath, options.artifactRoot, processReferences, errors);
+	const candidates = collectTerminalArtifactCandidates(
+		controlDbPath,
+		options.artifactRoot,
+		processReferences,
+		errors,
+		ALL_TERMINAL_AGENTS_CUTOFF,
+	);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
@@ -50,11 +58,33 @@ export function runDetachedJobArtifactCleanup(
 	now = Date.now(),
 ): void {
 	try {
-		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot, now });
-		for (const error of result.errors) console.error(`Detached artifact cleanup: ${error}`);
+		const errors = cleanupExpiredDetachedJobArtifacts(controlDbPath, artifactRoot, now);
+		if (detachedArtifactBytes(artifactRoot, errors) > DETACHED_ARTIFACT_MAX_BYTES) {
+			errors.push(...cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot, now }).errors);
+		}
+		for (const error of errors) console.error(`Detached artifact cleanup: ${error}`);
 	} catch (error) {
 		console.error(`Detached artifact cleanup failed: ${errorMessage(error)}`);
 	}
+}
+
+function cleanupExpiredDetachedJobArtifacts(controlDbPath: string, artifactRoot: string, now: number): string[] {
+	const processReferences = readLinuxProcessReferences();
+	if (!processReferences) return [];
+	const errors: string[] = [];
+	const cutoff = new Date(now - DETACHED_ARTIFACT_MAX_AGE_MS).toISOString();
+	const candidates = collectTerminalArtifactCandidates(controlDbPath, artifactRoot, processReferences, errors, cutoff);
+	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
+		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
+		maxBytes: NO_BYTE_CAP,
+		now,
+	});
+	deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors);
+	return errors;
+}
+
+function detachedArtifactBytes(artifactRoot: string, errors: string[]): number {
+	return readDirectoryByteSize(join(artifactRoot, "detached-jobs"), errors) ?? 0;
 }
 
 function emptyCleanupResult(skippedReason: string): DetachedJobCleanupResult {
@@ -137,27 +167,19 @@ function collectTerminalArtifactCandidates(
 	artifactRoot: string,
 	processReferences: ReadonlySet<string>,
 	errors: string[],
+	updatedAtCutoff: string,
 ): DetachedArtifactRetentionCandidate[] {
 	const candidatesByPath = new Map<string, DetachedArtifactRetentionCandidate>();
-	for (const session of listSessionMetadata(controlDbPath)) {
-		const state = readMultiAgentState(controlDbPath, session.sessionPath);
-		if (!state) continue;
-		for (const persistedAgent of state.agents) {
-			const candidate = terminalArtifactCandidate(
-				persistedAgent,
-				session.sessionPath,
-				artifactRoot,
-				processReferences,
-				errors,
-			);
-			if (!candidate) continue;
-			const existing = candidatesByPath.get(candidate.directoryPath);
-			if (!existing) {
-				candidatesByPath.set(candidate.directoryPath, candidate);
-				continue;
-			}
-			candidatesByPath.set(candidate.directoryPath, { ...existing, protectedByLiveReference: true });
+	const records = listTerminalMultiAgentAgentsUpdatedAtOrBefore(controlDbPath, updatedAtCutoff);
+	for (const { agent, sessionPath } of records) {
+		const candidate = terminalArtifactCandidate(agent, sessionPath, artifactRoot, processReferences, errors);
+		if (!candidate) continue;
+		const existing = candidatesByPath.get(candidate.directoryPath);
+		if (!existing) {
+			candidatesByPath.set(candidate.directoryPath, candidate);
+			continue;
 		}
+		candidatesByPath.set(candidate.directoryPath, { ...existing, protectedByLiveReference: true });
 	}
 	return [...candidatesByPath.values()];
 }

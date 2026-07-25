@@ -69,6 +69,7 @@ function persistArtifact(input: {
 	sessionName: string;
 	size?: number;
 	updatedAt: string;
+	writeMetadata?: boolean;
 }): string {
 	const sessionDirectory = join(input.root, "sessions", "project");
 	const sessionPath = join(sessionDirectory, `${input.sessionName}.jsonl`);
@@ -77,18 +78,20 @@ function persistArtifact(input: {
 	mkdirSync(artifactDirectory, { recursive: true });
 	writeFileSync(outputPath, "output", { mode: 0o600 });
 	if (input.size !== undefined) truncateSync(outputPath, input.size);
-	writeSessionMetadata(input.controlDbPath, {
-		allMessagesText: input.sessionName,
-		createdAt: input.updatedAt,
-		cwd: input.root,
-		firstMessage: input.sessionName,
-		id: `session-${input.sessionName}`,
-		messageCount: 1,
-		modifiedAt: input.updatedAt,
-		name: undefined,
-		parentSessionPath: undefined,
-		sessionPath,
-	});
+	if (input.writeMetadata !== false) {
+		writeSessionMetadata(input.controlDbPath, {
+			allMessagesText: input.sessionName,
+			createdAt: input.updatedAt,
+			cwd: input.root,
+			firstMessage: input.sessionName,
+			id: `session-${input.sessionName}`,
+			messageCount: 1,
+			modifiedAt: input.updatedAt,
+			name: undefined,
+			parentSessionPath: undefined,
+			sessionPath,
+		});
+	}
 	bootstrapMultiAgentAgent(input.controlDbPath, sessionPath, input.jobId, {
 		agentType: "background",
 		createdAt: input.updatedAt,
@@ -171,7 +174,12 @@ async function createRuntimeResult(root: string) {
 		diagnostics: [],
 		extensionsResult: await createTestExtensionsResult([], root),
 		services: { agentDir: root, cwd: root } as AgentSessionServices,
-		session: { extensionRunner: { setRelocateHandler: () => {} } } as unknown as AgentSession,
+		session: {
+			extensionRunner: {
+				setRelocateHandler: () => {},
+				setToolResultRelocationHandlers: () => {},
+			},
+		} as unknown as AgentSession,
 	};
 }
 
@@ -203,6 +211,25 @@ function persistFailedOutboxAgent(input: {
 }
 
 describe("detached job artifact cleanup", () => {
+	it("cleans expired artifacts directly from agent records without session metadata", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "pyrun_without_metadata",
+			lifecycle: "completed",
+			root,
+			sessionName: "without-metadata",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+			writeMetadata: false,
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
+
+		expect(result.deletedDirectories).toEqual([expired]);
+		expect(existsSync(expired)).toBe(false);
+	});
+
 	it("cleans production artifacts when agent and control database roots differ", () => {
 		const stateRoot = createRoot();
 		const agentRoot = createRoot();
