@@ -121,7 +121,7 @@ async function stopService(service: Promise<void>): Promise<void> {
 	await vi.advanceTimersByTimeAsync(50);
 	const stopHandler = process.listeners("SIGTERM").find((handler) => !initialSigtermListeners.has(handler));
 	if (!stopHandler) throw new Error("Supervisor service did not install its SIGTERM handler");
-	stopHandler();
+	stopHandler("SIGTERM");
 	await vi.advanceTimersByTimeAsync(0);
 	await service;
 }
