@@ -102,6 +102,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, and request loop.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, and approval preemption.
 - `packages/coding-agent/src/supervisor/client.ts` — durable synchronous caller transport.
+- `packages/coding-agent/src/supervisor/request-wake.ts` — owner-only Unix-socket wake notification for the durable request queue.
 - `packages/coding-agent/src/supervisor/project-resolver.ts` — KB config loading and canonical project-family resolution.
 - `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
 - `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.

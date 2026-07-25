@@ -1,10 +1,10 @@
 # Resident Supervisor service
 
-The Supervisor runs as `pi supervisor` under `pi-supervisor.service`. It owns one archived SDK transcript using `openai-codex/gpt-5.6-sol` at low thinking effort. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; the service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
+The Supervisor runs as `pi supervisor` under `pi-supervisor.service`. It owns one archived SDK transcript using `openai-codex/gpt-5.6-sol` at low thinking effort. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; an owner-only Unix socket provides a wake notification, while SQLite remains the durable queue. The service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
 
 ## Request flow
 
-`supervisor_requests` stores request identity, sender session, canonical project family, request kind, bounded JSON evidence, original deadline, claim ownership, and typed response. Approval requests sort ahead of goal requests. If an approval arrives during a goal evaluation, the service aborts the model turn, requeues the unchanged goal request, evaluates the approval, then later resumes the goal request within its original deadline.
+`supervisor_requests` stores request identity, sender session, canonical project family, request kind, bounded JSON evidence, original deadline, claim ownership, and typed response. After inserting a request, the caller sends a best-effort wake notification through the owner-only Unix socket. The Supervisor claims pending rows from SQLite at startup and after every wake, so a missed notification leaves the request durable for the next wake or service restart. Approval requests sort ahead of goal requests. If an approval arrives during a goal evaluation, the service aborts the model turn, requeues the unchanged goal request, evaluates the approval, then later resumes the goal request within its original deadline.
 
 Callers poll only their durable request row. Approval requests use a 30-second deadline; goal requests use three minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
 
