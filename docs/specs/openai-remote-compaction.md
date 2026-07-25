@@ -9,6 +9,7 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 - [x] Remote compaction requests must preserve Pi's system instructions, append compaction-only guidance that prioritizes deduplicated continuation context, and include optional user-provided `/compact` instructions.
 - [x] Codex remote compaction must use `gpt-5.6-terra` regardless of the active Codex generation model, while preserving native history across Codex model switches.
 - [x] Remote compaction results must keep OpenAI's native replacement history in compaction entry details.
+- [x] When the compact endpoint returns provider-generated `message` rows that are identical except for response-item `id`, remote compaction must keep only the latest row while preserving every non-message item unchanged.
 - [x] When a compact request exceeds the 400,000-character serialized-input limit, it must retain prior OpenAI-native replacement history intact and allocate the remaining budget to newer raw context.
 - [x] When prior OpenAI-native replacement history alone exceeds the 400,000-character serialized-input limit, remote compaction must preserve encrypted compaction items that fit, truncate non-encrypted native context, and continue.
 - [x] An encrypted compaction item that cannot itself fit within the serialized-input limit must be omitted rather than exceed the limit or cancel compaction.

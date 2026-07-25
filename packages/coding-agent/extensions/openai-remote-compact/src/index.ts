@@ -172,10 +172,11 @@ export function extractOpenAICompactDetails(
 	if (!Array.isArray(response.output)) {
 		throw new Error("OpenAI compact response did not include an output array");
 	}
-	const replacementHistory = response.output.filter(isRecord);
-	if (!replacementHistory.some(isOpenAICompactionItem)) {
+	const responseItems = response.output.filter(isRecord);
+	if (!responseItems.some(isOpenAICompactionItem)) {
 		throw new Error("OpenAI compact response did not include a compaction item");
 	}
+	const replacementHistory = deduplicateOpenAIMessageItems(responseItems);
 	const replacementHistoryBytes = Buffer.byteLength(JSON.stringify(replacementHistory), "utf8");
 	return {
 		type: DETAILS_TYPE,
@@ -301,6 +302,34 @@ function isOpenAIRemoteCompactionDetails(value: unknown): value is OpenAIRemoteC
 		value.replacementHistory.every(isRecord) &&
 		(typeof value.replacementHistoryBytes !== "number" || Number.isFinite(value.replacementHistoryBytes)) &&
 		(typeof value.replacementHistoryTokens !== "number" || Number.isFinite(value.replacementHistoryTokens))
+	);
+}
+
+function deduplicateOpenAIMessageItems(items: OpenAIResponseItem[]): OpenAIResponseItem[] {
+	const keys = items.map(openAIMessageDeduplicationKey);
+	const latestIndexByKey = new Map<string, number>();
+	for (const [index, key] of keys.entries()) {
+		if (key) latestIndexByKey.set(key, index);
+	}
+	return items.filter((_item, index) => {
+		const key = keys[index];
+		return key === undefined || latestIndexByKey.get(key) === index;
+	});
+}
+
+function openAIMessageDeduplicationKey(item: OpenAIResponseItem): string | undefined {
+	if (item.type !== "message" || typeof item.id !== "string") return undefined;
+	const { id: _id, ...message } = item;
+	return JSON.stringify(canonicalizeJsonValue(message));
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonicalizeJsonValue);
+	if (!isRecord(value)) return value;
+	return Object.fromEntries(
+		Object.entries(value)
+			.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+			.map(([key, child]) => [key, canonicalizeJsonValue(child)]),
 	);
 }
 

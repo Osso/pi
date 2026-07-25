@@ -492,6 +492,32 @@ describe("openai remote compact extension", () => {
 		});
 	});
 
+	it("collapses duplicate provider message rows while keeping the latest item", () => {
+		const repeatedMessages = Array.from({ length: 104 }, (_, index) => ({
+			type: "message",
+			id: `message-${index}`,
+			role: "user",
+			status: "completed",
+			content: [{ type: "input_text", text: "Continue working toward this objective." }],
+		}));
+		const latestMessage = {
+			type: "message",
+			id: "message-104",
+			role: "user",
+			status: "completed",
+			content: [{ type: "input_text", text: "Continue working toward this objective." }],
+		};
+		const compactionItem = { type: "compaction", encrypted_content: "encrypted" };
+
+		const details = extractOpenAICompactDetails(
+			createOpenAIResponsesModel(),
+			{ output: [...repeatedMessages, latestMessage, compactionItem] },
+			"https://api.openai.com/v1/responses/compact",
+		);
+
+		expect(details.replacementHistory).toEqual([latestMessage, compactionItem]);
+	});
+
 	it("returns remote compaction metadata and sends steered instructions", async () => {
 		let requestPayload: unknown;
 		globalThis.fetch = (async (_url, init) => {
