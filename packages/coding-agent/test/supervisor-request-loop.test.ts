@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupervisorRequest } from "../src/core/session-control-db.ts";
+import { requestSupervisorDecision } from "../src/supervisor/client.ts";
+import { runSupervisorService } from "../src/supervisor/main.ts";
 
 const mocks = vi.hoisted(() => {
 	const sessionEntries: Array<Record<string, unknown>> = [];
@@ -85,8 +87,6 @@ vi.mock("../src/core/session-manager.ts", () => ({
 	},
 }));
 
-const { runSupervisorService } = await import("../src/supervisor/main.ts");
-const { requestSupervisorDecision } = await import("../src/supervisor/client.ts");
 let initialSigtermListeners = new Set(process.listeners("SIGTERM"));
 
 function pendingApprovalRequest(): SupervisorRequest {
