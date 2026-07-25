@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Fixed OpenAI server processing errors to enter the normal transient-error retry path.
 - Fixed OpenAI Responses early stream endings to be classified as retryable provider errors ([#6727](https://github.com/earendil-works/pi/issues/6727)).
 - Fixed OpenAI Responses incomplete terminal events to preserve their reason and enter the normal transient-error retry path instead of ending the turn as output-length truncation.
 - Fixed Anthropic message replay to normalize invalid persisted tool IDs even for same-model history, avoiding `tool_result.tool_use_id` request validation errors after restart.

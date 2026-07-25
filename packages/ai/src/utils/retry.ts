@@ -36,6 +36,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"524",
 	"service.?unavailable",
 	"server.?error",
+	"server had an error",
 	"internal.?error",
 
 	// Wrapper/provider text for transient upstream failures, including OpenRouter
