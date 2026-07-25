@@ -1,67 +1,61 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-const DEFAULT_HOOK = "/home/osso/bin/claude-memory-hook";
-const DEFAULT_LOG = "/tmp/claude-memory-hook.log";
+const CLAUDE_MEMORY = "/home/osso/.cargo/bin/claude-memory";
 
-type HookPayload = {
-	transcript_path: string;
-	source: "pi";
-	event: "session_shutdown";
-	reason?: string;
-};
-
-function resolveHookCommand(): string | undefined {
-	const configuredCommand = process.env.PI_CLAUDE_MEMORY_SESSION_END_HOOK;
-	if (configuredCommand) {
-		return configuredCommand;
-	}
-
-	if (existsSync(DEFAULT_HOOK)) {
-		return DEFAULT_HOOK;
-	}
-
-	return undefined;
+function formatLogLine(message: string): string {
+	return `[${new Date().toISOString()}] ${message}\n`;
 }
 
-function runHook(command: string, payload: HookPayload): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(command, [], {
-			stdio: ["pipe", "ignore", "ignore"],
-			detached: true,
-			env: {
-				...process.env,
-				CLAUDE_MEMORY_HOOK_LOG: process.env.CLAUDE_MEMORY_HOOK_LOG ?? DEFAULT_LOG,
-			},
-		});
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
 
-		child.once("error", reject);
-		child.once("spawn", () => {
-			child.stdin.end(`${JSON.stringify(payload)}\n`);
-			child.unref();
-			resolve();
+function appendLogLine(logPath: string, message: string): void {
+	mkdirSync(dirname(logPath), { recursive: true });
+	appendFileSync(logPath, formatLogLine(message));
+}
+
+function reportLaunchFailure(logPath: string, sessionPath: string, error: unknown): void {
+	const message = `failed to launch index-file for session ${sessionPath}: ${errorMessage(error)}`;
+	try {
+		appendLogLine(logPath, message);
+	} catch (logError) {
+		console.error(`${message}; failed to write ${logPath}: ${errorMessage(logError)}`);
+	}
+}
+
+function launchIndex(sessionPath: string): void {
+	const cacheHome = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
+	const logPath = join(cacheHome, "claude-memory", "pi-index.log");
+	mkdirSync(dirname(logPath), { recursive: true });
+	const logFile = openSync(logPath, "a");
+
+	try {
+		appendFileSync(logFile, formatLogLine(`starting index-file for session ${sessionPath}`));
+		const child = spawn(CLAUDE_MEMORY, ["index-file", sessionPath], {
+			detached: true,
+			stdio: ["ignore", logFile, logFile],
 		});
-	});
+		child.once("error", (error) => reportLaunchFailure(logPath, sessionPath, error));
+		child.unref();
+	} catch (error) {
+		reportLaunchFailure(logPath, sessionPath, error);
+	} finally {
+		closeSync(logFile);
+	}
 }
 
 export default function claudeMemorySessionEndExtension(pi: ExtensionAPI): void {
-	pi.on("session_shutdown", async (event, ctx) => {
+	pi.on("session_shutdown", (_event, ctx) => {
 		const sessionFile = ctx.sessionManager.getSessionFile();
 		if (!sessionFile) {
 			return;
 		}
 
-		const command = resolveHookCommand();
-		if (!command) {
-			return;
-		}
-
-		await runHook(command, {
-			transcript_path: sessionFile,
-			source: "pi",
-			event: "session_shutdown",
-			reason: event.reason,
-		});
+		launchIndex(sessionFile);
 	});
 }
