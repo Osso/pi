@@ -161,6 +161,7 @@
 
 ### Fixed
 
+- Fixed Pi session-shutdown indexing to run directly as detached non-blocking work and persist output under `$XDG_CACHE_HOME/claude-memory/pi-index.log`; removed the obsolete external hook configuration.
 - Fixed `change_working_directory` ending the active agent turn instead of continuing it after the directory change; intermediate `agent_end` events now identify the cwd-relocation handoff so idle extensions defer until the continued turn settles, and `/run-plan` restores its active plan across the runtime rebuild.
 - Fixed `change_working_directory` leaving its in-flight tool call without a terminal result when changing directories; the result is now emitted and persisted before the change takes effect.
 - Fixed unsandboxed bwrap file-tool overrides retaining process startup cwd after session relocation or restart instead of resolving relative paths from current extension-context cwd.
