@@ -30,6 +30,17 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it("matches OpenAI server processing errors", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "The server had an error while processing your request. Sorry about that!",
+				}),
+			),
+		).toBe(true);
+	});
+
 	it("matches explicit provider retry guidance", () => {
 		expect(
 			isRetryableAssistantError(
