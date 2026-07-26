@@ -31,6 +31,7 @@ import {
 import { reviewGoalWithResidentSupervisor, withSupervisorReviewStatus } from "./supervisor-review.ts";
 
 const MAX_OBJECTIVE_CHARS = 4000;
+const USER_PAUSE_REASON = "Paused by user.";
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 export type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
@@ -120,13 +121,13 @@ function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
 	return completedGoal;
 }
 
-function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
+function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal) return null;
-	if (goal.pausedAt) return goal;
 	const pausedGoal: Goal = {
 		...goal,
-		pausedAt: new Date().toISOString(),
+		pausedAt: goal.pausedAt ?? new Date().toISOString(),
+		pauseReason: reason,
 	};
 	saveGoal(ctx, pausedGoal);
 	return pausedGoal;
@@ -135,7 +136,7 @@ function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal 
 function resumeGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal?.pausedAt) return null;
-	const { pausedAt: _pausedAt, ...resumedGoal } = goal;
+	const { pausedAt: _pausedAt, pauseReason: _pauseReason, ...resumedGoal } = goal;
 	saveGoal(ctx, resumedGoal);
 	return resumedGoal;
 }
@@ -257,17 +258,27 @@ function runSetGoalAction({
 	return textResult(result.ok ? `Goal set: ${objective}` : result.message, details);
 }
 
-function runPauseGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void): AgentToolResult<unknown> {
-	const goal = pauseGoal(ctx);
-	updateGoalFooterStatus(ctx);
-	if (!goal) {
+function runPauseGoalAction(
+	ctx: ExtensionContext,
+	reasonInput: string | undefined,
+	afterGoalChange?: () => void,
+): AgentToolResult<unknown> {
+	if (!loadOrMigrateActiveGoal(ctx)) {
+		updateGoalFooterStatus(ctx);
 		ctx.ui.notify("No active goal to pause", "info");
 		return textResult("No active goal to pause.");
 	}
-
+	const reason = reasonInput?.trim();
+	if (!reason) {
+		ctx.ui.notify("Reason is required to pause a goal", "error");
+		return textResult("Reason is required to pause a goal.");
+	}
+	const goal = pauseGoal(ctx, reason);
+	if (!goal) return textResult("No active goal to pause.");
+	updateGoalFooterStatus(ctx);
 	afterGoalChange?.();
-	ctx.ui.notify(`Goal paused: ${goal.objective}`, "info");
-	return textResult(`Goal paused: ${goal.objective}`, { objective: goal.objective });
+	ctx.ui.notify(`Goal paused: ${reason}`, "info");
+	return textResult(`Goal paused: ${reason}`, { objective: goal.objective, reason });
 }
 
 function runResumeGoalAction(
@@ -375,7 +386,7 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 		case "set":
 			return runSetGoalAction({ ctx, params, pi, beforeGoalSave });
 		case "pause":
-			return runPauseGoalAction(ctx, beforeGoalSave);
+			return runPauseGoalAction(ctx, params.reason, beforeGoalSave);
 		case "resume":
 			return runResumeGoalAction(ctx, pi, beforeGoalSave);
 		case "complete":
@@ -442,9 +453,9 @@ function clearGoalRetry(ctx: ExtensionCommandContext, clearRetry: (sessionId: st
 }
 
 function handleGoalPauseCommand(ctx: ExtensionCommandContext, clearRetry: (sessionId: string) => void): void {
-	const goal = pauseGoal(ctx);
+	const goal = pauseGoal(ctx, USER_PAUSE_REASON);
 	if (goal) clearGoalRetry(ctx, clearRetry);
-	ctx.ui.notify(goal ? `Goal paused: ${goal.objective}` : "No active goal to pause", "info");
+	ctx.ui.notify(goal ? `Goal paused: ${USER_PAUSE_REASON}` : "No active goal to pause", "info");
 	updateGoalFooterStatus(ctx);
 }
 

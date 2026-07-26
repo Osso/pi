@@ -15,7 +15,7 @@ export function registerManageGoalTool(pi: ExtensionAPI, execute: ManageGoalExec
 	pi.registerTool({
 		name: "manage_goal",
 		label: "Manage Goal",
-		description: "Manage the active long-running /goal objective.",
+		description: "Manage the active long-running /goal objective. The pause action requires a concrete reason.",
 		promptGuidelines: [],
 		approvalRequired: false,
 		parameters: Type.Object({
@@ -28,7 +28,7 @@ export function registerManageGoalTool(pi: ExtensionAPI, execute: ManageGoalExec
 				Type.Literal("status"),
 			]),
 			objective: Type.Optional(Type.String()),
-			reason: Type.Optional(Type.String()),
+			reason: Type.Optional(Type.String({ description: "Required when pausing; used to explain why work stopped." })),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => execute(params, ctx),
 	});

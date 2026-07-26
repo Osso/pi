@@ -1,15 +1,21 @@
 import type { Goal } from "./goal-types.ts";
 
+const MISSING_PAUSE_REASON = "No pause reason recorded";
+
+function pauseReason(goal: Goal): string {
+	return goal.pauseReason?.trim() || MISSING_PAUSE_REASON;
+}
+
 export function goalFooterStatus(goal: Goal): string {
-	return goal.pausedAt ? `goal paused: ${goal.objective}` : `goal: ${goal.objective}`;
+	return goal.pausedAt ? `goal paused: ${pauseReason(goal)}` : `goal: ${goal.objective}`;
 }
 
 export function goalStartupMessage(goal: Goal): string {
-	return goal.pausedAt ? `Paused goal: ${goal.objective}` : `Active goal: ${goal.objective}`;
+	return goal.pausedAt ? `Paused goal: ${pauseReason(goal)}` : `Active goal: ${goal.objective}`;
 }
 
 export function goalViewMessage(goal: Goal): string {
-	return goal.pausedAt ? `Goal paused: ${goal.objective}` : `Goal: ${goal.objective}`;
+	return goal.pausedAt ? `Goal paused: ${pauseReason(goal)}` : `Goal: ${goal.objective}`;
 }
 
 export function goalSystemBlock(goal: Goal): string {

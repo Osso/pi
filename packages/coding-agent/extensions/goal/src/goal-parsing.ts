@@ -43,6 +43,7 @@ export function parseGoal(value: unknown): Goal | null {
 		completionReason: optionalString(value.completionReason),
 		continuationTurns: optionalNumber(value.continuationTurns),
 		pausedAt: optionalString(value.pausedAt),
+		pauseReason: optionalString(value.pauseReason)?.trim() || undefined,
 	};
 }
 

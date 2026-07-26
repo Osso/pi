@@ -9,6 +9,7 @@ export interface Goal {
 	completionReason?: string;
 	continuationTurns?: number;
 	pausedAt?: string;
+	pauseReason?: string;
 }
 
 export type GoalSupervisorResponse = Extract<

@@ -247,10 +247,10 @@ function createGoalHarness(
 				undefined,
 				ctx as ExtensionContext,
 			),
-		runPauseGoal: async () =>
+		runPauseGoal: async (reason?: string) =>
 			manageGoalTool?.execute(
 				"manage-goal-pause-1",
-				{ action: "pause" },
+				{ action: "pause", reason },
 				undefined,
 				undefined,
 				ctx as ExtensionContext,
@@ -1194,7 +1194,7 @@ describe("goal extension", () => {
 			const harness = createGoalHarness(cwd, { reviewGoal });
 			await harness.runCommand("set pause scheduled review");
 			await harness.runAgentEnd();
-			await harness.runPauseGoal();
+			await harness.runPauseGoal("Pause requested during scheduled review");
 			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
@@ -1458,7 +1458,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("set complete while paused");
-		await harness.runPauseGoal();
+		await harness.runPauseGoal("Pause before completion review");
 		const result = await harness.runGoalComplete("verified while paused");
 
 		const goal = readStoredGoal<{ completedAt?: string; completionReason?: string }>(cwd);
@@ -1467,25 +1467,40 @@ describe("goal extension", () => {
 		expect(result?.content).toEqual([{ type: "text", text: "Goal marked complete: verified while paused" }]);
 	});
 
-	it("pauses an active goal through the manage_goal tool", async () => {
+	it("persists and displays the reason supplied to manage_goal pause", async () => {
 		const harness = createGoalHarness(cwd);
+		const reason =
+			"Kill mechanism and ongoing impact are proven; retained-heap proof is still required before implementation.";
 
 		await harness.runCommand("set pause by tool objective");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		harness.setStatus.mockClear();
-		const result = await harness.runPauseGoal();
+		const result = await harness.runPauseGoal(reason);
 		const injected = await harness.runBeforeAgentStart();
 		await harness.runAgentEnd();
 
-		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string; pauseReason?: string }>(cwd);
 		expect(goal.objective).toBe("pause by tool objective");
 		expect(goal.pausedAt).toEqual(expect.any(String));
-		expect(result?.content).toEqual([{ type: "text", text: "Goal paused: pause by tool objective" }]);
-		expect(harness.notify).toHaveBeenCalledWith("Goal paused: pause by tool objective", "info");
-		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: pause by tool objective");
+		expect(goal.pauseReason).toBe(reason);
+		expect(result?.content).toEqual([{ type: "text", text: `Goal paused: ${reason}` }]);
+		expect(harness.notify).toHaveBeenCalledWith(`Goal paused: ${reason}`, "info");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", `goal paused: ${reason}`);
 		expect(injected).toBeUndefined();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("requires manage_goal pause to include a reason", async () => {
+		const harness = createGoalHarness(cwd);
+		await harness.runCommand("set reject silent pause");
+
+		const missing = await harness.runPauseGoal();
+		const blank = await harness.runPauseGoal("   ");
+
+		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
+		expect(missing?.content).toEqual([{ type: "text", text: "Reason is required to pause a goal." }]);
+		expect(blank?.content).toEqual([{ type: "text", text: "Reason is required to pause a goal." }]);
 	});
 
 	it("does not pause through the manage_goal tool when no active goal exists", async () => {
@@ -1510,14 +1525,32 @@ describe("goal extension", () => {
 		const injected = await harness.runBeforeAgentStart();
 		await harness.runAgentEnd();
 
-		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string; pauseReason?: string }>(cwd);
 		expect(goal.objective).toBe("pause retained objective");
 		expect(goal.pausedAt).toEqual(expect.any(String));
-		expect(harness.notify).toHaveBeenNthCalledWith(1, "Goal paused: pause retained objective", "info");
-		expect(harness.notify).toHaveBeenNthCalledWith(2, "Goal paused: pause retained objective", "info");
-		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: pause retained objective");
+		expect(goal.pauseReason).toBe("Paused by user.");
+		expect(harness.notify).toHaveBeenNthCalledWith(1, "Goal paused: Paused by user.", "info");
+		expect(harness.notify).toHaveBeenNthCalledWith(2, "Goal paused: Paused by user.", "info");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: Paused by user.");
 		expect(injected).toBeUndefined();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("shows an explicit reason when legacy paused state has no pause reason", async () => {
+		const harness = createGoalHarness(cwd);
+		writeStoredGoal(cwd, "test-session", {
+			objective: "legacy paused objective",
+			branch: "master",
+			createdAt: "2026-07-26T19:28:00.570Z",
+			pausedAt: "2026-07-26T19:45:01.692Z",
+		});
+
+		await harness.runSessionStart("resume");
+		await harness.runCommand("");
+
+		expect(harness.notify).toHaveBeenNthCalledWith(1, "Paused goal: No pause reason recorded", "info");
+		expect(harness.notify).toHaveBeenNthCalledWith(2, "Goal paused: No pause reason recorded", "info");
+		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: No pause reason recorded");
 	});
 
 	it("resumes a paused goal without replacing it", async () => {
@@ -1531,9 +1564,10 @@ describe("goal extension", () => {
 		await harness.runCommand("resume");
 		const injected = await harness.runBeforeAgentStart();
 
-		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
+		const goal = readStoredGoal<{ objective: string; pausedAt?: string; pauseReason?: string }>(cwd);
 		expect(goal.objective).toBe("resume retained objective");
 		expect(goal.pausedAt).toBeUndefined();
+		expect(goal.pauseReason).toBeUndefined();
 		expect(harness.notify).toHaveBeenCalledWith("Goal resumed: resume retained objective", "info");
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal: resume retained objective");
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");

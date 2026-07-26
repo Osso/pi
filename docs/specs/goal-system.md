@@ -14,8 +14,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 - [x] `/goal set <objective>` creates or replaces the active objective for the current session and persists it to the session's `session_metadata.goal_json` row in the control SQLite database. Bare `/goal <text>` input is rejected so continuation words cannot become durable objectives.
 - [x] `/goal` prints the active objective, or a visible notice when no goal is active.
-- [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective.
-- [x] `/goal resume` resumes a paused objective without replacing it.
+- [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective, persists `Paused by user.` as its reason, and displays that reason.
+- [x] `/goal resume` resumes a paused objective without replacing it and removes the persisted pause timestamp and reason.
 - [x] `/goal clear` removes the active objective.
 - [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted; production child prompts are still validated before dispatch.
 - [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) and the replacement flag (`--replace`) are rejected with a visible error and are not persisted.
@@ -27,10 +27,10 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Production-created `/bg` child jobs validate non-empty prompts before dispatch, but do not seed goal state or load the goal extension.
 - [x] Corrupt or malformed goal JSON is handled as "no active goal" without crashing the command or turn hook.
 - [x] Completed goals are not treated as active by `/goal`, startup notifications, continuation, or context injection.
-- [x] Paused goals remain visible in `/goal`, startup notifications, and the footer, but do not inject context or continue automatically until `/goal resume` clears the paused state.
+- [x] Paused goals display their reason in `/goal`, startup notifications, and the footer, but do not inject context or continue automatically until `/goal resume` clears the paused state; legacy paused state without a reason displays `No pause reason recorded` instead of stopping silently.
 - [x] `/goal` is delivered from a tracked first-party extension package, not from
   project-local `.pi/extensions/` code.
-- [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions; completion accepts paused active goals without requiring resume, and set rejects reserved goal-control words such as `continue`.
+- [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions; pause requires a non-empty reason and persists/displays it, completion accepts paused active goals without requiring resume, and set rejects reserved goal-control words such as `continue`.
 - [x] The `manage_goal` tool exposes an action parameter plus optional objective and reason parameters.
 - [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
 - [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
@@ -90,7 +90,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, per-session goal isolation, resident-review deadline and waiting status, completion-pause and thrown-error reason display, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering versus abort-only pause behavior, busy guard, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, missing tool-reason rejection, legacy missing-reason display, per-session goal isolation, resident-review deadline and waiting status, completion-pause and thrown-error reason display, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering versus abort-only pause behavior, busy guard, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, and legacy budget field ignorance.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.

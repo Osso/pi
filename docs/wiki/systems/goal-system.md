@@ -26,6 +26,8 @@ The persisted record contains:
 - `completedAt` and `completionReason`: set when `manage_goal` marks the goal
   complete.
 - `continuationTurns`: number of automatic continuation turns already sent.
+- `pausedAt`: timestamp set by an explicit pause action.
+- `pauseReason`: concrete reason supplied to `manage_goal pause`, or `Paused by user.` for `/goal pause`.
 
 Missing state means no active goal. Corrupt JSON is also treated as no active
 goal; the command and prompt hook do not throw.
@@ -60,9 +62,7 @@ The command rejects flags with a visible error and does not write state. Removed
 
 The `manage_goal` tool exposes an `action` parameter with optional `objective`
 and `reason` parameters. It can set, pause, resume, complete, clear, or view the
-current active goal. The set action rejects reserved goal-control words such as
-`continue`, preventing model-generated continuation instructions from becoming objectives. Paused goals remain active and visible in `/goal`, startup
-notifications, and footer status. They can be completed directly without resuming, but do not inject prompt context or continue automatically until the resume action clears the pause state.
+current active goal. Pause requires a non-empty reason and persists it with the pause timestamp. `/goal pause` uses the explicit reason `Paused by user.`. The set action rejects reserved goal-control words such as `continue`, preventing model-generated continuation instructions from becoming objectives. Paused goals remain active and show their reason in `/goal`, startup notifications, and footer status; legacy paused state without a reason shows `No pause reason recorded`. They can be completed directly without resuming, but do not inject prompt context or continue automatically until the resume action removes both pause fields.
 
 `manage_goal` is supervisor-only. The SDK denylist removes that capability from
 spawned, attached/resumed, and `/bg` child sessions, and from the resident
@@ -82,8 +82,7 @@ achieved and to report blockers instead of stopping silently.
 ## Footer Status
 
 The extension shows the active objective in the footer status line as
-`goal: <objective>`. Setting, restoring, clearing, or completing a goal updates
-that status.
+`goal: <objective>`. A paused goal instead shows `goal paused: <reason>`, keeping the stop reason visible. Setting, restoring, pausing, resuming, clearing, or completing a goal updates that status.
 
 ## Session Start
 
