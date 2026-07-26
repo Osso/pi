@@ -636,7 +636,7 @@ describe("goal extension", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("gives resident goal reviews a three-minute deadline", async () => {
+	it("gives resident goal reviews an approximately 60-second deadline", async () => {
 		const agentDir = join(cwd, "agent-dir");
 		mkdirSync(agentDir, { recursive: true });
 		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -662,8 +662,8 @@ describe("goal extension", () => {
 				reason: "verified",
 			});
 			await review;
-			expect(deadlineMs).toBeGreaterThanOrEqual(179_000);
-			expect(deadlineMs).toBeLessThanOrEqual(180_000);
+			expect(deadlineMs).toBeGreaterThanOrEqual(59_000);
+			expect(deadlineMs).toBeLessThanOrEqual(60_000);
 		} finally {
 			if (previousAgentDir === undefined) {
 				delete process.env.PI_CODING_AGENT_DIR;
@@ -676,6 +676,50 @@ describe("goal extension", () => {
 				process.env.PI_CODING_AGENT_STATE_DIR = previousStateDir;
 			}
 		}
+	});
+
+	it("shows a visible Supervisor wait status before awaiting idle review", async () => {
+		let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
+			async () =>
+				new Promise<GoalSupervisorResponse>((resolve) => {
+					finishReview = resolve;
+				}),
+		);
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set show idle review wait");
+		harness.appendEntry.mockClear();
+
+		const review = harness.runAgentEnd();
+		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(1));
+
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Waiting for Supervisor…",
+		});
+		finishReview?.({ kind: "continue", reason: "continue", instructions: "Continue." });
+		await review;
+	});
+
+	it("shows a visible Supervisor wait status before awaiting completion review", async () => {
+		let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
+			async () =>
+				new Promise<GoalSupervisorResponse>((resolve) => {
+					finishReview = resolve;
+				}),
+		);
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set show completion review wait");
+		harness.appendEntry.mockClear();
+
+		const review = harness.runGoalComplete("done");
+		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(1));
+
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Waiting for Supervisor…",
+		});
+		finishReview?.({ kind: "complete", reason: "verified" });
+		await review;
 	});
 
 	it("renders one Supervisor header while preserving tagged model content", async () => {
@@ -1222,19 +1266,20 @@ describe("goal extension", () => {
 		expect(harness.callTool).toHaveBeenCalledWith("list_agents", { parentId: "main" });
 	});
 
-	it("keeps a goal active when completion review says progress must wait", async () => {
+	it("displays the Supervisor reason when completion review pauses the goal", async () => {
 		const harness = createGoalHarness(cwd, {
 			reviewGoal: async () => ({ kind: "pause", reason: "waiting for external input" }),
 		});
 		await harness.runCommand("set complete after waiting");
-		harness.sendUserMessage.mockClear();
+		harness.appendEntry.mockClear();
 
 		const result = await harness.runGoalComplete("done");
 
-		const goal = readStoredGoal<{ pausedAt?: string }>(cwd);
-		expect(goal.pausedAt).toBeUndefined();
+		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: waiting for external input" }]);
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal waiting: waiting for external input",
+		});
 	});
 
 	it("discards a completion review canceled by user input", async () => {
@@ -1261,6 +1306,24 @@ describe("goal extension", () => {
 			{ type: "text", text: "Goal changed or review was canceled; stale decision ignored." },
 		]);
 		expect(readStoredGoal<{ completedAt?: string }>(cwd).completedAt).toBeUndefined();
+	});
+
+	it("displays a concrete reason when completion review throws", async () => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => {
+				throw new Error("Supervisor connection closed");
+			},
+		});
+		await harness.runCommand("set survive thrown completion review");
+		harness.appendEntry.mockClear();
+
+		const result = await harness.runGoalComplete("done");
+
+		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
+		expect(result?.content).toEqual([{ type: "text", text: "Goal review failed: Supervisor connection closed" }]);
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+			message: "Goal review failed: Supervisor connection closed",
+		});
 	});
 
 	it("durably reports a completion-review error", async () => {

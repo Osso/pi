@@ -192,6 +192,7 @@
 - Fixed explicit Architect requests lacking active-worktree context by accepting a validated absolute directory `project_path` (such as an active worktree), defaulting to the sender cwd, and directing Architect to read the authoritative relevant project spec.
 - Fixed Supervisor idle loops by adding a typed `pause` goal decision for work that must wait instead of returning a no-op `continue` instruction.
 - Fixed Supervisor goal pauses stopping silently by appending a durable status message with the reason, including when user input is required.
+- Fixed goal reviews waiting silently for up to three minutes; idle and completion reviews now show `Waiting for Supervisor…`, time out after 60 seconds, convert thrown failures into reason-bearing status, and display completion-pause reasons.
 - Fixed interactive steering during an active goal so queued replacement input takes precedence over abort-driven goal pausing.
 - Fixed idle runtime-mailbox polling repeatedly reopening and initializing `control.sqlite` and running terminal-outbox retention cleanup every three seconds; live sessions retain one process-local connection, run cleanup hourly, and use a thirty-second fallback poll alongside immediate signal wakes.
 - Fixed foreground Pyrun monitoring synchronously reading `/proc/<pid>/stat` every 25ms; artifact polling remains responsive while fallback runner-liveness checks run every three seconds.

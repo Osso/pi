@@ -28,7 +28,7 @@ import {
 	renderSupervisorStatusEntry,
 	sendSupervisorInstructions,
 } from "./rendering.ts";
-import { reviewGoalWithResidentSupervisor } from "./supervisor-review.ts";
+import { reviewGoalWithResidentSupervisor, withSupervisorReviewStatus } from "./supervisor-review.ts";
 
 const MAX_OBJECTIVE_CHARS = 4000;
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
@@ -310,7 +310,10 @@ async function applyCompletionDecision(
 		sendSupervisorInstructions(pi, decision.instructions);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
 	}
-	if (decision.kind === "pause") return textResult(`Goal remains active: ${decision.reason}`);
+	if (decision.kind === "pause") {
+		appendSupervisorStatus(pi, `Goal waiting: ${decision.reason}`);
+		return textResult(`Goal remains active: ${decision.reason}`);
+	}
 	if (decision.kind === "wait") {
 		appendSupervisorStatus(pi, `Waiting: ${decision.reason}`);
 		await onWait(activeGoal, ctx, reason);
@@ -699,7 +702,7 @@ function registerGoalCommand(pi: ExtensionAPI, runtime: GoalExtensionRuntime): v
 }
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}): void {
-	const reviewGoal = options.reviewGoal ?? reviewGoalWithResidentSupervisor;
+	const reviewGoal = withSupervisorReviewStatus(pi, options.reviewGoal ?? reviewGoalWithResidentSupervisor);
 	pi.registerEntryRenderer("supervisor-status", renderSupervisorStatusEntry);
 	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
 	const runtime = createGoalExtensionRuntime(pi, reviewGoal);
