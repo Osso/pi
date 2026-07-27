@@ -1467,7 +1467,7 @@ See [send-user-message.ts](../examples/extensions/send-user-message.ts) for a co
 
 ### pi.appendEntry(customType, data?)
 
-Persist extension data. Custom entries do NOT participate in LLM context. In interactive mode, they can also render inside the chat transcript when paired with `pi.registerEntryRenderer()`.
+Persist extension data. Custom entries do NOT participate in LLM context. In interactive mode, matching entries render immediately after append and when the active compaction-aware branch is rendered during transcript startup, resume, or rebuild, when paired with `pi.registerEntryRenderer()`. Entries without a registered renderer remain persisted but are not displayed.
 
 ```typescript
 pi.appendEntry("my-state", { count: 42 });
@@ -1609,7 +1609,7 @@ Register a custom TUI renderer for custom messages with your `customType`. Custo
 
 ### pi.registerEntryRenderer(customType, renderer)
 
-Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `pi.appendEntry()` and do not participate in LLM context.
+Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `pi.appendEntry()` and do not participate in LLM context. The renderer handles matching entries appended during a live interactive session and matching entries restored from the active compaction-aware branch during transcript startup, resume, or rebuild.
 
 ```typescript
 import { Box, Text } from "@earendil-works/pi-tui";

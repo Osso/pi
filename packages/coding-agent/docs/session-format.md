@@ -257,7 +257,7 @@ Extension state persistence. Does NOT participate in LLM context.
 {"type":"custom","id":"h8i9j0k1","parentId":"g7h8i9j0","timestamp":"2024-12-03T14:20:00.000Z","customType":"my-extension","data":{"count":42}}
 ```
 
-Use `customType` to identify your extension's entries on reload. Interactive mode can render custom entries via `pi.registerEntryRenderer(customType, renderer)`, but they still do not participate in LLM context.
+Use `customType` to identify your extension's entries on reload. Interactive mode applies `pi.registerEntryRenderer(customType, renderer)` both to matching entries appended during a live session and to matching entries restored from the active compaction-aware branch during transcript startup, resume, or rebuild. Custom entries still do not participate in LLM context.
 
 ### CustomMessageEntry
 
