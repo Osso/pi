@@ -263,6 +263,9 @@ async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: 
 		allSessions.find((s) => s.id === sessionArg) ?? allSessions.find((s) => s.id.startsWith(sessionArg));
 
 	if (globalMatch) {
+		if (resolvePath(globalMatch.cwd) === resolvePath(cwd)) {
+			return { type: "local", path: globalMatch.path };
+		}
 		return { type: "global", path: globalMatch.path, cwd: globalMatch.cwd };
 	}
 
