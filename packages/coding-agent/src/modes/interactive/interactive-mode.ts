@@ -4571,7 +4571,7 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 		}
 
-		for (const message of this.renderCustomEntriesAndYieldMessages(items)) {
+		for (const message of InteractiveMode.prototype.renderCustomEntriesAndYieldMessages.call(this, items)) {
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
 				this.addMessageToChat(message);
