@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ENV_AGENT_DIR } from "../src/config.ts";
-import { getDefaultSessionDir } from "../src/core/session-manager.ts";
+import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../src/config.ts";
+import { getControlDbPath, writeSessionMetadata } from "../src/core/session-control-db.ts";
 
 const cliPath = resolve(__dirname, "../src/cli.ts");
 const tempDirs: string[] = [];
@@ -23,6 +23,7 @@ async function runCli(args: string[], cwd: string, agentDir: string): Promise<{ 
 			env: {
 				...process.env,
 				[ENV_AGENT_DIR]: agentDir,
+				[ENV_STATE_DIR]: agentDir,
 				PI_OFFLINE: "1",
 				TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
 			},
@@ -51,13 +52,13 @@ describe("--session project lookup", () => {
 		const tempRoot = createTempDir();
 		const agentDir = join(tempRoot, "agent");
 		const currentProject = join(tempRoot, "current-project");
-		const storageProject = join(tempRoot, "storage-project");
+		const indexedSessionDir = join(tempRoot, "indexed-sessions");
 		mkdirSync(currentProject, { recursive: true });
-		mkdirSync(storageProject, { recursive: true });
-		const sessionDir = getDefaultSessionDir(storageProject, agentDir);
+		mkdirSync(indexedSessionDir, { recursive: true });
 		const sessionId = "019f9b6e-73e1-7676-877f-68b021d7de8d";
+		const sessionPath = join(indexedSessionDir, `2026-07-25T22-38-54-945Z_${sessionId}.jsonl`);
 		writeFileSync(
-			join(sessionDir, `2026-07-25T22-38-54-945Z_${sessionId}.jsonl`),
+			sessionPath,
 			`${JSON.stringify({
 				type: "session",
 				version: 3,
@@ -66,6 +67,16 @@ describe("--session project lookup", () => {
 				cwd: currentProject,
 			})}\n`,
 		);
+		writeSessionMetadata(getControlDbPath(agentDir), {
+			sessionPath,
+			id: sessionId,
+			cwd: currentProject,
+			createdAt: "2026-07-25T22:38:54.945Z",
+			modifiedAt: "2026-07-25T22:38:54.945Z",
+			messageCount: 0,
+			firstMessage: "",
+			allMessagesText: "",
+		});
 
 		const result = await runCli(["-ne", "--session", sessionId, "--model", "missing-model", "-p", "hi"], currentProject, agentDir);
 

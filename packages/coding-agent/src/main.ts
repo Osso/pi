@@ -225,13 +225,19 @@ async function findLocalSessionByExactId(
 	sessionId: string,
 	cwd: string,
 	sessionDir?: string,
+	controlDbPath?: string,
 ): Promise<{ type: "local"; path: string } | undefined> {
-	const localSessions = await SessionManager.list(cwd, sessionDir);
+	const localSessions = await SessionManager.list(cwd, sessionDir, undefined, controlDbPath);
 	const localMatch = localSessions.find((s) => s.id === sessionId);
 	return localMatch ? { type: "local", path: localMatch.path } : undefined;
 }
 
-async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: string): Promise<ResolvedSession> {
+async function resolveSessionPath(
+	sessionArg: string,
+	cwd: string,
+	sessionDir?: string,
+	controlDbPath?: string,
+): Promise<ResolvedSession> {
 	const pathLike = sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl");
 	const resolvedSessionArgPath = pathLike ? resolvePath(sessionArg, cwd) : undefined;
 	if (resolvedSessionArgPath && (sessionArg.endsWith(".jsonl") || existsSync(resolvedSessionArgPath))) {
@@ -249,7 +255,7 @@ async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: 
 	}
 
 	// Try to match as session ID in current project first
-	const localSessions = await SessionManager.list(cwd, sessionDir);
+	const localSessions = await SessionManager.list(cwd, sessionDir, undefined, controlDbPath);
 	const localMatch =
 		localSessions.find((s) => s.id === sessionArg) ?? localSessions.find((s) => s.id.startsWith(sessionArg));
 
@@ -258,7 +264,7 @@ async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: 
 	}
 
 	// Try global search across all projects
-	const allSessions = await SessionManager.listAll(sessionDir);
+	const allSessions = await SessionManager.listAll(sessionDir, undefined, controlDbPath);
 	const globalMatch =
 		allSessions.find((s) => s.id === sessionArg) ?? allSessions.find((s) => s.id.startsWith(sessionArg));
 
@@ -394,14 +400,14 @@ async function createSessionManager(
 
 	if (parsed.fork) {
 		if (parsed.sessionId) {
-			const existingTarget = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
+			const existingTarget = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir, controlDbPath);
 			if (existingTarget) {
 				console.error(chalk.red(`Session already exists with id '${parsed.sessionId}'`));
 				process.exit(1);
 			}
 		}
 
-		const resolved = await resolveSessionPath(parsed.fork, cwd, sessionDir);
+		const resolved = await resolveSessionPath(parsed.fork, cwd, sessionDir, controlDbPath);
 
 		switch (resolved.type) {
 			case "path":
@@ -416,7 +422,7 @@ async function createSessionManager(
 	}
 
 	if (parsed.session) {
-		const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
+		const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir, controlDbPath);
 
 		switch (resolved.type) {
 			case "path":
@@ -463,7 +469,7 @@ async function createSessionManager(
 	}
 
 	if (parsed.sessionId) {
-		const existingSession = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
+		const existingSession = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir, controlDbPath);
 		if (existingSession) {
 			return SessionManager.open(existingSession.path, sessionDir);
 		}
