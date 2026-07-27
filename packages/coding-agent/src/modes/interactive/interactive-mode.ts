@@ -110,11 +110,12 @@ import {
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionImportFileNotFoundError } from "../../core/session-errors.ts";
 import {
-	type SessionContext,
+	type CustomEntry,
 	type SessionEntry,
 	type SessionInfo,
 	type SessionListProgress,
 	SessionManager,
+	sessionEntryToContextMessages,
 } from "../../core/session-manager.ts";
 import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
@@ -167,6 +168,7 @@ import { BranchSummaryMessageComponent } from "./components/branch-summary-messa
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
 import { CountdownTimer } from "./components/countdown-timer.ts";
 import { CustomEditor } from "./components/custom-editor.ts";
+import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
@@ -223,12 +225,19 @@ interface Expandable {
 	setExpanded(expanded: boolean): void;
 }
 
+type RenderableSessionItem = AgentMessage | CustomEntry<unknown>;
+
+function isCustomEntry(item: RenderableSessionItem): item is CustomEntry<unknown> {
+	return "type" in item && item.type === "custom";
+}
+
 function isMainSessionDisplayEvent(event: AgentSessionEvent): boolean {
 	switch (event.type) {
 		case "agent_end":
 		case "agent_start":
 		case "compaction_end":
 		case "compaction_start":
+		case "entry_appended":
 		case "message_end":
 		case "message_start":
 		case "message_update":
@@ -3334,7 +3343,7 @@ export class InteractiveMode {
 		this.footer.setSessionOverride(footerOverride);
 		this.footerDataProvider.setSessionOverride(footerOverride);
 		this.chatContainer.clear();
-		this.renderSessionContext(sessionContext, {
+		this.renderSessionEntries(this.childViewSessionManager.buildContextEntries(), {
 			sourceCwd: this.childViewSessionManager.getCwd(),
 		});
 		return true;
@@ -4029,6 +4038,12 @@ export class InteractiveMode {
 				}
 				break;
 
+			case "entry_appended":
+				if (event.entry.type === "custom" && this.addCustomEntryToChat(event.entry)) {
+					this.ui.requestRender();
+				}
+				break;
+
 			case "thinking_level_changed":
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
@@ -4382,6 +4397,26 @@ export class InteractiveMode {
 		this.editor.addToHistory?.(text);
 	}
 
+	private addCustomEntryToChat(entry: CustomEntry<unknown>): boolean {
+		const renderer = this.session.extensionRunner.getEntryRenderer(entry.customType);
+		if (!renderer) return false;
+
+		const component = new CustomEntryComponent(entry, renderer);
+		component.setExpanded(this.toolOutputExpanded);
+		if (!component.hasContent()) return false;
+
+		if (this.streamingComponent) {
+			const streamingIndex = this.chatContainer.children.indexOf(this.streamingComponent);
+			if (streamingIndex >= 0) {
+				this.chatContainer.children.splice(streamingIndex, 0, component);
+				return true;
+			}
+		}
+
+		this.chatContainer.addChild(component);
+		return true;
+	}
+
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
 		switch (message.role) {
 			case "bashExecution": {
@@ -4478,25 +4513,19 @@ export class InteractiveMode {
 	}
 
 	/**
-	 * Render session context to chat. Used for initial load and rebuild after compaction.
-	 * @param sessionContext Session context to render
+	 * Render session entries to chat. Used for initial load and rebuild after compaction.
 	 * @param options.updateFooter Update footer state
 	 * @param options.populateHistory Add user messages to editor history
 	 * @param options.sourceCwd Working directory to use when rendering tool components
 	 */
-	private renderSessionContext(
-		sessionContext: SessionContext,
-		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
-	): void {
-		InteractiveMode.prototype.renderSessionItems.call(this, sessionContext.messages, options);
-	}
-
 	renderSessionEntries(
 		entries: SessionEntry[],
 		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
-		const messages = entries.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
-		InteractiveMode.prototype.renderSessionItems.call(this, messages, options);
+		const items = entries.flatMap((entry): RenderableSessionItem[] =>
+			entry.type === "custom" ? [entry] : sessionEntryToContextMessages(entry),
+		);
+		InteractiveMode.prototype.renderSessionItems.call(this, items, options);
 	}
 
 	private getPendingToolStartedAt(toolCallId: string): number | undefined {
@@ -4514,7 +4543,7 @@ export class InteractiveMode {
 	}
 
 	private renderSessionItems(
-		messages: AgentMessage[],
+		items: RenderableSessionItem[],
 		options: { sourceCwd?: string; updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		InteractiveMode.prototype.clearPendingToolComponents.call(this);
@@ -4526,7 +4555,13 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 		}
 
-		for (const message of messages) {
+		for (const item of items) {
+			if (isCustomEntry(item)) {
+				this.addCustomEntryToChat(item);
+				continue;
+			}
+
+			const message = item;
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
 				this.addMessageToChat(message);
@@ -4593,9 +4628,7 @@ export class InteractiveMode {
 	}
 
 	renderInitialMessages(): void {
-		// Get aligned messages and entries from session context
-		const context = this.sessionManager.buildSessionContext();
-		this.renderSessionContext(context, {
+		this.renderSessionEntries(this.sessionManager.buildContextEntries(), {
 			updateFooter: true,
 			populateHistory: true,
 		});
@@ -4646,8 +4679,7 @@ export class InteractiveMode {
 
 	private rebuildChatFromMessages(): void {
 		this.chatContainer.clear();
-		const context = this.sessionManager.buildSessionContext();
-		this.renderSessionContext(context);
+		this.renderSessionEntries(this.sessionManager.buildContextEntries());
 	}
 
 	// =========================================================================

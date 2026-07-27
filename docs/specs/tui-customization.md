@@ -40,6 +40,7 @@ terminal_resize_reflow_max_rows = 5000
 - [ ] `ctx.ui.setEditorComponent(factory | undefined)` replaces the core input editor (subclass `CustomEditor`, call `super.handleInput` for app keybindings); `getEditorComponent()` reads the current factory.
 - [ ] `ctx.ui.custom<T>(factory, options?)` shows a full-screen or overlay component with keyboard focus and resolves with a result `T`.
 - [ ] `ctx.ui.setTitle`, `setEditorText`/`getEditorText`, `pasteToEditor`, `editor(title, prefill?)`, `addAutocompleteProvider`, and `getToolsExpanded`/`setToolsExpanded` are available as supporting surface.
+- [x] `pi.registerEntryRenderer(customType, renderer)` renders matching display-only `pi.appendEntry()` data in interactive chat immediately on append and from the active compaction-aware branch during transcript startup, resume, and rebuild; entries remain excluded from model context.
 
 ## How it works
 
@@ -70,6 +71,8 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2217-2249` — `ctx.ui.editor` temporary multiline editor wiring and restore behavior.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2256-2319` — `ctx.ui.setEditorComponent` implementation: preserves editor text, forwards submit/change callbacks, copies appearance/autocomplete settings, and restores the default editor when passed `undefined`.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts:2335-2412` — `ctx.ui.custom` implementation for replacement and overlay UI, including editor restoration, overlay handle exposure, focus handling, and component disposal.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — live `entry_appended` handling plus compaction-aware transcript entry rendering through registered extension entry renderers.
+- `packages/coding-agent/src/modes/interactive/components/custom-entry.ts` — expandable renderer host for display-only custom session entries.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:323-422` — `Theme` class styling API exposed to extensions through `ctx.ui.theme` and `ctx.ui.getTheme`.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:428-479` — theme listing combines built-in themes, user custom themes, and registered package/resource themes.
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts:613-633` — `loadThemeFromPath` / `getThemeByName` parsing and lookup.
@@ -85,6 +88,7 @@ terminal_resize_reflow_max_rows = 5000
 
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
 - `packages/coding-agent/test/interactive-mode-status.test.ts:201-270` — `ctx.ui.custom` overlay/replacement focus regression: an overlay reclaims input after a non-overlay custom UI closes.
+- `packages/coding-agent/test/interactive-mode-custom-entry-rendering.test.ts` — custom entries render on live append and persisted transcript rebuild.
 - `packages/coding-agent/test/keybindings-migration.test.ts:25-87` — legacy keybinding name migration, namespaced-id precedence, and in-memory loading through `KeybindingsManager.create(agentDir)`.
 - `packages/tui/test/editor.test.ts` — optional editor prompt prefix rendering and width preservation.
 - `packages/coding-agent/test/theme-picker.test.ts:34-50` — theme listing uses custom theme content names and returns file paths for `getAvailableThemesWithPaths`.
