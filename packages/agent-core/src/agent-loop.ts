@@ -755,25 +755,28 @@ async function executePreparedToolCall(
 	let acceptingUpdates = true;
 
 	try {
-		const result = await prepared.tool.execute(
-			prepared.toolCall.id,
-			prepared.args as never,
+		const result = await awaitWithAbort(
+			prepared.tool.execute(
+				prepared.toolCall.id,
+				prepared.args as never,
+				signal,
+				(partialResult) => {
+					if (!acceptingUpdates) return;
+					updateEvents.push(
+						Promise.resolve(
+							emit({
+								type: "tool_execution_update",
+								toolCallId: prepared.toolCall.id,
+								toolName: prepared.toolCall.name,
+								args: prepared.args,
+								partialResult: capToolResult(partialResult),
+							}),
+						),
+					);
+				},
+				{ startedAt },
+			),
 			signal,
-			(partialResult) => {
-				if (!acceptingUpdates) return;
-				updateEvents.push(
-					Promise.resolve(
-						emit({
-							type: "tool_execution_update",
-							toolCallId: prepared.toolCall.id,
-							toolName: prepared.toolCall.name,
-							args: prepared.args,
-							partialResult: capToolResult(partialResult),
-						}),
-					),
-				);
-			},
-			{ startedAt },
 		);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);

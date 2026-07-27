@@ -17,6 +17,7 @@
 
 - Fixed `Agent.steer()` to abort an active model request while leaving active tool execution uninterrupted; queued steering remains available for the continuation.
 - Fixed aborted model stream acquisition and iteration remaining pending indefinitely when a provider ignores its abort signal; the agent run now terminalizes without waiting for provider cooperation.
+- Fixed aborted tool execution remaining pending indefinitely when a tool ignores its abort signal, allowing hosts to interrupt the run and process queued input.
 - Fixed `Agent.continue()` to allow continuing transcripts whose last message is an assistant message.
 - Fixed harness compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
 - Fixed harness split-turn compaction to serialize summary requests so single-concurrency providers are not asked to run overlapping generations ([#5536](https://github.com/earendil-works/pi/issues/5536)).
