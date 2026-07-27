@@ -3343,7 +3343,7 @@ export class InteractiveMode {
 		this.footer.setSessionOverride(footerOverride);
 		this.footerDataProvider.setSessionOverride(footerOverride);
 		this.chatContainer.clear();
-		this.renderSessionEntries(this.childViewSessionManager.buildContextEntries(), {
+		InteractiveMode.prototype.renderSessionEntries.call(this, this.childViewSessionManager.buildContextEntries(), {
 			sourceCwd: this.childViewSessionManager.getCwd(),
 		});
 		return true;
@@ -4638,7 +4638,7 @@ export class InteractiveMode {
 	}
 
 	renderInitialMessages(): void {
-		this.renderSessionEntries(this.sessionManager.buildContextEntries(), {
+		InteractiveMode.prototype.renderSessionEntries.call(this, this.sessionManager.buildContextEntries(), {
 			updateFooter: true,
 			populateHistory: true,
 		});
@@ -4689,7 +4689,7 @@ export class InteractiveMode {
 
 	private rebuildChatFromMessages(): void {
 		this.chatContainer.clear();
-		this.renderSessionEntries(this.sessionManager.buildContextEntries());
+		InteractiveMode.prototype.renderSessionEntries.call(this, this.sessionManager.buildContextEntries());
 	}
 
 	// =========================================================================
