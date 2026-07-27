@@ -27,6 +27,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | User rules loader (`rules/*.md`) | [`user-rules-loader.md`](user-rules-loader.md) | **BUILD** (additive) | Pi already loads AGENTS.md/CLAUDE.md hierarchy; adds global agent `rules/` + project `.pi/rules/`. |
 | Project context files | [`project-context-files.md`](project-context-files.md) | **NATIVE** | Global/cwd instruction-file hierarchy plus cwd-ancestor `docs/local/memory.md` project context. |
 | Worktree startup (`-w/--worktree`) | [`worktree-startup-option.md`](worktree-startup-option.md) | **BUILD** | New CLI flag; create/reuse sibling git worktree. |
+| CLI session lookup (`--session <id>`) | [`session-cli-lookup.md`](session-cli-lookup.md) | **NATIVE** | Resolves current-project and global session IDs; same-cwd global matches open directly. |
 | MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
 | Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | Core `on-request`/`never`/`auto-approve` enforcement plus first-party `approval-controls` extension for `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
 | Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
