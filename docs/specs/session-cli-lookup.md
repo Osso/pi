@@ -3,8 +3,10 @@
 Module boundary: core CLI session startup (`packages/coding-agent/src/main.ts`).
 
 The `--session <id>` option resolves saved session files from the current project and,
-when needed, the global session directory. Matching the stored session cwd to the current
-cwd means the session belongs to the current project and must open directly. Implementation
+when needed, the global session directory. A session belongs to the current project when its
+stored cwd matches the current cwd or both cwds resolve to worktrees sharing one Git common
+directory. Different Git projects require fork confirmation; accepting that confirmation must
+complete the fork and continue startup without hanging. Implementation
 details live in [`docs/wiki/systems/session-cli-lookup.md`](../wiki/systems/session-cli-lookup.md).
 
 ## What it must do
@@ -13,7 +15,8 @@ details live in [`docs/wiki/systems/session-cli-lookup.md`](../wiki/systems/sess
 
 - [x] Resolve an exact or prefix session ID from the current project's sessions before searching global sessions.
 - [x] Search globally when the requested session is not found in the current project.
-- [x] Open a globally found session directly when its stored cwd resolves to the current cwd; do not report a different project, prompt to fork, or create a fork.
+- [x] Open a globally found session directly when its stored cwd matches the current cwd or a Git worktree sharing the same common directory; do not report a different project, prompt to fork, or create a fork.
+- [x] Report sessions from different Git projects as different projects, retain the fork confirmation, and continue startup after an affirmative response without hanging.
 
 ## How it works
 
@@ -25,7 +28,7 @@ details live in [`docs/wiki/systems/session-cli-lookup.md`](../wiki/systems/sess
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/session-project-lookup.test.ts` — verifies a globally located session with the current stored cwd opens directly without the different-project warning or fork prompt.
+- `packages/coding-agent/test/session-project-lookup.test.ts` — verifies same-repository worktree sessions open directly, while different-project sessions retain fork confirmation and complete after `y` without hanging.
 
 ## Known gaps (current cycle)
 
