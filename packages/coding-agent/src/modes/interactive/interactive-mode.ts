@@ -4039,9 +4039,7 @@ export class InteractiveMode {
 				break;
 
 			case "entry_appended":
-				if (event.entry.type === "custom" && this.addCustomEntryToChat(event.entry)) {
-					this.ui.requestRender();
-				}
+				this.renderAppendedEntry(event.entry);
 				break;
 
 			case "thinking_level_changed":
@@ -4397,6 +4395,13 @@ export class InteractiveMode {
 		this.editor.addToHistory?.(text);
 	}
 
+	private renderAppendedEntry(entry: SessionEntry): void {
+		if (entry.type !== "custom") return;
+		if (!this.addCustomEntryToChat(entry)) return;
+
+		this.ui.requestRender();
+	}
+
 	private addCustomEntryToChat(entry: CustomEntry<unknown>): boolean {
 		const renderer = this.session.extensionRunner.getEntryRenderer(entry.customType);
 		if (!renderer) return false;
@@ -4528,6 +4533,17 @@ export class InteractiveMode {
 		InteractiveMode.prototype.renderSessionItems.call(this, items, options);
 	}
 
+	private *renderCustomEntriesAndYieldMessages(items: RenderableSessionItem[]): Iterable<AgentMessage> {
+		for (const item of items) {
+			if (isCustomEntry(item)) {
+				this.addCustomEntryToChat(item);
+				continue;
+			}
+
+			yield item;
+		}
+	}
+
 	private getPendingToolStartedAt(toolCallId: string): number | undefined {
 		const selectedAgentId = this.multiAgentStore?.getSelectedAgentId();
 		if (!selectedAgentId) {
@@ -4555,13 +4571,7 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 		}
 
-		for (const item of items) {
-			if (isCustomEntry(item)) {
-				this.addCustomEntryToChat(item);
-				continue;
-			}
-
-			const message = item;
+		for (const message of this.renderCustomEntriesAndYieldMessages(items)) {
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
 				this.addMessageToChat(message);
