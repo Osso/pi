@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,9 +15,16 @@ function createTempDir(): string {
 	return dir;
 }
 
-async function runCli(args: string[], cwd: string, agentDir: string): Promise<{ code: number | null; output: string }> {
+function runGit(cwd: string, ...args: string[]): void {
+	execFileSync("git", args, { cwd, stdio: "ignore" });
+}
+
+type CliResult = { code: number | null; output: string; timedOut: boolean };
+
+async function runCli(args: string[], cwd: string, agentDir: string, input: string): Promise<CliResult> {
 	return new Promise((resolvePromise, reject) => {
 		let output = "";
+		let timedOut = false;
 		const child = spawn(process.execPath, [cliPath, ...args], {
 			cwd,
 			env: {
@@ -35,9 +42,19 @@ async function runCli(args: string[], cwd: string, agentDir: string): Promise<{ 
 		child.stderr.on("data", (chunk) => {
 			output += chunk.toString();
 		});
-		child.on("error", reject);
-		child.on("close", (code) => resolvePromise({ code, output }));
-		child.stdin.end("n\n");
+		const timeout = setTimeout(() => {
+			timedOut = true;
+			child.kill("SIGKILL");
+		}, 5000);
+		child.on("error", (error) => {
+			clearTimeout(timeout);
+			reject(error);
+		});
+		child.on("close", (code) => {
+			clearTimeout(timeout);
+			resolvePromise({ code, output, timedOut });
+		});
+		child.stdin.end(input);
 	});
 }
 
@@ -48,13 +65,19 @@ afterEach(() => {
 });
 
 describe("--session project lookup", () => {
-	it("opens a globally located session whose stored cwd matches the current project", async () => {
+	it("opens an indexed session from another worktree in the same Git repository", async () => {
 		const tempRoot = createTempDir();
 		const agentDir = join(tempRoot, "agent");
 		const currentProject = join(tempRoot, "current-project");
+		const storedWorktree = join(tempRoot, "stored-worktree");
 		const indexedSessionDir = join(tempRoot, "indexed-sessions");
 		mkdirSync(currentProject, { recursive: true });
 		mkdirSync(indexedSessionDir, { recursive: true });
+		runGit(currentProject, "init", "--initial-branch=master");
+		runGit(currentProject, "config", "user.email", "test@example.com");
+		runGit(currentProject, "config", "user.name", "Test User");
+		runGit(currentProject, "commit", "--allow-empty", "-m", "initial");
+		runGit(currentProject, "worktree", "add", "-b", "stored-session", storedWorktree);
 		const sessionId = "019f9b6e-73e1-7676-877f-68b021d7de8d";
 		const sessionPath = join(indexedSessionDir, `2026-07-25T22-38-54-945Z_${sessionId}.jsonl`);
 		writeFileSync(
@@ -70,7 +93,7 @@ describe("--session project lookup", () => {
 		writeSessionMetadata(getControlDbPath(agentDir), {
 			sessionPath,
 			id: sessionId,
-			cwd: currentProject,
+			cwd: storedWorktree,
 			createdAt: "2026-07-25T22:38:54.945Z",
 			modifiedAt: "2026-07-25T22:38:54.945Z",
 			messageCount: 0,
@@ -78,11 +101,65 @@ describe("--session project lookup", () => {
 			allMessagesText: "",
 		});
 
-		const result = await runCli(["-ne", "--session", sessionId, "--model", "missing-model", "-p", "hi"], currentProject, agentDir);
+		const result = await runCli(
+			["-ne", "--session", sessionId, "--model", "missing-model", "-p", "hi"],
+			currentProject,
+			agentDir,
+			"n\n",
+		);
 
+		expect(result.timedOut).toBe(false);
 		expect(result.code).toBe(1);
 		expect(result.output).toContain('Model "missing-model" not found');
 		expect(result.output).not.toContain("Session found in different project");
 		expect(result.output).not.toContain("Fork this session into current directory?");
+	});
+
+	it("accepts fork confirmation for a different Git project without hanging", async () => {
+		const tempRoot = createTempDir();
+		const agentDir = join(tempRoot, "agent");
+		const currentProject = join(tempRoot, "current-project");
+		const foreignProject = join(tempRoot, "foreign-project");
+		const indexedSessionDir = join(tempRoot, "indexed-sessions");
+		for (const project of [currentProject, foreignProject]) {
+			mkdirSync(project, { recursive: true });
+			runGit(project, "init", "--initial-branch=master");
+		}
+		mkdirSync(indexedSessionDir, { recursive: true });
+		const sessionId = "019f9b6e-73e1-7676-877f-68b021d7de8e";
+		const sessionPath = join(indexedSessionDir, `2026-07-25T22-38-54-945Z_${sessionId}.jsonl`);
+		writeFileSync(
+			sessionPath,
+			`${JSON.stringify({
+				type: "session",
+				version: 3,
+				id: sessionId,
+				timestamp: "2026-07-25T22:38:54.945Z",
+				cwd: foreignProject,
+			})}\n`,
+		);
+		writeSessionMetadata(getControlDbPath(agentDir), {
+			sessionPath,
+			id: sessionId,
+			cwd: foreignProject,
+			createdAt: "2026-07-25T22:38:54.945Z",
+			modifiedAt: "2026-07-25T22:38:54.945Z",
+			messageCount: 0,
+			firstMessage: "",
+			allMessagesText: "",
+		});
+
+		const result = await runCli(
+			["-ne", "--session", sessionId, "--model", "missing-model", "-p", "hi"],
+			currentProject,
+			agentDir,
+			"y\n",
+		);
+
+		expect(result.timedOut).toBe(false);
+		expect(result.code).toBe(1);
+		expect(result.output).toContain(`Session found in different project: ${foreignProject}`);
+		expect(result.output).toContain("Fork this session into current directory? [y/N]");
+		expect(result.output).toContain('Model "missing-model" not found');
 	});
 });

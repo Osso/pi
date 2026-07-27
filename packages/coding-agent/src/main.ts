@@ -109,6 +109,7 @@ import { bindInteractiveModeSessionMutationTargetResolver } from "./modes/intera
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
+import { readGitCommonDirectory } from "./utils/git-project.ts";
 import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
@@ -232,6 +233,14 @@ async function findLocalSessionByExactId(
 	return localMatch ? { type: "local", path: localMatch.path } : undefined;
 }
 
+function sessionBelongsToProject(sessionCwd: string, cwd: string): boolean {
+	if (resolvePath(sessionCwd) === resolvePath(cwd)) return true;
+
+	const sessionGitDirectory = readGitCommonDirectory(sessionCwd);
+	const currentGitDirectory = readGitCommonDirectory(cwd);
+	return sessionGitDirectory !== undefined && sessionGitDirectory === currentGitDirectory;
+}
+
 async function resolveSessionPath(
 	sessionArg: string,
 	cwd: string,
@@ -269,7 +278,7 @@ async function resolveSessionPath(
 		allSessions.find((s) => s.id === sessionArg) ?? allSessions.find((s) => s.id.startsWith(sessionArg));
 
 	if (globalMatch) {
-		if (resolvePath(globalMatch.cwd) === resolvePath(cwd)) {
+		if (sessionBelongsToProject(globalMatch.cwd, cwd)) {
 			return { type: "local", path: globalMatch.path };
 		}
 		return { type: "global", path: globalMatch.path, cwd: globalMatch.cwd };
