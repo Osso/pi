@@ -1499,19 +1499,16 @@ function dispatchReservedAttachedChildSession(
 ): Promise<AgentSnapshot> {
 	const factory = (dispatchInput: ChildAgentDispatchInput) =>
 		createAttachedSession({ ...dispatchInput, sessionPath: input.target.transcript?.path ?? "" });
-	if (reservedRuntime.lifecycle.agent.lifecycle === "running") {
-		return runAgentSession(
-			input.store,
-			factory,
-			reservedRuntime.lifecycle.agent,
-			input.prompt,
-			input.ctx,
-			input.handles,
-			undefined,
-			reservedRuntime,
-		);
-	}
-	return dispatchReservedAgentSession(input.store, factory, reservedRuntime, input.prompt, input.ctx, input.handles);
+	return runAgentSession(
+		input.store,
+		factory,
+		reservedRuntime.lifecycle.agent,
+		input.prompt,
+		input.ctx,
+		input.handles,
+		undefined,
+		reservedRuntime,
+	);
 }
 
 function spawnAttachedSessionAgent(

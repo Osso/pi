@@ -293,6 +293,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 						`Child recovery did not resume: ${String(error)} agents=${JSON.stringify(pi.listAgents())} entries=${JSON.stringify(pi.readSessionEntries(null).slice(-5))}`,
 					);
 				});
+			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.lifecycle).toBe("steering_pending");
 			const ownershipAfter = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, spawned.id);
 			expect(ownershipAfter?.processIdentity).toMatchObject({
 				pid: ownershipBefore.processIdentity.pid,
