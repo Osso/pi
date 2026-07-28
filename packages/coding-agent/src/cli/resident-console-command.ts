@@ -59,6 +59,7 @@ class ResidentConsoleUi extends Container implements Focusable {
 	private readonly status = new Text("", 1, 0);
 	private readonly client: ResidentConsoleClient<SessionEntry, AgentSessionEvent>;
 	private readonly ui: TUI;
+	private streamingAssistant?: AssistantMessageComponent;
 	private resolveClosed?: () => void;
 	private closed = false;
 
@@ -129,7 +130,25 @@ class ResidentConsoleUi extends Container implements Focusable {
 		if (event.type === "entry_appended") this.appendEntry(event.entry);
 		if (event.type === "agent_start") this.status.setText(theme.fg("muted", "Working…"));
 		if (event.type === "agent_end") this.status.setText("");
+		if (event.type === "message_start") this.startMessage(event.message);
+		if (event.type === "message_update" && event.message.role === "assistant") {
+			this.streamingAssistant?.updateContent(event.message);
+		}
+		if (event.type === "message_end" && event.message.role === "assistant") {
+			this.streamingAssistant?.updateContent(event.message);
+			this.streamingAssistant = undefined;
+		}
 		this.ui.requestRender();
+	}
+
+	private startMessage(message: Extract<AgentSessionEvent, { type: "message_start" }>["message"]): void {
+		if (message.role === "user") {
+			this.chat.addChild(new UserMessageComponent(readTextContent(message.content)));
+			return;
+		}
+		if (message.role !== "assistant") return;
+		this.streamingAssistant = new AssistantMessageComponent(message);
+		this.chat.addChild(this.streamingAssistant);
 	}
 
 	private appendEntry(entry: SessionEntry): void {
