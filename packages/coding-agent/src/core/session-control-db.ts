@@ -3936,21 +3936,18 @@ export function acquireAttachedRuntimeOwnership(
 			validatePersistedAgentPayload(agent, context);
 			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
 			const current = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (current?.process_identity) {
-				const currentIdentity = parseProcessIdentity(current.process_identity);
-				if (isProcessIdentityAlive(currentIdentity)) {
-					if (runtimeOwnerMatches(current, input)) {
-						return {
-							agent: agent as unknown as AgentSnapshot,
-							ok: true,
-							ownership: multiAgentRuntimeOwnershipFromRow(current),
-						};
-					}
-					if (!sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity)) {
-						return { ok: false, error: "ownership_held" };
-					}
-				}
+			const currentIdentity = current?.process_identity ? parseProcessIdentity(current.process_identity) : undefined;
+			const currentOwnerAlive = currentIdentity !== undefined && isProcessIdentityAlive(currentIdentity);
+			if (currentOwnerAlive && runtimeOwnerMatches(current, input)) {
+				return {
+					agent: agent as unknown as AgentSnapshot,
+					ok: true,
+					ownership: multiAgentRuntimeOwnershipFromRow(current),
+				};
 			}
+			const replacesCurrentIncarnation =
+				currentIdentity !== undefined && sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity);
+			if (currentOwnerAlive && !replacesCurrentIncarnation) return { ok: false, error: "ownership_held" };
 			persistAcquiredRuntimeOwnership(db, input);
 			const updatedAgent = { ...agent, revision: Number(agent.revision) + 1, updatedAt: input.nowIso };
 			db.prepare(
