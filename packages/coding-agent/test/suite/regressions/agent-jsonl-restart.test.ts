@@ -258,7 +258,9 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			const initialChildRequest = await pi
 				.waitForLlmRequest((request) => request.agentId === spawned.id)
 				.catch((error: unknown) => {
-					throw new Error(`Initial child request missing: ${String(error)} agents=${JSON.stringify(pi.listAgents())}`);
+					throw new Error(
+						`Initial child request missing: ${String(error)} agents=${JSON.stringify(pi.listAgents())}`,
+					);
 				});
 			const mainAfterSpawn = await pi
 				.waitForLlmRequest((request) => request.agentId === null && request.id !== mainRequest.id)
