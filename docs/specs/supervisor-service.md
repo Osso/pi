@@ -14,6 +14,14 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Process requests through an event-driven request/response queue rather than polling sessions.
 - [x] Remain local-only without web access.
 
+### Resident console
+
+- [x] `pi --supervisor` attaches to an already-running Supervisor through its owner-only local console socket; it never starts a second Supervisor, creates a second session owner, or changes the resident cwd.
+- [x] Reject missing or unavailable Supervisor sockets explicitly, while preserving the positional `pi supervisor` service entrypoint.
+- [x] Send the resident session identity, fixed cwd, generation, and complete current branch on attach, then stream live session events.
+- [x] Accept interactive console prompts and an optional trailing initial prompt, with exactly one writable console client at a time.
+- [x] Keep the resident process as the sole transcript, model, tool, and cwd owner; process typed Supervisor requests before queued console prompts and never interleave turns.
+
 ### Authority boundary
 
 - [x] Act as a policy engine whose typed response is enforced by the calling subsystem.
@@ -103,6 +111,9 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, and approval preemption.
 - `packages/coding-agent/src/supervisor/client.ts` — durable synchronous caller transport.
 - `packages/coding-agent/src/supervisor/request-wake.ts` — owner-only Unix-socket wake notification for the durable request queue.
+- `packages/coding-agent/src/core/resident-console-transport.ts` — owner-only attach protocol, branch snapshot, live events, and single-client prompt transport.
+- `packages/coding-agent/src/cli/resident-console-command.ts` — `--supervisor` console client and optional initial prompt handling.
+- `packages/coding-agent/src/main.ts` — early dispatch for resident-console flags without changing service commands.
 - `packages/coding-agent/src/supervisor/project-resolver.ts` — KB config loading and canonical project-family resolution.
 - `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
 - `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
@@ -122,6 +133,9 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/test/goal-extension.test.ts`
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
+- `packages/coding-agent/test/resident-console-command.test.ts`
+- `packages/coding-agent/test/resident-console-client.test.ts`
+- `packages/coding-agent/test/supervisor-resident-console.test.ts`
 
 ## Known gaps (current cycle)
 

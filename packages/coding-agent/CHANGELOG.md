@@ -45,6 +45,7 @@
 - Added the resident Architect transcript to the global non-subagent archive metadata with `archived_at` set at startup; it remains outside Current Folder and All scopes while staying resumable from Archived.
 - Added automatic `docs/local/memory.md` project-context loading from cwd ancestors after each directory's AGENTS/CLAUDE candidates; global agent directories do not load project memory, and `--no-context-files` disables it.
 - Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, durable `ask_architect` requests, targeted runtime-mailbox advice, and read-only Bubblewrap tool workers.
+- Added `pi --supervisor` and `pi --architect` interactive resident consoles that attach to the running service, render its current branch and live events, submit prompts through the resident owner, and preserve the existing positional service commands.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added built-in `channel_post` for the global SQLite-backed shared channel with per-main-session cursors and idle delivery.

@@ -8,6 +8,14 @@ The Supervisor runs as `pi supervisor` under `pi-supervisor.service`. It owns on
 
 Callers poll only their durable request row. Approval requests use a 30-second deadline; goal requests use three minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
 
+## Resident console
+
+`pi --supervisor` attaches to the already-running `pi supervisor` process through the owner-only local socket `<control-db>.supervisor-console.sock`. It does not start a service, open the archived session itself, create another AgentSession, or change the Supervisor's KB cwd. If the service is stopped or the socket is absent, the client fails explicitly.
+
+Attach returns the resident service name, session ID, fixed cwd, process generation, and the complete current branch. The client renders that snapshot, then receives monotonic live AgentSession events from the resident. The resident remains the only transcript writer, model caller, tool runner, and cwd owner. One writable console client is accepted; a second client is rejected until the first disconnects.
+
+Console input is queued in the resident request loop. Durable approval and goal requests are claimed and completed first. A queued console prompt runs only after the current typed request finishes, so `readCurrentAssistantText()` cannot observe an unrelated assistant turn. A trailing message in `pi --supervisor <message...>` is submitted after attach; `pi --supervisor` opens the interactive console without an initial prompt. The existing `pi supervisor` service command is unchanged.
+
 ## Project memory
 
 The caller resolves a canonical project family using `/syncthing/Sync/KB/memory/supervisor/projects.json`. Configured repository-root mappings take precedence, followed by configured owner/repository remote identities, the current remote repository basename, and finally the repository directory basename. Owner/repository identity prevents collisions such as the separate GlobalComix and MangaHelpers `ops` repositories.
