@@ -10,6 +10,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 import { createAskArchitectToolDefinition } from "../src/core/tools/ask-architect.ts";
+import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervisor.ts";
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
@@ -18,10 +19,12 @@ describe("session coordination tools", () => {
 	it("registers session coordination tools as built-ins active by default", () => {
 		const tools = createAllToolDefinitions("/tmp");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_architect");
+		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_supervisor");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("list_sessions");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("broadcast");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("channel_post");
 		expect(tools.ask_architect.name).toBe("ask_architect");
+		expect(tools.ask_supervisor.name).toBe("ask_supervisor");
 		expect(tools.list_sessions.name).toBe("list_sessions");
 		expect(tools.broadcast.name).toBe("broadcast");
 		expect(tools.channel_post.name).toBe("channel_post");
@@ -155,6 +158,39 @@ describe("session coordination tools", () => {
 					context as Parameters<typeof tool.execute>[4],
 				),
 			).rejects.toThrow("ask_architect is only available from main sessions");
+		}
+	});
+
+	it("bounds Supervisor advisory input and rejects subagent runtimes", async () => {
+		const tool = createAskSupervisorToolDefinition();
+		expect(tool.parameters.properties.question.maxLength).toBe(4_000);
+		expect(tool.parameters.properties.context.maxLength).toBe(8_000);
+
+		for (const context of [
+			{
+				controlDbPath: "/unused",
+				multiAgentAgentId: "agent_1",
+				sessionManager: { getSessionId: () => "child-session" },
+			},
+			{
+				controlDbPath: "/unused",
+				multiAgentRequiresAgentId: true,
+				sessionManager: { getSessionId: () => "child-session" },
+			},
+			{
+				controlDbPath: "/unused",
+				sessionManager: { getSessionId: () => "child-session", isSubagentSession: () => true },
+			},
+		]) {
+			await expect(
+				tool.execute(
+					"ask-supervisor",
+					{ question: "Is this complete?" },
+					undefined,
+					undefined,
+					context as Parameters<typeof tool.execute>[4],
+				),
+			).rejects.toThrow("ask_supervisor is only available from main sessions");
 		}
 	});
 

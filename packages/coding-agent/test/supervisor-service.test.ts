@@ -224,6 +224,35 @@ describe("resident Supervisor service", () => {
 		).toContain('"kind":"pause"');
 	});
 
+	it("prompts for and parses advisory-only responses", () => {
+		const request = {
+			claimToken: "runtime",
+			claimedAt: "2026-07-28T23:00:00.000Z",
+			createdAt: "2026-07-28T23:00:00.000Z",
+			deadlineAt: "2026-07-28T23:03:00.000Z",
+			id: 4,
+			kind: "supervisor_advisory" as never,
+			payload: { context: "Only the scoped diff", question: "Is anything missing?" },
+			projectId: "pi",
+			senderSessionId: "main",
+			status: "claimed" as const,
+		};
+		const prompt = buildSupervisorPrompt(request);
+		expect(prompt).toContain('{"kind":"advisory","answer":"..."}');
+		expect(prompt).toContain("advisory only");
+		expect(parseSupervisorResponse(request.kind, { kind: "advisory", answer: "Nothing is missing." })).toEqual({
+			kind: "advisory",
+			answer: "Nothing is missing.",
+		});
+		expect(
+			parseSupervisorResponse(request.kind, {
+				kind: "continue",
+				reason: "not advisory",
+				instructions: "Do work",
+			}),
+		).toBeUndefined();
+	});
+
 	it("does not reuse a prior assistant response when the current request produces none", async () => {
 		postSupervisorRequest(controlDbPath, {
 			deadlineAt: new Date(Date.now() + 30_000).toISOString(),

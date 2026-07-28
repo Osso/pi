@@ -46,6 +46,42 @@ function expectRunningGoal(goal: Record<string, unknown> | undefined): void {
 	expect(goal?.completedAt).toBeUndefined();
 }
 
+describe("headless Supervisor advisory tool", () => {
+	it("returns a bounded durable advisory response to the main session", async () => {
+		await withHeadlessPi(async (agent) => {
+			const startedAt = Date.now();
+			await agent.send({ type: "prompt", message: "Ask Supervisor for scoped advice" });
+			const initial = await agent.waitForLlmRequest();
+			agent.respondToLlmRequest(
+				initial.id,
+				fauxAssistantMessage(
+					fauxToolCall("ask_supervisor", {
+						question: "Is the AGENTS.md evidence complete?",
+						context: "Only AGENTS.md changed; remote ref equals HEAD.",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+
+			const advisory = await agent.waitForSupervisorRequest("supervisor_advisory" as never);
+			expect(advisory.payload).toEqual({
+				context: "Only AGENTS.md changed; remote ref equals HEAD.",
+				question: "Is the AGENTS.md evidence complete?",
+			});
+			const deadlineMs = Date.parse(advisory.deadlineAt) - startedAt;
+			expect(deadlineMs).toBeGreaterThanOrEqual(179_000);
+			expect(deadlineMs).toBeLessThanOrEqual(181_000);
+			agent.respondToSupervisorRequest(advisory, {
+				kind: "advisory",
+				answer: "Yes. The scoped evidence is complete.",
+			} as never);
+
+			const afterTool = await agent.waitForLlmRequest();
+			expect(JSON.stringify(afterTool.messages)).toContain("Yes. The scoped evidence is complete.");
+		});
+	});
+});
+
 describe("headless Supervisor goal system", () => {
 	it("completes an explicit manage_goal completion through the durable Supervisor boundary", async () => {
 		await withHeadlessPi(async (agent) => {
