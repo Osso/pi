@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { cleanupSessionResources } from "@earendil-works/pi-ai/compat";
 import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir } from "../config.ts";
+import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
@@ -17,11 +18,12 @@ import {
 	recoverSupervisorRequests,
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
-import { SessionManager } from "../core/session-manager.ts";
+import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
+import { SessionManager, type SessionEntry } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
-import { SupervisorRequestWakeServer } from "./request-wake.ts";
+import { notifySupervisorRequest, SupervisorRequestWakeServer } from "./request-wake.ts";
 import { runSupervisorRequest } from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
@@ -34,14 +36,32 @@ interface SupervisorSession {
 	prompt(content: string): Promise<void>;
 	sessionId?: string;
 	sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
+	subscribe?(listener: (event: AgentSessionEvent) => void): () => void;
+}
+
+type SupervisorConsolePrompt = { id: string; text: string };
+
+export class SupervisorConsolePromptQueue {
+	private readonly prompts: SupervisorConsolePrompt[] = [];
+
+	enqueue(text: string, id: string): void {
+		this.prompts.push({ id, text });
+	}
+
+	take(): SupervisorConsolePrompt | undefined {
+		return this.prompts.shift();
+	}
 }
 
 interface RunSupervisorRequestLoopInput {
+	claimNextRequest?: (controlDbPath: string, claimToken: string) => SupervisorRequest | undefined;
 	claimToken: string;
+	consolePrompts: SupervisorConsolePromptQueue;
 	controlDbPath: string;
+	processRequest?: (controlDbPath: string, request: SupervisorRequest, session: SupervisorSession) => Promise<void>;
 	session: SupervisorSession;
 	signal: AbortSignal;
-	wakeServer: SupervisorRequestWakeServer;
+	wakeServer: Pick<SupervisorRequestWakeServer, "currentGeneration" | "waitForWakeAfter">;
 }
 
 export const SUPERVISOR_TOOL_NAMES = ["read", "edit", "write"];
@@ -115,6 +135,20 @@ export function blockSupervisorFileAccess(
 	return supervisorFileAccessBlock();
 }
 
+export function createSupervisorConsoleSnapshot(input: {
+	cwd: string;
+	generation: number;
+	session: Pick<SupervisorSession, "sessionId" | "sessionManager">;
+}): ResidentConsoleSnapshot<SessionEntry> {
+	return {
+		service: "supervisor",
+		sessionId: input.session.sessionId ?? SUPERVISOR_SESSION_ID,
+		cwd: input.cwd,
+		generation: input.generation,
+		branch: input.session.sessionManager.getBranch(),
+	};
+}
+
 export async function runSupervisorService(): Promise<void> {
 	const agentDir = getAgentDir();
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
@@ -122,7 +156,19 @@ export async function runSupervisorService(): Promise<void> {
 	const sessionManager = openSupervisorSession(agentDir, kbDir);
 	const session = await createSupervisorAgentSession(agentDir, kbDir, sessionManager);
 	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
+	const consolePrompts = new SupervisorConsolePromptQueue();
+	const consoleServer = new ResidentConsoleServer<SessionEntry, AgentSessionEvent>({
+		socketPath: `${controlDbPath}.supervisor-console.sock`,
+		service: "supervisor",
+		getSnapshot: () => createSupervisorConsoleSnapshot({ cwd: kbDir, generation: process.pid, session }),
+		enqueuePrompt: (text, id) => {
+			consolePrompts.enqueue(text, id);
+			notifySupervisorRequest(controlDbPath);
+		},
+		subscribe: (listener) => session.subscribe?.(listener) ?? (() => {}),
+	});
 	await wakeServer.start();
+	await consoleServer.start();
 	const abortController = new AbortController();
 	const stop = () => abortController.abort();
 	process.once("SIGINT", stop);
@@ -130,6 +176,7 @@ export async function runSupervisorService(): Promise<void> {
 	try {
 		await runSupervisorRequestLoop({
 			claimToken: randomUUID(),
+			consolePrompts,
 			controlDbPath,
 			session,
 			signal: abortController.signal,
@@ -138,6 +185,7 @@ export async function runSupervisorService(): Promise<void> {
 	} finally {
 		process.off("SIGINT", stop);
 		process.off("SIGTERM", stop);
+		await consoleServer.close();
 		await wakeServer.close();
 		await session.abort();
 	}
@@ -171,16 +219,23 @@ async function createSupervisorAgentSession(
 	return session;
 }
 
-async function runSupervisorRequestLoop(input: RunSupervisorRequestLoopInput): Promise<void> {
+export async function runSupervisorRequestLoop(input: RunSupervisorRequestLoopInput): Promise<void> {
 	recoverSupervisorRequests(input.controlDbPath);
+	const claimRequest = input.claimNextRequest ?? claimNextSupervisorRequest;
+	const handleRequest = input.processRequest ?? processSupervisorRequest;
 	while (!input.signal.aborted) {
 		const observedGeneration = input.wakeServer.currentGeneration();
-		const request = claimNextSupervisorRequest(input.controlDbPath, input.claimToken);
-		if (!request) {
-			await input.wakeServer.waitForWakeAfter(observedGeneration, input.signal);
+		const request = claimRequest(input.controlDbPath, input.claimToken);
+		if (request) {
+			await handleRequest(input.controlDbPath, request, input.session);
 			continue;
 		}
-		await processSupervisorRequest(input.controlDbPath, request, input.session);
+		const consolePrompt = input.consolePrompts.take();
+		if (consolePrompt) {
+			await input.session.prompt(consolePrompt.text);
+			continue;
+		}
+		await input.wakeServer.waitForWakeAfter(observedGeneration, input.signal);
 	}
 }
 
