@@ -20,7 +20,9 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	const responseContract =
 		request.kind === "approval_review"
 			? 'Return {"kind":"approve|reject","reason":"..."}.'
-			: [
+			: request.kind === "supervisor_advisory"
+				? 'Return {"kind":"advisory","answer":"..."}. This response is advisory only and cannot direct or control the caller.'
+				: [
 					'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"wait","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
 					"Continue instructions must give a concrete, actionable next step.",
 					"Return wait when progress is already underway asynchronously and no duplicate continuation should start.",
@@ -55,8 +57,13 @@ export function parseSupervisorResponse(
 	rawResponse: unknown,
 ): SupervisorResponse | undefined {
 	const response = parseResponseObject(rawResponse);
-	if (!response || typeof response.kind !== "string" || typeof response.reason !== "string") return undefined;
-
+	if (!response || typeof response.kind !== "string") return undefined;
+	if (kind === "supervisor_advisory") {
+		return response.kind === "advisory" && typeof response.answer === "string" && response.answer.trim()
+			? { answer: response.answer, kind: "advisory" }
+			: undefined;
+	}
+	if (typeof response.reason !== "string") return undefined;
 	if (response.kind === "error") return { kind: "error", reason: response.reason };
 	if (kind === "approval_review") {
 		return response.kind === "approve" || response.kind === "reject"

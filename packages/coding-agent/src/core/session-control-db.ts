@@ -93,7 +93,11 @@ export interface PostArchitectRequestInput {
 	body: string;
 }
 
-export type SupervisorRequestKind = "approval_review" | "goal_completion_review" | "goal_idle_review";
+export type SupervisorRequestKind =
+	| "approval_review"
+	| "goal_completion_review"
+	| "goal_idle_review"
+	| "supervisor_advisory";
 
 export type SupervisorRequestStatus = "pending" | "claimed" | "completed";
 
@@ -103,6 +107,7 @@ export type SupervisorResponse =
 	| { kind: "continue"; instructions: string; reason: string }
 	| { kind: "pause"; reason: string }
 	| { kind: "wait"; reason: string }
+	| { kind: "advisory"; answer: string }
 	| { kind: "error"; reason: string };
 
 export interface SupervisorRequest {
@@ -1361,7 +1366,11 @@ export function claimNextSupervisorRequest(controlDbPath: string, claimToken: st
 					`SELECT ${SUPERVISOR_REQUEST_COLUMNS}
 					 FROM supervisor_requests
 					 WHERE status = 'pending'
-					 ORDER BY CASE kind WHEN 'approval_review' THEN 0 ELSE 1 END, id ASC
+					 ORDER BY CASE kind
+						 WHEN 'approval_review' THEN 0
+						 WHEN 'supervisor_advisory' THEN 2
+						 ELSE 1
+					 END, id ASC
 					 LIMIT 1`,
 				)
 				.get() as SupervisorRequestRow | undefined;
@@ -1440,6 +1449,7 @@ function isSupervisorResponseValidForRequest(
 ): boolean {
 	if (responseKind === "error") return true;
 	if (requestKind === "approval_review") return responseKind === "approve" || responseKind === "reject";
+	if (requestKind === "supervisor_advisory") return responseKind === "advisory";
 	return (
 		responseKind === "complete" || responseKind === "continue" || responseKind === "pause" || responseKind === "wait"
 	);

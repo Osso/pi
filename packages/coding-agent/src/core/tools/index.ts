@@ -4,6 +4,11 @@ export {
 	createAskArchitectToolDefinition,
 } from "./ask-architect.ts";
 export {
+	type AskSupervisorToolDetails,
+	type AskSupervisorToolInput,
+	createAskSupervisorToolDefinition,
+} from "./ask-supervisor.ts";
+export {
 	type AskQuestionsToolDetails,
 	type AskQuestionsToolInput,
 	createAskQuestionsToolDefinition,
@@ -128,6 +133,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { createAskArchitectToolDefinition } from "./ask-architect.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
+import { createAskSupervisorToolDefinition } from "./ask-supervisor.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
 import { createBroadcastToolDefinition } from "./broadcast.ts";
 import { createChangeWorkingDirectoryToolDefinition } from "./change-working-directory.ts";
@@ -172,7 +178,8 @@ export type ToolName =
 	| "broadcast"
 	| "channel_post"
 	| "ask_questions"
-	| "ask_architect";
+	| "ask_architect"
+	| "ask_supervisor";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -192,6 +199,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"channel_post",
 	"ask_questions",
 	"ask_architect",
+	"ask_supervisor",
 ]);
 export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"read",
@@ -212,6 +220,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"channel_post",
 	"ask_questions",
 	"ask_architect",
+	"ask_supervisor",
 ];
 
 export interface ToolsOptions {
@@ -263,6 +272,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createAskQuestionsToolDefinition();
 		case "ask_architect":
 			return createAskArchitectToolDefinition();
+		case "ask_supervisor":
+			return createAskSupervisorToolDefinition();
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -306,6 +317,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return wrapToolDefinition(createAskQuestionsToolDefinition());
 		case "ask_architect":
 			return wrapToolDefinition(createAskArchitectToolDefinition());
+		case "ask_supervisor":
+			return wrapToolDefinition(createAskSupervisorToolDefinition());
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -352,6 +365,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		channel_post: createChannelPostToolDefinition(),
 		ask_questions: createAskQuestionsToolDefinition(),
 		ask_architect: createAskArchitectToolDefinition(),
+		ask_supervisor: createAskSupervisorToolDefinition(),
 	};
 }
 
@@ -396,5 +410,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		channel_post: wrapToolDefinition(createChannelPostToolDefinition()),
 		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
 		ask_architect: wrapToolDefinition(createAskArchitectToolDefinition()),
+		ask_supervisor: wrapToolDefinition(createAskSupervisorToolDefinition()),
 	};
 }
