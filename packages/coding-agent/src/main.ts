@@ -56,6 +56,7 @@ import { listTools } from "./cli/list-tools.ts";
 import { handleLoginCommand } from "./cli/login-command.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
+import { parseResidentConsoleArgs, runResidentConsoleCommand } from "./cli/resident-console-command.ts";
 import { handleSessionsCommand } from "./cli/sessions-command.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
@@ -691,6 +692,11 @@ function createFirstPartyExtensionFactories(
 }
 
 export async function main(args: string[], options?: MainOptions) {
+	const residentConsoleCommand = parseResidentConsoleArgs(args);
+	if (residentConsoleCommand) {
+		await runResidentConsoleCommand(residentConsoleCommand);
+		return;
+	}
 	if (args.length === 1 && args[0] === "architect") {
 		await runArchitectService();
 		return;
