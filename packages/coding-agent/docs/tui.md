@@ -86,12 +86,15 @@ Without this propagation, typing with an IME (Chinese, Japanese, Korean, etc.) w
 
 ## Using Components
 
+Use the injected `tui.requestRender()` inside a custom component after its state changes. For extension-owned state changes outside a custom component, use `ctx.ui.requestRender()`; it requests a lightweight interactive redraw without rebuilding the transcript.
+
 **In extensions** via `ctx.ui.custom()`:
 
 ```typescript
 pi.on("session_start", async (_event, ctx) => {
   const handle = ctx.ui.custom(myComponent);
-  // handle.requestRender() - trigger re-render
+  // Call tui.requestRender() from inside the component after state changes.
+  // Call ctx.ui.requestRender() from extension code outside the component.
   // handle.close() - restore normal UI
 });
 ```

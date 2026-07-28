@@ -1103,6 +1103,7 @@ There are two categories of extension UI methods:
 If a dialog method includes a `timeout` field, the agent-side will auto-resolve with a default value when the timeout expires. The client does not need to track timeouts.
 
 Some `ExtensionUIContext` methods are not supported or degraded in RPC mode because they require direct TUI access:
+- `requestRender()` is a no-op; RPC clients do not own a TUI render loop
 - `custom()` returns `undefined`
 - `setWorkingMessage()`, `setWorkingIndicator()`, `setFooter()`, `setHeader()`, `setEditorComponent()`, `setToolsExpanded()` are no-ops
 - `getEditorText()` returns `""`
