@@ -1,7 +1,11 @@
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
-import { getControlDbPath, readRuntimeMailboxListener } from "../../../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	readMultiAgentRuntimeOwnership,
+	readRuntimeMailboxListener,
+} from "../../../src/core/session-control-db.ts";
 import { withHeadlessPi } from "../headless-pi.ts";
 
 interface ParentAgentRecord {
@@ -227,6 +231,85 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			);
 			expect(JSON.stringify(steerResult)).toContain("inactive");
 			expect(JSON.stringify(steerResult)).not.toContain("mutation_mismatch");
+		});
+	});
+
+	it("recovers steering pending ownership after an in-place supervisor restart", async () => {
+		await withHeadlessPi(async (pi) => {
+			pi.writeRunningGoal("Finish after the live reviewer is recovered");
+			await pi.send({ type: "prompt", message: "Start a reviewer, steer it, then restart in place" });
+			const mainRequest = await pi
+				.waitForLlmRequest((request) => request.agentId === null)
+				.catch((error: unknown) => {
+					throw new Error(`Initial main request missing: ${String(error)}`);
+				});
+			pi.respondToLlmRequest(
+				mainRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall("spawn_agent", {
+						context: "fresh",
+						displayName: "In-place restart reviewer",
+						prompt: "Wait for steering",
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const spawned = await pi.waitForAgent((agent) => agent.displayName === "In-place restart reviewer");
+			const initialChildRequest = await pi
+				.waitForLlmRequest((request) => request.agentId === spawned.id)
+				.catch((error: unknown) => {
+					throw new Error(`Initial child request missing: ${String(error)} agents=${JSON.stringify(pi.listAgents())}`);
+				});
+			const mainAfterSpawn = await pi
+				.waitForLlmRequest((request) => request.agentId === null && request.id !== mainRequest.id)
+				.catch((error: unknown) => {
+					throw new Error(`Main request after spawn missing: ${String(error)}`);
+				});
+			pi.respondToLlmRequest(
+				mainAfterSpawn.id,
+				fauxAssistantMessage(
+					fauxToolCall("steer_agent", { agentId: spawned.id, message: "Finish the review after restart" }),
+					{ stopReason: "toolUse" },
+				),
+			);
+			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "steering_pending");
+			const controlDbPath = getControlDbPath(pi.paths.agentDir);
+			const ownershipBefore = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, spawned.id);
+			if (!ownershipBefore?.processIdentity) throw new Error("Reviewer has no runtime ownership");
+			const mainAfterSteer = await pi
+				.waitForLlmRequest((request) => request.agentId === null && request.id !== mainAfterSpawn.id)
+				.catch((error: unknown) => {
+					throw new Error(`Main turn did not continue after steering: ${String(error)}`);
+				});
+			pi.respondToLlmRequest(mainAfterSteer.id, fauxAssistantMessage("Waiting for the reviewer"));
+			void pi.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
+
+			const restoredChildRequest = await pi
+				.waitForLlmRequest((request) => request.agentId === spawned.id && request.id !== initialChildRequest.id)
+				.catch((error: unknown) => {
+					throw new Error(
+						`Child recovery did not resume: ${String(error)} agents=${JSON.stringify(pi.listAgents())} entries=${JSON.stringify(pi.readSessionEntries(null).slice(-5))}`,
+					);
+				});
+			const ownershipAfter = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, spawned.id);
+			expect(ownershipAfter?.processIdentity).toMatchObject({
+				pid: ownershipBefore.processIdentity.pid,
+				startTimeTicks: ownershipBefore.processIdentity.startTimeTicks,
+			});
+			expect(ownershipAfter?.processIdentity?.incarnation).not.toBe(ownershipBefore.processIdentity.incarnation);
+
+			pi.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Recovery turn complete"));
+			const steeredChildRequest = await pi.waitForLlmRequest(
+				(request) => request.agentId === spawned.id && request.id !== restoredChildRequest.id,
+			);
+			expect(steeredChildRequest.userMessages).toContainEqual(
+				expect.stringContaining("Finish the review after restart"),
+			);
+			pi.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Recovered review complete"));
+			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
+			const review = await pi.waitForSupervisorRequest("goal_idle_review");
+			expect(review.kind).toBe("goal_idle_review");
+			expect(pi.countSupervisorRequests("goal_idle_review")).toBe(1);
 		});
 	});
 

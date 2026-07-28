@@ -3034,6 +3034,16 @@ function runtimeListenerMatchesProcessIdentity(
 	}
 }
 
+function sameProcessWithSupersededIncarnation(current: ProcessIdentity, replacement: ProcessIdentity): boolean {
+	return (
+		current.pid === replacement.pid &&
+		current.startTimeTicks === replacement.startTimeTicks &&
+		current.incarnation !== undefined &&
+		replacement.incarnation !== undefined &&
+		current.incarnation !== replacement.incarnation
+	);
+}
+
 function runtimeOwnerMatches(
 	owner: MultiAgentRuntimeOwnershipRow | undefined,
 	identity: MultiAgentRuntimeOwnershipIdentity,
@@ -3929,12 +3939,16 @@ export function acquireAttachedRuntimeOwnership(
 			if (current?.process_identity) {
 				const currentIdentity = parseProcessIdentity(current.process_identity);
 				if (isProcessIdentityAlive(currentIdentity)) {
-					if (!runtimeOwnerMatches(current, input)) return { ok: false, error: "ownership_held" };
-					return {
-						agent: agent as unknown as AgentSnapshot,
-						ok: true,
-						ownership: multiAgentRuntimeOwnershipFromRow(current),
-					};
+					if (runtimeOwnerMatches(current, input)) {
+						return {
+							agent: agent as unknown as AgentSnapshot,
+							ok: true,
+							ownership: multiAgentRuntimeOwnershipFromRow(current),
+						};
+					}
+					if (!sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity)) {
+						return { ok: false, error: "ownership_held" };
+					}
 				}
 			}
 			persistAcquiredRuntimeOwnership(db, input);
@@ -4038,7 +4052,14 @@ function parseProcessIdentity(value: string): ProcessIdentity {
 	if (!Number.isSafeInteger(parsed.pid) || !Number.isSafeInteger(parsed.startTimeTicks)) {
 		throw new Error("Persisted process identity is invalid");
 	}
-	return { pid: parsed.pid, startTimeTicks: parsed.startTimeTicks } as ProcessIdentity;
+	if (parsed.incarnation !== undefined && typeof parsed.incarnation !== "string") {
+		throw new Error("Persisted process incarnation is invalid");
+	}
+	return {
+		pid: parsed.pid,
+		startTimeTicks: parsed.startTimeTicks,
+		...(parsed.incarnation === undefined ? {} : { incarnation: parsed.incarnation }),
+	} as ProcessIdentity;
 }
 
 function multiAgentRuntimeOwnershipFromRow(row: MultiAgentRuntimeOwnershipRow): MultiAgentRuntimeOwnership {

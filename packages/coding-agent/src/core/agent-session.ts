@@ -126,7 +126,7 @@ import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
-import { readProcessIdentity } from "./runtime-process.ts";
+import type { ProcessIdentity } from "./runtime-process.ts";
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
@@ -156,6 +156,7 @@ import {
 	advanceSharedChannelCursor,
 	cleanupMultiAgentTerminalOutbox,
 	getControlDbPath,
+	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
 	markMultiAgentMailboxMessageDelivered,
@@ -746,7 +747,7 @@ export class AgentSession {
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _multiAgentStore: MultiAgentStore | undefined;
 	private readonly _multiAgentRuntimeRole: MultiAgentRuntimeRole | undefined;
-	private readonly _detachedJobProcessIdentity = readProcessIdentity(process.pid);
+	private readonly _detachedJobProcessIdentity = JSON.parse(getRuntimeProcessInstanceId()) as ProcessIdentity;
 	private readonly _terminalOutboxClaimId = randomUUID();
 	private _terminalOutboxLastCleanupAt: number | undefined;
 	private _multiAgentAgentId: string | undefined;

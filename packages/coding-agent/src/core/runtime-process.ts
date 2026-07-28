@@ -5,6 +5,7 @@ import { basename } from "node:path";
 export interface ProcessIdentity {
 	pid: number;
 	startTimeTicks: number;
+	incarnation?: string;
 }
 
 const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [

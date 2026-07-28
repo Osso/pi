@@ -24,7 +24,7 @@ import {
 	LifecycleCoordinator,
 	type OwnedLifecycleCommandInput,
 } from "../../../src/core/lifecycle-coordinator.ts";
-import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
+import { isProcessIdentityAlive, type ProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
 	type AgentFileReference,
 	type AgentLifecycleState,
@@ -44,6 +44,7 @@ import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "../../../
 import {
 	advanceSharedChannelCursor,
 	enqueueRuntimeMailboxMessage,
+	getRuntimeProcessInstanceId,
 	hasPendingRuntimeCoordinationMessage,
 	isRuntimeCoordinationMailboxMessage,
 	listRuntimeMailboxMessages,
@@ -224,7 +225,7 @@ type ResolvedAgentProfile = {
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 const MAIN_THREAD_AGENT_ID = "main";
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
-const RUNTIME_PROCESS_IDENTITY = readProcessIdentity(process.pid);
+const RUNTIME_PROCESS_IDENTITY = JSON.parse(getRuntimeProcessInstanceId()) as ProcessIdentity;
 const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
