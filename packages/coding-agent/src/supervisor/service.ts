@@ -23,11 +23,11 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 			: request.kind === "supervisor_advisory"
 				? 'Return {"kind":"advisory","answer":"..."}. This response is advisory only and cannot direct or control the caller.'
 				: [
-					'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"wait","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
-					"Continue instructions must give a concrete, actionable next step.",
-					"Return wait when progress is already underway asynchronously and no duplicate continuation should start.",
-					"Return pause only when progress requires user or external input and no active work can advance it.",
-				].join("\n");
+						'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"wait","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
+						"Continue instructions must give a concrete, actionable next step.",
+						"Return wait when progress is already underway asynchronously and no duplicate continuation should start.",
+						"Return pause only when progress requires user or external input and no active work can advance it.",
+					].join("\n");
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",
 		"Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.",

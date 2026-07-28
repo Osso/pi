@@ -1,7 +1,7 @@
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
-import { DEFAULT_SUPERVISOR_KB_DIR, resolveSupervisorProjectForCwd } from "../../supervisor/project-resolver.ts";
 import { requestSupervisorDecision } from "../../supervisor/client.ts";
+import { DEFAULT_SUPERVISOR_KB_DIR, resolveSupervisorProjectForCwd } from "../../supervisor/project-resolver.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 
 const SUPERVISOR_ADVISORY_TIMEOUT_MS = 3 * 60 * 1_000;
@@ -45,12 +45,16 @@ export function createAskSupervisorToolDefinition(): ToolDefinition<
 			const response = await requestSupervisorDecision({
 				controlDbPath,
 				kind: "supervisor_advisory",
-				payload: { question: params.question, ...(params.context === undefined ? {} : { context: params.context }) },
+				payload: {
+					question: params.question,
+					...(params.context === undefined ? {} : { context: params.context }),
+				},
 				projectId,
 				senderSessionId,
 				timeoutMs: SUPERVISOR_ADVISORY_TIMEOUT_MS,
 			});
-			if (response.kind !== "advisory") throw new Error(response.kind === "error" ? response.reason : "Invalid Supervisor advisory response");
+			if (response.kind !== "advisory")
+				throw new Error(response.kind === "error" ? response.reason : "Invalid Supervisor advisory response");
 			return {
 				content: [{ type: "text", text: response.answer }],
 				details: { answer: response.answer, projectId, senderSessionId },
@@ -63,7 +67,10 @@ export function createAskSupervisorToolDefinition(): ToolDefinition<
 		},
 		renderResult(result, _options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			const output = result.content.filter((item) => item.type === "text").map((item) => item.text ?? "").join("\n");
+			const output = result.content
+				.filter((item) => item.type === "text")
+				.map((item) => item.text ?? "")
+				.join("\n");
 			text.setText(output ? `\n${theme.fg(result.isError ? "error" : "toolOutput", output)}` : "");
 			return text;
 		},

@@ -4,15 +4,15 @@ export {
 	createAskArchitectToolDefinition,
 } from "./ask-architect.ts";
 export {
-	type AskSupervisorToolDetails,
-	type AskSupervisorToolInput,
-	createAskSupervisorToolDefinition,
-} from "./ask-supervisor.ts";
-export {
 	type AskQuestionsToolDetails,
 	type AskQuestionsToolInput,
 	createAskQuestionsToolDefinition,
 } from "./ask-questions.ts";
+export {
+	type AskSupervisorToolDetails,
+	type AskSupervisorToolInput,
+	createAskSupervisorToolDefinition,
+} from "./ask-supervisor.ts";
 export {
 	type BashOperations,
 	type BashSpawnContext,

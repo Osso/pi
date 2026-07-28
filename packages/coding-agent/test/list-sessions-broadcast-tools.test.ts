@@ -163,8 +163,8 @@ describe("session coordination tools", () => {
 
 	it("bounds Supervisor advisory input and rejects subagent runtimes", async () => {
 		const tool = createAskSupervisorToolDefinition();
-		expect(tool.parameters.properties.question.maxLength).toBe(4_000);
-		expect(tool.parameters.properties.context.maxLength).toBe(8_000);
+		expect((tool.parameters.properties.question as { maxLength?: number }).maxLength).toBe(4_000);
+		expect((tool.parameters.properties.context as { maxLength?: number }).maxLength).toBe(8_000);
 
 		for (const context of [
 			{

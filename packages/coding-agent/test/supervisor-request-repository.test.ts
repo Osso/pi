@@ -73,16 +73,17 @@ describe("Supervisor request repository", () => {
 			senderSessionId: "main-session",
 		});
 		const claimed = claimNextSupervisorRequest(controlDbPath, "supervisor-runtime");
-		if (!claimed?.claimToken) throw new Error("expected claimed advisory");
+		const claimToken = claimed?.claimToken;
+		if (!claimToken) throw new Error("expected claimed advisory");
 
 		expect(() =>
-			completeSupervisorRequest(controlDbPath, requestId, claimed.claimToken, {
+			completeSupervisorRequest(controlDbPath, requestId, claimToken, {
 				kind: "continue",
 				reason: "binding responses are forbidden",
 				instructions: "Do work",
 			}),
 		).toThrow("Invalid Supervisor response kind continue for supervisor_advisory");
-		completeSupervisorRequest(controlDbPath, requestId, claimed.claimToken, {
+		completeSupervisorRequest(controlDbPath, requestId, claimToken, {
 			kind: "advisory",
 			answer: "The evidence is sufficient.",
 		} as never);
