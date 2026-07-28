@@ -58,11 +58,7 @@ export function parseSupervisorResponse(
 ): SupervisorResponse | undefined {
 	const response = parseResponseObject(rawResponse);
 	if (!response || typeof response.kind !== "string") return undefined;
-	if (kind === "supervisor_advisory") {
-		return response.kind === "advisory" && typeof response.answer === "string" && response.answer.trim()
-			? { answer: response.answer, kind: "advisory" }
-			: undefined;
-	}
+	if (kind === "supervisor_advisory") return parseAdvisoryResponse(response);
 	if (typeof response.reason !== "string") return undefined;
 	if (response.kind === "error") return { kind: "error", reason: response.reason };
 	if (kind === "approval_review") {
@@ -77,6 +73,11 @@ export function parseSupervisorResponse(
 		return { instructions: response.instructions, kind: "continue", reason: response.reason };
 	}
 	return undefined;
+}
+
+function parseAdvisoryResponse(response: Record<string, unknown>): SupervisorResponse | undefined {
+	if (response.kind !== "advisory" || typeof response.answer !== "string") return undefined;
+	return response.answer.trim() ? { answer: response.answer, kind: "advisory" } : undefined;
 }
 
 export async function runSupervisorRequest(input: RunSupervisorRequestInput): Promise<"completed" | "preempted"> {
