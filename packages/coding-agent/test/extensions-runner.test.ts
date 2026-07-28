@@ -530,6 +530,7 @@ describe("ExtensionRunner", () => {
 			const ctx = runner.createContext();
 			expect(ctx.mode).toBe("print");
 			expect(ctx.hasUI).toBe(false);
+			expect(() => ctx.ui.requestRender()).not.toThrow();
 		});
 
 		it("exposes project trust state on ExtensionContext", async () => {

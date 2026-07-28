@@ -15,6 +15,7 @@ function createUiContext(
 		confirm: async () => false,
 		input: async () => undefined,
 		notify: onNotify,
+		requestRender: () => {},
 		onTerminalInput: () => () => {},
 		setStatus: () => {},
 		setWorkingMessage: () => {},

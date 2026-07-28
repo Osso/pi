@@ -6,7 +6,11 @@ import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
-import type { AutocompleteProviderFactory, ToolDefinition } from "../src/core/extensions/types.ts";
+import type {
+	AutocompleteProviderFactory,
+	ExtensionUIContext,
+	ToolDefinition,
+} from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
@@ -154,6 +158,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 interface InteractiveModeKeyHandlerInternals {
 	addMessageToChat(this: unknown, message: unknown, options?: { populateHistory?: boolean }): void;
 	clearChildAgentView(this: unknown): void;
+	createExtensionUIContext(this: unknown): ExtensionUIContext;
 	createWorkingLoader(this: unknown): Component & { stop(): void };
 	currentFooter(this: unknown): Component & { dispose?(): void };
 	getUserMessageText(this: unknown, message: unknown): string;
@@ -1971,6 +1976,17 @@ describe("InteractiveMode footer ownership", () => {
 		interactiveModeKeyHandlers.resetExtensionUI.call(fakeThis);
 
 		expect(setMessage).toHaveBeenCalledWith("Thinking... 12s");
+	});
+});
+
+describe("InteractiveMode.createExtensionUIContext requestRender", () => {
+	test("delegates render requests to the TUI", () => {
+		const requestRender = vi.fn();
+		const uiContext = interactiveModeKeyHandlers.createExtensionUIContext.call({ ui: { requestRender } });
+
+		uiContext.requestRender();
+
+		expect(requestRender).toHaveBeenCalledTimes(1);
 	});
 });
 

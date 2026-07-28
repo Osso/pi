@@ -215,6 +215,21 @@ describe("RPC prompt response semantics", () => {
 		}
 	});
 
+	it("ignores extension render requests without emitting RPC output", async () => {
+		const { bindExtensionsSpy, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 0 });
+
+		try {
+			const bindings = bindExtensionsSpy.mock.calls[0]?.[0];
+			const outputCount = rpcIo.outputLines.length;
+
+			bindings.uiContext.requestRender();
+
+			expect(rpcIo.outputLines).toHaveLength(outputCount);
+		} finally {
+			await cleanup();
+		}
+	});
+
 	it("emits one failure response when prompt preflight rejects", async () => {
 		const { lineHandler, cleanup } = await startRpcMode({
 			withAuth: false,

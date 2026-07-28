@@ -66,6 +66,7 @@ describe("AgentSession model and extension characterization", () => {
 			getToolsExpanded: () => false,
 			input: async () => undefined,
 			notify: () => {},
+			requestRender: () => {},
 			onTerminalInput: () => () => {},
 			pasteToEditor: () => {},
 			select,
