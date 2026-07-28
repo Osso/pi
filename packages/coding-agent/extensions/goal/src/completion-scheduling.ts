@@ -13,15 +13,15 @@ interface CompletionSchedulingOptions {
 	isSameGoal: (ctx: ExtensionContext, waiting: CompletionWait) => boolean;
 	onComplete: (waiting: CompletionWait, ctx: ExtensionContext) => void;
 	onContinue: (instructions: string) => void;
-	onStatus: (message: string) => void;
-	onError: (error: unknown) => void;
+	onStatus: (ctx: ExtensionContext, message: string, reviewAt?: string) => void;
+	onError: (error: unknown, ctx: ExtensionContext) => void;
 }
 
 export interface CompletionWaitScheduler {
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	createReviewGuard(ctx: ExtensionContext): () => boolean;
-	wait(goal: Goal, ctx: ExtensionContext, reason: string): Promise<void>;
+	wait(goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string): Promise<void>;
 }
 
 type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, GoalSupervisorResponse>>;
@@ -39,13 +39,17 @@ async function applyCompletionDecision(
 			return options.onComplete(waiting, ctx);
 		case "continue":
 			return options.onContinue(decision.instructions);
-		case "wait":
-			options.onStatus(`Waiting: ${decision.reason}`);
-			return scheduler.waitForAgentsOrScheduleReview(ctx, waiting, []);
+		case "wait": {
+			const message = `Waiting: ${decision.reason}`;
+			return scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
+				onAgentWait: () => options.onStatus(ctx, message),
+				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+			});
+		}
 		case "pause":
-			return options.onStatus(`Goal waiting: ${decision.reason}`);
+			return options.onStatus(ctx, `Goal waiting: ${decision.reason}`);
 		case "error":
-			return options.onStatus(`Goal review failed: ${decision.reason}`);
+			return options.onStatus(ctx, `Goal review failed: ${decision.reason}`);
 	}
 }
 
@@ -77,6 +81,12 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		clearAll: () => scheduler.clearAll(),
 		clearSession: (sessionId) => scheduler.clearSession(sessionId),
 		createReviewGuard: (ctx) => createReviewGuard(scheduler, ctx),
-		wait: async (goal, ctx, reason) => scheduler.waitForAgentsOrScheduleReview(ctx, { goal, reason }, []),
+		wait: async (goal, ctx, reason, statusReason) => {
+			const message = `Waiting: ${statusReason}`;
+			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, reason }, [], {
+				onAgentWait: () => options.onStatus(ctx, message),
+				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+			});
+		},
 	};
 }

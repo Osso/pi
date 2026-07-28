@@ -23,12 +23,16 @@ import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
 import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import {
-	appendSupervisorStatus,
+	type AppendSupervisorStatus,
+	createSupervisorStatusController,
 	renderSupervisorMessage,
 	renderSupervisorStatusEntry,
 	sendSupervisorInstructions,
+	type SupervisorStatusController,
 } from "./rendering.ts";
 import { reviewGoalWithResidentSupervisor, withSupervisorReviewStatus } from "./supervisor-review.ts";
+import { createWaitCountdownRefresher } from "./wait-countdown.ts";
+import { appendGoalSchedulingError, createWaitStatusCallbacks } from "./wait-status.ts";
 
 const MAX_OBJECTIVE_CHARS = 4000;
 const USER_PAUSE_REASON = "Paused by user.";
@@ -48,7 +52,8 @@ interface ManageGoalContext {
 	params: ManageGoalParams;
 	pi: ExtensionAPI;
 	reviewGoal: GoalSupervisorReview;
-	onCompletionWait: (goal: Goal, ctx: ExtensionContext, reason: string) => Promise<void>;
+	onCompletionWait: (goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string) => Promise<void>;
+	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
 }
@@ -246,7 +251,7 @@ function runSetGoalAction({
 	params,
 	pi,
 	beforeGoalSave,
-}: Omit<ManageGoalContext, "reviewGoal" | "onCompletionWait">): AgentToolResult<unknown> {
+}: Omit<ManageGoalContext, "reviewGoal" | "onCompletionWait" | "appendStatus">): AgentToolResult<unknown> {
 	const objective = params.objective?.trim() ?? "";
 	if (!objective) {
 		return textResult("Objective is required.");
@@ -315,23 +320,23 @@ async function applyCompletionDecision(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 	reason: string,
-	onWait: (goal: Goal, ctx: ExtensionContext, reason: string) => Promise<void>,
+	onWait: (goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string) => Promise<void>,
+	appendStatus: AppendSupervisorStatus,
 ): Promise<AgentToolResult<unknown>> {
 	if (decision.kind === "continue") {
 		sendSupervisorInstructions(pi, decision.instructions);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
 	}
 	if (decision.kind === "pause") {
-		appendSupervisorStatus(pi, `Goal waiting: ${decision.reason}`);
+		appendStatus(ctx, `Goal waiting: ${decision.reason}`);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind === "wait") {
-		appendSupervisorStatus(pi, `Waiting: ${decision.reason}`);
-		await onWait(activeGoal, ctx, reason);
+		await onWait(activeGoal, ctx, reason, decision.reason);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind !== "complete") {
-		appendSupervisorStatus(pi, `Goal review failed: ${decision.reason}`);
+		appendStatus(ctx, `Goal review failed: ${decision.reason}`);
 		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
 		return textResult(`Goal review failed: ${decision.reason}`);
 	}
@@ -347,7 +352,8 @@ async function runCompleteGoalAction(
 	reasonInput: string | undefined,
 	reviewGoal: GoalSupervisorReview,
 	pi: ExtensionAPI,
-	onWait: (goal: Goal, ctx: ExtensionContext, reason: string) => Promise<void>,
+	onWait: (goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string) => Promise<void>,
+	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
 ): Promise<AgentToolResult<unknown>> {
 	const activeGoal = loadOrMigrateActiveGoal(ctx);
@@ -360,7 +366,7 @@ async function runCompleteGoalAction(
 	});
 	const reviewStillApplies = isReviewCurrent() && goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal);
 	if (!reviewStillApplies) return textResult("Goal changed or review was canceled; stale decision ignored.");
-	return applyCompletionDecision(decision, activeGoal, ctx, pi, reason, onWait);
+	return applyCompletionDecision(decision, activeGoal, ctx, pi, reason, onWait, appendStatus);
 }
 
 function runClearGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void): AgentToolResult<unknown> {
@@ -396,6 +402,7 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 				context.reviewGoal,
 				pi,
 				context.onCompletionWait,
+				context.appendStatus,
 				context.isCompletionReviewCurrent ?? (() => true),
 			);
 		case "clear":
@@ -417,32 +424,23 @@ function continueGoalFromIdleDecision(goal: Goal, instructions: string, ctx: Ext
 	sendSupervisorInstructions(pi, instructions);
 }
 
-async function reportGoalWait(
-	pi: ExtensionAPI,
-	prefix: "Waiting" | "Goal review failed",
-	reason: string,
-	onWait: (reason: string) => Promise<void>,
-): Promise<void> {
-	appendSupervisorStatus(pi, `${prefix}: ${reason}`);
-	await onWait(reason);
-}
-
 async function applyGoalIdleDecision(
 	decision: GoalSupervisorResponse,
 	goal: Goal,
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
-	onWait: (reason: string) => Promise<void>,
+	onWait: (message: string) => Promise<void>,
+	appendStatus: AppendSupervisorStatus,
 ): Promise<void> {
 	switch (decision.kind) {
 		case "complete":
 			return completeGoalFromIdleDecision(goal, decision.reason, ctx);
 		case "pause":
-			return appendSupervisorStatus(pi, `Goal waiting: ${decision.reason}`);
+			return appendStatus(ctx, `Goal waiting: ${decision.reason}`);
 		case "wait":
-			return reportGoalWait(pi, "Waiting", decision.reason, onWait);
+			return onWait(`Waiting: ${decision.reason}`);
 		case "error":
-			return reportGoalWait(pi, "Goal review failed", decision.reason, onWait);
+			return onWait(`Goal review failed: ${decision.reason}`);
 		case "continue":
 			return continueGoalFromIdleDecision(goal, decision.instructions, ctx, pi);
 	}
@@ -525,18 +523,17 @@ function sameRunningGoal(ctx: ExtensionContext, goal: Goal): boolean {
 	return activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
 }
 
-function appendGoalSchedulingError(pi: ExtensionAPI, error: unknown): void {
-	const message = error instanceof Error ? error.message : String(error);
-	appendSupervisorStatus(pi, `Goal wait failed: ${message}`);
-}
-
 function injectGoalContext(event: BeforeAgentStartEvent, ctx: ExtensionContext): BeforeAgentStartEventResult | undefined {
 	const goal = loadOrMigrateRunningGoal(ctx);
 	if (!goal) return;
 	return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
 }
 
-function createCompletionScheduler(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview) {
+function createCompletionScheduler(
+	pi: ExtensionAPI,
+	reviewGoal: GoalSupervisorReview,
+	appendStatus: AppendSupervisorStatus,
+) {
 	return createCompletionWaitScheduler({
 		pi,
 		reviewGoal,
@@ -554,8 +551,8 @@ function createCompletionScheduler(pi: ExtensionAPI, reviewGoal: GoalSupervisorR
 			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 		},
 		onContinue: sendSupervisorInstructions.bind(undefined, pi),
-		onStatus: appendSupervisorStatus.bind(undefined, pi),
-		onError: appendGoalSchedulingError.bind(undefined, pi),
+		onStatus: appendStatus,
+		onError: appendGoalSchedulingError.bind(undefined, appendStatus),
 	});
 }
 
@@ -572,6 +569,7 @@ interface GoalExtensionRuntime {
 	errorStatusScheduler: ErrorStatusScheduler;
 	scheduler: IdleGoalScheduler;
 	completionScheduler: CompletionWaitScheduler;
+	status: SupervisorStatusController;
 	applyDecision: ApplyIdleDecision;
 	clearGoalSchedules: (sessionId: string) => void;
 	clearAllGoalSchedules: () => void;
@@ -580,51 +578,71 @@ interface GoalExtensionRuntime {
 function createIdleGoalScheduler(
 	pi: ExtensionAPI,
 	reviewGoal: GoalSupervisorReview,
+	appendStatus: AppendSupervisorStatus,
 	clearSchedules: (sessionId: string) => void,
 ): { scheduler: IdleGoalScheduler; applyDecision: ApplyIdleDecision } {
 	let scheduler: IdleGoalScheduler;
 	const applyDecision: ApplyIdleDecision = async (decision, goal, ctx, terminalTurn) => {
 		clearSchedules(ctx.sessionManager.getSessionId());
-		await applyGoalIdleDecision(decision, goal, ctx, pi, async () => {
-			await scheduler.waitForAgentsOrScheduleReview(ctx, goal, terminalTurn);
-		});
+		await applyGoalIdleDecision(
+			decision,
+			goal,
+			ctx,
+			pi,
+			async (message) => {
+				await scheduler.waitForAgentsOrScheduleReview(
+					ctx,
+					goal,
+					terminalTurn,
+					createWaitStatusCallbacks(appendStatus, ctx, message),
+				);
+			},
+			appendStatus,
+		);
 	};
 	scheduler = createGoalScheduler<Goal, GoalSupervisorResponse>({
 		pi,
 		applyDecision,
 		isSameRunningGoal: sameRunningGoal,
-		reportError: appendGoalSchedulingError.bind(undefined, pi),
+		reportError: appendGoalSchedulingError.bind(undefined, appendStatus),
 		reviewGoal: async (ctx, goal, terminalTurn, wakeEvidence) =>
 			reviewGoal({ ctx, kind: "goal_idle_review", payload: { objective: goal.objective, terminalTurn, wakeEvidence } }),
 	});
 	return { scheduler, applyDecision };
 }
 
-function createGoalExtensionRuntime(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview): GoalExtensionRuntime {
+function createGoalExtensionRuntime(
+	pi: ExtensionAPI,
+	reviewGoal: GoalSupervisorReview,
+	status: SupervisorStatusController,
+): GoalExtensionRuntime {
 	const emptyResponseScheduler = createEmptyResponseScheduler<Goal>({ pi, isSameRunningGoal: sameRunningGoal });
-	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: appendSupervisorStatus.bind(undefined, pi) });
+	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: status.append });
 	let clearGoalSchedules: (sessionId: string) => void;
-	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, (sessionId) =>
+	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, status.append, (sessionId) =>
 		clearGoalSchedules(sessionId),
 	);
-	const completionScheduler = createCompletionScheduler(pi, reviewGoal);
+	const completionScheduler = createCompletionScheduler(pi, reviewGoal, status.append);
 	clearGoalSchedules = (sessionId: string): void => {
 		emptyResponseScheduler.clearSession(sessionId);
 		errorStatusScheduler.clearSession(sessionId);
 		scheduler.clearSession(sessionId);
 		completionScheduler.clearSession(sessionId);
+		status.clearSession(sessionId);
 	};
 	const clearAllGoalSchedules = (): void => {
 		emptyResponseScheduler.clearAll();
 		errorStatusScheduler.clearAll();
 		scheduler.clearAll();
 		completionScheduler.clearAll();
+		status.clearAll();
 	};
 	return {
 		emptyResponseScheduler,
 		errorStatusScheduler,
 		scheduler,
 		completionScheduler,
+		status,
 		applyDecision,
 		clearGoalSchedules,
 		clearAllGoalSchedules,
@@ -639,7 +657,9 @@ function registerManageGoal(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview, 
 			params,
 			pi,
 			reviewGoal,
-			onCompletionWait: async (goal, waitCtx, reason) => runtime.completionScheduler.wait(goal, waitCtx, reason),
+			onCompletionWait: async (goal, waitCtx, reason, statusReason) =>
+				runtime.completionScheduler.wait(goal, waitCtx, reason, statusReason),
+			appendStatus: runtime.status.append,
 			isCompletionReviewCurrent,
 			beforeGoalSave: () => runtime.clearGoalSchedules(ctx.sessionManager.getSessionId()),
 		});
@@ -651,6 +671,7 @@ function registerSessionGoalHandlers(pi: ExtensionAPI, runtime: GoalExtensionRun
 		inheritPreviousSessionGoal(event, ctx);
 		const goal = loadOrMigrateActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
+		runtime.status.restore(ctx);
 		if (goal) ctx.ui.notify(goalStartupMessage(goal), "info");
 	});
 	pi.on("session_shutdown", async () => runtime.clearAllGoalSchedules());
@@ -676,7 +697,7 @@ function registerAgentGoalHandlers(
 			scheduler: runtime.scheduler,
 			emptyResponseScheduler: runtime.emptyResponseScheduler,
 			applyDecision: runtime.applyDecision,
-			selectGoal: () => selectIdleGoal(event, ctx, pi, runtime),
+			selectGoal: () => selectIdleGoal(event, ctx, runtime),
 			isSameGoal: sameRunningGoal,
 		});
 	});
@@ -689,7 +710,6 @@ function registerAgentGoalHandlers(
 function selectIdleGoal(
 	event: AgentEndEvent,
 	ctx: ExtensionContext,
-	pi: ExtensionAPI,
 	runtime: GoalExtensionRuntime,
 ): Goal | null {
 	return selectGoalForIdleReview({
@@ -699,7 +719,7 @@ function selectIdleGoal(
 		clearRetry: runtime.emptyResponseScheduler.clearSession.bind(runtime.emptyResponseScheduler),
 		scheduleRetry: runtime.emptyResponseScheduler.schedule.bind(runtime.emptyResponseScheduler),
 		scheduleErrorStatus: runtime.errorStatusScheduler.schedule.bind(runtime.errorStatusScheduler),
-		reportSkipped: appendSupervisorStatus.bind(undefined, pi),
+		reportSkipped: (message) => runtime.status.append(ctx, message),
 	});
 }
 
@@ -713,10 +733,11 @@ function registerGoalCommand(pi: ExtensionAPI, runtime: GoalExtensionRuntime): v
 }
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}): void {
-	const reviewGoal = withSupervisorReviewStatus(pi, options.reviewGoal ?? reviewGoalWithResidentSupervisor);
+	const status = createSupervisorStatusController(pi, createWaitCountdownRefresher());
+	const reviewGoal = withSupervisorReviewStatus(status.append, options.reviewGoal ?? reviewGoalWithResidentSupervisor);
 	pi.registerEntryRenderer("supervisor-status", renderSupervisorStatusEntry);
 	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
-	const runtime = createGoalExtensionRuntime(pi, reviewGoal);
+	const runtime = createGoalExtensionRuntime(pi, reviewGoal, status);
 	registerManageGoal(pi, reviewGoal, runtime);
 	registerSessionGoalHandlers(pi, runtime);
 	registerAgentGoalHandlers(pi, reviewGoal, runtime);

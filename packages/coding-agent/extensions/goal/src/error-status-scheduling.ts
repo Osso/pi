@@ -4,7 +4,7 @@ import { isStaleContextError } from "./stale-context.ts";
 const ERROR_STATUS_SETTLEMENT_MS = 10;
 
 interface ErrorStatusSchedulingOptions {
-	onStatus: (message: string) => void;
+	onStatus: (ctx: ExtensionContext, message: string) => void;
 }
 
 export interface ErrorStatusScheduler {
@@ -47,7 +47,7 @@ class ErrorStatusSchedulerImpl implements ErrorStatusScheduler {
 					return;
 				}
 				this.timers.delete(sessionId);
-				this.options.onStatus(message);
+				this.options.onStatus(ctx, message);
 			} catch (error) {
 				this.timers.delete(sessionId);
 				if (!isStaleContextError(error)) throw error;

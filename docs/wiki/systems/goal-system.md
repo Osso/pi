@@ -109,13 +109,19 @@ The extension listens for `agent_end`. If a goal is active, incomplete, and ther
 
 A non-error empty assistant response no longer stops an active goal or emits the empty-response warning. It schedules a continuation check after 1 second and polls at 1-second intervals until the same goal remains active, the session is idle, and no messages are pending. Goal changes, pending input, and session shutdown cancel the polling.
 
+### Supervisor wait countdown
+
+When no active agents exist, the scheduler calculates one absolute five-minute `reviewAt` deadline and uses that same value for both the review timer and the durable `supervisor-status` entry. Interactive rendering derives `Next review in M:SS` from the deadline on each paint and switches to `Review due…` at expiry. A separate deadline-aligned refresher only requests UI redraws; it never appends entries, invokes Supervisor review, or changes the five-minute schedule.
+
+Active-agent `wait_agents` statuses have no countdown because agent completion, not a timer, owns their wakeup. If agent discovery or `wait_agents` fails, the timed fallback persists its newly scheduled deadline. Input, new turns, goal changes, review start, session replacement, and shutdown clear redraw timers beside the existing review schedules. Resume restores redraw-only refresh from the newest future deadline but does not recreate a review timer, preventing duplicate Supervisor work.
+
 Review does not start when:
 
 - the goal has `completedAt` or is paused;
 - pending messages exist;
 - the last assistant response was empty.
 
-Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. A decision returned while pending state exists is retained and applied if that state drains without starting a turn. Input, a new turn, goal replacement/pause/completion/clear, or shutdown cancels deferred decisions, background waits, and review timers. Every asynchronous review rechecks goal identity before applying its decision. Scheduling or review failures append durable `supervisor-status` errors, keep the goal active, and stop automatic continuation visibly. Aborted turns do not change persisted goal state or set `pausedAt`; only explicit pause actions set `pausedAt`.
+Pending input is checked before abort handling. Interactive replacement input remains pending through `AgentSession.hasPendingMessages()` while its external-input reservation exists, even after the steering queue entry is consumed. A decision returned while pending state exists is retained and applied if that state drains without starting a turn. Input, a new turn, goal replacement/pause/completion/clear, or shutdown cancels deferred decisions, background waits, and review timers. Every asynchronous review rechecks goal identity before applying its decision. Scheduling or review failures append durable `supervisor-status` errors, keep the goal active, and use the same countdown when timed re-review remains scheduled. Aborted turns do not change persisted goal state or set `pausedAt`; only explicit pause actions set `pausedAt`.
 
 ## Completion Tool Action
 

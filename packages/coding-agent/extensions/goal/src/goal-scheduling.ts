@@ -20,7 +20,12 @@ interface GoalSchedulingOptions<TGoal, TDecision> {
 		terminalTurn: TerminalTurn,
 	) => Promise<void>;
 	isSameRunningGoal: (ctx: ExtensionContext, goal: TGoal) => boolean;
-	reportError: (error: unknown) => void;
+	reportError: (error: unknown, ctx: ExtensionContext) => void;
+}
+
+export interface GoalWaitCallbacks {
+	onAgentWait(): void;
+	onReviewScheduled(reviewAt: string): void;
 }
 
 export interface GoalScheduler<TGoal, TDecision> {
@@ -30,7 +35,12 @@ export interface GoalScheduler<TGoal, TDecision> {
 	deferDecision(decision: TDecision, goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
 	deferReview(goal: TGoal, ctx: ExtensionContext, terminalTurn: TerminalTurn): void;
 	isEpochCurrent(ctx: ExtensionContext, epoch: number): boolean;
-	waitForAgentsOrScheduleReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void>;
+	waitForAgentsOrScheduleReview(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		callbacks: GoalWaitCallbacks,
+	): Promise<void>;
 }
 
 function toolError(result: AgentToolResult<unknown>, toolName: string): Error | null {
@@ -109,7 +119,12 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		this.pendingDecisionTimers.set(sessionId, timer);
 	}
 
-	async waitForAgentsOrScheduleReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): Promise<void> {
+	async waitForAgentsOrScheduleReview(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		callbacks: GoalWaitCallbacks,
+	): Promise<void> {
 		const sessionId = ctx.sessionManager.getSessionId();
 		const epoch = this.cancellationEpochs.get(sessionId) ?? 0;
 		try {
@@ -118,14 +133,15 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 			const listError = toolError(listResult, "list_agents");
 			if (listError) throw listError;
 			if (activeAgentCount(listResult.details) === 0) {
-				this.scheduleWaitReview(ctx, goal, terminalTurn);
+				this.scheduleWaitReview(ctx, goal, terminalTurn, callbacks.onReviewScheduled);
 				return;
 			}
-			this.startAgentWait(ctx, goal, terminalTurn);
+			this.startAgentWait(ctx, goal, terminalTurn, callbacks);
+			callbacks.onAgentWait();
 		} catch (error) {
 			if ((this.cancellationEpochs.get(sessionId) ?? 0) !== epoch) return;
-			this.options.reportError(error);
-			this.scheduleWaitReview(ctx, goal, terminalTurn);
+			this.options.reportError(error, ctx);
+			this.scheduleWaitReview(ctx, goal, terminalTurn, callbacks.onReviewScheduled);
 		}
 	}
 
@@ -199,27 +215,41 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 				return;
 			}
 			void this.reviewAndApply(ctx, goal, terminalTurn, wakeEvidence).catch((error: unknown) =>
-				this.options.reportError(error),
+				this.options.reportError(error, ctx),
 			);
 		}, PENDING_DECISION_RETRY_DELAY_MS);
 		this.waitReviewTimers.set(sessionId, timer);
 	}
 
-	private scheduleWaitReview(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): void {
+	private scheduleWaitReview(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		onScheduled: (reviewAt: string) => void,
+	): void {
 		const sessionId = ctx.sessionManager.getSessionId();
 		this.clearTimer(this.waitReviewTimers, sessionId);
+		const reviewAt = new Date(Date.now() + WAIT_REVIEW_DELAY_MS).toISOString();
 		const timer = setTimeout(() => {
 			this.waitReviewTimers.delete(sessionId);
 			if (!ctx.isIdle()) {
 				this.scheduleReviewRetry(ctx, goal, terminalTurn);
 				return;
 			}
-			void this.reviewAndApply(ctx, goal, terminalTurn).catch((error: unknown) => this.options.reportError(error));
-		}, WAIT_REVIEW_DELAY_MS);
+			void this.reviewAndApply(ctx, goal, terminalTurn).catch((error: unknown) =>
+				this.options.reportError(error, ctx),
+			);
+		}, Date.parse(reviewAt) - Date.now());
 		this.waitReviewTimers.set(sessionId, timer);
+		onScheduled(reviewAt);
 	}
 
-	private startAgentWait(ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn): void {
+	private startAgentWait(
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		callbacks: GoalWaitCallbacks,
+	): void {
 		const sessionId = ctx.sessionManager.getSessionId();
 		this.clearWait(sessionId);
 		const controller = new AbortController();
@@ -227,8 +257,8 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		void this.waitForAgentWake(ctx, goal, terminalTurn, controller).catch((error: unknown) => {
 			if (controller.signal.aborted) return;
 			this.waitControllers.delete(sessionId);
-			this.options.reportError(error);
-			this.scheduleWaitReview(ctx, goal, terminalTurn);
+			this.options.reportError(error, ctx);
+			this.scheduleWaitReview(ctx, goal, terminalTurn, callbacks.onReviewScheduled);
 		});
 	}
 
@@ -263,7 +293,7 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		}
 		void this.options
 			.applyDecision(decision, goal, ctx, terminalTurn)
-			.catch((error: unknown) => this.options.reportError(error));
+			.catch((error: unknown) => this.options.reportError(error, ctx));
 	}
 }
 

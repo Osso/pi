@@ -54,6 +54,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Idle and completion goal reviews append `Waiting for Supervisor…` before awaiting a decision, use a 60-second resident-review deadline, and convert thrown review failures into durable `Goal review failed: <reason>` status instead of stopping silently.
 - [x] An idle-review `pause` decision appends a durable Supervisor status explaining why automatic continuation stopped, including when user input is required.
 - [x] Autonomous continuation has no numeric turn cap; a Supervisor `continue` decision submits actionable instructions as a visible `supervisor` custom follow-up wrapped in explicit Supervisor provenance for model context, while its renderer shows one `[Supervisor]` header and a plain instruction body without exposing the XML wrapper; `complete` closes the goal; `wait` or idle-review `error` appends durable status, calls `wait_agents` when agents are active, and re-runs Supervisor review after agent wake or five minutes; wake evidence includes structured details and visible tool-result content so coordination instructions survive the wait handoff; only `pause` stops automatic continuation without changing active/paused persistence.
+- [x] Five-minute Supervisor waits persist the exact scheduled `reviewAt` deadline once, render `Next review in M:SS` from that absolute deadline, repaint without appending countdown entries or triggering review work, show `Review due…` at expiry, stop repaint scheduling when continuation work is canceled or review starts, and restore repaint-only countdown state from the newest applicable future status without recreating the Supervisor review timer. Active-agent `wait_agents` statuses remain deadline-free unless they fall back to timed review.
 - [x] Continuation does not start a second overlapping turn while the agent is already busy.
 - [x] Goal start/resume/continuation messages remain unchanged in persisted transcript and live model context; Supervisor XML provenance is hidden only by TUI rendering, and generated messages do not appear in the editor's typed prompt history.
 - [x] Compaction excludes goal-generated start/resume/continuation reminders from summarization input while preserving other extension-origin messages and the original session log.
@@ -70,7 +71,10 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and goal lifecycle hooks, persists goal state, injects active objectives, and coordinates Supervisor decisions.
 - `packages/coding-agent/extensions/goal/src/supervisor-review.ts` — applies the 60-second resident-review deadline and wraps every goal review with visible waiting and reason-bearing failure status.
-- `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — preserves decisions across transient pending input, waits for active agents, and schedules five-minute Supervisor re-review.
+- `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — preserves decisions across transient pending input, waits for active agents, and schedules five-minute Supervisor re-review from the persisted deadline.
+- `packages/coding-agent/extensions/goal/src/wait-countdown.ts` — owns redraw-only, deadline-aligned countdown refresh timers and cancellation.
+- `packages/coding-agent/extensions/goal/src/wait-status.ts` — binds scheduler wait modes and failures to one durable status append with the matching deadline.
+- `packages/coding-agent/extensions/goal/src/rendering.ts` — persists Supervisor status deadlines and renders dynamic countdown text without owning timers.
 - `packages/coding-agent/extensions/goal/src/completion-scheduling.ts` — preserves completion-review evidence and decision type across wait wakeups.
 - `packages/coding-agent/extensions/goal/src/empty-response-scheduling.ts` — owns 1-second empty-response polling and cancellation.
 - `packages/coding-agent/extensions/goal/src/error-status-scheduling.ts` — defers terminal error status until idle and cancels it when retry or input starts.
@@ -90,7 +94,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, missing tool-reason rejection, legacy missing-reason display, per-session goal isolation, resident-review deadline and waiting status, completion-pause and thrown-error reason display, default replacement, removed replacement flag rejection, objective length cap, context injection, continuation prompt state, footer status, immediate start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering versus abort-only pause behavior, busy guard, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, and legacy budget field ignorance.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, Supervisor countdown persistence/rendering/redraw/expiry/cancellation/restore, active-agent deadline exclusion, wait fallback deadlines, completion-pause and thrown-error reason display, default replacement, objective length cap, context injection, continuation prompt state, footer status, resume/reload/fork notification, corrupt state handling, `agent_end` continuation, busy guard, error-stop suppression, empty-response retry eligibility, and shutdown cancellation.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
@@ -103,6 +107,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Add a tool completion signal and stop continuation when it is called.
 - [x] Remove numeric continuation turn-cap handling and stop only on completion or pending queued work; non-error empty final assistant responses schedule one bounded retry when the goal remains eligible.
 - [x] Move `/goal` from project-local `.pi/extensions/goal.ts` into a first-party tested extension path, or document why project-local loading is the intended delivery path.
+- [x] Show the exact five-minute Supervisor re-review deadline as a live, persisted, cancellation-safe countdown without creating duplicate review work or transcript entries.
 - [x] Write `docs/wiki/systems/goal-system.md`.
 
 ## Out of scope

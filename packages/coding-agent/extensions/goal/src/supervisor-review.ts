@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
 import { requestSupervisorDecision } from "../../../src/supervisor/client.ts";
 import {
@@ -6,7 +6,7 @@ import {
 	resolveSupervisorProjectForCwd,
 } from "../../../src/supervisor/project-resolver.ts";
 import type { GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
-import { appendSupervisorStatus } from "./rendering.ts";
+import type { AppendSupervisorStatus } from "./rendering.ts";
 
 const GOAL_REVIEW_TIMEOUT_MS = 60_000;
 const WAITING_FOR_SUPERVISOR_STATUS = "Waiting for Supervisor…";
@@ -17,9 +17,12 @@ function supervisorReviewErrorReason(error: unknown): string {
 	return reason || "Unknown Supervisor review error";
 }
 
-export function withSupervisorReviewStatus(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview): GoalSupervisorReview {
+export function withSupervisorReviewStatus(
+	appendStatus: AppendSupervisorStatus,
+	reviewGoal: GoalSupervisorReview,
+): GoalSupervisorReview {
 	return async (input) => {
-		appendSupervisorStatus(pi, WAITING_FOR_SUPERVISOR_STATUS);
+		appendStatus(input.ctx, WAITING_FOR_SUPERVISOR_STATUS);
 		try {
 			return await reviewGoal(input);
 		} catch (error) {
