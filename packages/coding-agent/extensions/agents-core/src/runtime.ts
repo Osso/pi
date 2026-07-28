@@ -840,10 +840,10 @@ function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): 
 	};
 }
 
-function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext): ResolvedAgentProfile {
+function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext): ResolvedAgentProfile | undefined {
 	const profile = ctx.settingsManager?.getAgentProfile(agentType);
 	if (!profile) {
-		return {};
+		return undefined;
 	}
 
 	const model = profile.model ? findExactModelReferenceMatch(profile.model, ctx.modelRegistry.getAll()) : undefined;
@@ -853,6 +853,24 @@ function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext)
 		modelMetadata: model ? { providerId: model.provider, modelId: model.id, thinkingLevel: profile.thinkingLevel } : undefined,
 		thinkingLevel: profile.thinkingLevel,
 	};
+}
+
+function requireConfiguredAgentProfile(
+	agentType: string,
+	requestedAgentType: string | undefined,
+	ctx: ExtensionContext,
+): ResolvedAgentProfile | undefined {
+	const profile = resolveConfiguredAgentProfile(agentType, ctx);
+	if (!requestedAgentType) return profile;
+	if (!ctx.settingsManager) return profile;
+	if (profile) return profile;
+
+	const configuredAgentTypes = Object.keys(ctx.settingsManager.getMergedSettings().agents ?? {}).sort();
+	const guidance =
+		configuredAgentTypes.length > 0
+			? `Configured agent profiles: ${configuredAgentTypes.join(", ")}. Use one of these profile keys or omit agentType to inherit the parent model.`
+			: "Configure the profile under settings.agents or omit agentType to inherit the parent model.";
+	throw new Error(`Unknown agent type ${JSON.stringify(agentType)}. ${guidance}`);
 }
 
 function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
@@ -1135,10 +1153,11 @@ async function spawnAgent(
 			prompt: params.prompt,
 		});
 	}
-	const displayName = params.displayName?.trim() || params.agentType?.trim() || "Agent";
-	const agentType = params.agentType?.trim() || "default";
-	const profile = resolveConfiguredAgentProfile(agentType, ctx);
-	const context = params.context ?? profile.context ?? "inherit";
+	const requestedAgentType = params.agentType?.trim();
+	const displayName = params.displayName?.trim() || requestedAgentType || "Agent";
+	const agentType = requestedAgentType || "default";
+	const profile = requireConfiguredAgentProfile(agentType, requestedAgentType, ctx);
+	const context = params.context ?? profile?.context ?? "inherit";
 	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) {
 		return errorResult("spawn_agent requires a persisted supervisor session.", {
@@ -1151,7 +1170,7 @@ async function spawnAgent(
 		agentType,
 		cwd: ctx.cwd,
 		displayName,
-		model: profile.modelMetadata,
+		model: profile?.modelMetadata,
 		parentId: params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
@@ -1512,7 +1531,7 @@ function spawnAttachedSessionAgent(
 		agentType,
 		cwd: resolved.cwd || ctx.cwd,
 		displayName,
-		model: profile.modelMetadata ?? parent?.model,
+		model: profile?.modelMetadata ?? parent?.model,
 		parentId: params.parentId,
 		permission,
 		transcript: { path: resolved.path, sessionId: resolved.sessionId },

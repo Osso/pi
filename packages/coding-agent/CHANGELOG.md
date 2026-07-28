@@ -163,6 +163,7 @@
 
 ### Fixed
 
+- Fixed `spawn_agent` silently inheriting the parent model for unknown explicit agent types.
 - Fixed `pi --session <id>` treating sessions from another worktree in the same Git repository as different projects; worktrees sharing a Git common directory now open directly, while different projects retain fork confirmation and an affirmative response completes without hanging.
 - Fixed Pi session-shutdown indexing to run directly as detached non-blocking work and persist output under `$XDG_CACHE_HOME/claude-memory/pi-index.log`; removed the obsolete external hook configuration.
 - Fixed `change_working_directory` ending the active agent turn instead of continuing it after the directory change; intermediate `agent_end` events now identify the cwd-relocation handoff so idle extensions defer until the continued turn settles, and `/run-plan` restores its active plan across the runtime rebuild.

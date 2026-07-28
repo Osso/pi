@@ -84,7 +84,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       recovery explicitly use `"fresh"`; attached-session reuse is a separate operation without this choice.
 - [x] Agent-type profiles can select a child model, thinking level, and default context; built-in
       `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` profiles provide defaults,
-      the reviewer profile uses fresh context, and configured profiles override them.
+      the reviewer profile uses fresh context, and configured profiles override them. `spawn_agent` rejects
+      a non-empty explicit `agentType` when `SettingsManager` finds no matching built-in or configured profile,
+      and the error lists configured profile keys; omitted or blank `agentType` still defaults to `default` and
+      inherits the parent model.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log. The parent session JSONL contains
       authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.
@@ -508,6 +511,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   projections plus stale slot-conflict refresh payloads from current core snapshots. It verifies
   visible slot selection is read-only over lifecycle state and conflicting pinned slot claims are
   rejected with the current projection so existing slot bindings stay stable.
+- [`packages/coding-agent/test/spawn-agent-profile-validation.test.ts`](../../packages/coding-agent/test/spawn-agent-profile-validation.test.ts)
+  asserts that an explicit unknown `agentType` is rejected with configured-profile guidance before child construction.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing viewer/mailbox/spawn/list/wait/cancel/contact/steer tool
   surface is capability-gated and coordinator-backed; executable spawn always starts reserved child work. It also asserts
