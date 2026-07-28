@@ -36,9 +36,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `cancelling`, `completed`, `failed`, and `aborted`. Child construction happens before persistence:
       success persists `running` revision 1, while construction interruption or failure persists `failed`
       revision 1. The state graph and restore-time rules live in [agent-lifecycle.md](agent-lifecycle.md).
-- [x] Lifecycle commands identify the agent and exact owner process `(pid, startTimeTicks)`.
-      Repository transactions read and increment revision internally; model-facing tools never supply
-      revision, lease IDs, expiration timestamps, or fencing counters.
+- [x] Lifecycle commands identify the agent and exact owner process `(pid, startTimeTicks, incarnation)`.
+      The incarnation identifies one loaded Pi runtime and changes across an exec-in-place restart even when
+      PID and `startTimeTicks` remain unchanged. Repository transactions read and increment revision internally;
+      model-facing tools never supply revision, lease IDs, expiration timestamps, or fencing counters.
 - [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
@@ -130,13 +131,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       only clears stale worker handles. Restart admission requires an unmatched parent-session JSONL
       `agent_start`; control-DB lifecycle and ownership state alone never admits recovery. Dead-owned active rows
       without journal admission are terminalized as `failed/lost_runtime`, while exact live owners remain untouched.
-      See [agent-lifecycle.md](agent-lifecycle.md).
+      After an exec-in-place restart, persisted ownership with unchanged PID and `startTimeTicks` but a prior
+      runtime incarnation is stale; the resumed supervisor may reclaim it and continue active `steering_pending`
+      recovery. See [agent-lifecycle.md](agent-lifecycle.md).
 - [x] On supervisor session start, only agents identified by unmatched parent-session JSONL
       `agent_start` records restart through exact process-ownership reacquisition, preserving agent and
       transcript identity. A matching `agent_complete` record prevents recovery, including for
       `completed`, `failed`, or `aborted` lifecycle state; agents already waiting for input are not
       auto-prompted. After listener registration, the owning supervisor reconciles candidates through
-      coordinator/repository commands using exact path assertion and `(pid, startTimeTicks)` identity.
+      coordinator/repository commands using exact path assertion and `(pid, startTimeTicks, incarnation)` identity.
+      A changed incarnation with unchanged PID and start time identifies a prior exec-restarted runtime and permits
+      ownership replacement for active `steering_pending` recovery.
       Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
       from `cancelling`, never direct JSON rewrite or inferred result. Transient SQLite busy/locked contention
       defers dead-detached-runtime reconciliation to a later poll without terminating Pi; other database,

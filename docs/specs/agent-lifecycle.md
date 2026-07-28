@@ -66,7 +66,9 @@ Runtime roles are exclusive:
 - Help/inventory startup paths that do not construct an `AgentSession` are outside this invariant.
 
 Every lifecycle mutation must match the persisted agent and exact owner process identity
-`(session_id, agent_id, owner_session_id, owner_agent_id, pid, startTimeTicks)`. Repository code reads
+`(session_id, agent_id, owner_session_id, owner_agent_id, pid, startTimeTicks, incarnation)`. The
+incarnation identifies one loaded Pi runtime and changes across an exec-in-place restart even when
+PID and `startTimeTicks` stay unchanged. Repository code reads
 and increments revision inside the SQLite transaction; callers never supply it. A terminal retry is
 valid only when it is an idempotent replay of the same committed terminal row and notification.
 
@@ -97,10 +99,12 @@ wall-clock time, or mailbox delivery:
    to `cancelling`. The exact owner process identity produces `aborted` when the runtime acknowledges
    exit; timeout alone leaves the row `cancelling`. Dead-owner recovery settles an existing cancellation
    intent as `aborted/lost_runtime`; terminal fencing rejects a late natural result from the cancelled dispatch.
-3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`.
-   Ownership for one agent cannot authorize another agent even under the same supervisor process. Recovery is
-   authorized only after that exact process identity is gone; PID reuse does not match, and zombie/exited states
-   are dead before parent reaping.
+3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`
+   plus the current runtime incarnation. Ownership for one agent cannot authorize another agent even under the
+   same supervisor process. After an exec-in-place restart, unchanged PID and `startTimeTicks` with a different
+   incarnation makes the persisted owner stale; the resumed supervisor may replace that ownership and continue
+   active `steering_pending` recovery. PID reuse does not match, and zombie/exited states are dead before parent
+   reaping.
 4. Any late finalizer, exit acknowledgement, or outbox write from a different process identity fails
    the ownership predicate and cannot rewrite the agent row or notification identity.
 
@@ -205,9 +209,12 @@ folder from reading stale manifests or output belonging to another supervisor.
       a stale runner path. Verified administrative restart may terminalize owned work through the coordinator;
       exact owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime` when the
       persisted lifecycle already recorded a cancellation intent — never direct JSON rewrite or a result inferred from artifacts. The
-      recorded owner session ID may belong to a dead prior incarnation of the same session file. Per-session recovery
-      commands additionally require the current registered supervisor binding to assert the target session path and
-      exact process identity; owner-session equality with the current incarnation is not required. Terminal,
+      recorded owner session ID may belong to a dead prior incarnation of the same session file. A same-process
+      exec restart likewise records a new runtime incarnation; persisted active ownership from the prior incarnation
+      is stale even when PID and `startTimeTicks` are unchanged, so the resumed supervisor may reclaim it before
+      continuing `steering_pending` recovery. Per-session recovery commands additionally require the current
+      registered supervisor binding to assert the target session path and exact process identity; owner-session
+      equality with the current incarnation is not required. Terminal,
       current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.
