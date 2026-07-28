@@ -11,11 +11,7 @@ import {
 } from "../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import { createDetachedJobArtifacts } from "../../src/core/detached-job-runner.ts";
-import {
-	allocateMultiAgentCounter,
-	getControlDbPath,
-	listSessionMetadata,
-} from "../../src/core/session-control-db.ts";
+import { allocateMultiAgentCounter, getControlDbPath, listSessionMetadata } from "../../src/core/session-control-db.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { ExtensionAPI, ExtensionCommandContextActions } from "../../src/index.ts";
 import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
@@ -482,6 +478,9 @@ describe("change_working_directory detached artifact reuse", () => {
 					entry.message.role === "toolResult" &&
 					entry.message.toolName === "pyrun_eval",
 			);
+			if (pyrunResult.type !== "message" || pyrunResult.message.role !== "toolResult") {
+				throw new Error("Expected persisted Pyrun tool result");
+			}
 			expect(readTextContent(pyrunResult.message.content)).toContain("pyrun-after-relocation");
 			const completedRequest = await agent.waitForLlmRequest(
 				(candidate) => candidate.agentId === null && candidate.id !== pyrunRequest.id,
