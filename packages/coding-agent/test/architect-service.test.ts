@@ -8,12 +8,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	ARCHITECT_EXCLUDED_TOOL_NAMES,
 	ARCHITECT_RULES_SCOPE,
+	ArchitectConsolePromptQueue,
 	blockArchitectGlobalBroadcast,
 	completeSentArchitectRequest,
+	createArchitectConsoleSnapshot,
 	createArchitectMultiAgentStore,
 	createArchitectSettingsManager,
 	createArchitectStopHandler,
 	runArchitectCycle,
+	runArchitectServiceLoop,
 	waitForArchitectInterval,
 } from "../src/architect/main.ts";
 import { readProjectSpec } from "../src/architect/project-spec.ts";
@@ -257,6 +260,87 @@ describe("resident architect service", () => {
 		controller.abort();
 
 		await expect(wait).resolves.toBeUndefined();
+	});
+
+	it("wakes the Architect observation wait when a console prompt arrives", async () => {
+		const queue = new ArchitectConsolePromptQueue();
+		const controller = new AbortController();
+		const wait = queue.wait(controller.signal);
+		queue.enqueue("inspect this", "prompt-1");
+		await expect(wait).resolves.toBeUndefined();
+		expect(queue.take()).toEqual({ id: "prompt-1", text: "inspect this" });
+	});
+
+	it("serializes console prompts with normal Architect observation turns", async () => {
+		const queue = new ArchitectConsolePromptQueue();
+		const controller = new AbortController();
+		const turns: string[] = [];
+		let activePrompts = 0;
+		let maximumActivePrompts = 0;
+		let observationCount = 0;
+		queue.enqueue("console turn", "prompt-1");
+		await runArchitectServiceLoop({
+			observer: {
+				observe: () => {
+					observationCount += 1;
+					return observationCount === 1
+						? { reason: "session_state_changed", requests: [], sessions: [] }
+						: undefined;
+				},
+			},
+			promptQueue: queue,
+			signal: controller.signal,
+			prompt: async (content) => {
+				activePrompts += 1;
+				maximumActivePrompts = Math.max(maximumActivePrompts, activePrompts);
+				turns.push(content.includes("session_state_changed") ? "observation" : content);
+				await Promise.resolve();
+				activePrompts -= 1;
+				if (turns.length === 2) controller.abort();
+			},
+		});
+		expect(turns).toEqual(["observation", "console turn"]);
+		expect(maximumActivePrompts).toBe(1);
+	});
+
+	it("exposes exact Architect branch identity through the console snapshot", () => {
+		const branch = [
+			{
+				type: "custom" as const,
+				id: "entry-1",
+				parentId: null,
+				timestamp: "2026-07-28T00:00:00.000Z",
+				customType: "test",
+			},
+		];
+		const snapshot = createArchitectConsoleSnapshot({
+			cwd: "/fixed/architect",
+			generation: 17,
+			session: { sessionId: "architect", sessionManager: { getBranch: () => branch } },
+		});
+		expect(snapshot).toEqual({
+			service: "architect",
+			sessionId: "architect",
+			cwd: "/fixed/architect",
+			generation: 17,
+			branch,
+		});
+	});
+
+	it("starts and closes the Architect console with the resident lifecycle", async () => {
+		const start = vi.fn(async () => undefined);
+		const close = vi.fn(async () => undefined);
+		const controller = new AbortController();
+		controller.abort();
+		await runArchitectServiceLoop({
+			consoleServer: { start, close },
+			observer: { observe: () => undefined },
+			prompt: async () => undefined,
+			promptQueue: new ArchitectConsolePromptQueue(),
+			signal: controller.signal,
+		});
+		expect(start).toHaveBeenCalledOnce();
+		expect(close).toHaveBeenCalledOnce();
 	});
 
 	it("does not prompt Sol when the observer has no material change", async () => {

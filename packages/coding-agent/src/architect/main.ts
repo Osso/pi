@@ -3,12 +3,14 @@ import { join } from "node:path";
 import agentsMailboxExtension from "../../extensions/agents-mailbox/src/index.ts";
 import bwrapExtension from "../../extensions/bwrap/src/index.ts";
 import { getAgentDir } from "../config.ts";
+import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { MultiAgentStore } from "../core/multi-agent-store.ts";
+import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
 import { createAgentSession } from "../core/sdk.ts";
 import { archiveSession, getControlDbPath } from "../core/session-control-db.ts";
-import { SessionManager } from "../core/session-manager.ts";
+import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../core/tool-capabilities.ts";
 import { ArchitectObserver } from "./observer.ts";
@@ -26,6 +28,76 @@ export const ARCHITECT_EXCLUDED_TOOL_NAMES = [
 	"contact_parent",
 	...SUPERVISOR_ONLY_TOOL_NAMES,
 ];
+
+type ArchitectConsolePrompt = { id: string; text: string };
+type ArchitectConsoleSession = {
+	sessionId?: string;
+	sessionManager: Pick<SessionManager, "getBranch">;
+	subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+};
+
+export class ArchitectConsolePromptQueue {
+	private readonly prompts: ArchitectConsolePrompt[] = [];
+	private readonly waiters = new Set<() => void>();
+
+	enqueue(text: string, id: string): void {
+		this.prompts.push({ id, text });
+		for (const waiter of [...this.waiters]) waiter();
+	}
+
+	take(): ArchitectConsolePrompt | undefined {
+		return this.prompts.shift();
+	}
+
+	wait(signal: AbortSignal, timeoutMs = OBSERVER_INTERVAL_MS): Promise<void> {
+		return new Promise((resolve) => {
+			if (signal.aborted || this.prompts.length > 0) {
+				resolve();
+				return;
+			}
+			let timeout: ReturnType<typeof setTimeout>;
+			const done = () => {
+				clearTimeout(timeout);
+				this.waiters.delete(done);
+				signal.removeEventListener("abort", done);
+				resolve();
+			};
+			timeout = setTimeout(done, timeoutMs);
+			this.waiters.add(done);
+			signal.addEventListener("abort", done, { once: true });
+		});
+	}
+}
+
+export function createArchitectConsoleSnapshot(input: {
+	cwd: string;
+	generation: number;
+	session: Pick<ArchitectConsoleSession, "sessionId" | "sessionManager">;
+}): ResidentConsoleSnapshot<SessionEntry> {
+	return {
+		service: "architect",
+		sessionId: input.session.sessionId ?? ARCHITECT_SESSION_ID,
+		cwd: input.cwd,
+		generation: input.generation,
+		branch: input.session.sessionManager.getBranch(),
+	};
+}
+
+export function createArchitectConsoleServer(input: {
+	controlDbPath: string;
+	cwd: string;
+	generation: number;
+	promptQueue: ArchitectConsolePromptQueue;
+	session: ArchitectConsoleSession;
+}): ResidentConsoleServer<SessionEntry, AgentSessionEvent> {
+	return new ResidentConsoleServer({
+		socketPath: `${input.controlDbPath}.architect-console.sock`,
+		service: "architect",
+		getSnapshot: () => createArchitectConsoleSnapshot(input),
+		enqueuePrompt: (text, id) => input.promptQueue.enqueue(text, id),
+		subscribe: (listener) => input.session.subscribe(listener),
+	});
+}
 
 export function createArchitectSettingsManager(): SettingsManager {
 	return SettingsManager.inMemory({ sandboxProfile: "read-only" });
@@ -123,6 +195,29 @@ export function waitForArchitectInterval(signal: AbortSignal): Promise<void> {
 	});
 }
 
+export async function runArchitectServiceLoop(input: {
+	consoleServer?: Pick<ResidentConsoleServer<SessionEntry, AgentSessionEvent>, "start" | "close">;
+	observer: Pick<ArchitectObserver, "observe"> & Partial<Pick<ArchitectObserver, "renewRequests">>;
+	prompt: (content: string) => Promise<void>;
+	promptQueue: ArchitectConsolePromptQueue;
+	signal: AbortSignal;
+}): Promise<void> {
+	await input.consoleServer?.start();
+	try {
+		while (!input.signal.aborted) {
+			await runArchitectCycle(input.observer, input.prompt);
+			let consolePrompt = input.promptQueue.take();
+			while (consolePrompt && !input.signal.aborted) {
+				await input.prompt(consolePrompt.text);
+				consolePrompt = input.promptQueue.take();
+			}
+			await input.promptQueue.wait(input.signal);
+		}
+	} finally {
+		await input.consoleServer?.close();
+	}
+}
+
 export async function runArchitectService(): Promise<void> {
 	const agentDir = getAgentDir();
 	const cwd = process.env.HOME ?? process.cwd();
@@ -183,6 +278,14 @@ export async function runArchitectService(): Promise<void> {
 		thinkingLevel: "high",
 	});
 	const abortController = new AbortController();
+	const promptQueue = new ArchitectConsolePromptQueue();
+	const consoleServer = createArchitectConsoleServer({
+		controlDbPath: getControlDbPath(),
+		cwd,
+		generation: process.pid,
+		promptQueue,
+		session,
+	});
 	const stop = createArchitectStopHandler({
 		abortController,
 		abortSession: () => session.abort(),
@@ -190,8 +293,16 @@ export async function runArchitectService(): Promise<void> {
 	});
 	process.once("SIGINT", stop);
 	process.once("SIGTERM", stop);
-	while (!abortController.signal.aborted) {
-		await runArchitectCycle(observer, (content) => session.prompt(content));
-		await waitForArchitectInterval(abortController.signal);
+	try {
+		await runArchitectServiceLoop({
+			consoleServer,
+			observer,
+			prompt: (content) => session.prompt(content),
+			promptQueue,
+			signal: abortController.signal,
+		});
+	} finally {
+		process.off("SIGINT", stop);
+		process.off("SIGTERM", stop);
 	}
 }
