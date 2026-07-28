@@ -11,7 +11,11 @@ import {
 } from "../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import { createDetachedJobArtifacts } from "../../src/core/detached-job-runner.ts";
-import { allocateMultiAgentCounter, getControlDbPath } from "../../src/core/session-control-db.ts";
+import {
+	allocateMultiAgentCounter,
+	getControlDbPath,
+	listSessionMetadata,
+} from "../../src/core/session-control-db.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { ExtensionAPI, ExtensionCommandContextActions } from "../../src/index.ts";
 import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
@@ -161,6 +165,14 @@ function readTextContent(content: Array<{ type: string; text?: string }>): strin
 		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
 		.map((part) => part.text)
 		.join("\n");
+}
+
+function findHeadlessSessionFile(agent: HeadlessPi, cwd: string): string {
+	const session = listSessionMetadata(getControlDbPath(agent.paths.agentDir)).find(
+		(candidate) => candidate.id === agent.sessionId && candidate.cwd === cwd,
+	);
+	if (!session) throw new Error(`Missing relocated session metadata for ${cwd}`);
+	return session.sessionPath;
 }
 
 async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: string, toolCallId: string): Promise<void> {
@@ -441,7 +453,7 @@ describe("change_working_directory detached artifact reuse", () => {
 			mkdirSync(targetCwd);
 
 			await changeHeadlessWorkingDirectory(agent, targetCwd, "change-cwd-away-from-artifacts");
-			const relocatedSessionFile = agent.sessionFile;
+			const relocatedSessionFile = findHeadlessSessionFile(agent, targetCwd);
 			const controlDbPath = getControlDbPath(agent.paths.agentDir);
 			for (let index = 1; index < 3; index += 1) {
 				allocateMultiAgentCounter(controlDbPath, relocatedSessionFile, "agent");
