@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Container, Input, Key, matchesKey, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import { Container, type Focusable, Input, Key, matchesKey, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import { getAgentDir } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { ResidentConsoleClient, type ResidentConsoleService } from "../core/resident-console-transport.ts";
+import { getControlDbPath } from "../core/session-control-db.ts";
 import { type SessionEntry, sessionEntryToContextMessages } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { AssistantMessageComponent } from "../modes/interactive/components/assistant-message.ts";
@@ -31,7 +32,7 @@ export async function runResidentConsoleCommand(command: ResidentConsoleCommand)
 		throw new Error(`--${command.service} requires an interactive terminal`);
 	}
 	const agentDir = getAgentDir();
-	const socketPath = `${agentDir}/control.sqlite.${command.service}-console.sock`;
+	const socketPath = `${getControlDbPath()}.${command.service}-console.sock`;
 	const client = await ResidentConsoleClient.connect<SessionEntry, AgentSessionEvent>({
 		socketPath,
 		service: command.service,
@@ -40,7 +41,7 @@ export async function runResidentConsoleCommand(command: ResidentConsoleCommand)
 	const ui = await createStartupTui(settingsManager);
 	const consoleUi = new ResidentConsoleUi(ui, client, command.service);
 	ui.addChild(consoleUi);
-	ui.setFocus(consoleUi.input);
+	ui.setFocus(consoleUi);
 	startStartupTui(ui, settingsManager);
 	try {
 		if (command.initialPrompt) await consoleUi.submit(command.initialPrompt);
@@ -51,14 +52,24 @@ export async function runResidentConsoleCommand(command: ResidentConsoleCommand)
 	}
 }
 
-class ResidentConsoleUi extends Container {
+class ResidentConsoleUi extends Container implements Focusable {
 	readonly input = new Input();
+	private _focused = false;
 	private readonly chat = new Container();
 	private readonly status = new Text("", 1, 0);
 	private readonly client: ResidentConsoleClient<SessionEntry, AgentSessionEvent>;
 	private readonly ui: TUI;
 	private resolveClosed?: () => void;
 	private closed = false;
+
+	get focused(): boolean {
+		return this._focused;
+	}
+
+	set focused(value: boolean) {
+		this._focused = value;
+		this.input.focused = value;
+	}
 
 	constructor(
 		ui: TUI,
@@ -96,7 +107,6 @@ class ResidentConsoleUi extends Container {
 		const text = value.trim();
 		if (!text) return;
 		this.input.setValue("");
-		this.chat.addChild(new UserMessageComponent(text));
 		this.status.setText(theme.fg("muted", "Queued…"));
 		this.ui.requestRender();
 		try {
