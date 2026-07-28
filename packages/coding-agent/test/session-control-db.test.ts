@@ -2826,6 +2826,29 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(allocateMultiAgentCounter(controlDbPath, oldPath, "agent")).toBe(1);
 	});
 
+	it("preserves destination counters when relocating back to a previously used session path", () => {
+		const oldPath = "/sessions/counter-old.jsonl";
+		const newPath = "/sessions/counter-new.jsonl";
+		for (let index = 1; index < 8; index += 1) {
+			allocateMultiAgentCounter(controlDbPath, oldPath, "agent");
+		}
+		for (let index = 1; index < 12; index += 1) {
+			allocateMultiAgentCounter(controlDbPath, oldPath, "message");
+		}
+		for (let index = 1; index < 51; index += 1) {
+			allocateMultiAgentCounter(controlDbPath, newPath, "agent");
+		}
+		for (let index = 1; index < 4; index += 1) {
+			allocateMultiAgentCounter(controlDbPath, newPath, "message");
+		}
+
+		relocateSessionControlData(controlDbPath, oldPath, newPath);
+
+		expect(allocateMultiAgentCounter(controlDbPath, newPath, "agent")).toBe(51);
+		expect(allocateMultiAgentCounter(controlDbPath, newPath, "message")).toBe(12);
+		expect(allocateMultiAgentCounter(controlDbPath, oldPath, "agent")).toBe(1);
+	});
+
 	it("relocates runtime mailbox references across an existing destination reference", () => {
 		const oldPath = "/sessions/old.jsonl";
 		const newPath = "/sessions/new.jsonl";

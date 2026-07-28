@@ -2152,7 +2152,7 @@ export function relocateSessionControlData(
 			relocateMultiAgentRuntimeOwners(db, oldSessionPath, newSessionPath);
 			relocateMultiAgentSessionRows(db, "multi_agent_terminal_outbox", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
-			relocateSessionPathPrimaryKey(db, "multi_agent_counters_v2", oldSessionPath, newSessionPath, now);
+			relocateMultiAgentCounters(db, oldSessionPath, newSessionPath, now);
 			relocateRuntimeMailboxListenerPaths(db, oldSessionPath, newSessionPath);
 			db.exec("COMMIT");
 		} catch (error) {
@@ -2179,6 +2179,32 @@ function relocateSessionPathPrimaryKey(
 	db.prepare(`DELETE FROM ${table} WHERE session_path = ?`).run(newSessionPath);
 	db.prepare(`UPDATE ${table} SET session_path = ?, updated_at = ? WHERE session_path = ?`).run(
 		newSessionPath,
+		now,
+		oldSessionPath,
+	);
+}
+
+function relocateMultiAgentCounters(
+	db: SqliteDatabase,
+	oldSessionPath: string,
+	newSessionPath: string,
+	now: string,
+): void {
+	const readCounters = db.prepare(
+		"SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?",
+	);
+	const oldCounters = readCounters.get(oldSessionPath) as MultiAgentCounterRow | undefined;
+	if (!oldCounters) return;
+	const newCounters = readCounters.get(newSessionPath) as MultiAgentCounterRow | undefined;
+	db.prepare("DELETE FROM multi_agent_counters_v2 WHERE session_path = ?").run(newSessionPath);
+	db.prepare(
+		`UPDATE multi_agent_counters_v2
+		 SET session_path = ?, next_agent_number = ?, next_message_number = ?, updated_at = ?
+		 WHERE session_path = ?`,
+	).run(
+		newSessionPath,
+		Math.max(oldCounters.next_agent_number, newCounters?.next_agent_number ?? 1),
+		Math.max(oldCounters.next_message_number, newCounters?.next_message_number ?? 1),
 		now,
 		oldSessionPath,
 	);
