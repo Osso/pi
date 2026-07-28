@@ -9,7 +9,7 @@ import {
 	readRuntimeMailboxListener,
 	readSharedChannelCursor,
 } from "../../src/core/session-control-db.ts";
-import type { CustomEntry, CustomMessageEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
+import type { CustomEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
 import {
 	cleanupHeadlessPiResources,
 	cleanupHeadlessRuntimeResources,
@@ -626,10 +626,11 @@ describe("headless Pi fixture", () => {
 				customType: "shared_channel",
 				display: true,
 			});
-			const channelEntry = await agent.waitForSessionEntry<CustomMessageEntry>(
+			const channelEntry = await agent.waitForSessionEntry(
 				null,
-				(entry): entry is CustomMessageEntry => entry.type === "custom_message" && entry.customType === "shared_channel",
+				(entry) => entry.type === "custom_message" && entry.customType === "shared_channel",
 			);
+			if (channelEntry.type !== "custom_message") throw new Error("Expected shared-channel custom message");
 			expect(channelEntry.content).toContain("Restart onto the deployed runtime");
 
 			agent.respondToLlmRequest(channelRequest.id, fauxAssistantMessage("Shared-channel message handled"));
