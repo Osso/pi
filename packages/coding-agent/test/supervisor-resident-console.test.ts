@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupervisorRequest } from "../src/core/session-control-db.ts";
 import {
-	SupervisorConsolePromptQueue,
 	createSupervisorConsoleSnapshot,
 	runSupervisorRequestLoop,
+	SupervisorConsolePromptQueue,
 } from "../src/supervisor/main.ts";
 
 function pendingRequest(): SupervisorRequest {
@@ -28,7 +28,7 @@ describe("Supervisor resident console", () => {
 			createSupervisorConsoleSnapshot({
 				cwd: "/fixed/supervisor",
 				generation: 42,
-				session: { sessionId: "supervisor", sessionManager: { getBranch: () => branch } },
+				session: { sessionId: "supervisor", sessionManager: { getBranch: () => branch, getLeafId: () => null } },
 			}),
 		).toEqual({
 			service: "supervisor",

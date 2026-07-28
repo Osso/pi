@@ -8,6 +8,7 @@ import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
+import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
 import { DefaultResourceLoader } from "../core/resource-loader.ts";
 import { createAgentSession } from "../core/sdk.ts";
 import {
@@ -18,8 +19,7 @@ import {
 	recoverSupervisorRequests,
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
-import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
-import { SessionManager, type SessionEntry } from "../core/session-manager.ts";
+import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";

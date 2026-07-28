@@ -2,11 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Container, Input, Key, matchesKey, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import { getAgentDir } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
-import {
-	ResidentConsoleClient,
-	type ResidentConsoleService,
-} from "../core/resident-console-transport.ts";
-import { sessionEntryToContextMessages, type SessionEntry } from "../core/session-manager.ts";
+import { ResidentConsoleClient, type ResidentConsoleService } from "../core/resident-console-transport.ts";
+import { type SessionEntry, sessionEntryToContextMessages } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { AssistantMessageComponent } from "../modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../modes/interactive/components/user-message.ts";
@@ -87,7 +84,7 @@ class ResidentConsoleUi extends Container {
 		});
 	}
 
-	override handleInput(data: string): void {
+	handleInput(data: string): void {
 		if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.ctrl("d"))) {
 			this.close();
 			return;
@@ -135,7 +132,8 @@ class ResidentConsoleUi extends Container {
 				this.chat.addChild(new UserMessageComponent(readTextContent(message.content)));
 				continue;
 			}
-			this.chat.addChild(new Text(readTextContent(message.content), 1, 0));
+			const content = "content" in message ? message.content : message;
+			this.chat.addChild(new Text(readTextContent(content), 1, 0));
 		}
 	}
 

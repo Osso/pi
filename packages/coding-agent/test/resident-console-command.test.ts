@@ -16,8 +16,6 @@ describe("resident console command", () => {
 	});
 
 	it("rejects resident console flags combined with normal CLI flags", () => {
-		expect(() => parseResidentConsoleArgs(["--supervisor", "--model", "openai/gpt"])).toThrow(
-			"cannot be combined",
-		);
+		expect(() => parseResidentConsoleArgs(["--supervisor", "--model", "openai/gpt"])).toThrow("cannot be combined");
 	});
 });

@@ -206,7 +206,8 @@ export class ResidentConsoleClient<Entry, Event> {
 	prompt(id: string, text: string): Promise<void> {
 		if (this.closed) return Promise.reject(new Error("Resident console is closed"));
 		if (!id || !text) return Promise.reject(new Error("Resident console prompt id and text are required"));
-		if (this.pendingPrompts.has(id)) return Promise.reject(new Error(`Resident console prompt already pending: ${id}`));
+		if (this.pendingPrompts.has(id))
+			return Promise.reject(new Error(`Resident console prompt already pending: ${id}`));
 		return new Promise((resolve, reject) => {
 			this.pendingPrompts.set(id, { resolve, reject });
 			this.write({ type: "prompt", id, text });
@@ -264,7 +265,10 @@ export class ResidentConsoleClient<Entry, Event> {
 			if (!pending) return;
 			this.pendingPrompts.delete(message.id);
 			if (message.type === "prompt_accepted") pending.resolve();
-			else pending.reject(new Error(typeof message.message === "string" ? message.message : "Resident prompt rejected"));
+			else
+				pending.reject(
+					new Error(typeof message.message === "string" ? message.message : "Resident prompt rejected"),
+				);
 		}
 	}
 
@@ -290,7 +294,8 @@ async function attachResidentConsole<Entry>(
 	socket.write(`${JSON.stringify({ type: "attach", version: RESIDENT_CONSOLE_PROTOCOL_VERSION, service })}\n`);
 	const response = await readResidentConsoleLine(socket);
 	const message = response.message;
-	if (message.type === "error") throw new Error(typeof message.message === "string" ? message.message : "Resident attach failed");
+	if (message.type === "error")
+		throw new Error(typeof message.message === "string" ? message.message : "Resident attach failed");
 	if (
 		message.type !== "attached" ||
 		message.version !== RESIDENT_CONSOLE_PROTOCOL_VERSION ||
@@ -314,7 +319,9 @@ async function attachResidentConsole<Entry>(
 	};
 }
 
-function readResidentConsoleLine(socket: Socket): Promise<{ message: Record<string, unknown>; remainingBuffer: string }> {
+function readResidentConsoleLine(
+	socket: Socket,
+): Promise<{ message: Record<string, unknown>; remainingBuffer: string }> {
 	return new Promise((resolve, reject) => {
 		let buffer = "";
 		const cleanup = () => {
@@ -336,7 +343,10 @@ function readResidentConsoleLine(socket: Socket): Promise<{ message: Record<stri
 			if (newline < 0) return;
 			cleanup();
 			try {
-				resolve({ message: JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>, remainingBuffer: buffer.slice(newline + 1) });
+				resolve({
+					message: JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>,
+					remainingBuffer: buffer.slice(newline + 1),
+				});
 			} catch {
 				reject(new Error("Invalid resident console attach response"));
 			}

@@ -11,7 +11,12 @@ import {
 const resources: Array<{ close(): Promise<void> }> = [];
 
 afterEach(async () => {
-	await Promise.all(resources.splice(0).reverse().map((resource) => resource.close()));
+	await Promise.all(
+		resources
+			.splice(0)
+			.reverse()
+			.map((resource) => resource.close()),
+	);
 });
 
 function socketPath(): string {
@@ -53,10 +58,14 @@ describe("ResidentConsoleClient", () => {
 			socketPath: socketPath(),
 			service: "supervisor",
 			getSnapshot: snapshot,
-			enqueuePrompt: (text) => prompts.push(text),
+			enqueuePrompt: (text) => {
+				prompts.push(text);
+			},
 			subscribe: (listener) => {
 				publish = listener;
-				return () => { publish = undefined; };
+				return () => {
+					publish = undefined;
+				};
 			},
 		});
 		resources.push(server);
