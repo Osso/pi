@@ -9,7 +9,7 @@ import {
 	readRuntimeMailboxListener,
 	readSharedChannelCursor,
 } from "../../src/core/session-control-db.ts";
-import type { CustomEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
+import type { CustomEntry, CustomMessageEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";
 import {
 	cleanupHeadlessPiResources,
 	cleanupHeadlessRuntimeResources,
@@ -598,6 +598,41 @@ describe("headless Pi fixture", () => {
 			const mainEnded = agent.waitForEvent((event) => event.type === "agent_end");
 			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Shared-channel message handled"));
 			await mainEnded;
+		});
+	});
+
+	it("persists idle shared-channel delivery as a custom message", async () => {
+		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "prompt", message: "Finish the initial turn" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(initialRequest.id, fauxAssistantMessage("Initial turn complete"));
+			await agent.waitForEvent((event) => event.type === "agent_end");
+
+			const controlDbPath = getControlDbPath(agent.paths.agentDir);
+			const recipient = { agentId: null, sessionId: agent.sessionId };
+			postSharedChannelMessage(controlDbPath, {
+				body: "Restart onto the deployed runtime",
+				sender: { agentId: null, sessionId: "other-main-session" },
+			});
+			const listener = readRuntimeMailboxListener(controlDbPath, recipient);
+			if (!listener) throw new Error("Expected main runtime mailbox listener");
+			process.kill(listener.pid, "SIGUSR2");
+
+			const channelRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialRequest.id,
+			);
+			expect(channelRequest.messages.at(-1)).toMatchObject({
+				role: "custom",
+				customType: "shared_channel",
+				display: true,
+			});
+			const channelEntry = await agent.waitForSessionEntry<CustomMessageEntry>(
+				null,
+				(entry): entry is CustomMessageEntry => entry.type === "custom_message" && entry.customType === "shared_channel",
+			);
+			expect(channelEntry.content).toContain("Restart onto the deployed runtime");
+
+			agent.respondToLlmRequest(channelRequest.id, fauxAssistantMessage("Shared-channel message handled"));
 		});
 	});
 

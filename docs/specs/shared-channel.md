@@ -22,6 +22,7 @@ once needed.
 - [x] All unread deliverable chatter present at an idle drain is combined into one shared-channel prompt and one agent turn, preserving message order.
 - [x] Subagent sessions do not drain shared-channel messages by default.
 - [x] Every delivered channel entry is clearly tagged as shared-channel input and includes its sender session/agent.
+- [x] Delivered channel entries use the `role: "custom"` / `customType: "shared_channel"` message path and persist as `custom_message` entries, so live and rebuilt transcript views preserve channel classification instead of rendering them as typed user messages.
 - [x] Shared-channel turns retain extension input provenance and never enter the interactive editor's typed prompt history, including post-run follow-up delivery.
 - [x] The cursor advances through a batch only after its combined prompt is successfully delivered; a failed batch remains unread.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
@@ -47,7 +48,7 @@ once needed.
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/session-control-db.ts` — shared channel tables and cursor/message APIs.
-- `packages/coding-agent/src/core/agent-session.ts` — idle drain integration and shared-channel prompt delivery.
+- `packages/coding-agent/src/core/agent-session.ts` — idle drain integration and shared-channel custom-message delivery.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — `channel_post` built-in tool.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration.
 
@@ -55,6 +56,8 @@ once needed.
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
+- `packages/coding-agent/test/suite/agent-session-queue.test.ts` — asserts shared-channel prompts use the custom-message path.
+- `packages/coding-agent/test/suite/headless-pi.test.ts` — asserts real-process shared-channel delivery persists as a custom message.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts`
 
 ## Known gaps (current cycle)

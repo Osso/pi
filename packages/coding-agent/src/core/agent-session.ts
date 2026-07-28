@@ -3012,15 +3012,18 @@ export class AgentSession {
 	}
 
 	private async _sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean> {
+		const message = {
+			customType: "shared_channel",
+			content: prompt,
+			display: true,
+		};
 		if (options.triggerIfIdle && !this.isStreaming) {
-			await this.prompt(prompt, {
-				expandPromptTemplates: false,
-				source: "extension",
-				streamingBehavior: "followUp",
-			});
+			await this.sendCustomMessage(message, { triggerTurn: true, deliverAs: "followUp" });
 			return false;
 		}
-		await this._queueFollowUp(prompt, undefined, "extension");
+		this._followUpMessages.push(prompt);
+		this._emitQueueUpdate();
+		this.agent.followUp({ role: "custom", ...message, timestamp: Date.now() });
 		return true;
 	}
 

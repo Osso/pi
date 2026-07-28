@@ -99,6 +99,28 @@ describe("AgentSession queue characterization", () => {
 		}
 	});
 
+	it("classifies idle shared-channel prompts as custom messages", async () => {
+		const harness = await createHarness();
+		harness.faux.setResponses([fauxAssistantMessage("handled")]);
+		harnesses.push(harness);
+		const internals = harness.session as unknown as {
+			_sendSharedChannelPrompt: (prompt: string, options: { triggerIfIdle: boolean }) => Promise<boolean>;
+		};
+
+		await internals._sendSharedChannelPrompt("From shared channel:\n\nMessage:\nRestart", { triggerIfIdle: true });
+
+		expect(harness.session.messages[0]).toMatchObject({
+			role: "custom",
+			customType: "shared_channel",
+			display: true,
+		});
+		expect(harness.sessionManager.getEntries()[0]).toMatchObject({
+			type: "custom_message",
+			customType: "shared_channel",
+			display: true,
+		});
+	});
+
 	it("dispatches extension commands immediately when prompted while idle", async () => {
 		const commandRuns: string[] = [];
 		const harness = await createHarness({
