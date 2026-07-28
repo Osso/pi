@@ -121,6 +121,8 @@ Upstream update strategy:
 
 ## Issues and PRs
 
+Do not create or update pull requests for this project unless the user explicitly asks.
+
 See `CONTRIBUTING.md` for the contributor gate (auto-close workflows, `lgtm`/`lgtmi`, quality bar).
 
 When reviewing PRs:
