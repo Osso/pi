@@ -170,16 +170,19 @@ describe("headless Supervisor goal system", () => {
 					reviewAt: expect.any(String),
 				},
 			});
+			if (status.type !== "custom") throw new Error("Expected Supervisor custom status");
 			const reviewAt = (status.data as { reviewAt: string }).reviewAt;
 
 			await agent.restart();
 
-			const restoredStatuses = agent.readSessionEntries(null).filter(
-				(entry) =>
-					entry.type === "custom" &&
-					entry.customType === "supervisor-status" &&
-					(entry.data as { message?: unknown }).message === "Waiting: waiting for background work",
-			);
+			const restoredStatuses = agent
+				.readSessionEntries(null)
+				.filter(
+					(entry) =>
+						entry.type === "custom" &&
+						entry.customType === "supervisor-status" &&
+						(entry.data as { message?: unknown }).message === "Waiting: waiting for background work",
+				);
 			expect(restoredStatuses).toHaveLength(1);
 			expect(restoredStatuses[0]).toMatchObject({
 				data: { message: "Waiting: waiting for background work", reviewAt },

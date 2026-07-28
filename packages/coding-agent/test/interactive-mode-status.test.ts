@@ -6,11 +6,7 @@ import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
-import type {
-	AutocompleteProviderFactory,
-	ExtensionUIContext,
-	ToolDefinition,
-} from "../src/core/extensions/types.ts";
+import type { AutocompleteProviderFactory, ExtensionUIContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
