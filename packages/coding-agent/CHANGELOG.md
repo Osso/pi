@@ -163,6 +163,7 @@
 
 ### Fixed
 
+- Fixed session relocation from reusing detached Bash/Pyrun artifact IDs when returning to a previously used working directory.
 - Fixed `spawn_agent` silently inheriting the parent model for unknown explicit agent types.
 - Fixed `pi --session <id>` treating sessions from another worktree in the same Git repository as different projects; worktrees sharing a Git common directory now open directly, while different projects retain fork confirmation and an affirmative response completes without hanging.
 - Fixed Pi session-shutdown indexing to run directly as detached non-blocking work and persist output under `$XDG_CACHE_HOME/claude-memory/pi-index.log`; removed the obsolete external hook configuration.

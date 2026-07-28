@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -10,10 +10,11 @@ import {
 	createAgentSessionServices,
 } from "../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
-import { getControlDbPath } from "../../src/core/session-control-db.ts";
+import { createDetachedJobArtifacts } from "../../src/core/detached-job-runner.ts";
+import { allocateMultiAgentCounter, getControlDbPath, listSessionMetadata } from "../../src/core/session-control-db.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { ExtensionAPI, ExtensionCommandContextActions } from "../../src/index.ts";
-import { withHeadlessPi } from "./headless-pi.ts";
+import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
 
 interface RelocateCommandContextActions extends ExtensionCommandContextActions {
 	relocate(targetCwd: string): Promise<void>;
@@ -160,6 +161,43 @@ function readTextContent(content: Array<{ type: string; text?: string }>): strin
 		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
 		.map((part) => part.text)
 		.join("\n");
+}
+
+function findHeadlessSessionFile(agent: HeadlessPi, cwd: string): string {
+	const session = listSessionMetadata(getControlDbPath(agent.paths.agentDir)).find(
+		(candidate) => candidate.id === agent.sessionId && candidate.cwd === cwd,
+	);
+	if (!session) throw new Error(`Missing relocated session metadata for ${cwd}`);
+	return session.sessionPath;
+}
+
+async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: string, toolCallId: string): Promise<void> {
+	await agent.send({ type: "prompt", message: `Change working directory to ${targetCwd}` });
+	const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+	agent.respondToLlmRequest(
+		request.id,
+		fauxAssistantMessage(fauxToolCall("change_working_directory", { path: targetCwd }, { id: toolCallId })),
+	);
+	await agent.waitForSessionEntry(
+		null,
+		(entry) =>
+			entry.type === "custom_message" &&
+			entry.customType === "cwd_changed" &&
+			typeof entry.content === "string" &&
+			entry.content.includes(targetCwd),
+	);
+	const settledRequest = await agent.waitForLlmRequest(
+		(candidate) => candidate.agentId === null && candidate.id !== request.id,
+	);
+	const settledMessage = `settled after ${toolCallId}`;
+	agent.respondToLlmRequest(settledRequest.id, fauxAssistantMessage(settledMessage));
+	await agent.waitForSessionEntry(
+		null,
+		(entry) =>
+			entry.type === "message" &&
+			entry.message.role === "assistant" &&
+			readTextContent(entry.message.content).includes(settledMessage),
+	);
 }
 
 describe("change_working_directory first-party tool", () => {
@@ -398,6 +436,56 @@ describe("change_working_directory real-process lifecycle", () => {
 			await agent.waitForEvent((event) => event.type === "agent_end");
 			expect(agent.readGoal()).toMatchObject({ objective: goal, completedAt: expect.any(String) });
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);
+		});
+	});
+});
+
+describe("change_working_directory detached artifact reuse", () => {
+	it("runs Pyrun after returning to a cwd with higher detached-job counters", async () => {
+		await withHeadlessPi(async (agent) => {
+			const originalCwd = agent.paths.workspaceDir;
+			const originalSessionFile = agent.sessionFile;
+			const targetCwd = join(agent.paths.tempDir, "artifact-counter-target");
+			mkdirSync(targetCwd);
+
+			await changeHeadlessWorkingDirectory(agent, targetCwd, "change-cwd-away-from-artifacts");
+			const relocatedSessionFile = findHeadlessSessionFile(agent, targetCwd);
+			const controlDbPath = getControlDbPath(agent.paths.agentDir);
+			for (let index = 1; index < 3; index += 1) {
+				allocateMultiAgentCounter(controlDbPath, relocatedSessionFile, "agent");
+			}
+			for (let index = 1; index < 51; index += 1) {
+				allocateMultiAgentCounter(controlDbPath, originalSessionFile, "agent");
+			}
+			const originalArtifactRoot = join(
+				dirname(originalSessionFile),
+				"detached-jobs",
+				basename(originalSessionFile, ".jsonl"),
+			);
+			createDetachedJobArtifacts(originalArtifactRoot, "pyrun_3");
+
+			await changeHeadlessWorkingDirectory(agent, originalCwd, "change-cwd-back-to-artifacts");
+			await agent.send({ type: "prompt", message: "Run Pyrun" });
+			const pyrunRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			agent.respondToLlmRequest(
+				pyrunRequest.id,
+				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code: 'print("pyrun-after-relocation")' })),
+			);
+			const pyrunResult = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolName === "pyrun_eval",
+			);
+			if (pyrunResult.type !== "message" || pyrunResult.message.role !== "toolResult") {
+				throw new Error("Expected persisted Pyrun tool result");
+			}
+			expect(readTextContent(pyrunResult.message.content)).toContain("pyrun-after-relocation");
+			const completedRequest = await agent.waitForLlmRequest(
+				(candidate) => candidate.agentId === null && candidate.id !== pyrunRequest.id,
+			);
+			agent.respondToLlmRequest(completedRequest.id, fauxAssistantMessage("pyrun relocation complete"));
 		});
 	});
 });
