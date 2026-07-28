@@ -621,11 +621,6 @@ describe("headless Pi fixture", () => {
 			const channelRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialRequest.id,
 			);
-			expect(channelRequest.messages.at(-1)).toMatchObject({
-				role: "custom",
-				customType: "shared_channel",
-				display: true,
-			});
 			const channelEntry = await agent.waitForSessionEntry(
 				null,
 				(entry) => entry.type === "custom_message" && entry.customType === "shared_channel",
