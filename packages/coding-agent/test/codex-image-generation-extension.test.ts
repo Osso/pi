@@ -5,14 +5,23 @@ import codexImageGenerationExtension, {
 	createImageGenerationToolDefinition,
 	isOpenAIHostedImageGenerationModel,
 } from "../extensions/codex-image-generation/src/index.ts";
-import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
+import type {
+	BeforeProviderRequestEvent,
+	BeforeProviderRequestEventResult,
+	ExtensionAPI,
+	ExtensionContext,
+	ExtensionHandler,
+} from "../src/core/extensions/types.ts";
 
-function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-messages"): Model<Api> {
+type TestApi = "openai-responses" | "openai-codex-responses" | "anthropic-messages";
+type BeforeProviderRequestHandler = ExtensionHandler<BeforeProviderRequestEvent, BeforeProviderRequestEventResult>;
+
+function model(api: TestApi, provider?: string): Model<Api> {
 	return {
 		id: "test-model",
 		name: "Test Model",
 		api,
-		provider: api === "anthropic-messages" ? "anthropic" : "openai-codex",
+		provider: provider ?? (api === "anthropic-messages" ? "anthropic" : "openai-codex"),
 		baseUrl: "https://example.test",
 		reasoning: false,
 		input: ["text", "image"],
@@ -22,9 +31,9 @@ function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-m
 	};
 }
 
-function context(api: Parameters<typeof model>[0]): ExtensionContext {
+function context(api: TestApi, provider?: string): ExtensionContext {
 	return {
-		model: model(api),
+		model: model(api, provider),
 		modelRegistry: {
 			getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: "test-key", headers: { "x-test": "yes" } })),
 		},
@@ -32,13 +41,28 @@ function context(api: Parameters<typeof model>[0]): ExtensionContext {
 }
 
 describe("Codex image generation extension", () => {
-	it("registers image_gen without replacing it on the parent model request", () => {
+	it("registers image_gen and scopes hosted-tool injection to Codex providers", () => {
 		const on = vi.fn();
 		const registerTool = vi.fn();
 		codexImageGenerationExtension({ on, registerTool } as unknown as ExtensionAPI);
+		const handler = on.mock.calls.find(([event]) => event === "before_provider_request")?.[1] as
+			| BeforeProviderRequestHandler
+			| undefined;
+		const payload = { tools: [{ type: "function", name: "image_gen" }] };
 
 		expect(registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "image_gen" }));
-		expect(on).not.toHaveBeenCalledWith("before_provider_request", expect.any(Function));
+		expect(handler?.({ type: "before_provider_request", payload }, context("openai-codex-responses"))).toEqual({
+			tools: [{ type: "image_generation", output_format: "png" }],
+		});
+		expect(
+			handler?.({ type: "before_provider_request", payload }, context("openai-codex-responses", "openai-codex-gc")),
+		).toEqual({ tools: [{ type: "image_generation", output_format: "png" }] });
+		expect(
+			handler?.({ type: "before_provider_request", payload }, context("openai-responses", "openai")),
+		).toBeUndefined();
+		expect(
+			handler?.({ type: "before_provider_request", payload }, context("anthropic-messages", "anthropic")),
+		).toBeUndefined();
 	});
 
 	it("executes hosted image generation with current Codex authentication", async () => {
@@ -72,14 +96,20 @@ describe("Codex image generation extension", () => {
 			}),
 		).toEqual({
 			model: "gpt",
-			tools: [{ type: "function", name: "read" }, { type: "image_generation" }],
+			tools: [
+				{ type: "function", name: "read" },
+				{ type: "image_generation", output_format: "png" },
+			],
 		});
-		expect(addImageGenerationToolToPayload({ tools: [{ type: "image_generation" }] })).toBeUndefined();
+		expect(
+			addImageGenerationToolToPayload({ tools: [{ type: "image_generation", output_format: "png" }] }),
+		).toBeUndefined();
 	});
 
-	it("identifies OpenAI Responses models as hosted image-generation capable", () => {
-		expect(isOpenAIHostedImageGenerationModel(model("openai-responses"))).toBe(true);
-		expect(isOpenAIHostedImageGenerationModel(model("openai-codex-responses"))).toBe(true);
-		expect(isOpenAIHostedImageGenerationModel(model("anthropic-messages"))).toBe(false);
+	it("identifies only Codex provider models as hosted image-generation capable", () => {
+		expect(isOpenAIHostedImageGenerationModel(model("openai-codex-responses", "openai-codex"))).toBe(true);
+		expect(isOpenAIHostedImageGenerationModel(model("openai-codex-responses", "openai-codex-gc"))).toBe(true);
+		expect(isOpenAIHostedImageGenerationModel(model("openai-responses", "openai"))).toBe(false);
+		expect(isOpenAIHostedImageGenerationModel(model("anthropic-messages", "anthropic"))).toBe(false);
 	});
 });

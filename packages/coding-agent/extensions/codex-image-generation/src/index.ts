@@ -5,6 +5,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } 
 
 interface ImageGenerationTool {
 	type: "image_generation";
+	output_format: "png";
 }
 
 interface PayloadWithTools extends Record<string, unknown> {
@@ -20,8 +21,7 @@ interface ImageGenerationRequest {
 	signal?: AbortSignal;
 }
 
-type OpenAIImageGenerationApi = "openai-responses" | "openai-codex-responses";
-type OpenAIImageGenerationModel = Model<OpenAIImageGenerationApi>;
+type OpenAIImageGenerationModel = Model<"openai-codex-responses">;
 type RunImageGeneration = (request: ImageGenerationRequest, ctx: ExtensionContext) => Promise<ImageContent>;
 
 const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
@@ -34,6 +34,10 @@ type ImageGenerationInput = Static<typeof imageGenerationSchema>;
 
 export default function codexImageGenerationExtension(pi: ExtensionAPI) {
 	pi.registerTool(createImageGenerationToolDefinition());
+	pi.on("before_provider_request", (event, ctx) => {
+		if (!isOpenAIHostedImageGenerationModel(ctx.model)) return undefined;
+		return addImageGenerationToolToPayload(event.payload);
+	});
 }
 
 export function createImageGenerationToolDefinition(options?: {
@@ -63,7 +67,8 @@ export function createImageGenerationToolDefinition(options?: {
 export function isOpenAIHostedImageGenerationModel(
 	model: Model<Api> | undefined,
 ): model is OpenAIImageGenerationModel {
-	return model?.api === "openai-responses" || model?.api === "openai-codex-responses";
+	if (model?.api !== "openai-codex-responses") return false;
+	return model.provider === "openai-codex" || model.provider === "openai-codex-gc";
 }
 
 async function executeImageGeneration(
@@ -76,12 +81,28 @@ async function executeImageGeneration(
 	const prompt = params.prompt.trim();
 	if (!prompt) throw new Error("image_gen prompt is required");
 	if (!isOpenAIHostedImageGenerationModel(ctx.model)) {
-		throw new Error("image_gen requires an OpenAI Responses model");
+		throw new Error("image_gen requires a Codex provider model");
 	}
 
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 	if (!auth.ok) throw new Error(auth.error);
+	const request = {
+		prompt,
+		model: ctx.model,
+		apiKey: auth.apiKey,
+		headers: auth.headers,
+		env: auth.env,
+	} satisfies ImageGenerationRequest;
+	return runImageGenerationWithTimeout(request, ctx, signal, runGeneration, timeoutMs);
+}
 
+async function runImageGenerationWithTimeout(
+	request: ImageGenerationRequest,
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+	runGeneration: RunImageGeneration,
+	timeoutMs: number,
+): Promise<ImageContent> {
 	const timeoutController = new AbortController();
 	const timeout = setTimeout(() => {
 		timeoutController.abort(new Error(`OpenAI hosted image generation timed out after ${formatTimeout(timeoutMs)}`));
@@ -90,17 +111,7 @@ async function executeImageGeneration(
 	const combinedSignal = signal ? AbortSignal.any([signal, timeoutController.signal]) : timeoutController.signal;
 
 	try {
-		return await runGeneration(
-			{
-				prompt,
-				model: ctx.model,
-				apiKey: auth.apiKey,
-				headers: auth.headers,
-				env: auth.env,
-				signal: combinedSignal,
-			},
-			ctx,
-		);
+		return await runGeneration({ ...request, signal: combinedSignal }, ctx);
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -143,7 +154,7 @@ export function addImageGenerationToolToPayload(payload: unknown): unknown | und
 }
 
 function createImageGenerationTool(): ImageGenerationTool {
-	return { type: "image_generation" };
+	return { type: "image_generation", output_format: "png" };
 }
 
 function isHostedImageGenerationTool(value: unknown): boolean {
