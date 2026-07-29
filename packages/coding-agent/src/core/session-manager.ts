@@ -1605,10 +1605,14 @@ export class SessionManager {
 		writeSessionThinkingLevel(this.metadataControlDbPath, this.sessionFile, thinkingLevel);
 	}
 
-	setMetadataControlDbPath(controlDbPath: string | undefined, options?: { indexMessageText?: boolean }): void {
+	setMetadataControlDbPath(
+		controlDbPath: string | undefined,
+		options?: { indexMessageText?: boolean; cwdOverride?: string },
+	): void {
 		this.metadataControlDbPath = controlDbPath;
 		if (options?.indexMessageText !== undefined) this.indexMessageText = options.indexMessageText;
 		this.restorePersistedMetadata();
+		if (options?.cwdOverride) this.cwd = resolvePath(options.cwdOverride);
 		this.writeMetadataSnapshot();
 	}
 
@@ -2185,7 +2189,9 @@ export class SessionManager {
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();
 		// If no sessionDir provided, derive from file's parent directory
 		const dir = sessionDir ? normalizePath(sessionDir) : resolve(resolvedPath, "..");
-		return new SessionManager(cwd, dir, resolvedPath, true);
+		const sessionManager = new SessionManager(cwd, dir, resolvedPath, true);
+		if (cwdOverride) sessionManager.cwd = resolvePath(cwdOverride);
+		return sessionManager;
 	}
 
 	/**

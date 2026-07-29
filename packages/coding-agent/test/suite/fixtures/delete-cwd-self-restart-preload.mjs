@@ -1,8 +1,14 @@
 import { rmSync } from "node:fs";
+import { dirname } from "node:path";
 
-const cwd = process.cwd();
-rmSync(cwd, { recursive: true, force: true });
-process.env.PI_SELF_RESTART_REQUEST = "1";
-process.env.PI_SELF_RESTART_SESSION = process.env.PI_TEST_RESTART_SESSION;
-process.env.PI_SELF_RESTART_PROMPT = "Restarted after cwd deletion.";
-process.env.PI_SELF_RESTART_OLD_PID = process.pid.toString();
+const execve = process.execve;
+if (typeof execve !== "function") {
+	throw new Error("delete-cwd self-restart fixture requires process.execve");
+}
+
+process.execve = (file, args, env) => {
+	const deletedCwd = process.cwd();
+	rmSync(deletedCwd, { recursive: true, force: true });
+	process.chdir(dirname(deletedCwd));
+	execve(file, args, env);
+};

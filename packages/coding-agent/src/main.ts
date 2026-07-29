@@ -860,10 +860,16 @@ export async function main(args: string[], options?: MainOptions) {
 	const controlDbPath = getControlDbPath();
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
 	sessionManager.setMetadataControlDbPath(controlDbPath);
-	appendSelfRestartNotice(sessionManager, selfRestartHandoff);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
 	if (missingSessionCwdIssue) {
-		if (appMode === "interactive") {
+		if (selfRestartHandoff) {
+			sessionManager = reopenSessionWithCwd(
+				missingSessionCwdIssue,
+				sessionDir,
+				missingSessionCwdIssue.fallbackCwd,
+				controlDbPath,
+			);
+		} else if (appMode === "interactive") {
 			const selectedCwd = await promptForMissingSessionCwd(missingSessionCwdIssue, startupSettingsManager);
 			if (!selectedCwd) {
 				process.exit(0);
@@ -874,6 +880,7 @@ export async function main(args: string[], options?: MainOptions) {
 			process.exit(1);
 		}
 	}
+	appendSelfRestartNotice(sessionManager, selfRestartHandoff);
 	if (parsed.name !== undefined) {
 		const name = parsed.name.trim();
 		if (!name) {

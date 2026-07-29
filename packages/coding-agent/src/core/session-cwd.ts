@@ -52,7 +52,7 @@ export function reopenSessionWithCwd(
 ): SessionManager {
 	if (!issue.sessionFile) throw new Error("Cannot reopen a session without a session file");
 	const sessionManager = SessionManager.open(issue.sessionFile, sessionDir, selectedCwd);
-	sessionManager.setMetadataControlDbPath(controlDbPath);
+	sessionManager.setMetadataControlDbPath(controlDbPath, { cwdOverride: selectedCwd });
 	return sessionManager;
 }
 
