@@ -66,11 +66,16 @@ describe("Supervisor client", () => {
 		const retriedRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
 		if (!retriedRequest) throw new Error("expected claimable retried request");
 		completeSupervisorRequest(controlDbPath, retriedRequest.id, "runtime", {
+			instructions: "Continue the goal.",
 			kind: "continue",
 			reason: "recovered",
 		});
 
-		await expect(decision).resolves.toEqual({ kind: "continue", reason: "recovered" });
+		await expect(decision).resolves.toEqual({
+			instructions: "Continue the goal.",
+			kind: "continue",
+			reason: "recovered",
+		});
 	});
 
 	it("returns error when all request attempts expire without a service response", async () => {
