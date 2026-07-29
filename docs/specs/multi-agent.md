@@ -49,13 +49,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agents`,
       `list_agents`, `agent_viewer`, `steer_agent`, and `cancel_agent` as defense in depth, while retaining
-      direct child communication through `contact_supervisor` and `send_agent_message`.
+      direct child communication through `contact_parent` and `send_agent_message`.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
       persisted-store reconciliation or lifecycle-notification mirroring. Their bound session-start hook
       reconciles only direct persisted descendants through coordinator recovery, preventing same-PID child
       startup from retiring, mutating, or projecting the supervisor's main-session state.
-- [x] `contact_parent` is direct-parent-only: the caller must have the exact child runtime identity
-      `(session_id, agent_id)`, parentless runtimes are rejected, persisted `parent_request` rows must target
+- [x] `contact_parent` is direct-parent-only: it derives the exact child runtime identity
+      `(session_id, agent_id)` from the runtime context instead of accepting a caller-supplied agent ID, parentless runtimes are rejected, persisted `parent_request` rows must target
       that agent's current direct parent, the resident Supervisor and arbitrary siblings cannot be targeted,
       and the old `contact_supervisor` name has no compatibility alias.
 - [x] `send_agent_message` creates direct mailbox messages only across one immediate parent-child edge;
@@ -529,14 +529,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
   supports simultaneous and late completion waiters while returning and consuming coordination delivery. Failed
   agents expose their failure message and `fileRefs`. `list_agents` always returns
-  active agents, can scope them below a parent without TUI state, and exposes no terminal-agent option. `contact_parent` requires the caller's exact agent runtime identity and routes child messages only to the current direct parent with validated absolute
+  active agents, can scope them below a parent without TUI state, and exposes no terminal-agent option. `contact_parent` derives the caller's exact agent runtime identity from session context and routes child messages only to the current direct parent with validated absolute
   file references and persisted target validation. It rejects parentless runtimes, cannot target the resident Supervisor or arbitrary siblings,
   and has no `contact_supervisor` compatibility alias. It verifies `agent_viewer` requires an agent ID, can read an
   agent from a persisted supervisor store via `storeSessionId`, and returns one
   agent's read-only snapshot, status, transcript, child IDs, and stop/steer command descriptor details without advancing lifecycle state. The
   read-only `agents_mailbox` tool is temporarily disabled; mailbox state is still maintained by core
-  store APIs. It also verifies `send_agent_message` derives the sender from the current session instead of
-  accepting caller-supplied sender/revision fields, allows direct parent-child mailbox messages
+  store APIs. It also verifies `contact_parent` and `send_agent_message` derive the sender from the current session instead of
+  accepting caller-supplied sender/revision fields, and that direct parent-child mailbox messages are allowed
   while rejecting sibling targets. Higher-level integrations must use registered agent tools or the
   Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and

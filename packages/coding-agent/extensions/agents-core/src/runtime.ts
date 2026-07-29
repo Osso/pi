@@ -171,7 +171,6 @@ const steerAgentSchema = Type.Object({
 });
 
 const contactParentSchema = Type.Object({
-	agentId: Type.String(),
 	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
 	message: Type.String(),
 	threadId: Type.Optional(Type.String()),
@@ -2758,25 +2757,19 @@ function contactParent(
 	const currentAgentId = ctx?.multiAgentAgentId;
 	if (!currentAgentId) {
 		return errorResult("Could not contact parent: agent runtime identity is unavailable.", {
-			agent: emptyAgent(params.agentId),
-			message: emptyParentRequest(params.agentId, params.message),
+			agent: emptyAgent(""),
+			message: emptyParentRequest("", params.message),
 		});
 	}
-	if (currentAgentId && currentAgentId !== params.agentId) {
-		return errorResult(`Could not contact parent for ${params.agentId}: sender identity mismatch.`, {
-			agent: emptyAgent(params.agentId),
-			message: emptyParentRequest(params.agentId, params.message),
-		});
-	}
-	const contacted = store.contactParent(params.agentId, {
+	const contacted = store.contactParent(currentAgentId, {
 		fileRefs: params.fileRefs,
 		body: params.message,
 		threadId: params.threadId,
 	});
 	if (!contacted.ok) {
-		return errorResult(`Could not contact parent for ${params.agentId}: ${contacted.error}`, {
-			agent: "current" in contacted ? contacted.current : emptyAgent(params.agentId),
-			message: emptyParentRequest(params.agentId, params.message),
+		return errorResult(`Could not contact parent for ${currentAgentId}: ${contacted.error}`, {
+			agent: "current" in contacted ? contacted.current : emptyAgent(currentAgentId),
+			message: emptyParentRequest(currentAgentId, params.message),
 		});
 	}
 

@@ -2695,8 +2695,6 @@ describe("multi-agent extension tools", () => {
 		}
 		harness.setAgentRuntimeIdentity(child.details.agent.id);
 		const contact = await harness.call<ContactParentDetails>("contact_parent", {
-			agentId: child.details.agent.id,
-			expectedRevision: accepted.agent.revision,
 			message: "Need scope",
 		});
 
@@ -2839,8 +2837,6 @@ describe("multi-agent extension tools", () => {
 		harness.setAgentRuntimeIdentity(child.details.agent.id);
 
 		const contact = await harness.call<ContactParentDetails>("contact_parent", {
-			agentId: child.details.agent.id,
-			expectedRevision: child.details.agent.revision,
 			message: "Need auth scope",
 		});
 
@@ -2860,14 +2856,8 @@ describe("multi-agent extension tools", () => {
 
 	it("rejects contact_parent when the caller has no agent runtime identity", async () => {
 		const harness = createMultiAgentHarness();
-		const child = spawnStoreFixture(harness.store, {
-			displayName: "Child",
-			parentId: "parent",
-			prompt: "Child task",
-		});
 
 		const contact = await harness.call<ContactParentDetails>("contact_parent", {
-			agentId: child.details.agent.id,
 			message: "Need auth scope",
 		});
 
@@ -2875,7 +2865,7 @@ describe("multi-agent extension tools", () => {
 			{ type: "text", text: expect.stringContaining("runtime identity is unavailable") },
 		]);
 		expect(contact.details.message).toMatchObject({
-			fromAgentId: child.details.agent.id,
+			fromAgentId: "",
 			kind: "parent_request",
 			status: "failed",
 			toAgentId: "",

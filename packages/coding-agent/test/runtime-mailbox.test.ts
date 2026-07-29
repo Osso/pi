@@ -511,7 +511,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await contactParent.execute(
 			"contact",
-			{ agentId: child.agent.id, expectedRevision: child.agent.revision, message: "Need scope" },
+			{ message: "Need scope" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({
