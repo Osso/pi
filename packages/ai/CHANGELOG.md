@@ -28,6 +28,7 @@
 
 ### Added
 
+- Added `AssistantMessage.imageGenerationResult` and OpenAI Responses parsing for completed hosted `image_generation_call` results as PNG image content.
 - Added `EventStream.fail(error)` so producers can reject both final results and active async iterators instead of leaving consumers pending.
 - Added an optional `onRetry` stream option that reports provider-internal retries and transport fallbacks. The OpenAI Codex API emits it for HTTP retries, WebSocket connection-limit reconnects, and WebSocket-to-SSE fallback.
 - Added optional `Model.autoCompactionThreshold` metadata for models with an exact preferred automatic-compaction boundary.
