@@ -2,7 +2,10 @@
 
 Self restart lets an agent ask Pi to tear down the current in-process session
 runtime or, in interactive mode, exec a fresh Pi process image from the same
-session file with a restart notice added to the resumed conversation. How the
+session file with a restart notice shown in the resumed conversation. The
+process-restart notice is persisted exactly once as a typed `self_restart`
+custom message. It is never submitted as a user prompt and never contributes
+to `firstMessage`, the session title fallback, or session search text. How the
 runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 
 ## What it must do
@@ -34,6 +37,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Register a `/restart` slash command from the first-party extension.
 - [x] Register a `restart_self` tool from a first-party extension.
 - [x] Add a user-visible restart notice to the same session when the tool runs.
+- [x] Persist a process-restart notice exactly once as a typed `self_restart` custom message; do not submit it as a user prompt or include it in session metadata or search text.
 - [x] Preserve goal state exactly across restart: running goals remain running, and explicitly paused goals retain their existing `pausedAt` value.
 
 ## How it works

@@ -148,7 +148,7 @@ export function applySelfRestartRequest(parsed: Args, handoff: SelfRestartHandof
 	parsed.noSession = false;
 	parsed.sessionId = undefined;
 	parsed.fileArgs = [];
-	parsed.messages = handoff.prompt ? [handoff.prompt] : [];
+	parsed.messages = [];
 }
 
 export function appendSelfRestartNotice(sessionManager: SessionManager, handoff: SelfRestartHandoff | undefined): void {
