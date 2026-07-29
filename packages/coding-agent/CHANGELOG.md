@@ -208,6 +208,7 @@
 - Fixed detached Pyrun live-agent views hiding submitted source by persisting a permission-locked `script.py` artifact across running and terminal states and rendering it beside the output log in the live-agent view.
 - Fixed explicit Architect requests lacking active-worktree context by accepting a validated absolute directory `project_path` (such as an active worktree), defaulting to the sender cwd, and directing Architect to read the authoritative relevant project spec.
 - Fixed Supervisor idle loops by adding a typed `pause` goal decision for work that must wait instead of returning a no-op `continue` instruction.
+- Fixed Supervisor goal reviews classifying recheckable external conditions as manual pauses; those conditions now use scheduled wait/re-review countdowns, while `pause` remains reserved for required user action or input that cannot advance automatically.
 - Fixed Supervisor goal pauses stopping silently by appending a durable status message with the reason, including when user input is required.
 - Fixed goal reviews waiting silently for up to three minutes; idle and completion reviews now show `Waiting for Supervisor…`, time out after 60 seconds, convert thrown failures into reason-bearing status, and display completion-pause reasons.
 - Fixed `manage_goal pause` discarding its supplied reason; explicit pauses now persist and display a reason in tool output, startup notices, `/goal`, and the footer, reject missing tool reasons, and clear the reason on resume.

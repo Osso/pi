@@ -35,10 +35,12 @@ remain unchanged across wait/re-review, and are persisted as `completionReason`
 only after a `complete` decision. `continue` leaves the goal running and queues a
 concrete next action. `complete` marks it complete. `wait` appends durable
 Supervisor status, starts cancellable background `wait_agents` when agents are
-active, and re-reviews after wake or after five minutes without active agents.
-`pause` leaves the goal active without queueing another continuation when progress
-requires user or external input. A rejected report and the Supervisor's reason
-remain visible in durable status; completion evidence is never inferred
+active, and re-reviews after wake or after five minutes without active agents,
+including when progress depends on an external condition that can be rechecked.
+`pause` is reserved for required user action or input that cannot advance
+automatically; it leaves the goal active without queueing another continuation.
+A rejected report and the Supervisor's reason remain visible in durable status;
+completion evidence is never inferred
 automatically.
 
 Idle review remains inside the existing `agent_end` handler after its pending-message, abort, error-stop, and empty-response retry handling. Pending interactive input takes precedence over abort handling; a reviewed decision is retained if pending state drains without a turn. Input, new turns, goal lifecycle changes, and shutdown cancel deferred decisions, wait operations, and timers. Goal identity is rechecked after asynchronous review before applying any decision. Scheduling and review failures append durable `supervisor-status` errors while leaving the goal active. A non-error empty assistant response schedules one continuation after a 1-second bounded delay only if the same goal remains active, the session is idle, and no messages are pending. `agent_end` already means the tool loop reached a terminal response with no further tool calls; no additional tool-call check exists or is needed. The previous unconditional continuation message is replaced by `goal_idle_review`.

@@ -25,8 +25,8 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 				: [
 						'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"wait","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
 						"Continue instructions must give a concrete, actionable next step.",
-						"Return wait when progress is already underway asynchronously and no duplicate continuation should start.",
-						"Return pause only when progress requires user or external input and no active work can advance it.",
+						"Return wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
+						"Return pause only when progress requires user action or input and cannot advance automatically.",
 					].join("\n");
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",

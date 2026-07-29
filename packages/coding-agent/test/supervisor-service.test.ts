@@ -159,7 +159,7 @@ describe("resident Supervisor service", () => {
 		expect(parseSupervisorResponse("approval_review", '{"kind":"pause","reason":"wait"}')).toBeUndefined();
 	});
 
-	it("tells goal reviewers to keep goals active while asynchronous work is already running", () => {
+	it("tells goal reviewers to schedule rechecks for asynchronous and externally advancing work", () => {
 		const prompt = buildSupervisorPrompt({
 			claimToken: "runtime",
 			claimedAt: "2026-07-17T12:00:00.000Z",
@@ -175,6 +175,8 @@ describe("resident Supervisor service", () => {
 
 		expect(prompt).toContain('{"kind":"wait","reason":"..."}');
 		expect(prompt).toContain("Return wait when progress is already underway asynchronously");
+		expect(prompt).toContain("or depends on an external condition that can be rechecked");
+		expect(prompt).toContain("Return pause only when progress requires user action");
 	});
 
 	it("builds a bounded prompt without historical transcript retrieval", () => {
