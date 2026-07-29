@@ -1282,21 +1282,22 @@ describe("agentLoop with AgentMessage", () => {
 		const stream = agentLoop([createUserMessage("work")], context, config, undefined, () => {
 			const mockStream = new MockAssistantStream();
 			queueMicrotask(() => {
-				const message =
-					callIndex++ === 0
-						? createAssistantMessage([{ type: "text", text: "intermediate update" }])
-						: createAssistantMessage(
-								[
-									{
-										type: "toolCall",
-										id: "end-1",
-										name: "end_turn",
-										arguments: { reason: "Finished requested work" },
-									},
-								],
-								"toolUse",
-							);
-				mockStream.push({ type: "done", reason: message.stopReason, message });
+				const isFirstCall = callIndex++ === 0;
+				const message = isFirstCall
+					? createAssistantMessage([{ type: "text", text: "intermediate update" }])
+					: createAssistantMessage(
+							[
+								{
+									type: "toolCall",
+									id: "end-1",
+									name: "end_turn",
+									arguments: { reason: "Finished requested work" },
+								},
+							],
+							"toolUse",
+						);
+				const reason = isFirstCall ? "stop" : "toolUse";
+				mockStream.push({ type: "done", reason, message });
 			});
 			return mockStream;
 		});
