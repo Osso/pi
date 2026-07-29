@@ -9,7 +9,8 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 ### Tool surface
 
 - [x] Register a callable `image_gen` tool with a required `prompt` string.
-- [x] Accept the tool only for `openai-responses` and `openai-codex-responses` models.
+- [x] Load the extension as a default first-party tool.
+- [x] Accept the tool only for `openai-codex` and `openai-codex-gc` provider models.
 
 ### Hosted request
 
@@ -28,6 +29,7 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 
 ## Implementation inventory
 
+- `packages/coding-agent/src/main.ts` — loads the extension as a default first-party extension.
 - `packages/coding-agent/extensions/codex-image-generation/src/index.ts` — registers `image_gen`, injects the hosted tool, resolves current provider authentication, and returns generated image content.
 - `packages/ai/src/api/openai-responses-shared.ts` — parses completed hosted image-generation response items.
 - `packages/ai/src/types.ts` — defines `AssistantMessage.imageGenerationResult`.
