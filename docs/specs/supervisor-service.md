@@ -47,6 +47,14 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
 - [x] Extract the model response only from the terminal assistant entry produced during the current request; return an error instead of reusing prior or intermediate assistant text when the current request has no non-empty successful terminal response.
 
+### Supervisor advisory
+
+- [x] Expose `ask_supervisor` only to main sessions; sub-agents cannot use it.
+- [x] Persist advisory requests as `supervisor_advisory` queue rows and return a text-only `{ kind: "advisory", answer }` response; advisory responses cannot control the caller or mutate goals, policies, sessions, processes, or agents.
+- [x] Bound inputs to a 4,000-character question and optional 8,000-character context.
+- [x] Enforce a three-minute request deadline.
+- [x] Schedule advisory requests below approval and goal reviews.
+
 ### Approval review
 
 - [x] Replace the existing LLM auto-reviewer with a Supervisor `approval_review` request while preserving the surrounding approval orchestrator and human-review paths.
@@ -117,6 +125,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/src/supervisor/project-resolver.ts` — KB config loading and canonical project-family resolution.
 - `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
 - `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
+- `packages/coding-agent/src/core/tools/ask-supervisor.ts` — main-session-only bounded advisory tool.
 - `packages/coding-agent/src/core/agent-session.ts` — LLM-approved preset integration.
 - `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
@@ -128,10 +137,11 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/test/supervisor-request-repository.test.ts`
 - `packages/coding-agent/test/supervisor-project-resolver.test.ts`
 - `packages/coding-agent/test/supervisor-client.test.ts`
-- `packages/coding-agent/test/supervisor-service.test.ts`
+- `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract and validation.
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
+- `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — main-session-only tool registration and access.
+- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process advisory tool flow.
 - `packages/coding-agent/test/goal-extension.test.ts`
-- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 - `packages/coding-agent/test/resident-console-command.test.ts`
 - `packages/coding-agent/test/resident-console-client.test.ts`
