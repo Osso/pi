@@ -1,3 +1,6 @@
+import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type Api, type Context, type ImageContent, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
@@ -59,7 +62,11 @@ export function createImageGenerationToolDefinition(options?: {
 		parameters: imageGenerationSchema,
 		async execute(_toolCallId, params: ImageGenerationInput, signal, _onUpdate, ctx): Promise<AgentToolResult<undefined>> {
 			const image = await executeImageGeneration(params, ctx, signal, runGeneration, timeoutMs);
-			return { content: [image], details: undefined };
+			const outputPath = saveGeneratedImage(image, ctx.cwd);
+			return {
+				content: [{ type: "text", text: `Generated image: ${outputPath}` }, image],
+				details: undefined,
+			};
 		},
 	};
 }
@@ -174,6 +181,12 @@ function extractImage(message: AssistantMessage): ImageContent {
 		throw new Error("OpenAI hosted image generation returned no image");
 	}
 	return message.imageGenerationResult;
+}
+
+function saveGeneratedImage(image: ImageContent, cwd: string): string {
+	const outputPath = join(cwd, `image-gen-${randomBytes(8).toString("hex")}.png`);
+	writeFileSync(outputPath, Buffer.from(image.data, "base64"), { flag: "wx" });
+	return outputPath;
 }
 
 function formatTimeout(timeoutMs: number): string {

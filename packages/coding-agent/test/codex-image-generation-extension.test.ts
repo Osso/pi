@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import codexImageGenerationExtension, {
@@ -65,24 +68,37 @@ describe("Codex image generation extension", () => {
 		).toBeUndefined();
 	});
 
-	it("executes hosted image generation with current Codex authentication", async () => {
-		const runGeneration = vi.fn(async () => ({ type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" }));
-		const tool = createImageGenerationToolDefinition({ runGeneration });
-		const ctx = context("openai-codex-responses");
+	it("saves generated PNG and returns its path with the image", async () => {
+		const outputDirectory = mkdtempSync(join(tmpdir(), "pi-image-gen-test-"));
+		try {
+			const runGeneration = vi.fn(async () => ({
+				type: "image" as const,
+				data: "aW1hZ2U=",
+				mimeType: "image/png",
+			}));
+			const tool = createImageGenerationToolDefinition({ runGeneration });
+			const ctx = { ...context("openai-codex-responses"), cwd: outputDirectory } as ExtensionContext;
 
-		const result = await tool.execute("call-1", { prompt: "A simple blue circle" }, undefined, undefined, ctx);
+			const result = await tool.execute("call-1", { prompt: "A simple blue circle" }, undefined, undefined, ctx);
 
-		expect(runGeneration).toHaveBeenCalledWith(
-			expect.objectContaining({
-				prompt: "A simple blue circle",
-				model: ctx.model,
-				apiKey: "test-key",
-				headers: { "x-test": "yes" },
-				signal: expect.any(AbortSignal),
-			}),
-			ctx,
-		);
-		expect(result.content).toEqual([{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]);
+			expect(runGeneration).toHaveBeenCalledWith(
+				expect.objectContaining({
+					prompt: "A simple blue circle",
+					model: ctx.model,
+					apiKey: "test-key",
+					headers: { "x-test": "yes" },
+					signal: expect.any(AbortSignal),
+				}),
+				ctx,
+			);
+			const pathText = result.content.find((entry) => entry.type === "text")?.text;
+			const savedPath = pathText?.replace("Generated image: ", "");
+			expect(savedPath).toMatch(new RegExp(`^${outputDirectory}/image-gen-[a-f0-9]{16}\\.png$`));
+			expect(readFileSync(savedPath ?? "")).toEqual(Buffer.from("image"));
+			expect(result.content).toContainEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/png" });
+		} finally {
+			rmSync(outputDirectory, { recursive: true, force: true });
+		}
 	});
 
 	it("adds one hosted image tool and removes the same-named function tool", () => {
