@@ -5,13 +5,7 @@ import codexImageGenerationExtension, {
 	createImageGenerationToolDefinition,
 	isOpenAIHostedImageGenerationModel,
 } from "../extensions/codex-image-generation/src/index.ts";
-import type {
-	BeforeProviderRequestEvent,
-	BeforeProviderRequestEventResult,
-	ExtensionAPI,
-	ExtensionContext,
-	ExtensionHandler,
-} from "../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 
 function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-messages"): Model<Api> {
 	return {
@@ -28,8 +22,6 @@ function model(api: "openai-responses" | "openai-codex-responses" | "anthropic-m
 	};
 }
 
-type BeforeProviderRequestHandler = ExtensionHandler<BeforeProviderRequestEvent, BeforeProviderRequestEventResult>;
-
 function context(api: Parameters<typeof model>[0]): ExtensionContext {
 	return {
 		model: model(api),
@@ -40,27 +32,13 @@ function context(api: Parameters<typeof model>[0]): ExtensionContext {
 }
 
 describe("Codex image generation extension", () => {
-	it("registers image_gen and injects the hosted tool for OpenAI Responses models", () => {
+	it("registers image_gen without replacing it on the parent model request", () => {
 		const on = vi.fn();
 		const registerTool = vi.fn();
 		codexImageGenerationExtension({ on, registerTool } as unknown as ExtensionAPI);
-		const handler = on.mock.calls.find(([event]) => event === "before_provider_request")?.[1] as
-			| BeforeProviderRequestHandler
-			| undefined;
 
 		expect(registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "image_gen" }));
-		expect(
-			handler?.(
-				{
-					type: "before_provider_request",
-					payload: { tools: [{ type: "function", name: "image_gen" }] },
-				},
-				context("openai-codex-responses"),
-			),
-		).toEqual({ tools: [{ type: "image_generation" }] });
-		expect(
-			handler?.({ type: "before_provider_request", payload: { tools: [] } }, context("anthropic-messages")),
-		).toBeUndefined();
+		expect(on).not.toHaveBeenCalledWith("before_provider_request", expect.any(Function));
 	});
 
 	it("executes hosted image generation with current Codex authentication", async () => {
