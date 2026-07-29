@@ -75,7 +75,11 @@ describe("session picker selection", () => {
 		};
 
 		void selectSession(
-			async () => [{ ...newer, isArchived: false }, { ...older, isArchived: false }] as never,
+			async () =>
+				[
+					{ ...newer, isArchived: false },
+					{ ...older, isArchived: false },
+				] as never,
 			async () => [],
 			{} as never,
 			"/control.sqlite",
