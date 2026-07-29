@@ -1,10 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import { stripAnsi } from "../../../src/utils/ansi.ts";
-import { withHeadlessPi, type HeadlessPiPaths } from "../headless-pi.ts";
+import { type HeadlessPiPaths, withHeadlessPi } from "../headless-pi.ts";
 
 function startRestartedPi(paths: HeadlessPiPaths, sessionFile: string): ChildProcessWithoutNullStreams {
 	const cliPath = join(import.meta.dirname, "../../../src/cli.ts");
