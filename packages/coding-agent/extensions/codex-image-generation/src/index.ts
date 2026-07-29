@@ -37,10 +37,6 @@ type ImageGenerationInput = Static<typeof imageGenerationSchema>;
 
 export default function codexImageGenerationExtension(pi: ExtensionAPI) {
 	pi.registerTool(createImageGenerationToolDefinition());
-	pi.on("before_provider_request", (event, ctx) => {
-		if (!isOpenAIHostedImageGenerationModel(ctx.model)) return undefined;
-		return addImageGenerationToolToPayload(event.payload);
-	});
 }
 
 export function createImageGenerationToolDefinition(options?: {

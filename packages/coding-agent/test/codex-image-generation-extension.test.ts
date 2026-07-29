@@ -8,16 +8,9 @@ import codexImageGenerationExtension, {
 	createImageGenerationToolDefinition,
 	isOpenAIHostedImageGenerationModel,
 } from "../extensions/codex-image-generation/src/index.ts";
-import type {
-	BeforeProviderRequestEvent,
-	BeforeProviderRequestEventResult,
-	ExtensionAPI,
-	ExtensionContext,
-	ExtensionHandler,
-} from "../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 
 type TestApi = "openai-responses" | "openai-codex-responses" | "anthropic-messages";
-type BeforeProviderRequestHandler = ExtensionHandler<BeforeProviderRequestEvent, BeforeProviderRequestEventResult>;
 
 function model(api: TestApi, provider?: string): Model<Api> {
 	return {
@@ -44,28 +37,14 @@ function context(api: TestApi, provider?: string): ExtensionContext {
 }
 
 describe("Codex image generation extension", () => {
-	it("registers image_gen and scopes hosted-tool injection to Codex providers", () => {
+	it("registers image_gen without rewriting main-session provider requests", () => {
 		const on = vi.fn();
 		const registerTool = vi.fn();
+
 		codexImageGenerationExtension({ on, registerTool } as unknown as ExtensionAPI);
-		const handler = on.mock.calls.find(([event]) => event === "before_provider_request")?.[1] as
-			| BeforeProviderRequestHandler
-			| undefined;
-		const payload = { tools: [{ type: "function", name: "image_gen" }] };
 
 		expect(registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "image_gen" }));
-		expect(handler?.({ type: "before_provider_request", payload }, context("openai-codex-responses"))).toEqual({
-			tools: [{ type: "image_generation", output_format: "png" }],
-		});
-		expect(
-			handler?.({ type: "before_provider_request", payload }, context("openai-codex-responses", "openai-codex-gc")),
-		).toEqual({ tools: [{ type: "image_generation", output_format: "png" }] });
-		expect(
-			handler?.({ type: "before_provider_request", payload }, context("openai-responses", "openai")),
-		).toBeUndefined();
-		expect(
-			handler?.({ type: "before_provider_request", payload }, context("anthropic-messages", "anthropic")),
-		).toBeUndefined();
+		expect(on).not.toHaveBeenCalled();
 	});
 
 	it("saves generated PNG and returns its path with the image", async () => {
