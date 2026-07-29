@@ -17,7 +17,9 @@ const resumeSessionSchema = Type.Object({
 	id: Type.Optional(Type.String({ description: "Exact or unique prefix of a Pi session id to resume." })),
 	name: Type.Optional(Type.String({ description: "Unique named Pi session to resume." })),
 	starter_prompt: Type.Optional(
-		Type.String({ description: "Optional user prompt to send after the target session is resumed." }),
+		Type.String({
+			description: "Optional caller-provided instructions to send after the target session is resumed.",
+		}),
 	),
 });
 
@@ -219,7 +221,7 @@ function formatResumeTarget(args: ResumeSessionToolInput | undefined): string {
 
 function formatResumeSessionCall(args: ResumeSessionToolInput | undefined, theme: Theme): string {
 	const target = formatResumeTarget(args);
-	const starter = args?.starter_prompt ? theme.fg("warning", " + starter prompt") : "";
+	const starter = args?.starter_prompt ? theme.fg("warning", " + instructions") : "";
 	return `${theme.fg("toolTitle", theme.bold("resume_session"))} ${theme.fg("accent", target)}${starter}`;
 }
 
@@ -243,11 +245,11 @@ export function createResumeSessionToolDefinition(): ToolDefinition<
 		name: "resume_session",
 		label: "resume_session",
 		description:
-			"Switch/resume the current main Pi session to another session file. This replaces the current supervisor context; only use when the user explicitly asks to resume or switch sessions. Optionally sends a starter prompt after the target session is active.",
-		promptSnippet: "Switch/resume the current main Pi session, optionally with a starter prompt",
+			"Switch/resume the current main Pi session to another session file. This replaces the current supervisor context; only use when the user explicitly asks to resume or switch sessions. Optionally sends caller-provided instructions after the target session is active.",
+		promptSnippet: "Switch/resume the current main Pi session, optionally with instructions for the resumed session",
 		promptGuidelines: [
 			"Use resume_session only when the user explicitly asks to resume or switch the main session; it replaces the current supervisor context.",
-			"Pass exactly one of path, id, or name. Use starter_prompt only for a user-provided prompt to send after the target session is active.",
+			"Pass exactly one of path, id, or name. Use starter_prompt for caller-provided instructions to send after the target session is active.",
 		],
 		parameters: resumeSessionSchema,
 		executionMode: "sequential",
@@ -271,7 +273,7 @@ export function createResumeSessionToolDefinition(): ToolDefinition<
 			});
 			const details = { cancelled: result.cancelled, resumed: !result.cancelled, sessionPath };
 			const action = result.cancelled ? "Resume cancelled" : "Resumed session";
-			const starter = starterPrompt && !result.cancelled ? " and sent starter prompt" : "";
+			const starter = starterPrompt && !result.cancelled ? " and sent instructions" : "";
 			return {
 				content: [{ type: "text", text: `${action}: ${sessionPath}${starter}` }],
 				details,
