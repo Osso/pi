@@ -321,6 +321,7 @@
 - Fixed Resident Architect advice from treating a completed goal as a terminated session; `completedAt` is goal state only, and the model uses membership in its listener/health-prefiltered snapshot rather than goal fields as liveness evidence.
 - Fixed shared-channel catch-up to batch all unread deliverable posts in order into one agent turn and retain them when batch delivery fails.
 - Fixed shared-channel delivery to ignore and mark seen posts from subagent senders, preventing stale subagent processes from flooding main sessions.
+- Fixed `pi -r` to keep the resume picker open and display the ownership error when the selected session is already open in another Pi process, instead of terminating Pi.
 - Fixed `pi -r` and `/resume` to hide sessions that have no messages.
 - Fixed `/continue` to submit completed assistant-ending transcripts for continuation and avoid errors on empty transcripts.
 - Fixed compacted session context replay to drop retained orphan tool results when their tool-call messages were removed by the pre-compaction suffix byte cap.

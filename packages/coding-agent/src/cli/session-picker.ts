@@ -11,6 +11,7 @@ import { SessionSelectorComponent } from "../modes/interactive/components/sessio
 import { createStartupTui, startStartupTui } from "./startup-ui.ts";
 
 type SessionsLoader = (onProgress?: SessionListProgress) => Promise<SessionInfo[]>;
+type SelectionValidator = (sessionPath: string) => void;
 
 /** Show TUI session selector and return selected session path or null if cancelled */
 export async function selectSession(
@@ -19,6 +20,7 @@ export async function selectSession(
 	settingsManager: SettingsManager,
 	controlDbPath?: string,
 	archivedSessionsLoader?: SessionsLoader,
+	validateSelection?: SelectionValidator,
 ): Promise<string | null> {
 	const ui = await createStartupTui(settingsManager);
 	return new Promise((resolve) => {
@@ -30,11 +32,17 @@ export async function selectSession(
 			(onProgress) => loadSessionsWithControlNames(currentSessionsLoader, controlDbPath, onProgress),
 			(onProgress) => loadSessionsWithControlNames(allSessionsLoader, controlDbPath, onProgress),
 			(path: string) => {
-				if (!resolved) {
-					resolved = true;
-					ui.stop();
-					resolve(path);
+				if (resolved) return;
+				try {
+					validateSelection?.(path);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					selector.showError(message);
+					return;
 				}
+				resolved = true;
+				ui.stop();
+				resolve(path);
 			},
 			() => {
 				if (!resolved) {

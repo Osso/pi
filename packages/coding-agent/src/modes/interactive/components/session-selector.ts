@@ -1111,4 +1111,9 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	getSessionList(): SessionList {
 		return this.sessionList;
 	}
+
+	showError(message: string): void {
+		this.header.setStatusMessage({ type: "error", message }, 4000);
+		this.requestRender();
+	}
 }

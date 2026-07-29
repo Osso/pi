@@ -88,6 +88,7 @@ import {
 	waitForSelfRestartParentExit,
 } from "./core/self-restart.ts";
 import {
+	assertMainSessionRuntimeAvailable,
 	claimLatestIncomingMessage,
 	getControlDbPath,
 	prepareControlDbForSelfRestart,
@@ -463,6 +464,11 @@ async function createSessionManager(
 				settingsManager,
 				controlDbPath,
 				(onProgress) => SessionManager.listArchived(sessionDir, onProgress, controlDbPath),
+				(selectedPath) => {
+					if (!controlDbPath) return;
+					const selectedSession = SessionManager.open(selectedPath, sessionDir);
+					assertMainSessionRuntimeAvailable(controlDbPath, selectedSession.getSessionId());
+				},
 			);
 			if (!selectedPath) {
 				console.log(chalk.dim("No session selected"));
