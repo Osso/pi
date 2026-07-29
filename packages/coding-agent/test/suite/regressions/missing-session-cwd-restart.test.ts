@@ -29,7 +29,8 @@ it("continues an interrupted self-restart from an existing parent after its cwd 
 			agent.respondToLlmRequest(afterRestart.id, fauxAssistantMessage("continued from fallback cwd"));
 			await agent.waitForSessionEntry(
 				null,
-				(entry) => entry.type === "message" && JSON.stringify(entry.message).includes("continued from fallback cwd"),
+				(entry) =>
+					entry.type === "message" && JSON.stringify(entry.message).includes("continued from fallback cwd"),
 			);
 
 			const entries = agent.readSessionEntries(null);
