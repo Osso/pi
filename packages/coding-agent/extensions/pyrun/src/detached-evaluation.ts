@@ -94,10 +94,72 @@ function pyrunArtifactRoot(sessionPath: string): string {
 }
 
 type RestoredPyrunRunner = ReturnType<typeof launchForegroundPyrunRunner>;
+type PyrunLaunchManifest = ReturnType<typeof readDetachedPyrunLaunchManifest>;
 
 type PyrunResumeDecision =
 	| { kind: "resume"; runner: RestoredPyrunRunner }
 	| { kind: "aborted"; agent: AgentSnapshot };
+
+interface PyrunManifestCandidate {
+	directory: string;
+	manifest: PyrunLaunchManifest;
+	manifestPath: string;
+}
+
+function readPyrunManifestCandidate(directory: string): PyrunManifestCandidate | undefined {
+	const manifestPath = join(directory, "launch.json");
+	if (!existsSync(manifestPath)) return undefined;
+	try {
+		return { directory, manifest: readDetachedPyrunLaunchManifest(manifestPath), manifestPath };
+	} catch {
+		return undefined;
+	}
+}
+
+async function settleCancelledPyrunCandidate(
+	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
+	candidate: PyrunManifestCandidate,
+	toolCallId: string,
+	jobId: string,
+): Promise<PyrunResumeDecision | undefined> {
+	const correlated = candidate.manifest.toolCallId == null || candidate.manifest.toolCallId === toolCallId;
+	if (!correlated) return undefined;
+	const persisted = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, jobId);
+	if (persisted?.lifecycle !== "cancelling") return undefined;
+	return { kind: "aborted", agent: await settleCancellingPyrunJob(persistence, candidate.manifest, persisted) };
+}
+
+function restorePyrunCandidate(
+	candidate: PyrunManifestCandidate,
+	expectedParams: ReturnType<typeof createCanonicalPyrunEvalParams>,
+	toolCallId: string,
+	jobId: string,
+): PyrunResumeDecision | undefined {
+	const { directory, manifest } = candidate;
+	if (JSON.stringify(manifest.params) !== JSON.stringify(expectedParams)) {
+		throw new Error(`Pyrun tool-call artifact collision for ${toolCallId}`);
+	}
+	if (!isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
+		rmSync(directory, { recursive: true, force: true });
+		return undefined;
+	}
+	const scriptPath = join(directory, "script.py");
+	if (!existsSync(scriptPath)) throw new Error(`Pyrun script artifact is missing: ${scriptPath}`);
+	return {
+		kind: "resume",
+		runner: {
+			activationPath: manifest.activationPath,
+			artifacts: manifest.artifacts,
+			bridgeRequestPath: manifest.bridgeRequestPath,
+			bridgeResponsePath: manifest.bridgeResponsePath,
+			foregroundCompletionPath: manifest.foregroundCompletionPath,
+			jobId,
+			processIdentity: manifest.runnerProcessIdentity,
+			runnerPid: manifest.runnerProcessIdentity.pid,
+			scriptPath,
+		},
+	};
+}
 
 async function restoreForegroundPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
@@ -108,54 +170,14 @@ async function restoreForegroundPyrunRunner(
 	const expectedParams = createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled);
 	for (const entry of readdirSync(artifactRoot, { withFileTypes: true })) {
 		if (!entry.isDirectory()) continue;
-		const directory = join(artifactRoot, entry.name);
-		const manifestPath = join(directory, "launch.json");
-		if (!existsSync(manifestPath)) continue;
-		let manifest: ReturnType<typeof readDetachedPyrunLaunchManifest>;
-		try {
-			manifest = readDetachedPyrunLaunchManifest(manifestPath);
-		} catch {
-			continue;
-		}
-		const jobId = manifest.runnerAddress.agentId;
-		if (!jobId) throw new Error(`Pyrun launch manifest has no job ID: ${manifestPath}`);
-		// Manifests written before tool-call correlation existed carry no toolCallId and
-		// cannot be matched to the replayed call. A job whose cancellation was requested
-		// but never settled (e.g. its runtime died mid-cancel) must not be resumed on
-		// session reload, whether we can correlate it or not. For both cases, honor the
-		// cancellation: kill any surviving runner and settle the job to aborted.
-		const missingToolCallId = manifest.toolCallId == null;
-		const matchesCall = !missingToolCallId && manifest.toolCallId === input.toolCallId;
-		if (missingToolCallId || matchesCall) {
-			const persisted = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, jobId);
-			if (persisted?.lifecycle === "cancelling") {
-				return { kind: "aborted", agent: await settleCancellingPyrunJob(persistence, manifest, persisted) };
-			}
-		}
-		if (!matchesCall) continue;
-		if (JSON.stringify(manifest.params) !== JSON.stringify(expectedParams)) {
-			throw new Error(`Pyrun tool-call artifact collision for ${input.toolCallId}`);
-		}
-		if (!isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
-			rmSync(directory, { recursive: true, force: true });
-			return undefined;
-		}
-		const scriptPath = join(directory, "script.py");
-		if (!existsSync(scriptPath)) throw new Error(`Pyrun script artifact is missing: ${scriptPath}`);
-		return {
-			kind: "resume",
-			runner: {
-				activationPath: manifest.activationPath,
-				artifacts: manifest.artifacts,
-				bridgeRequestPath: manifest.bridgeRequestPath,
-				bridgeResponsePath: manifest.bridgeResponsePath,
-				foregroundCompletionPath: manifest.foregroundCompletionPath,
-				jobId,
-				processIdentity: manifest.runnerProcessIdentity,
-				runnerPid: manifest.runnerProcessIdentity.pid,
-				scriptPath,
-			},
-		};
+		const candidate = readPyrunManifestCandidate(join(artifactRoot, entry.name));
+		if (!candidate) continue;
+		const jobId = candidate.manifest.runnerAddress.agentId;
+		if (!jobId) throw new Error(`Pyrun launch manifest has no job ID: ${candidate.manifestPath}`);
+		const cancelled = await settleCancelledPyrunCandidate(persistence, candidate, input.toolCallId, jobId);
+		if (cancelled) return cancelled;
+		if (candidate.manifest.toolCallId !== input.toolCallId) continue;
+		return restorePyrunCandidate(candidate, expectedParams, input.toolCallId, jobId);
 	}
 	return undefined;
 }
