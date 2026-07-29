@@ -102,7 +102,10 @@ export interface HeadlessPi {
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
 	waitForExtensionError(predicate?: (error: HeadlessRpcExtensionError) => boolean): Promise<HeadlessRpcExtensionError>;
 	waitForExtensionUiRequest(predicate?: (request: RpcExtensionUIRequest) => boolean): Promise<RpcExtensionUIRequest>;
-	waitForLlmRequest(predicate?: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest>;
+	waitForLlmRequest(
+		predicate?: (request: HeadlessLlmRequest) => boolean,
+		timeoutMs?: number,
+	): Promise<HeadlessLlmRequest>;
 	waitForSupervisorRequest(kind: SupervisorRequestKind): Promise<SupervisorRequest>;
 	respondToSupervisorRequest(request: SupervisorRequest, response: SupervisorResponse): void;
 	respondToLlmRequest(requestId: string, message: AssistantMessage): void;
@@ -351,6 +354,7 @@ function waitForBufferedItem<T>(options: {
 	predicate: (item: T) => boolean;
 	disposeSignal: AbortSignal;
 	timeoutError: () => Error;
+	timeoutMs?: number;
 }): Promise<T> {
 	if (options.disposeSignal.aborted) return Promise.reject(new Error("Headless Pi fixture disposed"));
 	return new Promise((resolve, reject) => {
@@ -382,7 +386,7 @@ function waitForBufferedItem<T>(options: {
 		const timeout = setTimeout(() => {
 			cleanup();
 			reject(options.timeoutError());
-		}, DEFAULT_TIMEOUT_MS);
+		}, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 		options.listeners.add(check);
 		options.disposeSignal.addEventListener("abort", abort, { once: true });
 	});
@@ -654,7 +658,10 @@ function createHeadlessRuntime(options: {
 			timeoutError: () =>
 				new Error(`Timed out waiting for RPC extension error. Stderr: ${options.clientControl.client.getStderr()}`),
 		});
-	const waitForRequest = (predicate: (request: HeadlessLlmRequest) => boolean): Promise<HeadlessLlmRequest> =>
+	const waitForRequest = (
+		predicate: (request: HeadlessLlmRequest) => boolean,
+		timeoutMs?: number,
+	): Promise<HeadlessLlmRequest> =>
 		waitForBufferedItem({
 			items: options.requests,
 			listeners: options.requestListeners,
@@ -662,6 +669,7 @@ function createHeadlessRuntime(options: {
 			disposeSignal: options.disposeController.signal,
 			timeoutError: () =>
 				new Error(`Timed out waiting for LLM request. Stderr: ${options.clientControl.client.getStderr()}`),
+			timeoutMs,
 		});
 	const waitForUiRequest = (predicate: (request: RpcExtensionUIRequest) => boolean): Promise<RpcExtensionUIRequest> =>
 		waitForBufferedItem({
@@ -791,7 +799,7 @@ function createHeadlessRuntime(options: {
 		waitForEvent,
 		waitForExtensionError: (predicate = () => true) => waitForExtensionError(predicate),
 		waitForExtensionUiRequest: (predicate = () => true) => waitForUiRequest(predicate),
-		waitForLlmRequest: (predicate = () => true) => waitForRequest(predicate),
+		waitForLlmRequest: (predicate = () => true, timeoutMs) => waitForRequest(predicate, timeoutMs),
 		async waitForSupervisorRequest(kind) {
 			const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
 			while (Date.now() < deadline) {
