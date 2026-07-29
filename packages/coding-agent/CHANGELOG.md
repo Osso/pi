@@ -20,6 +20,7 @@
 - Added a live `Next review in M:SS` countdown to timed Supervisor wait statuses, with persisted deadlines, `Review due…` expiry state, restored rendering, and redraw-only cancellation that does not duplicate reviews or transcript entries.
 - Added `ExtensionUIContext.requestRender()` so interactive extensions can request lightweight redraws while RPC and print modes safely ignore the request.
 - Added built-in `change_working_directory` for persistently changing the current session cwd by direct path or another session's recorded cwd without switching session identity.
+- Added built-in `end_turn` as a default active tool requiring one nonblank free-form reason; normal coding-agent model turns continue after assistant text without a tool call until a terminating `end_turn` batch, while errors, aborts, and existing explicit termination remain terminal.
 - Added automatic detached-job artifact cleanup at Pi startup and after terminal outbox delivery; Linux `/proc`-backed cleanup preserves nonterminal or live-referenced jobs, removes artifacts at least three days old, and caps retained terminal artifacts at 2 GiB.
 - Added the `steering_message_queued` AgentSession event; interactive mode uses it to wake active process-local `wait_agents` after accepted ordinary main-session steering.
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
