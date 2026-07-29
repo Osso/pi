@@ -70,6 +70,34 @@ describe("OpenAI Responses image generation", () => {
 		expect(output.imageGenerationResult).toEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/png" });
 	});
 
+	it("extracts image generation output from the terminal response", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield {
+				type: "response.completed",
+				sequence_number: 0,
+				response: {
+					id: "resp_terminal_image",
+					status: "completed",
+					output: [
+						{ id: "ig_terminal", type: "image_generation_call", status: "completed", result: "dGVybWluYWw=" },
+					],
+				},
+			} as ResponseStreamEvent;
+		}
+
+		await processResponsesStream(events(), output, stream, model);
+
+		expect(output.imageGenerationResult).toEqual({
+			type: "image",
+			data: "dGVybWluYWw=",
+			mimeType: "image/png",
+		});
+	});
+
 	it("ignores failed image generation output without image data", async () => {
 		const model = createModel();
 		const output = createOutput(model);

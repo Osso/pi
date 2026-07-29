@@ -373,6 +373,12 @@ export async function processResponsesStream<TApi extends Api>(
 		if (response?.id) {
 			output.responseId = response.id;
 		}
+		const imageGenerationItem = response?.output?.find(
+			(item) => item.type === "image_generation_call" && item.status === "completed" && item.result,
+		);
+		if (imageGenerationItem?.type === "image_generation_call" && imageGenerationItem.result) {
+			output.imageGenerationResult = { type: "image", data: imageGenerationItem.result, mimeType: "image/png" };
+		}
 		if (response?.usage) {
 			const cachedTokens = response.usage.input_tokens_details?.cached_tokens || 0;
 			output.usage = {
