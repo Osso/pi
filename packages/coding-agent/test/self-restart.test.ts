@@ -16,7 +16,7 @@ import {
 	spawnSelfRestart,
 	waitForSelfRestartParentExit,
 } from "../src/core/self-restart.ts";
-import { SessionManager } from "../src/core/session-manager.ts";
+import { loadEntriesFromFile, SessionManager } from "../src/core/session-manager.ts";
 
 function createArgs(): Args {
 	return {
@@ -155,6 +155,13 @@ describe("self restart request", () => {
 					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 				},
 				stopReason: "stop",
+			});
+
+			const entries = loadEntriesFromFile(sessionManager.getSessionFile()!);
+			expect(entries.map((entry) => entry.type)).toEqual(["session", "custom_message", "message", "message"]);
+			expect(entries[1]).toMatchObject({
+				type: "custom_message",
+				customType: "self_restart",
 			});
 
 			const sessions = await SessionManager.listAll(sessionDir);
