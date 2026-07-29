@@ -90,9 +90,12 @@ describe("headless Supervisor goal system", () => {
 			const initial = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(
 				initial.id,
-				fauxAssistantMessage(fauxToolCall("manage_goal", { action: "complete", completionReport: "all proof passed" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					fauxToolCall("manage_goal", { action: "complete", completionReport: "all proof passed" }),
+					{
+						stopReason: "toolUse",
+					},
+				),
 			);
 
 			const review = await agent.waitForSupervisorRequest("goal_completion_review");
