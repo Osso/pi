@@ -70,6 +70,46 @@ describe("OpenAI Responses image generation", () => {
 		expect(output.imageGenerationResult).toEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/png" });
 	});
 
+	it("captures Codex image data from a partial-image event", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+
+		async function* events(): AsyncIterable<ResponseStreamEvent> {
+			yield {
+				type: "response.output_item.added",
+				sequence_number: 8,
+				output_index: 1,
+				item: { id: "ig_live", type: "image_generation_call", status: "in_progress" },
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.image_generation_call.partial_image",
+				background: "opaque",
+				item_id: "ig_live",
+				output_format: "png",
+				output_index: 1,
+				partial_image_b64: "bGl2ZS1pbWFnZQ==",
+				partial_image_index: 0,
+				quality: "medium",
+				sequence_number: 11,
+				size: "1024x1024",
+			} as ResponseStreamEvent;
+			yield {
+				type: "response.completed",
+				sequence_number: 12,
+				response: { id: "resp_live", status: "completed" },
+			} as ResponseStreamEvent;
+		}
+
+		await processResponsesStream(events(), output, stream, model);
+
+		expect(output.imageGenerationResult).toEqual({
+			type: "image",
+			data: "bGl2ZS1pbWFnZQ==",
+			mimeType: "image/png",
+		});
+	});
+
 	it("extracts image generation output from the terminal response", async () => {
 		const model = createModel();
 		const output = createOutput(model);

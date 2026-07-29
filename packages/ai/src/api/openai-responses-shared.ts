@@ -490,6 +490,8 @@ export async function processResponsesStream<TApi extends Api>(
 					});
 				}
 			}
+		} else if (event.type === "response.image_generation_call.partial_image") {
+			output.imageGenerationResult = { type: "image", data: event.partial_image_b64, mimeType: "image/png" };
 		} else if (event.type === "response.output_item.done") {
 			const item = event.item;
 			const slot = getOrCreateSlot(event.output_index, item);
