@@ -492,11 +492,9 @@ function findTrailingAssistantToolBatch(messages: readonly AgentMessage[]): Assi
 
 export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
 	let lastMessageIndex = messages.length - 1;
-	while (
-		lastMessageIndex >= 0 &&
-		messages[lastMessageIndex]?.role === "custom" &&
-		messages[lastMessageIndex]?.customType === "self_restart"
-	) {
+	while (lastMessageIndex >= 0) {
+		const message = messages[lastMessageIndex];
+		if (message?.role !== "custom" || message.customType !== "self_restart") break;
 		lastMessageIndex -= 1;
 	}
 	const relevantMessages = messages.slice(0, lastMessageIndex + 1);

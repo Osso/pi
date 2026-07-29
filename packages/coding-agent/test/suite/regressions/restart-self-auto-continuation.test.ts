@@ -17,13 +17,11 @@ it("automatically continues the restored session after restart_self", async () =
 		expect(JSON.stringify(afterRestart.messages)).not.toContain("Continue from the restored session after restart.");
 		const restoredEntries = pi.readSessionEntries(null);
 		expect(
-			restoredEntries.filter(
-				(entry) => entry.type === "custom_message" && entry.customType === "self_restart",
-			),
+			restoredEntries.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
 		).toHaveLength(1);
-		expect(
-			restoredEntries.filter((entry) => entry.type === "message" && entry.message.role === "user"),
-		).toHaveLength(1);
+		expect(restoredEntries.filter((entry) => entry.type === "message" && entry.message.role === "user")).toHaveLength(
+			1,
+		);
 
 		pi.respondToLlmRequest(afterRestart.id, fauxAssistantMessage("continued"));
 		await pi.waitForSessionEntry(
