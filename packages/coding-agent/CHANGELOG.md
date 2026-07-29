@@ -165,6 +165,7 @@
 ### Fixed
 
 - Fixed durable foreground Pyrun polling from repeatedly rereading growing partial JSONL records, which could amplify large console output into tens of GiB of resident memory after a session restart.
+- Fixed session recovery after its stored cwd was deleted to use the nearest existing parent of the current cwd instead of offering a deleted path.
 - Fixed session relocation from reusing detached Bash/Pyrun artifact IDs when returning to a previously used working directory.
 - Fixed `spawn_agent` silently inheriting the parent model for unknown explicit agent types.
 - Fixed `pi --session <id>` treating sessions from another worktree in the same Git repository as different projects; worktrees sharing a Git common directory now open directly, while different projects retain fork confirmation and an affirmative response completes without hanging.
