@@ -166,6 +166,7 @@
 
 ### Fixed
 
+- Fixed transient resident Supervisor goal-review timeouts stopping continuation after one request; goal reviews now retry with bounded exponential backoff before surfacing an error.
 - Fixed setting a goal during an active turn persisting the objective without starting its required follow-up round.
 - Fixed durable foreground Pyrun polling from repeatedly rereading growing partial JSONL records, which could amplify large console output into tens of GiB of resident memory after a session restart.
 - Fixed session recovery after its stored cwd was deleted to use the nearest existing parent of the current cwd instead of offering a deleted path.

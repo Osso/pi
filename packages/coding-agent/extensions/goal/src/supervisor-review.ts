@@ -8,6 +8,8 @@ import {
 import type { GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import type { AppendSupervisorStatus } from "./rendering.ts";
 
+const GOAL_REVIEW_MAX_ATTEMPTS = 3;
+const GOAL_REVIEW_RETRY_DELAY_MS = 1_000;
 const GOAL_REVIEW_TIMEOUT_MS = 60_000;
 const WAITING_FOR_SUPERVISOR_STATUS = "Waiting for Supervisor…";
 
@@ -40,8 +42,10 @@ export async function reviewGoalWithResidentSupervisor(input: {
 	const response = await requestSupervisorDecision({
 		controlDbPath: getControlDbPath(),
 		kind: input.kind,
+		maxAttempts: GOAL_REVIEW_MAX_ATTEMPTS,
 		payload: input.payload,
 		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
+		retryDelayMs: GOAL_REVIEW_RETRY_DELAY_MS,
 		senderSessionId: input.ctx.sessionManager.getSessionId(),
 		timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
 	});

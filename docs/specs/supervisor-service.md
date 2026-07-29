@@ -103,6 +103,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 ### Failure handling
 
 - [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures.
+- [x] Retry resident goal-review request timeouts up to three attempts with bounded exponential backoff and jitter before returning generic `error`; other request kinds retain single-attempt timeout behavior.
 - [x] Fail approval reviews to human escalation.
 - [x] Fail goal reviews visibly without completing the goal or invoking human approval; idle-review errors enter bounded wake/re-review scheduling, while completion-review errors remain unresolved until another explicit completion attempt.
 
