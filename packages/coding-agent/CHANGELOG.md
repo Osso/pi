@@ -17,7 +17,7 @@
 
 ### Added
 
-- Added the default first-party `codex-image-generation` extension with an `image_gen` tool backed by OpenAI Responses hosted image generation for Codex models; successful calls persist a uniquely named PNG in the active working directory and report its path.
+- Added the default first-party `codex-image-generation` extension with an `image_gen` function tool for Codex models; it uses OpenAI Responses hosted image generation only inside its private one-shot request, and successful calls persist a uniquely named PNG in the active working directory and report its path.
 - Added a live `Next review in M:SS` countdown to timed Supervisor wait statuses, with persisted deadlines, `Review due…` expiry state, restored rendering, and redraw-only cancellation that does not duplicate reviews or transcript entries.
 - Added `ExtensionUIContext.requestRender()` so interactive extensions can request lightweight redraws while RPC and print modes safely ignore the request.
 - Added built-in `change_working_directory` for persistently changing the current session cwd by direct path or another session's recorded cwd without switching session identity.

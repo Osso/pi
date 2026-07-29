@@ -2,7 +2,7 @@
 
 The default first-party `codex-image-generation` extension registers `image_gen` for `openai-codex` and `openai-codex-gc` provider models. It resolves authentication through the active Pi model registry, so Codex OAuth remains provider-owned.
 
-For supported provider requests, the extension's `before_provider_request` hook removes the function-shaped `image_gen` tool and adds the hosted `{ type: "image_generation" }` tool. The extension also uses the same payload rewrite for its one-shot generation request. On success, it writes a unique `image-gen-<id>.png` file in the active working directory and returns both a visible path and the generated image content.
+The extension leaves the callable function-shaped `image_gen` tool available for main-session dispatch. During its private one-shot generation request, it removes that function tool and adds the hosted `{ type: "image_generation" }` tool. On success, it writes a unique `image-gen-<id>.png` file in the active working directory and returns both a visible path and the generated image content.
 
 The shared OpenAI Responses stream parser handles completed `image_generation_call` output items. When the item contains a result, it stores `{ type: "image", data, mimeType: "image/png" }` in `AssistantMessage.imageGenerationResult`; failed or empty results are ignored.
 
