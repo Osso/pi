@@ -1396,9 +1396,11 @@ describe("goal extension", () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
-			const harness = createGoalHarness(cwd, {
-				reviewGoal: async () => ({ kind: "wait", reason: "child proof running" }),
-			});
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "child proof running" })
+				.mockResolvedValueOnce({ kind: "pause", reason: "still waiting" });
+			const harness = createGoalHarness(cwd, { reviewGoal });
 			await harness.runCommand("set complete after child proof");
 
 			const result = await harness.runGoalComplete("done");
@@ -1409,6 +1411,15 @@ describe("goal extension", () => {
 				reviewAt: "2026-07-28T12:05:00.000Z",
 			});
 			expect(harness.callTool).toHaveBeenCalledWith("list_agents", { parentId: "main" });
+
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			expect(reviewGoal).toHaveBeenNthCalledWith(
+				2,
+				expect.objectContaining({
+					kind: "goal_completion_review",
+					payload: expect.objectContaining({ completionReport: "done" }),
+				}),
+			);
 		} finally {
 			vi.useRealTimers();
 		}
