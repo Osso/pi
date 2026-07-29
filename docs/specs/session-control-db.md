@@ -123,9 +123,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
   history is empty.
 - [x] `/name <name>` names the current session and `/unname` removes that name.
-- [x] Session restore lists show named sessions first, including threaded
-  restore mode, and support clearing a selected session name from rename mode
-  with an empty value.
+- [x] Session restore lists show named sessions first in Current Folder and All
+  scopes, including threaded restore mode; Archived scope preserves recent
+  ordering; all scopes display session names and support clearing a selected
+  session name from rename mode with an empty value.
 - [x] On SIGHUP, restart the interactive process so startup can consume the
   control DB incoming message.
 

@@ -90,7 +90,7 @@ async function loadSessionsWithControlNames(
 		.sort((a, b) => {
 			const aNamed = names.has(a.path);
 			const bNamed = names.has(b.path);
-			if (aNamed !== bNamed) return aNamed ? -1 : 1;
+			if (!archived && aNamed !== bNamed) return aNamed ? -1 : 1;
 			return b.modified.getTime() - a.modified.getTime();
 		});
 }

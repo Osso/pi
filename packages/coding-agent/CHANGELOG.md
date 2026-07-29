@@ -156,6 +156,7 @@
 - Changed goal completion and guarded `agent_end` continuation to require resident Supervisor `complete`, actionable `continue`, `pause`, or `error` decisions.
 - Changed `/goal <objective>` to replace the active goal by default and removed the replacement flag.
 - Changed the LLM-approved tool reviewer to allow bounded-risk coding-agent commands, including `/tmp` cleanup, while still denying catastrophic system, credential, irreversible data-loss, or unrelated external-side-effect actions.
+- Changed the `pi -r` and `/resume` Archived session scope to preserve recent ordering instead of promoting named sessions; Current Folder and All scopes still promote named sessions first, and names remain displayed.
 - Changed the `pi -r` and `/resume` session selector default sort to recent sessions.
 - Changed project skill auto-discovery to include `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` in ancestor directories above the git repo root.
 - Changed Pyrun `run.*`/`run.cmd` to return only an integer exit code while emitting stdout/stderr through tool output; use `cli.*` when a captured `CommandResult` is required.
