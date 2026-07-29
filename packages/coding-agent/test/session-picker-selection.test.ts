@@ -22,11 +22,7 @@ vi.mock("../src/cli/startup-ui.ts", () => ({
 
 vi.mock("../src/modes/interactive/components/session-selector.ts", () => ({
 	SessionSelectorComponent: class {
-		constructor(
-			_currentSessionsLoader: unknown,
-			_allSessionsLoader: unknown,
-			onSelect: (path: string) => void,
-		) {
+		constructor(_currentSessionsLoader: unknown, _allSessionsLoader: unknown, onSelect: (path: string) => void) {
 			pickerMocks.onSelect = onSelect;
 		}
 
