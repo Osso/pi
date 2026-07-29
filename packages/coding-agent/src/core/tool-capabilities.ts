@@ -8,4 +8,4 @@ export const CHILD_DISABLED_AGENT_TOOL_NAMES = [
 	"wait_agents",
 ] as const;
 
-export const SUPERVISOR_ONLY_TOOL_NAMES = ["manage_goal"] as const;
+export const SUPERVISOR_ONLY_TOOL_NAMES = ["ask_supervisor", "manage_goal"] as const;

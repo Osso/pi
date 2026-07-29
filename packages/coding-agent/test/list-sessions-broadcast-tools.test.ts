@@ -9,6 +9,7 @@ import {
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
+import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 import { createAskArchitectToolDefinition } from "../src/core/tools/ask-architect.ts";
 import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervisor.ts";
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
@@ -159,6 +160,10 @@ describe("session coordination tools", () => {
 				),
 			).rejects.toThrow("ask_architect is only available from main sessions");
 		}
+	});
+
+	it("filters Supervisor advisory capability from subagent runtimes", () => {
+		expect(SUPERVISOR_ONLY_TOOL_NAMES).toContain("ask_supervisor");
 	});
 
 	it("bounds Supervisor advisory input and rejects subagent runtimes", async () => {
