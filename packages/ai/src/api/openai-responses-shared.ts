@@ -488,7 +488,9 @@ export async function processResponsesStream<TApi extends Api>(
 			const item = event.item;
 			const slot = getOrCreateSlot(event.output_index, item);
 
-			if (item.type === "reasoning" && slot?.type === "thinking") {
+			if (item.type === "image_generation_call" && item.status === "completed" && item.result) {
+				output.imageGenerationResult = { type: "image", data: item.result, mimeType: "image/png" };
+			} else if (item.type === "reasoning" && slot?.type === "thinking") {
 				const summaryText = item.summary?.map((s) => s.text).join("\n\n") || "";
 				const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
 				slot.block.thinking = summaryText || contentText || slot.block.thinking;

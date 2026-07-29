@@ -416,6 +416,8 @@ export interface UserMessage {
 export interface AssistantMessage {
 	role: "assistant";
 	content: (TextContent | ThinkingContent | ToolCall)[];
+	/** Image returned by an OpenAI Responses hosted image-generation call. */
+	imageGenerationResult?: ImageContent;
 	api: Api;
 	provider: ProviderId;
 	model: string;
