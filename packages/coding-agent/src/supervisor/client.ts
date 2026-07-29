@@ -19,7 +19,9 @@ export interface RequestSupervisorDecisionInput {
 	retryJitterRatio?: number;
 }
 
-async function requestSupervisorDecisionAttempt(input: RequestSupervisorDecisionInput): Promise<SupervisorResponse | undefined> {
+async function requestSupervisorDecisionAttempt(
+	input: RequestSupervisorDecisionInput,
+): Promise<SupervisorResponse | undefined> {
 	const deadline = Date.now() + input.timeoutMs;
 	const requestId = postSupervisorRequest(input.controlDbPath, {
 		deadlineAt: new Date(deadline).toISOString(),
