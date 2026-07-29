@@ -16,7 +16,8 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 
 - [x] Add one hosted `{ type: "image_generation" }` tool to supported OpenAI Responses payloads.
 - [x] Remove the same-named function tool before sending the hosted request and avoid adding a duplicate hosted tool.
-- [x] Use the current model's resolved authentication and return the generated image as tool content.
+- [x] Use the current model's resolved authentication.
+- [x] Save each successful PNG under a unique `image-gen-<id>.png` path in the active working directory and return both that visible path and the image content.
 
 ### Response result
 
@@ -30,7 +31,7 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 ## Implementation inventory
 
 - `packages/coding-agent/src/main.ts` — loads the extension as a default first-party extension.
-- `packages/coding-agent/extensions/codex-image-generation/src/index.ts` — registers `image_gen`, injects the hosted tool, resolves current provider authentication, and returns generated image content.
+- `packages/coding-agent/extensions/codex-image-generation/src/index.ts` — registers `image_gen`, injects the hosted tool, resolves current provider authentication, persists each generated PNG, and returns its path with image content.
 - `packages/ai/src/api/openai-responses-shared.ts` — parses completed hosted image-generation response items.
 - `packages/ai/src/types.ts` — defines `AssistantMessage.imageGenerationResult`.
 
@@ -47,4 +48,4 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 
 - OpenRouter image-generation API calls.
 - Image editing, inpainting, masks, batch generation, or transparent-output processing.
-- Persisting generated files outside normal image-content handling.
+- User-selected output filenames or directories outside the active working directory.
