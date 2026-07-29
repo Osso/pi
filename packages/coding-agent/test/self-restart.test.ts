@@ -139,7 +139,23 @@ describe("self restart request", () => {
 				sessionManager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
 			}
 			sessionManager.appendMessage({ role: "user", content: "Actual first request", timestamp: Date.now() });
-			sessionManager.appendMessage({ role: "assistant", content: "Response", timestamp: Date.now() });
+			sessionManager.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "Response" }],
+				timestamp: Date.now(),
+				api: "anthropic-messages",
+				provider: "faux",
+				model: "faux",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+			});
 
 			const sessions = await SessionManager.listAll(sessionDir);
 			expect(sessions).toHaveLength(1);
