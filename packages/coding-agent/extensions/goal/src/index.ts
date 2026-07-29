@@ -237,10 +237,14 @@ function setGoal(params: SetGoalParams): SetGoalResult {
 	saveGoal(params.ctx, goal);
 	updateGoalFooterStatus(params.ctx);
 	const idle = params.ctx.isIdle();
-	if (idle) params.pi.sendUserMessage("Continue working toward the active goal.");
+	if (idle) {
+		params.pi.sendUserMessage("Continue working toward the active goal.");
+	} else {
+		params.pi.sendUserMessage("Continue working toward the active goal.", { deliverAs: "followUp" });
+	}
 	return {
 		ok: true,
-		message: idle ? "Goal set — starting work" : "Goal saved — it will guide the current run",
+		message: "Goal set — starting work",
 		severity: "info",
 		goal,
 	};

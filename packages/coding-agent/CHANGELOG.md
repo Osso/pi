@@ -166,6 +166,7 @@
 
 ### Fixed
 
+- Fixed setting a goal during an active turn persisting the objective without starting its required follow-up round.
 - Fixed durable foreground Pyrun polling from repeatedly rereading growing partial JSONL records, which could amplify large console output into tens of GiB of resident memory after a session restart.
 - Fixed session recovery after its stored cwd was deleted to use the nearest existing parent of the current cwd instead of offering a deleted path.
 - Fixed exec-in-place Pi restarts leaving active `steering_pending` ownership tied to the prior runtime incarnation; resumed supervisors now reclaim same-PID ownership and continue steering recovery.

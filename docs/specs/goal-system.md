@@ -43,7 +43,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ### Starting and continuing work
 
-- [x] Setting a goal or resuming a paused goal while the session is idle submits exactly `Continue working toward the active goal.`; generated user messages never restate goal-setting syntax or objective text.
+- [x] Setting a goal submits exactly `Continue working toward the active goal.` as a new turn when idle or a queued follow-up when busy; resuming a paused goal submits the same reminder when idle. Generated user messages never restate goal-setting syntax or objective text.
 - [x] When an `agent_end` event fires for a running goal, Pi checks pending input before abort, error-stop, and empty-response handling; an aborted turn leaves the goal active and queues no continuation, while error status is deferred until the session becomes idle so a retry start can cancel it; non-error empty assistant responses poll at 1-second intervals until the same goal remains active, the session is idle, and no messages are pending, while other eligible responses request resident Supervisor review.
 - [x] Deferred error status is canceled by a new agent turn or pending input; retry exhaustion or cancellation emits one durable reason after the session becomes idle.
 - [x] Empty-response continuation polling is canceled by goal changes, pending input, and session shutdown.
@@ -87,6 +87,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
 - `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, explicit `/goal set`, bare-objective rejection, reserved control-word rejection, `manage_goal`, paused-goal completion, view/pause/resume/clear, per-session goal isolation, replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, queued steering and aborts preserving the running goal, queued input arriving during Supervisor review, busy and pending-input guards, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
+- `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — runtime coverage that setting a goal through `manage_goal` during an active turn queues and starts the required follow-up round.
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process coverage that active goals remain active across restart and Supervisor wait decisions while explicit paused state survives restart byte-for-byte.
 - `packages/coding-agent/test/suite/regressions/goal-messages-prompt-history.test.ts` — extension-origin goal messages remain excluded from editor prompt-history population.
 - `packages/coding-agent/test/compaction.test.ts` — goal reminders are excluded from compaction summarization input without removing unrelated extension messages.

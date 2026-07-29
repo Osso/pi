@@ -38,16 +38,13 @@ goal; the command and prompt hook do not throw.
 
 `/goal set <objective>` creates or replaces a goal, persists it, and notifies the UI.
 Bare `/goal <text>` input is rejected so words such as `continue` cannot replace durable goal state.
-If the agent is idle, Pi sends the unambiguous reminder:
+Pi sends the unambiguous reminder whenever a goal is set:
 
 ```text
 Continue working toward the active goal.
 ```
 
-Goal start and `/goal resume` use this same reminder when the session is idle; neither reminder restates the objective or `/goal set` syntax.
-
-If the agent is busy, the goal is saved and Pi shows an informational notice
-instead of starting a second turn.
+An idle session starts that turn immediately. A busy session queues it as a follow-up so the current turn completes without overlap and the newly set goal still starts another round. `/goal resume` uses the same reminder when the session is idle. These reminders never restate the objective or `/goal set` syntax.
 
 `/goal` with no arguments displays the current objective or a no-goal notice.
 
@@ -159,8 +156,8 @@ Completed and paused goals do not trigger automatic continuation.
 behavior: first-party registration, explicit `/goal set`, bare-objective and reserved-control-word rejection, `manage_goal`, view/clear, replacement, removed replacement flag rejection, objective length rejection,
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
-handling, automatic continuation, deferred error-status cancellation, retry exhaustion and cancellation, empty-response polling and cancellation, busy guard, per-session isolation, budget flag rejection, and legacy
-budget field ignorance. Production child exclusion,
+handling, start-on-set follow-up scheduling, automatic continuation, deferred error-status cancellation, retry exhaustion and cancellation, empty-response polling and cancellation, per-session isolation, budget flag rejection, and legacy
+budget field ignorance. `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` verifies that `manage_goal set` during an active turn starts its queued follow-up round. Production child exclusion,
 external-tool denial for spawned and attached sessions, inactive Pyrun calls,
 supervisor retention, and no-continuation behavior are covered by
 `packages/coding-agent/test/multi-agent-extension.test.ts`; the Architect policy

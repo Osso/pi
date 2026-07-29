@@ -389,14 +389,16 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
-	it("reports busy goal saves as informational", async () => {
+	it("queues a continuation round when a goal is set while busy", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
 
 		await harness.runCommand("set guide the current run");
 
 		expect(harness.notify).toHaveBeenCalledTimes(1);
-		expect(harness.notify).toHaveBeenCalledWith("Goal saved — it will guide the current run", "info");
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.", {
+			deliverAs: "followUp",
+		});
 	});
 
 	it("migrates old project goal file into session storage", async () => {
@@ -1882,6 +1884,7 @@ describe("goal extension", () => {
 		try {
 			const harness = createGoalHarness(cwd, { idle: false });
 			await harness.runCommand("set wait for idle");
+			harness.sendUserMessage.mockClear();
 			await harness.runAgentEnd([createAssistantMessage("", "stop")]);
 
 			await vi.advanceTimersByTimeAsync(1_000);

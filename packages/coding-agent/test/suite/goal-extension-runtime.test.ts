@@ -398,21 +398,26 @@ describe("goal extension runtime", () => {
 		expect(readStoredGoal(harness).objective).toBe("keep the original objective");
 	});
 
-	it("lets an agent reset an active goal through manage_goal", async () => {
-		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
+	it("starts another round when an agent resets the goal through manage_goal", async () => {
+		const pauseAfterRound = (pi: ExtensionAPI): void => {
+			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
+		};
+		const harness = await createHarness({ extensionFactories: [pauseAfterRound], uiContext: createUiContext() });
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "agent-chosen objective" }), {
 				stopReason: "toolUse",
 			}),
-			fauxAssistantMessage("done"),
+			fauxAssistantMessage("goal saved"),
+			fauxAssistantMessage("continued new goal"),
 		]);
 
 		await harness.session.prompt("/goal set first objective");
-		await waitForProviderCalls(harness, 2);
+		await waitForProviderCalls(harness, 3);
 		await waitForStoredGoalObjective(harness, "agent-chosen objective");
 
-		const goal = readStoredGoal(harness);
-		expect(goal.objective).toBe("agent-chosen objective");
+		expect(harness.faux.state.callCount).toBe(3);
+		expect(readStoredGoal(harness).objective).toBe("agent-chosen objective");
+		expect(getUserTexts(harness)).toContain("Continue working toward the active goal.");
 	});
 });
