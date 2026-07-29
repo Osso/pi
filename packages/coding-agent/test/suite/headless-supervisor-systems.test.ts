@@ -90,7 +90,7 @@ describe("headless Supervisor goal system", () => {
 			const initial = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(
 				initial.id,
-				fauxAssistantMessage(fauxToolCall("manage_goal", { action: "complete", reason: "all proof passed" }), {
+				fauxAssistantMessage(fauxToolCall("manage_goal", { action: "complete", completionReport: "all proof passed" }), {
 					stopReason: "toolUse",
 				}),
 			);
@@ -98,7 +98,7 @@ describe("headless Supervisor goal system", () => {
 			const review = await agent.waitForSupervisorRequest("goal_completion_review");
 			expect(review.payload).toMatchObject({
 				objective: RUNNING_GOAL,
-				proposedCompletionReason: "all proof passed",
+				completionReport: "all proof passed",
 			});
 			agent.respondToSupervisorRequest(review, { kind: "complete", reason: "verified" });
 			const afterTool = await agent.waitForLlmRequest();
@@ -117,7 +117,7 @@ describe("headless Supervisor goal system", () => {
 			const initial = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(
 				initial.id,
-				fauxAssistantMessage(fauxToolCall("manage_goal", { action: "complete", reason: "looks done" }), {
+				fauxAssistantMessage(fauxToolCall("manage_goal", { action: "complete", completionReport: "looks done" }), {
 					stopReason: "toolUse",
 				}),
 			);

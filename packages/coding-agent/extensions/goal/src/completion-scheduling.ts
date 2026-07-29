@@ -4,7 +4,7 @@ import { createGoalScheduler } from "./goal-scheduling.ts";
 
 interface CompletionWait {
 	goal: Goal;
-	reason: string;
+	completionReport: string;
 }
 
 interface CompletionSchedulingOptions {
@@ -21,7 +21,7 @@ export interface CompletionWaitScheduler {
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	createReviewGuard(ctx: ExtensionContext): () => boolean;
-	wait(goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string): Promise<void>;
+	wait(goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string): Promise<void>;
 }
 
 type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, GoalSupervisorResponse>>;
@@ -72,7 +72,7 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 				kind: "goal_completion_review",
 				payload: {
 					objective: waiting.goal.objective,
-					proposedCompletionReason: waiting.reason,
+					completionReport: waiting.completionReport,
 					wakeEvidence,
 				},
 			}),
@@ -81,9 +81,9 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		clearAll: () => scheduler.clearAll(),
 		clearSession: (sessionId) => scheduler.clearSession(sessionId),
 		createReviewGuard: (ctx) => createReviewGuard(scheduler, ctx),
-		wait: async (goal, ctx, reason, statusReason) => {
+		wait: async (goal, ctx, completionReport, statusReason) => {
 			const message = `Waiting: ${statusReason}`;
-			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, reason }, [], {
+			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, completionReport }, [], {
 				onAgentWait: () => options.onStatus(ctx, message),
 				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
 			});

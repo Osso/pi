@@ -242,10 +242,10 @@ function createGoalHarness(
 			input?.({ type: "input", text, source: "interactive" }, ctx as ExtensionContext),
 		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
-		runGoalComplete: async (reason: string) =>
+		runGoalComplete: async (completionReport?: string) =>
 			manageGoalTool?.execute(
 				"manage-goal-complete-1",
-				{ action: "complete", reason },
+				{ action: "complete", completionReport },
 				undefined,
 				undefined,
 				ctx as ExtensionContext,
@@ -319,6 +319,7 @@ describe("goal extension", () => {
 		expect(schemaHasProperty(manageGoalTool?.parameters, "action")).toBe(true);
 		expect(schemaHasProperty(manageGoalTool?.parameters, "objective")).toBe(true);
 		expect(schemaHasProperty(manageGoalTool?.parameters, "reason")).toBe(true);
+		expect(schemaHasProperty(manageGoalTool?.parameters, "completionReport")).toBe(true);
 		expect(schemaHasProperty(manageGoalTool?.parameters, "tokenBudget")).toBe(false);
 		expect(schemaHasProperty(manageGoalTool?.parameters, "wallClockMinutes")).toBe(false);
 	});
@@ -1425,7 +1426,7 @@ describe("goal extension", () => {
 		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: waiting for external input" }]);
 		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal waiting: waiting for external input",
+			message: "Completion report rejected: waiting for external input\n\nSubmitted report:\ndone",
 		});
 	});
 
@@ -1469,7 +1470,7 @@ describe("goal extension", () => {
 		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal review failed: Supervisor connection closed" }]);
 		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal review failed: Supervisor connection closed",
+			message: "Completion report rejected: Supervisor connection closed\n\nSubmitted report:\ndone",
 		});
 	});
 
@@ -1483,7 +1484,7 @@ describe("goal extension", () => {
 
 		expect(result?.content).toEqual([{ type: "text", text: "Goal review failed: service unavailable" }]);
 		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal review failed: service unavailable",
+			message: "Completion report rejected: service unavailable\n\nSubmitted report:\ndone",
 		});
 	});
 
@@ -1578,6 +1579,36 @@ describe("goal extension", () => {
 			reviewAt: expect.any(String),
 		});
 		expect(await harness.runBeforeAgentStart()).toBeDefined();
+	});
+
+	it("requires explicit completion evidence before requesting Supervisor review", async () => {
+		const reviewGoal = vi.fn<GoalSupervisorReview>();
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set require completion evidence");
+
+		const missing = await harness.runGoalComplete();
+		const blank = await harness.runGoalComplete("   ");
+
+		expect(missing?.content).toEqual([{ type: "text", text: "Completion report is required." }]);
+		expect(blank?.content).toEqual([{ type: "text", text: "Completion report is required." }]);
+		expect(reviewGoal).not.toHaveBeenCalled();
+		expect(readStoredGoal<{ completedAt?: string }>(cwd).completedAt).toBeUndefined();
+	});
+
+	it("passes the completion report verbatim to Supervisor", async () => {
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "complete", reason: "verified" });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		const report = "Tests:\n- npm run check passed\n\nDeploy:\n- smoke passed";
+		await harness.runCommand("set send completion evidence");
+
+		await harness.runGoalComplete(`  ${report}  `);
+
+		expect(reviewGoal).toHaveBeenCalledWith({
+			ctx: expect.any(Object),
+			kind: "goal_completion_review",
+			payload: { objective: "send completion evidence", completionReport: report },
+		});
+		expect(readStoredGoal<{ completionReason?: string }>(cwd).completionReason).toBe(report);
 	});
 
 	it("stops continuation after manage_goal completes the objective", async () => {

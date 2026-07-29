@@ -52,7 +52,7 @@ interface ManageGoalContext {
 	params: ManageGoalParams;
 	pi: ExtensionAPI;
 	reviewGoal: GoalSupervisorReview;
-	onCompletionWait: (goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string) => Promise<void>;
+	onCompletionWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>;
 	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
@@ -319,54 +319,54 @@ async function applyCompletionDecision(
 	activeGoal: Goal,
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
-	reason: string,
-	onWait: (goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string) => Promise<void>,
+	completionReport: string,
+	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 ): Promise<AgentToolResult<unknown>> {
+	if (decision.kind === "complete") {
+		const goal = markGoalComplete(ctx, completionReport);
+		if (!goal) return textResult("No active goal to complete.");
+		updateGoalFooterStatus(ctx);
+		ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+		return textResult(`Goal marked complete: ${completionReport}`);
+	}
+	appendStatus(ctx, `Completion report rejected: ${decision.reason}\n\nSubmitted report:\n${completionReport}`);
 	if (decision.kind === "continue") {
 		sendSupervisorInstructions(pi, decision.instructions);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
 	}
 	if (decision.kind === "pause") {
-		appendStatus(ctx, `Goal waiting: ${decision.reason}`);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind === "wait") {
-		await onWait(activeGoal, ctx, reason, decision.reason);
+		await onWait(activeGoal, ctx, completionReport, decision.reason);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
-	if (decision.kind !== "complete") {
-		appendStatus(ctx, `Goal review failed: ${decision.reason}`);
-		ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
-		return textResult(`Goal review failed: ${decision.reason}`);
-	}
-	const goal = markGoalComplete(ctx, reason);
-	if (!goal) return textResult("No active goal to complete.");
-	updateGoalFooterStatus(ctx);
-	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
-	return textResult(`Goal marked complete: ${reason}`);
+	ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
+	return textResult(`Goal review failed: ${decision.reason}`);
 }
 
 async function runCompleteGoalAction(
 	ctx: ExtensionContext,
-	reasonInput: string | undefined,
+	completionReportInput: string | undefined,
 	reviewGoal: GoalSupervisorReview,
 	pi: ExtensionAPI,
-	onWait: (goal: Goal, ctx: ExtensionContext, reason: string, statusReason: string) => Promise<void>,
+	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
 ): Promise<AgentToolResult<unknown>> {
 	const activeGoal = loadOrMigrateActiveGoal(ctx);
 	if (!activeGoal) return textResult("No active goal to complete.");
-	const reason = reasonInput?.trim() || "complete";
+	const completionReport = completionReportInput?.trim();
+	if (!completionReport) return textResult("Completion report is required.");
 	const decision = await reviewGoal({
 		ctx,
 		kind: "goal_completion_review",
-		payload: { objective: activeGoal.objective, proposedCompletionReason: reason },
+		payload: { objective: activeGoal.objective, completionReport },
 	});
 	const reviewStillApplies = isReviewCurrent() && goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal);
 	if (!reviewStillApplies) return textResult("Goal changed or review was canceled; stale decision ignored.");
-	return applyCompletionDecision(decision, activeGoal, ctx, pi, reason, onWait, appendStatus);
+	return applyCompletionDecision(decision, activeGoal, ctx, pi, completionReport, onWait, appendStatus);
 }
 
 function runClearGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void): AgentToolResult<unknown> {
@@ -398,7 +398,7 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 		case "complete":
 			return runCompleteGoalAction(
 				ctx,
-				params.reason,
+				params.completionReport,
 				context.reviewGoal,
 				pi,
 				context.onCompletionWait,
@@ -546,7 +546,7 @@ function createCompletionScheduler(
 			);
 		},
 		onComplete: (waiting, ctx) => {
-			const goal = markGoalComplete(ctx, waiting.reason);
+			const goal = markGoalComplete(ctx, waiting.completionReport);
 			updateGoalFooterStatus(ctx);
 			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 		},
