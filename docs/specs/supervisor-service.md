@@ -67,14 +67,14 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 ### Goal completion review
 
 - [x] Intercept `manage_goal complete` before the calling session marks the running goal complete.
-- [x] Send a `goal_completion_review` request containing the objective and proposed completion reason; later wait wakeups add bounded wake evidence.
+- [x] Send a `goal_completion_review` request containing the objective and the caller-provided completionReport verbatim; later wait wakeups preserve that report and add bounded wake evidence.
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal completion review.
-- [x] Mark the goal complete only when the caller receives `complete`.
+- [x] Mark the goal complete only when the caller receives `complete`, persisting the verbatim completionReport as completionReason.
 - [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
 - [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agents` and re-review after wake, otherwise re-review after five minutes.
-- [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review.
+- [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
 - [x] Leave the goal active without another continuation only when progress requires user or external input and no active work can advance it and the caller receives `pause`.
-- [x] Require the Supervisor to make its best judgment between `complete`, actionable `continue`, and `pause` when evidence is uncertain; missing evidence alone is not an error.
+- [x] Require the Supervisor to make its best judgment between `complete`, actionable `continue`, and `pause` from the supplied report when evidence is uncertain; the caller must provide a nonblank report, and the system never infers completion evidence automatically.
 
 ### Goal idle review
 

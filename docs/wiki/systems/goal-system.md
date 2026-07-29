@@ -60,9 +60,21 @@ before state is written.
 
 The command rejects flags with a visible error and does not write state. Removed budget flags keep specific error messages.
 
-The `manage_goal` tool exposes an `action` parameter with optional `objective`
-and `reason` parameters. It can set, pause, resume, complete, clear, or view the
-current active goal. Pause requires a non-empty reason and persists it with the pause timestamp. `/goal pause` uses the explicit reason `Paused by user.`. The set action rejects reserved goal-control words such as `continue`, preventing model-generated continuation instructions from becoming objectives. Paused goals remain active and show their reason in `/goal`, startup notifications, and footer status; legacy paused state without a reason shows `No pause reason recorded`. They can be completed directly without resuming, but do not inject prompt context or continue automatically until the resume action removes both pause fields.
+The `manage_goal` tool exposes an `action` parameter with optional `objective`,
+pause-only `reason`, and `completionReport` parameters. It can set, pause, resume,
+complete, clear, or view the current active goal. Pause requires a non-empty reason
+and persists it with the pause timestamp. `/goal pause` uses the explicit reason
+`Paused by user.`. Complete requires a nonblank free-form Markdown
+`completionReport`; missing or blank reports fail locally before any Supervisor
+request is created. The report is passed verbatim to `goal_completion_review`,
+retained across wait/re-review, and stored as `completionReason` only after a
+`complete` decision. The set action rejects reserved goal-control words such as
+`continue`, preventing model-generated continuation instructions from becoming
+objectives. Paused goals remain active and show their reason in `/goal`, startup
+notifications, and footer status; legacy paused state without a reason shows
+`No pause reason recorded`. They can be completed directly without resuming, but
+do not inject prompt context or continue automatically until the resume action
+removes both pause fields. Completion evidence is never inferred automatically.
 
 `manage_goal` is supervisor-only. The SDK denylist removes that capability from
 spawned, attached/resumed, and `/bg` child sessions, and from the resident
@@ -125,7 +137,19 @@ Pending input is checked before abort handling. Interactive replacement input re
 
 ## Completion Tool Action
 
-Calling `manage_goal` with action `complete` requests `goal_completion_review` before changing state, whether the active goal is running or paused. Pi appends `Waiting for Supervisor…` while the review is in flight. `complete` writes `completedAt` and `completionReason`; `continue` keeps the goal active and submits actionable instructions; `wait` appends durable status and schedules agent wake or five-minute re-review; `pause` leaves the goal active without another continuation and appends `Goal waiting: <reason>`; `error`, timeout, and thrown review failures leave the goal active and report `Goal review failed: <reason>`. If no active goal exists, the tool returns "No active goal to complete."
+Calling `manage_goal` with action `complete` requires a nonblank free-form
+Markdown completionReport and requests `goal_completion_review` before changing
+state, whether the active goal is running or paused. Missing or blank reports fail
+locally without creating a Supervisor request. Pi appends `Waiting for Supervisor…`
+while the review is in flight and passes the report verbatim; wait/re-review
+preserves the same report. `complete` writes `completedAt` and that report as
+`completionReason`; `continue` keeps the goal active and submits actionable
+instructions; `wait` appends durable status and schedules agent wake or five-minute
+re-review; `pause` leaves the goal active without another continuation and appends
+`Goal waiting: <reason>`; rejected reports append durable status containing the
+Supervisor reason; `error`, timeout, and thrown review failures leave the goal active
+and report `Goal review failed: <reason>`. If no active goal exists, the tool returns
+"No active goal to complete.". The system does not infer missing completion evidence.
 
 Completed and paused goals do not trigger automatic continuation.
 
