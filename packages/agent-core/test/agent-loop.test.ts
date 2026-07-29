@@ -1261,6 +1261,55 @@ describe("agentLoop with AgentMessage", () => {
 		]);
 	});
 
+	it("continues after assistant text until a terminating tool result", async () => {
+		const endSchema = Type.Object({ reason: Type.String() });
+		const endTool: AgentTool<typeof endSchema, { reason: string }> = {
+			name: "end_turn",
+			label: "End Turn",
+			description: "End the current turn",
+			parameters: endSchema,
+			async execute(_toolCallId, params) {
+				return {
+					content: [{ type: "text", text: `Ended: ${params.reason}` }],
+					details: params,
+					terminate: true,
+				};
+			},
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [endTool] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		let callIndex = 0;
+		const stream = agentLoop([createUserMessage("work")], context, config, undefined, () => {
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message =
+					callIndex++ === 0
+						? createAssistantMessage([{ type: "text", text: "intermediate update" }])
+						: createAssistantMessage(
+								[
+									{
+										type: "toolCall",
+										id: "end-1",
+										name: "end_turn",
+										arguments: { reason: "Finished requested work" },
+									},
+								],
+								"toolUse",
+							);
+				mockStream.push({ type: "done", reason: message.stopReason, message });
+			});
+			return mockStream;
+		});
+
+		for await (const _event of stream) {
+			// consume
+		}
+
+		const messages = await stream.result();
+		expect(callIndex).toBe(2);
+		expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "assistant", "toolResult"]);
+	});
+
 	it("should stop after a tool batch when every tool result sets terminate=true", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const tool: AgentTool<typeof toolSchema, { value: string }> = {

@@ -62,6 +62,11 @@ export {
 	type EditToolInput,
 	type EditToolOptions,
 } from "./edit.ts";
+export {
+	createEndTurnToolDefinition,
+	type EndTurnToolDetails,
+	type EndTurnToolInput,
+} from "./end-turn.ts";
 export { withFileMutationQueue } from "./file-mutation-queue.ts";
 export {
 	createFindTool,
@@ -148,6 +153,7 @@ import {
 	createSymbolToolDefinition,
 } from "./code-index.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
+import { createEndTurnToolDefinition } from "./end-turn.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
 import { createListSessionsToolDefinition } from "./list-sessions.ts";
@@ -171,6 +177,7 @@ export type ToolName =
 	| "outline"
 	| "symbol"
 	| "references"
+	| "end_turn"
 	| "change_working_directory"
 	| "resume_session"
 	| "search_current_session_history"
@@ -191,6 +198,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"outline",
 	"symbol",
 	"references",
+	"end_turn",
 	"change_working_directory",
 	"resume_session",
 	"search_current_session_history",
@@ -212,6 +220,7 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"outline",
 	"symbol",
 	"references",
+	"end_turn",
 	"change_working_directory",
 	"resume_session",
 	"search_current_session_history",
@@ -256,6 +265,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createSymbolToolDefinition(cwd, options?.codeIndex);
 		case "references":
 			return createReferencesToolDefinition(cwd, options?.codeIndex);
+		case "end_turn":
+			return createEndTurnToolDefinition();
 		case "change_working_directory":
 			return createChangeWorkingDirectoryToolDefinition();
 		case "resume_session":
@@ -301,6 +312,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createSymbolTool(cwd, options?.codeIndex);
 		case "references":
 			return createReferencesTool(cwd, options?.codeIndex);
+		case "end_turn":
+			return wrapToolDefinition(createEndTurnToolDefinition());
 		case "change_working_directory":
 			return wrapToolDefinition(createChangeWorkingDirectoryToolDefinition());
 		case "resume_session":
@@ -357,6 +370,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		outline: createOutlineToolDefinition(cwd, options?.codeIndex),
 		symbol: createSymbolToolDefinition(cwd, options?.codeIndex),
 		references: createReferencesToolDefinition(cwd, options?.codeIndex),
+		end_turn: createEndTurnToolDefinition(),
 		change_working_directory: createChangeWorkingDirectoryToolDefinition(),
 		resume_session: createResumeSessionToolDefinition(),
 		search_current_session_history: createSearchCurrentSessionHistoryToolDefinition(),
@@ -402,6 +416,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		outline: createOutlineTool(cwd, options?.codeIndex),
 		symbol: createSymbolTool(cwd, options?.codeIndex),
 		references: createReferencesTool(cwd, options?.codeIndex),
+		end_turn: wrapToolDefinition(createEndTurnToolDefinition()),
 		change_working_directory: wrapToolDefinition(createChangeWorkingDirectoryToolDefinition()),
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
 		search_current_session_history: wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition()),

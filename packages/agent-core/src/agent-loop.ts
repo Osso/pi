@@ -282,6 +282,8 @@ async function runLoop(
 					currentContext.messages.push(result);
 					newMessages.push(result);
 				}
+			} else if (currentContext.tools?.some((tool) => tool.name === "end_turn")) {
+				hasMoreToolCalls = true;
 			}
 
 			await emit({ type: "turn_end", message, toolResults });
