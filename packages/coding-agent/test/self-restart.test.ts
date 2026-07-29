@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
 import {
@@ -13,7 +16,7 @@ import {
 	spawnSelfRestart,
 	waitForSelfRestartParentExit,
 } from "../src/core/self-restart.ts";
-import type { SessionManager } from "../src/core/session-manager.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 
 function createArgs(): Args {
 	return {
@@ -119,6 +122,32 @@ describe("self restart request", () => {
 		expect(args.fork).toBeUndefined();
 		expect(args.noSession).toBe(false);
 		expect(args.sessionId).toBeUndefined();
+	});
+
+	it("keeps a persisted restart notice out of the session title fallback", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-self-restart-title-"));
+		const sessionDir = join(cwd, "sessions");
+
+		try {
+			const sessionManager = SessionManager.create(cwd, sessionDir);
+			const handoff = { sessionFile: sessionManager.getSessionFile()!, prompt: "Restarted.", oldPid: process.pid };
+			const args = createArgs();
+
+			applySelfRestartRequest(args, handoff);
+			appendSelfRestartNotice(sessionManager, handoff);
+			for (const message of args.messages) {
+				sessionManager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
+			}
+			sessionManager.appendMessage({ role: "user", content: "Actual first request", timestamp: Date.now() });
+			sessionManager.appendMessage({ role: "assistant", content: "Response", timestamp: Date.now() });
+
+			const sessions = await SessionManager.listAll(sessionDir);
+			expect(sessions).toHaveLength(1);
+			expect(sessions[0]?.firstMessage).toBe("Actual first request");
+			expect(sessions[0]?.allMessagesText).toBe("Actual first request Response");
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
 	});
 
 	it("appends a restarted notice with the current PID after an exec-in-place restart", () => {
