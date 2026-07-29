@@ -38,6 +38,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Register a `restart_self` tool from a first-party extension.
 - [x] Add a user-visible restart notice to the same session when the tool runs.
 - [x] Persist a process-restart notice exactly once as a typed `self_restart` custom message; do not submit it as a user prompt or include it in session metadata or search text.
+- [x] Restore an interrupted `restart_self` tool batch by treating the typed `self_restart` notice as metadata and continuing the same session through `AgentSession.continue`; do not require or synthesize a user prompt.
 - [x] Preserve goal state exactly across restart: running goals remain running, and explicitly paused goals retain their existing `pausedAt` value.
 
 ## How it works
@@ -65,6 +66,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - `packages/coding-agent/test/self-restart.test.ts`
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 - `packages/coding-agent/test/suite/regressions/2860-replaced-session-context.test.ts`
+- `packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`
 - `packages/coding-agent/test/self-restart-extension.test.ts`
 - `packages/coding-agent/test/suite/regressions/sighup-restart-harness.test.ts`
 

@@ -491,11 +491,20 @@ function findTrailingAssistantToolBatch(messages: readonly AgentMessage[]): Assi
 }
 
 export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
-	const lastMessage = messages[messages.length - 1];
+	let lastMessageIndex = messages.length - 1;
+	while (
+		lastMessageIndex >= 0 &&
+		messages[lastMessageIndex]?.role === "custom" &&
+		messages[lastMessageIndex]?.customType === "self_restart"
+	) {
+		lastMessageIndex -= 1;
+	}
+	const relevantMessages = messages.slice(0, lastMessageIndex + 1);
+	const lastMessage = relevantMessages[relevantMessages.length - 1];
 	if (lastMessage?.role === "user") return true;
 	if (lastMessage?.role !== "assistant" && lastMessage?.role !== "toolResult") return false;
 	const assistant =
-		lastMessage.role === "assistant" ? lastMessage : findTrailingAssistantToolBatch(messages.slice(0, -1));
+		lastMessage.role === "assistant" ? lastMessage : findTrailingAssistantToolBatch(relevantMessages.slice(0, -1));
 	if (!assistant) return lastMessage.role === "toolResult";
 	if (assistant.stopReason === "aborted") return true;
 	const toolCalls = assistant.content.filter((content) => content.type === "toolCall");
