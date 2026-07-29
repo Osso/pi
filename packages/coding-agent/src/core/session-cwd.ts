@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 import { SessionManager } from "./session-manager.ts";
 
 export interface SessionCwdIssue {
@@ -10,6 +11,16 @@ export interface SessionCwdIssue {
 interface SessionCwdSource {
 	getCwd(): string;
 	getSessionFile(): string | undefined;
+}
+
+function findNearestExistingCwd(cwd: string): string {
+	let candidate = cwd;
+	while (!existsSync(candidate)) {
+		const parent = dirname(candidate);
+		if (parent === candidate) return candidate;
+		candidate = parent;
+	}
+	return candidate;
 }
 
 export function getMissingSessionCwdIssue(
@@ -29,7 +40,7 @@ export function getMissingSessionCwdIssue(
 	return {
 		sessionFile,
 		sessionCwd,
-		fallbackCwd,
+		fallbackCwd: findNearestExistingCwd(fallbackCwd),
 	};
 }
 

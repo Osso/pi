@@ -51,6 +51,21 @@ describe("session cwd handling", () => {
 		});
 	});
 
+	it("uses the nearest existing parent when the current cwd was deleted", () => {
+		const fallbackParent = createTempDir("pi-session-cwd-deleted-fallback");
+		const deletedCwd = join(fallbackParent, "deleted-worktree");
+		const sessionDir = createTempDir("pi-session-cwd-deleted-session-dir");
+		const sessionFile = join(sessionDir, "session.jsonl");
+		mkdirSync(deletedCwd);
+		cleanupPaths.push(fallbackParent, sessionDir);
+		writeSessionFile(sessionFile, deletedCwd);
+		rmSync(deletedCwd, { recursive: true });
+
+		const sessionManager = SessionManager.open(sessionFile);
+		const issue = getMissingSessionCwdIssue(sessionManager, deletedCwd);
+		expect(issue?.fallbackCwd).toBe(fallbackParent);
+	});
+
 	it("supports overriding the effective cwd when opening a session", () => {
 		const fallbackCwd = createTempDir("pi-session-cwd-override");
 		const missingCwd = join(fallbackCwd, "does-not-exist");
