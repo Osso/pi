@@ -18,6 +18,8 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] Foreground streamed and buffered results use the shared tool lifecycle start/end timestamps for elapsed rendering.
 - [x] Foreground results, including immediate failures, render elapsed durations below one second in milliseconds.
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
+- [x] Durable foreground artifact readers consume append-only JSONL bytes incrementally, retaining an incomplete line once rather than rereading the growing artifact on every poll.
+- [x] Large newline-free console records remain memory-bounded across exec restart, restored child execution, and a parent blocked in `wait_agents`.
 - [x] Detached success and failure results retain duration from the original foreground tool invocation.
 - [x] Detached completion and failure notifications render the persisted duration consistently.
 
@@ -33,7 +35,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - `packages/agent-core/src/agent-loop.ts` — captures one invocation start timestamp and passes it through lifecycle events and tool execution context.
 - `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` — exposes the shared invocation start timestamp to extension tool context.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — registers `pyrun_eval` and renders live and final tool output.
-- `packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts` — carries the foreground invocation timestamp into durable runner launch metadata.
+- `packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts` — carries the foreground invocation timestamp into durable runner launch metadata and incrementally parses append-only artifact JSONL without rereading partial records.
 - `packages/coding-agent/extensions/pyrun/src/detached-runner.ts` — computes one terminal duration for detached success, failure, and cancellation settlement.
 
 ## Tests asserting this spec
@@ -43,6 +45,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - `packages/coding-agent/test/detached-job-runner.test.ts`
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/pyrun-extension.test.ts`
+- `packages/coding-agent/test/suite/regressions/post-restart-pyrun-memory.test.ts`
 - Canonical runner: `tests/test_jsonl.py` in the Pyrun repository.
 
 ## Known gaps (current cycle)
