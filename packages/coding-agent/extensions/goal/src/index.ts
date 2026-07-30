@@ -236,12 +236,7 @@ function setGoal(params: SetGoalParams): SetGoalResult {
 	const goal = createGoal(params.objective, readCurrentBranch(params.ctx.cwd), new Date().toISOString());
 	saveGoal(params.ctx, goal);
 	updateGoalFooterStatus(params.ctx);
-	const idle = params.ctx.isIdle();
-	if (idle) {
-		params.pi.sendUserMessage("Continue working toward the active goal.");
-	} else {
-		params.pi.sendUserMessage("Continue working toward the active goal.", { deliverAs: "followUp" });
-	}
+	if (params.ctx.isIdle()) params.pi.sendUserMessage("Continue working toward the active goal.");
 	return {
 		ok: true,
 		message: "Goal set — starting work",
@@ -497,6 +492,9 @@ function setGoalFromCommand(
 		pi,
 		beforeSave: () => clearRetry(ctx.sessionManager.getSessionId()),
 	});
+	if (result.ok && !ctx.isIdle()) {
+		pi.sendUserMessage("Continue working toward the active goal.", { deliverAs: "followUp" });
+	}
 	ctx.ui.notify(result.message, result.severity);
 }
 

@@ -65,16 +65,6 @@ async function waitForProviderCalls(harness: Harness, expectedCallCount: number)
 	}
 }
 
-async function waitForStoredGoalObjective(harness: Harness, objective: string): Promise<void> {
-	const deadline = Date.now() + 1000;
-	while (Date.now() < deadline) {
-		if (readStoredGoal(harness).objective === objective) {
-			return;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-}
-
 describe("goal extension runtime", () => {
 	const harnesses: Harness[] = [];
 
@@ -398,26 +388,34 @@ describe("goal extension runtime", () => {
 		expect(readStoredGoal(harness).objective).toBe("keep the original objective");
 	});
 
-	it("starts another round when an agent resets the goal through manage_goal", async () => {
-		const pauseAfterRound = (pi: ExtensionAPI): void => {
-			goalExtension(pi, { reviewGoal: async () => ({ kind: "pause", reason: "test complete" }) });
-		};
-		const harness = await createHarness({ extensionFactories: [pauseAfterRound], uiContext: createUiContext() });
+	it("continues the current round when an agent resets the goal through manage_goal", async () => {
+		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
+		let markContinuedRequestStarted: (() => void) | undefined;
+		const continuedRequestStarted = new Promise<void>((resolve) => {
+			markContinuedRequestStarted = resolve;
+		});
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("manage_goal", { action: "set", objective: "agent-chosen objective" }), {
 				stopReason: "toolUse",
 			}),
-			fauxAssistantMessage("goal saved"),
-			fauxAssistantMessage("continued new goal"),
+			async (_context, options) => {
+				markContinuedRequestStarted?.();
+				await new Promise<void>((resolve) => {
+					options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+				return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
+			},
 		]);
 
-		await harness.session.prompt("/goal set first objective");
-		await waitForProviderCalls(harness, 3);
-		await waitForStoredGoalObjective(harness, "agent-chosen objective");
-
-		expect(harness.faux.state.callCount).toBe(3);
-		expect(readStoredGoal(harness).objective).toBe("agent-chosen objective");
-		expect(getUserTexts(harness)).toContain("Continue working toward the active goal.");
+		const activePrompt = harness.session.prompt("/goal set first objective");
+		await continuedRequestStarted;
+		try {
+			expect(readStoredGoal(harness).objective).toBe("agent-chosen objective");
+			expect(harness.session.getFollowUpMessages()).toEqual([]);
+		} finally {
+			await harness.session.abort();
+			await activePrompt;
+		}
 	});
 });

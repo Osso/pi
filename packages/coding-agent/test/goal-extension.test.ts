@@ -378,6 +378,15 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
+	it("does not queue a generic continuation when manage_goal set runs during a turn", async () => {
+		const harness = createGoalHarness(cwd, { idle: false });
+
+		await harness.runSetGoal("agent-chosen objective");
+
+		expect(readStoredGoal<{ objective: string }>(cwd).objective).toBe("agent-chosen objective");
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
 	it("sets an objective, persists it, and starts work when idle", async () => {
 		const harness = createGoalHarness(cwd);
 

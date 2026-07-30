@@ -75,6 +75,20 @@ describe("InteractiveMode follow-up preview", () => {
 		expect(rendered).toContain("Follow-up from unknown: Plain queued follow-up");
 	});
 
+	test("labels the goal continuation message as a goal follow-up", () => {
+		const fakeThis: PendingMessagesDisplayThis = {
+			compactionQueuedMessages: [],
+			getAllQueuedMessages: () => ({ steering: [], followUp: ["Continue working toward the active goal."] }),
+			getAppKeyDisplay: () => "ctrl+d",
+			pendingMessagesContainer: new Container(),
+		};
+
+		updatePendingMessagesDisplay.call(fakeThis);
+
+		const rendered = fakeThis.pendingMessagesContainer.render(120).join("\n");
+		expect(rendered).toContain("Follow-up from goal: Continue working toward the active goal.");
+	});
+
 	test("shows shared-channel sender in the same compact preview", () => {
 		const message = [
 			"From shared channel:",

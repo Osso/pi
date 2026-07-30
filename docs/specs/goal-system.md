@@ -43,7 +43,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ### Starting and continuing work
 
-- [x] Setting a goal submits exactly `Continue working toward the active goal.` as a new turn when idle or a queued follow-up when busy; resuming a paused goal submits the same reminder when idle. Generated user messages never restate goal-setting syntax or objective text.
+- [x] `/goal set` submits exactly `Continue working toward the active goal.` as a new turn when idle or a queued follow-up when busy; `manage_goal set` submits the same reminder when idle but does not queue a redundant generic follow-up during an active turn; resuming a paused goal submits the same reminder when idle. Generated user messages never restate goal-setting syntax or objective text.
 - [x] When an `agent_end` event fires for a running goal, Pi checks pending input before abort, error-stop, and empty-response handling; an aborted turn leaves the goal active and queues no continuation, while error status is deferred until the session becomes idle so a retry start can cancel it; non-error empty assistant responses poll at 1-second intervals until the same goal remains active, the session is idle, and no messages are pending, while other eligible responses request resident Supervisor review.
 - [x] Deferred error status is canceled by a new agent turn or pending input; retry exhaustion or cancellation emits one durable reason after the session becomes idle.
 - [x] Empty-response continuation polling is canceled by goal changes, pending input, and session shutdown.
