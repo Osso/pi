@@ -38,13 +38,13 @@ goal; the command and prompt hook do not throw.
 
 `/goal set <objective>` creates or replaces a goal, persists it, and notifies the UI.
 Bare `/goal <text>` input is rejected so words such as `continue` cannot replace durable goal state.
-Pi sends the unambiguous reminder whenever a goal is set:
+Pi sends the unambiguous reminder for goal-start actions:
 
 ```text
 Continue working toward the active goal.
 ```
 
-An idle session starts that turn immediately. A busy session queues it as a follow-up so the current turn completes without overlap and the newly set goal still starts another round. `/goal resume` uses the same reminder when the session is idle. These reminders never restate the objective or `/goal set` syntax.
+`/goal set` starts that turn immediately when idle or queues it as a follow-up when busy, so the current turn completes without overlap and the newly set goal still starts another round. `manage_goal set` sends the same reminder when idle but does not queue a redundant generic follow-up during an active tool turn. `/goal resume` uses the same reminder when the session is idle. The interactive pending-follow-up preview renders this exact raw goal reminder as `Follow-up from goal: Continue working toward the active goal.` These reminders never restate the objective or `/goal set` syntax.
 
 `/goal` with no arguments displays the current objective or a no-goal notice.
 

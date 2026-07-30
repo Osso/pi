@@ -170,7 +170,7 @@
 
 ### Fixed
 
-- Fixed `manage_goal set` queuing a duplicate continuation during an active turn; raw goal continuation follow-ups now render as `goal` instead of `unknown`.
+- Fixed `manage_goal set` queuing a duplicate continuation during an active turn; `/goal set` still queues the required reminder when busy, and raw goal continuation follow-ups now render as `goal` instead of `unknown`.
 - Fixed transient resident Supervisor goal-review timeouts stopping continuation after one request; goal reviews now retry with bounded exponential backoff before surfacing an error.
 - Fixed setting a goal during an active turn persisting the objective without starting its required follow-up round.
 - Fixed durable foreground Pyrun polling from repeatedly rereading growing partial JSONL records, which could amplify large console output into tens of GiB of resident memory after a session restart.
