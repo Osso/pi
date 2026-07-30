@@ -68,8 +68,10 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 
 - [x] Intercept `manage_goal complete` before the calling session marks the running goal complete.
 - [x] Send a `goal_completion_review` request containing the objective and the caller-provided completionReport verbatim; later wait wakeups preserve that report and add bounded wake evidence.
+- [x] Include all unconsumed ordered `conversationEvents` in idle and completion goal reviews, preserve them across failed, stale, or canceled reviews, and consume them only after applying `complete`, `continue`, `wait`, or `pause`.
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal completion review.
 - [x] Mark the goal complete only when the caller receives `complete`, persisting the verbatim completionReport as completionReason.
+- [x] Clear stored goal-review conversation evidence when completion is applied.
 - [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
 - [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agents` and re-review after wake, otherwise schedule the five-minute countdown and re-review, including when progress depends on an external condition that can be rechecked.
 - [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
@@ -80,6 +82,8 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 
 - [x] Preserve the goal extension's existing `agent_end` trigger and all existing guards exactly: the event already occurs after the tool loop reaches a terminal response with no further tool calls, and no redundant tool-call check may be added.
 - [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after pending-message, abort, error-stop, and empty-response handling.
+- [x] Send ordered unconsumed user and successful `end_turn` conversation events to idle review without sending `terminalTurn`; explicitly paused goals retain their ordered events until review after resume.
+- [x] Exclude extension-generated input and failed `end_turn` calls, preserve conversation evidence across Supervisor errors and stale or canceled reviews, and consume it after an applied idle-review decision.
 - [x] Keep the goal running when queued interactive input interrupts the current turn; only an abort without pending input pauses it.
 - [x] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal idle review.
@@ -129,6 +133,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/src/core/tools/ask-supervisor.ts` — main-session-only bounded advisory tool.
 - `packages/coding-agent/src/core/agent-session.ts` — LLM-approved preset integration.
 - `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.
+- `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — supplies ordered unconsumed conversation events to goal reviews and consumes them after applied decisions.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — durable Supervisor status entries and tagged continuation rendering.
 - `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — installed Bun-compiled Pi binary service lifecycle.
@@ -142,7 +147,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — main-session-only tool registration and access.
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process advisory tool flow.
-- `packages/coding-agent/test/goal-extension.test.ts`
+- `packages/coding-agent/test/goal-extension.test.ts` — ordered idle/completion conversation evidence, paused accumulation, filtering, preservation, consumption, and lifecycle clearing.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 - `packages/coding-agent/test/resident-console-command.test.ts`
 - `packages/coding-agent/test/resident-console-client.test.ts`

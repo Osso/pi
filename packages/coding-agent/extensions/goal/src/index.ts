@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import type {
 	AgentEndEvent,
 	AgentToolResult,
@@ -17,10 +16,32 @@ import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-s
 import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
-import { isRecord, optionalString, parseGoal, parseGoalJson } from "./goal-parsing.ts";
+import { isRecord, optionalString, parseGoalJson } from "./goal-parsing.ts";
 import { goalFooterStatus, goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
+import {
+	createGoalReviewEvidenceController,
+	type GoalReviewEvidenceController,
+} from "./goal-review-evidence.ts";
 import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
-import type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
+import {
+	clearGoal,
+	loadOrMigrateActiveGoal,
+	loadOrMigrateGoal,
+	loadOrMigrateRunningGoal,
+	loadPreviousGoalFile,
+	markGoalComplete,
+	pauseGoal,
+	resumeGoal,
+	saveGoal,
+} from "./goal-state.ts";
+import type {
+	Goal,
+	GoalEvidenceReview,
+	GoalExtensionOptions,
+	GoalSupervisorResponse,
+	GoalSupervisorReview,
+	ReviewedGoalResponse,
+} from "./goal-types.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import {
 	type AppendSupervisorStatus,
@@ -51,110 +72,12 @@ interface ManageGoalContext {
 	ctx: ExtensionContext;
 	params: ManageGoalParams;
 	pi: ExtensionAPI;
-	reviewGoal: GoalSupervisorReview;
+	reviewGoal: GoalEvidenceReview;
+	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
 	onCompletionWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>;
 	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
-}
-
-function goalPathForSessionId(cwd: string, sessionId: string): string {
-	return path.join(cwd, ".pi", "goals", `${encodeURIComponent(sessionId)}.json`);
-}
-
-function goalPath(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): string {
-	return goalPathForSessionId(ctx.cwd, ctx.sessionManager.getSessionId());
-}
-
-function oldProjectGoalPath(cwd: string): string {
-	return path.join(cwd, ".pi", "goal.json");
-}
-
-function saveGoalJson(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal): void {
-	ctx.sessionManager.setSessionGoalJson(`${JSON.stringify(goal)}\n`);
-}
-
-function loadGoalFile(file: string): Goal | null {
-	if (!fs.existsSync(file)) return null;
-	try {
-		return parseGoal(JSON.parse(fs.readFileSync(file, "utf8")));
-	} catch {
-		return null;
-	}
-}
-
-function loadOrMigrateGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const storedGoal = ctx.sessionManager.getSessionGoalJson();
-	if (storedGoal) return parseGoalJson(storedGoal);
-	return migrateLegacyGoal(ctx);
-}
-
-function loadOrMigrateActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadOrMigrateGoal(ctx);
-	return goal && !goal.completedAt ? goal : null;
-}
-
-function loadOrMigrateRunningGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadOrMigrateActiveGoal(ctx);
-	return goal && !goal.pausedAt ? goal : null;
-}
-
-function migrateLegacyGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	for (const file of [goalPath(ctx), oldProjectGoalPath(ctx.cwd)]) {
-		const goal = loadGoalFile(file);
-		if (!goal) continue;
-		saveGoalJson(ctx, goal);
-		fs.rmSync(file);
-		return goal;
-	}
-	return null;
-}
-
-function saveGoal(ctx: Pick<ExtensionContext, "sessionManager">, goal: Goal): void {
-	saveGoalJson(ctx, goal);
-}
-
-function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
-	const goal = loadOrMigrateActiveGoal(ctx);
-	if (!goal) return null;
-	const completedGoal: Goal = {
-		...goal,
-		completedAt: new Date().toISOString(),
-		completionReason: reason,
-	};
-	saveGoal(ctx, completedGoal);
-	return completedGoal;
-}
-
-function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
-	const goal = loadOrMigrateActiveGoal(ctx);
-	if (!goal) return null;
-	const pausedGoal: Goal = {
-		...goal,
-		pausedAt: goal.pausedAt ?? new Date().toISOString(),
-		pauseReason: reason,
-	};
-	saveGoal(ctx, pausedGoal);
-	return pausedGoal;
-}
-
-function resumeGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
-	const goal = loadOrMigrateActiveGoal(ctx);
-	if (!goal?.pausedAt) return null;
-	const { pausedAt: _pausedAt, pauseReason: _pauseReason, ...resumedGoal } = goal;
-	saveGoal(ctx, resumedGoal);
-	return resumedGoal;
-}
-
-function clearGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): boolean {
-	const hasStoredGoal = ctx.sessionManager.getSessionGoalJson() !== undefined;
-	const legacyFile = goalPath(ctx);
-	const hasLegacyGoal = fs.existsSync(legacyFile);
-	ctx.sessionManager.clearSessionGoalJson();
-	if (hasLegacyGoal) {
-		fs.rmSync(legacyFile);
-	}
-	return hasStoredGoal || hasLegacyGoal;
 }
 
 function updateGoalFooterStatus(ctx: ExtensionContext): void {
@@ -203,7 +126,7 @@ function inheritPreviousSessionGoal(event: SessionStartEvent, ctx: ExtensionCont
 function loadLegacyPreviousGoal(event: SessionStartEvent, ctx: ExtensionContext): Goal | null {
 	if (!event.previousSessionFile) return null;
 	const previousSessionId = sessionIdFromSessionFile(event.previousSessionFile);
-	return previousSessionId ? loadGoalFile(goalPathForSessionId(ctx.cwd, previousSessionId)) : null;
+	return previousSessionId ? loadPreviousGoalFile(ctx.cwd, previousSessionId) : null;
 }
 
 function textResult(text: string, details: Record<string, unknown> = {}): AgentToolResult<unknown> {
@@ -250,7 +173,10 @@ function runSetGoalAction({
 	params,
 	pi,
 	beforeGoalSave,
-}: Omit<ManageGoalContext, "reviewGoal" | "onCompletionWait" | "appendStatus">): AgentToolResult<unknown> {
+}: Omit<
+	ManageGoalContext,
+	"reviewGoal" | "consumeReviewEvidence" | "onCompletionWait" | "appendStatus"
+>): AgentToolResult<unknown> {
 	const objective = params.objective?.trim() ?? "";
 	if (!objective) {
 		return textResult("Objective is required.");
@@ -348,24 +274,37 @@ async function applyCompletionDecision(
 async function runCompleteGoalAction(
 	ctx: ExtensionContext,
 	completionReportInput: string | undefined,
-	reviewGoal: GoalSupervisorReview,
+	reviewGoal: GoalEvidenceReview,
 	pi: ExtensionAPI,
 	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
+	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void,
 ): Promise<AgentToolResult<unknown>> {
 	const activeGoal = loadOrMigrateActiveGoal(ctx);
 	if (!activeGoal) return textResult("No active goal to complete.");
 	const completionReport = completionReportInput?.trim();
 	if (!completionReport) return textResult("Completion report is required.");
-	const decision = await reviewGoal({
+	const reviewed = await reviewGoal({
 		ctx,
 		kind: "goal_completion_review",
 		payload: { objective: activeGoal.objective, completionReport },
 	});
 	const reviewStillApplies = isReviewCurrent() && goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal);
 	if (!reviewStillApplies) return textResult("Goal changed or review was canceled; stale decision ignored.");
-	return applyCompletionDecision(decision, activeGoal, ctx, pi, completionReport, onWait, appendStatus);
+	const result = await applyCompletionDecision(
+		reviewed.decision,
+		activeGoal,
+		ctx,
+		pi,
+		completionReport,
+		onWait,
+		appendStatus,
+	);
+	if (reviewed.decision.kind !== "error") {
+		consumeReviewEvidence(ctx, activeGoal, reviewed.evidenceCount);
+	}
+	return result;
 }
 
 function runClearGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void): AgentToolResult<unknown> {
@@ -403,6 +342,7 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 				context.onCompletionWait,
 				context.appendStatus,
 				context.isCompletionReviewCurrent ?? (() => true),
+				context.consumeReviewEvidence,
 			);
 		case "clear":
 			return runClearGoalAction(ctx, beforeGoalSave);
@@ -533,12 +473,14 @@ function injectGoalContext(event: BeforeAgentStartEvent, ctx: ExtensionContext):
 
 function createCompletionScheduler(
 	pi: ExtensionAPI,
-	reviewGoal: GoalSupervisorReview,
+	reviewGoal: GoalEvidenceReview,
+	evidence: GoalReviewEvidenceController,
 	appendStatus: AppendSupervisorStatus,
 ) {
 	return createCompletionWaitScheduler({
 		pi,
 		reviewGoal,
+		consumeReviewEvidence: evidence.consume,
 		isSameGoal: (ctx, waiting) => {
 			const activeGoal = loadOrMigrateActiveGoal(ctx);
 			return (
@@ -558,9 +500,9 @@ function createCompletionScheduler(
 	});
 }
 
-type IdleGoalScheduler = GoalScheduler<Goal, GoalSupervisorResponse>;
+type IdleGoalScheduler = GoalScheduler<Goal, ReviewedGoalResponse>;
 type ApplyIdleDecision = (
-	decision: GoalSupervisorResponse,
+	reviewed: ReviewedGoalResponse,
 	goal: Goal,
 	ctx: ExtensionContext,
 	terminalTurn: AgentEndEvent["messages"],
@@ -579,15 +521,16 @@ interface GoalExtensionRuntime {
 
 function createIdleGoalScheduler(
 	pi: ExtensionAPI,
-	reviewGoal: GoalSupervisorReview,
+	reviewGoal: GoalEvidenceReview,
+	evidence: GoalReviewEvidenceController,
 	appendStatus: AppendSupervisorStatus,
 	clearSchedules: (sessionId: string) => void,
 ): { scheduler: IdleGoalScheduler; applyDecision: ApplyIdleDecision } {
 	let scheduler: IdleGoalScheduler;
-	const applyDecision: ApplyIdleDecision = async (decision, goal, ctx, terminalTurn) => {
+	const applyDecision: ApplyIdleDecision = async (reviewed, goal, ctx, terminalTurn) => {
 		clearSchedules(ctx.sessionManager.getSessionId());
 		await applyGoalIdleDecision(
-			decision,
+			reviewed.decision,
 			goal,
 			ctx,
 			pi,
@@ -601,30 +544,32 @@ function createIdleGoalScheduler(
 			},
 			appendStatus,
 		);
+		if (reviewed.decision.kind !== "error") evidence.consume(ctx, goal, reviewed.evidenceCount);
 	};
-	scheduler = createGoalScheduler<Goal, GoalSupervisorResponse>({
+	scheduler = createGoalScheduler<Goal, ReviewedGoalResponse>({
 		pi,
 		applyDecision,
 		isSameRunningGoal: sameRunningGoal,
 		reportError: appendGoalSchedulingError.bind(undefined, appendStatus),
-		reviewGoal: async (ctx, goal, terminalTurn, wakeEvidence) =>
-			reviewGoal({ ctx, kind: "goal_idle_review", payload: { objective: goal.objective, terminalTurn, wakeEvidence } }),
+		reviewGoal: async (ctx, goal, _terminalTurn, wakeEvidence) =>
+			reviewGoal({ ctx, kind: "goal_idle_review", payload: { objective: goal.objective, wakeEvidence } }),
 	});
 	return { scheduler, applyDecision };
 }
 
 function createGoalExtensionRuntime(
 	pi: ExtensionAPI,
-	reviewGoal: GoalSupervisorReview,
+	reviewGoal: GoalEvidenceReview,
+	evidence: GoalReviewEvidenceController,
 	status: SupervisorStatusController,
 ): GoalExtensionRuntime {
 	const emptyResponseScheduler = createEmptyResponseScheduler<Goal>({ pi, isSameRunningGoal: sameRunningGoal });
 	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: status.append });
 	let clearGoalSchedules: (sessionId: string) => void;
-	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, status.append, (sessionId) =>
+	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, evidence, status.append, (sessionId) =>
 		clearGoalSchedules(sessionId),
 	);
-	const completionScheduler = createCompletionScheduler(pi, reviewGoal, status.append);
+	const completionScheduler = createCompletionScheduler(pi, reviewGoal, evidence, status.append);
 	clearGoalSchedules = (sessionId: string): void => {
 		emptyResponseScheduler.clearSession(sessionId);
 		errorStatusScheduler.clearSession(sessionId);
@@ -651,7 +596,12 @@ function createGoalExtensionRuntime(
 	};
 }
 
-function registerManageGoal(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview, runtime: GoalExtensionRuntime): void {
+function registerManageGoal(
+	pi: ExtensionAPI,
+	reviewGoal: GoalEvidenceReview,
+	evidence: GoalReviewEvidenceController,
+	runtime: GoalExtensionRuntime,
+): void {
 	registerManageGoalTool(pi, async (params, ctx) => {
 		const isCompletionReviewCurrent = runtime.completionScheduler.createReviewGuard(ctx);
 		return manageGoal({
@@ -659,6 +609,7 @@ function registerManageGoal(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview, 
 			params,
 			pi,
 			reviewGoal,
+			consumeReviewEvidence: evidence.consume,
 			onCompletionWait: async (goal, waitCtx, reason, statusReason) =>
 				runtime.completionScheduler.wait(goal, waitCtx, reason, statusReason),
 			appendStatus: runtime.status.append,
@@ -668,7 +619,11 @@ function registerManageGoal(pi: ExtensionAPI, reviewGoal: GoalSupervisorReview, 
 	});
 }
 
-function registerSessionGoalHandlers(pi: ExtensionAPI, runtime: GoalExtensionRuntime): void {
+function registerSessionGoalHandlers(
+	pi: ExtensionAPI,
+	evidence: GoalReviewEvidenceController,
+	runtime: GoalExtensionRuntime,
+): void {
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
 		inheritPreviousSessionGoal(event, ctx);
 		const goal = loadOrMigrateActiveGoal(ctx);
@@ -677,14 +632,18 @@ function registerSessionGoalHandlers(pi: ExtensionAPI, runtime: GoalExtensionRun
 		if (goal) ctx.ui.notify(goalStartupMessage(goal), "info");
 	});
 	pi.on("session_shutdown", async () => runtime.clearAllGoalSchedules());
-	pi.on("input", async (_event, ctx: ExtensionContext) => {
+	pi.on("input", async (event, ctx: ExtensionContext) => {
 		runtime.clearGoalSchedules(ctx.sessionManager.getSessionId());
+		evidence.appendInput(event, ctx);
+	});
+	pi.on("tool_result", async (event, ctx: ExtensionContext) => {
+		evidence.appendToolResult(event, ctx);
 	});
 }
 
 function registerAgentGoalHandlers(
 	pi: ExtensionAPI,
-	reviewGoal: GoalSupervisorReview,
+	reviewGoal: GoalEvidenceReview,
 	runtime: GoalExtensionRuntime,
 ): void {
 	pi.on("agent_start", async (_event, ctx: ExtensionContext) => {
@@ -736,12 +695,19 @@ function registerGoalCommand(pi: ExtensionAPI, runtime: GoalExtensionRuntime): v
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}): void {
 	const status = createSupervisorStatusController(pi, createWaitCountdownRefresher());
-	const reviewGoal = withSupervisorReviewStatus(status.append, options.reviewGoal ?? reviewGoalWithResidentSupervisor);
+	const supervisorReview = withSupervisorReviewStatus(
+		status.append,
+		options.reviewGoal ?? reviewGoalWithResidentSupervisor,
+	);
+	const evidence = createGoalReviewEvidenceController(
+		{ loadActiveGoal: loadOrMigrateActiveGoal, saveGoal },
+		supervisorReview,
+	);
 	pi.registerEntryRenderer("supervisor-status", renderSupervisorStatusEntry);
 	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
-	const runtime = createGoalExtensionRuntime(pi, reviewGoal, status);
-	registerManageGoal(pi, reviewGoal, runtime);
-	registerSessionGoalHandlers(pi, runtime);
-	registerAgentGoalHandlers(pi, reviewGoal, runtime);
+	const runtime = createGoalExtensionRuntime(pi, evidence.review, evidence, status);
+	registerManageGoal(pi, evidence.review, evidence, runtime);
+	registerSessionGoalHandlers(pi, evidence, runtime);
+	registerAgentGoalHandlers(pi, evidence.review, runtime);
 	registerGoalCommand(pi, runtime);
 }

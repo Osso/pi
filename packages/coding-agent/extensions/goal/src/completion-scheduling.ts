@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Goal, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
+import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
 
 interface CompletionWait {
@@ -9,7 +9,8 @@ interface CompletionWait {
 
 interface CompletionSchedulingOptions {
 	pi: ExtensionAPI;
-	reviewGoal: GoalSupervisorReview;
+	reviewGoal: GoalEvidenceReview;
+	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
 	isSameGoal: (ctx: ExtensionContext, waiting: CompletionWait) => boolean;
 	onComplete: (waiting: CompletionWait, ctx: ExtensionContext) => void;
 	onContinue: (instructions: string) => void;
@@ -24,33 +25,40 @@ export interface CompletionWaitScheduler {
 	wait(goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string): Promise<void>;
 }
 
-type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, GoalSupervisorResponse>>;
+type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, ReviewedGoalResponse>>;
 
 async function applyCompletionDecision(
 	options: CompletionSchedulingOptions,
 	scheduler: CompletionScheduler,
-	decision: GoalSupervisorResponse,
+	reviewed: ReviewedGoalResponse,
 	waiting: CompletionWait,
 	ctx: ExtensionContext,
 ): Promise<void> {
 	scheduler.clearSession(ctx.sessionManager.getSessionId());
+	const decision = reviewed.decision;
 	switch (decision.kind) {
 		case "complete":
-			return options.onComplete(waiting, ctx);
+			options.onComplete(waiting, ctx);
+			break;
 		case "continue":
-			return options.onContinue(decision.instructions);
+			options.onContinue(decision.instructions);
+			break;
 		case "wait": {
 			const message = `Waiting: ${decision.reason}`;
-			return scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
+			await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
 				onAgentWait: () => options.onStatus(ctx, message),
 				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
 			});
+			break;
 		}
 		case "pause":
-			return options.onStatus(ctx, `Goal waiting: ${decision.reason}`);
+			options.onStatus(ctx, `Goal waiting: ${decision.reason}`);
+			break;
 		case "error":
-			return options.onStatus(ctx, `Goal review failed: ${decision.reason}`);
+			options.onStatus(ctx, `Goal review failed: ${decision.reason}`);
+			return;
 	}
+	options.consumeReviewEvidence(ctx, waiting.goal, reviewed.evidenceCount);
 }
 
 function createReviewGuard(scheduler: CompletionScheduler, ctx: ExtensionContext): () => boolean {
@@ -60,7 +68,7 @@ function createReviewGuard(scheduler: CompletionScheduler, ctx: ExtensionContext
 
 export function createCompletionWaitScheduler(options: CompletionSchedulingOptions): CompletionWaitScheduler {
 	let scheduler: CompletionScheduler;
-	scheduler = createGoalScheduler<CompletionWait, GoalSupervisorResponse>({
+	scheduler = createGoalScheduler<CompletionWait, ReviewedGoalResponse>({
 		pi: options.pi,
 		applyDecision: async (decision, waiting, ctx) =>
 			applyCompletionDecision(options, scheduler, decision, waiting, ctx),

@@ -22,6 +22,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolDefinition,
+	ToolResultEvent,
 } from "../src/core/extensions/types.ts";
 import {
 	claimNextSupervisorRequest,
@@ -32,7 +33,13 @@ import {
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
-type GoalEvent = AgentEndEvent | BeforeAgentStartEvent | InputEvent | SessionShutdownEvent | SessionStartEvent;
+type GoalEvent =
+	| AgentEndEvent
+	| BeforeAgentStartEvent
+	| InputEvent
+	| SessionShutdownEvent
+	| SessionStartEvent
+	| ToolResultEvent;
 type GoalEventResult = BeforeAgentStartEventResult | InputEventResult | undefined;
 
 const model = getModel("anthropic", "claude-sonnet-4-5");
@@ -123,6 +130,7 @@ function createGoalHarness(
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
 	let sessionShutdown: ExtensionHandler<SessionShutdownEvent, undefined> | undefined;
 	let input: ExtensionHandler<InputEvent, InputEventResult> | undefined;
+	let toolResult: ExtensionHandler<ToolResultEvent, undefined> | undefined;
 	let supervisorRenderer: MessageRenderer | undefined;
 	let supervisorStatusRenderer: EntryRenderer | undefined;
 	const appendEntry = vi.fn();
@@ -152,6 +160,9 @@ function createGoalHarness(
 			}
 			if (event === "input") {
 				input = handler as ExtensionHandler<InputEvent, InputEventResult>;
+			}
+			if (event === "tool_result") {
+				toolResult = handler as ExtensionHandler<ToolResultEvent, undefined>;
 			}
 		},
 		callTool,
@@ -238,8 +249,21 @@ function createGoalHarness(
 			sessionStart?.({ type: "session_start", reason, previousSessionFile }, ctx as ExtensionContext),
 		runSessionShutdown: async () =>
 			sessionShutdown?.({ type: "session_shutdown", reason: "restart" }, ctx as ExtensionContext),
-		runInput: async (text: string) =>
-			input?.({ type: "input", text, source: "interactive" }, ctx as ExtensionContext),
+		runInput: async (text: string, source: InputEvent["source"] = "interactive") =>
+			input?.({ type: "input", text, source }, ctx as ExtensionContext),
+		runEndTurn: async (reason: string, isError = false) =>
+			toolResult?.(
+				{
+					type: "tool_result",
+					toolCallId: "end-turn-1",
+					toolName: "end_turn",
+					input: { reason },
+					content: [{ type: "text", text: `Turn ended: ${reason}` }],
+					details: { reason },
+					isError,
+				},
+				ctx as ExtensionContext,
+			),
 		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
 			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
 		runGoalComplete: async (completionReport?: string) =>
@@ -821,6 +845,195 @@ describe("goal extension", () => {
 			},
 			{ deliverAs: "followUp", triggerTurn: true },
 		);
+	});
+
+	it("sends ordered user text and successful end_turn reasons to each running-goal review", async () => {
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValue({ kind: "continue", reason: "continue", instructions: "Continue." });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set preserve bounded conversation evidence");
+
+		await harness.runInput("Deploy to staging first.");
+		await harness.runEndTurn("Staging deployment passed.");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls[0]?.[0].payload).not.toHaveProperty("terminalTurn");
+		expect(reviewGoal.mock.calls[0]?.[0].payload).toMatchObject({
+			conversationEvents: [
+				{ kind: "user", text: "Deploy to staging first." },
+				{ kind: "end_turn", reason: "Staging deployment passed." },
+			],
+		});
+
+		await harness.runInput("Now deploy production.");
+		await harness.runEndTurn("Production deployment passed.");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls[1]?.[0].payload).toMatchObject({
+			conversationEvents: [
+				{ kind: "user", text: "Now deploy production." },
+				{ kind: "end_turn", reason: "Production deployment passed." },
+			],
+		});
+	});
+
+	it("excludes extension-generated messages from goal review evidence", async () => {
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValue({ kind: "continue", reason: "continue", instructions: "Continue." });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set exclude generated review evidence");
+
+		await harness.runInput("Continue working toward the active goal.", "extension");
+		await harness.runInput("Run the deployment.");
+		await harness.runEndTurn("Deployment complete.");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls[0]?.[0].payload).toMatchObject({
+			conversationEvents: [
+				{ kind: "user", text: "Run the deployment." },
+				{ kind: "end_turn", reason: "Deployment complete." },
+			],
+		});
+	});
+
+	it("accumulates multiple ordered exchanges while an explicit goal pause is active", async () => {
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValue({ kind: "continue", reason: "resume", instructions: "Continue." });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set preserve paused conversation evidence");
+		await harness.runCommand("pause");
+
+		await harness.runEndTurn("Waiting for deployment choice.");
+		await harness.runInput("Use staging first.");
+		await harness.runEndTurn("Staging choice recorded.");
+		await harness.runInput("Proceed to production afterward.");
+		await harness.runEndTurn("Production sequence recorded.");
+		await harness.runCommand("resume");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal).toHaveBeenCalledWith({
+			ctx: expect.any(Object),
+			kind: "goal_idle_review",
+			payload: expect.objectContaining({
+				conversationEvents: [
+					{ kind: "end_turn", reason: "Waiting for deployment choice." },
+					{ kind: "user", text: "Use staging first." },
+					{ kind: "end_turn", reason: "Staging choice recorded." },
+					{ kind: "user", text: "Proceed to production afterward." },
+					{ kind: "end_turn", reason: "Production sequence recorded." },
+				],
+			}),
+		});
+	});
+
+	it("preserves conversation evidence after Supervisor error and excludes failed end_turn calls", async () => {
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockResolvedValueOnce({ kind: "error", reason: "service unavailable" })
+			.mockResolvedValueOnce({ kind: "continue", reason: "recovered", instructions: "Continue." });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set preserve failed review evidence");
+		await harness.runInput("First instruction.");
+		await harness.runEndTurn("First result.");
+		await harness.runEndTurn("Rejected blank-equivalent result.", true);
+		await harness.runAgentEnd();
+
+		await harness.runInput("Retry now.");
+		await harness.runEndTurn("Retry result.");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls[1]?.[0].payload).toMatchObject({
+			conversationEvents: [
+				{ kind: "user", text: "First instruction." },
+				{ kind: "end_turn", reason: "First result." },
+				{ kind: "user", text: "Retry now." },
+				{ kind: "end_turn", reason: "Retry result." },
+			],
+		});
+	});
+
+	it("preserves conversation evidence when input cancels an in-flight review", async () => {
+		let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+		let markReviewStarted: (() => void) | undefined;
+		const reviewStarted = new Promise<void>((resolve) => {
+			markReviewStarted = resolve;
+		});
+		const reviewGoal = vi
+			.fn<GoalSupervisorReview>()
+			.mockImplementationOnce(
+				async () =>
+					new Promise<GoalSupervisorResponse>((resolve) => {
+						finishReview = resolve;
+						markReviewStarted?.();
+					}),
+			)
+			.mockResolvedValueOnce({ kind: "continue", reason: "current", instructions: "Continue." });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set preserve canceled review evidence");
+		await harness.runEndTurn("Initial result.");
+		const firstReview = harness.runAgentEnd();
+		await reviewStarted;
+
+		await harness.runInput("Changed direction.");
+		finishReview?.({ kind: "continue", reason: "stale", instructions: "Ignore." });
+		await firstReview;
+		await harness.runEndTurn("Updated result.");
+		await harness.runAgentEnd();
+
+		expect(reviewGoal.mock.calls[1]?.[0].payload).toMatchObject({
+			conversationEvents: [
+				{ kind: "end_turn", reason: "Initial result." },
+				{ kind: "user", text: "Changed direction." },
+				{ kind: "end_turn", reason: "Updated result." },
+			],
+		});
+	});
+
+	it("sends paused conversation evidence to completion review", async () => {
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "complete", reason: "verified" });
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set complete with paused evidence");
+		await harness.runCommand("pause");
+		await harness.runInput("Use the verified deployment result.");
+		await harness.runEndTurn("Deployment verification passed.");
+
+		await harness.runGoalComplete("all checks passed");
+
+		expect(reviewGoal).toHaveBeenCalledWith({
+			ctx: expect.any(Object),
+			kind: "goal_completion_review",
+			payload: {
+				objective: "complete with paused evidence",
+				completionReport: "all checks passed",
+				conversationEvents: [
+					{ kind: "user", text: "Use the verified deployment result." },
+					{ kind: "end_turn", reason: "Deployment verification passed." },
+				],
+			},
+		});
+	});
+
+	it("clears conversation evidence when goals complete, clear, or are replaced", async () => {
+		const completedHarness = createGoalHarness(cwd, { sessionId: "completed-evidence" });
+		await completedHarness.runCommand("set complete evidence lifecycle");
+		await completedHarness.runEndTurn("Completion evidence.");
+		await completedHarness.runGoalComplete("verified");
+		expect(readStoredGoal<Record<string, unknown>>(cwd, "completed-evidence")).not.toHaveProperty("reviewEvidence");
+
+		const replacedHarness = createGoalHarness(cwd, { sessionId: "replaced-evidence" });
+		await replacedHarness.runCommand("set original evidence lifecycle");
+		await replacedHarness.runInput("Original direction.");
+		await replacedHarness.runCommand("set replacement evidence lifecycle");
+		expect(readStoredGoal<Record<string, unknown>>(cwd, "replaced-evidence")).not.toHaveProperty("reviewEvidence");
+
+		const clearedHarness = createGoalHarness(cwd, { sessionId: "cleared-evidence" });
+		await clearedHarness.runCommand("set clear evidence lifecycle");
+		await clearedHarness.runEndTurn("Clear this evidence.");
+		await clearedHarness.runCommand("clear");
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd, "cleared-evidence"))).toBe(false);
 	});
 
 	it("continues after agent_end even before the runtime reports idle", async () => {

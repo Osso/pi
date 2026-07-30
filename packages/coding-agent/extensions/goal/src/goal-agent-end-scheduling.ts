@@ -2,10 +2,10 @@ import type { AgentEndEvent, ExtensionContext } from "@earendil-works/pi-coding-
 import type { EmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { handleGoalAgentEnd } from "./goal-agent-end.ts";
 import type { GoalScheduler } from "./goal-scheduling.ts";
-import type { Goal, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
+import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
 
 type ApplyIdleDecision = (
-	decision: GoalSupervisorResponse,
+	reviewed: ReviewedGoalResponse,
 	goal: Goal,
 	ctx: ExtensionContext,
 	terminalTurn: AgentEndEvent["messages"],
@@ -14,8 +14,8 @@ type ApplyIdleDecision = (
 interface ScheduledGoalAgentEndOptions {
 	event: AgentEndEvent;
 	ctx: ExtensionContext;
-	reviewGoal: GoalSupervisorReview;
-	scheduler: GoalScheduler<Goal, GoalSupervisorResponse>;
+	reviewGoal: GoalEvidenceReview;
+	scheduler: GoalScheduler<Goal, ReviewedGoalResponse>;
 	emptyResponseScheduler: EmptyResponseScheduler<Goal>;
 	applyDecision: ApplyIdleDecision;
 	selectGoal: () => Goal | null;

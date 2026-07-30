@@ -1,6 +1,10 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorResponse } from "../../../src/core/session-control-db.ts";
 
+export type GoalReviewEvidenceEvent =
+	| { kind: "user"; text: string }
+	| { kind: "end_turn"; reason: string };
+
 export interface Goal {
 	objective: string;
 	branch: string;
@@ -10,6 +14,7 @@ export interface Goal {
 	continuationTurns?: number;
 	pausedAt?: string;
 	pauseReason?: string;
+	reviewEvidence?: GoalReviewEvidenceEvent[];
 }
 
 export type GoalSupervisorResponse = Extract<
@@ -17,11 +22,20 @@ export type GoalSupervisorResponse = Extract<
 	{ kind: "complete" | "continue" | "pause" | "wait" | "error" }
 >;
 
-export type GoalSupervisorReview = (input: {
+export interface GoalReviewInput {
 	kind: "goal_completion_review" | "goal_idle_review";
 	payload: Record<string, unknown>;
 	ctx: ExtensionContext;
-}) => Promise<GoalSupervisorResponse>;
+}
+
+export type GoalSupervisorReview = (input: GoalReviewInput) => Promise<GoalSupervisorResponse>;
+
+export interface ReviewedGoalResponse {
+	decision: GoalSupervisorResponse;
+	evidenceCount: number;
+}
+
+export type GoalEvidenceReview = (input: GoalReviewInput) => Promise<ReviewedGoalResponse>;
 
 export interface GoalExtensionOptions {
 	reviewGoal?: GoalSupervisorReview;
