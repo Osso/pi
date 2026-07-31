@@ -324,18 +324,24 @@ function readCurrentAssistantText(
 	if (previousLeafId && previousLeafIndex === -1) {
 		throw new Error("Supervisor request boundary is missing from the current session branch");
 	}
-	const terminalAssistant = entries
+	const assistantMessages = entries
 		.slice(previousLeafIndex + 1)
 		.filter((entry) => entry.type === "message" && entry.message.role === "assistant")
-		.at(-1);
-	const terminalMessage = terminalAssistant?.type === "message" ? terminalAssistant.message : undefined;
+		.map((entry) => entry.message);
+	const terminalMessage = assistantMessages.at(-1);
 	if (!isRecord(terminalMessage) || !Array.isArray(terminalMessage.content)) {
 		throw new Error("Supervisor model returned no assistant text for current request");
 	}
-	if (terminalMessage.stopReason !== "stop") {
-		throw new Error(`Supervisor model request ended with ${String(terminalMessage.stopReason)}`);
+	const responseMessage = terminalMessageCallsEndTurn(terminalMessage)
+		? assistantMessages.findLast((message) => message.stopReason === "stop")
+		: terminalMessage;
+	if (!isRecord(responseMessage) || !Array.isArray(responseMessage.content)) {
+		throw new Error("Supervisor model returned no assistant text for current request");
 	}
-	const text = terminalMessage.content
+	if (responseMessage.stopReason !== "stop") {
+		throw new Error(`Supervisor model request ended with ${String(responseMessage.stopReason)}`);
+	}
+	const text = responseMessage.content
 		.filter(
 			(part): part is { text: string; type: "text" } =>
 				isRecord(part) && part.type === "text" && typeof part.text === "string",
@@ -344,6 +350,14 @@ function readCurrentAssistantText(
 		.join("");
 	if (!text.trim()) throw new Error("Supervisor model returned no assistant text for current request");
 	return text;
+}
+
+function terminalMessageCallsEndTurn(message: Record<string, unknown>): boolean {
+	return (
+		message.stopReason === "toolUse" &&
+		Array.isArray(message.content) &&
+		message.content.some((part) => isRecord(part) && part.type === "toolCall" && part.name === "end_turn")
+	);
 }
 
 function readToolPath(input: unknown): string | undefined {

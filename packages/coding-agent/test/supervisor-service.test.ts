@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	claimNextSupervisorRequest,
@@ -325,7 +325,39 @@ describe("resident Supervisor service", () => {
 		});
 	});
 
-	it.each(["error", "aborted", "length", "toolUse"] as const)(
+	it("uses the last completed JSON response when the duplicate guard ends with end_turn", async () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!request) throw new Error("expected request");
+		const sessionManager = SessionManager.create(tempDir, tempDir);
+		const session = {
+			abort: async () => {},
+			prompt: async () => {
+				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"guarded response"}'));
+				sessionManager.appendMessage(
+					fauxAssistantMessage(fauxToolCall("end_turn", { reason: "duplicate response detected" }), {
+						stopReason: "toolUse",
+					}),
+				);
+			},
+			sessionManager,
+		};
+
+		await processSupervisorRequest(controlDbPath, request, session);
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "complete", reason: "guarded response" },
+			status: "completed",
+		});
+	});
+
+	it.each(["error", "aborted", "length"] as const)(
 		"rejects valid partial JSON when the terminal assistant stops with %s",
 		async (stopReason) => {
 			const requestId = postSupervisorRequest(controlDbPath, {
