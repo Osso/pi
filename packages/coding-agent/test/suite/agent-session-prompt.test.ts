@@ -132,9 +132,9 @@ describe("AgentSession prompt characterization", () => {
 		const harness = await createHarness({ initialActiveToolNames: ["end_turn"] });
 		harnesses.push(harness);
 		harness.setResponses([
-			fauxAssistantMessage("same response"),
-			fauxAssistantMessage("same response"),
-			fauxAssistantMessage("same response"),
+			fauxAssistantMessage({ type: "text", text: "same response", textSignature: "signature-1" }),
+			fauxAssistantMessage({ type: "text", text: "same response", textSignature: "signature-2" }),
+			fauxAssistantMessage({ type: "text", text: "same response", textSignature: "signature-3" }),
 		]);
 
 		await harness.session.prompt("start");

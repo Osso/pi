@@ -1339,7 +1339,7 @@ export class AgentSession {
 			return;
 		}
 
-		const fingerprint = JSON.stringify({ content: message.content, stopReason: message.stopReason });
+		const fingerprint = JSON.stringify({ text: getAssistantMessageText(message), stopReason: message.stopReason });
 		if (fingerprint !== this._lastAssistantTurnFingerprint) {
 			this._lastAssistantTurnFingerprint = fingerprint;
 			this._duplicateTurnGuardInjected = false;
