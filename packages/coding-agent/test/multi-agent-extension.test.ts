@@ -17,8 +17,10 @@ import {
 	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
+import browserCliExtension, { type BrowserCliCommandRunner } from "../extensions/browser-cli/src/index.ts";
 import effortExtension from "../extensions/effort/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
+import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { createDetachedJobArtifacts } from "../src/core/detached-job-runner.ts";
 import type {
@@ -3886,6 +3888,11 @@ describe("multi-agent extension tools", () => {
 			} as unknown as Partial<Settings>,
 		});
 		childHarnesses.push(parentHarness);
+		const runCommand = vi.fn<BrowserCliCommandRunner>().mockResolvedValue({
+			stdout: "Google\n",
+			stderr: "",
+			exitCode: 0,
+		});
 		const store = new MultiAgentStore({ now: () => "2026-07-31T00:00:00.000Z" });
 		let childSession: Harness["session"] | undefined;
 		let browserCallResult: AgentToolResult<unknown> | undefined;
@@ -3893,36 +3900,19 @@ describe("multi-agent extension tools", () => {
 		let pyrunCallError: string | undefined;
 		let activeToolNames: string[] = [];
 
-		const browserTools: ExtensionFactory = (pi) => {
-			pi.registerTool({
-				name: "browser-cli",
-				label: "browser-cli",
-				description: "Run a browser-cli action.",
-				parameters: Type.Object({ action: Type.String() }),
-				execute: async (_toolCallId, params) => ({
-					content: [{ type: "text", text: `browser-cli: ${params.action}` }],
-					details: { action: params.action },
-				}),
-			});
-			pi.registerTool({
-				name: "pyrun",
-				label: "Pyrun",
-				description: "Evaluate Pyrun code.",
-				parameters: Type.Object({ code: Type.String() }),
-				execute: async () => ({ content: [{ type: "text", text: "pyrun" }], details: {} }),
-			});
-		};
+		const browserTools: ExtensionFactory = (pi) => browserCliExtension(pi, { runCommand });
+		const pyrunTools: ExtensionFactory = (pi) => pyrunExtension(pi);
 		const lifecycleControls: ExtensionFactory = (pi) => agentsMailboxExtension(pi, { store });
 		const probe: ExtensionFactory = (pi) => {
 			pi.on("session_start", async () => {
 				activeToolNames = pi.getActiveTools();
 				try {
-					browserCallResult = await pi.callTool("browser-cli", { action: "get title" });
+					browserCallResult = await pi.callTool("browser-cli", { args: ["get", "title"] });
 				} catch (error) {
 					browserCallError = error instanceof Error ? error.message : String(error);
 				}
 				try {
-					await pi.callTool("pyrun", { code: "1 + 1" });
+					await pi.callTool("pyrun_eval", { code: "1 + 1" });
 				} catch (error) {
 					pyrunCallError = error instanceof Error ? error.message : String(error);
 				}
@@ -3931,7 +3921,7 @@ describe("multi-agent extension tools", () => {
 		const createChildSession = createProductionChildAgentSessionFactory({
 			agentDir: parentHarness.tempDir,
 			createSessionManager: SessionManager.create,
-			extensionFactories: [browserTools, lifecycleControls, probe],
+			extensionFactories: [browserTools, pyrunTools, lifecycleControls, probe],
 			multiAgentStore: store,
 			createSession: async (options) => {
 				const result = await createAgentSession({
@@ -3966,12 +3956,12 @@ describe("multi-agent extension tools", () => {
 		expect(waited.lifecycle).toBe("completed");
 		expect(childSession).toBeDefined();
 		expect(browserCallError).toBeUndefined();
-		expect(browserCallResult?.content).toEqual([{ type: "text", text: "browser-cli: get title" }]);
-		expect(pyrunCallError).toBe("Tool is not active: pyrun");
-		expect(activeToolNames).toEqual(
-			expect.arrayContaining(["browser-cli", "contact_parent", "send_agent_message", "end_turn"]),
+		expect(browserCallResult?.content).toEqual([{ type: "text", text: "Google\n" }]);
+		expect(runCommand).toHaveBeenCalledWith("browser-cli", ["get", "title"], undefined);
+		expect(pyrunCallError).toBe("Tool is not active: pyrun_eval");
+		expect([...activeToolNames].sort()).toEqual(
+			["browser-cli", "contact_parent", "send_agent_message", "end_turn"].sort(),
 		);
-		expect(activeToolNames).not.toContain("pyrun");
 	});
 
 	it("creates an explicitly fresh child with only its appended assignment", async () => {

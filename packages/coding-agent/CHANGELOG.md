@@ -58,6 +58,7 @@
 - Opened `control.sqlite` with multi-consumer WAL settings so concurrent Pi sessions can list/broadcast and write mailboxes without exclusive-lock failures.
 - Added built-in `outline`, `symbol`, and `references` tools backed by the external `code-index` CLI.
 - Added a built-in `ask_questions` tool for structured clarifying questions in interactive sessions.
+- Added the first-party `browser-cli` tool for argv-based browser automation with injectable execution and cancellation support.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
 - Added automatic one-time fallback from `openai-codex` to `openai-codex-gc` (and back) after terminal quota, usage-limit, or billing exhaustion when the paired provider has auth for the same model ID; fallback is guarded against provider loops within the user turn.

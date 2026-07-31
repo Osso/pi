@@ -1,0 +1,11 @@
+{
+	"name": "@earendil-works/pi-browser-cli-extension",
+	"version": "0.80.3",
+	"private": true,
+	"type": "module",
+	"description": "First-party browser-cli tool extension for Pi",
+	"main": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	}
+}

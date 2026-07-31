@@ -23,6 +23,7 @@ import agentsCoreExtension, {
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
+import browserCliExtension from "../extensions/browser-cli/src/index.ts";
 import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
@@ -646,6 +647,7 @@ function createFirstPartyExtensionFactories(
 	});
 	return [
 		firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
+		firstPartyExtensionFactory("browser-cli", browserCliExtension),
 		firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
 		firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
