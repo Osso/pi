@@ -87,8 +87,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       allowlist; built-in `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` profiles
       provide defaults, the reviewer profile uses fresh context, and configured profiles override them. When a
       profile specifies `tools`, production child and attached sessions expose only those registered tool names plus the
-      child lifecycle controls `contact_parent`, `send_agent_message`, and `end_turn`; the first-party `browser-cli`
-      extension registers the executable-backed tool, while custom profiles may provide other registered tools. `spawn_agent` rejects a
+      child lifecycle controls `contact_parent`, `send_agent_message`, and `end_turn`; a configured browser profile can
+      set `tools: ["browser-cli"]`. The first-party `browser-cli` extension registers that tool and invokes an
+      externally installed `browser-cli` executable by argv, while custom profiles may provide other registered tools. `spawn_agent` rejects a
       non-empty explicit `agentType` when `SettingsManager` finds no matching built-in or configured profile, and
       the error lists configured profile keys; omitted or blank `agentType` still defaults to `default` and
       inherits the parent model.
