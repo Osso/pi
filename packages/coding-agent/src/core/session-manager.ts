@@ -4,7 +4,6 @@ import { randomUUID } from "crypto";
 import {
 	appendFileSync,
 	closeSync,
-	copyFileSync,
 	createReadStream,
 	existsSync,
 	mkdirSync,
@@ -42,6 +41,7 @@ import {
 	writeSessionModel,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
+import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
 export const MAX_KEPT_PRE_COMPACTION_BYTES = 20_000;
@@ -1425,10 +1425,14 @@ export class SessionManager {
 
 	private _rewriteFile(): void {
 		if (!this.persist || !this.sessionFile) return;
-		const fd = openSync(this.sessionFile, "w");
+		this._writeEntries(this.sessionFile, "w");
+	}
+
+	private _writeEntries(filePath: string, flags: "w" | "wx"): void {
+		const fd = openSync(filePath, flags);
 		try {
 			for (const entry of this.fileEntries) {
-				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
+				writeFileSync(fd, `${serializeSessionEntryForPersistence(entry)}\n`);
 			}
 		} finally {
 			closeSync(fd);
@@ -1512,7 +1516,7 @@ export class SessionManager {
 
 	private copyRelocatedSessionFile(plan: SessionRelocationPlan): void {
 		if (plan.shouldCopyExistingFile && plan.oldSessionFile && plan.destination && existsSync(plan.oldSessionFile)) {
-			copyFileSync(plan.oldSessionFile, plan.destination);
+			this._writeEntries(plan.destination, "wx");
 		}
 	}
 
@@ -1660,7 +1664,7 @@ export class SessionManager {
 		const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
 		if (!hasAssistant) {
 			if (this.flushed) {
-				appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+				appendFileSync(this.sessionFile, `${serializeSessionEntryForPersistence(entry)}\n`);
 			} else {
 				// Mark as not flushed so when assistant arrives, all entries get written
 				this.flushed = false;
@@ -1672,7 +1676,7 @@ export class SessionManager {
 			this._writeNewFile();
 			this.flushed = true;
 		} else {
-			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+			appendFileSync(this.sessionFile, `${serializeSessionEntryForPersistence(entry)}\n`);
 		}
 	}
 
@@ -1685,14 +1689,7 @@ export class SessionManager {
 
 	private _writeNewFile(): void {
 		if (!this.sessionFile) return;
-		const fd = openSync(this.sessionFile, "wx");
-		try {
-			for (const entry of this.fileEntries) {
-				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
-			}
-		} finally {
-			closeSync(fd);
-		}
+		this._writeEntries(this.sessionFile, "wx");
 	}
 
 	private _appendEntry(entry: SessionEntry): void {
@@ -2275,7 +2272,7 @@ export class SessionManager {
 		else if (fromEntryId) entriesToCopy = buildSessionPath(sessionEntries, fromEntryId);
 		for (const [index, entry] of entriesToCopy.entries()) {
 			const forkedEntry = index === 0 ? { ...entry, parentId: null } : entry;
-			appendFileSync(newSessionFile, `${JSON.stringify(forkedEntry)}\n`);
+			appendFileSync(newSessionFile, `${serializeSessionEntryForPersistence(forkedEntry)}\n`);
 		}
 
 		const sessionManager = new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);

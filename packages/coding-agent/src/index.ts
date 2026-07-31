@@ -244,6 +244,14 @@ export {
 	type ThinkingLevelChangeEntry,
 } from "./core/session-manager.ts";
 export {
+	MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES,
+	migrateToolResultSessionFiles,
+	serializeSessionEntryForPersistence,
+	TOOL_RESULT_TRUNCATION_MARKER,
+	type ToolResultSessionMigrationReport,
+	truncateToolResultForPersistence,
+} from "./core/session-tool-output.ts";
+export {
 	type CompactionSettings,
 	type DefaultProjectTrust,
 	type ImageSettings,

@@ -34,4 +34,28 @@ describe("sessions command", () => {
 
 		expect(cutoff?.toISOString()).toBe("2026-07-08T00:00:00.000Z");
 	});
+
+	it("reports tool-result truncation through the migration command", async () => {
+		const output: string[] = [];
+		const handled = await handleSessionsCommand(["sessions", "truncate-tool-output"], {
+			stdout: (text) => output.push(text),
+			agentDir: "/tmp/pi-agent",
+			truncateToolOutput: (agentDir) => {
+				expect(agentDir).toBe("/tmp/pi-agent");
+				return {
+					scannedFiles: 3,
+					changedFiles: 2,
+					truncatedMessages: 4,
+					skippedMalformedFiles: 1,
+					skippedNonSessionFiles: 0,
+					skippedErrorFiles: 0,
+					backupPaths: [],
+					errors: [],
+				};
+			},
+		});
+
+		expect(handled).toBe(true);
+		expect(output).toEqual(["Truncated 4 tool results in 2 sessions. Skipped 1 file.\n"]);
+	});
 });

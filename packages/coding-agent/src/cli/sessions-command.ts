@@ -1,6 +1,8 @@
+import { getAgentDir } from "../config.ts";
 import { archiveSessionsOlderThan, getControlDbPath, writeSessionMetadata } from "../core/session-control-db.ts";
 import type { SessionInfo } from "../core/session-manager.ts";
 import { SessionManager } from "../core/session-manager.ts";
+import { migrateToolResultSessionFiles, type ToolResultSessionMigrationReport } from "../core/session-tool-output.ts";
 
 interface SessionsCommandDependencies {
 	stdout?: (text: string) => void;
@@ -8,6 +10,8 @@ interface SessionsCommandDependencies {
 	now?: () => Date;
 	refreshMetadata?: (controlDbPath: string) => Promise<void>;
 	archiveOlderThan?: (controlDbPath: string, cutoff: Date) => string[];
+	agentDir?: string;
+	truncateToolOutput?: (agentDir: string) => ToolResultSessionMigrationReport;
 }
 
 export async function handleSessionsCommand(
@@ -18,6 +22,19 @@ export async function handleSessionsCommand(
 
 	const stdout = dependencies.stdout ?? ((text) => process.stdout.write(text));
 	const stderr = dependencies.stderr ?? ((text) => process.stderr.write(text));
+	if (args[1] === "truncate-tool-output") {
+		if (args.length !== 2) {
+			printSessionsHelp(stderr);
+			process.exitCode = 1;
+			return true;
+		}
+		const report = (dependencies.truncateToolOutput ?? migrateToolResultSessionFiles)(
+			dependencies.agentDir ?? getAgentDir(),
+		);
+		stdout(formatTruncateToolOutputReport(report));
+		return true;
+	}
+
 	if (args[1] !== "archive") {
 		printSessionsHelp(args[1] === "--help" || args[1] === "-h" ? stdout : stderr);
 		process.exitCode = args[1] === "--help" || args[1] === "-h" ? 0 : 1;
@@ -72,6 +89,12 @@ function writableMetadata(session: SessionInfo) {
 	};
 }
 
+function formatTruncateToolOutputReport(report: ToolResultSessionMigrationReport): string {
+	const skipped = report.skippedMalformedFiles + report.skippedNonSessionFiles + report.skippedErrorFiles;
+	const skippedText = skipped > 0 ? ` Skipped ${skipped} file${skipped === 1 ? "" : "s"}.` : "";
+	return `Truncated ${report.truncatedMessages} tool result${report.truncatedMessages === 1 ? "" : "s"} in ${report.changedFiles} session${report.changedFiles === 1 ? "" : "s"}.${skippedText}\n`;
+}
+
 function printSessionsHelp(write: (text: string) => void): void {
-	write(`Usage:\n  pi sessions archive [--older-than <days>]\n`);
+	write(`Usage:\n  pi sessions archive [--older-than <days>]\n  pi sessions truncate-tool-output\n`);
 }

@@ -110,6 +110,7 @@
 ### Changed
 
 - Built-in `ls` calls now render as `ls` instead of `rtk ls`; execution still delegates to `rtk` when available and falls back to the filesystem implementation.
+- Session persistence now caps tool-result text at 1 MiB without changing runtime messages; `pi sessions truncate-tool-output` safely migrates existing session files with timestamped backups.
 - Clarified that `resume_session`'s optional `starter_prompt` accepts caller-provided instructions; runtime behavior is unchanged.
 - Detached artifact cleanup now queries terminal agent records through an indexed `updatedAt` cutoff instead of traversing all session metadata and state; routine startup performs age cleanup directly and runs the full 2 GiB size-cap cleanup only when needed.
 - `spawn_agent` success results now explicitly label the agent type and effective context: `Spawned <displayName> (<id>) [type: <agentType>, context: <fresh|inherit>]`.
@@ -182,6 +183,7 @@
 
 ### Fixed
 
+<<<<<<< HEAD
 - Fixed repeated `manage_goal set` updates persisting duplicate copies of unchanged active scope when the Supervisor restates the current objective; exact repeated current-objective blocks now collapse before persistence.
 - Fixed completed agents losing their visible `agent_viewer` summary when a tool-only `end_turn` call followed the agent's final text response.
 - Fixed `pi --supervisor` accepting prompts but rendering only `Supervisor response recorded.`; advisory structured responses now expose and render their answer text in the live resident console.
@@ -189,6 +191,10 @@
 - Fixed duplicate-turn recovery rendering the repeated assistant response and internal `end_turn` nudge in live InteractiveMode or resident-console chat; runtime context and persisted messages remain unchanged.
 - Fixed the built-in `grep` tool allowing a single ripgrep JSON match record to grow without bound; searches now apply the existing 10KB output bound before JSON parsing.
 - Fixed `search_current_session_history` matching assistant and tool content such as skill listings or clipboard paths; matching now searches user-message content only, while requested neighboring context entries may still include other entry types.
+||||||| parent of 5f91bd9b3 (fix(coding-agent): cap persisted tool output)
+=======
+- Fixed oversized single-line tool output persisting unbounded session JSONL payloads, including fork, rewrite, relocation, and legacy migration writes.
+>>>>>>> 5f91bd9b3 (fix(coding-agent): cap persisted tool output)
 - Fixed `manage_goal set` queuing a duplicate continuation during an active turn; `/goal set` still queues the required reminder when busy, and raw goal continuation follow-ups now render as `goal` instead of `unknown`.
 - Fixed transient resident Supervisor goal-review timeouts stopping continuation after one request; goal reviews now retry with bounded exponential backoff before surfacing an error.
 - Fixed setting a goal during an active turn persisting the objective without starting its required follow-up round.
