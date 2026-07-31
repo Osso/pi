@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { cleanupSessionResources } from "@earendil-works/pi-ai/compat";
+import { cleanupSessionResources, type AssistantMessage } from "@earendil-works/pi-ai/compat";
 import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
@@ -324,13 +324,13 @@ function readCurrentAssistantText(
 	if (previousLeafId && previousLeafIndex === -1) {
 		throw new Error("Supervisor request boundary is missing from the current session branch");
 	}
-	const assistantMessages = entries
+	const currentMessages = entries
 		.slice(previousLeafIndex + 1)
-		.filter(
-			(entry): entry is Extract<SessionEntry, { type: "message" }> =>
-				entry.type === "message" && entry.message.role === "assistant",
-		)
+		.filter((entry): entry is Extract<SessionEntry, { type: "message" }> => entry.type === "message")
 		.map((entry) => entry.message);
+	const assistantMessages = currentMessages.filter(
+		(message): message is AssistantMessage => message.role === "assistant",
+	);
 	const terminalMessage = assistantMessages.at(-1);
 	if (!isRecord(terminalMessage) || !Array.isArray(terminalMessage.content)) {
 		throw new Error("Supervisor model returned no assistant text for current request");
