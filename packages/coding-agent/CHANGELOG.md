@@ -58,7 +58,7 @@
 - Opened `control.sqlite` with multi-consumer WAL settings so concurrent Pi sessions can list/broadcast and write mailboxes without exclusive-lock failures.
 - Added built-in `outline`, `symbol`, and `references` tools backed by the external `code-index` CLI.
 - Added a built-in `ask_questions` tool for structured clarifying questions in interactive sessions.
-- Added the first-party `browser-cli` tool for argv-based browser automation; it invokes an externally installed `browser-cli` executable, with injectable execution and cancellation support.
+- Added the first-party `browser-cli` tool with ordered `commands: string[][]` batches; it invokes an externally installed `browser-cli` executable sequentially, stops on failure or cancellation, and guides browser-agent routing and mapped broker login.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
 - Added automatic one-time fallback from `openai-codex` to `openai-codex-gc` (and back) after terminal quota, usage-limit, or billing exhaustion when the paired provider has auth for the same model ID; fallback is guarded against provider loops within the user turn.
@@ -71,7 +71,7 @@
 - Added `pi.restart(...)` to Pyrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
-- Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles; configured profiles can also restrict child and attached sessions with a `tools` allowlist such as `tools: ["browser-cli"]` while retaining direct child lifecycle controls.
+- Added agent-type profile settings for child agents, including a fresh `browser` profile restricted to `tools: ["browser-cli"]` plus the existing `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles; direct browser-cli use remains allowed while multi-step work can route to the browser child.
 - Added core system-prompt delegation rules requiring `explore` agents for codebase research, recommending `documentation-update` agents for documentation-impacting changes, and requiring `verifier` agents before completion claims when `spawn_agent` is available.
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
 - Added selected-child editor steering: ordinary text routes only to a selected direct child with a live

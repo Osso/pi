@@ -84,15 +84,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `"fresh"` for isolated work, review, verification, or falsification. Background jobs and restart
       recovery explicitly use `"fresh"`; attached-session reuse is a separate operation without this choice.
 - [x] Agent-type profiles can select a child model, thinking level, default context, and optional `tools`
-      allowlist; built-in `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` profiles
-      provide defaults, the reviewer profile uses fresh context, and configured profiles override them. When a
-      profile specifies `tools`, production child and attached sessions expose only those registered tool names plus the
-      child lifecycle controls `contact_parent`, `send_agent_message`, and `end_turn`; a configured browser profile can
-      set `tools: ["browser-cli"]`. The first-party `browser-cli` extension registers that tool and invokes an
-      externally installed `browser-cli` executable by argv, while custom profiles may provide other registered tools. `spawn_agent` rejects a
-      non-empty explicit `agentType` when `SettingsManager` finds no matching built-in or configured profile, and
-      the error lists configured profile keys; omitted or blank `agentType` still defaults to `default` and
-      inherits the parent model.
+      allowlist; the built-in `browser` profile uses fresh context and `tools: ["browser-cli"]`, while
+      `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` provide the other defaults.
+      When a profile specifies `tools`, production child and attached sessions expose only those registered tool
+      names plus `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
+      `agentType` when `SettingsManager` finds no matching built-in or configured profile, and the error lists
+      configured profile keys; omitted or blank `agentType` still defaults to `default` and inherits the parent model.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log. The parent session JSONL contains
       authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.
@@ -401,6 +398,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       explicit commands such as stop, resume, and steer.
 - [x] `agents mailbox` is a coordination extension surface for inbox/outbox, acknowledgements,
       direct-parent contact, and inter-agent messages.
+- [x] The first-party `browser-cli` tool accepts ordered `commands: string[][]` batches, runs them sequentially,
+      returns each result, and stops on the first failure or cancellation. Its guidance allows direct use for simple
+      actions but routes multi-step work to a fresh `browser` agent; mapped login uses
+      `broker-unlock --current-origin` followed by `broker-fill --current-origin`, the agent submits the form,
+      and MFA/CAPTCHA remains user-driven.
 - [x] Background logs remain visible through direct absolute `fileRefs` on active and completed agent state.
 - [x] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.

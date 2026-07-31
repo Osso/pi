@@ -198,6 +198,7 @@ function parseTimeoutSetting(value: unknown, settingName: string): number | unde
 export type SettingsScope = "global" | "project";
 
 const DEFAULT_AGENT_PROFILES: Record<string, AgentProfileSettings> = {
+	browser: { context: "fresh", tools: ["browser-cli"] },
 	explore: { model: "openai/gpt-5-mini", thinkingLevel: "low" },
 	implement: { model: "openai/gpt-5.5", thinkingLevel: "medium" },
 	verifier: { model: "openai/gpt-5-mini", thinkingLevel: "low" },

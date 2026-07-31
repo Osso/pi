@@ -9,6 +9,14 @@ export interface BrowserCliCommandResult {
 	exitCode: number | null;
 }
 
+export interface BrowserCliCommandExecution extends BrowserCliCommandResult {
+	args: string[];
+}
+
+export interface BrowserCliBatchResult {
+	commands: BrowserCliCommandExecution[];
+}
+
 export type BrowserCliCommandRunner = (
 	executable: string,
 	args: string[],
@@ -21,8 +29,24 @@ export interface BrowserCliExtensionOptions {
 
 const BROWSER_CLI_EXECUTABLE = "browser-cli";
 
+const BROWSER_CLI_PROMPT_GUIDELINES = [
+	'When spawn_agent is available, use a fresh agentType "browser" for multi-step browser workflows; direct browser-cli use remains allowed for simple actions.',
+	"Pass deterministic command sequences in one ordered commands batch. Use separate calls when an intermediate result determines the next action.",
+	"Observe with snapshot --interactive --compact before interacting. Re-observe after navigation or page mutation instead of repeatedly guessing selectors.",
+	"Use open for navigation; fill, click, and press for interaction; wait for bounded delays or selectors; and get url, get title, and visible text for completion proof.",
+	"When a login form appears, attempt mapped authentication with broker-unlock --current-origin followed by broker-fill --current-origin. Never request or pass credential values.",
+	"After broker fill, inspect the page, click the sign-in control, and verify the resulting authenticated state. Stop for user action when MFA or CAPTCHA appears.",
+];
+
+const browserCliCommandSchema = Type.Array(Type.String({ description: "One browser-cli argument." }), {
+	minItems: 1,
+});
+
 const browserCliSchema = Type.Object({
-	args: Type.Array(Type.String({ description: "One browser-cli argument." })),
+	commands: Type.Array(browserCliCommandSchema, {
+		description: "Ordered browser-cli argv commands to execute sequentially.",
+		minItems: 1,
+	}),
 });
 
 type BrowserCliInput = Static<typeof browserCliSchema>;
@@ -38,27 +62,43 @@ export function createBrowserCliToolDefinition(
 	return {
 		name: "browser-cli",
 		label: "Browser CLI",
-		description: "Run one browser-cli command using argv arguments and return its stdout.",
-		promptSnippet: "Control the browser through the browser-cli executable.",
+		description: "Run ordered browser-cli argv commands sequentially and return each command result.",
+		promptSnippet: "Control the browser through ordered browser-cli command batches.",
+		promptGuidelines: BROWSER_CLI_PROMPT_GUIDELINES,
 		parameters: browserCliSchema,
 		approvalRequired: true,
+		executionMode: "sequential",
 		async execute(
 			_toolCallId,
 			params: BrowserCliInput,
 			signal,
 			_onUpdate,
 			_ctx,
-		): Promise<AgentToolResult<BrowserCliCommandResult>> {
-			const result = await waitForAbort(runCommand(BROWSER_CLI_EXECUTABLE, params.args, signal), signal);
-			if (result.exitCode !== 0) {
-				throw new Error(formatBrowserCliFailure(result));
-			}
+		): Promise<AgentToolResult<BrowserCliBatchResult>> {
+			const commands = await runBrowserCliBatch(runCommand, params.commands, signal);
 			return {
-				content: [{ type: "text", text: result.stdout }],
-				details: result,
+				content: [{ type: "text", text: formatBrowserCliBatchOutput(commands) }],
+				details: { commands },
 			};
 		},
 	};
+}
+
+async function runBrowserCliBatch(
+	runCommand: BrowserCliCommandRunner,
+	commands: string[][],
+	signal?: AbortSignal,
+): Promise<BrowserCliCommandExecution[]> {
+	const results: BrowserCliCommandExecution[] = [];
+	for (const [index, args] of commands.entries()) {
+		const result = await waitForAbort(runCommand(BROWSER_CLI_EXECUTABLE, args, signal), signal);
+		const execution = { args: [...args], ...result };
+		if (result.exitCode !== 0) {
+			throw new Error(formatBrowserCliFailure(index, execution));
+		}
+		results.push(execution);
+	}
+	return results;
 }
 
 async function runBrowserCliCommand(
@@ -115,8 +155,15 @@ function terminateChild(child: ChildProcess): void {
 	if (!child.killed) child.kill();
 }
 
-function formatBrowserCliFailure(result: BrowserCliCommandResult): string {
+function formatBrowserCliBatchOutput(commands: BrowserCliCommandExecution[]): string {
+	return commands
+		.flatMap((command) => [command.stdout, command.stderr])
+		.filter(Boolean)
+		.join("");
+}
+
+function formatBrowserCliFailure(index: number, result: BrowserCliCommandExecution): string {
 	const output = [result.stderr.trim(), result.stdout.trim()].filter(Boolean).join("\n");
 	const detail = output ? `: ${output}` : "";
-	return `browser-cli exited with code ${result.exitCode ?? "unknown"}${detail}`;
+	return `browser-cli command ${index + 1} exited with code ${result.exitCode ?? "unknown"}${detail}`;
 }

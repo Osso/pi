@@ -164,6 +164,10 @@ describe("SettingsManager", () => {
 				model: "openai/gpt-5.5",
 				thinkingLevel: "medium",
 			});
+			expect(settingsManager.getAgentProfile("browser")).toEqual({
+				context: "fresh",
+				tools: ["browser-cli"],
+			});
 		});
 
 		it("lets configured profiles override built-in agent profiles", () => {

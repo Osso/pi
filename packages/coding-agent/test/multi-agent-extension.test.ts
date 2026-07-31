@@ -61,7 +61,7 @@ import {
 	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { type Settings, SettingsManager } from "../src/core/settings-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
@@ -3881,12 +3881,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("propagates the browser profile tool allowlist to a real child while preserving lifecycle controls", async () => {
-		const parentHarness = await createHarness({
-			persistedSession: true,
-			settings: {
-				agents: { browser: { tools: ["browser-cli"] } },
-			} as unknown as Partial<Settings>,
-		});
+		const parentHarness = await createHarness({ persistedSession: true });
 		childHarnesses.push(parentHarness);
 		const runCommand = vi.fn<BrowserCliCommandRunner>().mockResolvedValue({
 			stdout: "Google\n",
@@ -3907,7 +3902,7 @@ describe("multi-agent extension tools", () => {
 			pi.on("session_start", async () => {
 				activeToolNames = pi.getActiveTools();
 				try {
-					browserCallResult = await pi.callTool("browser-cli", { args: ["get", "title"] });
+					browserCallResult = await pi.callTool("browser-cli", { commands: [["get", "title"]] });
 				} catch (error) {
 					browserCallError = error instanceof Error ? error.message : String(error);
 				}
