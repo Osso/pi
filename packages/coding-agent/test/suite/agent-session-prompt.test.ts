@@ -12,6 +12,10 @@ import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
 import { createTestResourceLoader } from "../utilities.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
+function fauxEndTurn(reason: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" });
+}
+
 describe("AgentSession prompt characterization", () => {
 	const harnesses: Harness[] = [];
 	const tempDirs: string[] = [];
@@ -53,13 +57,15 @@ describe("AgentSession prompt characterization", () => {
 		harnesses.push(harness);
 		const initialAssistant = fauxAssistantMessage("done");
 		harness.session.agent.state.messages = [initialAssistant];
-		harness.setResponses([fauxAssistantMessage("continued")]);
+		harness.setResponses([fauxAssistantMessage("continued"), fauxEndTurn("characterization complete")]);
 
 		await harness.session.continue();
 
-		expect(harness.session.messages).toHaveLength(2);
+		expect(harness.session.messages).toHaveLength(4);
 		expect(harness.session.messages[0]).toEqual(initialAssistant);
 		expect(getMessageText(harness.session.messages[1])).toBe("continued");
+		expect(harness.session.messages[2]?.role).toBe("assistant");
+		expect(harness.session.messages[3]?.role).toBe("toolResult");
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
@@ -67,11 +73,16 @@ describe("AgentSession prompt characterization", () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 
-		harness.setResponses([fauxAssistantMessage("hello")]);
+		harness.setResponses([fauxAssistantMessage("hello"), fauxEndTurn("characterization complete")]);
 
 		await harness.session.prompt("hi");
 
-		expect(harness.session.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+		expect(harness.session.messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"assistant",
+			"toolResult",
+		]);
 		expect(getMessageText(harness.session.messages[0]!)).toBe("hi");
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
@@ -277,6 +288,7 @@ describe("AgentSession prompt characterization", () => {
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("echo", { text: "hello" }), { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
+			fauxEndTurn("characterization complete"),
 		]);
 
 		await harness.session.prompt("start");
@@ -287,9 +299,13 @@ describe("AgentSession prompt characterization", () => {
 			"assistant",
 			"toolResult",
 			"assistant",
+			"assistant",
+			"toolResult",
 		]);
 		expect(harness.session.messages[2]?.role).toBe("toolResult");
 		expect(harness.session.messages[3]?.role).toBe("assistant");
+		expect(harness.session.messages[4]?.role).toBe("assistant");
+		expect(harness.session.messages[5]?.role).toBe("toolResult");
 	});
 
 	it("executes multiple tool calls from one response and continues with a single follow-up response", async () => {
@@ -500,11 +516,16 @@ describe("AgentSession prompt characterization", () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 
-		harness.setResponses([fauxAssistantMessage("response")]);
+		harness.setResponses([fauxAssistantMessage("response"), fauxEndTurn("characterization complete")]);
 
 		await harness.session.sendUserMessage("from extension");
 
-		expect(harness.session.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+		expect(harness.session.messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"assistant",
+			"toolResult",
+		]);
 		expect(getMessageText(harness.session.messages[0]!)).toBe("from extension");
 	});
 
@@ -728,7 +749,9 @@ describe("AgentSession prompt characterization", () => {
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("continued"),
+			fauxEndTurn("continued characterization complete"),
 			fauxAssistantMessage("queued"),
+			fauxEndTurn("queued characterization complete"),
 		]);
 		harness.session.agent.state.messages = [fauxAssistantMessage("previous")];
 
@@ -766,7 +789,9 @@ describe("AgentSession prompt characterization", () => {
 			"previous",
 			"",
 			"continued",
+			"",
 			"queued",
+			"",
 		]);
 	});
 
