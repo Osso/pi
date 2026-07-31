@@ -1,6 +1,6 @@
 # Duplicate-turn loop guard
 
-Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identical assistant turns and injects a runtime-only instruction to stop looping with `end_turn`. The runtime details live in [`docs/wiki/systems/duplicate-turn-guard.md`](../wiki/systems/duplicate-turn-guard.md).
+Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identical assistant turns, injects a runtime-only instruction to stop looping with `end_turn`, and terminates the repeated loop if the model ignores that instruction. The runtime details live in [`docs/wiki/systems/duplicate-turn-guard.md`](../wiki/systems/duplicate-turn-guard.md).
 
 ## What it must do
 
@@ -15,6 +15,7 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 - [x] Keep the built-in `end_turn` control tool active even when no tools, no built-in tools, an explicit allowlist, or an exclusion list would otherwise remove it (`2835-tools-allowlist-filters-extension-tools.test.ts`, `3592-no-builtin-tools-keeps-extension-tools.test.ts`, `5109-exclude-tools.test.ts`).
 - [x] Inject a user-role steering instruction telling the model to stop looping and call `end_turn` with a concise reason (`agent-session-prompt.test.ts`).
 - [x] Inject the instruction at most once for the current duplicate-turn sequence.
+- [x] Terminate the current repeated-turn loop when the model repeats after the guard, so callers do not consume their request deadline (`agent-session-prompt.test.ts`).
 - [x] Keep the injected instruction out of persisted session history (`agent-session-prompt.test.ts`).
 
 ### Reset behavior
