@@ -16,6 +16,7 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 - [x] Inject a user-role steering instruction telling the model to stop looping and call `end_turn` with a concise reason (`agent-session-prompt.test.ts`).
 - [x] Inject the instruction at most once for the current duplicate-turn sequence.
 - [x] Terminate the current repeated-turn loop when the model repeats after the guard, so callers do not consume their request deadline (`agent-session-prompt.test.ts`).
+- [x] When the guard-generated terminal `end_turn` ends a Supervisor request, use the last completed JSON response from that same current request; never reuse a response from an earlier request (`supervisor-service.test.ts`).
 - [x] Keep the injected instruction out of persisted session history (`agent-session-prompt.test.ts`).
 
 ### Reset behavior
