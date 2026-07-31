@@ -159,7 +159,10 @@ function capToolResultEntry(entry: SessionMessageEntry, message: ToolResultMessa
 	const initialEntry = buildToolResultCandidate(entry, message, initialContent);
 	if (serializedEntryBytes(initialEntry) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) return initialEntry;
 
-	const text = message.content.filter(isTextContent).map((item) => item.text).join("\n");
+	const text = message.content
+		.filter(isTextContent)
+		.map((item) => item.text)
+		.join("\n");
 	const nonTextContent = message.content.filter((item) => !isTextContent(item));
 	const marker = TOOL_RESULT_TRUNCATION_MARKER;
 	const messageVariants = [message, withoutToolResultDetails(message)];
@@ -275,7 +278,14 @@ function readSessionFileForMigration(filePath: string): SessionFileParseResult {
 	if (!header || header.type !== "session" || typeof (header as { id?: unknown }).id !== "string") {
 		return { kind: "non-session" };
 	}
-	return { kind: "session", lines, entries, size: fileStat.size, mtimeMs: fileStat.mtimeMs, mode: fileStat.mode & 0o777 };
+	return {
+		kind: "session",
+		lines,
+		entries,
+		size: fileStat.size,
+		mtimeMs: fileStat.mtimeMs,
+		mode: fileStat.mode & 0o777,
+	};
 }
 
 function buildRewrittenSessionContent(

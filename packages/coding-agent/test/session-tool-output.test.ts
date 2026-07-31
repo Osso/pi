@@ -95,7 +95,9 @@ describe("persisted tool result output", () => {
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line));
-		const persistedIndex = persistedLines.findIndex((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		const persistedIndex = persistedLines.findIndex(
+			(entry) => entry.type === "message" && entry.message.role === "toolResult",
+		);
 		const persisted = persistedLines[persistedIndex];
 		const persistedText = textFromToolResult(persisted.message);
 		const persistedLine = readFileSync(session.getSessionFile()!, "utf8").trim().split("\n")[persistedIndex];
