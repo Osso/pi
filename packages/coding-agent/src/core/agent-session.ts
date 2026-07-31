@@ -683,6 +683,8 @@ export class AgentSession {
 	private _lastAssistantTurnFingerprint: string | undefined;
 	/** Prevents repeated guard injections until the assistant content or turn context changes. */
 	private _duplicateTurnGuardInjected = false;
+	/** Stops the current loop when the model repeats after receiving the guard. */
+	private _duplicateTurnLoopDetected = false;
 	/** Synthetic loop-guard messages are runtime-only and must not enter session history. */
 	private _internalSteeringMessages = new WeakSet<AgentMessage>();
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
@@ -826,6 +828,7 @@ export class AgentSession {
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
 		this._installAgentNextTurnRefresh();
+		this._installDuplicateTurnStop();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -1223,6 +1226,12 @@ export class AgentSession {
 		};
 	}
 
+	private _installDuplicateTurnStop(): void {
+		const previousShouldStopAfterTurn = this.agent.shouldStopAfterTurn;
+		this.agent.shouldStopAfterTurn = async (turn) =>
+			this._duplicateTurnLoopDetected || ((await previousShouldStopAfterTurn?.(turn)) ?? false);
+	}
+
 	// =========================================================================
 	// Event Subscription
 	// =========================================================================
@@ -1316,11 +1325,16 @@ export class AgentSession {
 	private _resetDuplicateTurnGuard(): void {
 		this._lastAssistantTurnFingerprint = undefined;
 		this._duplicateTurnGuardInjected = false;
+		this._duplicateTurnLoopDetected = false;
 	}
 
 	private _trackDuplicateAssistantTurn(message: AssistantMessage): void {
+		if (message.stopReason === "aborted") {
+			if (!this._duplicateTurnGuardInjected) this._resetDuplicateTurnGuard();
+			return;
+		}
 		const hasToolCall = message.content.some((item) => item.type === "toolCall");
-		if (hasToolCall || message.stopReason === "error" || message.stopReason === "aborted") {
+		if (hasToolCall || message.stopReason === "error") {
 			this._resetDuplicateTurnGuard();
 			return;
 		}
@@ -1331,7 +1345,10 @@ export class AgentSession {
 			this._duplicateTurnGuardInjected = false;
 			return;
 		}
-		if (this._duplicateTurnGuardInjected) return;
+		if (this._duplicateTurnGuardInjected) {
+			this._duplicateTurnLoopDetected = true;
+			return;
+		}
 
 		this._duplicateTurnGuardInjected = true;
 		const guardMessage: AgentMessage = {

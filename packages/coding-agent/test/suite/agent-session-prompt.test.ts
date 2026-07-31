@@ -128,6 +128,28 @@ describe("AgentSession prompt characterization", () => {
 		).toEqual(["start"]);
 	});
 
+	it("terminates when the model repeats after the duplicate-turn guard", async () => {
+		const harness = await createHarness({ initialActiveToolNames: ["end_turn"] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("same response"),
+			fauxAssistantMessage("same response"),
+			fauxAssistantMessage("same response"),
+		]);
+
+		await harness.session.prompt("start");
+
+		expect(harness.faux.state.callCount).toBe(3);
+		expect(harness.getPendingResponseCount()).toBe(0);
+		expect(
+			harness.session.messages
+				.filter((message) => message.role === "assistant")
+				.map((message) => getMessageText(message))
+				.filter((text) => text.length > 0),
+		).toEqual(["same response", "same response", "same response"]);
+		expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+	});
+
 	it("applies duplicate-turn guard to child runtimes without persisting the instruction", async () => {
 		const harness = await createHarness({
 			initialActiveToolNames: [],
