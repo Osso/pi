@@ -29,7 +29,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 		}
 	});
 
-	async function createSession(options?: { noTools?: "all" | "builtin"; tools?: string[] }) {
+	async function createSession(options?: { noTools?: "all" | "builtin"; tools?: string[]; excludeTools?: string[] }) {
 		const settingsManager = SettingsManager.create(tempDir, agentDir);
 		const sessionManager = SessionManager.inMemory(tempDir);
 		const resourceLoader = new DefaultResourceLoader({
@@ -65,6 +65,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 			resourceLoader,
 			noTools: options?.noTools,
 			tools: options?.tools,
+			excludeTools: options?.excludeTools,
 		});
 		await session.bindExtensions({});
 		return session;
@@ -81,11 +82,14 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 		).toEqual([
 			"ask_architect",
 			"ask_questions",
+			"ask_supervisor",
 			"bash",
 			"broadcast",
+			"change_working_directory",
 			"channel_post",
 			"dynamic_tool",
 			"edit",
+			"end_turn",
 			"find",
 			"grep",
 			"list_sessions",
@@ -98,19 +102,20 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 			"symbol",
 			"write",
 		]);
-		expect(session.getActiveToolNames()).toEqual(["dynamic_tool"]);
+		expect(session.getActiveToolNames()).toEqual(["end_turn", "dynamic_tool"]);
 		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
 		expect(session.systemPrompt).not.toContain("- read:");
 		expect(session.systemPrompt).not.toContain("- bash:");
+		expect(session.systemPrompt).toContain("- end_turn:");
 		session.dispose();
 	});
 
-	it("still disables all tools when noTools is all", async () => {
+	it("keeps end_turn active when noTools is all", async () => {
 		const session = await createSession({ noTools: "all" });
 
-		expect(session.getAllTools()).toEqual([]);
-		expect(session.getActiveToolNames()).toEqual([]);
-		expect(session.systemPrompt).toContain("Available tools:\n(none)");
+		expect(session.getAllTools().map((tool) => tool.name)).toEqual(["end_turn"]);
+		expect(session.getActiveToolNames()).toEqual(["end_turn"]);
+		expect(session.systemPrompt).toContain("- end_turn:");
 		session.dispose();
 	});
 
@@ -130,9 +135,22 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 			noTools: "builtin",
 		});
 
-		expect(session.getActiveToolNames()).toEqual([]);
-		expect(session.systemPrompt).toContain("Available tools:\n(none)");
+		expect(session.getActiveToolNames()).toEqual(["end_turn"]);
+		expect(session.systemPrompt).toContain("- end_turn:");
 		expect(session.systemPrompt).not.toContain("- read:");
+		session.dispose();
+	});
+
+	it("keeps end_turn outside an explicit allowlist and exclude list", async () => {
+		const session = await createSession({ tools: ["read"], excludeTools: ["end_turn"] });
+
+		expect(
+			session
+				.getAllTools()
+				.map((tool) => tool.name)
+				.sort(),
+		).toEqual(["end_turn", "read"]);
+		expect(session.getActiveToolNames().sort()).toEqual(["end_turn", "read"]);
 		session.dispose();
 	});
 });

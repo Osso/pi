@@ -53,11 +53,14 @@ describe("regression #5109: exclude tools", () => {
 			expect(harness.session.getActiveToolNames().sort()).toEqual([
 				"ask_architect",
 				"ask_questions",
+				"ask_supervisor",
 				"bash",
 				"broadcast",
+				"change_working_directory",
 				"channel_post",
 				"dynamic_tool",
 				"edit",
+				"end_turn",
 				"find",
 				"grep",
 				"list_sessions",
@@ -87,8 +90,8 @@ describe("regression #5109: exclude tools", () => {
 		try {
 			await harness.session.bindExtensions({});
 
-			expect(toolNames(harness.session.getAllTools())).toEqual(["bash"]);
-			expect(harness.session.getActiveToolNames()).toEqual(["bash"]);
+			expect(toolNames(harness.session.getAllTools())).toEqual(["bash", "end_turn"]);
+			expect(harness.session.getActiveToolNames()).toEqual(["bash", "end_turn"]);
 			expect(harness.session.systemPrompt).toContain("- bash:");
 			expect(harness.session.systemPrompt).not.toContain("- read:");
 			expect(harness.session.systemPrompt).not.toContain("ask_question");

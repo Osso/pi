@@ -193,7 +193,7 @@ export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import { ToolDetachRegistry } from "./tool-detach-registry.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
-import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
+import { createAllToolDefinitions, createEndTurnToolDefinition, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
@@ -229,6 +229,15 @@ const QUOTA_EXHAUSTION_PATTERN =
 	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
 const DUPLICATE_TURN_GUARD_PROMPT =
 	"You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
+
+function isAllowedSessionTool(
+	name: string,
+	allowedToolNames: Set<string> | undefined,
+	excludedToolNames: Set<string> | undefined,
+): boolean {
+	if (name === "end_turn") return true;
+	return (!allowedToolNames || allowedToolNames.has(name)) && !excludedToolNames?.has(name);
+}
 
 // Once this process has ever advertised its pid as a runtime mailbox listener, stray
 // SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
@@ -4558,8 +4567,7 @@ export class AgentSession {
 		const previousActiveToolNames = this.getActiveToolNames();
 		const allowedToolNames = this._allowedToolNames;
 		const excludedToolNames = this._excludedToolNames;
-		const isAllowedTool = (name: string): boolean =>
-			(!allowedToolNames || allowedToolNames.has(name)) && !excludedToolNames?.has(name);
+		const isAllowedTool = (name: string): boolean => isAllowedSessionTool(name, allowedToolNames, excludedToolNames);
 
 		const registeredTools = this._extensionRunner.getAllRegisteredTools();
 		const allCustomTools = [
@@ -4643,6 +4651,7 @@ export class AgentSession {
 			}
 		}
 
+		nextActiveToolNames.push("end_turn");
 		this.setActiveToolsByName([...new Set(nextActiveToolNames)]);
 	}
 
@@ -4655,12 +4664,15 @@ export class AgentSession {
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
 		const baseToolDefinitions = this._baseToolsOverride
-			? Object.fromEntries(
-					Object.entries(this._baseToolsOverride).map(([name, tool]) => [
-						name,
-						createToolDefinitionFromAgentTool(tool),
-					]),
-				)
+			? {
+					...Object.fromEntries(
+						Object.entries(this._baseToolsOverride).map(([name, tool]) => [
+							name,
+							createToolDefinitionFromAgentTool(tool),
+						]),
+					),
+					end_turn: createEndTurnToolDefinition(),
+				}
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
 					bash: {

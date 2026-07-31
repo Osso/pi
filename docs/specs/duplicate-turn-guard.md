@@ -12,6 +12,7 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 
 ### Guard instruction
 
+- [x] Keep the built-in `end_turn` control tool active even when no tools, no built-in tools, an explicit allowlist, or an exclusion list would otherwise remove it (`2835-tools-allowlist-filters-extension-tools.test.ts`, `3592-no-builtin-tools-keeps-extension-tools.test.ts`, `5109-exclude-tools.test.ts`).
 - [x] Inject a user-role steering instruction telling the model to stop looping and call `end_turn` with a concise reason (`agent-session-prompt.test.ts`).
 - [x] Inject the instruction at most once for the current duplicate-turn sequence.
 - [x] Keep the injected instruction out of persisted session history (`agent-session-prompt.test.ts`).
@@ -29,7 +30,10 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/agent-session.ts` — tracks assistant fingerprints, injects the runtime-only guard message, resets detection, and excludes synthetic messages from persistence.
-- `packages/coding-agent/test/suite/agent-session-prompt.test.ts` — verifies injection, persistence exclusion, and reset behavior.
+- `packages/coding-agent/test/suite/agent-session-prompt.test.ts` — verifies injection, child-runtime coverage, persistence exclusion, and reset behavior.
+- `packages/coding-agent/test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts` — verifies allowlists preserve `end_turn`.
+- `packages/coding-agent/test/suite/regressions/3592-no-builtin-tools-keeps-extension-tools.test.ts` — verifies no-tools and no-builtin-tools preserve `end_turn`.
+- `packages/coding-agent/test/suite/regressions/5109-exclude-tools.test.ts` — verifies exclusions preserve `end_turn`.
 
 ## Tests asserting this spec
 
@@ -44,4 +48,5 @@ None.
 - Fuzzy or semantic similarity detection.
 - Detecting duplicate tool calls or duplicate tool results.
 - Persisting the synthetic guard instruction as a user message.
+- Suppressing ordinary tools from explicit allowlists, no-tools settings, or exclusion lists.
 - Replacing the existing `end_turn` tool contract or retry/compaction behavior.

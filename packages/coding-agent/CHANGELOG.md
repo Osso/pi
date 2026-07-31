@@ -17,7 +17,7 @@
 
 ### Added
 
-- Added duplicate-turn loop detection: after consecutive identical text-only assistant turns, Pi injects a non-persisted instruction to call `end_turn` with a concise reason; changed assistant content, tool execution, or new user input resets detection.
+- Added duplicate-turn loop detection: after consecutive identical text-only assistant turns, Pi injects a non-persisted instruction to call the always-active `end_turn` control tool with a concise reason; changed assistant content, tool execution, or new user input resets detection. Ordinary tool filtering remains unchanged.
 - Added the default first-party `codex-image-generation` extension with an `image_gen` function tool for Codex models; it uses OpenAI Responses hosted image generation only inside its private one-shot request, and successful calls persist a uniquely named PNG in the active working directory and report its path.
 - Added a live `Next review in M:SS` countdown to timed Supervisor wait statuses, with persisted deadlines, `Review due…` expiry state, restored rendering, and redraw-only cancellation that does not duplicate reviews or transcript entries.
 - Added `ExtensionUIContext.requestRender()` so interactive extensions can request lightweight redraws while RPC and print modes safely ignore the request.

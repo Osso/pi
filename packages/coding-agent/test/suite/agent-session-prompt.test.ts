@@ -77,8 +77,9 @@ describe("AgentSession prompt characterization", () => {
 	});
 
 	it("steers the model to end_turn after consecutive identical assistant turns without persisting the instruction", async () => {
-		const harness = await createHarness({ initialActiveToolNames: [] });
+		const harness = await createHarness({ initialActiveToolNames: ["end_turn"] });
 		harnesses.push(harness);
+		expect(harness.session.getActiveToolNames()).toContain("end_turn");
 		let guardPrompt = "";
 		harness.setResponses([
 			fauxAssistantMessage("same response"),
@@ -88,6 +89,79 @@ describe("AgentSession prompt characterization", () => {
 					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
 				);
 				guardPrompt = guardMessage ? getMessageText(guardMessage) : "";
+				return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "duplicate response detected" }), {
+					stopReason: "toolUse",
+				});
+			},
+		]);
+
+		await harness.session.prompt("start");
+		await harness.session.continue();
+
+		expect(harness.session.getActiveToolNames()).toContain("end_turn");
+		expect(guardPrompt).toContain("end_turn");
+		expect(guardPrompt).toContain("concise reason");
+		expect(
+			harness.session.messages.some(
+				(message) =>
+					message.role === "assistant" &&
+					message.content.some((part) => part.type === "toolCall" && part.name === "end_turn"),
+			),
+		).toBe(true);
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "message" && entry.message.role === "user")
+				.map((entry) => getMessageText(entry.message)),
+		).toEqual(["start"]);
+	});
+
+	it("applies duplicate-turn guard to child runtimes without persisting the instruction", async () => {
+		const harness = await createHarness({
+			initialActiveToolNames: [],
+			excludedToolNames: ["end_turn"],
+			multiAgentAgentId: "child-1",
+			multiAgentParentSessionId: "parent-1",
+			multiAgentRuntimeRole: "child",
+		});
+		harnesses.push(harness);
+		expect(harness.session.getActiveToolNames()).toContain("end_turn");
+		let sawGuard = false;
+		harness.setResponses([
+			fauxAssistantMessage("same response"),
+			fauxAssistantMessage("same response"),
+			(context) => {
+				sawGuard = context.messages.some(
+					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+				);
+				return fauxAssistantMessage("child recovered");
+			},
+		]);
+
+		await harness.session.prompt("child start");
+		await harness.session.continue();
+
+		expect(sawGuard).toBe(true);
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "message" && entry.message.role === "user")
+				.map((entry) => getMessageText(entry.message)),
+		).toEqual(["child start"]);
+	});
+
+	it("injects the guard when end_turn was filtered from the initial active tools", async () => {
+		const harness = await createHarness({ initialActiveToolNames: [], excludedToolNames: ["end_turn"] });
+		harnesses.push(harness);
+		expect(harness.session.getActiveToolNames()).toContain("end_turn");
+		let sawGuard = false;
+		harness.setResponses([
+			fauxAssistantMessage("same response"),
+			fauxAssistantMessage("same response"),
+			(context) => {
+				sawGuard = context.messages.some(
+					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+				);
 				return fauxAssistantMessage("recovered");
 			},
 		]);
@@ -95,8 +169,7 @@ describe("AgentSession prompt characterization", () => {
 		await harness.session.prompt("start");
 		await harness.session.continue();
 
-		expect(guardPrompt).toContain("end_turn");
-		expect(guardPrompt).toContain("concise reason");
+		expect(sawGuard).toBe(true);
 		expect(
 			harness.sessionManager
 				.getEntries()
@@ -124,7 +197,7 @@ describe("AgentSession prompt characterization", () => {
 		await harness.session.continue();
 
 		expect(sawGuard).toBe(false);
-		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
 	it("resets duplicate detection after tool execution", async () => {
@@ -157,7 +230,7 @@ describe("AgentSession prompt characterization", () => {
 		await harness.session.continue();
 
 		expect(sawGuard).toBe(false);
-		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
 	it("resets duplicate detection after new user input", async () => {
@@ -179,7 +252,7 @@ describe("AgentSession prompt characterization", () => {
 		await harness.session.prompt("second");
 
 		expect(sawGuard).toBe(false);
-		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
 	it("handles a tool call turn and waits for the follow-up LLM response", async () => {

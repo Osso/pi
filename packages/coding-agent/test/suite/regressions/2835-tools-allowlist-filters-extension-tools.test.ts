@@ -73,8 +73,8 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["dynamic_tool", "read"]);
-		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "read"]);
+		).toEqual(["dynamic_tool", "end_turn", "read"]);
+		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "end_turn", "read"]);
 		expect(session.systemPrompt).toContain("- read: Read file contents");
 		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
 		expect(session.systemPrompt).not.toContain("- bash:");
@@ -85,9 +85,9 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 	it("disables all tools when the allowlist is empty", async () => {
 		const session = await createSession([]);
 
-		expect(session.getAllTools()).toEqual([]);
-		expect(session.getActiveToolNames()).toEqual([]);
-		expect(session.systemPrompt).toContain("Available tools:\n(none)");
+		expect(session.getAllTools().map((tool) => tool.name)).toEqual(["end_turn"]);
+		expect(session.getActiveToolNames()).toEqual(["end_turn"]);
+		expect(session.systemPrompt).toContain("- end_turn:");
 		expect(session.systemPrompt).not.toContain("dynamic_tool");
 		session.dispose();
 	});
