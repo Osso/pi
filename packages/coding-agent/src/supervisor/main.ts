@@ -326,14 +326,17 @@ function readCurrentAssistantText(
 	}
 	const assistantMessages = entries
 		.slice(previousLeafIndex + 1)
-		.filter((entry) => entry.type === "message" && entry.message.role === "assistant")
+		.filter(
+			(entry): entry is Extract<SessionEntry, { type: "message" }> =>
+				entry.type === "message" && entry.message.role === "assistant",
+		)
 		.map((entry) => entry.message);
 	const terminalMessage = assistantMessages.at(-1);
 	if (!isRecord(terminalMessage) || !Array.isArray(terminalMessage.content)) {
 		throw new Error("Supervisor model returned no assistant text for current request");
 	}
 	const responseMessage = terminalMessageCallsEndTurn(terminalMessage)
-		? assistantMessages.findLast((message) => message.stopReason === "stop")
+		? [...assistantMessages].reverse().find((message) => message.stopReason === "stop")
 		: terminalMessage;
 	if (!isRecord(responseMessage) || !Array.isArray(responseMessage.content)) {
 		throw new Error("Supervisor model returned no assistant text for current request");
