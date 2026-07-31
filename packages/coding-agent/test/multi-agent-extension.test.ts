@@ -59,7 +59,7 @@ import {
 	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { SettingsManager } from "../src/core/settings-manager.ts";
+import { SettingsManager, type Settings } from "../src/core/settings-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
@@ -3876,6 +3876,100 @@ describe("multi-agent extension tools", () => {
 			lifecycle: "completed",
 			result: { summary: "factory child done" },
 		});
+	});
+
+	it("propagates the browser profile tool allowlist to a real child while preserving lifecycle controls", async () => {
+		const parentHarness = await createHarness({
+			persistedSession: true,
+			settings: {
+				agents: { browser: { tools: ["browser-cli"] } },
+			} as unknown as Partial<Settings>,
+		});
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-07-31T00:00:00.000Z" });
+		let childSession: Harness["session"] | undefined;
+		let browserCallResult: AgentToolResult<unknown> | undefined;
+		let browserCallError: string | undefined;
+		let pyrunCallError: string | undefined;
+		let activeToolNames: string[] = [];
+
+		const browserTools: ExtensionFactory = (pi) => {
+			pi.registerTool({
+				name: "browser-cli",
+				label: "browser-cli",
+				description: "Run a browser-cli action.",
+				parameters: Type.Object({ action: Type.String() }),
+				execute: async (_toolCallId, params) => ({
+					content: [{ type: "text", text: `browser-cli: ${params.action}` }],
+					details: { action: params.action },
+				}),
+			});
+			pi.registerTool({
+				name: "pyrun",
+				label: "Pyrun",
+				description: "Evaluate Pyrun code.",
+				parameters: Type.Object({ code: Type.String() }),
+				execute: async () => ({ content: [{ type: "text", text: "pyrun" }], details: {} }),
+			});
+		};
+		const lifecycleControls: ExtensionFactory = (pi) => agentsMailboxExtension(pi, { store });
+		const probe: ExtensionFactory = (pi) => {
+			pi.on("session_start", async () => {
+				activeToolNames = pi.getActiveTools();
+				try {
+					browserCallResult = await pi.callTool("browser-cli", { action: "get title" });
+				} catch (error) {
+					browserCallError = error instanceof Error ? error.message : String(error);
+				}
+				try {
+					await pi.callTool("pyrun", { code: "1 + 1" });
+				} catch (error) {
+					pyrunCallError = error instanceof Error ? error.message : String(error);
+				}
+			});
+		};
+		const createChildSession = createProductionChildAgentSessionFactory({
+			agentDir: parentHarness.tempDir,
+			createSessionManager: SessionManager.create,
+			extensionFactories: [browserTools, lifecycleControls, probe],
+			multiAgentStore: store,
+			createSession: async (options) => {
+				const result = await createAgentSession({
+					...options,
+					authStorage: parentHarness.authStorage,
+					settingsManager: parentHarness.settingsManager,
+				});
+				childSession = result.session;
+				childSessions.push(result.session);
+				return { session: result.session };
+			},
+		});
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel(),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+				settingsManager: parentHarness.settingsManager,
+			},
+			store,
+			createChildSession,
+		});
+		parentHarness.setResponses([fauxAssistantMessage("browser child done")]);
+
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "browser",
+			context: "fresh",
+			prompt: "Run the browser task",
+		});
+		const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
+
+		expect(waited.lifecycle).toBe("completed");
+		expect(childSession).toBeDefined();
+		expect(browserCallError).toBeUndefined();
+		expect(browserCallResult?.content).toEqual([{ type: "text", text: "browser-cli: get title" }]);
+		expect(pyrunCallError).toBe("Tool is not active: pyrun");
+		expect(activeToolNames).toEqual(expect.arrayContaining(["browser-cli", "contact_parent", "send_agent_message", "end_turn"]));
+		expect(activeToolNames).not.toContain("pyrun");
 	});
 
 	it("creates an explicitly fresh child with only its appended assignment", async () => {
