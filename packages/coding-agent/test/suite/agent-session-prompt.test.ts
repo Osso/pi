@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InputEvent } from "../../src/core/extensions/index.ts";
 import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
 import { getControlDbPath, readPromptHistory, recordPromptHistoryEntry } from "../../src/core/session-control-db.ts";
-import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
 import type { SessionMessageEntry } from "../../src/core/session-manager.ts";
+import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
 import { createTestResourceLoader } from "../utilities.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
@@ -123,9 +123,7 @@ describe("AgentSession prompt characterization", () => {
 		expect(
 			harness.sessionManager
 				.getEntries()
-				.filter(
-					(entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user",
-				)
+				.filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user")
 				.map((entry) => getMessageText(entry.message)),
 		).toEqual(["start"]);
 	});
@@ -159,9 +157,7 @@ describe("AgentSession prompt characterization", () => {
 		expect(
 			harness.sessionManager
 				.getEntries()
-				.filter(
-					(entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user",
-				)
+				.filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user")
 				.map((entry) => getMessageText(entry.message)),
 		).toEqual(["child start"]);
 	});
@@ -189,9 +185,7 @@ describe("AgentSession prompt characterization", () => {
 		expect(
 			harness.sessionManager
 				.getEntries()
-				.filter(
-					(entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user",
-				)
+				.filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user")
 				.map((entry) => getMessageText(entry.message)),
 		).toEqual(["start"]);
 	});
