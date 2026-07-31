@@ -58,4 +58,29 @@ describe("sessions command", () => {
 		expect(handled).toBe(true);
 		expect(output).toEqual(["Truncated 4 tool results in 2 sessions. Skipped 1 file.\n"]);
 	});
+
+	it("reports migration errors and sets a failing exit code", async () => {
+		const output: string[] = [];
+		const errors: string[] = [];
+		process.exitCode = undefined;
+		await handleSessionsCommand(["sessions", "truncate-tool-output"], {
+			stdout: (text) => output.push(text),
+			stderr: (text) => errors.push(text),
+			truncateToolOutput: () => ({
+				scannedFiles: 1,
+				changedFiles: 0,
+				truncatedMessages: 0,
+				skippedMalformedFiles: 1,
+				skippedNonSessionFiles: 0,
+				skippedErrorFiles: 0,
+				backupPaths: [],
+				errors: ["/tmp/broken.jsonl: malformed JSONL"],
+			}),
+		});
+
+		expect(process.exitCode).toBe(1);
+		expect(output).toEqual(["Truncated 0 tool results in 0 sessions. Skipped 1 file.\n"]);
+		expect(errors).toEqual(["Migration errors:\n/tmp/broken.jsonl: malformed JSONL\n"]);
+		process.exitCode = undefined;
+	});
 });

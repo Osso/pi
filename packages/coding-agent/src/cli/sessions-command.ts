@@ -32,6 +32,10 @@ export async function handleSessionsCommand(
 			dependencies.agentDir ?? getAgentDir(),
 		);
 		stdout(formatTruncateToolOutputReport(report));
+		if (report.errors.length > 0) {
+			stderr(`Migration errors:\n${report.errors.join("\n")}\n`);
+			process.exitCode = 1;
+		}
 		return true;
 	}
 

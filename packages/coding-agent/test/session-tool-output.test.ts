@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, type ToolResultMessage } from "@earendil-works/pi-ai/compat";
@@ -85,12 +95,15 @@ describe("persisted tool result output", () => {
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line));
-		const persisted = persistedLines.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		const persistedIndex = persistedLines.findIndex((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		const persisted = persistedLines[persistedIndex];
 		const persistedText = textFromToolResult(persisted.message);
+		const persistedLine = readFileSync(session.getSessionFile()!, "utf8").trim().split("\n")[persistedIndex];
 		const runtimeEntry = session.getEntry(entryId);
 		if (!runtimeEntry || runtimeEntry.type !== "message") throw new Error("expected persisted message entry");
 
 		expect(Buffer.byteLength(persistedText, "utf8")).toBeLessThanOrEqual(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
+		expect(Buffer.byteLength(persistedLine, "utf8")).toBeLessThanOrEqual(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
 		expect(persistedText).toContain(TOOL_RESULT_TRUNCATION_MARKER);
 		expect(textFromToolResult(runtimeEntry.message as ToolResultMessage)).toBe(original);
 	});
@@ -109,6 +122,21 @@ describe("persisted tool result output", () => {
 
 		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
 		expect(text).toContain(TOOL_RESULT_TRUNCATION_MARKER);
+		expect(text).not.toContain("�");
+	});
+
+	it("does not emit a replacement character at a multibyte boundary", () => {
+		const entry = {
+			type: "message" as const,
+			id: "tool-1",
+			parentId: null,
+			timestamp: new Date().toISOString(),
+			message: toolResult("😀".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES)),
+		};
+
+		const persisted = truncateToolResultForPersistence(entry);
+		const text = textFromToolResult(persisted.message as ToolResultMessage);
+
 		expect(text).not.toContain("�");
 	});
 
@@ -134,6 +162,7 @@ describe("tool result session migration", () => {
 		const malformedPath = join(agentDir, "broken.jsonl");
 		const nonSessionPath = join(agentDir, "other.jsonl");
 		writeSession(sessionPath, toolResult("y".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 1)));
+		chmodSync(sessionPath, 0o600);
 		writeFileSync(malformedPath, "not json\n");
 		writeFileSync(nonSessionPath, '{"type":"event"}\n');
 
@@ -146,6 +175,7 @@ describe("tool result session migration", () => {
 		expect(first.skippedMalformedFiles).toBe(1);
 		expect(first.skippedNonSessionFiles).toBe(1);
 		expect(backups).toHaveLength(1);
+		expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
 		expect(Buffer.byteLength(textFromToolResult(migrated.message), "utf8")).toBeLessThanOrEqual(
 			MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES,
 		);
@@ -155,5 +185,22 @@ describe("tool result session migration", () => {
 		expect(second.truncatedMessages).toBe(0);
 		expect(readdirSync(sessionDir).filter((name) => name.includes(".tool-output-backup-")).length).toBe(1);
 		expect(existsSync(sessionPath)).toBe(true);
+	});
+
+	it("skips a session that changes during migration", () => {
+		const agentDir = createTempDir();
+		const sessionDir = join(agentDir, "sessions", "project");
+		const sessionPath = join(sessionDir, "session.jsonl");
+		mkdirSync(sessionDir, { recursive: true });
+		writeSession(sessionPath, toolResult("z".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 1)));
+
+		const report = migrateToolResultSessionFiles(agentDir, () => {
+			writeFileSync(sessionPath, `${readFileSync(sessionPath, "utf8")}\n`);
+			return new Date();
+		});
+
+		expect(report.changedFiles).toBe(0);
+		expect(report.skippedErrorFiles).toBe(1);
+		expect(report.errors[0]).toContain("session changed while scanning");
 	});
 });

@@ -6,6 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { resolvePath } from "../utils/paths.ts";
 import { CURRENT_SESSION_VERSION, type FileEntry, getDefaultSessionDir } from "./session-manager.ts";
+import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
 
 const EXTERNAL_SESSION_PROVIDERS = ["codex", "claude"] as const;
 type ExternalSessionProvider = (typeof EXTERNAL_SESSION_PROVIDERS)[number];
@@ -269,7 +270,7 @@ function writeImportedSession(path: string, sessionId: string, source: SourceSes
 		parentId = id;
 	}
 
-	writeFileSync(path, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+	writeFileSync(path, `${entries.map((entry) => serializeSessionEntryForPersistence(entry)).join("\n")}\n`);
 }
 
 function findIdInCodexFileName(path: string): string | undefined {
