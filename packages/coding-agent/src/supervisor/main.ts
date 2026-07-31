@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { cleanupSessionResources, type AssistantMessage } from "@earendil-works/pi-ai/compat";
+import { type AssistantMessage, cleanupSessionResources } from "@earendil-works/pi-ai/compat";
 import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
