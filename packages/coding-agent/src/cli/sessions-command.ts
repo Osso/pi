@@ -96,5 +96,7 @@ function formatTruncateToolOutputReport(report: ToolResultSessionMigrationReport
 }
 
 function printSessionsHelp(write: (text: string) => void): void {
-	write(`Usage:\n  pi sessions archive [--older-than <days>]\n  pi sessions truncate-tool-output\n`);
+	write(
+		`Usage:\n  pi sessions archive [--older-than <days>]\n  pi sessions truncate-tool-output\n\nCommands:\n  archive                  Archive sessions older than the cutoff (default: 5 days).\n  truncate-tool-output    Rewrite oversized persisted tool results under the agent directory.\n                           Changed files receive a .tool-output-backup-* copy.\n`,
+	);
 }

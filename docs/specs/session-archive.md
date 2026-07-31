@@ -1,6 +1,6 @@
 Module boundary: first-party extension module (`packages/coding-agent/extensions/session-archive/`) plus core session-control-DB archive state and resume-picker behavior.
 
-Pi persists archive state for session transcripts without moving or deleting their JSONL files. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. The resident Architect transcript is also a persisted, non-subagent session under `<agent-dir>/architect-sessions/`; its metadata is written with `archived_at` set at startup, so it remains available only through the Archived picker scope.
+Pi persists archive state for session transcripts without moving or deleting their JSONL files. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md). The resident Architect transcript is also a persisted, non-subagent session under `<agent-dir>/architect-sessions/`; its metadata is written with `archived_at` set at startup, so it remains available only through the Archived picker scope.
 
 ## What it must do
 
