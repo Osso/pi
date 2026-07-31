@@ -62,7 +62,7 @@ function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefine
 				entry,
 				role: entry.message.role,
 				content,
-				searchTexts: collectSearchTexts(content),
+				searchTexts: entry.message.role === "user" ? collectSearchTexts(content) : [],
 			};
 		}
 		case "custom_message":
@@ -70,12 +70,12 @@ function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefine
 				entry,
 				role: "custom",
 				content: entry.content,
-				searchTexts: collectSearchTexts(entry.content),
+				searchTexts: [],
 			};
 		case "compaction":
-			return { entry, role: "compaction", content: entry.summary, searchTexts: [entry.summary] };
+			return { entry, role: "compaction", content: entry.summary, searchTexts: [] };
 		case "branch_summary":
-			return { entry, role: "branchSummary", content: entry.summary, searchTexts: [entry.summary] };
+			return { entry, role: "branchSummary", content: entry.summary, searchTexts: [] };
 		default:
 			return undefined;
 	}
@@ -116,11 +116,11 @@ export function createSearchCurrentSessionHistoryToolDefinition(): ToolDefinitio
 		name: "search_current_session_history",
 		label: "search_current_session_history",
 		description:
-			"Search the current persisted session's active branch, including full entries hidden from model context by compaction.",
-		promptSnippet: "Search the current stored session history after compaction",
+			"Search user-message content in the current persisted session's active branch, including full entries hidden from model context by compaction.",
+		promptSnippet: "Search user messages in the current stored session history after compaction",
 		promptGuidelines: [
-			"Use search_current_session_history to recover details from the current session that may have been omitted by compaction.",
-			"Searches only the current active branch and returns full matching content with optional neighboring entries.",
+			"Use search_current_session_history to recover user-message details from the current session that may have been omitted by compaction.",
+			"Matching searches only user messages; optional neighboring entries may include other entry types.",
 		],
 		parameters: searchCurrentSessionHistorySchema,
 		executionMode: "parallel",

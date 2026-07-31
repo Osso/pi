@@ -27,6 +27,51 @@ function toolContext(sessionManager: SessionManager) {
 }
 
 describe("search_current_session_history", () => {
+	it("matches user messages without searching assistant or tool content", async () => {
+		const sessionManager = createSessionManager();
+		sessionManager.appendMessage({ role: "user", content: "list-skills", timestamp: 1 });
+		sessionManager.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "Available skills include reddit and /tmp/pi-clipboard-image.png" }],
+			api: "openai-responses",
+			provider: "openai",
+			model: "gpt-5.5",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: 2,
+		});
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+
+		const userMatch = await tool.execute(
+			"search-history",
+			{ query: "list-skills" },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+		const assistantMatch = await tool.execute(
+			"search-history",
+			{ query: "reddit" },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+
+		expect(userMatch.details?.totalMatches).toBe(1);
+		expect(userMatch.details?.entries).toEqual([
+			expect.objectContaining({ role: "user", content: "list-skills", matched: true }),
+		]);
+		expect(assistantMatch.details?.totalMatches).toBe(0);
+		expect(assistantMatch.details?.entries).toEqual([]);
+	});
+
 	it("searches full active-branch entries hidden by compaction and includes neighboring entries", async () => {
 		const sessionManager = createSessionManager();
 		const firstId = sessionManager.appendMessage({
