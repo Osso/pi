@@ -15,6 +15,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 - [x] Continue a normal coding-agent model run after an assistant response containing text but no tool call when `end_turn` is available.
 - [x] End the run after a tool batch whose finalized results all request termination, including `end_turn`.
 - [x] Keep model errors, aborted turns, and existing explicit termination mechanisms terminal.
+- [x] Detect consecutive identical text-only assistant turns at the AgentSession boundary and inject one non-persisted instruction to call `end_turn` with a concise reason; changed content, tool execution, and new user input reset detection.
 
 ## How it works
 
@@ -25,11 +26,13 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 - `packages/coding-agent/src/core/tools/end-turn.ts` — defines the built-in tool schema and terminating result.
 - `packages/coding-agent/src/core/tools/index.ts` — exports and registers the tool in default tool collections.
 - `packages/agent-core/src/agent-loop.ts` — continues text-only responses when the end-turn tool is available.
+- `packages/coding-agent/src/core/agent-session.ts` — detects duplicate assistant turns and injects the runtime-only loop guard.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/end-turn-tool.test.ts`
 - `packages/agent-core/test/agent-loop.test.ts`
+- `packages/coding-agent/test/suite/agent-session-prompt.test.ts`
 
 ## Known gaps (current cycle)
 

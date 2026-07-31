@@ -76,6 +76,112 @@ describe("AgentSession prompt characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
+	it("steers the model to end_turn after consecutive identical assistant turns without persisting the instruction", async () => {
+		const harness = await createHarness({ initialActiveToolNames: [] });
+		harnesses.push(harness);
+		let guardPrompt = "";
+		harness.setResponses([
+			fauxAssistantMessage("same response"),
+			fauxAssistantMessage("same response"),
+			(context) => {
+				const guardMessage = context.messages.find(
+					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+				);
+				guardPrompt = guardMessage ? getMessageText(guardMessage) : "";
+				return fauxAssistantMessage("recovered");
+			},
+		]);
+
+		await harness.session.prompt("start");
+		await harness.session.continue();
+
+		expect(guardPrompt).toContain("end_turn");
+		expect(guardPrompt).toContain("concise reason");
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "message" && entry.message.role === "user")
+				.map((entry) => getMessageText(entry.message)),
+		).toEqual(["start"]);
+	});
+
+	it("resets duplicate detection when assistant content changes", async () => {
+		const harness = await createHarness({ initialActiveToolNames: [] });
+		harnesses.push(harness);
+		let sawGuard = false;
+		harness.setResponses([
+			fauxAssistantMessage("first"),
+			fauxAssistantMessage("second"),
+			(context) => {
+				sawGuard = context.messages.some(
+					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+				);
+				return fauxAssistantMessage("third");
+			},
+		]);
+
+		await harness.session.prompt("start");
+		await harness.session.continue();
+
+		expect(sawGuard).toBe(false);
+		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
+	it("resets duplicate detection after tool execution", async () => {
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({ text: Type.String() }),
+			execute: async (_toolCallId, params) => ({
+				content: [{ type: "text", text: String(params.text) }],
+				details: undefined,
+			}),
+		};
+		const harness = await createHarness({ tools: [echoTool], initialActiveToolNames: ["echo"] });
+		harnesses.push(harness);
+		let sawGuard = false;
+		harness.setResponses([
+			fauxAssistantMessage("same response"),
+			fauxAssistantMessage(fauxToolCall("echo", { text: "tool output" }), { stopReason: "toolUse" }),
+			(context) => {
+				sawGuard = context.messages.some(
+					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+				);
+				return fauxAssistantMessage("same response");
+			},
+			fauxAssistantMessage("unexpected"),
+		]);
+
+		await harness.session.prompt("start");
+		await harness.session.continue();
+
+		expect(sawGuard).toBe(false);
+		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
+	it("resets duplicate detection after new user input", async () => {
+		const harness = await createHarness({ initialActiveToolNames: [] });
+		harnesses.push(harness);
+		let sawGuard = false;
+		harness.setResponses([
+			fauxAssistantMessage("same response"),
+			(context) => {
+				sawGuard = context.messages.some(
+					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+				);
+				return fauxAssistantMessage("same response");
+			},
+			fauxAssistantMessage("unexpected"),
+		]);
+
+		await harness.session.prompt("first");
+		await harness.session.prompt("second");
+
+		expect(sawGuard).toBe(false);
+		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
 	it("handles a tool call turn and waits for the follow-up LLM response", async () => {
 		const toolRuns: string[] = [];
 		const echoTool: AgentTool = {

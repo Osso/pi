@@ -227,6 +227,8 @@ const CODEX_PROVIDER_PAIRS = new Map([
 ]);
 const QUOTA_EXHAUSTION_PATTERN =
 	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
+const DUPLICATE_TURN_GUARD_PROMPT =
+	"You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
 
 // Once this process has ever advertised its pid as a runtime mailbox listener, stray
 // SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
@@ -668,6 +670,12 @@ export class AgentSession {
 	private _steeringMessages: string[] = [];
 	/** Tracks pending follow-up messages for UI display. Removed when delivered. */
 	private _followUpMessages: string[] = [];
+	/** Tracks the previous text-only assistant turn for deterministic loop detection. */
+	private _lastAssistantTurnFingerprint: string | undefined;
+	/** Prevents repeated guard injections until the assistant content or turn context changes. */
+	private _duplicateTurnGuardInjected = false;
+	/** Synthetic loop-guard messages are runtime-only and must not enter session history. */
+	private _internalSteeringMessages = new WeakSet<AgentMessage>();
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 	/** User prompts held outside Agent queues, such as TUI input replay after abort. */
@@ -1230,6 +1238,8 @@ export class AgentSession {
 
 	private _removeStartedUserMessageFromQueue(event: AgentEvent): void {
 		if (event.type !== "message_start" || event.message.role !== "user") return;
+		const isInternalSteeringMessage = this._internalSteeringMessages.has(event.message);
+		if (!isInternalSteeringMessage) this._resetDuplicateTurnGuard();
 		this._overflowRecoveryAttempted = false;
 		this._lengthRecoveryAttempted = false;
 		this._quotaFallbackAttempted = false;
@@ -1253,6 +1263,7 @@ export class AgentSession {
 	private _trackCompletedAssistantMessage(message: AssistantMessage): void {
 		this._lastAssistantMessage = message;
 		this._writeLastAssistantControlMessage(message);
+		this._trackDuplicateAssistantTurn(message);
 		if (message.stopReason !== "error") this._overflowRecoveryAttempted = false;
 		if (message.stopReason !== "length") this._lengthRecoveryAttempted = false;
 		if (message.stopReason === "error" || this._retryAttempt === 0) return;
@@ -1271,6 +1282,7 @@ export class AgentSession {
 		originalToolCallId: string | undefined,
 	): Promise<void> {
 		const { message } = event;
+		const isInternalSteeringMessage = this._internalSteeringMessages.has(message);
 		if (message.role === "custom") {
 			this.sessionManager.appendCustomMessageEntry(
 				message.customType,
@@ -1278,14 +1290,49 @@ export class AgentSession {
 				message.display,
 				message.details,
 			);
-		} else if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
+		} else if (
+			!isInternalSteeringMessage &&
+			(message.role === "user" || message.role === "assistant" || message.role === "toolResult")
+		) {
 			this.sessionManager.appendMessage(message);
 		}
+		if (isInternalSteeringMessage) this._internalSteeringMessages.delete(message);
 
 		if (originalToolCallId !== undefined) {
 			await this._extensionRunner.deliverToolResultRelocation(originalToolCallId);
 		}
 		if (message.role === "assistant") this._trackCompletedAssistantMessage(message);
+	}
+
+	private _resetDuplicateTurnGuard(): void {
+		this._lastAssistantTurnFingerprint = undefined;
+		this._duplicateTurnGuardInjected = false;
+	}
+
+	private _trackDuplicateAssistantTurn(message: AssistantMessage): void {
+		const hasToolCall = message.content.some((item) => item.type === "toolCall");
+		if (hasToolCall || message.stopReason === "error" || message.stopReason === "aborted") {
+			this._resetDuplicateTurnGuard();
+			return;
+		}
+
+		const fingerprint = JSON.stringify({ content: message.content, stopReason: message.stopReason });
+		if (fingerprint !== this._lastAssistantTurnFingerprint) {
+			this._lastAssistantTurnFingerprint = fingerprint;
+			this._duplicateTurnGuardInjected = false;
+			return;
+		}
+		if (this._duplicateTurnGuardInjected) return;
+
+		this._duplicateTurnGuardInjected = true;
+		const guardMessage: AgentMessage = {
+			role: "user",
+			content: [{ type: "text", text: DUPLICATE_TURN_GUARD_PROMPT }],
+			inputSource: "extension",
+			timestamp: Date.now(),
+		};
+		this._internalSteeringMessages.add(guardMessage);
+		this._steerAgent(guardMessage);
 	}
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
@@ -1295,6 +1342,7 @@ export class AgentSession {
 			event.type === "agent_end" && this._extensionRunner.hasPreparedToolResultRelocation()
 				? "cwd_relocation"
 				: undefined;
+		if (event.type === "tool_execution_start") this._resetDuplicateTurnGuard();
 		this._publishCurrentAgentActivity(event);
 		this._removeStartedUserMessageFromQueue(event);
 		await this._emitExtensionEvent(event, sessionContinuation);
