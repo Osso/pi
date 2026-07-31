@@ -219,9 +219,11 @@ type ResolvedAgentProfile = {
 	model?: ChildSessionModel;
 	modelMetadata?: AgentSnapshot["model"];
 	thinkingLevel?: ThinkingLevel;
+	tools?: string[];
 };
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const CHILD_AGENT_CONTROL_TOOL_NAMES = ["contact_parent", "send_agent_message", "end_turn"] as const;
 const MAIN_THREAD_AGENT_ID = "main";
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
 const RUNTIME_PROCESS_IDENTITY = JSON.parse(getRuntimeProcessInstanceId()) as ProcessIdentity;
@@ -764,6 +766,7 @@ export function createProductionChildAgentSessionFactory(
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
+			tools: resolveChildAgentTools(profile.tools),
 			multiAgentAgentId: agent.id,
 			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
 			multiAgentRequiresAgentId: true,
@@ -816,6 +819,7 @@ export function createProductionAttachedSessionFactory(
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
+			tools: resolveChildAgentTools(profile.tools),
 			multiAgentAgentId: agent.id,
 			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
 			multiAgentRequiresAgentId: true,
@@ -837,7 +841,13 @@ function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): 
 	return {
 		model: configuredModel,
 		thinkingLevel: toThinkingLevel(agent.model?.thinkingLevel),
+		tools: ctx.settingsManager?.getAgentProfile(agent.agentType)?.tools,
 	};
+}
+
+function resolveChildAgentTools(tools: string[] | undefined): string[] | undefined {
+	if (!tools) return undefined;
+	return [...new Set([...tools, ...CHILD_AGENT_CONTROL_TOOL_NAMES])];
 }
 
 function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext): ResolvedAgentProfile | undefined {
@@ -852,6 +862,7 @@ function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext)
 		model,
 		modelMetadata: model ? { providerId: model.provider, modelId: model.id, thinkingLevel: profile.thinkingLevel } : undefined,
 		thinkingLevel: profile.thinkingLevel,
+		tools: profile.tools,
 	};
 }
 

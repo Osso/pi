@@ -70,7 +70,7 @@
 - Added `pi.restart(...)` to Pyrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.
-- Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles.
+- Added agent-type profile settings for child agents, including built-in `explore`, `implement`, `verifier`, `documentation-update`, and `reviewer` profiles; configured profiles can also restrict child and attached sessions with a `tools` allowlist while retaining direct child lifecycle controls.
 - Added core system-prompt delegation rules requiring `explore` agents for codebase research, recommending `documentation-update` agents for documentation-impacting changes, and requiring `verifier` agents before completion claims when `spawn_agent` is available.
 - Added an agent switcher panel via `Alt+0` and `/agents` for viewing and selecting subagents.
 - Added selected-child editor steering: ordinary text routes only to a selected direct child with a live

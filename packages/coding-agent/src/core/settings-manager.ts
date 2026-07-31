@@ -73,6 +73,7 @@ export interface AgentProfileSettings {
 	context?: "fresh" | "inherit";
 	model?: string;
 	thinkingLevel?: AgentProfileThinkingLevel;
+	tools?: string[];
 }
 
 export interface PermissionRulesSettings {

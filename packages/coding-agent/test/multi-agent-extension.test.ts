@@ -59,7 +59,7 @@ import {
 	updateMultiAgentAgentTranscript,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { SettingsManager, type Settings } from "../src/core/settings-manager.ts";
+import { type Settings, SettingsManager } from "../src/core/settings-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import multiAgentExtension, {
 	type AttachedSessionFactory,
@@ -3968,7 +3968,9 @@ describe("multi-agent extension tools", () => {
 		expect(browserCallError).toBeUndefined();
 		expect(browserCallResult?.content).toEqual([{ type: "text", text: "browser-cli: get title" }]);
 		expect(pyrunCallError).toBe("Tool is not active: pyrun");
-		expect(activeToolNames).toEqual(expect.arrayContaining(["browser-cli", "contact_parent", "send_agent_message", "end_turn"]));
+		expect(activeToolNames).toEqual(
+			expect.arrayContaining(["browser-cli", "contact_parent", "send_agent_message", "end_turn"]),
+		);
 		expect(activeToolNames).not.toContain("pyrun");
 	});
 

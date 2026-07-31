@@ -83,11 +83,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       Callers choose `"inherit"` when prior main-thread decisions or research are required, and
       `"fresh"` for isolated work, review, verification, or falsification. Background jobs and restart
       recovery explicitly use `"fresh"`; attached-session reuse is a separate operation without this choice.
-- [x] Agent-type profiles can select a child model, thinking level, and default context; built-in
-      `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` profiles provide defaults,
-      the reviewer profile uses fresh context, and configured profiles override them. `spawn_agent` rejects
-      a non-empty explicit `agentType` when `SettingsManager` finds no matching built-in or configured profile,
-      and the error lists configured profile keys; omitted or blank `agentType` still defaults to `default` and
+- [x] Agent-type profiles can select a child model, thinking level, default context, and optional `tools`
+      allowlist; built-in `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` profiles
+      provide defaults, the reviewer profile uses fresh context, and configured profiles override them. When a
+      profile specifies `tools`, production child and attached sessions expose only those registered tool names plus the
+      child lifecycle controls `contact_parent`, `send_agent_message`, and `end_turn`; naming a tool does not register
+      it, so a browser profile requires an external `browser-cli` tool extension. `spawn_agent` rejects a
+      non-empty explicit `agentType` when `SettingsManager` finds no matching built-in or configured profile, and
+      the error lists configured profile keys; omitted or blank `agentType` still defaults to `default` and
       inherits the parent model.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log. The parent session JSONL contains
