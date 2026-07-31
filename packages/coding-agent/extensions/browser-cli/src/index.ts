@@ -33,7 +33,7 @@ const BROWSER_CLI_PROMPT_GUIDELINES = [
 	'When spawn_agent is available, use a fresh agentType "browser" for multi-step browser workflows; direct browser-cli use remains allowed for simple actions.',
 	"Pass deterministic command sequences in one ordered commands batch. Use separate calls when an intermediate result determines the next action.",
 	"Observe with snapshot --interactive --compact before interacting. Re-observe after navigation or page mutation instead of repeatedly guessing selectors.",
-	"Use open for navigation; fill, click, and press for interaction; wait for bounded delays or selectors; and get url, get title, and visible text for completion proof.",
+	"Use open for navigation; fill, click, and press for interaction. `press` takes only a key, not a selector. Wait for bounded delays or selectors; use get url, get title, and visible text for completion proof.",
 	"When a login form appears, attempt mapped authentication with broker-unlock --current-origin followed by broker-fill --current-origin. Never request or pass credential values.",
 	"After broker fill, inspect the page, click the sign-in control, and verify the resulting authenticated state. Stop for user action when MFA or CAPTCHA appears.",
 ];
