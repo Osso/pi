@@ -214,7 +214,14 @@ export function createGrepToolDefinition(
 							return lines;
 						};
 
-						const args: string[] = ["--json", "--line-number", "--color=never", "--hidden"];
+						const args: string[] = [
+							"--json",
+							"--max-columns",
+							String(DEFAULT_MAX_BYTES),
+							"--line-number",
+							"--color=never",
+							"--hidden",
+						];
 						if (ignoreCase) args.push("--ignore-case");
 						if (literal) args.push("--fixed-strings");
 						if (glob) args.push("--glob", glob);
