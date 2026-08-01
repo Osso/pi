@@ -159,6 +159,15 @@ describe("resident Supervisor service", () => {
 		expect(parseSupervisorResponse("approval_review", '{"kind":"pause","reason":"wait"}')).toBeUndefined();
 	});
 
+	it("accepts a valid JSON decision followed by a generated text suffix", () => {
+		expect(
+			parseSupervisorResponse(
+				"goal_completion_review",
+				'{"kind":"complete","reason":"verified"}  ... Need end_turn.',
+			),
+		).toEqual({ kind: "complete", reason: "verified" });
+	});
+
 	it("tells goal reviewers to schedule rechecks for asynchronous and externally advancing work", () => {
 		const prompt = buildSupervisorPrompt({
 			claimToken: "runtime",

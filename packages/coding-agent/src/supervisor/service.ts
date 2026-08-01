@@ -159,12 +159,47 @@ function extractTextContent(response: Record<string, unknown>): string | undefin
 }
 
 function parseJsonObject(json: string): Record<string, unknown> | undefined {
+	const trimmed = json.trim();
+	const exact = parseJsonRecord(trimmed);
+	if (exact) return exact;
+
+	const objectEnd = findJsonObjectEnd(trimmed);
+	if (objectEnd === undefined || !trimmed.slice(objectEnd).trimStart().startsWith("...")) return undefined;
+	return parseJsonRecord(trimmed.slice(0, objectEnd));
+}
+
+function parseJsonRecord(json: string): Record<string, unknown> | undefined {
 	try {
 		const parsed: unknown = JSON.parse(json);
 		return isRecord(parsed) ? parsed : undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+function findJsonObjectEnd(json: string): number | undefined {
+	if (!json.startsWith("{")) return undefined;
+	let depth = 0;
+	let escaped = false;
+	let inString = false;
+	for (let index = 0; index < json.length; index += 1) {
+		const character = json[index];
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (character === "\\") escaped = true;
+			else if (character === '"') inString = false;
+			continue;
+		}
+		if (character === '"') {
+			inString = true;
+		} else if (character === "{") {
+			depth += 1;
+		} else if (character === "}") {
+			depth -= 1;
+			if (depth === 0) return index + 1;
+		}
+	}
+	return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
