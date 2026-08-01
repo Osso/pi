@@ -23,6 +23,7 @@ once needed.
 - [x] Subagent sessions do not drain shared-channel messages by default.
 - [x] Every delivered channel entry is clearly tagged as shared-channel input and includes its sender session/agent.
 - [x] Delivered channel entries use the `role: "custom"` / `customType: "shared_channel"` message path and persist as `custom_message` entries, so live and rebuilt transcript views preserve channel classification instead of rendering them as typed user messages.
+- [x] When a shared-channel custom message is consumed as a follow-up after `end_turn`, its pending preview clears when the continuation starts.
 - [x] Shared-channel turns retain extension input provenance and never enter the interactive editor's typed prompt history, including post-run follow-up delivery.
 - [x] The cursor advances through a batch only after its combined prompt is successfully delivered; a failed batch remains unread.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
@@ -57,6 +58,7 @@ once needed.
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
 - `packages/coding-agent/test/suite/agent-session-queue.test.ts` — asserts shared-channel prompts use the custom-message path.
+- `packages/coding-agent/test/suite/regressions/shared-channel-end-turn-queue.test.ts` — asserts consumed follow-ups clear after `end_turn`.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — asserts real-process shared-channel delivery persists as a custom message.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts`
 
