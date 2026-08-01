@@ -83,6 +83,37 @@ describe("headless Supervisor advisory tool", () => {
 });
 
 describe("headless Supervisor goal system", () => {
+	it("preserves active scope when manage_goal set crosses the durable Supervisor boundary", async () => {
+		await withHeadlessPi(async (agent) => {
+			agent.writeRunningGoal(RUNNING_GOAL);
+			await agent.send({ type: "prompt", message: "Set a narrower implementation goal" });
+			const initial = await agent.waitForLlmRequest();
+			agent.respondToLlmRequest(
+				initial.id,
+				fauxAssistantMessage(
+					fauxToolCall("manage_goal", { action: "set", objective: "Add the Supervisor regression test" }),
+					{ stopReason: "toolUse" },
+				),
+			);
+
+			const review = await agent.waitForSupervisorRequest("goal_set_review");
+			expect(review.payload).toMatchObject({
+				currentObjective: RUNNING_GOAL,
+				proposedObjective: "Add the Supervisor regression test",
+			});
+			const additiveObjective = `${RUNNING_GOAL}; Add the Supervisor regression test`;
+			agent.respondToSupervisorRequest(review, {
+				kind: "set",
+				objective: additiveObjective,
+				reason: "Preserve the active goal while adding the subtask.",
+			});
+
+			const afterTool = await agent.waitForLlmRequest();
+			expect(JSON.stringify(afterTool.messages)).toContain(`Goal set: ${additiveObjective}`);
+			expect(agent.readGoal()).toMatchObject({ objective: additiveObjective });
+		});
+	});
+
 	it("completes an explicit manage_goal completion through the durable Supervisor boundary", async () => {
 		await withHeadlessPi(async (agent) => {
 			agent.writeRunningGoal(RUNNING_GOAL);

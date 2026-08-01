@@ -1451,6 +1451,7 @@ function isSupervisorResponseValidForRequest(
 ): boolean {
 	if (responseKind === "error") return true;
 	if (requestKind === "approval_review") return responseKind === "approve" || responseKind === "reject";
+	if (requestKind === "goal_set_review") return responseKind === "set";
 	if (requestKind === "supervisor_advisory") return responseKind === "advisory";
 	return (
 		responseKind === "complete" || responseKind === "continue" || responseKind === "pause" || responseKind === "wait"
