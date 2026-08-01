@@ -15,6 +15,10 @@
 - Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` exact-owner commands.
 - Removed the in-process LLM approval reviewer, `approvalReviewerModel`, recent approval-decision prompt history, and `approval-memory.jsonl`; LLM-approved presets now use the resident Supervisor and its KB memory.
 
+### Changed
+
+- Changed `manage_goal set` to require resident Supervisor review; the returned objective preserves the active goal's requirements and completion criteria while adding the proposed scope, and failed or stale reviews leave goal state unchanged.
+
 ### Added
 
 - Added first-party `ask_secret` for interactive-TUI-only masked credential prompts that provision browser records through the typed Secrets Broker path without returning secret values to the model.

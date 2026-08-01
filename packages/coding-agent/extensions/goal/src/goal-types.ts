@@ -19,11 +19,11 @@ export interface Goal {
 
 export type GoalSupervisorResponse = Extract<
 	SupervisorResponse,
-	{ kind: "complete" | "continue" | "pause" | "wait" | "error" }
+	{ kind: "complete" | "continue" | "pause" | "wait" | "set" | "error" }
 >;
 
 export interface GoalReviewInput {
-	kind: "goal_completion_review" | "goal_idle_review";
+	kind: "goal_completion_review" | "goal_idle_review" | "goal_set_review";
 	payload: Record<string, unknown>;
 	ctx: ExtensionContext;
 }

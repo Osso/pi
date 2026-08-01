@@ -74,6 +74,13 @@ notifications, and footer status; legacy paused state without a reason shows
 do not inject prompt context or continue automatically until the resume action
 removes both pause fields. Completion evidence is never inferred automatically.
 
+`manage_goal set` is reviewed by the resident Supervisor before state changes. The
+request includes the current objective when one exists and the proposed objective.
+The Supervisor must return a `set` decision whose objective preserves every
+requirement and completion criterion from the current objective, then adds the
+proposal; without a current objective, it returns the proposal unchanged. A
+review error or stale review leaves the existing goal state unchanged.
+
 `manage_goal` is supervisor-only. The SDK denylist removes that capability from
 spawned, attached/resumed, and `/bg` child sessions, and from the resident
 Architect service, after extension registration. This blocks external extensions
@@ -159,11 +166,11 @@ Completed and paused goals do not trigger automatic continuation.
 ## Tests
 
 `packages/coding-agent/test/goal-extension.test.ts` covers the implemented
-behavior: first-party registration, explicit `/goal set`, bare-objective and reserved-control-word rejection, `manage_goal`, view/clear, replacement, removed replacement flag rejection, objective length rejection,
+behavior: first-party registration, explicit `/goal set`, bare-objective and reserved-control-word rejection, `manage_goal`, Supervisor-reviewed additive `manage_goal set`, view/clear, `/goal` replacement, removed replacement flag rejection, objective length rejection,
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
 handling, start-on-set follow-up scheduling, automatic continuation, ordered idle and completion conversation evidence, paused accumulation, generated/failed-event filtering, error/cancellation preservation, lifecycle clearing, deferred error-status cancellation, retry exhaustion and cancellation, empty-response polling and cancellation, per-session isolation, budget flag rejection, and legacy
-budget field ignorance. `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` verifies that `manage_goal set` during an active turn starts its queued follow-up round. Production child exclusion,
+budget field ignorance. `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` verifies that `manage_goal set` during an active turn starts its queued follow-up round. `packages/coding-agent/test/supervisor-service.test.ts` verifies additive `goal_set_review` parsing and prompt instructions. Production child exclusion,
 external-tool denial for spawned and attached sessions, inactive Pyrun calls,
 supervisor retention, and no-continuation behavior are covered by
 `packages/coding-agent/test/multi-agent-extension.test.ts`; the Architect policy

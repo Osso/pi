@@ -97,6 +97,7 @@ export type SupervisorRequestKind =
 	| "approval_review"
 	| "goal_completion_review"
 	| "goal_idle_review"
+	| "goal_set_review"
 	| "supervisor_advisory";
 
 export type SupervisorRequestStatus = "pending" | "claimed" | "completed";
@@ -107,6 +108,7 @@ export type SupervisorResponse =
 	| { kind: "continue"; instructions: string; reason: string }
 	| { kind: "pause"; reason: string }
 	| { kind: "wait"; reason: string }
+	| { kind: "set"; objective: string; reason: string }
 	| { kind: "advisory"; answer: string }
 	| { kind: "error"; reason: string };
 

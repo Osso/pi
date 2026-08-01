@@ -32,6 +32,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
   project-local `.pi/extensions/` code.
 - [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions; pause requires a non-empty reason and persists/displays it, completion accepts paused active goals without requiring resume, and set rejects reserved goal-control words such as `continue`.
 - [x] The `manage_goal` tool exposes an action parameter plus optional objective, pause-only reason, and completionReport parameters; `complete` requires a nonblank free-form Markdown completionReport.
+- [x] `manage_goal set` sends the current and proposed objectives to the resident Supervisor; the returned objective preserves every current requirement and completion criterion while adding the proposed scope, returns the proposal unchanged when no goal exists, and leaves goal state unchanged when review fails or becomes stale.
 - [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
 - [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
 
@@ -43,7 +44,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ### Starting and continuing work
 
-- [x] `/goal set` submits exactly `Continue working toward the active goal.` as a new turn when idle or a queued follow-up when busy; `manage_goal set` submits the same reminder when idle but does not queue a redundant generic follow-up during an active turn; resuming a paused goal submits the same reminder when idle. The interactive pending-follow-up preview labels this exact raw goal reminder with sender `goal`. Generated user messages never restate goal-setting syntax or objective text.
+- [x] `/goal set` submits exactly `Continue working toward the active goal.` as a new turn when idle or a queued follow-up when busy; an accepted `manage_goal set` submits the same reminder using the Supervisor's additive objective, while it does not queue a redundant generic follow-up during an active turn; resuming a paused goal submits the same reminder when idle. The interactive pending-follow-up preview labels this exact raw goal reminder with sender `goal`. Generated user messages never restate goal-setting syntax or objective text.
 - [x] When an `agent_end` event fires for a running goal, Pi checks pending input before abort, error-stop, and empty-response handling; an aborted turn leaves the goal active and queues no continuation, while error status is deferred until the session becomes idle so a retry start can cancel it; non-error empty assistant responses poll at 1-second intervals until the same goal remains active, the session is idle, and no messages are pending, while other eligible responses request resident Supervisor review.
 - [x] Running-goal idle reviews receive ordered exact user input and successful `end_turn` reasons as `conversationEvents`, omit `terminalTurn`, and consume the sent evidence before the next review.
 - [x] Explicitly paused goals accumulate ordered conversation events for review after resume; extension-generated input and failed `end_turn` calls are excluded.
@@ -75,7 +76,9 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and goal lifecycle hooks, injects active objectives, and coordinates Supervisor decisions.
 - `packages/coding-agent/extensions/goal/src/goal-state.ts` — loads, migrates, persists, pauses, resumes, completes, and clears per-session goal state.
 - `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — records ordered user/end-turn evidence, attaches it to goal reviews, and consumes applied-review evidence.
-- `packages/coding-agent/extensions/goal/src/supervisor-review.ts` — applies the 60-second resident-review deadline and wraps every goal review with visible waiting and reason-bearing failure status.
+- `packages/coding-agent/extensions/goal/src/supervisor-review.ts` — applies the 60-second resident-review deadline and wraps every goal review with visible waiting and reason-bearing failure status, including `goal_set_review`.
+- `packages/coding-agent/src/supervisor/service.ts` — builds the additive `goal_set_review` prompt contract and parses the Supervisor's returned objective.
+- `packages/coding-agent/src/supervisor/response-tool.ts` — exposes the `set` response kind and additive objective field to the resident Supervisor.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — preserves decisions across transient pending input, waits for active agents, and schedules five-minute Supervisor re-review from the persisted deadline.
 - `packages/coding-agent/extensions/goal/src/wait-countdown.ts` — owns redraw-only, deadline-aligned countdown refresh timers and cancellation.
 - `packages/coding-agent/extensions/goal/src/wait-status.ts` — binds scheduler wait modes and failures to one durable status append with the matching deadline.
@@ -100,15 +103,15 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, Supervisor countdown persistence/rendering/redraw/expiry/cancellation/restore, active-agent deadline exclusion, wait fallback deadlines, completion-pause and thrown-error reason display, default replacement, objective length cap, context injection, continuation prompt state, footer status, resume/reload/fork notification, corrupt state handling, `agent_end` continuation, ordered running and paused conversation evidence, generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, busy guard, error-stop suppression, empty-response retry eligibility, and shutdown cancellation.
+- `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, Supervisor-reviewed additive `manage_goal set`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, Supervisor countdown persistence/rendering/redraw/expiry/cancellation/restore, active-agent deadline exclusion, wait fallback deadlines, completion-pause and thrown-error reason display, default replacement for `/goal`, objective length cap, context injection, continuation prompt state, footer status, resume/reload/fork notification, corrupt state handling, `agent_end` continuation, ordered running and paused conversation evidence, generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, busy guard, error-stop suppression, empty-response retry eligibility, and shutdown cancellation.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
+- `packages/coding-agent/test/supervisor-service.test.ts` — additive `goal_set_review` response parsing and Supervisor prompt contract.
 
 ## Known gaps (current cycle)
 
 - [x] Add regression coverage for resume/session_start notification and corrupt goal-state handling.
-- [x] Replace the active goal by default when setting a new goal while one is already active.
 - [x] Implement autonomous continue-when-idle on `agent_end`.
 - [x] Add a tool completion signal and stop continuation when it is called.
 - [x] Remove numeric continuation turn-cap handling and stop only on completion or pending queued work; non-error empty final assistant responses schedule one bounded retry when the goal remains eligible.

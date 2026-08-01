@@ -57,6 +57,9 @@ async function applyCompletionDecision(
 		case "error":
 			options.onStatus(ctx, `Goal review failed: ${decision.reason}`);
 			return;
+		case "set":
+			options.onStatus(ctx, `Goal review failed: unexpected set decision: ${decision.reason}`);
+			return;
 	}
 	options.consumeReviewEvidence(ctx, waiting.goal, reviewed.evidenceCount);
 }

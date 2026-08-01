@@ -11,11 +11,13 @@ const supervisorResponseParameters = Type.Object({
 		Type.Literal("continue"),
 		Type.Literal("pause"),
 		Type.Literal("wait"),
+		Type.Literal("set"),
 		Type.Literal("advisory"),
 		Type.Literal("error"),
 	]),
 	reason: Type.Optional(Type.String({ description: "Why this decision applies." })),
 	instructions: Type.Optional(Type.String({ description: "Concrete next step for continue decisions." })),
+	objective: Type.Optional(Type.String({ description: "Additive objective for goal set decisions." })),
 	answer: Type.Optional(Type.String({ description: "Text answer for advisory decisions." })),
 });
 

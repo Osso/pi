@@ -168,24 +168,44 @@ function setGoal(params: SetGoalParams): SetGoalResult {
 	};
 }
 
-function runSetGoalAction({
+async function reviewGoalSetObjective(
+	ctx: ExtensionContext,
+	proposedObjective: string,
+	reviewGoal: GoalEvidenceReview,
+): Promise<string | AgentToolResult<unknown>> {
+	const activeGoal = loadOrMigrateActiveGoal(ctx);
+	const payload = activeGoal
+		? { currentObjective: activeGoal.objective, proposedObjective }
+		: { proposedObjective };
+	const reviewed = await reviewGoal({ ctx, kind: "goal_set_review", payload });
+	const currentGoal = loadOrMigrateActiveGoal(ctx);
+	const reviewStillApplies = activeGoal ? goalMatchesReview(currentGoal, activeGoal) : currentGoal === null;
+	if (!reviewStillApplies) return textResult("Goal changed while Supervisor review was in progress; stale decision ignored.");
+	if (reviewed.decision.kind === "set") return reviewed.decision.objective;
+
+	const reason = reviewed.decision.reason;
+	ctx.ui.notify(`Supervisor goal set review failed: ${reason}`, "error");
+	return textResult(`Goal not set: ${reason}`);
+}
+
+async function runSetGoalAction({
 	ctx,
 	params,
 	pi,
+	reviewGoal,
 	beforeGoalSave,
-}: Omit<
-	ManageGoalContext,
-	"reviewGoal" | "consumeReviewEvidence" | "onCompletionWait" | "appendStatus"
->): AgentToolResult<unknown> {
-	const objective = params.objective?.trim() ?? "";
-	if (!objective) {
-		return textResult("Objective is required.");
-	}
+}: Omit<ManageGoalContext, "consumeReviewEvidence" | "onCompletionWait" | "appendStatus">): Promise<AgentToolResult<unknown>> {
+	const proposedObjective = params.objective?.trim() ?? "";
+	if (!proposedObjective) return textResult("Objective is required.");
+	const invalidResult = validateGoalObjective(proposedObjective);
+	if (invalidResult) return textResult(invalidResult.message);
 
-	const result = setGoal({ objective, ctx, pi, beforeSave: beforeGoalSave });
+	const reviewedObjective = await reviewGoalSetObjective(ctx, proposedObjective, reviewGoal);
+	if (typeof reviewedObjective !== "string") return reviewedObjective;
+	const result = setGoal({ objective: reviewedObjective, ctx, pi, beforeSave: beforeGoalSave });
 	ctx.ui.notify(result.message, result.severity);
 	const details = result.goal ? { objective: result.goal.objective } : {};
-	return textResult(result.ok ? `Goal set: ${objective}` : result.message, details);
+	return textResult(result.ok ? `Goal set: ${reviewedObjective}` : result.message, details);
 }
 
 function runPauseGoalAction(
@@ -328,7 +348,7 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 	const { ctx, params, pi, beforeGoalSave } = context;
 	switch (params.action) {
 		case "set":
-			return runSetGoalAction({ ctx, params, pi, beforeGoalSave });
+			return runSetGoalAction({ ctx, params, pi, reviewGoal: context.reviewGoal, beforeGoalSave });
 		case "pause":
 			return runPauseGoalAction(ctx, params.reason, beforeGoalSave);
 		case "resume":
@@ -382,6 +402,8 @@ async function applyGoalIdleDecision(
 			return onWait(`Goal review failed: ${decision.reason}`);
 		case "continue":
 			return continueGoalFromIdleDecision(goal, decision.instructions, ctx, pi);
+		case "set":
+			return appendStatus(ctx, `Goal review failed: unexpected set decision: ${decision.reason}`);
 	}
 }
 

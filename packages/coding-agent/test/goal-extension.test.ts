@@ -193,14 +193,18 @@ function createGoalHarness(
 
 	const reviewGoal =
 		options?.reviewGoal ??
-		(async ({ kind, payload }) =>
-			kind === "goal_completion_review"
+		(async ({ kind, payload }) => {
+			if (kind === "goal_set_review") {
+				return { kind: "set" as const, objective: String(payload.proposedObjective), reason: "preserved" };
+			}
+			return kind === "goal_completion_review"
 				? { kind: "complete" as const, reason: "verified" }
 				: {
 						kind: "continue" as const,
 						reason: "work remains",
 						instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
-					});
+					};
+		});
 	goalExtension(pi, options?.useResidentSupervisor ? {} : { reviewGoal });
 
 	const ctx = {
@@ -387,17 +391,34 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
-	it("replaces an active goal through the manage_goal tool", async () => {
-		const harness = createGoalHarness(cwd);
+	it("uses the Supervisor's additive objective when manage_goal set would narrow an active goal", async () => {
+		const reviewGoal = vi.fn(async ({ kind, payload }: { kind: string; payload: Record<string, unknown> }) => {
+			if (kind === "goal_set_review") {
+				expect(payload).toEqual({
+					currentObjective: "ship the complete goal system",
+					proposedObjective: "add Supervisor review to goal set",
+				});
+				return {
+					kind: "set" as const,
+					objective: "ship the complete goal system; add Supervisor review to goal set",
+					reason: "Preserve existing scope while adding the new subtask.",
+				};
+			}
+			return { kind: "complete" as const, reason: "verified" };
+		});
+		const harness = createGoalHarness(cwd, { reviewGoal: reviewGoal as unknown as GoalSupervisorReview });
 
-		await harness.runCommand("set first objective");
+		await harness.runCommand("set ship the complete goal system");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
-		const result = await harness.runSetGoal("agent-chosen objective");
+		const result = await harness.runSetGoal("add Supervisor review to goal set");
 
 		const goal = readStoredGoal<{ objective: string }>(cwd);
-		expect(goal.objective).toBe("agent-chosen objective");
-		expect(result?.content).toEqual([{ type: "text", text: "Goal set: agent-chosen objective" }]);
+		expect(goal.objective).toBe("ship the complete goal system; add Supervisor review to goal set");
+		expect(result?.content).toEqual([
+			{ type: "text", text: "Goal set: ship the complete goal system; add Supervisor review to goal set" },
+		]);
+		expect(reviewGoal).toHaveBeenCalledOnce();
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});

@@ -155,6 +155,13 @@ describe("resident Supervisor service", () => {
 			kind: "wait",
 			reason: "reviewer is running",
 		});
+		expect(
+			parseSupervisorResponse(
+				"goal_set_review",
+				'{"kind":"set","objective":"keep broad scope; add subtask","reason":"additive"}',
+			),
+		).toEqual({ kind: "set", objective: "keep broad scope; add subtask", reason: "additive" });
+		expect(parseSupervisorResponse("goal_set_review", '{"kind":"continue","reason":"wrong kind"}')).toBeUndefined();
 		expect(parseSupervisorResponse("approval_review", '{"kind":"complete","reason":"done"}')).toBeUndefined();
 		expect(parseSupervisorResponse("approval_review", '{"kind":"pause","reason":"wait"}')).toBeUndefined();
 	});
@@ -166,6 +173,25 @@ describe("resident Supervisor service", () => {
 				'{"kind":"complete","reason":"verified"}  ... Need end_turn.',
 			),
 		).toBeUndefined();
+	});
+
+	it("tells goal set reviewers to preserve current scope and add the proposal", () => {
+		const prompt = buildSupervisorPrompt({
+			claimToken: "runtime",
+			claimedAt: "2026-08-01T12:00:00.000Z",
+			createdAt: "2026-08-01T12:00:00.000Z",
+			deadlineAt: "2026-08-01T12:01:00.000Z",
+			id: 3,
+			kind: "goal_set_review",
+			payload: { currentObjective: "ship the feature", proposedObjective: "write one test" },
+			projectId: "pi",
+			senderSessionId: "main",
+			status: "claimed",
+		});
+
+		expect(prompt).toContain("preserve every requirement and completion criterion in currentObjective");
+		expect(prompt).toContain("add proposedObjective without narrowing existing scope");
+		expect(prompt).toContain("Use kind set with a non-empty reason and objective");
 	});
 
 	it("tells goal reviewers to schedule rechecks for asynchronous and externally advancing work", () => {

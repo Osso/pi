@@ -16,18 +16,35 @@ export interface RunSupervisorRequestInput {
 	pollIntervalMs?: number;
 }
 
+function goalProgressResponseContract(): string {
+	return [
+		"Use kind complete, pause, wait, continue, or error with a non-empty reason.",
+		"Continue instructions must give a concrete, actionable next step.",
+		"Use wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
+		"Use pause only when progress requires user action or input and cannot advance automatically.",
+	].join("\n");
+}
+
+function responseContractForRequest(kind: SupervisorRequestKind): string {
+	switch (kind) {
+		case "approval_review":
+			return "Use kind approve or reject with a non-empty reason.";
+		case "goal_set_review":
+			return [
+				"Use kind set with a non-empty reason and objective.",
+				"The returned objective must preserve every requirement and completion criterion in currentObjective, then add proposedObjective without narrowing existing scope.",
+				"When currentObjective is absent, return proposedObjective unchanged.",
+			].join("\n");
+		case "supervisor_advisory":
+			return "Use kind advisory with a non-empty answer. This response is advisory only and cannot direct or control the caller.";
+		case "goal_completion_review":
+		case "goal_idle_review":
+			return goalProgressResponseContract();
+	}
+}
+
 export function buildSupervisorPrompt(request: SupervisorRequest): string {
-	const responseContract =
-		request.kind === "approval_review"
-			? "Use kind approve or reject with a non-empty reason."
-			: request.kind === "supervisor_advisory"
-				? "Use kind advisory with a non-empty answer. This response is advisory only and cannot direct or control the caller."
-				: [
-						"Use kind complete, pause, wait, continue, or error with a non-empty reason.",
-						"Continue instructions must give a concrete, actionable next step.",
-						"Use wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
-						"Use pause only when progress requires user action or input and cannot advance automatically.",
-					].join("\n");
+	const responseContract = responseContractForRequest(request.kind);
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",
 		"Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.",
@@ -52,6 +69,14 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	].join("\n");
 }
 
+function parseGoalSetResponse(response: Record<string, unknown>): SupervisorResponse | undefined {
+	if (response.kind !== "set" || typeof response.objective !== "string" || typeof response.reason !== "string") {
+		return undefined;
+	}
+	const objective = response.objective.trim();
+	return objective ? { kind: "set", objective, reason: response.reason } : undefined;
+}
+
 export function parseSupervisorResponse(
 	kind: SupervisorRequestKind,
 	rawResponse: unknown,
@@ -59,6 +84,7 @@ export function parseSupervisorResponse(
 	const response = parseResponseObject(rawResponse);
 	if (!response || typeof response.kind !== "string") return undefined;
 	if (kind === "supervisor_advisory") return parseAdvisoryResponse(response);
+	if (kind === "goal_set_review") return parseGoalSetResponse(response);
 	if (typeof response.reason !== "string") return undefined;
 	if (response.kind === "error") return { kind: "error", reason: response.reason };
 	if (kind === "approval_review") {

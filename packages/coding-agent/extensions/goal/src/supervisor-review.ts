@@ -34,7 +34,7 @@ export function withSupervisorReviewStatus(
 }
 
 export async function reviewGoalWithResidentSupervisor(input: {
-	kind: "goal_completion_review" | "goal_idle_review";
+	kind: "goal_completion_review" | "goal_idle_review" | "goal_set_review";
 	payload: Record<string, unknown>;
 	ctx: ExtensionContext;
 }): Promise<GoalSupervisorResponse> {
@@ -54,6 +54,7 @@ export async function reviewGoalWithResidentSupervisor(input: {
 		case "continue":
 		case "pause":
 		case "wait":
+		case "set":
 		case "error":
 			return response;
 		default:
