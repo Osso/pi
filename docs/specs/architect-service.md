@@ -26,7 +26,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - [x] `pi --architect` attaches to an already-running Architect through its owner-only local console socket; it never starts a second Architect, creates a second session owner, or changes the resident cwd.
 - [x] Reject missing or unavailable Architect sockets explicitly, while preserving the positional `pi architect` service entrypoint.
 - [x] Send the resident session identity, fixed cwd, generation, and complete current branch on attach, then stream live session events.
-- [x] Accept interactive console prompts and an optional trailing initial prompt, with exactly one writable console client at a time.
+- [x] Accept interactive console prompts and an optional trailing initial prompt, with exactly one writable console client at a time; a new console attachment replaces and disconnects the previous client without replacing the resident session.
 - [x] Serialize console prompts with observation and request prompts; console input remains subject to the Architect's existing advisory-only tool and rule boundaries.
 
 ### Advice

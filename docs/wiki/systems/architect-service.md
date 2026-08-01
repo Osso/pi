@@ -20,7 +20,7 @@ The service requires the `openai-codex/gpt-5.6-sol` model. It loads shared user 
 
 `pi --architect` attaches to the already-running `pi architect` process through the owner-only local socket `<control-db>.architect-console.sock`. It does not start a service, open the archived transcript itself, create another AgentSession, or change the Architect's fixed cwd. If the service is stopped or the socket is absent, the client fails explicitly.
 
-Attach returns the resident service name, session ID, fixed cwd, process generation, and the complete current branch. The client renders that snapshot, then receives monotonic live AgentSession events from the resident. The resident remains the only transcript writer, model caller, tool runner, and cwd owner. One writable console client is accepted; a second client is rejected until the first disconnects.
+Attach returns the resident service name, session ID, fixed cwd, process generation, and the complete current branch. The client renders that snapshot, then receives monotonic live AgentSession events from the resident. The resident remains the only transcript writer, model caller, tool runner, and cwd owner. Exactly one console client is writable; a new attachment replaces and disconnects the previous client without replacing the resident session.
 
 Console input wakes the observer wait and is serialized with observation and durable Architect-request prompts. A trailing message in `pi --architect <message...>` is submitted after attach; `pi --architect` opens the interactive console without an initial prompt. The existing `pi architect` service command and advisory-only tool boundaries are unchanged.
 
