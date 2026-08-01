@@ -5,6 +5,7 @@ import {
 	runSupervisorRequestLoop,
 	SupervisorConsolePromptQueue,
 } from "../src/supervisor/main.ts";
+import { createSupervisorResponseTool } from "../src/supervisor/response-tool.ts";
 
 function pendingRequest(): SupervisorRequest {
 	return {
@@ -22,6 +23,19 @@ function pendingRequest(): SupervisorRequest {
 }
 
 describe("Supervisor resident console", () => {
+	it("returns advisory answers as the visible Supervisor tool result", async () => {
+		const tool = createSupervisorResponseTool();
+		const result = await tool.execute(
+			"response-1",
+			{ kind: "advisory", answer: "Hello." },
+			undefined,
+			undefined,
+			{} as Parameters<typeof tool.execute>[4],
+		);
+
+		expect(result.content).toEqual([{ type: "text", text: "Hello." }]);
+	});
+
 	it("exposes the exact resident branch identity", () => {
 		const branch = [{ type: "custom" as const, id: "entry", parentId: null, timestamp: "now", customType: "test" }];
 		expect(

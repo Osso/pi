@@ -31,10 +31,14 @@ export function createSupervisorResponseTool(): ToolDefinition<typeof supervisor
 		],
 		parameters: supervisorResponseParameters,
 		executionMode: "sequential",
-		execute: async (_toolCallId, params) => ({
-			content: [{ type: "text", text: "Supervisor response recorded." }],
-			details: params,
-			terminate: true,
-		}),
+		execute: async (_toolCallId, params) => {
+			const text =
+				params.kind === "advisory" && params.answer?.trim() ? params.answer : "Supervisor response recorded.";
+			return {
+				content: [{ type: "text", text }],
+				details: params,
+				terminate: true,
+			};
+		},
 	};
 }

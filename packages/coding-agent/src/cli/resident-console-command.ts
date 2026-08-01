@@ -10,6 +10,7 @@ import { SettingsManager } from "../core/settings-manager.ts";
 import { AssistantMessageComponent } from "../modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../modes/interactive/components/user-message.ts";
 import { theme } from "../modes/interactive/theme/theme.ts";
+import { SUPERVISOR_RESPONSE_TOOL_NAME } from "../supervisor/response-tool.ts";
 import { createStartupTui, startStartupTui } from "./startup-ui.ts";
 
 export interface ResidentConsoleCommand {
@@ -154,6 +155,10 @@ export class ResidentConsoleUi extends Container implements Focusable {
 		if (message.role === "user") {
 			if (isDuplicateTurnGuardMessage(message, runtimeMessageMarker)) return;
 			this.chat.addChild(new UserMessageComponent(readTextContent(message.content)));
+			return;
+		}
+		if (message.role === "toolResult" && message.toolName === SUPERVISOR_RESPONSE_TOOL_NAME) {
+			this.chat.addChild(new Text(readTextContent(message.content), 1, 0));
 			return;
 		}
 		if (message.role !== "assistant") return;

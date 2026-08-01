@@ -14,7 +14,7 @@ Callers poll only their durable request row. Approval requests use a 30-second d
 
 Attach returns the resident service name, session ID, fixed cwd, process generation, and the complete current branch. The client renders that snapshot, then receives monotonic live AgentSession events from the resident. The resident remains the only transcript writer, model caller, tool runner, and cwd owner. Exactly one console client is writable; a new attachment replaces and disconnects the previous client without replacing the resident session.
 
-Console input is queued in the resident request loop. Durable approval and goal requests are claimed and completed first. A queued console prompt runs only after the current typed request finishes, so `readCurrentAssistantText()` cannot observe an unrelated assistant turn. A trailing message in `pi --supervisor <message...>` is submitted after attach; `pi --supervisor` opens the interactive console without an initial prompt. The existing `pi supervisor` service command is unchanged.
+Console input is queued in the resident request loop. Durable approval and goal requests are claimed and completed first. A queued console prompt runs only after the current typed request finishes, so `readCurrentAssistantText()` cannot observe an unrelated assistant turn. The Supervisor still terminates the turn through structured `supervisor_response`; advisory tool results carry the response's `answer`, and the console renders that tool-result text instead of the internal response-recorded acknowledgement. A trailing message in `pi --supervisor <message...>` is submitted after attach; `pi --supervisor` opens the interactive console without an initial prompt. The existing `pi supervisor` service command is unchanged.
 
 ## Project memory
 
