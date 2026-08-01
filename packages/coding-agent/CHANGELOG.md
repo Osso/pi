@@ -102,6 +102,7 @@
 
 ### Changed
 
+- Built-in `ls` calls now render as `ls` instead of `rtk ls`; execution still delegates to `rtk` when available and falls back to the filesystem implementation.
 - Clarified that `resume_session`'s optional `starter_prompt` accepts caller-provided instructions; runtime behavior is unchanged.
 - Detached artifact cleanup now queries terminal agent records through an indexed `updatedAt` cutoff instead of traversing all session metadata and state; routine startup performs age cleanup directly and runs the full 2 GiB size-cap cleanup only when needed.
 - `spawn_agent` success results now explicitly label the agent type and effective context: `Spawned <displayName> (<id>) [type: <agentType>, context: <fresh|inherit>]`.

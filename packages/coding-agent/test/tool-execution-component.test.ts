@@ -305,7 +305,7 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("invalid regular expression");
 	});
 
-	test("renders ls calls as rtk ls", () => {
+	test("renders ls calls as ls", () => {
 		const component = new ToolExecutionComponent(
 			"ls",
 			"tool-ls",
@@ -317,8 +317,8 @@ describe("ToolExecutionComponent parity", () => {
 		);
 
 		const rendered = stripAnsi(component.render(120).join("\n"));
-		expect(rendered).toContain("rtk ls");
-		expect(rendered).not.toContain("\nls .");
+		expect(rendered).toContain("ls .");
+		expect(rendered).not.toContain("rtk ls");
 	});
 
 	test("preserves legacy file_path rendering compatibility for built-in tools", () => {

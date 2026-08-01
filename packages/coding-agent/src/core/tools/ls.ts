@@ -58,7 +58,7 @@ export interface LsToolOptions {
 function formatLsCall(args: { path?: string; limit?: number } | undefined, theme: Theme, cwd: string): string {
 	const limit = args?.limit;
 	const pathDisplay = renderToolPath(str(args?.path), theme, cwd, { emptyFallback: "." });
-	let text = `${theme.fg("toolTitle", theme.bold("rtk ls"))} ${pathDisplay}`;
+	let text = `${theme.fg("toolTitle", theme.bold("ls"))} ${pathDisplay}`;
 	if (limit !== undefined) {
 		text += theme.fg("toolOutput", ` (limit ${limit})`);
 	}
@@ -106,9 +106,9 @@ export function createLsToolDefinition(
 	const canUseRtk = options?.operations === undefined;
 	return {
 		name: "ls",
-		label: "rtk ls",
+		label: "ls",
 		approvalKind: "read-only",
-		description: `List directory contents through rtk ls when available. Returns token-optimized entries, includes dotfiles, and truncates output to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
+		description: `List directory contents. Returns token-optimized entries, includes dotfiles, and truncates output to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: "List directory contents",
 		parameters: lsSchema,
 		async execute(

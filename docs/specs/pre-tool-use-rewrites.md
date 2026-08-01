@@ -13,7 +13,7 @@ Pre-tool-use rewrites let an extension transparently mutate a tool call's argume
 - [x] Typed guards `isToolCallEventType("bash"|"read"|"edit"|"write"|"grep"|"find"|"ls", event)` narrow `event.input` to the correct per-tool input type; a generic `<TName, TInput>` overload covers custom tools.
 - [x] A registered approval reviewer may return `{ action: "allow", updatedInput }`; Pi replaces the pending tool arguments before execution, including under `auto-approve`.
 - [x] The first-party `claude-bash-hook` reviewer applies `updatedInput` rewrites before Bash execution, so hook aliases such as `ls` -> `rtk ls` affect the command that actually runs.
-- [x] Pi's native `ls` tool is presented and executed as `rtk ls` when `rtk` is installed, with the legacy filesystem implementation kept as the missing-`rtk` fallback.
+- [x] Pi's native `ls` tool delegates to `rtk ls` when `rtk` is installed but presents the call as `ls`, with the legacy filesystem implementation kept as the missing-`rtk` fallback.
 
 ### Blocking
 
@@ -46,7 +46,7 @@ Pre-tool-use rewrites let an extension transparently mutate a tool call's argume
 - `packages/coding-agent/src/core/extensions/runner.ts:904-928` — `emitApprovalReviewers`: applies reviewer `updatedInput` with `replaceToolInput`.
 - `packages/coding-agent/src/core/extensions/runner.ts:812` — `emitToolResult`: dispatches `tool_result` handlers.
 - `packages/coding-agent/src/core/agent-session.ts:414-462` — `_installAgentToolHooks`: sets `agent.beforeToolCall` (calls `emitToolCall`, applies reviewer rewrites under `auto-approve`, wraps non-Error throws as block) and `agent.afterToolCall` (calls `emitToolResult`, maps to `{ content, details, isError }`), both gated by registered handlers/reviewers.
-- `packages/coding-agent/src/core/tools/ls.ts` — native `ls` tool delegates to `rtk ls` when available and renders the call as `rtk ls`.
+- `packages/coding-agent/src/core/tools/ls.ts` — native `ls` tool delegates to `rtk ls` when available and renders the call as `ls`.
 
 ## Tests asserting this spec
 
@@ -59,7 +59,7 @@ Pre-tool-use rewrites let an extension transparently mutate a tool call's argume
 	  registration/`hasHandlers`, and `emitToolCall` returning the last
 	  non-blocking handler result.
 - `packages/coding-agent/test/tool-execution-component.test.ts` — visible native
-	  `ls` call rendering uses `rtk ls`.
+	  `ls` call rendering uses `ls`.
 - `packages/coding-agent/test/tools.test.ts` — native `ls` behavior still lists
 	  dotfiles and directories.
 
