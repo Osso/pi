@@ -166,6 +166,9 @@ describe("resident Supervisor service", () => {
 				'{"kind":"complete","reason":"verified"}  ... Need end_turn.',
 			),
 		).toEqual({ kind: "complete", reason: "verified" });
+		expect(
+			parseSupervisorResponse("goal_completion_review", '{"kind":"complete","reason":"verified"} trailing'),
+		).toBeUndefined();
 	});
 
 	it("tells goal reviewers to schedule rechecks for asynchronous and externally advancing work", () => {
