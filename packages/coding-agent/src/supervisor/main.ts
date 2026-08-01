@@ -360,13 +360,13 @@ function readCurrentSupervisorResponse(
 }
 
 function readStructuredSupervisorResponse(message: Record<string, unknown>): Record<string, unknown> | undefined {
-	const responseToolCall = Array.isArray(message.content)
-		? message.content.find(
-				(part) => isRecord(part) && part.type === "toolCall" && part.name === SUPERVISOR_RESPONSE_TOOL_NAME,
-			)
-		: undefined;
+	const content = message.content;
+	if (!Array.isArray(content)) return undefined;
+	const responseToolCall = content.find(
+		(part) => isRecord(part) && part.type === "toolCall" && part.name === SUPERVISOR_RESPONSE_TOOL_NAME,
+	);
 	if (!isRecord(responseToolCall) || !isRecord(responseToolCall.arguments)) return undefined;
-	const hasAssistantText = message.content.some(
+	const hasAssistantText = content.some(
 		(part) => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.trim(),
 	);
 	if (hasAssistantText) {

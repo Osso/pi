@@ -1,4 +1,4 @@
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import type { ToolDefinition } from "../core/extensions/types.ts";
 
 export const SUPERVISOR_RESPONSE_TOOL_NAME = "supervisor_response";
@@ -19,9 +19,7 @@ const supervisorResponseParameters = Type.Object({
 	answer: Type.Optional(Type.String({ description: "Text answer for advisory decisions." })),
 });
 
-type SupervisorResponseToolInput = Static<typeof supervisorResponseParameters>;
-
-export function createSupervisorResponseTool(): ToolDefinition<typeof supervisorResponseParameters, SupervisorResponseToolInput> {
+export function createSupervisorResponseTool(): ToolDefinition<typeof supervisorResponseParameters, unknown> {
 	return {
 		name: SUPERVISOR_RESPONSE_TOOL_NAME,
 		label: "Supervisor response",
