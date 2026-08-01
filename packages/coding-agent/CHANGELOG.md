@@ -199,6 +199,7 @@
 - Fixed `resume_session` targeting a session open in another live Pi process to reject before shutting down the caller, instead of dropping the caller back to the shell.
 - Fixed goal-managed `wait_agents` wakeups to preserve visible coordination content, preventing shared-channel instructions from being discarded before Supervisor re-review.
 - Fixed shared-channel deliveries being persisted and rendered as user messages; they now use the custom-message path with `customType: "shared_channel"` while retaining extension provenance and editor-history exclusion.
+- Fixed consumed shared-channel follow-ups remaining in the pending queue preview after `end_turn`; the preview now clears when the custom continuation starts.
 - Fixed OpenAI Responses early stream endings to trigger automatic retry instead of ending the agent run ([#6727](https://github.com/earendil-works/pi/issues/6727)).
 - Fixed Escape in the branch-summary picker to cancel the picker without interrupting the active turn.
 - Fixed Codex fast mode to hide footer status on unsupported provider switches while retaining its selected runtime tier, and to warn without disabling when a request payload cannot accept the selected service tier.
