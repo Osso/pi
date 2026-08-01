@@ -45,7 +45,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Keep request evidence bounded and specific to the current decision.
 - [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
 - [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
-- [x] Extract the model response only from assistant entries produced during the current request; when a duplicate-turn guard ends that request with `end_turn`, use the last completed JSON response from that same request, and return an error instead of reusing any historical response or accepting a partial/unsuccessful response.
+- [x] Extract the model response only from assistant entries produced during the current request; accept a valid leading JSON decision followed by a generated `...` text suffix, while rejecting malformed or partial responses. When a duplicate-turn guard ends that request with `end_turn`, use the last completed JSON response from that same request, and never reuse historical response text.
 
 ### Supervisor advisory
 
