@@ -126,7 +126,6 @@ import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
-import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	getRuntimeMessageMarker,
 	isDuplicateTurnGuardMessage,
@@ -134,6 +133,7 @@ import {
 	markDuplicateTurnGuardMessage,
 	type RuntimeMessageMarker,
 } from "./runtime-message-markers.ts";
+import type { ProcessIdentity } from "./runtime-process.ts";
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
@@ -1395,7 +1395,7 @@ export class AgentSession {
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
 		const originalToolCallId = this._getTerminalToolCallId(event);
-		const sessionContinuation =
+		const sessionContinuation: AgentEndSessionContinuation | undefined =
 			event.type === "agent_end" && this._extensionRunner.hasPreparedToolResultRelocation()
 				? "cwd_relocation"
 				: undefined;

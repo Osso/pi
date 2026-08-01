@@ -99,6 +99,7 @@ import {
 import { expandPromptTemplate, type PromptTemplate, parseCommandArgs } from "../../core/prompt-templates.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
+import { isDuplicateTurnAssistantMessage, isDuplicateTurnGuardMessage } from "../../core/runtime-message-markers.ts";
 import {
 	completeIncomingMessage,
 	failIncomingMessage,
@@ -117,10 +118,6 @@ import {
 	SessionManager,
 	sessionEntryToContextMessages,
 } from "../../core/session-manager.ts";
-import {
-	isDuplicateTurnAssistantMessage,
-	isDuplicateTurnGuardMessage,
-} from "../../core/runtime-message-markers.ts";
 import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";

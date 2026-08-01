@@ -30,5 +30,7 @@ export function isDuplicateTurnGuardMessage(
 	message: AgentMessage,
 	runtimeMessageMarker?: RuntimeMessageMarker,
 ): boolean {
-	return getRuntimeMessageMarker(message) === "duplicate_turn_guard" || runtimeMessageMarker === "duplicate_turn_guard";
+	return (
+		getRuntimeMessageMarker(message) === "duplicate_turn_guard" || runtimeMessageMarker === "duplicate_turn_guard"
+	);
 }

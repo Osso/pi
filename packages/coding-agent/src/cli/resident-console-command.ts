@@ -3,10 +3,7 @@ import { Container, type Focusable, Input, Key, matchesKey, Spacer, Text, type T
 import { getAgentDir } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { ResidentConsoleClient, type ResidentConsoleService } from "../core/resident-console-transport.ts";
-import {
-	isDuplicateTurnAssistantMessage,
-	isDuplicateTurnGuardMessage,
-} from "../core/runtime-message-markers.ts";
+import { isDuplicateTurnAssistantMessage, isDuplicateTurnGuardMessage } from "../core/runtime-message-markers.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { type SessionEntry, sessionEntryToContextMessages } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";

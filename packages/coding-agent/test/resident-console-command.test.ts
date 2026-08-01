@@ -1,11 +1,8 @@
-import { Container, type TUI } from "@earendil-works/pi-tui";
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
+import type { Container, TUI } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { parseResidentConsoleArgs, ResidentConsoleUi } from "../src/cli/resident-console-command.ts";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
-import {
-	ResidentConsoleUi,
-	parseResidentConsoleArgs,
-} from "../src/cli/resident-console-command.ts";
 import type { ResidentConsoleClient } from "../src/core/resident-console-transport.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -21,7 +18,7 @@ const EMPTY_USAGE: Usage = {
 		output: 0,
 		cacheRead: 0,
 		cacheWrite: 0,
-		totalTokens: 0,
+		total: 0,
 	},
 };
 
