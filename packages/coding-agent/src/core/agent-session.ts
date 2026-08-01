@@ -1254,8 +1254,17 @@ export class AgentSession {
 	// Track last assistant message for auto-compaction check
 	private _lastAssistantMessage: AssistantMessage | undefined = undefined;
 
-	private _removeStartedUserMessageFromQueue(event: AgentEvent): void {
-		if (event.type !== "message_start" || event.message.role !== "user") return;
+	private _removeStartedMessageFromQueue(event: AgentEvent): void {
+		if (event.type !== "message_start") return;
+		if (event.message.role === "custom") {
+			if (event.message.customType !== "shared_channel") return;
+			const followUpIndex = this._followUpMessages.indexOf(event.message.content);
+			if (followUpIndex === -1) return;
+			this._followUpMessages.splice(followUpIndex, 1);
+			this._emitQueueUpdate();
+			return;
+		}
+		if (event.message.role !== "user") return;
 		const isInternalSteeringMessage = this._internalSteeringMessages.has(event.message);
 		if (!isInternalSteeringMessage) this._resetDuplicateTurnGuard();
 		this._overflowRecoveryAttempted = false;
@@ -1370,7 +1379,7 @@ export class AgentSession {
 				: undefined;
 		if (event.type === "tool_execution_start") this._resetDuplicateTurnGuard();
 		this._publishCurrentAgentActivity(event);
-		this._removeStartedUserMessageFromQueue(event);
+		this._removeStartedMessageFromQueue(event);
 		await this._emitExtensionEvent(event, sessionContinuation);
 		this._emit(
 			event.type === "agent_end"
