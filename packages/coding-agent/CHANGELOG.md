@@ -203,7 +203,7 @@
 - Fixed runtime-mailbox-started turns that deadlocked after a tool call because post-tool coordination awaited the turn's own enclosing prompt drain.
 - Fixed Supervisor compaction retaining the OpenAI cached continuation for the pre-compaction context, which could cause later approval requests to fail with context-window errors despite a small compacted transcript.
 - Fixed the resident Supervisor eventually exceeding its model context window and reporting a misleading invalid response; the shared cross-request model context now compacts at 75% usage while preserving prior decisions and policies, and empty error responses surface the current provider error instead of stale prior JSON.
-- Fixed valid Supervisor JSON decisions followed by generated `...` text being rejected as invalid responses.
+- Fixed resident Supervisor reviews producing invalid JSON-plus-prose responses; the model now returns decisions through one terminating structured `supervisor_response` tool call, while trailing text remains invalid.
 - Fixed Supervisor goal continuations displaying both the visible provenance header and model-only XML wrapper; the TUI now shows one `[Supervisor]` header with a plain instruction body while retaining tagged model content.
 - Fixed resident Supervisor idle CPU by replacing 100 ms SQLite claim polling with owner-only Unix-socket wake notifications while retaining SQLite as the durable request queue.
 - Fixed Supervisor goal continuation instructions being rendered and delivered as unmarked user-authored input; they now carry visible and model-readable Supervisor provenance.
