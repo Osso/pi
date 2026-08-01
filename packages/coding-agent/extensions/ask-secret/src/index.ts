@@ -33,8 +33,8 @@ export interface AskSecretToolOptions {
 }
 
 export interface AskSecretDetails {
-	record: string;
-	provisioned: true;
+	record?: string;
+	status: "provisioned" | "cancelled" | "unavailable";
 }
 
 export default function askSecretExtension(pi: ExtensionAPI): void {
@@ -62,6 +62,7 @@ export function createAskSecretToolDefinition(options: AskSecretToolOptions = {}
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				return {
 					content: [{ type: "text", text: "Error: ask_secret requires an interactive TUI session" }],
+					details: { status: "unavailable" },
 				};
 			}
 
@@ -78,7 +79,7 @@ export function createAskSecretToolDefinition(options: AskSecretToolOptions = {}
 
 			return {
 				content: [{ type: "text", text: `Provisioned Secrets Broker record ${params.record}.` }],
-				details: { record: params.record, provisioned: true },
+				details: { record: params.record, status: "provisioned" },
 			};
 		},
 	};
@@ -99,7 +100,10 @@ function validateArgument(value: string, name: string): void {
 }
 
 function cancelledResult(): AgentToolResult<AskSecretDetails> {
-	return { content: [{ type: "text", text: "Secret provisioning cancelled." }] };
+	return {
+		content: [{ type: "text", text: "Secret provisioning cancelled." }],
+		details: { status: "cancelled" },
+	};
 }
 
 async function provisionBrowserCredential(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAskSecretToolDefinition, type AskSecretProvisioner } from "../extensions/ask-secret/src/index.ts";
+import { type AskSecretProvisioner, createAskSecretToolDefinition } from "../extensions/ask-secret/src/index.ts";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 
 describe("ask_secret extension", () => {
