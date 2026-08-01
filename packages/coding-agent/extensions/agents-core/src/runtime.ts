@@ -3266,7 +3266,8 @@ function lastAssistantText(messages: AgentMessage[]): string | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
 		if (message?.role === "assistant") {
-			return messageText(message);
+			const text = messageText(message);
+			if (text) return text;
 		}
 	}
 

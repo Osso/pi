@@ -63,7 +63,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list active descendants without depending on the TUI. `list_agents` has no terminal-agent option
       and identifies each returned active agent by ID, name, type, status, and lifecycle; `agent_viewer`
-      remains the direct-ID path for inspecting terminal status, result summaries, and errors.
+      remains the direct-ID path for inspecting terminal status, result summaries, and errors. Terminal
+      result summaries preserve the last non-empty assistant text when a final tool-only `end_turn` call
+      follows it.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` requires the issued execution capability and constructs the executable child session

@@ -3104,6 +3104,34 @@ describe("multi-agent extension tools", () => {
 		expect(spawned.details).toMatchObject({ dispatched: true });
 	});
 
+	it("preserves the last text response when an agent terminates with an end_turn tool call", async () => {
+		const createChildSession: ChildAgentSessionFactory = async () => ({
+			abort: () => {},
+			messages: [
+				fauxAssistantMessage("Rust verification passed"),
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Verification complete" }), {
+					stopReason: "toolUse",
+				}),
+			],
+			prompt: async () => {},
+		});
+		const harness = createMultiAgentHarness({ createChildSession });
+		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "verifier",
+			context: "fresh",
+			displayName: "Verifier",
+			prompt: "Run Rust verification",
+		});
+
+		const completed = await waitForAgentLifecycle(harness, spawned.details.agent.id, "completed");
+		const viewed = await harness.call<AgentViewerDetails>("agent_viewer", { agentId: completed.id });
+		const content = viewed.content[0];
+		if (!content || content.type !== "text") throw new Error("expected visible text content");
+
+		expect(completed.result).toEqual({ summary: "Rust verification passed" });
+		expect(content.text).toContain("Summary: Rust verification passed");
+	});
+
 	it("shows inherited context in the spawn_agent result", async () => {
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async () => ({
 			lifecycle: "completed",

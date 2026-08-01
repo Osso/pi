@@ -175,6 +175,7 @@
 
 ### Fixed
 
+- Fixed completed agents losing their visible `agent_viewer` summary when a tool-only `end_turn` call followed the agent's final text response.
 - Fixed `pi --supervisor` accepting prompts but rendering only `Supervisor response recorded.`; advisory structured responses now expose and render their answer text in the live resident console.
 - Fixed `pi --supervisor` and `pi --architect` rejecting a new console while an older client remained attached; the newest console now takes ownership and disconnects the previous client without replacing the resident service session.
 - Fixed duplicate-turn recovery rendering the repeated assistant response and internal `end_turn` nudge in live InteractiveMode or resident-console chat; runtime context and persisted messages remain unchanged.
