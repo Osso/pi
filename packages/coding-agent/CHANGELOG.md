@@ -17,6 +17,7 @@
 
 ### Added
 
+- Added first-party `ask_secret` for interactive-TUI-only masked credential prompts that provision browser records through the typed Secrets Broker path without returning secret values to the model.
 - Added duplicate-turn loop termination: after consecutive identical text-only assistant turns, Pi injects a non-persisted instruction to call the always-active `end_turn` control tool with a concise reason, then stops the current loop if the model repeats after that instruction instead of consuming request deadlines such as resident Supervisor reviews; a guard-generated terminal `end_turn` uses the last completed JSON response from that same request, never historical response text. Changed assistant content, tool execution, or new user input resets detection. Ordinary tool filtering remains unchanged.
 - Added the default first-party `codex-image-generation` extension with an `image_gen` function tool for Codex models; it uses OpenAI Responses hosted image generation only inside its private one-shot request, and successful calls persist a uniquely named PNG in the active working directory and report its path.
 - Added a live `Next review in M:SS` countdown to timed Supervisor wait statuses, with persisted deadlines, `Review due…` expiry state, restored rendering, and redraw-only cancellation that does not duplicate reviews or transcript entries.
