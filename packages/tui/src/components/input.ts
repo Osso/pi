@@ -13,12 +13,21 @@ interface InputState {
 	cursor: number;
 }
 
+export interface InputOptions {
+	mask?: boolean;
+}
+
 /**
  * Input component - single-line text input with horizontal scrolling
  */
 export class Input implements Component, Focusable {
 	private value: string = "";
 	private cursor: number = 0; // Cursor position in the value
+	private readonly mask: boolean;
+
+	constructor(options?: InputOptions) {
+		this.mask = options?.mask ?? false;
+	}
 	public onSubmit?: (value: string) => void;
 	public onEscape?: () => void;
 
@@ -371,6 +380,14 @@ export class Input implements Component, Focusable {
 		this.cursor += cleanText.length;
 	}
 
+	private getMaskedValue(): string {
+		return [...segmenter.segment(this.value)].map(() => "•").join("");
+	}
+
+	private getMaskedCursor(): number {
+		return [...segmenter.segment(this.value.slice(0, this.cursor))].length;
+	}
+
 	invalidate(): void {
 		// No cached state to invalidate currently
 	}
@@ -385,17 +402,18 @@ export class Input implements Component, Focusable {
 		}
 
 		let visibleText = "";
-		let cursorDisplay = this.cursor;
-		const totalWidth = visibleWidth(this.value);
+		const displayValue = this.mask ? this.getMaskedValue() : this.value;
+		let cursorDisplay = this.mask ? this.getMaskedCursor() : this.cursor;
+		const totalWidth = visibleWidth(displayValue);
 
 		if (totalWidth < availableWidth) {
 			// Everything fits (leave room for cursor at end)
-			visibleText = this.value;
+			visibleText = displayValue;
 		} else {
 			// Need horizontal scrolling
 			// Reserve one column for cursor if it's at the end
 			const scrollWidth = this.cursor === this.value.length ? availableWidth - 1 : availableWidth;
-			const cursorCol = visibleWidth(this.value.slice(0, this.cursor));
+			const cursorCol = visibleWidth(displayValue.slice(0, cursorDisplay));
 
 			if (scrollWidth > 0) {
 				const halfWidth = Math.floor(scrollWidth / 2);
@@ -412,8 +430,8 @@ export class Input implements Component, Focusable {
 					startCol = Math.max(0, cursorCol - halfWidth);
 				}
 
-				visibleText = sliceByColumn(this.value, startCol, scrollWidth, true);
-				const beforeCursor = sliceByColumn(this.value, startCol, Math.max(0, cursorCol - startCol), true);
+				visibleText = sliceByColumn(displayValue, startCol, scrollWidth, true);
+				const beforeCursor = sliceByColumn(displayValue, startCol, Math.max(0, cursorCol - startCol), true);
 				cursorDisplay = beforeCursor.length;
 			} else {
 				visibleText = "";

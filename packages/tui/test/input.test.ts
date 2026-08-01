@@ -81,6 +81,21 @@ describe("Input component", () => {
 			assert.ok(line);
 			assert.ok(visibleWidth(line) <= width);
 		});
+
+		it("masks secret input while preserving the stored value", () => {
+			const input = new Input({ mask: true });
+			input.setValue("s3cr3t");
+			input.focused = true;
+
+			const [line] = input.render(20);
+
+			assert.strictEqual(input.getValue(), "s3cr3t");
+			assert.ok(line);
+			const rendered = line.replace(/\x1b\[[0-9;]*m/g, "");
+			assert.ok(!rendered.includes("s3cr3t"));
+			assert.ok(rendered.includes("••••••"));
+			assert.strictEqual(visibleWidth(line), 20);
+		});
 	});
 
 	describe("Kill ring", () => {

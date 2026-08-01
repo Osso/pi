@@ -102,6 +102,8 @@ export interface ExtensionUIDialogOptions {
 	signal?: AbortSignal;
 	/** Timeout in milliseconds. Dialog auto-dismisses with live countdown display. */
 	timeout?: number;
+	/** Mask entered characters in interactive text input. */
+	secret?: boolean;
 }
 
 /** Placement for extension widgets. */

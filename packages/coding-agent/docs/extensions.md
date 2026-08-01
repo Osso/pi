@@ -26,6 +26,10 @@ Extensions are TypeScript modules that extend pi's behavior. They can subscribe 
 - External integrations (file watchers, webhooks, CI triggers)
 - Games while you wait (see `snake.ts` example)
 
+## First-party secret provisioning
+
+The built-in `ask_secret` tool is interactive-TUI-only. It prompts for a username and masked password, then provisions them directly through the typed Secrets Broker browser-record path. The tool accepts only a record path and field selectors; credential values never appear in tool arguments, results, logs, environment variables, or the transcript. It fails closed outside interactive TUI mode and requires the caller to have the broker command and target record configured.
+
 See [examples/extensions/](../examples/extensions/) for working implementations.
 
 ## Table of Contents
