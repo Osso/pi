@@ -90,6 +90,34 @@ describe("ResidentConsoleClient", () => {
 		]);
 	});
 
+	it("transfers writable ownership to the newest console client", async () => {
+		const server = new ResidentConsoleServer({
+			socketPath: socketPath(),
+			service: "supervisor",
+			getSnapshot: snapshot,
+			enqueuePrompt: () => {},
+			subscribe: () => () => {},
+		});
+		resources.push(server);
+		await server.start();
+		const firstClient = await ResidentConsoleClient.connect({
+			socketPath: server.socketPath,
+			service: "supervisor",
+		});
+		resources.push(firstClient);
+		const firstClientDisconnected = new Promise<void>((resolve) => firstClient.onDisconnect(() => resolve()));
+
+		const secondClient = await ResidentConsoleClient.connect({
+			socketPath: server.socketPath,
+			service: "supervisor",
+		});
+		resources.push(secondClient);
+
+		await firstClientDisconnected;
+		expect(secondClient.snapshot).toEqual(snapshot());
+		await expect(secondClient.prompt("prompt-2", "new owner")).resolves.toBeUndefined();
+	});
+
 	it("fails explicitly when the resident socket is absent", async () => {
 		await expect(ResidentConsoleClient.connect({ socketPath: socketPath(), service: "architect" })).rejects.toThrow(
 			"Resident console is unavailable",

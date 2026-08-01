@@ -175,6 +175,7 @@
 
 ### Fixed
 
+- Fixed `pi --supervisor` and `pi --architect` rejecting a new console while an older client remained attached; the newest console now takes ownership and disconnects the previous client without replacing the resident service session.
 - Fixed duplicate-turn recovery rendering the repeated assistant response and internal `end_turn` nudge in live InteractiveMode or resident-console chat; runtime context and persisted messages remain unchanged.
 - Fixed the built-in `grep` tool allowing a single ripgrep JSON match record to grow without bound; searches now apply the existing 10KB output bound before JSON parsing.
 - Fixed `search_current_session_history` matching assistant and tool content such as skill listings or clipboard paths; matching now searches user-message content only, while requested neighboring context entries may still include other entry types.

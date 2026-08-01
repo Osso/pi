@@ -19,7 +19,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] `pi --supervisor` attaches to an already-running Supervisor through its owner-only local console socket; it never starts a second Supervisor, creates a second session owner, or changes the resident cwd.
 - [x] Reject missing or unavailable Supervisor sockets explicitly, while preserving the positional `pi supervisor` service entrypoint.
 - [x] Send the resident session identity, fixed cwd, generation, and complete current branch on attach, then stream live session events.
-- [x] Accept interactive console prompts and an optional trailing initial prompt, with exactly one writable console client at a time.
+- [x] Accept interactive console prompts and an optional trailing initial prompt, with exactly one writable console client at a time; a new console attachment replaces and disconnects the previous client without replacing the resident session.
 - [x] Keep the resident process as the sole transcript, model, tool, and cwd owner; process typed Supervisor requests before queued console prompts and never interleave turns.
 
 ### Authority boundary

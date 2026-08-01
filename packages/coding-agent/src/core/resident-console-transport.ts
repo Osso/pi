@@ -119,8 +119,9 @@ export class ResidentConsoleServer<Entry, Event> {
 			return;
 		}
 		if (this.owner) {
-			this.sendError(socket, "owner_exists", "Resident console already has a writable client");
-			return;
+			const previousOwner = this.owner;
+			this.releaseOwner();
+			previousOwner.end();
 		}
 		const snapshot = this.options.getSnapshot();
 		this.owner = socket;
