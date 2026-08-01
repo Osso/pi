@@ -26,6 +26,7 @@ import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { createHarness } from "./suite/harness.ts";
 
 type SubmitContext = {
+	addSubmittedTextToHistory(this: SubmitContext, text: string): void;
 	defaultEditor: { onSubmit?: (text: string) => void };
 	editor: {
 		addToHistory?: (text: string) => void;
@@ -35,6 +36,7 @@ type SubmitContext = {
 		isCompacting: boolean;
 		isStreaming: boolean;
 		isBashRunning: boolean;
+		promptTemplates: [];
 		continue: () => Promise<void>;
 		prompt: (text: string, options?: unknown) => Promise<void>;
 	};
@@ -86,6 +88,7 @@ type MainLoopContext = {
 };
 
 type InteractiveModePrivate = {
+	addSubmittedTextToHistory(this: SubmitContext, text: string): void;
 	handleEvent(this: SubmitContext, event: AgentSessionEvent): Promise<void>;
 	setupEditorSubmitHandler(this: SubmitContext): void;
 	subscribeToAgent(this: SubmitContext): void;
@@ -110,6 +113,7 @@ type ControlMessageContext = {
 
 function createSubmitContext(): SubmitContext {
 	return {
+		addSubmittedTextToHistory: interactiveModePrototype.addSubmittedTextToHistory,
 		defaultEditor: {},
 		editor: {
 			addToHistory: vi.fn(),
@@ -119,6 +123,7 @@ function createSubmitContext(): SubmitContext {
 			isCompacting: false,
 			isStreaming: false,
 			isBashRunning: false,
+			promptTemplates: [],
 			continue: vi.fn(async () => {}),
 			prompt: vi.fn(async () => {}),
 		},

@@ -96,7 +96,7 @@ import {
 	formatInactiveAgentSelectionMessage,
 	type MultiAgentStore,
 } from "../../core/multi-agent-store.ts";
-import { parseCommandArgs } from "../../core/prompt-templates.ts";
+import { expandPromptTemplate, type PromptTemplate, parseCommandArgs } from "../../core/prompt-templates.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import {
@@ -321,6 +321,11 @@ function quoteIfNeeded(value: string): string {
 		return value;
 	}
 	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function isSkillInvocation(text: string, promptTemplates: ReadonlyArray<PromptTemplate>): boolean {
+	if (parseSkillBlock(text) || text.startsWith("/skill:")) return true;
+	return parseSkillBlock(expandPromptTemplate(text, [...promptTemplates])) !== null;
 }
 
 export function formatResumeCommand(sessionManager: SessionManager): string | undefined {
@@ -638,6 +643,7 @@ export class InteractiveMode {
 			paddingX: editorPaddingX,
 			autocompleteMaxVisible,
 			promptHistoryControlDbPath: options.controlDbPath,
+			promptHistoryFilter: (text) => !isSkillInvocation(text, this.session.promptTemplates),
 		});
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
@@ -3618,6 +3624,11 @@ export class InteractiveMode {
 		return true;
 	}
 
+	private addSubmittedTextToHistory(text: string): void {
+		if (isSkillInvocation(text, this.session.promptTemplates)) return;
+		this.editor.addToHistory?.(text);
+	}
+
 	private setupEditorSubmitHandler(): void {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			const submittedText = text;
@@ -3627,7 +3638,7 @@ export class InteractiveMode {
 			this.closeResponseCompleteNotification();
 
 			if (text.startsWith("/")) {
-				this.editor.addToHistory?.(text);
+				this.addSubmittedTextToHistory(text);
 			}
 
 			// Handle commands
@@ -3822,7 +3833,7 @@ export class InteractiveMode {
 			// Queue input during compaction (extension commands execute immediately)
 			if (this.session.isCompacting) {
 				if (this.isExtensionCommand(text)) {
-					this.editor.addToHistory?.(text);
+					this.addSubmittedTextToHistory(text);
 					this.editor.setText("");
 					await this.session.prompt(text);
 				} else {
@@ -3834,7 +3845,7 @@ export class InteractiveMode {
 			// If streaming, use prompt() with steer behavior
 			// This handles extension commands (execute immediately), prompt template expansion, and queueing
 			if (this.session.isStreaming) {
-				this.editor.addToHistory?.(text);
+				this.addSubmittedTextToHistory(text);
 				this.editor.setText("");
 				await this.session.prompt(text, { streamingBehavior: "steer" });
 				this.updatePendingMessagesDisplay();
@@ -3851,7 +3862,7 @@ export class InteractiveMode {
 			} else {
 				this.pendingUserInputs.push(text);
 			}
-			this.editor.addToHistory?.(text);
+			this.addSubmittedTextToHistory(text);
 		};
 	}
 
@@ -4493,9 +4504,9 @@ export class InteractiveMode {
 						const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings());
 						this.chatContainer.addChild(userComponent);
 					}
-					if (options?.populateHistory && message.inputSource !== "extension") {
-						this.addRenderedMessageToEditorHistory(textContent);
-					}
+					const shouldPopulateHistory =
+						options?.populateHistory === true && message.inputSource !== "extension" && skillBlock === null;
+					if (shouldPopulateHistory) this.addRenderedMessageToEditorHistory(textContent);
 				}
 				break;
 			}
@@ -4923,7 +4934,7 @@ export class InteractiveMode {
 		// Queue input during compaction (extension commands execute immediately)
 		if (this.session.isCompacting) {
 			if (this.isExtensionCommand(text)) {
-				this.editor.addToHistory?.(text);
+				this.addSubmittedTextToHistory(text);
 				this.editor.setText("");
 				await this.session.prompt(text);
 			} else {
@@ -4935,7 +4946,7 @@ export class InteractiveMode {
 		// Alt+Enter queues a follow-up message (waits until agent finishes)
 		// This handles extension commands (execute immediately), prompt template expansion, and queueing
 		if (this.session.isStreaming) {
-			this.editor.addToHistory?.(text);
+			this.addSubmittedTextToHistory(text);
 			this.editor.setText("");
 			await this.session.prompt(text, { streamingBehavior: "followUp" });
 			this.updatePendingMessagesDisplay();
@@ -5207,7 +5218,7 @@ export class InteractiveMode {
 
 	private queueCompactionMessage(text: string, mode: "steer" | "followUp"): void {
 		this.compactionQueuedMessages.push({ text, mode });
-		this.editor.addToHistory?.(text);
+		this.addSubmittedTextToHistory(text);
 		this.editor.setText("");
 		this.updatePendingMessagesDisplay();
 		this.showStatus("Queued message for after compaction");

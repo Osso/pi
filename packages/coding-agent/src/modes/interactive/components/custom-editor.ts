@@ -6,6 +6,7 @@ import { readOrMigratePromptHistory, recordPromptHistoryEntry } from "../../../c
 export interface CustomEditorOptions extends EditorOptions {
 	legacyPromptHistoryPath?: string;
 	promptHistoryControlDbPath?: string;
+	promptHistoryFilter?: (text: string) => boolean;
 }
 
 /**
@@ -28,7 +29,8 @@ export class CustomEditor extends Editor {
 		this.keybindings = keybindings;
 		this.promptHistoryControlDbPath = options?.promptHistoryControlDbPath;
 		if (this.promptHistoryControlDbPath) {
-			this.setHistory(loadPromptHistory(this.promptHistoryControlDbPath, options?.legacyPromptHistoryPath));
+			const history = loadPromptHistory(this.promptHistoryControlDbPath, options?.legacyPromptHistoryPath);
+			this.setHistory(options?.promptHistoryFilter ? history.filter(options.promptHistoryFilter) : history);
 		}
 	}
 

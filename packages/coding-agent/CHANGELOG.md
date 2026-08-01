@@ -358,6 +358,7 @@
 - Fixed default extension footers to detach before session replacement invalidates their extension context.
 - Fixed goal continuation to remove the numeric turn cap and stop only on completion or pending queued work; non-error empty final assistant responses now schedule one continuation after a 1-second bounded delay when the same goal remains active, the session is idle, and no messages are pending, with shutdown canceling retry timers.
 - Fixed prompt history persistence to use the shared control SQLite database so concurrent Pi sessions append entries instead of overwriting each other.
+- Fixed skill invocations such as `/skill:<name>` and `/ship` appearing in Up-arrow prompt history during submission, persisted-history load, or session replay; other prompt and command history is unchanged.
 - Fixed `Alt+1` through `Alt+9` agent slot switching to work while non-editor UI components have focus.
 - Fixed startup model selection to skip unauthenticated saved defaults so configured local custom models can be selected instead ([#6231](https://github.com/earendil-works/pi/issues/6231)).
 - Fixed Escape aborts to clear runs stuck in extension context hooks that ignore abort signals ([#6234](https://github.com/earendil-works/pi/issues/6234)).
