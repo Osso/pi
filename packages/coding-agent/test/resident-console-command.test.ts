@@ -81,8 +81,11 @@ describe("resident console command", () => {
 			},
 			runtimeMessageMarker: "duplicate_turn_guard",
 		});
+		const ordinaryAssistant = createAssistantMessage("ordinary response");
+		residentConsoleUi.handleEvent.call(ui, { type: "message_start", message: ordinaryAssistant });
+		residentConsoleUi.handleEvent.call(ui, { type: "message_end", message: ordinaryAssistant });
 
-		expect((ui as unknown as ResidentConsoleUiInternals).chat.children).toHaveLength(0);
+		expect((ui as unknown as ResidentConsoleUiInternals).chat.children).toHaveLength(1);
 	});
 
 	it("recognizes Supervisor and Architect console flags with optional initial prompts", () => {
